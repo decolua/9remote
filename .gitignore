@@ -42,3 +42,7 @@ next-env.d.ts
 .cursor/*
 .agents/*
 docs/*
+worker/node_modules/*
+worker/.wrangler/*
+worker/package-lock.json
+package-lock.json

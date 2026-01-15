@@ -1,0 +1,127 @@
+import { parseApiKey, verifyApiKeyCrc } from "../apiKey.js";
+import { decryptToken } from "../utils/token.js";
+
+/**
+ * Handle POST /api/session/create
+ * Server gọi khi start - tạo session mới
+ */
+export async function handleSessionCreate(request, env, corsHeaders) {
+  const { apiKey } = await request.json();
+
+  // Validate API key
+  if (!(await verifyApiKeyCrc(apiKey))) {
+    return jsonError("Invalid API key", 400, corsHeaders);
+  }
+
+  const { machineId } = parseApiKey(apiKey);
+
+  // Delete old session if exists
+  await env.DB.prepare(`DELETE FROM sessions WHERE machineId = ?`).bind(machineId).run();
+
+  // Create new session (tunnelUrl will be updated later)
+  await env.DB.prepare(`
+    INSERT INTO sessions (machineId, apiKey, tunnelUrl)
+    VALUES (?, ?, NULL)
+  `).bind(machineId, apiKey).run();
+
+  return jsonResponse({ success: true, machineId }, corsHeaders);
+}
+
+/**
+ * Handle POST /api/session/update
+ * Server gọi sau khi có tunnel URL
+ */
+export async function handleSessionUpdate(request, env, corsHeaders) {
+  const { apiKey, tunnelUrl } = await request.json();
+
+  // Validate API key
+  if (!(await verifyApiKeyCrc(apiKey))) {
+    return jsonError("Invalid API key", 400, corsHeaders);
+  }
+
+  // Update tunnelUrl
+  await env.DB.prepare(`
+    UPDATE sessions SET tunnelUrl = ?, lastAccessAt = datetime('now')
+    WHERE apiKey = ?
+  `).bind(tunnelUrl, apiKey).run();
+
+  return jsonResponse({ success: true }, corsHeaders);
+}
+
+/**
+ * Handle POST /api/connect
+ * User gọi khi nhập key hoặc quét QR - lấy tunnel URL
+ */
+export async function handleConnect(request, env, corsHeaders) {
+  const body = await request.json();
+  let apiKey;
+
+  // Support both token (from QR) and direct apiKey (manual entry)
+  if (body.token) {
+    // Decrypt token
+    const payload = decryptToken(body.token);
+    if (!payload) {
+      return jsonError("Invalid or expired token", 401, corsHeaders);
+    }
+    apiKey = payload.key;
+  } else if (body.apiKey) {
+    apiKey = body.apiKey;
+  } else {
+    return jsonError("Missing token or apiKey", 400, corsHeaders);
+  }
+
+  // Validate key
+  if (!(await verifyApiKeyCrc(apiKey))) {
+    return jsonError("Invalid API key", 401, corsHeaders);
+  }
+
+  // Query session
+  const session = await env.DB.prepare(`
+    SELECT tunnelUrl, machineId 
+    FROM sessions 
+    WHERE apiKey = ? AND expiresAt > datetime('now')
+  `).bind(apiKey).first();
+
+  if (!session) {
+    return jsonError("Session not found or expired", 404, corsHeaders);
+  }
+
+  if (!session.tunnelUrl) {
+    return jsonError("Server not ready. Please wait...", 503, corsHeaders);
+  }
+
+  // Update last access
+  await env.DB.prepare(`
+    UPDATE sessions SET lastAccessAt = datetime('now') WHERE apiKey = ?
+  `).bind(apiKey).run();
+
+  return jsonResponse({
+    tunnelUrl: session.tunnelUrl,
+    apiKey // Return key for client
+  }, corsHeaders);
+}
+
+/**
+ * Handle DELETE /api/session/delete
+ */
+export async function handleSessionDelete(request, env, corsHeaders) {
+  const { apiKey } = await request.json();
+
+  await env.DB.prepare(`DELETE FROM sessions WHERE apiKey = ?`).bind(apiKey).run();
+
+  return jsonResponse({ success: true }, corsHeaders);
+}
+
+// Helpers
+function jsonResponse(data, corsHeaders) {
+  return new Response(JSON.stringify(data), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" }
+  });
+}
+
+function jsonError(message, status, corsHeaders) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" }
+  });
+}

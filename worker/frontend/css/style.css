@@ -1,0 +1,86 @@
+/* Prevent mobile bounce/overscroll */
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  position: fixed;
+  -webkit-overflow-scrolling: touch;
+  background: #0f172a; /* slate-900 */
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+/* Terminal fullscreen fix */
+#terminal {
+  width: 100%;
+  height: 100%;
+  background: #0f172a; /* Match xterm theme */
+}
+
+#terminal .xterm {
+  height: 100%;
+  padding: 8px;
+}
+
+#terminal .xterm-viewport {
+  overflow-y: auto !important;
+}
+
+/* Scrollbar styling (slate theme) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b; /* slate-800 */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569; /* slate-600 */
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b; /* slate-500 */
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  #terminal .xterm {
+    padding: 4px;
+  }
+  
+  /* Disable text selection on mobile for better UX */
+  #terminal-screen {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  /* Allow terminal text selection */
+  #terminal .xterm {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* Landscape mobile - maximize space */
+@media (max-width: 768px) and (orientation: landscape) {
+  #terminal-screen header {
+    padding: 4px 8px !important;
+  }
+  
+  #terminal-screen main {
+    padding: 2px !important;
+  }
+  
+  #terminal .xterm {
+    font-size: 11px !important;
+    padding: 2px !important;
+  }
+}

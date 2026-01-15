@@ -1,0 +1,24 @@
+name = "9remote-worker"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Import static files as text
+[[rules]]
+type = "Text"
+globs = ["frontend/**/*.html", "frontend/**/*.css", "frontend/**/*.js"]
+fallthrough = true
+
+[vars]
+CLOUDFLARE_ACCOUNT_ID = "4499702710a2818880232d356243a422"
+CLOUDFLARE_EMAIL = "decoluadt@gmail.com"
+# Get Global API Key from: https://dash.cloudflare.com/profile/api-tokens
+CLOUDFLARE_API_KEY = "***REMOVED***"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "9remote"
+database_id = "df1dac06-213c-444d-8751-b7918e044356"
+
+# Scheduled cleanup every hour
+[triggers]
+crons = ["0 * * * *"]
