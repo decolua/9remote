@@ -18,6 +18,48 @@ export default function TerminalPage() {
   const socketRef = useRef(null);
   const router = useRouter();
 
+  // VisualViewport height - handle mobile keyboard
+  useEffect(() => {
+    const updateAppHeight = () => {
+      const vh = window.visualViewport?.height || window.innerHeight;
+      document.documentElement.style.setProperty("--app-height", `${vh}px`);
+      
+      // Force scroll to top to prevent iOS scroll offset
+      window.scrollTo(0, 0);
+    };
+
+    // Disable body scroll on mobile - add class to html
+    document.documentElement.classList.add("terminal-page");
+
+    // Prevent touchmove on document to stop iOS scroll
+    const preventScroll = (e) => {
+      // Allow scroll inside terminal (xterm-viewport for scrolling)
+      if (e.target.closest(".xterm-viewport") || e.target.closest(".xterm-screen")) return;
+      e.preventDefault();
+    };
+
+    document.addEventListener("touchmove", preventScroll, { passive: false });
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", updateAppHeight);
+      window.visualViewport.addEventListener("scroll", updateAppHeight);
+    }
+    window.addEventListener("resize", updateAppHeight);
+    updateAppHeight();
+
+    return () => {
+      // Restore body scroll - remove class from html
+      document.documentElement.classList.remove("terminal-page");
+      document.removeEventListener("touchmove", preventScroll);
+      
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", updateAppHeight);
+        window.visualViewport.removeEventListener("scroll", updateAppHeight);
+      }
+      window.removeEventListener("resize", updateAppHeight);
+    };
+  }, []);
+
   // Initialize socket connection
   useEffect(() => {
     const apiKey = sessionStorage.getItem("apiKey");
@@ -119,9 +161,9 @@ export default function TerminalPage() {
   }
 
   return (
-    <div className="h-screen">
+    <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
       {/* Session List - show/hide based on view */}
-      <div className={view === "list" ? "block h-full" : "hidden"}>
+      <div className={view === "list" ? "h-full" : "hidden"}>
         <SessionList
           sessions={sessions}
           onSelect={handleSelectSession}

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import SitesList from "./SitesList";
+import MobileKeyboard from "./MobileKeyboard";
 
 // Terminal color themes
 const THEMES = {
@@ -53,6 +54,13 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
   const [sessionName, setSessionName] = useState("");
   const [showThemePicker, setShowThemePicker] = useState(false);
 
+  // Centralized resize handler - single source of truth
+  const doResize = useCallback(() => {
+    if (!fitAddonRef.current || !termRef.current || !socket) return;
+    fitAddonRef.current.fit();
+    socket.emit("resize", { sessionId, cols: termRef.current.cols, rows: termRef.current.rows });
+  }, [socket, sessionId]);
+
   // Initialize terminal ONCE
   useEffect(() => {
     if (!terminalRef.current || !socket || !sessionId) return;
@@ -65,7 +73,11 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
       scrollback: 10000,
       convertEol: true,
       allowProposedApi: true,
-      theme: THEMES[theme]
+      theme: THEMES[theme],
+      // Mobile touch scroll options
+      scrollOnUserInput: true,
+      fastScrollModifier: "none",
+      smoothScrollDuration: 0
     });
 
     const fitAddon = new FitAddon();
@@ -76,6 +88,100 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
 
     term.open(terminalRef.current);
     setTimeout(() => fitAddon.fit(), 100);
+
+    // Enable smooth touch scroll on mobile with inertia
+    const termElement = terminalRef.current;
+    let lastTouchY = 0;
+    let velocity = 0;
+    let scrollAccumulator = 0; // Accumulate fractional scroll
+    let animationId = null;
+    let lastTime = 0;
+    const lineHeight = 16; // Approximate line height in pixels
+
+    const handleTouchStart = (e) => {
+      if (e.touches.length === 1) {
+        // Stop any ongoing inertia animation
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          animationId = null;
+        }
+        lastTouchY = e.touches[0].clientY;
+        lastTime = performance.now();
+        velocity = 0;
+        scrollAccumulator = 0;
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      if (e.touches.length === 1) {
+        const touchY = e.touches[0].clientY;
+        const now = performance.now();
+        const deltaY = lastTouchY - touchY;
+        const deltaTime = now - lastTime;
+
+        // Smooth velocity calculation with averaging
+        if (deltaTime > 0) {
+          const newVelocity = deltaY / deltaTime;
+          velocity = velocity * 0.7 + newVelocity * 0.3; // Smooth velocity
+        }
+
+        lastTouchY = touchY;
+        lastTime = now;
+
+        // Accumulate scroll and apply when >= 1 line
+        scrollAccumulator += deltaY / lineHeight;
+        const linesToScroll = Math.trunc(scrollAccumulator);
+
+        if (linesToScroll !== 0) {
+          term.scrollLines(linesToScroll);
+          scrollAccumulator -= linesToScroll; // Keep remainder
+        }
+      }
+    };
+
+    const handleTouchEnd = () => {
+      // Apply inertia scrolling with smooth deceleration
+      const friction = 0.92;
+      const minVelocity = 0.005;
+
+      const inertiaScroll = () => {
+        if (Math.abs(velocity) < minVelocity) {
+          animationId = null;
+          velocity = 0;
+          scrollAccumulator = 0;
+          return;
+        }
+
+        // Calculate scroll based on velocity
+        const deltaY = velocity * 16; // ~16ms per frame at 60fps
+        scrollAccumulator += deltaY / lineHeight;
+        const linesToScroll = Math.trunc(scrollAccumulator);
+
+        if (linesToScroll !== 0) {
+          term.scrollLines(linesToScroll);
+          scrollAccumulator -= linesToScroll;
+        }
+
+        velocity *= friction;
+        animationId = requestAnimationFrame(inertiaScroll);
+      };
+
+      if (Math.abs(velocity) > minVelocity) {
+        animationId = requestAnimationFrame(inertiaScroll);
+      }
+    };
+
+    termElement.addEventListener("touchstart", handleTouchStart, { passive: true });
+    termElement.addEventListener("touchmove", handleTouchMove, { passive: true });
+    termElement.addEventListener("touchend", handleTouchEnd, { passive: true });
+
+    // ResizeObserver handles all container size changes (window resize, keyboard, orientation)
+    const resizeObserver = new ResizeObserver(() => {
+      doResize();
+      // Scroll to bottom after resize
+      setTimeout(() => termRef.current?.scrollToBottom(), 500);
+    });
+    resizeObserver.observe(termElement);
 
     // Join session - get history
     socket.emit("joinSession", sessionId, (result) => {
@@ -103,16 +209,17 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
     outputHandlerRef.current = handleOutput;
     socket.on("output", handleOutput);
 
-    // Handle resize
-    const handleResize = () => {
-      fitAddon.fit();
-      socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
-    };
-    window.addEventListener("resize", handleResize);
-    window.addEventListener("orientationchange", () => setTimeout(handleResize, 300));
+    // Orientationchange needs delay for mobile (ResizeObserver handles window.resize)
+    const handleOrientationChange = () => setTimeout(doResize, 300);
+    window.addEventListener("orientationchange", handleOrientationChange);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleOrientationChange);
+      termElement.removeEventListener("touchstart", handleTouchStart);
+      termElement.removeEventListener("touchmove", handleTouchMove);
+      termElement.removeEventListener("touchend", handleTouchEnd);
+      resizeObserver.disconnect();
+      if (animationId) cancelAnimationFrame(animationId);
       if (outputHandlerRef.current) {
         socket.off("output", outputHandlerRef.current);
       }
@@ -123,7 +230,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
       term.dispose();
       termRef.current = null;
     };
-  }, [socket, sessionId, theme]);
+  }, [socket, sessionId, theme, doResize]);
 
   // Manage input handler based on isActive
   useEffect(() => {
@@ -146,18 +253,9 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
   // Re-fit when becoming visible
   useEffect(() => {
     if (!isActive || !fitAddonRef.current || !termRef.current) return;
-
-    const timer = setTimeout(() => {
-      if (fitAddonRef.current && termRef.current) {
-        fitAddonRef.current.fit();
-        // Send new size to server
-        const term = termRef.current;
-        socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
-      }
-    }, 100);
-
+    const timer = setTimeout(doResize, 100);
     return () => clearTimeout(timer);
-  }, [isActive, socket, sessionId]);
+  }, [isActive, doResize]);
 
   // Update theme
   useEffect(() => {
@@ -167,7 +265,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
   }, [theme]);
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ background: THEMES[theme].background }}>
+    <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: THEMES[theme].background }}>
       {/* Header */}
       <div className="bg-slate-800 border-b border-slate-700 px-2 sm:px-6 py-3 sm:py-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center space-x-2 sm:space-x-3">
@@ -217,12 +315,19 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
       </div>
 
       {/* Terminal */}
-      <div className="flex-1 p-2 sm:p-4 overflow-hidden">
+      <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden p-2 sm:p-4">
         <div
           ref={terminalRef}
           className="w-full h-full rounded-lg overflow-hidden shadow-2xl"
         />
       </div>
+
+      {/* Mobile Keyboard */}
+      <MobileKeyboard
+        socket={socket}
+        sessionId={sessionId}
+        onExpandChange={doResize}
+      />
     </div>
   );
 }

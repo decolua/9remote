@@ -15,7 +15,7 @@ export default function SessionList({ sessions, onSelect, onCreate, onDelete, on
   };
 
   return (
-    <div className="h-screen bg-slate-900 flex flex-col overflow-hidden">
+    <div className="h-full bg-slate-900 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="bg-slate-800 border-b border-slate-700 px-4 sm:px-6 py-4 flex items-center justify-between flex-shrink-0">
         <h1 className="text-white text-lg font-semibold">9Remote Sessions</h1>
