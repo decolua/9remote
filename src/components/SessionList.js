@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Button from "./ui/Button";
+import Input from "./ui/Input";
 
 export default function SessionList({ sessions, onSelect, onCreate, onDelete, onDisconnect }) {
   const [newName, setNewName] = useState("");
@@ -19,33 +21,34 @@ export default function SessionList({ sessions, onSelect, onCreate, onDelete, on
       {/* Header */}
       <div className="bg-slate-800 border-b border-slate-700 px-4 sm:px-6 py-4 flex items-center justify-between flex-shrink-0">
         <h1 className="text-white text-lg font-semibold">9Remote Sessions</h1>
-        <button
+        <Button
+          variant="danger"
+          size="sm"
           onClick={onDisconnect}
-          className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded transition"
         >
           Logout
-        </button>
+        </Button>
       </div>
 
       {/* Content */}
       <div className="flex-1 p-4 sm:p-6 overflow-auto">
         {/* Create new session */}
         <div className="mb-6 flex gap-2">
-          <input
-            type="text"
+          <Input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             placeholder="Session name (optional)"
-            className="flex-1 px-4 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <button
+          <Button
+            variant="primary"
             onClick={handleCreate}
             disabled={creating}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white font-medium rounded-lg transition"
+            loading={creating}
+            className="whitespace-nowrap"
           >
-            {creating ? "Creating..." : "+ New"}
-          </button>
+            + New
+          </Button>
         </div>
 
         {/* Sessions list */}
@@ -71,18 +74,21 @@ export default function SessionList({ sessions, onSelect, onCreate, onDelete, on
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <button
+                  <Button
+                    variant="success"
+                    size="sm"
                     onClick={() => onSelect(session.id)}
-                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded transition"
                   >
                     Connect
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => onDelete(session.id)}
-                    className="px-3 py-1.5 bg-slate-700 hover:bg-red-600 text-white text-sm font-medium rounded transition"
+                    className="hover:bg-red-600"
                   >
                     ✕
-                  </button>
+                  </Button>
                 </div>
               </div>
             ))}

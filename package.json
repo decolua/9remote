@@ -20,10 +20,8 @@
     "crypto-js": "^4.2.0",
     "harmon": "^1.4.4",
     "http-proxy": "^1.18.1",
-    "http-proxy-middleware": "^3.0.5",
     "inquirer": "^9.3.8",
     "next": "16.1.1",
-    "node-html-parser": "^7.0.2",
     "node-machine-id": "^1.1.12",
     "node-pty-prebuilt-multiarch": "^0.10.1-pre.5",
     "ora": "^8.1.1",
@@ -32,8 +30,7 @@
     "react-dom": "19.2.3",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
-    "ws": "^8.18.0",
-    "zustand": "^5.0.2"
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",

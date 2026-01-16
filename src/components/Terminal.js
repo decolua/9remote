@@ -6,42 +6,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import SitesList from "./SitesList";
 import MobileKeyboard from "./MobileKeyboard";
-
-// Terminal color themes
-const THEMES = {
-  slate: {
-    background: "#0f172a", foreground: "#e2e8f0", cursor: "#3b82f6",
-    black: "#1e293b", red: "#ef4444", green: "#22c55e", yellow: "#eab308",
-    blue: "#3b82f6", magenta: "#a855f7", cyan: "#06b6d4", white: "#cbd5e1",
-    brightBlack: "#475569", brightRed: "#f87171", brightGreen: "#4ade80",
-    brightYellow: "#facc15", brightBlue: "#60a5fa", brightMagenta: "#c084fc",
-    brightCyan: "#22d3ee", brightWhite: "#f1f5f9"
-  },
-  dracula: {
-    background: "#282a36", foreground: "#f8f8f2", cursor: "#f8f8f2",
-    black: "#21222c", red: "#ff5555", green: "#50fa7b", yellow: "#f1fa8c",
-    blue: "#bd93f9", magenta: "#ff79c6", cyan: "#8be9fd", white: "#f8f8f2",
-    brightBlack: "#6272a4", brightRed: "#ff6e6e", brightGreen: "#69ff94",
-    brightYellow: "#ffffa5", brightBlue: "#d6acff", brightMagenta: "#ff92df",
-    brightCyan: "#a4ffff", brightWhite: "#ffffff"
-  },
-  monokai: {
-    background: "#272822", foreground: "#f8f8f2", cursor: "#f8f8f0",
-    black: "#272822", red: "#f92672", green: "#a6e22e", yellow: "#f4bf75",
-    blue: "#66d9ef", magenta: "#ae81ff", cyan: "#a1efe4", white: "#f8f8f2",
-    brightBlack: "#75715e", brightRed: "#f92672", brightGreen: "#a6e22e",
-    brightYellow: "#f4bf75", brightBlue: "#66d9ef", brightMagenta: "#ae81ff",
-    brightCyan: "#a1efe4", brightWhite: "#f9f8f5"
-  },
-  nord: {
-    background: "#2e3440", foreground: "#d8dee9", cursor: "#d8dee9",
-    black: "#3b4252", red: "#bf616a", green: "#a3be8c", yellow: "#ebcb8b",
-    blue: "#81a1c1", magenta: "#b48ead", cyan: "#88c0d0", white: "#e5e9f0",
-    brightBlack: "#4c566a", brightRed: "#bf616a", brightGreen: "#a3be8c",
-    brightYellow: "#ebcb8b", brightBlue: "#81a1c1", brightMagenta: "#b48ead",
-    brightCyan: "#8fbcbb", brightWhite: "#eceff4"
-  }
-};
+import { THEMES } from "@/constants/themes";
+import { TERMINAL_OPTIONS } from "@/constants/terminalConfig";
 
 export default function Terminal({ socket, sessionId, isActive = true, theme = "slate", onThemeChange, onBack, tunnelUrl }) {
   const terminalRef = useRef(null);
@@ -53,6 +19,8 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
   const [connected, setConnected] = useState(false);
   const [sessionName, setSessionName] = useState("");
   const [showThemePicker, setShowThemePicker] = useState(false);
+
+  // Touch scroll will be set up after terminal is initialized
 
   // Centralized resize handler - single source of truth
   const doResize = useCallback(() => {
@@ -67,17 +35,10 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
     if (termRef.current) return; // Already initialized
 
     const term = new XTerm({
-      cursorBlink: true,
-      fontSize: window.innerWidth < 768 ? 12 : 14,
-      fontFamily: '"SF Mono", "Cascadia Code", Menlo, Monaco, "Courier New", monospace',
-      scrollback: 10000,
-      convertEol: true,
-      allowProposedApi: true,
-      theme: THEMES[theme],
-      // Mobile touch scroll options
-      scrollOnUserInput: true,
-      fastScrollModifier: "none",
-      smoothScrollDuration: 0
+      ...TERMINAL_OPTIONS,
+      fontSize: window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize,
+      fontFamily: TERMINAL_OPTIONS.fontFamily,
+      theme: THEMES[theme]
     });
 
     const fitAddon = new FitAddon();
@@ -93,14 +54,13 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
     const termElement = terminalRef.current;
     let lastTouchY = 0;
     let velocity = 0;
-    let scrollAccumulator = 0; // Accumulate fractional scroll
+    let scrollAccumulator = 0;
     let animationId = null;
     let lastTime = 0;
-    const lineHeight = 16; // Approximate line height in pixels
+    const lineHeight = 16;
 
     const handleTouchStart = (e) => {
       if (e.touches.length === 1) {
-        // Stop any ongoing inertia animation
         if (animationId) {
           cancelAnimationFrame(animationId);
           animationId = null;
@@ -119,28 +79,25 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
         const deltaY = lastTouchY - touchY;
         const deltaTime = now - lastTime;
 
-        // Smooth velocity calculation with averaging
         if (deltaTime > 0) {
           const newVelocity = deltaY / deltaTime;
-          velocity = velocity * 0.7 + newVelocity * 0.3; // Smooth velocity
+          velocity = velocity * 0.7 + newVelocity * 0.3;
         }
 
         lastTouchY = touchY;
         lastTime = now;
 
-        // Accumulate scroll and apply when >= 1 line
         scrollAccumulator += deltaY / lineHeight;
         const linesToScroll = Math.trunc(scrollAccumulator);
 
         if (linesToScroll !== 0) {
           term.scrollLines(linesToScroll);
-          scrollAccumulator -= linesToScroll; // Keep remainder
+          scrollAccumulator -= linesToScroll;
         }
       }
     };
 
     const handleTouchEnd = () => {
-      // Apply inertia scrolling with smooth deceleration
       const friction = 0.92;
       const minVelocity = 0.005;
 
@@ -152,8 +109,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
           return;
         }
 
-        // Calculate scroll based on velocity
-        const deltaY = velocity * 16; // ~16ms per frame at 60fps
+        const deltaY = velocity * 16;
         scrollAccumulator += deltaY / lineHeight;
         const linesToScroll = Math.trunc(scrollAccumulator);
 

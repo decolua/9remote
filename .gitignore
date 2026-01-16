@@ -46,3 +46,4 @@ worker/node_modules/*
 worker/.wrangler/*
 worker/package-lock.json
 package-lock.json
+worker/src/handlers/static.js
