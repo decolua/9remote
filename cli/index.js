@@ -18,6 +18,34 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const WORKER_URL = "https://9remote-worker.decoluadt.workers.dev";
 
 /**
+ * Cleanup old 9remote tunnels
+ */
+function cleanupOldTunnels() {
+  try {
+    if (!fs.existsSync(bin)) return;
+
+    const result = execSync(`"${bin}" tunnel list`, { encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] });
+    const lines = result.split("\n");
+    
+    const oldTunnels = [];
+    for (const line of lines) {
+      const match = line.match(/([a-f0-9-]{36})\s+(9remote-\d+)/);
+      if (match) {
+        oldTunnels.push(match[1]);
+      }
+    }
+    
+    if (oldTunnels.length > 0) {
+      for (const tunnelId of oldTunnels) {
+        try {
+          execSync(`"${bin}" tunnel delete -f ${tunnelId}`, { stdio: "ignore" });
+        } catch (e) {}
+      }
+    }
+  } catch (e) {}
+}
+
+/**
  * Show main menu
  */
 async function mainMenu() {
@@ -92,6 +120,9 @@ async function startServer() {
     execSync("pkill -f 'node server.js' 2>/dev/null || true", { stdio: "ignore" });
     execSync("pkill -f cloudflared 2>/dev/null || true", { stdio: "ignore" });
   } catch {}
+
+  // Cleanup old cloudflared tunnels
+  cleanupOldTunnels();
 
   // Start Next.js server
   const serverProcess = spawn("node", ["server.js"], {
@@ -267,6 +298,167 @@ async function manageKeys() {
 }
 
 /**
+ * Auto start dev server (--auto flag)
+ */
+async function autoStartDev() {
+  console.log(chalk.cyan.bold("\n🖥️  9Remote Dev Mode"));
+  console.log(chalk.gray("━".repeat(30)));
+
+  const machineId = await getConsistentMachineId();
+  let keysData = loadKeys();
+
+  // Auto create key if none exists
+  if (keysData.keys.length === 0) {
+    console.log(chalk.yellow("⚠️  No keys found. Creating default key..."));
+    const { key } = generateApiKeyWithMachine(machineId);
+    keysData = addKey(machineId, key, "Default");
+    console.log(chalk.green("✅ Default key created!"));
+  }
+
+  // Auto select first key
+  const selectedKey = keysData.keys[0].key;
+  console.log(chalk.gray(`Using key: ${selectedKey.slice(0, 20)}... (${keysData.keys[0].name})`));
+
+  console.log(chalk.cyan("\n🚀 Starting server..."));
+
+  // Kill existing processes
+  try {
+    execSync("pkill -f 'node server.js' 2>/dev/null || true", { stdio: "ignore" });
+    execSync("pkill -f cloudflared 2>/dev/null || true", { stdio: "ignore" });
+  } catch {}
+
+  // Cleanup old cloudflared tunnels
+  cleanupOldTunnels();
+
+  // Start Next.js server
+  const serverProcess = spawn("node", ["server.js"], {
+    cwd: PROJECT_ROOT,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: false
+  });
+
+  serverProcess.stdout.on("data", (data) => {
+    if (data.toString().includes("Ready")) {
+      console.log(chalk.green("✅ Server ready on http://localhost:3000"));
+    }
+  });
+
+  // Wait for server to start
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+
+  console.log(chalk.cyan("🌐 Starting tunnel..."));
+
+  // Ensure cloudflared binary is installed
+  if (!fs.existsSync(bin)) {
+    console.log(chalk.yellow("📥 Installing cloudflared..."));
+    await install(bin);
+  }
+
+  // Start Quick Tunnel
+  let tunnelUrl = null;
+  const tunnelProcess = spawn(bin, ["tunnel", "--url", "http://localhost:3000"], {
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  // Parse tunnel URL from stderr
+  try {
+    tunnelUrl = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timeout waiting for tunnel URL")), 30000);
+      
+      tunnelProcess.stderr.on("data", (data) => {
+        const output = data.toString();
+        const match = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+        if (match) {
+          clearTimeout(timeout);
+          resolve(match[0]);
+        }
+      });
+
+      tunnelProcess.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+
+      tunnelProcess.on("close", (code) => {
+        if (code !== 0 && !tunnelUrl) {
+          clearTimeout(timeout);
+          reject(new Error(`Tunnel exited with code ${code}`));
+        }
+      });
+    });
+  } catch (error) {
+    console.log(chalk.red(`❌ Failed to start tunnel: ${error.message}`));
+    serverProcess.kill();
+    tunnelProcess.kill();
+    process.exit(1);
+  }
+
+  if (!tunnelUrl) {
+    console.log(chalk.red("❌ Failed to get tunnel URL"));
+    serverProcess.kill();
+    tunnelProcess.kill();
+    process.exit(1);
+  }
+
+  console.log(chalk.green(`✅ Tunnel: ${tunnelUrl}`));
+
+  // Create/update session on worker
+  console.log(chalk.cyan("🔄 Syncing with worker..."));
+  try {
+    await fetch(`${WORKER_URL}/api/session/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: selectedKey })
+    });
+
+    await fetch(`${WORKER_URL}/api/session/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: selectedKey, tunnelUrl })
+    });
+    console.log(chalk.green("✅ Session synced!"));
+  } catch (error) {
+    console.log(chalk.yellow(`⚠️  Worker sync failed: ${error.message}`));
+  }
+
+  // Save state
+  saveState({
+    apiKey: selectedKey,
+    tunnelUrl,
+    serverPid: serverProcess.pid,
+    tunnelPid: tunnelProcess.pid
+  });
+
+  // Create encrypted token (expires in 5 minutes)
+  const token = createToken(selectedKey, 5);
+  const connectUrl = `${WORKER_URL}?t=${token}`;
+  
+  console.log(chalk.cyan("\n📱 Scan QR to connect:"));
+  qrcode.generate(connectUrl, { small: true }, qr => {
+    const lines = qr.trim().split('\n');
+    console.log(lines.join('\n'));
+  });
+
+  console.log(chalk.white(`\nWorker URL: ${chalk.blue(WORKER_URL)}`));
+  console.log(chalk.white(`Access Key: ${chalk.yellow(selectedKey)}`));
+  console.log(chalk.gray("Token expires in 5 minutes"));
+  console.log(chalk.gray("\nPress Ctrl+C to stop server\n"));
+
+  // Handle exit
+  process.on("SIGINT", () => {
+    console.log(chalk.yellow("\n\n🛑 Stopping server..."));
+    serverProcess.kill();
+    tunnelProcess.kill();
+    clearState();
+    console.log(chalk.green("✅ Server stopped"));
+    process.exit(0);
+  });
+
+  // Keep process alive
+  await new Promise(() => {});
+}
+
+/**
  * Create new key
  */
 async function createKey(machineId) {
@@ -346,4 +538,8 @@ async function showKey(index) {
 }
 
 // Start app
-mainMenu().catch(console.error);
+if (process.argv.includes("--auto")) {
+  autoStartDev().catch(console.error);
+} else {
+  mainMenu().catch(console.error);
+}

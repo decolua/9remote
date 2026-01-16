@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node server.js",
+    "dev": "node cli/index.js --auto",
     "build": "next build",
     "build:worker": "next build && node scripts/buildWorkerStatic.js",
     "start": "node cli/index.js",

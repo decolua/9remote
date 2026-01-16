@@ -40,7 +40,7 @@ function HomeContent() {
       }
 
       const data = await response.json();
-      
+
       sessionStorage.setItem("apiKey", data.apiKey);
       sessionStorage.setItem("tunnelUrl", data.tunnelUrl);
       sessionStorage.setItem("mode", "remote");
@@ -59,27 +59,27 @@ function HomeContent() {
   async function handleConnect() {
     setLoading(true);
     setError("");
-    
+
     try {
       const response = await fetch(`${WORKER_API}/api/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apiKey })
       });
-      
+
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || "Invalid or expired key");
       }
-      
+
       const data = await response.json();
-      
+
       sessionStorage.setItem("apiKey", apiKey);
       sessionStorage.setItem("tunnelUrl", data.tunnelUrl);
       sessionStorage.setItem("mode", "remote");
-      
+
       router.push("/terminal/");
-      
+
     } catch (err) {
       setError(err.message);
     } finally {
@@ -105,11 +105,11 @@ function HomeContent() {
         <h1 className="text-4xl font-bold text-white mb-2">
           9Remote Terminal
         </h1>
-        
+
         <p className="text-slate-400 mb-8">
           Access your terminal from anywhere
         </p>
-        
+
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -124,13 +124,13 @@ function HomeContent() {
               className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
             />
           </div>
-          
+
           {error && (
             <div className="text-red-400 text-sm bg-red-950 border border-red-800 rounded-lg p-3">
               {error}
             </div>
           )}
-          
+
           <button
             onClick={handleConnect}
             disabled={!apiKey || loading}
@@ -139,7 +139,7 @@ function HomeContent() {
             {loading ? "Connecting..." : "Connect"}
           </button>
         </div>
-        
+
         <div className="mt-8 pt-6 border-t border-slate-700">
           <p className="text-sm text-slate-400">
             Need a terminal? Run{" "}

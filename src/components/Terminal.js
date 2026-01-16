@@ -48,7 +48,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
   const fitAddonRef = useRef(null);
   const inputHandlerRef = useRef(null);
   const outputHandlerRef = useRef(null);
-  
+
   const [connected, setConnected] = useState(false);
   const [sessionName, setSessionName] = useState("");
   const [showThemePicker, setShowThemePicker] = useState(false);
@@ -73,7 +73,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
 
     termRef.current = term;
     fitAddonRef.current = fitAddon;
-    
+
     term.open(terminalRef.current);
     setTimeout(() => fitAddon.fit(), 100);
 
@@ -90,7 +90,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
     // Global output handler - filter by sessionId
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
-      
+
       const data = payload.data;
       if (data instanceof ArrayBuffer || (data && data.buffer)) {
         term.write(new Uint8Array(data));
@@ -128,13 +128,13 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
   // Manage input handler based on isActive
   useEffect(() => {
     if (!termRef.current || !socket || !sessionId) return;
-    
+
     // Remove old input handler
     if (inputHandlerRef.current) {
       inputHandlerRef.current.dispose();
       inputHandlerRef.current = null;
     }
-    
+
     // Only attach when active
     if (isActive) {
       inputHandlerRef.current = termRef.current.onData((data) => {
@@ -146,7 +146,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
   // Re-fit when becoming visible
   useEffect(() => {
     if (!isActive || !fitAddonRef.current || !termRef.current) return;
-    
+
     const timer = setTimeout(() => {
       if (fitAddonRef.current && termRef.current) {
         fitAddonRef.current.fit();
@@ -155,7 +155,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
         socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
       }
     }, 100);
-    
+
     return () => clearTimeout(timer);
   }, [isActive, socket, sessionId]);
 
@@ -182,11 +182,11 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
             {sessionName || "Terminal"}
           </h1>
         </div>
-        
+
         <div className="flex items-center space-x-2">
           {/* Sites List */}
           <SitesList tunnelUrl={tunnelUrl} />
-          
+
           {/* Theme Picker */}
           <div className="relative">
             <button
@@ -196,16 +196,15 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
               <span className="w-3 h-3 rounded-full" style={{ background: THEMES[theme].cursor }} />
               <span className="hidden sm:inline">Theme</span>
             </button>
-            
+
             {showThemePicker && (
               <div className="absolute right-0 top-full mt-2 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-50 p-2 min-w-[120px]">
                 {Object.keys(THEMES).map((t) => (
                   <button
                     key={t}
                     onClick={() => { onThemeChange(t); setShowThemePicker(false); }}
-                    className={`w-full px-3 py-2 text-left text-sm rounded flex items-center gap-2 ${
-                      theme === t ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-700"
-                    }`}
+                    className={`w-full px-3 py-2 text-left text-sm rounded flex items-center gap-2 ${theme === t ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-700"
+                      }`}
                   >
                     <span className="w-3 h-3 rounded-full" style={{ background: THEMES[t].background, border: "1px solid #555" }} />
                     {t.charAt(0).toUpperCase() + t.slice(1)}

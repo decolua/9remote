@@ -16,9 +16,9 @@ function buildShellEnv() {
   const home = os.homedir();
   const user = os.userInfo().username;
   const shell = getDefaultShell();
-  
+
   const env = { ...process.env };
-  
+
   Object.assign(env, {
     HOME: home,
     USER: user,
@@ -41,7 +41,7 @@ function buildShellEnv() {
     ITERM_SESSION_ID: `9remote-${Date.now()}`,
     SHLVL: "1"
   });
-  
+
   return env;
 }
 
@@ -49,10 +49,15 @@ export function setupSocketIO(server) {
   const io = new Server(server, {
     cors: {
       origin: "*",
-      methods: ["GET", "POST"]
+      methods: ["GET", "POST"],
+      credentials: true,
+      allowedHeaders: ["*"]
     },
     transports: ["websocket", "polling"],
-    allowEIO3: true
+    allowEIO3: true,
+    allowUpgrades: true,
+    pingTimeout: 60000,
+    pingInterval: 25000
   });
 
   io.on("connection", (socket) => {
@@ -103,7 +108,7 @@ export function setupSocketIO(server) {
             const removed = sessionData.buffer.shift();
             totalSize -= removed.length;
           }
-          
+
           // Broadcast to ALL clients listening to this session
           io.emit("output", { sessionId, data: Buffer.from(data, "utf-8") });
         });
