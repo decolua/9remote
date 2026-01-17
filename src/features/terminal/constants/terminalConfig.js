@@ -15,36 +15,44 @@ export const TERMINAL_OPTIONS = {
 };
 
 // Mobile keyboard button configurations
+// Basic keys: most used, always visible
 export const BASIC_KEYS = [
+  // Arrows group
   { label: "↑", key: "ArrowUp", icon: true },
   { label: "↓", key: "ArrowDown", icon: true },
-  { label: "Ctrl", key: "Ctrl", modifier: true },
-  { label: "Alt", key: "Alt", modifier: true },
+  { label: "←", key: "ArrowLeft", icon: true },
+  { label: "→", key: "ArrowRight", icon: true },
+  // Most used (ordered by frequency)
+  { label: "Tab", key: "Tab" },
   { label: "Esc", key: "Escape" },
-  { label: "Tab", key: "Tab" }
+  { label: "^C", key: "c", ctrl: true },
+  { label: "^Z", key: "z", ctrl: true },
+  { label: "Ctrl", key: "Ctrl", modifier: true }
 ];
 
+// Extended keys: 3 rows x 6 cols = 18 keys
 export const EXTENDED_KEYS = [
-  { label: "←", key: "ArrowLeft" },
-  { label: "→", key: "ArrowRight" },
+  // Row 1: Navigation
   { label: "Home", key: "Home" },
   { label: "End", key: "End" },
   { label: "PgUp", key: "PageUp" },
   { label: "PgDn", key: "PageDown" },
   { label: "Del", key: "Delete" },
   { label: "Ins", key: "Insert" },
+  // Row 2: Ctrl combos
+  { label: "^R", key: "r", ctrl: true },
+  { label: "^L", key: "l", ctrl: true },
+  { label: "^A", key: "a", ctrl: true },
+  { label: "^E", key: "e", ctrl: true },
+  { label: "^W", key: "w", ctrl: true },
+  { label: "^U", key: "u", ctrl: true },
+  // Row 3: Function keys (most used)
   { label: "F1", key: "F1" },
   { label: "F2", key: "F2" },
   { label: "F3", key: "F3" },
   { label: "F4", key: "F4" },
   { label: "F5", key: "F5" },
-  { label: "F6", key: "F6" },
-  { label: "F7", key: "F7" },
-  { label: "F8", key: "F8" },
-  { label: "F9", key: "F9" },
-  { label: "F10", key: "F10" },
-  { label: "F11", key: "F11" },
-  { label: "F12", key: "F12" }
+  { label: "F10", key: "F10" }
 ];
 
 // macOS CMD key
@@ -52,8 +60,11 @@ export const MAC_KEY = { label: "⌘", key: "Meta", modifier: true };
 
 // Keyboard button styles
 export const BUTTON_STYLES = {
-  base: "px-2 py-2 rounded-lg font-semibold text-xs transition-all duration-100 shadow-md",
+  base: "flex items-center justify-center rounded-md font-semibold text-[11px] transition-all duration-100 shadow-sm",
   normal: "bg-gradient-to-br from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 active:from-slate-500 active:to-slate-600 text-white border border-slate-600",
-  arrow: "bg-gradient-to-br from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 active:from-slate-500 active:to-slate-600 text-white text-base border border-slate-600",
-  modifierActive: "bg-gradient-to-br from-orange-500 to-orange-600 active:from-orange-400 active:to-orange-500 text-white shadow-lg ring-2 ring-orange-400"
+  arrow: "bg-gradient-to-br from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 active:from-slate-500 active:to-slate-600 text-white text-sm border border-slate-600",
+  modifierActive: "bg-gradient-to-br from-orange-500 to-orange-600 active:from-orange-400 active:to-orange-500 text-white shadow-md ring-1 ring-orange-400",
+  // Square sizes
+  size: { width: "32px", height: "32px" },
+  sizeSmall: { width: "28px", height: "28px" }
 };

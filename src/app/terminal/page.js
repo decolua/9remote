@@ -8,15 +8,39 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 
 const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
 const SessionList = dynamic(() => import("@/features/terminal/components/SessionList"), { ssr: false });
+const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
+const SiteView = dynamic(() => import("@/features/terminal/components/SiteView"), { ssr: false });
 
 export default function TerminalPage() {
-  const [view, setView] = useState("list"); // "list" | "terminal"
-  const [selectedSession, setSelectedSession] = useState(null);
-  const [openedSessions, setOpenedSessions] = useState([]); // Track opened sessions for caching
+  // Navigation stack: [{ type: "list" }, { type: "terminal", sessionId }, { type: "remote" }, { type: "site", port, name }]
+  const [viewStack, setViewStack] = useState([{ type: "list" }]);
+  const [openedSessions, setOpenedSessions] = useState([]);
   const [theme, setTheme] = useState("slate");
   const router = useRouter();
   const { getAuth } = useSessionStorage();
   const { socket, sessions, loadSessions, createSession, deleteSession } = useSocket();
+
+  // Current view is top of stack
+  const currentView = viewStack[viewStack.length - 1];
+
+  // Get selected session from stack (find last terminal view)
+  const getSelectedSession = () => {
+    for (let i = viewStack.length - 1; i >= 0; i--) {
+      if (viewStack[i].type === "terminal") return viewStack[i].sessionId;
+    }
+    return null;
+  };
+  const selectedSession = getSelectedSession();
+
+  // Navigation helpers
+  const pushView = useCallback((view) => {
+    setViewStack(prev => [...prev, view]);
+  }, []);
+
+  const popView = useCallback(() => {
+    setViewStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev);
+    loadSessions();
+  }, [loadSessions]);
 
   // Load sessions when socket connects
   useEffect(() => {
@@ -30,17 +54,12 @@ export default function TerminalPage() {
     const updateAppHeight = () => {
       const vh = window.visualViewport?.height || window.innerHeight;
       document.documentElement.style.setProperty("--app-height", `${vh}px`);
-      
-      // Force scroll to top to prevent iOS scroll offset
       window.scrollTo(0, 0);
     };
 
-    // Disable body scroll on mobile - add class to html
     document.documentElement.classList.add("terminal-page");
 
-    // Prevent touchmove on document to stop iOS scroll
     const preventScroll = (e) => {
-      // Allow scroll inside terminal (xterm-viewport for scrolling)
       if (e.target.closest(".xterm-viewport") || e.target.closest(".xterm-screen")) return;
       e.preventDefault();
     };
@@ -55,10 +74,8 @@ export default function TerminalPage() {
     updateAppHeight();
 
     return () => {
-      // Restore body scroll - remove class from html
       document.documentElement.classList.remove("terminal-page");
       document.removeEventListener("touchmove", preventScroll);
-      
       if (window.visualViewport) {
         window.visualViewport.removeEventListener("resize", updateAppHeight);
         window.visualViewport.removeEventListener("scroll", updateAppHeight);
@@ -76,11 +93,9 @@ export default function TerminalPage() {
   }, [createSession]);
 
   const handleSelectSession = useCallback((sessionId) => {
-    setSelectedSession(sessionId);
-    // Add to opened sessions if not already there
     setOpenedSessions(prev => prev.includes(sessionId) ? prev : [...prev, sessionId]);
-    setView("terminal");
-  }, []);
+    pushView({ type: "terminal", sessionId });
+  }, [pushView]);
 
   const handleDeleteSession = useCallback((sessionId) => {
     deleteSession(sessionId, () => {
@@ -88,11 +103,13 @@ export default function TerminalPage() {
     });
   }, [deleteSession]);
 
-  const handleBack = useCallback(() => {
-    setView("list");
-    // Don't clear selectedSession - keep terminal alive
-    loadSessions();
-  }, [loadSessions]);
+  const handleOpenRemote = useCallback(() => {
+    pushView({ type: "remote" });
+  }, [pushView]);
+
+  const handleOpenSite = useCallback((site) => {
+    pushView({ type: "site", port: site.port, name: site.name });
+  }, [pushView]);
 
   const handleDisconnect = useCallback(() => {
     sessionStorage.clear();
@@ -111,34 +128,70 @@ export default function TerminalPage() {
 
   return (
     <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
-      {/* Session List - show/hide based on view */}
-      <div className={view === "list" ? "h-full" : "hidden"}>
+      {/* Session List */}
+      <div 
+        className={`absolute inset-0 transition-all duration-300 ease-out ${
+          currentView.type === "list" 
+            ? "translate-x-0 opacity-100 z-10" 
+            : "-translate-x-full opacity-0 z-0 pointer-events-none"
+        }`}
+      >
         <SessionList
           sessions={sessions}
           onSelect={handleSelectSession}
           onCreate={handleCreateSession}
           onDelete={handleDeleteSession}
           onDisconnect={handleDisconnect}
+          onOpenRemote={handleOpenRemote}
+          onSelectSite={handleOpenSite}
+          tunnelUrl={auth?.tunnelUrl}
         />
       </div>
 
-      {/* Render all opened terminals - show/hide based on selection */}
-      {openedSessions.map((sessionId) => (
-        <div 
-          key={sessionId} 
-          className={view === "terminal" && selectedSession === sessionId ? "block h-full" : "hidden"}
-        >
-          <Terminal 
-            socket={socket}
-            sessionId={sessionId}
-            isActive={view === "terminal" && selectedSession === sessionId}
-            theme={theme}
-            onThemeChange={setTheme}
-            onBack={handleBack}
-            tunnelUrl={auth?.tunnelUrl}
+      {/* Terminals - keep alive for caching */}
+      {openedSessions.map((sessionId) => {
+        const isActive = currentView.type === "terminal" && currentView.sessionId === sessionId;
+        return (
+          <div 
+            key={sessionId} 
+            className={`absolute inset-0 transition-all duration-300 ease-out ${
+              isActive 
+                ? "translate-x-0 opacity-100 z-10" 
+                : "translate-x-full opacity-0 z-0 pointer-events-none"
+            }`}
+          >
+            <Terminal 
+              socket={socket}
+              sessionId={sessionId}
+              isActive={isActive}
+              theme={theme}
+              onThemeChange={setTheme}
+              onBack={popView}
+              onOpenRemote={handleOpenRemote}
+              onSelectSite={handleOpenSite}
+              tunnelUrl={auth?.tunnelUrl}
+            />
+          </div>
+        );
+      })}
+
+      {/* Remote Desktop - conditional render */}
+      {currentView.type === "remote" && (
+        <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
+          <RemoteDesktop onClose={popView} />
+        </div>
+      )}
+
+      {/* Site View - conditional render */}
+      {currentView.type === "site" && (
+        <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
+          <SiteView 
+            port={currentView.port} 
+            siteName={currentView.name} 
+            onBack={popView} 
           />
         </div>
-      ))}
+      )}
     </div>
   );
 }

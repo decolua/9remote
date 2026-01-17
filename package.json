@@ -7,6 +7,7 @@
     "dev": "node cli/index.js --auto",
     "build": "next build",
     "build:worker": "next build && node scripts/buildWorkerStatic.js",
+    "deploy": "npm run build:worker && cd worker && wrangler deploy",
     "start": "node cli/index.js",
     "server": "node server.js",
     "lint": "eslint"

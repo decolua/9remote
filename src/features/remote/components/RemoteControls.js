@@ -36,14 +36,13 @@ export default function RemoteControls({
   onTextInputFocus,
   onTextInputKeyDown,
   onSendText,
-  onLogout
+  onClose
 }) {
   const btnBase = "px-2 py-1.5 rounded text-xs font-semibold transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed";
   
   return (
     <div 
       className="p-3 bg-slate-800 border-t border-slate-700"
-      style={{ paddingBottom: keyboardVisible ? "240px" : "12px" }}
     >
       {/* Main Controls */}
       <div className="flex flex-row items-center justify-center mb-3">
@@ -99,11 +98,11 @@ export default function RemoteControls({
             □
           </button>
 
-          {/* Logout */}
+          {/* Exit - Close remote and return to terminal */}
           <Button
             variant="danger"
             size="sm"
-            onClick={onLogout}
+            onClick={onClose}
           >
             Exit
           </Button>
@@ -267,7 +266,7 @@ export default function RemoteControls({
                 ? `${Object.keys(modifierKeys).filter(k => modifierKeys[k]).join("+")} + key...`
                 : "Type text to send..."
             }
-            className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
             disabled={!streaming}
           />
           <Button

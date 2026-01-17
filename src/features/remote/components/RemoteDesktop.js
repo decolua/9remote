@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { useRemoteSocket } from "@/features/remote/hooks/useRemoteSocket";
 import { useCanvas } from "@/features/remote/hooks/useCanvas";
 import { useInput } from "@/features/remote/hooks/useInput";
@@ -10,7 +10,7 @@ import RemoteCanvas from "@/features/remote/components/RemoteCanvas";
 import RemoteControls from "@/features/remote/components/RemoteControls";
 import Spinner from "@/shared/components/ui/Spinner";
 
-export default function RemoteDesktop() {
+export default function RemoteDesktop({ onClose }) {
   const {
     socket,
     connected,
@@ -19,7 +19,6 @@ export default function RemoteDesktop() {
     authenticated,
     startStreaming,
     stopStreaming,
-    handleLogout,
     emitRequestScreenWithHashes,
     emitMousePress,
     emitMouseRelease,
@@ -42,6 +41,19 @@ export default function RemoteDesktop() {
     emitTypeText,
     emitScroll
   };
+
+  // Handle close - stop streaming, disconnect and return to terminal
+  const handleClose = useCallback(() => {
+    if (streaming && socket) {
+      socket.emit("stop-streaming");
+    }
+    if (socket) {
+      socket.disconnect();
+    }
+    if (onClose) {
+      onClose();
+    }
+  }, [streaming, socket, onClose]);
 
   const {
     canvasRef,
@@ -182,7 +194,7 @@ export default function RemoteDesktop() {
 
   return (
     <div
-      className="bg-slate-900 text-white flex flex-col h-dvh w-full"
+      className="bg-slate-900 text-white flex flex-col h-[var(--app-height,100vh)] w-full"
       style={{
         userSelect: "none",
         WebkitUserSelect: "none",
@@ -241,7 +253,7 @@ export default function RemoteDesktop() {
         onTextInputFocus={handleTextInputFocus}
         onTextInputKeyDown={(e) => handleModifiedTextInput(e, streaming)}
         onSendText={sendTextInput}
-        onLogout={handleLogout}
+        onClose={handleClose}
       />
     </div>
   );

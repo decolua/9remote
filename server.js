@@ -3,6 +3,7 @@ import { parse } from "url";
 import next from "next";
 import { setupSocketIO } from "./src/shared/lib/socketio.js";
 import { scanLocalSites } from "./src/features/terminal/services/portScanner.js";
+import { verifyApiKeyCrc } from "./cli/utils/apiKey.js";
 import httpProxy from "http-proxy";
 import harmon from "harmon";
 
@@ -32,8 +33,25 @@ app.prepare().then(() => {
     try {
       const parsedUrl = parse(req.url, true);
       
-      // API: Get local sites
+      // API: Get local sites (requires authentication)
       if (parsedUrl.pathname === "/api/local-sites") {
+        // Extract API key from Authorization header
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+          res.setHeader("Content-Type", "application/json");
+          res.writeHead(401);
+          res.end(JSON.stringify({ error: "Unauthorized: Missing API key" }));
+          return;
+        }
+        
+        const apiKey = authHeader.slice(7); // Remove "Bearer "
+        if (!verifyApiKeyCrc(apiKey)) {
+          res.setHeader("Content-Type", "application/json");
+          res.writeHead(401);
+          res.end(JSON.stringify({ error: "Unauthorized: Invalid API key" }));
+          return;
+        }
+        
         const sites = await scanLocalSites();
         res.setHeader("Content-Type", "application/json");
         res.writeHead(200);

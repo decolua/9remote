@@ -13,7 +13,14 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: "9Remote Terminal",
-  description: "Access your terminal from anywhere - secure remote terminal access",
+  description: "Access your terminal from anywhere - secure remote terminal access"
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false
 };
 
 export default function RootLayout({ children }) {

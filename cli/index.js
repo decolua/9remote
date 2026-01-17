@@ -18,6 +18,161 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const WORKER_URL = "https://9remote-worker.decoluadt.workers.dev";
 
 /**
+ * Helper: Show QR code for connect URL
+ */
+function showQRCode(url, title = "📱 Scan QR to connect:") {
+  console.log(chalk.cyan(`\n${title}`));
+  qrcode.generate(url, {
+    small: true,
+    type: 'terminal',
+    margin: 0,
+  }, qr => {
+    const lines = qr.trim().split('\n');
+    console.log(lines.join('\n'));
+  });
+}
+
+/**
+ * Helper: Show connection info
+ */
+function showConnectionInfo(selectedKey, tunnelUrl) {
+  const token = createToken(selectedKey, 5);
+  const connectUrl = `${WORKER_URL}?t=${token}`;
+
+  showQRCode(connectUrl);
+
+  console.log(chalk.white(`\nWorker URL: ${chalk.blue(WORKER_URL)}`));
+  console.log(chalk.white(`Access Key: ${chalk.yellow(selectedKey)}`));
+  console.log(chalk.gray("Token expires in 5 minutes"));
+  console.log(chalk.gray("\nPress Ctrl+C to stop server\n"));
+}
+
+/**
+ * Helper: Setup exit handler for server processes
+ */
+function setupExitHandler(serverProcess, tunnelProcess) {
+  process.on("SIGINT", () => {
+    console.log(chalk.yellow("\n\n🛑 Stopping server..."));
+    serverProcess.kill();
+    tunnelProcess.kill();
+    clearState();
+    console.log(chalk.green("✅ Server stopped"));
+    process.exit(0);
+  });
+}
+
+/**
+ * Helper: Start server and tunnel
+ */
+async function startServerAndTunnel(selectedKey) {
+  console.log(chalk.cyan("\n🚀 Starting server..."));
+
+  // Kill existing processes
+  try {
+    execSync("pkill -f 'node server.js' 2>/dev/null || true", { stdio: "ignore" });
+    execSync("pkill -f cloudflared 2>/dev/null || true", { stdio: "ignore" });
+  } catch { }
+
+  // Cleanup old cloudflared tunnels
+  cleanupOldTunnels();
+
+  // Start Next.js server
+  const serverProcess = spawn("node", ["server.js"], {
+    cwd: PROJECT_ROOT,
+    stdio: ["ignore", "inherit", "inherit"],
+    detached: false
+  });
+
+  // Wait for server to start
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+
+  console.log(chalk.cyan("🌐 Starting tunnel..."));
+
+  // Ensure cloudflared binary is installed
+  if (!fs.existsSync(bin)) {
+    console.log(chalk.yellow("📥 Installing cloudflared..."));
+    await install(bin);
+  }
+
+  // Start Quick Tunnel
+  let tunnelUrl = null;
+  const tunnelProcess = spawn(bin, ["tunnel", "--url", "http://localhost:3000"], {
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  // Parse tunnel URL from stderr
+  try {
+    tunnelUrl = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timeout waiting for tunnel URL")), 30000);
+
+      tunnelProcess.stderr.on("data", (data) => {
+        const output = data.toString();
+        const match = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+        if (match) {
+          clearTimeout(timeout);
+          resolve(match[0]);
+        }
+      });
+
+      tunnelProcess.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+
+      tunnelProcess.on("close", (code) => {
+        if (code !== 0 && !tunnelUrl) {
+          clearTimeout(timeout);
+          reject(new Error(`Tunnel exited with code ${code}`));
+        }
+      });
+    });
+  } catch (error) {
+    console.log(chalk.red(`❌ Failed to start tunnel: ${error.message}`));
+    serverProcess.kill();
+    tunnelProcess.kill();
+    return null;
+  }
+
+  if (!tunnelUrl) {
+    console.log(chalk.red("❌ Failed to get tunnel URL"));
+    serverProcess.kill();
+    tunnelProcess.kill();
+    return null;
+  }
+
+  console.log(chalk.green(`✅ Tunnel: ${tunnelUrl}`));
+
+  // Sync with worker
+  console.log(chalk.cyan("🔄 Syncing with worker..."));
+  try {
+    await fetch(`${WORKER_URL}/api/session/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: selectedKey })
+    });
+
+    await fetch(`${WORKER_URL}/api/session/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: selectedKey, tunnelUrl })
+    });
+    console.log(chalk.green("✅ Session synced!"));
+  } catch (error) {
+    console.log(chalk.yellow(`⚠️  Worker sync failed: ${error.message}`));
+  }
+
+  // Save state
+  saveState({
+    apiKey: selectedKey,
+    tunnelUrl,
+    serverPid: serverProcess.pid,
+    tunnelPid: tunnelProcess.pid
+  });
+
+  return { serverProcess, tunnelProcess, tunnelUrl };
+}
+
+/**
  * Cleanup old 9remote tunnels
  */
 function cleanupOldTunnels() {
@@ -26,7 +181,7 @@ function cleanupOldTunnels() {
 
     const result = execSync(`"${bin}" tunnel list`, { encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] });
     const lines = result.split("\n");
-    
+
     const oldTunnels = [];
     for (const line of lines) {
       const match = line.match(/([a-f0-9-]{36})\s+(9remote-\d+)/);
@@ -34,15 +189,15 @@ function cleanupOldTunnels() {
         oldTunnels.push(match[1]);
       }
     }
-    
+
     if (oldTunnels.length > 0) {
       for (const tunnelId of oldTunnels) {
         try {
           execSync(`"${bin}" tunnel delete -f ${tunnelId}`, { stdio: "ignore" });
-        } catch (e) {}
+        } catch (e) { }
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 }
 
 /**
@@ -113,140 +268,19 @@ async function startServer() {
     selectedKey = keysData.keys[keyIndex].key;
   }
 
-  console.log(chalk.cyan("\n🚀 Starting server..."));
-
-  // Kill existing processes
-  try {
-    execSync("pkill -f 'node server.js' 2>/dev/null || true", { stdio: "ignore" });
-    execSync("pkill -f cloudflared 2>/dev/null || true", { stdio: "ignore" });
-  } catch {}
-
-  // Cleanup old cloudflared tunnels
-  cleanupOldTunnels();
-
-  // Start Next.js server
-  const serverProcess = spawn("node", ["server.js"], {
-    cwd: PROJECT_ROOT,
-    stdio: ["ignore", "inherit", "inherit"], // Show server logs
-    detached: false
-  });
-
-
-  // Wait for server to start
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-
-  console.log(chalk.cyan("🌐 Starting tunnel..."));
-
-  // Ensure cloudflared binary is installed
-  if (!fs.existsSync(bin)) {
-    console.log(chalk.yellow("📥 Installing cloudflared..."));
-    await install(bin);
-  }
-
-  // Start Quick Tunnel using spawn directly (more reliable)
-  let tunnelUrl = null;
-  const tunnelProcess = spawn(bin, ["tunnel", "--url", "http://localhost:3000"], {
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-
-  // Parse tunnel URL from stderr (cloudflared logs to stderr)
-  try {
-    tunnelUrl = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timeout waiting for tunnel URL")), 30000);
-      
-      tunnelProcess.stderr.on("data", (data) => {
-        const output = data.toString();
-        const match = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-        if (match) {
-          clearTimeout(timeout);
-          resolve(match[0]);
-        }
-      });
-
-      tunnelProcess.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-
-      tunnelProcess.on("close", (code) => {
-        if (code !== 0 && !tunnelUrl) {
-          clearTimeout(timeout);
-          reject(new Error(`Tunnel exited with code ${code}`));
-        }
-      });
-    });
-  } catch (error) {
-    console.log(chalk.red(`❌ Failed to start tunnel: ${error.message}`));
-    serverProcess.kill();
-    tunnelProcess.kill();
+  const result = await startServerAndTunnel(selectedKey);
+  if (!result) {
     await mainMenu();
     return;
   }
 
-  if (!tunnelUrl) {
-    console.log(chalk.red("❌ Failed to get tunnel URL"));
-    serverProcess.kill();
-    tunnelProcess.kill();
-    await mainMenu();
-    return;
-  }
+  const { serverProcess, tunnelProcess, tunnelUrl } = result;
 
-  console.log(chalk.green(`✅ Tunnel: ${tunnelUrl}`));
-
-  // Create/update session on worker
-  console.log(chalk.cyan("🔄 Syncing with worker..."));
-  try {
-    await fetch(`${WORKER_URL}/api/session/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: selectedKey })
-    });
-
-    await fetch(`${WORKER_URL}/api/session/update`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: selectedKey, tunnelUrl })
-    });
-    console.log(chalk.green("✅ Session synced!"));
-  } catch (error) {
-    console.log(chalk.yellow(`⚠️  Worker sync failed: ${error.message}`));
-  }
-
-  // Save state
-  saveState({
-    apiKey: selectedKey,
-    tunnelUrl,
-    serverPid: serverProcess.pid,
-    tunnelPid: tunnelProcess.pid
-  });
-
-  // Create encrypted token (expires in 5 minutes)
-  const token = createToken(selectedKey, 5);
-  const connectUrl = `${WORKER_URL}?t=${token}`;
-  
-  console.log(chalk.cyan("\n📱 Scan QR to connect:"));
-  qrcode.generate(connectUrl, { small: true }, qr => {
-    const lines = qr.trim().split('\n');
-    console.log(lines.join('\n'));
-  });
-
-  console.log(chalk.white(`\nWorker URL: ${chalk.blue(WORKER_URL)}`));
-  console.log(chalk.white(`Access Key: ${chalk.yellow(selectedKey)}`));
-  console.log(chalk.gray("Token expires in 5 minutes"));
-  console.log(chalk.gray("\nPress Ctrl+C to stop server\n"));
-
-  // Handle exit
-  process.on("SIGINT", () => {
-    console.log(chalk.yellow("\n\n🛑 Stopping server..."));
-    serverProcess.kill();
-    tunnelProcess.kill();
-    clearState();
-    console.log(chalk.green("✅ Server stopped"));
-    process.exit(0);
-  });
+  showConnectionInfo(selectedKey, tunnelUrl);
+  setupExitHandler(serverProcess, tunnelProcess);
 
   // Keep process alive
-  await new Promise(() => {});
+  await new Promise(() => { });
 }
 
 /**
@@ -314,137 +348,18 @@ async function autoStartDev() {
   const selectedKey = keysData.keys[0].key;
   console.log(chalk.gray(`Using key: ${selectedKey.slice(0, 20)}... (${keysData.keys[0].name})`));
 
-  console.log(chalk.cyan("\n🚀 Starting server..."));
-
-  // Kill existing processes
-  try {
-    execSync("pkill -f 'node server.js' 2>/dev/null || true", { stdio: "ignore" });
-    execSync("pkill -f cloudflared 2>/dev/null || true", { stdio: "ignore" });
-  } catch {}
-
-  // Cleanup old cloudflared tunnels
-  cleanupOldTunnels();
-
-  // Start Next.js server
-  const serverProcess = spawn("node", ["server.js"], {
-    cwd: PROJECT_ROOT,
-    stdio: ["ignore", "inherit", "inherit"], // Show server logs
-    detached: false
-  });
-
-  // Wait for server to start
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-
-  console.log(chalk.cyan("🌐 Starting tunnel..."));
-
-  // Ensure cloudflared binary is installed
-  if (!fs.existsSync(bin)) {
-    console.log(chalk.yellow("📥 Installing cloudflared..."));
-    await install(bin);
-  }
-
-  // Start Quick Tunnel
-  let tunnelUrl = null;
-  const tunnelProcess = spawn(bin, ["tunnel", "--url", "http://localhost:3000"], {
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-
-  // Parse tunnel URL from stderr
-  try {
-    tunnelUrl = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timeout waiting for tunnel URL")), 30000);
-      
-      tunnelProcess.stderr.on("data", (data) => {
-        const output = data.toString();
-        const match = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-        if (match) {
-          clearTimeout(timeout);
-          resolve(match[0]);
-        }
-      });
-
-      tunnelProcess.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-
-      tunnelProcess.on("close", (code) => {
-        if (code !== 0 && !tunnelUrl) {
-          clearTimeout(timeout);
-          reject(new Error(`Tunnel exited with code ${code}`));
-        }
-      });
-    });
-  } catch (error) {
-    console.log(chalk.red(`❌ Failed to start tunnel: ${error.message}`));
-    serverProcess.kill();
-    tunnelProcess.kill();
+  const result = await startServerAndTunnel(selectedKey);
+  if (!result) {
     process.exit(1);
   }
 
-  if (!tunnelUrl) {
-    console.log(chalk.red("❌ Failed to get tunnel URL"));
-    serverProcess.kill();
-    tunnelProcess.kill();
-    process.exit(1);
-  }
+  const { serverProcess, tunnelProcess, tunnelUrl } = result;
 
-  console.log(chalk.green(`✅ Tunnel: ${tunnelUrl}`));
-
-  // Create/update session on worker
-  console.log(chalk.cyan("🔄 Syncing with worker..."));
-  try {
-    await fetch(`${WORKER_URL}/api/session/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: selectedKey })
-    });
-
-    await fetch(`${WORKER_URL}/api/session/update`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: selectedKey, tunnelUrl })
-    });
-    console.log(chalk.green("✅ Session synced!"));
-  } catch (error) {
-    console.log(chalk.yellow(`⚠️  Worker sync failed: ${error.message}`));
-  }
-
-  // Save state
-  saveState({
-    apiKey: selectedKey,
-    tunnelUrl,
-    serverPid: serverProcess.pid,
-    tunnelPid: tunnelProcess.pid
-  });
-
-  // Create encrypted token (expires in 5 minutes)
-  const token = createToken(selectedKey, 5);
-  const connectUrl = `${WORKER_URL}?t=${token}`;
-  
-  console.log(chalk.cyan("\n📱 Scan QR to connect:"));
-  qrcode.generate(connectUrl, { small: true }, qr => {
-    const lines = qr.trim().split('\n');
-    console.log(lines.join('\n'));
-  });
-
-  console.log(chalk.white(`\nWorker URL: ${chalk.blue(WORKER_URL)}`));
-  console.log(chalk.white(`Access Key: ${chalk.yellow(selectedKey)}`));
-  console.log(chalk.gray("Token expires in 5 minutes"));
-  console.log(chalk.gray("\nPress Ctrl+C to stop server\n"));
-
-  // Handle exit
-  process.on("SIGINT", () => {
-    console.log(chalk.yellow("\n\n🛑 Stopping server..."));
-    serverProcess.kill();
-    tunnelProcess.kill();
-    clearState();
-    console.log(chalk.green("✅ Server stopped"));
-    process.exit(0);
-  });
+  showConnectionInfo(selectedKey, tunnelUrl);
+  setupExitHandler(serverProcess, tunnelProcess);
 
   // Keep process alive
-  await new Promise(() => {});
+  await new Promise(() => { });
 }
 
 /**
@@ -467,11 +382,7 @@ async function createKey(machineId) {
   const connectUrl = `${WORKER_URL}?t=${token}`;
 
   console.log(chalk.green(`\n✅ Key created: ${key}`));
-  console.log(chalk.cyan("\n📱 QR Code:"));
-  qrcode.generate(connectUrl, { small: true }, qr => {
-    const lines = qr.trim().split('\n');
-    console.log(lines.join('\n'));
-  });
+  showQRCode(connectUrl, "📱 QR Code:");
 
   await inquirer.prompt([{ type: "input", name: "continue", message: "Press Enter to continue..." }]);
 }
@@ -491,11 +402,7 @@ async function showKey(index) {
   const token = createToken(keyData.key, 5);
   const connectUrl = `${WORKER_URL}?t=${token}`;
 
-  console.log(chalk.cyan("\n📱 QR Code:"));
-  qrcode.generate(connectUrl, { small: true }, qr => {
-    const lines = qr.trim().split('\n');
-    console.log(lines.join('\n'));
-  });
+  showQRCode(connectUrl, "📱 QR Code:");
 
   const { action } = await inquirer.prompt([
     {

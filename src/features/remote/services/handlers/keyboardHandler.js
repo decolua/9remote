@@ -74,6 +74,12 @@ export class KeyboardHandler {
           try {
             robot.typeString(safeText);
             this.resourceManager.updateClientActivity(socket.id);
+
+            // Clear screen cache to force fresh capture after typing
+            const clientData = this.resourceManager.getClient(socket.id);
+            if (clientData?.tileManager) {
+              clientData.tileManager.clearScreenCache();
+            }
           } catch (typeError) {
             console.error("Robot typeString error:", typeError.message);
           }
