@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
-import { useSessionStorage } from "./useSessionStorage";
+import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 
 // Socket.io connection management hook
 export function useSocket() {

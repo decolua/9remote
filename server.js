@@ -1,8 +1,8 @@
 import { createServer } from "http";
 import { parse } from "url";
 import next from "next";
-import { setupSocketIO } from "./src/lib/socketio.js";
-import { scanLocalSites } from "./src/lib/portScanner.js";
+import { setupSocketIO } from "./src/shared/lib/socketio.js";
+import { scanLocalSites } from "./src/features/terminal/services/portScanner.js";
 import httpProxy from "http-proxy";
 import harmon from "harmon";
 

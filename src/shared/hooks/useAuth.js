@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { API_ENDPOINTS } from "@/constants/api";
+import { API_ENDPOINTS } from "@/shared/constants/api";
 import { useSessionStorage } from "./useSessionStorage";
 
 // Centralized auth logic - handles both token and API key auth

@@ -127,15 +127,10 @@ async function startServer() {
   // Start Next.js server
   const serverProcess = spawn("node", ["server.js"], {
     cwd: PROJECT_ROOT,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "inherit", "inherit"], // Show server logs
     detached: false
   });
 
-  serverProcess.stdout.on("data", (data) => {
-    if (data.toString().includes("Ready")) {
-      console.log(chalk.green("✅ Server ready on http://localhost:3000"));
-    }
-  });
 
   // Wait for server to start
   await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -333,14 +328,8 @@ async function autoStartDev() {
   // Start Next.js server
   const serverProcess = spawn("node", ["server.js"], {
     cwd: PROJECT_ROOT,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "inherit", "inherit"], // Show server logs
     detached: false
-  });
-
-  serverProcess.stdout.on("data", (data) => {
-    if (data.toString().includes("Ready")) {
-      console.log(chalk.green("✅ Server ready on http://localhost:3000"));
-    }
   });
 
   // Wait for server to start

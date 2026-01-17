@@ -3,11 +3,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { useSocket } from "@/hooks/useSocket";
-import { useSessionStorage } from "@/hooks/useSessionStorage";
+import { useSocket } from "@/features/terminal/hooks/useSocket";
+import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 
-const Terminal = dynamic(() => import("@/components/Terminal"), { ssr: false });
-const SessionList = dynamic(() => import("@/components/SessionList"), { ssr: false });
+const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
+const SessionList = dynamic(() => import("@/features/terminal/components/SessionList"), { ssr: false });
 
 export default function TerminalPage() {
   const [view, setView] = useState("list"); // "list" | "terminal"

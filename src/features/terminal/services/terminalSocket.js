@@ -1,4 +1,4 @@
-import { Server } from "socket.io";
+// Terminal Socket.IO namespace
 import pty from "node-pty-prebuilt-multiarch";
 import os from "os";
 
@@ -45,23 +45,9 @@ function buildShellEnv() {
   return env;
 }
 
-export function setupSocketIO(server) {
-  const io = new Server(server, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"],
-      credentials: true,
-      allowedHeaders: ["*"]
-    },
-    transports: ["websocket", "polling"],
-    allowEIO3: true,
-    allowUpgrades: true,
-    pingTimeout: 60000,
-    pingInterval: 25000
-  });
-
+export function setupTerminalSocket(io) {
   io.on("connection", (socket) => {
-    console.log("Client connected:", socket.id);
+    console.log("📟 Terminal client connected:", socket.id);
 
     // Get list of active sessions
     socket.on("getSessions", (callback) => {
@@ -181,9 +167,7 @@ export function setupSocketIO(server) {
     });
 
     socket.on("disconnect", () => {
-      console.log("Client disconnected:", socket.id);
+      console.log("📟 Terminal client disconnected:", socket.id);
     });
   });
-
-  return io;
 }

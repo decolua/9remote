@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Button from "./ui/Button";
-import Input from "./ui/Input";
+import Button from "@/shared/components/ui/Button";
+import Input from "@/shared/components/ui/Input";
 
 export default function SessionList({ sessions, onSelect, onCreate, onDelete, onDisconnect }) {
   const [newName, setNewName] = useState("");

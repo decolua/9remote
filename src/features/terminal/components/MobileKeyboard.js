@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { SPECIAL_KEYS, CTRL_ARROW_KEYS } from "@/constants/keyMappings";
-import { BASIC_KEYS, EXTENDED_KEYS, MAC_KEY, BUTTON_STYLES } from "@/constants/terminalConfig";
+import { SPECIAL_KEYS, CTRL_ARROW_KEYS } from "@/features/terminal/constants/keyMappings";
+import { BASIC_KEYS, EXTENDED_KEYS, MAC_KEY, BUTTON_STYLES } from "@/features/terminal/constants/terminalConfig";
 
 const MobileKeyboard = ({ socket, sessionId, onExpandChange }) => {
   const [isExpanded, setIsExpanded] = useState(false);

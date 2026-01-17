@@ -2,11 +2,11 @@
 
 import { useState, useEffect, Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import { useAuth } from "@/hooks/useAuth";
-import Container from "@/components/ui/Container";
-import Input from "@/components/ui/Input";
-import Button from "@/components/ui/Button";
-import Spinner from "@/components/ui/Spinner";
+import { useAuth } from "@/shared/hooks/useAuth";
+import Container from "@/shared/components/ui/Container";
+import Input from "@/shared/components/ui/Input";
+import Button from "@/shared/components/ui/Button";
+import Spinner from "@/shared/components/ui/Spinner";
 
 function HomeContent() {
   const [apiKey, setApiKey] = useState("");
