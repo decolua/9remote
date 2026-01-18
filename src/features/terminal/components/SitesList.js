@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 
-export default function SitesList({ tunnelUrl, onSelectSite }) {
+export default function SitesList({ tunnelUrl, apiKey, onSelectSite }) {
   const [sites, setSites] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -10,7 +10,11 @@ export default function SitesList({ tunnelUrl, onSelectSite }) {
   const loadSites = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${tunnelUrl}/api/local-sites`);
+      const response = await fetch(`${tunnelUrl}/api/local-sites`, {
+        headers: {
+          "Authorization": `Bearer ${apiKey}`
+        }
+      });
       if (response.ok) {
         const data = await response.json();
         setSites(data);

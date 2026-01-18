@@ -145,6 +145,7 @@ export default function TerminalPage() {
           onOpenRemote={handleOpenRemote}
           onSelectSite={handleOpenSite}
           tunnelUrl={auth?.tunnelUrl}
+          apiKey={auth?.apiKey}
         />
       </div>
 
@@ -170,6 +171,7 @@ export default function TerminalPage() {
               onOpenRemote={handleOpenRemote}
               onSelectSite={handleOpenSite}
               tunnelUrl={auth?.tunnelUrl}
+              apiKey={auth?.apiKey}
             />
           </div>
         );

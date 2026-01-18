@@ -91,8 +91,8 @@ function tryHttps(port, timeout = 2000) {
     req.on("error", (err) => {
       resolve({ active: false, error: err.message });
     });
-    req.on("timeout", () => { 
-      req.destroy(); 
+    req.on("timeout", () => {
+      req.destroy();
       resolve({ active: false, error: "timeout" }); 
     });
     req.end();

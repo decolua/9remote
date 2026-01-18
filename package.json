@@ -20,7 +20,6 @@
     "cloudflared": "^0.7.1",
     "commander": "^13.0.0",
     "crypto-js": "^4.2.0",
-    "harmon": "^1.4.4",
     "http-proxy": "^1.18.1",
     "inquirer": "^9.3.8",
     "next": "16.1.1",

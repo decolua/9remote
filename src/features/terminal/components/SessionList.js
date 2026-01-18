@@ -5,7 +5,7 @@ import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
 import SitesList from "@/features/terminal/components/SitesList";
 
-export default function SessionList({ sessions, onSelect, onCreate, onDelete, onDisconnect, onOpenRemote, onSelectSite, tunnelUrl }) {
+export default function SessionList({ sessions, onSelect, onCreate, onDelete, onDisconnect, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -36,7 +36,7 @@ export default function SessionList({ sessions, onSelect, onCreate, onDelete, on
           </button>
 
           {/* Sites Button */}
-          <SitesList tunnelUrl={tunnelUrl} onSelectSite={onSelectSite} />
+          <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} onSelectSite={onSelectSite} />
 
           {/* Logout Button */}
           <Button

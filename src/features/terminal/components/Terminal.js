@@ -9,7 +9,7 @@ import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
 
-export default function Terminal({ socket, sessionId, isActive = true, theme = "slate", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl }) {
+export default function Terminal({ socket, sessionId, isActive = true, theme = "slate", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
   const terminalRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -250,7 +250,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
           </button>
 
           {/* Sites List */}
-          <SitesList tunnelUrl={tunnelUrl} onSelectSite={onSelectSite} />
+          <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} onSelectSite={onSelectSite} />
 
           {/* Theme Picker */}
           <div className="relative">
