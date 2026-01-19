@@ -1,9 +1,9 @@
 // Main Socket.IO setup
 import { Server } from "socket.io";
 import { setupTerminalSocket } from "../../features/terminal/services/terminalSocket.js";
-import { setupRemoteSocket } from "../../features/remote/services/remoteSocket.js";
+import { setupRemoteSocket, checkRemoteAvailable } from "../../features/remote/services/remoteSocket.js";
 
-export function setupSocketIO(server) {
+export async function setupSocketIO(server) {
   const io = new Server(server, {
     cors: {
       origin: "*",
@@ -17,6 +17,9 @@ export function setupSocketIO(server) {
     pingTimeout: 60000,
     pingInterval: 25000
   });
+
+  // Check remote availability at startup
+  await checkRemoteAvailable();
 
   // Setup Terminal namespace (default)
   setupTerminalSocket(io);

@@ -42,18 +42,12 @@ export default function RemoteDesktop({ onClose }) {
     emitScroll
   };
 
-  // Handle close - stop streaming, disconnect and return to terminal
+  // Handle close - return to terminal (socket cleanup handled by useEffect)
   const handleClose = useCallback(() => {
-    if (streaming && socket) {
-      socket.emit("stop-streaming");
-    }
-    if (socket) {
-      socket.disconnect();
-    }
     if (onClose) {
       onClose();
     }
-  }, [streaming, socket, onClose]);
+  }, [onClose]);
 
   const {
     canvasRef,

@@ -31,6 +31,14 @@ export async function startServer() {
       const parsedUrl = parse(req.url, true);
       const { pathname, search } = parsedUrl;
       
+      // Health check endpoint
+      if (pathname === "/api/health") {
+        res.setHeader("Content-Type", "application/json");
+        res.writeHead(200);
+        res.end(JSON.stringify({ status: "ok", timestamp: Date.now() }));
+        return;
+      }
+      
       // API routes
       if (pathname === "/api/local-sites") {
         await handleLocalSites(req, res);

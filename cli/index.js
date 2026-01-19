@@ -16,6 +16,9 @@ import { createToken } from "./utils/token.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 const WORKER_URL = "https://9remote-worker.decoluadt.workers.dev";
+const SERVER_PORT = 3000;
+const MAX_RESTART_ATTEMPTS = 3;
+const RESTART_WINDOW_MS = 60000; // 1 minute
 
 /**
  * Helper: Show QR code for connect URL
@@ -48,12 +51,95 @@ function showConnectionInfo(selectedKey, tunnelUrl) {
 }
 
 /**
+ * Kill process on specific port
+ */
+function killProcessOnPort(port) {
+  try {
+    if (process.platform === "win32") {
+      execSync(`for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /F /PID %a`, { stdio: "ignore" });
+    } else {
+      execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { stdio: "ignore" });
+    }
+  } catch { }
+}
+
+/**
+ * Start server with auto-restart on crash
+ */
+function startServerWithRestart(onReady) {
+  const restartTimes = [];
+  let currentProcess = null;
+  let isShuttingDown = false;
+
+  const spawnServer = () => {
+    // Kill any existing process on port
+    killProcessOnPort(SERVER_PORT);
+
+    currentProcess = spawn("node", ["server.js"], {
+      cwd: PROJECT_ROOT,
+      stdio: ["ignore", "inherit", "inherit"],
+      detached: false
+    });
+
+    currentProcess.on("exit", (code, signal) => {
+      if (isShuttingDown) return;
+
+      // Check if it's a crash (non-zero exit code or unexpected signal)
+      if (code !== 0 || signal) {
+        console.log(chalk.red(`\n💥 Server crashed (code: ${code}, signal: ${signal})`));
+
+        // Check restart limit
+        const now = Date.now();
+        restartTimes.push(now);
+        
+        // Remove old restart times outside window
+        while (restartTimes.length > 0 && restartTimes[0] < now - RESTART_WINDOW_MS) {
+          restartTimes.shift();
+        }
+
+        if (restartTimes.length > MAX_RESTART_ATTEMPTS) {
+          console.log(chalk.red(`❌ Too many restarts (${MAX_RESTART_ATTEMPTS} in ${RESTART_WINDOW_MS / 1000}s). Giving up.`));
+          process.exit(1);
+        }
+
+        console.log(chalk.yellow(`🔄 Restarting server... (attempt ${restartTimes.length}/${MAX_RESTART_ATTEMPTS})`));
+        
+        // Wait a bit before restart
+        setTimeout(() => {
+          spawnServer();
+        }, 1000);
+      }
+    });
+
+    currentProcess.on("error", (err) => {
+      console.log(chalk.red(`❌ Server error: ${err.message}`));
+    });
+
+    if (onReady) {
+      onReady(currentProcess);
+    }
+  };
+
+  spawnServer();
+
+  return {
+    getProcess: () => currentProcess,
+    shutdown: () => {
+      isShuttingDown = true;
+      if (currentProcess) {
+        currentProcess.kill();
+      }
+    }
+  };
+}
+
+/**
  * Helper: Setup exit handler for server processes
  */
-function setupExitHandler(serverProcess, tunnelProcess) {
+function setupExitHandler(serverManager, tunnelProcess) {
   process.on("SIGINT", () => {
     console.log(chalk.yellow("\n\n🛑 Stopping server..."));
-    serverProcess.kill();
+    serverManager.shutdown();
     tunnelProcess.kill();
     clearState();
     console.log(chalk.green("✅ Server stopped"));
@@ -76,12 +162,8 @@ async function startServerAndTunnel(selectedKey) {
   // Cleanup old cloudflared tunnels
   cleanupOldTunnels();
 
-  // Start Next.js server
-  const serverProcess = spawn("node", ["server.js"], {
-    cwd: PROJECT_ROOT,
-    stdio: ["ignore", "inherit", "inherit"],
-    detached: false
-  });
+  // Start server with auto-restart
+  const serverManager = startServerWithRestart();
 
   // Wait for server to start
   await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -128,19 +210,57 @@ async function startServerAndTunnel(selectedKey) {
     });
   } catch (error) {
     console.log(chalk.red(`❌ Failed to start tunnel: ${error.message}`));
-    serverProcess.kill();
+    serverManager.shutdown();
     tunnelProcess.kill();
     return null;
   }
 
   if (!tunnelUrl) {
     console.log(chalk.red("❌ Failed to get tunnel URL"));
-    serverProcess.kill();
+    serverManager.shutdown();
     tunnelProcess.kill();
     return null;
   }
 
-  console.log(chalk.green(`✅ Tunnel: ${tunnelUrl}`));
+  // Verify tunnel is connected to server
+  const maxWaitTime = 120000; // 1 minute
+  const checkInterval = 1000; // 2 seconds
+  const maxRetries = Math.floor(maxWaitTime / checkInterval);
+  let tunnelReady = false;
+  
+  process.stdout.write(chalk.cyan("🔗 Waiting for tunnel"));
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const healthRes = await fetch(`${tunnelUrl}/api/health`, { 
+        signal: AbortSignal.timeout(5000) 
+      });
+      if (healthRes.ok) {
+        tunnelReady = true;
+        break;
+      }
+    } catch {
+      // Retry
+    }
+    
+    // Animated spinner
+    const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    process.stdout.write(`\r${chalk.cyan("🔗 Waiting for tunnel")} ${chalk.yellow(spinners[i % spinners.length])} ${chalk.gray(`(${i}s)`)}`);
+    
+    await new Promise(r => setTimeout(r, checkInterval));
+  }
+  
+  // Clear line and show result
+  process.stdout.write("\r" + " ".repeat(50) + "\r");
+  
+  if (!tunnelReady) {
+    console.log(chalk.red("❌ Tunnel connection timeout (60s)"));
+    serverManager.shutdown();
+    tunnelProcess.kill();
+    return null;
+  }
+  
+  console.log(chalk.green(`✅ Tunnel ready: ${tunnelUrl}`));
 
   // Sync with worker
   console.log(chalk.cyan("🔄 Syncing with worker..."));
@@ -156,6 +276,7 @@ async function startServerAndTunnel(selectedKey) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey: selectedKey, tunnelUrl })
     });
+    
     console.log(chalk.green("✅ Session synced!"));
   } catch (error) {
     console.log(chalk.yellow(`⚠️  Worker sync failed: ${error.message}`));
@@ -165,11 +286,11 @@ async function startServerAndTunnel(selectedKey) {
   saveState({
     apiKey: selectedKey,
     tunnelUrl,
-    serverPid: serverProcess.pid,
+    serverPid: serverManager.getProcess()?.pid,
     tunnelPid: tunnelProcess.pid
   });
 
-  return { serverProcess, tunnelProcess, tunnelUrl };
+  return { serverManager, tunnelProcess, tunnelUrl };
 }
 
 /**
@@ -274,10 +395,10 @@ async function startServer() {
     return;
   }
 
-  const { serverProcess, tunnelProcess, tunnelUrl } = result;
+  const { serverManager, tunnelProcess, tunnelUrl } = result;
 
   showConnectionInfo(selectedKey, tunnelUrl);
-  setupExitHandler(serverProcess, tunnelProcess);
+  setupExitHandler(serverManager, tunnelProcess);
 
   // Keep process alive
   await new Promise(() => { });
@@ -353,10 +474,10 @@ async function autoStartDev() {
     process.exit(1);
   }
 
-  const { serverProcess, tunnelProcess, tunnelUrl } = result;
+  const { serverManager, tunnelProcess, tunnelUrl } = result;
 
   showConnectionInfo(selectedKey, tunnelUrl);
-  setupExitHandler(serverProcess, tunnelProcess);
+  setupExitHandler(serverManager, tunnelProcess);
 
   // Keep process alive
   await new Promise(() => { });

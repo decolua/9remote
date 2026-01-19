@@ -6,6 +6,9 @@ import { createGunzip, createInflate, createBrotliDecompress } from "zlib";
 import httpProxy from "http-proxy";
 import { rewriteUrl, rewriteHtmlLinks } from "./rewriter.js";
 import { getInterceptorScript } from "./interceptor.js";
+import { verifyApiKeyCrc } from "../../../cli/utils/apiKey.js";
+
+const AUTH_COOKIE_NAME = "9remote_auth";
 
 /**
  * Create decompression stream based on content-encoding
@@ -85,9 +88,54 @@ export function createProxyServer() {
 }
 
 /**
+ * Parse cookies from request header
+ */
+function parseCookies(cookieHeader) {
+  const cookies = {};
+  if (!cookieHeader) return cookies;
+  
+  cookieHeader.split(";").forEach(cookie => {
+    const [name, ...rest] = cookie.trim().split("=");
+    if (name) {
+      cookies[name] = rest.join("=");
+    }
+  });
+  return cookies;
+}
+
+/**
+ * Verify proxy authentication from cookie
+ */
+function verifyProxyAuth(req) {
+  const cookies = parseCookies(req.headers.cookie);
+  const apiKey = cookies[AUTH_COOKIE_NAME];
+  
+  if (!apiKey) return false;
+  return verifyApiKeyCrc(apiKey);
+}
+
+/**
  * Handle proxy request
  */
 export function handleProxyRequest(proxy, req, res, targetPort, targetPath, search) {
+  // Verify authentication
+  if (!verifyProxyAuth(req)) {
+    res.writeHead(401, { "Content-Type": "text/html" });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Unauthorized</title></head>
+        <body style="font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #1e293b; color: #94a3b8;">
+          <div style="text-align: center;">
+            <h1 style="color: #f87171;">401 Unauthorized</h1>
+            <p>Please authenticate through 9Remote first.</p>
+          </div>
+        </body>
+      </html>
+    `);
+    return;
+  }
+
   req._proxyTargetPort = targetPort;
   req.url = targetPath + (search || "");
   

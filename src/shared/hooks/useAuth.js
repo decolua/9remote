@@ -1,7 +1,36 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { io } from "socket.io-client";
 import { API_ENDPOINTS } from "@/shared/constants/api";
 import { useSessionStorage } from "./useSessionStorage";
+
+// Verify WebSocket connection to server
+function verifyServerConnection(tunnelUrl, timeout = 10000) {
+  return new Promise((resolve) => {
+    const socket = io(tunnelUrl, {
+      path: "/socket.io",
+      transports: ["polling", "websocket"],
+      timeout: timeout
+    });
+
+    const timer = setTimeout(() => {
+      socket.disconnect();
+      resolve(false);
+    }, timeout);
+
+    socket.on("connect", () => {
+      clearTimeout(timer);
+      socket.disconnect();
+      resolve(true);
+    });
+
+    socket.on("connect_error", () => {
+      clearTimeout(timer);
+      socket.disconnect();
+      resolve(false);
+    });
+  });
+}
 
 // Centralized auth logic - handles both token and API key auth
 export function useAuth() {
@@ -28,6 +57,12 @@ export function useAuth() {
       }
 
       const data = await response.json();
+
+      // Verify WebSocket connection before saving auth
+      const connected = await verifyServerConnection(data.tunnelUrl);
+      if (!connected) {
+        throw new Error("Server not reachable. Please try again.");
+      }
 
       // Save auth data to session storage
       setAuth({

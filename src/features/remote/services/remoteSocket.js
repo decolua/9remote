@@ -1,5 +1,28 @@
 // Remote Desktop Socket.IO namespace
 
+// Track remote availability globally
+let remoteAvailable = null;
+
+// Check if robotjs is available (called once at startup)
+export async function checkRemoteAvailable() {
+  if (remoteAvailable !== null) return remoteAvailable;
+  
+  try {
+    await import("@hurdlegroup/robotjs");
+    remoteAvailable = true;
+    console.log("✅ Remote desktop available");
+  } catch {
+    remoteAvailable = false;
+    console.log("ℹ️ Remote desktop not available (robotjs not installed)");
+  }
+  return remoteAvailable;
+}
+
+// Get cached remote availability status
+export function isRemoteAvailable() {
+  return remoteAvailable === true;
+}
+
 export async function setupRemoteSocket(io) {
   let robot = null;
   let TileManager = null;
@@ -31,11 +54,9 @@ export async function setupRemoteSocket(io) {
       KeyboardHandler = KH;
       ScreenHandler = SH;
       
-      // Set robot delays
       robot.setMouseDelay(2);
       robot.setKeyboardDelay(2);
       
-      console.log("✅ Remote desktop modules loaded");
       return true;
     } catch (error) {
       console.error("❌ Failed to load remote modules:", error.message);

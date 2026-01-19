@@ -8,7 +8,6 @@ import { decryptToken } from "../utils/token.js";
 export async function handleSessionCreate(request, env, corsHeaders) {
   const { apiKey } = await request.json();
 
-  // Validate API key
   if (!(await verifyApiKeyCrc(apiKey))) {
     return jsonError("Invalid API key", 400, corsHeaders);
   }
@@ -34,12 +33,10 @@ export async function handleSessionCreate(request, env, corsHeaders) {
 export async function handleSessionUpdate(request, env, corsHeaders) {
   const { apiKey, tunnelUrl } = await request.json();
 
-  // Validate API key
   if (!(await verifyApiKeyCrc(apiKey))) {
     return jsonError("Invalid API key", 400, corsHeaders);
   }
 
-  // Update tunnelUrl
   await env.DB.prepare(`
     UPDATE sessions SET tunnelUrl = ?, lastAccessAt = datetime('now')
     WHERE apiKey = ?
@@ -58,7 +55,6 @@ export async function handleConnect(request, env, corsHeaders) {
 
   // Support both token (from QR) and direct apiKey (manual entry)
   if (body.token) {
-    // Decrypt token
     const payload = decryptToken(body.token);
     if (!payload) {
       return jsonError("Invalid or expired token", 401, corsHeaders);
@@ -70,12 +66,10 @@ export async function handleConnect(request, env, corsHeaders) {
     return jsonError("Missing token or apiKey", 400, corsHeaders);
   }
 
-  // Validate key
   if (!(await verifyApiKeyCrc(apiKey))) {
     return jsonError("Invalid API key", 401, corsHeaders);
   }
 
-  // Query session
   const session = await env.DB.prepare(`
     SELECT tunnelUrl, machineId 
     FROM sessions 
@@ -90,14 +84,13 @@ export async function handleConnect(request, env, corsHeaders) {
     return jsonError("Server not ready. Please wait...", 503, corsHeaders);
   }
 
-  // Update last access
   await env.DB.prepare(`
     UPDATE sessions SET lastAccessAt = datetime('now') WHERE apiKey = ?
   `).bind(apiKey).run();
 
   return jsonResponse({
     tunnelUrl: session.tunnelUrl,
-    apiKey // Return key for client
+    apiKey
   }, corsHeaders);
 }
 

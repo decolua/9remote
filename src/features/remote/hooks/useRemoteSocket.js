@@ -15,7 +15,7 @@ export function useRemoteSocket() {
   const [authenticated, setAuthenticated] = useState(false);
   const { getAuth } = useSessionStorage();
 
-  // Initialize socket connection
+  // Initialize socket connection - only when component mounts
   useEffect(() => {
     const auth = getAuth();
     if (!auth?.apiKey) {
@@ -23,18 +23,13 @@ export function useRemoteSocket() {
       return;
     }
 
-    // Use tunnel URL from session storage (same as terminal)
     const tunnelUrl = auth?.tunnelUrl;
     if (!tunnelUrl) {
-      console.error("❌ No tunnel URL found");
       router.push("/terminal");
       return;
     }
 
-    // Connect to remote namespace via tunnel URL
     const serverUrl = `${tunnelUrl}${REMOTE_CONFIG.namespace}`;
-    console.log("🔌 Connecting to:", serverUrl);
-
     const socket = io(serverUrl, {
       transports: ["websocket", "polling"],
       timeout: 20000,
@@ -45,33 +40,33 @@ export function useRemoteSocket() {
     socketRef.current = socket;
 
     socket.on("connect", () => {
-      console.log("🔌 Remote socket connected");
       setConnected(true);
       setAuthenticated(true);
       setError("");
-      // Get screen dimensions immediately
       socket.emit("get-screen-dimensions");
     });
 
     socket.on("disconnect", () => {
-      console.log("🔌 Remote socket disconnected");
       setConnected(false);
       setStreaming(false);
       setAuthenticated(false);
     });
 
-    socket.on("connect_error", (err) => {
-      console.error("❌ Connection error:", err);
+    socket.on("connect_error", () => {
       setError("Connection failed");
       setConnected(false);
     });
 
+    // Cleanup on unmount
     return () => {
       if (socket) {
+        socket.emit("stop-streaming");
         socket.disconnect();
       }
+      socketRef.current = null;
     };
-  }, [router, getAuth]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   // Start streaming
   const startStreaming = useCallback(() => {

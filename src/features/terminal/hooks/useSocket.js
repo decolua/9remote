@@ -8,6 +8,7 @@ export function useSocket() {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState([]);
+  const [remoteAvailable, setRemoteAvailable] = useState(false);
   const socketRef = useRef(null);
   const router = useRouter();
   const { getAuth } = useSessionStorage();
@@ -21,20 +22,21 @@ export function useSocket() {
       return;
     }
 
-    // Create socket connection
     const newSocket = io(auth.tunnelUrl, {
       path: "/socket.io",
       transports: ["polling", "websocket"]
     });
 
     newSocket.on("connect", () => {
-      console.log("Socket connected");
       setConnected(true);
     });
 
     newSocket.on("disconnect", () => {
-      console.log("Socket disconnected");
       setConnected(false);
+    });
+
+    newSocket.on("serverInfo", (info) => {
+      setRemoteAvailable(info.remoteAvailable);
     });
 
     newSocket.on("sessionClosed", (sessionId) => {
@@ -47,7 +49,8 @@ export function useSocket() {
     return () => {
       newSocket.disconnect();
     };
-  }, [router, getAuth]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load sessions list
   const loadSessions = useCallback(() => {
@@ -82,12 +85,26 @@ export function useSocket() {
     });
   }, [loadSessions]);
 
+  // Rename session
+  const renameSession = useCallback((sessionId, newName, callback) => {
+    if (!socketRef.current) return;
+
+    socketRef.current.emit("renameSession", { sessionId, name: newName }, (result) => {
+      if (result.success) {
+        loadSessions();
+      }
+      callback?.(result);
+    });
+  }, [loadSessions]);
+
   return {
     socket: socketRef.current,
     connected,
     sessions,
+    remoteAvailable,
     loadSessions,
     createSession,
-    deleteSession
+    deleteSession,
+    renameSession
   };
 }

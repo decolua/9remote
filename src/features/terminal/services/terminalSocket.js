@@ -1,6 +1,7 @@
 // Terminal Socket.IO namespace
 import pty from "node-pty-prebuilt-multiarch";
 import os from "os";
+import { isRemoteAvailable } from "../../remote/services/remoteSocket.js";
 
 // Store sessions: sessionId -> { pty, name, createdAt, buffer }
 const sessions = new Map();
@@ -47,7 +48,10 @@ function buildShellEnv() {
 
 export function setupTerminalSocket(io) {
   io.on("connection", (socket) => {
-    console.log("📟 Terminal client connected:", socket.id);
+    console.log(`📟 Terminal client connected: ${socket.id}`);
+
+    // Send server info immediately on connect
+    socket.emit("serverInfo", { remoteAvailable: isRemoteAvailable() });
 
     // Get list of active sessions
     socket.on("getSessions", (callback) => {
@@ -108,9 +112,6 @@ export function setupTerminalSocket(io) {
           io.emit("sessionClosed", sessionId);
         });
 
-        // Send newline to trigger prompt
-        ptyProcess.write("\n");
-
         callback({ success: true, sessionId });
       } catch (error) {
         console.error("Failed to create session:", error);
@@ -166,8 +167,19 @@ export function setupTerminalSocket(io) {
       }
     });
 
+    // Rename session
+    socket.on("renameSession", ({ sessionId, name }, callback) => {
+      const session = sessions.get(sessionId);
+      if (session) {
+        session.name = name;
+        callback({ success: true });
+      } else {
+        callback({ success: false, error: "Session not found" });
+      }
+    });
+
     socket.on("disconnect", () => {
-      console.log("📟 Terminal client disconnected:", socket.id);
+      console.log(`📟 Terminal client disconnected: ${socket.id}`);
     });
   });
 }

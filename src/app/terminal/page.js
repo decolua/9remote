@@ -15,10 +15,23 @@ export default function TerminalPage() {
   // Navigation stack: [{ type: "list" }, { type: "terminal", sessionId }, { type: "remote" }, { type: "site", port, name }]
   const [viewStack, setViewStack] = useState([{ type: "list" }]);
   const [openedSessions, setOpenedSessions] = useState([]);
-  const [theme, setTheme] = useState("slate");
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("terminal_theme") || "dracula";
+    }
+    return "dracula";
+  });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, sessions, loadSessions, createSession, deleteSession } = useSocket();
+  const { socket, connected, sessions, remoteAvailable, loadSessions, createSession, deleteSession, renameSession } = useSocket();
+
+  // Save theme to localStorage when changed
+  const handleThemeChange = useCallback((newTheme) => {
+    setTheme(newTheme);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("terminal_theme", newTheme);
+    }
+  }, []);
 
   // Current view is top of stack
   const currentView = viewStack[viewStack.length - 1];
@@ -103,6 +116,14 @@ export default function TerminalPage() {
     });
   }, [deleteSession]);
 
+  const handleRenameSession = useCallback((sessionId, newName) => {
+    renameSession(sessionId, newName, (result) => {
+      if (!result.success) {
+        alert("Failed to rename session: " + result.error);
+      }
+    });
+  }, [renameSession]);
+
   const handleOpenRemote = useCallback(() => {
     pushView({ type: "remote" });
   }, [pushView]);
@@ -138,11 +159,13 @@ export default function TerminalPage() {
       >
         <SessionList
           sessions={sessions}
+          connected={connected}
           onSelect={handleSelectSession}
           onCreate={handleCreateSession}
           onDelete={handleDeleteSession}
+          onRename={handleRenameSession}
           onDisconnect={handleDisconnect}
-          onOpenRemote={handleOpenRemote}
+          onOpenRemote={remoteAvailable ? handleOpenRemote : null}
           onSelectSite={handleOpenSite}
           tunnelUrl={auth?.tunnelUrl}
           apiKey={auth?.apiKey}
@@ -163,12 +186,13 @@ export default function TerminalPage() {
           >
             <Terminal 
               socket={socket}
+              connected={connected}
               sessionId={sessionId}
               isActive={isActive}
               theme={theme}
-              onThemeChange={setTheme}
+              onThemeChange={handleThemeChange}
               onBack={popView}
-              onOpenRemote={handleOpenRemote}
+              onOpenRemote={remoteAvailable ? handleOpenRemote : null}
               onSelectSite={handleOpenSite}
               tunnelUrl={auth?.tunnelUrl}
               apiKey={auth?.apiKey}

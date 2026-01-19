@@ -9,14 +9,14 @@ import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
 
-export default function Terminal({ socket, sessionId, isActive = true, theme = "slate", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
+export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "dracula", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
   const terminalRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const inputHandlerRef = useRef(null);
   const outputHandlerRef = useRef(null);
 
-  const [connected, setConnected] = useState(false);
+  const [sessionConnected, setSessionConnected] = useState(false);
   const [sessionName, setSessionName] = useState("");
   const [showThemePicker, setShowThemePicker] = useState(false);
 
@@ -38,7 +38,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
       ...TERMINAL_OPTIONS,
       fontSize: window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize,
       fontFamily: TERMINAL_OPTIONS.fontFamily,
-      theme: THEMES[theme]
+      theme: THEMES[theme] || THEMES.dracula
     });
 
     const fitAddon = new FitAddon();
@@ -142,7 +142,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
     // Join session - get history
     socket.emit("joinSession", sessionId, (result) => {
       if (result.success) {
-        setConnected(true);
+        setSessionConnected(true);
         setSessionName(result.name);
       } else {
         term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);
@@ -186,7 +186,8 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
       term.dispose();
       termRef.current = null;
     };
-  }, [socket, sessionId, theme, doResize]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, sessionId]); // Don't include theme - handled by separate useEffect
 
   // Manage input handler based on isActive
   useEffect(() => {
@@ -215,39 +216,57 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
 
   // Update theme
   useEffect(() => {
-    if (termRef.current && THEMES[theme]) {
-      termRef.current.options.theme = THEMES[theme];
+    const currentTheme = THEMES[theme] || THEMES.dracula;
+    if (termRef.current) {
+      termRef.current.options.theme = currentTheme;
     }
   }, [theme]);
 
   return (
-    <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: THEMES[theme].background }}>
+    <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: (THEMES[theme] || THEMES.dracula).background }}>
       {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-2 sm:px-6 py-3 sm:py-4 flex items-center justify-between flex-shrink-0">
+      <div className="bg-slate-800 border-b border-slate-700 px-2 sm:px-6 py-2 sm:py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={onBack}
-            className="px-3 sm:px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded transition"
+            className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+            title="Back"
           >
-            ← Back
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
           </button>
-          <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />
+          {/* Connection indicator - green if WS connected, red if not */}
+          <span 
+            className={`w-2 h-2 rounded-full ${wsConnected ? "bg-green-500" : "bg-red-500 animate-pulse"}`}
+            title={wsConnected ? "Connected" : "Disconnected"}
+          />
+          {!wsConnected && (
+            <span className="text-red-400 text-xs hidden sm:inline">Reconnecting...</span>
+          )}
           <h1 className="text-white text-sm sm:text-base font-semibold truncate max-w-[150px] sm:max-w-none">
             {sessionName || "Terminal"}
           </h1>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Remote Desktop Button */}
-          <button
-            onClick={onOpenRemote}
-            className="px-3 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            <span className="hidden sm:inline">Remote</span>
-          </button>
+          {/* Remote Desktop Button - only show if available and connected */}
+          {onOpenRemote && (
+            <button
+              onClick={onOpenRemote}
+              disabled={!wsConnected}
+              className={`px-3 sm:px-4 py-2 text-white text-sm font-medium rounded transition flex items-center gap-2 ${
+                wsConnected 
+                  ? "bg-indigo-600 hover:bg-indigo-700" 
+                  : "bg-indigo-600/50 cursor-not-allowed"
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <span className="hidden sm:inline">Remote</span>
+            </button>
+          )}
 
           {/* Sites List */}
           <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} onSelectSite={onSelectSite} />
@@ -258,7 +277,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
               onClick={() => setShowThemePicker(!showThemePicker)}
               className="px-3 sm:px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded transition flex items-center gap-2"
             >
-              <span className="w-4 h-4 rounded-full" style={{ background: THEMES[theme].cursor }} />
+              <span className="w-4 h-4 rounded-full" style={{ background: (THEMES[theme] || THEMES.dracula).background, border: "2px solid #94a3b8" }} />
               <span className="hidden sm:inline">Theme</span>
             </button>
 
@@ -271,7 +290,7 @@ export default function Terminal({ socket, sessionId, isActive = true, theme = "
                     className={`w-full px-3 py-2 text-left text-sm rounded flex items-center gap-2 ${theme === t ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-700"
                       }`}
                   >
-                    <span className="w-3 h-3 rounded-full" style={{ background: THEMES[t].background, border: "1px solid #555" }} />
+                    <span className="w-3 h-3 rounded-full" style={{ background: THEMES[t].background, border: "2px solid #94a3b8" }} />
                     {t.charAt(0).toUpperCase() + t.slice(1)}
                   </button>
                 ))}
