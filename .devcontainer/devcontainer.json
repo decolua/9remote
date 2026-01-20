@@ -5,7 +5,7 @@
   "forwardPorts": [3000],
   "portsAttributes": {
     "3000": {
-      "label": "9Remote Server",
+      "label": "9Remote Server ",
       "onAutoForward": "notify"
     }
   }

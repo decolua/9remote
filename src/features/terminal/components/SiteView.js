@@ -60,6 +60,12 @@ export default function SiteView({ port, siteName, onBack }) {
     }
   }, [canGoForward, historyIndex, history, port]);
 
+  const handleRefresh = useCallback(() => {
+    if (iframeRef.current) {
+      iframeRef.current.src = iframeRef.current.src;
+    }
+  }, []);
+
   return (
     <div className="h-[var(--app-height,100vh)] flex flex-col bg-slate-900">
       {/* Header */}
@@ -111,6 +117,15 @@ export default function SiteView({ port, siteName, onBack }) {
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+          <button
+            onClick={handleRefresh}
+            className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+            title="Refresh"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           </button>
         </div>

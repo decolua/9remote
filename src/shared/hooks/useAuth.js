@@ -71,10 +71,12 @@ export function useAuth() {
         mode: "remote"
       });
 
-      // Navigate to terminal
-      router.push("/terminal/");
-
-      return { success: true };
+      // Return success with flag to ask user about saving key
+      return { 
+        success: true, 
+        shouldAskToSave: true,
+        apiKey: credentials.apiKey || data.apiKey 
+      };
     } catch (err) {
       setError(err.message);
       return { success: false, error: err.message };

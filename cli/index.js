@@ -178,7 +178,7 @@ async function startServerAndTunnel(selectedKey) {
 
   // Start Quick Tunnel
   let tunnelUrl = null;
-  const tunnelProcess = spawn(bin, ["tunnel", "--url", "http://0.0.0.0:3000"], {
+  const tunnelProcess = spawn(bin, ["tunnel", "--url", "http://localhost:3000"], {
     stdio: ["ignore", "pipe", "pipe"]
   });
 
@@ -222,13 +222,16 @@ async function startServerAndTunnel(selectedKey) {
     return null;
   }
 
+  console.log(chalk.green(`✅ Tunnel URL: ${tunnelUrl}`));
+
   // Verify tunnel is connected to server
   const maxWaitTime = 120000; // 1 minute
   const checkInterval = 1000; // 2 seconds
   const maxRetries = Math.floor(maxWaitTime / checkInterval);
   let tunnelReady = false;
   
-  process.stdout.write(chalk.cyan("🔗 Waiting for tunnel"));
+  console.log(chalk.cyan("🔗 Verifying tunnel connection..."));
+  process.stdout.write(chalk.cyan("   Checking"));
   
   for (let i = 0; i < maxRetries; i++) {
     try {

@@ -48,3 +48,4 @@ worker/package-lock.json
 package-lock.json
 worker/src/handlers/static.js
 landing/template.html
+.devcontainer/devcontainer.json
