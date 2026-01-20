@@ -165,7 +165,7 @@ export default function TerminalPage() {
           onDelete={handleDeleteSession}
           onRename={handleRenameSession}
           onDisconnect={handleDisconnect}
-          onOpenRemote={remoteAvailable ? handleOpenRemote : null}
+          onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
           onSelectSite={handleOpenSite}
           tunnelUrl={auth?.tunnelUrl}
           apiKey={auth?.apiKey}
@@ -192,7 +192,7 @@ export default function TerminalPage() {
               theme={theme}
               onThemeChange={handleThemeChange}
               onBack={popView}
-              onOpenRemote={remoteAvailable ? handleOpenRemote : null}
+              onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
               onSelectSite={handleOpenSite}
               tunnelUrl={auth?.tunnelUrl}
               apiKey={auth?.apiKey}

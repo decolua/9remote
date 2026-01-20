@@ -3,17 +3,36 @@
 // Track remote availability globally
 let remoteAvailable = null;
 
+function isKnownHeadless() {
+  // Known headless environments - skip slow robotjs import
+  return (
+    process.env.CODESPACES === "true" ||
+    process.env.GITPOD_WORKSPACE_ID ||
+    (process.platform === "linux" && !process.env.DISPLAY)
+  );
+}
+
 // Check if robotjs is available (called once at startup)
 export async function checkRemoteAvailable() {
   if (remoteAvailable !== null) return remoteAvailable;
   
+  // Quick check for known headless environments
+  if (isKnownHeadless()) {
+    remoteAvailable = false;
+    console.log("ℹ️ Remote desktop not available (headless environment)");
+    return remoteAvailable;
+  }
+  
+  // Actually test robotjs for unknown environments
   try {
-    await import("@hurdlegroup/robotjs");
+    const robotModule = await import("@hurdlegroup/robotjs");
+    const robot = robotModule.default || robotModule;
+    robot.getScreenSize(); // Will throw if no display
     remoteAvailable = true;
     console.log("✅ Remote desktop available");
   } catch {
     remoteAvailable = false;
-    console.log("ℹ️ Remote desktop not available (robotjs not installed)");
+    console.log("ℹ️ Remote desktop not available (no display or robotjs not installed)");
   }
   return remoteAvailable;
 }
