@@ -23,7 +23,7 @@ export default function TerminalPage() {
   });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, connected, sessions, remoteAvailable, loadSessions, createSession, deleteSession, renameSession } = useSocket();
+  const { socket, connected, sessions, remoteAvailable, codespaceInfo, loadSessions, createSession, deleteSession, renameSession } = useSocket();
 
   // Save theme to localStorage when changed
   const handleThemeChange = useCallback((newTheme) => {
@@ -196,6 +196,7 @@ export default function TerminalPage() {
               onSelectSite={handleOpenSite}
               tunnelUrl={auth?.tunnelUrl}
               apiKey={auth?.apiKey}
+              codespaceInfo={codespaceInfo}
             />
           </div>
         );
