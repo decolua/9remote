@@ -8,6 +8,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { bin, install } from "cloudflared";
 import fs from "fs";
+import { Resolver } from "dns/promises";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKeys, addKey, deleteKey, saveState, clearState } from "./utils/state.js";
@@ -233,8 +234,16 @@ async function startServerAndTunnel(selectedKey) {
   console.log(chalk.cyan("🔗 Verifying tunnel connection..."));
   process.stdout.write(chalk.cyan("   Checking"));
   
+  // Use Cloudflare DNS resolver to avoid system DNS cache issues
+  const resolver = new Resolver();
+  resolver.setServers(["1.1.1.1", "1.0.0.1"]);
+  
   for (let i = 0; i < maxRetries; i++) {
     try {
+      // Force DNS lookup with Cloudflare DNS
+      const hostname = new URL(tunnelUrl).hostname;
+      await resolver.resolve4(hostname);
+
       const healthRes = await fetch(`${tunnelUrl}/api/health`, { 
         signal: AbortSignal.timeout(5000) 
       });
@@ -242,7 +251,7 @@ async function startServerAndTunnel(selectedKey) {
         tunnelReady = true;
         break;
       }
-    } catch {
+    } catch(error) {
       // Retry
     }
     
