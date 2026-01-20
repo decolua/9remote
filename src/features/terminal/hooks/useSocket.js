@@ -9,6 +9,7 @@ export function useSocket() {
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [remoteAvailable, setRemoteAvailable] = useState(false);
+  const [codespaceInfo, setCodespaceInfo] = useState(null);
   const socketRef = useRef(null);
   const router = useRouter();
   const { getAuth } = useSessionStorage();
@@ -37,6 +38,12 @@ export function useSocket() {
 
     newSocket.on("serverInfo", (info) => {
       setRemoteAvailable(info.remoteAvailable);
+      if (info.isCodespaces) {
+        setCodespaceInfo({
+          isCodespaces: info.isCodespaces,
+          codespaceName: info.codespaceName
+        });
+      }
     });
 
     newSocket.on("sessionClosed", (sessionId) => {
@@ -97,14 +104,31 @@ export function useSocket() {
     });
   }, [loadSessions]);
 
+  // Stop codespace
+  const stopCodespace = useCallback(async () => {
+    const auth = getAuth();
+    if (!auth?.tunnelUrl || !codespaceInfo?.isCodespaces) return false;
+    
+    try {
+      const response = await fetch(`${auth.tunnelUrl}/api/codespace/stop`, {
+        method: "POST"
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }, [getAuth, codespaceInfo]);
+
   return {
     socket: socketRef.current,
     connected,
     sessions,
     remoteAvailable,
+    codespaceInfo,
     loadSessions,
     createSession,
     deleteSession,
-    renameSession
+    renameSession,
+    stopCodespace
   };
 }

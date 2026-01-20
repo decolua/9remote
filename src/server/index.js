@@ -5,10 +5,49 @@
 import { createServer } from "http";
 import { parse } from "url";
 import next from "next";
+import { exec } from "child_process";
 import { setupSocketIO } from "../shared/lib/socketio.js";
 import { createProxyServer, handleProxyRequest } from "./proxy/index.js";
 import { handleLocalSites } from "./api/localSites.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
+
+function isCodespaces() {
+  return process.env.CODESPACES === "true";
+}
+
+async function handleCodespaceStop(req, res) {
+  if (req.method !== "POST") {
+    res.writeHead(405);
+    res.end(JSON.stringify({ error: "Method not allowed" }));
+    return;
+  }
+
+  if (!isCodespaces()) {
+    res.writeHead(400);
+    res.end(JSON.stringify({ error: "Not running on Codespaces" }));
+    return;
+  }
+
+  const codespaceName = process.env.CODESPACE_NAME;
+  if (!codespaceName) {
+    res.writeHead(400);
+    res.end(JSON.stringify({ error: "Codespace name not found" }));
+    return;
+  }
+
+  res.setHeader("Content-Type", "application/json");
+  res.writeHead(200);
+  res.end(JSON.stringify({ success: true, message: "Stopping codespace..." }));
+
+  // Execute stop command after response
+  setTimeout(() => {
+    exec(`gh codespace stop -c ${codespaceName}`, (error) => {
+      if (error) {
+        console.error("Failed to stop codespace:", error);
+      }
+    });
+  }, 500);
+}
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
@@ -42,6 +81,12 @@ export async function startServer() {
       // API routes
       if (pathname === "/api/local-sites") {
         await handleLocalSites(req, res);
+        return;
+      }
+      
+      // Codespace stop endpoint
+      if (pathname === "/api/codespace/stop") {
+        await handleCodespaceStop(req, res);
         return;
       }
       

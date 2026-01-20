@@ -178,7 +178,7 @@ async function startServerAndTunnel(selectedKey) {
 
   // Start Quick Tunnel
   let tunnelUrl = null;
-  const tunnelProcess = spawn(bin, ["tunnel", "--url", "http://localhost:3000"], {
+  const tunnelProcess = spawn(bin, ["tunnel", "--url", "http://0.0.0.0:3000"], {
     stdio: ["ignore", "pipe", "pipe"]
   });
 

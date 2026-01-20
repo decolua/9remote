@@ -6,6 +6,38 @@ import { isRemoteAvailable } from "../../remote/services/remoteSocket.js";
 // Store sessions: sessionId -> { pty, name, createdAt, buffer }
 const sessions = new Map();
 
+// Codespaces heartbeat management
+let activeConnections = 0;
+let heartbeatInterval = null;
+const HEARTBEAT_INTERVAL_MS = 60000; // 60 seconds
+
+function isCodespaces() {
+  return process.env.CODESPACES === "true";
+}
+
+function getCodespaceInfo() {
+  if (!isCodespaces()) return null;
+  return {
+    isCodespaces: true,
+    codespaceName: process.env.CODESPACE_NAME || "unknown"
+  };
+}
+
+function startCodespaceHeartbeat() {
+  if (heartbeatInterval) return;
+  console.log("💓 Starting Codespaces heartbeat...");
+  heartbeatInterval = setInterval(() => {
+    console.log(`💓 Codespaces heartbeat: ${activeConnections} active connections`);
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
+function stopCodespaceHeartbeat() {
+  if (!heartbeatInterval) return;
+  console.log("⏸️  Stopping Codespaces heartbeat");
+  clearInterval(heartbeatInterval);
+  heartbeatInterval = null;
+}
+
 function getDefaultShell() {
   if (process.platform === "win32") {
     return process.env.COMSPEC || "powershell.exe";
@@ -49,9 +81,18 @@ function buildShellEnv() {
 export function setupTerminalSocket(io) {
   io.on("connection", (socket) => {
     console.log(`📟 Terminal client connected: ${socket.id}`);
+    
+    // Track connections for Codespaces heartbeat
+    activeConnections++;
+    if (isCodespaces() && activeConnections === 1) {
+      startCodespaceHeartbeat();
+    }
 
-    // Send server info immediately on connect
-    socket.emit("serverInfo", { remoteAvailable: isRemoteAvailable() });
+    // Send server info immediately on connect (include Codespace info)
+    socket.emit("serverInfo", { 
+      remoteAvailable: isRemoteAvailable(),
+      ...getCodespaceInfo()
+    });
 
     // Get list of active sessions
     socket.on("getSessions", (callback) => {
@@ -180,6 +221,12 @@ export function setupTerminalSocket(io) {
 
     socket.on("disconnect", () => {
       console.log(`📟 Terminal client disconnected: ${socket.id}`);
+      
+      // Track disconnections for Codespaces heartbeat
+      activeConnections--;
+      if (isCodespaces() && activeConnections === 0) {
+        stopCodespaceHeartbeat();
+      }
     });
   });
 }
