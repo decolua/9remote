@@ -6,10 +6,11 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import SitesList from "@/features/terminal/components/SitesList";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
 
-export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "dracula", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
+export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "dracula", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey, codespaceInfo }) {
   const terminalRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -19,6 +20,8 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
   const [sessionConnected, setSessionConnected] = useState(false);
   const [sessionName, setSessionName] = useState("");
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [showStopDialog, setShowStopDialog] = useState(false);
+  const [stopping, setStopping] = useState(false);
 
   // Touch scroll will be set up after terminal is initialized
 
@@ -222,6 +225,25 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
     }
   }, [theme]);
 
+  // Handle stop codespace
+  const handleStopCodespace = async () => {
+    setStopping(true);
+    try {
+      const response = await fetch(`${tunnelUrl}/api/codespace/stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const result = await response.json();
+      if (result.success) {
+        console.log("Codespace stopping...");
+      }
+    } catch (error) {
+      console.error("Failed to stop codespace:", error);
+    } finally {
+      setStopping(false);
+    }
+  };
+
   return (
     <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: (THEMES[theme] || THEMES.dracula).background }}>
       {/* Header */}
@@ -250,6 +272,30 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Codespace Badge & Stop Button */}
+          {codespaceInfo?.isCodespaces && (
+            <>
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 rounded text-blue-400 text-xs font-medium">
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M0 2.5A1.5 1.5 0 011.5 1h13A1.5 1.5 0 0116 2.5v11a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 010 13.5v-11zM1.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h13a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-13z"/>
+                  <path d="M3 4.5a.5.5 0 01.5-.5h9a.5.5 0 010 1h-9a.5.5 0 01-.5-.5zM3 7a.5.5 0 01.5-.5h5a.5.5 0 010 1h-5A.5.5 0 013 7zm0 2.5a.5.5 0 01.5-.5h7a.5.5 0 010 1h-7a.5.5 0 01-.5-.5z"/>
+                </svg>
+                Codespaces
+              </div>
+              <button
+                onClick={() => setShowStopDialog(true)}
+                disabled={stopping}
+                className="px-3 sm:px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-600/50 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition flex items-center gap-2"
+                title="Stop Codespace"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span className="hidden sm:inline">{stopping ? "Stopping..." : "Stop"}</span>
+              </button>
+            </>
+          )}
+
           {/* Remote Desktop Button - only show if available and connected */}
           {onOpenRemote && (
             <button
@@ -314,6 +360,17 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
         sessionId={sessionId}
         onExpandChange={doResize}
         onRefocus={() => termRef.current?.focus()}
+      />
+
+      {/* Stop Codespace Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showStopDialog}
+        onClose={() => setShowStopDialog(false)}
+        onConfirm={handleStopCodespace}
+        title="Stop Codespace"
+        message={`Bạn có chắc muốn đóng Codespace "${codespaceInfo?.codespaceName}"? Tất cả kết nối sẽ bị ngắt.`}
+        confirmText="Stop"
+        cancelText="Cancel"
       />
     </div>
   );
