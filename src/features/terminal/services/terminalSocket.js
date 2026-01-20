@@ -25,15 +25,16 @@ function getCodespaceInfo() {
 
 function startCodespaceHeartbeat() {
   if (heartbeatInterval) return;
-  console.log("💓 Starting Codespaces heartbeat...");
+  console.log("💓 Starting Codespaces heartbeat");
   heartbeatInterval = setInterval(() => {
-    console.log(`💓 Codespaces heartbeat: ${activeConnections} active connections`);
+    // Silent activity to keep Codespaces alive
+    process.memoryUsage();
   }, HEARTBEAT_INTERVAL_MS);
 }
 
 function stopCodespaceHeartbeat() {
   if (!heartbeatInterval) return;
-  console.log("⏸️  Stopping Codespaces heartbeat");
+  console.log("⏸️ Stopping Codespaces heartbeat");
   clearInterval(heartbeatInterval);
   heartbeatInterval = null;
 }

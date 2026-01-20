@@ -6,11 +6,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import SitesList from "@/features/terminal/components/SitesList";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
-import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
 
-export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "dracula", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey, codespaceInfo, onStopCodespace }) {
+export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "dracula", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
   const terminalRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -20,7 +19,6 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
   const [sessionConnected, setSessionConnected] = useState(false);
   const [sessionName, setSessionName] = useState("");
   const [showThemePicker, setShowThemePicker] = useState(false);
-  const [showStopCodespaceDialog, setShowStopCodespaceDialog] = useState(false);
 
   // Touch scroll will be set up after terminal is initialized
 
@@ -252,26 +250,6 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Codespace Badge & Stop Button */}
-          {codespaceInfo?.isCodespaces && (
-            <div className="flex items-center gap-2">
-              <span className="hidden sm:inline px-2 py-1 bg-purple-600/30 text-purple-300 text-xs rounded border border-purple-500/50">
-                Codespaces
-              </span>
-              <button
-                onClick={() => setShowStopCodespaceDialog(true)}
-                className="px-2 sm:px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded transition flex items-center gap-1"
-                title="Stop Codespace"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-                </svg>
-                <span className="hidden sm:inline">Stop</span>
-              </button>
-            </div>
-          )}
-
           {/* Remote Desktop Button - only show if available and connected */}
           {onOpenRemote && (
             <button
@@ -336,17 +314,6 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
         sessionId={sessionId}
         onExpandChange={doResize}
         onRefocus={() => termRef.current?.focus()}
-      />
-
-      {/* Stop Codespace Confirm Dialog */}
-      <ConfirmDialog
-        isOpen={showStopCodespaceDialog}
-        onClose={() => setShowStopCodespaceDialog(false)}
-        onConfirm={onStopCodespace}
-        title="Stop Codespace"
-        message={`Stop "${codespaceInfo?.codespaceName || "this codespace"}"? This will disconnect all sessions.`}
-        confirmText="Stop"
-        cancelText="Cancel"
       />
     </div>
   );

@@ -169,6 +169,8 @@ export default function TerminalPage() {
           onSelectSite={handleOpenSite}
           tunnelUrl={auth?.tunnelUrl}
           apiKey={auth?.apiKey}
+          codespaceInfo={codespaceInfo}
+          onStopCodespace={stopCodespace}
         />
       </div>
 
@@ -196,8 +198,6 @@ export default function TerminalPage() {
               onSelectSite={handleOpenSite}
               tunnelUrl={auth?.tunnelUrl}
               apiKey={auth?.apiKey}
-              codespaceInfo={codespaceInfo}
-              onStopCodespace={stopCodespace}
             />
           </div>
         );

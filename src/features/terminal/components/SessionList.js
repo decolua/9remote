@@ -6,7 +6,7 @@ import Input from "@/shared/components/ui/Input";
 import SitesList from "@/features/terminal/components/SitesList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onSelectSite, tunnelUrl, apiKey, codespaceInfo, onStopCodespace }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -56,6 +56,15 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     });
   };
 
+  const handleStopCodespaceWithConfirm = () => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "Stop Codespace",
+      message: `Stop "${codespaceInfo?.codespaceName || "this codespace"}"? This will disconnect all sessions.`,
+      onConfirm: onStopCodespace
+    });
+  };
+
   const closeConfirmDialog = () => {
     setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: null });
   };
@@ -97,6 +106,21 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
 
           {/* Sites Button */}
           <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} onSelectSite={onSelectSite} />
+
+          {/* Stop Codespace Button */}
+          {codespaceInfo?.isCodespaces && (
+            <button
+              onClick={handleStopCodespaceWithConfirm}
+              className="px-2 sm:px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded transition flex items-center gap-1"
+              title="Stop Codespace"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+              </svg>
+              <span className="hidden sm:inline">Stop</span>
+            </button>
+          )}
 
           {/* Logout Button */}
           <Button
