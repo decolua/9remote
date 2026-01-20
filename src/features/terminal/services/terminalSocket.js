@@ -6,15 +6,6 @@ import { isRemoteAvailable } from "../../remote/services/remoteSocket.js";
 // Store sessions: sessionId -> { pty, name, createdAt, buffer }
 const sessions = new Map();
 
-// Get Codespace info
-function getCodespaceInfo() {
-  const isCodespaces = process.env.CODESPACES === "true";
-  return {
-    isCodespaces,
-    codespaceName: isCodespaces ? process.env.CODESPACE_NAME : null
-  };
-}
-
 function getDefaultShell() {
   if (process.platform === "win32") {
     return process.env.COMSPEC || "powershell.exe";
@@ -59,12 +50,8 @@ export function setupTerminalSocket(io) {
   io.on("connection", (socket) => {
     console.log(`📟 Terminal client connected: ${socket.id}`);
 
-    // Send server info + codespace info immediately on connect
-    const codespaceInfo = getCodespaceInfo();
-    socket.emit("serverInfo", { 
-      remoteAvailable: isRemoteAvailable(),
-      ...codespaceInfo
-    });
+    // Send server info immediately on connect
+    socket.emit("serverInfo", { remoteAvailable: isRemoteAvailable() });
 
     // Get list of active sessions
     socket.on("getSessions", (callback) => {

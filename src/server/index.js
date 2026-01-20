@@ -45,33 +45,6 @@ export async function startServer() {
         return;
       }
       
-      // Codespace stop endpoint
-      if (pathname === "/api/codespace/stop" && req.method === "POST") {
-        if (process.env.CODESPACES === "true") {
-          try {
-            const { exec } = await import("child_process");
-            const codespaceName = process.env.CODESPACE_NAME;
-            exec(`gh codespace stop --codespace ${codespaceName}`, (error) => {
-              if (error) {
-                console.error("Failed to stop codespace:", error);
-              }
-            });
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(200);
-            res.end(JSON.stringify({ success: true, message: "Stopping codespace..." }));
-          } catch (error) {
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(500);
-            res.end(JSON.stringify({ success: false, error: error.message }));
-          }
-        } else {
-          res.setHeader("Content-Type", "application/json");
-          res.writeHead(400);
-          res.end(JSON.stringify({ success: false, error: "Not running on Codespaces" }));
-        }
-        return;
-      }
-      
       // Proxy routes
       if (pathname.startsWith("/proxy/")) {
         const match = pathname.match(/^\/proxy\/(\d+)(\/.*)?$/);
