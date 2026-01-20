@@ -25,9 +25,7 @@ function getCodespaceInfo() {
 
 function startCodespaceHeartbeat() {
   if (heartbeatInterval) return;
-  console.log("💓 Starting Codespaces heartbeat");
   heartbeatInterval = setInterval(() => {
-    // Silent activity to keep Codespaces alive
     process.memoryUsage();
   }, HEARTBEAT_INTERVAL_MS);
 }

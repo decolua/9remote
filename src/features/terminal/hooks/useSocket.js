@@ -10,7 +10,9 @@ export function useSocket() {
   const [sessions, setSessions] = useState([]);
   const [remoteAvailable, setRemoteAvailable] = useState(false);
   const [codespaceInfo, setCodespaceInfo] = useState(null);
+  const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
   const socketRef = useRef(null);
+  const codespaceInfoRef = useRef(null);
   const router = useRouter();
   const { getAuth } = useSessionStorage();
 
@@ -34,15 +36,21 @@ export function useSocket() {
 
     newSocket.on("disconnect", () => {
       setConnected(false);
+      // If running on Codespaces, mark as disconnected (likely stopped)
+      if (codespaceInfoRef.current?.isCodespaces) {
+        setCodespaceDisconnected(true);
+      }
     });
 
     newSocket.on("serverInfo", (info) => {
       setRemoteAvailable(info.remoteAvailable);
       if (info.isCodespaces) {
-        setCodespaceInfo({
+        const csInfo = {
           isCodespaces: info.isCodespaces,
           codespaceName: info.codespaceName
-        });
+        };
+        setCodespaceInfo(csInfo);
+        codespaceInfoRef.current = csInfo;
       }
     });
 
@@ -125,6 +133,7 @@ export function useSocket() {
     sessions,
     remoteAvailable,
     codespaceInfo,
+    codespaceDisconnected,
     loadSessions,
     createSession,
     deleteSession,

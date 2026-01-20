@@ -6,12 +6,13 @@ import Input from "@/shared/components/ui/Input";
 import SitesList from "@/features/terminal/components/SitesList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onSelectSite, tunnelUrl, apiKey, codespaceInfo, onStopCodespace }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onSelectSite, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
+  const [showCodespaceModal, setShowCodespaceModal] = useState(false);
 
   const handleCreate = async () => {
     if (creating || !connected) return;
@@ -56,13 +57,9 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     });
   };
 
-  const handleStopCodespaceWithConfirm = () => {
-    setConfirmDialog({
-      isOpen: true,
-      title: "Stop Codespace",
-      message: `Stop "${codespaceInfo?.codespaceName || "this codespace"}"? This will disconnect all sessions.`,
-      onConfirm: onStopCodespace
-    });
+  const handleStopCodespace = () => {
+    setShowCodespaceModal(false);
+    onStopCodespace();
   };
 
   const closeConfirmDialog = () => {
@@ -81,7 +78,9 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             title={connected ? "Connected" : "Disconnected"}
           />
           {!connected && (
-            <span className="text-red-400 text-xs">Reconnecting...</span>
+            <span className="text-red-400 text-xs">
+              {codespaceDisconnected ? "Codespace stopped" : "Reconnecting..."}
+            </span>
           )}
         </div>
         
@@ -107,18 +106,17 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           {/* Sites Button */}
           <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} onSelectSite={onSelectSite} />
 
-          {/* Stop Codespace Button */}
+          {/* Codespace Button */}
           {codespaceInfo?.isCodespaces && (
             <button
-              onClick={handleStopCodespaceWithConfirm}
-              className="px-2 sm:px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded transition flex items-center gap-1"
-              title="Stop Codespace"
+              onClick={() => setShowCodespaceModal(true)}
+              className="px-2 sm:px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded transition flex items-center gap-1"
+              title="Codespace Info"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
               </svg>
-              <span className="hidden sm:inline">Stop</span>
+              <span className="hidden sm:inline">Codespace</span>
             </button>
           )}
 
@@ -250,6 +248,72 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         title={confirmDialog.title}
         message={confirmDialog.message}
       />
+
+      {/* Codespace Modal */}
+      {showCodespaceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowCodespaceModal(false)}
+          />
+          <div className="relative bg-slate-800 border border-slate-700 rounded-lg shadow-2xl max-w-sm w-full">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                </svg>
+                Codespace
+              </h3>
+              <button
+                onClick={() => setShowCodespaceModal(false)}
+                className="text-slate-400 hover:text-white transition"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Info */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-sm">Name</span>
+                <span className="text-white font-medium">{codespaceInfo?.codespaceName || "Unknown"}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-sm">Status</span>
+                <span className="text-green-400 font-medium flex items-center gap-1">
+                  <span className="w-2 h-2 bg-green-400 rounded-full" />
+                  Running
+                </span>
+              </div>
+            </div>
+
+            {/* Stop section */}
+            <div className="px-5 py-4 border-t border-slate-700 space-y-3">
+              <p className="text-slate-300 text-sm flex items-start gap-2">
+                <span className="text-yellow-400">💡</span>
+                Stop to save usage
+              </p>
+              <p className="text-slate-400 text-xs flex items-start gap-2">
+                <span className="text-orange-400">⚠️</span>
+                To restart, go to GitHub
+              </p>
+              <button
+                onClick={handleStopCodespace}
+                className="w-full py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded transition flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                </svg>
+                Stop Codespace
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
