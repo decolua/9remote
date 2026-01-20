@@ -2,9 +2,18 @@
 import pty from "node-pty-prebuilt-multiarch";
 import os from "os";
 import { isRemoteAvailable } from "../../remote/services/remoteSocket.js";
+import { trackTerminalConnection } from "../../../shared/lib/socketio.js";
 
 // Store sessions: sessionId -> { pty, name, createdAt, buffer }
 const sessions = new Map();
+
+function getCodespaceInfo() {
+  const isCodespaces = process.env.CODESPACES === "true";
+  return {
+    isCodespaces,
+    codespaceName: isCodespaces ? process.env.CODESPACE_NAME : null
+  };
+}
 
 function getDefaultShell() {
   if (process.platform === "win32") {
@@ -50,8 +59,15 @@ export function setupTerminalSocket(io) {
   io.on("connection", (socket) => {
     console.log(`📟 Terminal client connected: ${socket.id}`);
 
+    // Track connection for keep-alive
+    trackTerminalConnection(true);
+
     // Send server info immediately on connect
-    socket.emit("serverInfo", { remoteAvailable: isRemoteAvailable() });
+    const codespaceInfo = getCodespaceInfo();
+    socket.emit("serverInfo", { 
+      remoteAvailable: isRemoteAvailable(),
+      ...codespaceInfo
+    });
 
     // Get list of active sessions
     socket.on("getSessions", (callback) => {
@@ -180,6 +196,7 @@ export function setupTerminalSocket(io) {
 
     socket.on("disconnect", () => {
       console.log(`📟 Terminal client disconnected: ${socket.id}`);
+      trackTerminalConnection(false);
     });
   });
 }

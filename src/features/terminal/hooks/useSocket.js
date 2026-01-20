@@ -9,6 +9,7 @@ export function useSocket() {
   const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [remoteAvailable, setRemoteAvailable] = useState(false);
+  const [codespaceInfo, setCodespaceInfo] = useState({ isCodespaces: false, codespaceName: null });
   const socketRef = useRef(null);
   const router = useRouter();
   const { getAuth } = useSessionStorage();
@@ -37,6 +38,10 @@ export function useSocket() {
 
     newSocket.on("serverInfo", (info) => {
       setRemoteAvailable(info.remoteAvailable);
+      setCodespaceInfo({
+        isCodespaces: info.isCodespaces || false,
+        codespaceName: info.codespaceName || null
+      });
     });
 
     newSocket.on("sessionClosed", (sessionId) => {
@@ -102,6 +107,7 @@ export function useSocket() {
     connected,
     sessions,
     remoteAvailable,
+    codespaceInfo,
     loadSessions,
     createSession,
     deleteSession,

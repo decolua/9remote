@@ -4,6 +4,7 @@
 
 import { createServer } from "http";
 import { parse } from "url";
+import { exec } from "child_process";
 import next from "next";
 import { setupSocketIO } from "../shared/lib/socketio.js";
 import { createProxyServer, handleProxyRequest } from "./proxy/index.js";
@@ -42,6 +43,28 @@ export async function startServer() {
       // API routes
       if (pathname === "/api/local-sites") {
         await handleLocalSites(req, res);
+        return;
+      }
+      
+      // Codespace stop endpoint
+      if (pathname === "/api/codespace/stop" && req.method === "POST") {
+        if (process.env.CODESPACES !== "true") {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: "Not running on Codespaces" }));
+          return;
+        }
+        
+        exec("gh codespace stop --codespace $CODESPACE_NAME", (error) => {
+          if (error) {
+            console.error("Failed to stop Codespace:", error);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: "Failed to stop Codespace" }));
+            return;
+          }
+          
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: true }));
+        });
         return;
       }
       

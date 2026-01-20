@@ -6,11 +6,12 @@ import Input from "@/shared/components/ui/Input";
 import SitesList from "@/features/terminal/components/SitesList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onSelectSite, tunnelUrl, apiKey, codespaceInfo }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
+  const [stoppingCodespace, setStoppingCodespace] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
 
   const handleCreate = async () => {
@@ -56,6 +57,35 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     });
   };
 
+  const handleStopCodespace = async () => {
+    setStoppingCodespace(true);
+    try {
+      const response = await fetch(`${tunnelUrl}/api/codespace/stop`, {
+        method: "POST"
+      });
+      
+      if (!response.ok) {
+        throw new Error("Failed to stop Codespace");
+      }
+      
+      // Codespace will stop, connection will be lost
+    } catch (error) {
+      console.error("Error stopping Codespace:", error);
+      alert("Failed to stop Codespace");
+    } finally {
+      setStoppingCodespace(false);
+    }
+  };
+
+  const handleStopCodespaceWithConfirm = () => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "Stop Codespace",
+      message: `Are you sure you want to stop "${codespaceInfo.codespaceName}"? This will disconnect all sessions.`,
+      onConfirm: handleStopCodespace
+    });
+  };
+
   const closeConfirmDialog = () => {
     setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: null });
   };
@@ -73,6 +103,12 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           />
           {!connected && (
             <span className="text-red-400 text-xs">Reconnecting...</span>
+          )}
+          {/* Codespace badge */}
+          {codespaceInfo?.isCodespaces && (
+            <span className="px-2 py-1 bg-purple-600 text-white text-xs font-medium rounded">
+              Codespaces
+            </span>
           )}
         </div>
         
@@ -97,6 +133,19 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
 
           {/* Sites Button */}
           <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} onSelectSite={onSelectSite} />
+
+          {/* Stop Codespace Button */}
+          {codespaceInfo?.isCodespaces && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleStopCodespaceWithConfirm}
+              disabled={stoppingCodespace || !connected}
+              loading={stoppingCodespace}
+            >
+              Stop
+            </Button>
+          )}
 
           {/* Logout Button */}
           <Button
