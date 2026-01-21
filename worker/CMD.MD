@@ -1,71 +1,56 @@
-# Worker Commands
+# Cloudflare Worker Commands
 
-## Development
+## Database Migration
+
+### Apply schema changes to D1 database
+
 ```bash
-# Run local dev server
-npm run dev
+# Development
+npx wrangler d1 execute 9remote-db --local --file=./schema.sql
 
-# Run with specific port
-wrangler dev --port 8787
+# Production
+npx wrangler d1 execute 9remote-db --remote --file=./schema.sql
 ```
 
-## Deploy
-```bash
-# Deploy to Cloudflare
-npm run deploy
+## Deploy Worker
 
-# Deploy with specific env
-wrangler deploy --env production
+```bash
+# Deploy to production
+npx wrangler deploy
+
+# Deploy with live logs
+npx wrangler deploy --watch
 ```
 
-## KV Storage
+## View Logs
+
 ```bash
-# List all KV namespaces
-wrangler kv namespace list
+# Tail production logs
+npx wrangler tail
 
-# List keys in KV
-wrangler kv key list --namespace-id=bab4e68389474897a73e10509c084b02
-
-# Get value by key
-wrangler kv key get "KEY_NAME" --namespace-id=bab4e68389474897a73e10509c084b02
-
-# Put value
-wrangler kv key put "KEY_NAME" "VALUE" --namespace-id=bab4e68389474897a73e10509c084b02
-
-# Delete key
-wrangler kv key delete "KEY_NAME" --namespace-id=bab4e68389474897a73e10509c084b02
+# Tail with filters
+npx wrangler tail --format=pretty
 ```
 
-## Logs
-```bash
-# Tail real-time logs
-wrangler tail
+## Database Management
 
-# Tail with filter
-wrangler tail --format=pretty
+```bash
+# Query database (local)
+npx wrangler d1 execute 9remote-db --local --command="SELECT * FROM temp_keys"
+
+# Query database (production)
+npx wrangler d1 execute 9remote-db --remote --command="SELECT * FROM temp_keys"
+
+# Clear expired temp keys manually
+npx wrangler d1 execute 9remote-db --remote --command="DELETE FROM temp_keys WHERE expires_at < $(date +%s)000"
 ```
 
-## Secrets
+## Test Locally
+
 ```bash
-# List secrets
-wrangler secret list
+# Start local dev server
+npx wrangler dev
 
-# Add secret
-wrangler secret put SECRET_NAME
-
-# Delete secret
-wrangler secret delete SECRET_NAME
+# Test with local D1
+npx wrangler dev --local
 ```
-
-## Other
-```bash
-# Check worker status
-wrangler whoami
-
-# Login to Cloudflare
-wrangler login
-
-# Logout
-wrangler logout
-```
-

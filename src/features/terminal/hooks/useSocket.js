@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
+import { WORKER_API } from "@/shared/constants/api";
 
 // Socket.io connection management hook
 export function useSocket() {
@@ -30,8 +31,24 @@ export function useSocket() {
       transports: ["polling", "websocket"]
     });
 
-    newSocket.on("connect", () => {
+    newSocket.on("connect", async () => {
       setConnected(true);
+      
+      // Remove temp key after successful connection (one-time use)
+      if (auth.tempKey) {
+        try {
+          await fetch(`${WORKER_API}/api/temp-key/remove`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tempKey: auth.tempKey })
+          });
+          
+          // Clear temp key from session after removal
+          sessionStorage.removeItem("tempKey");
+        } catch (error) {
+          console.error("Failed to remove temp key:", error);
+        }
+      }
     });
 
     newSocket.on("disconnect", () => {

@@ -56,64 +56,37 @@ export function clearState() {
 // ==================== KEYS ====================
 
 /**
- * Load keys from file
- * @returns {{ machineId: string, keys: Array<{ key: string, name: string, createdAt: string }> }}
+ * Load single key from file
+ * @returns {{ machineId: string, key: string | null, name: string, createdAt: string | null }}
  */
-export function loadKeys() {
+export function loadKey() {
   try {
     ensureDir();
     if (!fs.existsSync(KEYS_FILE)) {
-      return { machineId: null, keys: [] };
+      return { machineId: null, key: null, name: "Default", createdAt: null };
     }
     return JSON.parse(fs.readFileSync(KEYS_FILE, "utf8"));
   } catch {
-    return { machineId: null, keys: [] };
+    return { machineId: null, key: null, name: "Default", createdAt: null };
   }
 }
 
 /**
- * Save keys to file
+ * Save single key to file (overwrites existing)
  */
-export function saveKeys(data) {
+export function saveKey(machineId, key, name = "Default") {
   try {
     ensureDir();
+    const data = {
+      machineId,
+      key,
+      name,
+      createdAt: new Date().toISOString()
+    };
     fs.writeFileSync(KEYS_FILE, JSON.stringify(data, null, 2));
+    return data;
   } catch (error) {
-    console.error("Error saving keys:", error);
+    console.error("Error saving key:", error);
+    return null;
   }
-}
-
-/**
- * Add a new key
- */
-export function addKey(machineId, key, name = "Default") {
-  const data = loadKeys();
-  data.machineId = machineId;
-  data.keys.push({
-    key,
-    name,
-    createdAt: new Date().toISOString()
-  });
-  saveKeys(data);
-  return data;
-}
-
-/**
- * Delete a key by index
- */
-export function deleteKey(index) {
-  const data = loadKeys();
-  if (index >= 0 && index < data.keys.length) {
-    data.keys.splice(index, 1);
-    saveKeys(data);
-  }
-  return data;
-}
-
-/**
- * Get default key (first one) or null
- */
-export function getDefaultKey() {
-  const data = loadKeys();
-  return data.keys.length > 0 ? data.keys[0].key : null;
 }

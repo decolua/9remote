@@ -20,7 +20,7 @@ function decode(str) {
 }
 
 export function useApiKeyStorage() {
-  // Save API key to localStorage
+  // Save single API key to localStorage
   const saveKey = useCallback((apiKey) => {
     if (!apiKey) return;
     try {

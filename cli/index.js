@@ -11,8 +11,8 @@ import fs from "fs";
 import { Resolver } from "dns/promises";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
-import { loadKeys, addKey, deleteKey, saveState, clearState } from "./utils/state.js";
-import { createToken } from "./utils/token.js";
+import { loadKey, saveKey, saveState, clearState } from "./utils/state.js";
+import { createTempKey } from "./utils/token.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
@@ -39,15 +39,23 @@ function showQRCode(url, title = "📱 Scan QR to connect:") {
 /**
  * Helper: Show connection info
  */
-function showConnectionInfo(selectedKey, tunnelUrl) {
-  const token = createToken(selectedKey, 5);
-  const connectUrl = `${WORKER_URL}?t=${token}`;
+async function showConnectionInfo(selectedKey, tunnelUrl) {
+  console.log(chalk.cyan("🔑 Creating temp key..."));
+  
+  const tempKeyData = await createTempKey(selectedKey, WORKER_URL);
+  
+  if (!tempKeyData) {
+    console.log(chalk.red("❌ Failed to create temp key"));
+    return;
+  }
+
+  const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
 
   showQRCode(connectUrl);
 
-  console.log(chalk.white(`\nWorker URL: ${chalk.blue(WORKER_URL)}`));
-  console.log(chalk.white(`Access Key: ${chalk.yellow(selectedKey)}`));
-  console.log(chalk.gray("Token expires in 5 minutes"));
+  console.log(chalk.white(`\nApp URL: ${chalk.blue(WORKER_URL)}`));
+  console.log(chalk.white(`Temp Key: ${chalk.yellow(tempKeyData.tempKey)}`));
+  console.log(chalk.gray(`Expires in 30 minutes (one-time use)`));
   console.log(chalk.gray("\nPress Ctrl+C to stop server\n"));
 }
 
@@ -348,7 +356,7 @@ async function mainMenu() {
       message: "Select action:",
       choices: [
         { name: "🚀 Start Server", value: "start" },
-        { name: "🔑 Manage Keys", value: "keys" },
+        { name: "🔑 Manage Key", value: "key" },
         { name: "❌ Exit", value: "exit" }
       ]
     }
@@ -358,8 +366,8 @@ async function mainMenu() {
     case "start":
       await startServer();
       break;
-    case "keys":
-      await manageKeys();
+    case "key":
+      await manageKey();
       break;
     case "exit":
       console.log(chalk.gray("Goodbye!"));
@@ -368,40 +376,21 @@ async function mainMenu() {
 }
 
 /**
- * Start server with selected key
+ * Start server with single key
  */
 async function startServer() {
   const machineId = await getConsistentMachineId();
-  let keysData = loadKeys();
+  let keyData = loadKey();
 
   // Auto create key if none exists
-  if (keysData.keys.length === 0) {
-    console.log(chalk.yellow("\n⚠️  No keys found. Creating default key..."));
+  if (!keyData.key) {
+    console.log(chalk.yellow("\n⚠️  No key found. Creating default key..."));
     const { key } = generateApiKeyWithMachine(machineId);
-    keysData = addKey(machineId, key, "Default");
+    keyData = saveKey(machineId, key, "Default");
     console.log(chalk.green("✅ Default key created!"));
   }
 
-  // Select key
-  let selectedKey;
-  if (keysData.keys.length === 1) {
-    selectedKey = keysData.keys[0].key;
-  } else {
-    const { keyIndex } = await inquirer.prompt([
-      {
-        type: "list",
-        name: "keyIndex",
-        message: "Select key:",
-        choices: keysData.keys.map((k, i) => ({
-          name: `${k.key.slice(0, 20)}... (${k.name})`,
-          value: i
-        }))
-      }
-    ]);
-    selectedKey = keysData.keys[keyIndex].key;
-  }
-
-  const result = await startServerAndTunnel(selectedKey);
+  const result = await startServerAndTunnel(keyData.key);
   if (!result) {
     await mainMenu();
     return;
@@ -409,7 +398,7 @@ async function startServer() {
 
   const { serverManager, tunnelProcess, tunnelUrl } = result;
 
-  showConnectionInfo(selectedKey, tunnelUrl);
+  await showConnectionInfo(keyData.key, tunnelUrl);
   setupExitHandler(serverManager, tunnelProcess);
 
   // Keep process alive
@@ -417,46 +406,80 @@ async function startServer() {
 }
 
 /**
- * Manage keys menu
+ * Manage single key menu
  */
-async function manageKeys() {
+async function manageKey() {
   const machineId = await getConsistentMachineId();
-  const keysData = loadKeys();
+  let keyData = loadKey();
 
-  console.log(chalk.cyan("\n🔑 Manage Keys"));
+  // Auto create key if none exists
+  if (!keyData.key) {
+    console.log(chalk.yellow("\n⚠️  No key found. Creating default key..."));
+    const { key } = generateApiKeyWithMachine(machineId);
+    keyData = saveKey(machineId, key, "Default");
+    console.log(chalk.green("✅ Default key created!"));
+  }
+
+  console.log(chalk.cyan("\n🔑 Manage Key"));
   console.log(chalk.gray("━".repeat(30)));
+  console.log(chalk.white(`Key: ${keyData.key}`));
+  console.log(chalk.gray(`Created: ${keyData.createdAt}`));
 
-  const choices = [
-    ...keysData.keys.map((k, i) => ({
-      name: `${k.key.slice(0, 25)}... (${k.name})`,
-      value: { action: "show", index: i }
-    })),
-    { name: chalk.green("➕ Create new key"), value: { action: "create" } },
-    { name: chalk.gray("← Back"), value: { action: "back" } }
-  ];
+  console.log(chalk.cyan("\n🔑 Creating temp key..."));
+  const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
+  
+  if (tempKeyData) {
+    const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
+    showQRCode(connectUrl, "📱 QR Code:");
+    console.log(chalk.gray(`Temp key: ${tempKeyData.tempKey} (expires in 30 minutes)`));
+  } else {
+    console.log(chalk.red("❌ Failed to create temp key"));
+  }
 
-  const { selected } = await inquirer.prompt([
+  const { action } = await inquirer.prompt([
     {
       type: "list",
-      name: "selected",
-      message: "Select:",
-      choices
+      name: "action",
+      message: "Action:",
+      choices: [
+        { name: "🔄 Regenerate Key", value: "regenerate" },
+        { name: chalk.gray("← Back"), value: "back" }
+      ]
     }
   ]);
 
-  switch (selected.action) {
-    case "create":
-      await createKey(machineId);
-      break;
-    case "show":
-      await showKey(selected.index);
-      break;
-    case "back":
-      await mainMenu();
-      return;
+  if (action === "regenerate") {
+    const { confirm } = await inquirer.prompt([
+      {
+        type: "confirm",
+        name: "confirm",
+        message: chalk.yellow("⚠️  This will replace your current key. Continue?"),
+        default: false
+      }
+    ]);
+
+    if (confirm) {
+      const { key } = generateApiKeyWithMachine(machineId);
+      keyData = saveKey(machineId, key, keyData.name);
+      
+      console.log(chalk.green(`\n✅ Key regenerated: ${keyData.key}`));
+      
+      console.log(chalk.cyan("🔑 Creating temp key..."));
+      const newTempKeyData = await createTempKey(keyData.key, WORKER_URL);
+      
+      if (newTempKeyData) {
+        const newConnectUrl = `${WORKER_URL}/login?k=${newTempKeyData.tempKey}`;
+        showQRCode(newConnectUrl, "📱 New QR Code:");
+        console.log(chalk.gray(`Temp key: ${newTempKeyData.tempKey} (expires in 30 minutes)`));
+      } else {
+        console.log(chalk.red("❌ Failed to create temp key"));
+      }
+
+      await inquirer.prompt([{ type: "input", name: "continue", message: "Press Enter to continue..." }]);
+    }
   }
 
-  await manageKeys();
+  await mainMenu();
 }
 
 /**
@@ -467,104 +490,32 @@ async function autoStartDev() {
   console.log(chalk.gray("━".repeat(30)));
 
   const machineId = await getConsistentMachineId();
-  let keysData = loadKeys();
+  let keyData = loadKey();
 
   // Auto create key if none exists
-  if (keysData.keys.length === 0) {
-    console.log(chalk.yellow("⚠️  No keys found. Creating default key..."));
+  if (!keyData.key) {
+    console.log(chalk.yellow("⚠️  No key found. Creating default key..."));
     const { key } = generateApiKeyWithMachine(machineId);
-    keysData = addKey(machineId, key, "Default");
+    keyData = saveKey(machineId, key, "Default");
     console.log(chalk.green("✅ Default key created!"));
   }
 
-  // Auto select first key
-  const selectedKey = keysData.keys[0].key;
-  console.log(chalk.gray(`Using key: ${selectedKey.slice(0, 20)}... (${keysData.keys[0].name})`));
+  console.log(chalk.gray(`Using key: ${keyData.key.slice(0, 20)}... (${keyData.name})`));
 
-  const result = await startServerAndTunnel(selectedKey);
+  const result = await startServerAndTunnel(keyData.key);
   if (!result) {
     process.exit(1);
   }
 
   const { serverManager, tunnelProcess, tunnelUrl } = result;
 
-  showConnectionInfo(selectedKey, tunnelUrl);
+  await showConnectionInfo(keyData.key, tunnelUrl);
   setupExitHandler(serverManager, tunnelProcess);
 
   // Keep process alive
   await new Promise(() => { });
 }
 
-/**
- * Create new key
- */
-async function createKey(machineId) {
-  const { name } = await inquirer.prompt([
-    {
-      type: "input",
-      name: "name",
-      message: "Key name:",
-      default: `Key ${loadKeys().keys.length + 1}`
-    }
-  ]);
-
-  const { key } = generateApiKeyWithMachine(machineId);
-  addKey(machineId, key, name);
-
-  const token = createToken(key, 5);
-  const connectUrl = `${WORKER_URL}?t=${token}`;
-
-  console.log(chalk.green(`\n✅ Key created: ${key}`));
-  showQRCode(connectUrl, "📱 QR Code:");
-
-  await inquirer.prompt([{ type: "input", name: "continue", message: "Press Enter to continue..." }]);
-}
-
-/**
- * Show key details with options
- */
-async function showKey(index) {
-  const keysData = loadKeys();
-  const keyData = keysData.keys[index];
-
-  console.log(chalk.cyan(`\n🔑 ${keyData.name}`));
-  console.log(chalk.gray("━".repeat(30)));
-  console.log(chalk.white(`Key: ${keyData.key}`));
-  console.log(chalk.gray(`Created: ${keyData.createdAt}`));
-
-  const token = createToken(keyData.key, 5);
-  const connectUrl = `${WORKER_URL}?t=${token}`;
-
-  showQRCode(connectUrl, "📱 QR Code:");
-
-  const { action } = await inquirer.prompt([
-    {
-      type: "list",
-      name: "action",
-      message: "Action:",
-      choices: [
-        { name: chalk.red("🗑️  Delete this key"), value: "delete" },
-        { name: chalk.gray("← Back"), value: "back" }
-      ]
-    }
-  ]);
-
-  if (action === "delete") {
-    const { confirm } = await inquirer.prompt([
-      {
-        type: "confirm",
-        name: "confirm",
-        message: "Are you sure?",
-        default: false
-      }
-    ]);
-
-    if (confirm) {
-      deleteKey(index);
-      console.log(chalk.green("✅ Key deleted"));
-    }
-  }
-}
 
 // Start app
 if (process.argv.includes("--auto")) {

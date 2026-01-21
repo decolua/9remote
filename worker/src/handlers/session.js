@@ -52,14 +52,36 @@ export async function handleSessionUpdate(request, env, corsHeaders) {
 export async function handleConnect(request, env, corsHeaders) {
   const body = await request.json();
   let apiKey;
+  let tempKey = body.tempKey || null;
 
-  // Support both token (from QR) and direct apiKey (manual entry)
+  // Support: tempKey (new), token (old encrypted), or direct apiKey (manual entry)
   if (body.token) {
-    const payload = decryptToken(body.token);
-    if (!payload) {
-      return jsonError("Invalid or expired token", 401, corsHeaders);
+    // Check if it's a temp key format (short, alphanumeric)
+    if (body.token.length <= 10 && /^[a-z0-9]+$/.test(body.token)) {
+      // It's a temp key
+      const tempKeyData = await env.DB.prepare(`
+        SELECT api_key, expires_at FROM temp_keys WHERE temp_key = ?
+      `).bind(body.token).first();
+
+      if (!tempKeyData) {
+        return jsonError("Invalid or expired temp key", 401, corsHeaders);
+      }
+
+      if (Date.now() > tempKeyData.expires_at) {
+        await env.DB.prepare(`DELETE FROM temp_keys WHERE temp_key = ?`).bind(body.token).run();
+        return jsonError("Temp key expired", 410, corsHeaders);
+      }
+
+      apiKey = tempKeyData.api_key;
+      tempKey = body.token;
+    } else {
+      // Old encrypted token
+      const payload = decryptToken(body.token);
+      if (!payload) {
+        return jsonError("Invalid or expired token", 401, corsHeaders);
+      }
+      apiKey = payload.key;
     }
-    apiKey = payload.key;
   } else if (body.apiKey) {
     apiKey = body.apiKey;
   } else {
@@ -90,7 +112,8 @@ export async function handleConnect(request, env, corsHeaders) {
 
   return jsonResponse({
     tunnelUrl: session.tunnelUrl,
-    apiKey
+    apiKey,
+    tempKey
   }, corsHeaders);
 }
 

@@ -23,13 +23,14 @@ export function useSessionStorage() {
     const apiKey = sessionStorage.getItem("apiKey");
     const tunnelUrl = sessionStorage.getItem("tunnelUrl");
     const mode = sessionStorage.getItem("mode");
+    const tempKey = sessionStorage.getItem("tempKey");
     
     if (!apiKey || !tunnelUrl) return null;
     
     // Ensure cookie is set when reading auth (in case page was refreshed)
     setAuthCookie(apiKey);
     
-    return { apiKey, tunnelUrl, mode };
+    return { apiKey, tunnelUrl, mode, tempKey };
   }, []);
 
   const setAuth = useCallback((data) => {
@@ -38,6 +39,10 @@ export function useSessionStorage() {
     sessionStorage.setItem("apiKey", data.apiKey);
     sessionStorage.setItem("tunnelUrl", data.tunnelUrl);
     sessionStorage.setItem("mode", data.mode || "remote");
+    
+    if (data.tempKey) {
+      sessionStorage.setItem("tempKey", data.tempKey);
+    }
     
     // Set cookie for proxy auth
     setAuthCookie(data.apiKey);

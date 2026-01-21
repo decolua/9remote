@@ -64,11 +64,12 @@ export function useAuth() {
         throw new Error("Server not reachable. Please try again.");
       }
 
-      // Save auth data to session storage
+      // Save auth data to session storage (include tempKey if provided)
       setAuth({
         apiKey: credentials.apiKey || data.apiKey,
         tunnelUrl: data.tunnelUrl,
-        mode: "remote"
+        mode: "remote",
+        tempKey: credentials.tempKey || null
       });
 
       // Return success with flag to ask user about saving key
@@ -85,8 +86,12 @@ export function useAuth() {
     }
   }, [router, setAuth]);
 
-  // Token-based auth (QR code)
-  const authenticateWithToken = useCallback(async (token) => {
+  // Token-based auth (QR code) - supports both old token and new temp key
+  const authenticateWithToken = useCallback(async (token, isTempKey = false) => {
+    if (isTempKey) {
+      // Temp key: verify first to get API key, then pass tempKey for removal
+      return authenticate({ token, tempKey: token });
+    }
     return authenticate({ token });
   }, [authenticate]);
 

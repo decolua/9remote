@@ -127,6 +127,15 @@ export default function TerminalPage() {
     pushView({ type: "remote" });
   }, [pushView]);
 
+  const handleOpenSite = useCallback((site) => {
+    // Open local site in new tab via proxy
+    if (site?.port) {
+      const auth = getAuth();
+      const proxyUrl = `${auth?.tunnelUrl}/proxy/${site.port}`;
+      window.open(proxyUrl, "_blank");
+    }
+  }, [getAuth]);
+
   const handleDisconnect = useCallback(() => {
     sessionStorage.clear();
     router.push("/");

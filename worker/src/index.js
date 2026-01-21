@@ -1,5 +1,6 @@
 import { handleStaticAsset } from "./handlers/static.js";
 import { handleSessionCreate, handleSessionUpdate, handleConnect, handleSessionDelete } from "./handlers/session.js";
+import { handleTempKeyCreate, handleTempKeyVerify, handleTempKeyRemove } from "./handlers/tempKey.js";
 
 // CORS headers
 const corsHeaders = {
@@ -44,11 +45,17 @@ export default {
   // Scheduled cleanup
   async scheduled(event, env, ctx) {
     try {
-      const result = await env.DB.prepare(`
+      // Clean expired sessions
+      const sessionsResult = await env.DB.prepare(`
         DELETE FROM sessions WHERE expiresAt < datetime('now')
       `).run();
 
-      console.log(`Cleaned up ${result.meta.changes} expired sessions`);
+      // Clean expired temp keys
+      const tempKeysResult = await env.DB.prepare(`
+        DELETE FROM temp_keys WHERE expires_at < ?
+      `).bind(Date.now()).run();
+
+      console.log(`Cleaned up ${sessionsResult.meta.changes} expired sessions and ${tempKeysResult.meta.changes} expired temp keys`);
     } catch (error) {
       console.error("Scheduled cleanup error:", error);
     }
@@ -77,6 +84,21 @@ async function handleAPI(request, pathname, env) {
   // DELETE /api/session/delete
   if (request.method === "DELETE" && pathname === "/api/session/delete") {
     return handleSessionDelete(request, env, corsHeaders);
+  }
+
+  // POST /api/temp-key/create
+  if (request.method === "POST" && pathname === "/api/temp-key/create") {
+    return handleTempKeyCreate(request, env, corsHeaders);
+  }
+
+  // GET /api/temp-key/verify
+  if (request.method === "GET" && pathname === "/api/temp-key/verify") {
+    return handleTempKeyVerify(request, env, corsHeaders);
+  }
+
+  // DELETE /api/temp-key/remove
+  if (request.method === "DELETE" && pathname === "/api/temp-key/remove") {
+    return handleTempKeyRemove(request, env, corsHeaders);
   }
 
   return new Response("Not Found", { status: 404, headers: corsHeaders });

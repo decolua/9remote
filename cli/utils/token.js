@@ -1,50 +1,30 @@
-import CryptoJS from "crypto-js";
-
-// Secret key for encryption (same on CLI and Worker)
-const SECRET_KEY = "9remote-secret-2026-v1";
+const TEMP_KEY_EXPIRY_MINUTES = 30;
 
 /**
- * Create encrypted token with key and expiry
- * @param {string} apiKey - API key to encrypt
- * @param {number} expiryMinutes - Token expiry in minutes (default 5)
- * @returns {string} Encrypted token
+ * Create temp key on Worker for API key
+ * @param {string} apiKey - API key
+ * @param {string} workerUrl - Worker URL
+ * @returns {Promise<{tempKey: string, expiresAt: number} | null>}
  */
-export function createToken(apiKey, expiryMinutes = 5) {
-  const payload = {
-    key: apiKey,
-    exp: Date.now() + expiryMinutes * 60 * 1000
-  };
-  
-  const encrypted = CryptoJS.AES.encrypt(
-    JSON.stringify(payload),
-    SECRET_KEY
-  ).toString();
-  
-  // Make URL-safe
-  return encodeURIComponent(encrypted);
-}
-
-/**
- * Decrypt token and validate expiry
- * @param {string} token - Encrypted token
- * @returns {{ key: string, exp: number } | null}
- */
-export function decryptToken(token) {
+export async function createTempKey(apiKey, workerUrl) {
   try {
-    const decrypted = CryptoJS.AES.decrypt(
-      decodeURIComponent(token),
-      SECRET_KEY
-    ).toString(CryptoJS.enc.Utf8);
-    
-    const payload = JSON.parse(decrypted);
-    
-    // Check expiry
-    if (Date.now() > payload.exp) {
-      return null; // Expired
+    const response = await fetch(`${workerUrl}/api/temp-key/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        apiKey, 
+        expiryMinutes: TEMP_KEY_EXPIRY_MINUTES 
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Failed to create temp key");
     }
-    
-    return payload;
-  } catch {
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error creating temp key:", error);
     return null;
   }
 }
