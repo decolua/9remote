@@ -9,10 +9,9 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
 const SessionList = dynamic(() => import("@/features/terminal/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
-const SiteView = dynamic(() => import("@/features/terminal/components/SiteView"), { ssr: false });
 
 export default function TerminalPage() {
-  // Navigation stack: [{ type: "list" }, { type: "terminal", sessionId }, { type: "remote" }, { type: "site", port, name }]
+  // Navigation stack: [{ type: "list" }, { type: "terminal", sessionId }, { type: "remote" }]
   const [viewStack, setViewStack] = useState([{ type: "list" }]);
   const [openedSessions, setOpenedSessions] = useState([]);
   const [theme, setTheme] = useState(() => {
@@ -128,10 +127,6 @@ export default function TerminalPage() {
     pushView({ type: "remote" });
   }, [pushView]);
 
-  const handleOpenSite = useCallback((site) => {
-    pushView({ type: "site", port: site.port, name: site.name });
-  }, [pushView]);
-
   const handleDisconnect = useCallback(() => {
     sessionStorage.clear();
     router.push("/");
@@ -166,7 +161,6 @@ export default function TerminalPage() {
           onRename={handleRenameSession}
           onDisconnect={handleDisconnect}
           onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
-          onSelectSite={handleOpenSite}
           tunnelUrl={auth?.tunnelUrl}
           apiKey={auth?.apiKey}
           codespaceInfo={codespaceInfo}
@@ -211,16 +205,6 @@ export default function TerminalPage() {
         </div>
       )}
 
-      {/* Site View - conditional render */}
-      {currentView.type === "site" && (
-        <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
-          <SiteView 
-            port={currentView.port} 
-            siteName={currentView.name} 
-            onBack={popView} 
-          />
-        </div>
-      )}
     </div>
   );
 }

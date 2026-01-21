@@ -1,5 +1,5 @@
 /**
- * Navigation interceptor script injected into proxied pages
+ * Service Worker registration script
  */
 
 export function getInterceptorScript(targetPort) {
@@ -12,6 +12,36 @@ export function getInterceptorScript(targetPort) {
   var targetPort = ${targetPort};
   var proxyBase = '/proxy/' + targetPort;
   
+  console.log('[9Remote Proxy] Registering Service Worker for port:', targetPort);
+  
+  // Register Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register(proxyBase + '/sw.js', { scope: '/' })
+      .then(function(registration) {
+        console.log('[9Remote Proxy] Service Worker registered:', registration.scope);
+        
+        // Wait for SW to be active
+        if (registration.active) {
+          console.log('[9Remote Proxy] Service Worker already active');
+        } else {
+          registration.addEventListener('updatefound', function() {
+            var worker = registration.installing;
+            worker.addEventListener('statechange', function() {
+              if (worker.state === 'activated') {
+                console.log('[9Remote Proxy] Service Worker activated');
+              }
+            });
+          });
+        }
+      })
+      .catch(function(error) {
+        console.error('[9Remote Proxy] Service Worker registration failed:', error);
+      });
+  } else {
+    console.warn('[9Remote Proxy] Service Worker not supported');
+  }
+  
+  // Notify parent iframe for navigation tracking
   function notifyParent(path) {
     if (window.parent !== window) {
       window.parent.postMessage({
@@ -25,30 +55,8 @@ export function getInterceptorScript(targetPort) {
   
   notifyParent(window.location.pathname.replace(proxyBase, '') || '/');
   
-  var origPushState = history.pushState;
-  var origReplaceState = history.replaceState;
-  
-  history.pushState = function() {
-    origPushState.apply(this, arguments);
-    notifyParent(window.location.pathname.replace(proxyBase, '') || '/');
-  };
-  
-  history.replaceState = function() {
-    origReplaceState.apply(this, arguments);
-    notifyParent(window.location.pathname.replace(proxyBase, '') || '/');
-  };
-  
   window.addEventListener('popstate', function() {
     notifyParent(window.location.pathname.replace(proxyBase, '') || '/');
-  });
-  
-  document.addEventListener('click', function(e) {
-    var target = e.target.closest('a');
-    if (target && target.href) {
-      setTimeout(function() {
-        notifyParent(window.location.pathname.replace(proxyBase, '') || '/');
-      }, 100);
-    }
   });
 })();
 </script>`;

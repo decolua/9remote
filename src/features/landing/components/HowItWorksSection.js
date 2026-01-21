@@ -26,7 +26,7 @@ export default function HowItWorksSection() {
     <section id="how-it-works" className="relative py-20 px-4 sm:px-6 lg:px-8 bg-slate-900/30">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-blue-500 bg-clip-text text-transparent">
             How It Works
           </h2>
           <p className="text-lg text-slate-400 max-w-2xl mx-auto">
@@ -36,7 +36,7 @@ export default function HowItWorksSection() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
           {/* Connection lines (desktop only) */}
-          <div className="hidden md:block absolute top-16 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-cyan-500 via-blue-500 to-sky-500" />
+          <div className="hidden md:block absolute top-16 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-blue-500 via-blue-500 to-blue-500" />
 
           {steps.map((step, index) => (
             <div
@@ -50,10 +50,10 @@ export default function HowItWorksSection() {
               {/* Step number circle */}
               <div className="flex justify-center mb-6">
                 <div className="relative">
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-cyan-500/50 relative z-10">
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-blue-500/50 relative z-10">
                     {step.number}
                   </div>
-                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 animate-ping opacity-20" />
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 animate-ping opacity-20" />
                 </div>
               </div>
 
@@ -66,7 +66,7 @@ export default function HowItWorksSection() {
                   {step.description}
                 </p>
                 <div className="p-3 bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-lg">
-                  <code className="text-cyan-400 font-mono text-xs sm:text-sm">
+                  <code className="text-blue-400 font-mono text-xs sm:text-sm">
                     {step.command}
                   </code>
                 </div>

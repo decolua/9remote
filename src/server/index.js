@@ -7,7 +7,7 @@ import { parse } from "url";
 import next from "next";
 import { exec } from "child_process";
 import { setupSocketIO } from "../shared/lib/socketio.js";
-import { createProxyServer, handleProxyRequest } from "./proxy/index.js";
+import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
 import { handleLocalSites } from "./api/localSites.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 
@@ -87,6 +87,43 @@ export async function startServer() {
       // Codespace stop endpoint
       if (pathname === "/api/codespace/stop") {
         await handleCodespaceStop(req, res);
+        return;
+      }
+      
+      // Proxy session management
+      if (pathname === "/api/proxy/start" && req.method === "POST") {
+        let body = "";
+        req.on("data", chunk => body += chunk);
+        req.on("end", () => {
+          const { port } = JSON.parse(body || "{}");
+          if (port) {
+            startProxySession(port);
+            res.setHeader("Content-Type", "application/json");
+            res.writeHead(200);
+            res.end(JSON.stringify({ success: true }));
+          } else {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: "Port required" }));
+          }
+        });
+        return;
+      }
+      
+      if (pathname === "/api/proxy/end" && req.method === "POST") {
+        let body = "";
+        req.on("data", chunk => body += chunk);
+        req.on("end", () => {
+          const { port } = JSON.parse(body || "{}");
+          if (port) {
+            endProxySession(port);
+            res.setHeader("Content-Type", "application/json");
+            res.writeHead(200);
+            res.end(JSON.stringify({ success: true }));
+          } else {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: "Port required" }));
+          }
+        });
         return;
       }
       

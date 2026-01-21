@@ -2,9 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
-export default function SiteView({ port, siteName, onBack }) {
-  const proxyUrl = `${window.location.origin}/proxy/${port}/`;
+export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
+  const baseUrl = tunnelUrl || (typeof window !== "undefined" ? window.location.origin : "");
+  const proxyUrl = `${baseUrl}/proxy/${port}/`;
   const iframeRef = useRef(null);
+  const windowRef = useRef(null);
+  const checkIntervalRef = useRef(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [isWindowOpen, setIsWindowOpen] = useState(false);
   
   // History tracking
   const [history, setHistory] = useState([`http://localhost:${port}/`]);
@@ -13,6 +18,32 @@ export default function SiteView({ port, siteName, onBack }) {
   const currentUrl = history[historyIndex] || `http://localhost:${port}/`;
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < history.length - 1;
+
+  // Start/end proxy session on mount/unmount
+  useEffect(() => {
+    const startSession = async () => {
+      try {
+        await fetch(`${baseUrl}/api/proxy/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ port })
+        });
+        setSessionReady(true);
+      } catch (err) {
+        console.error("Failed to start proxy session:", err);
+      }
+    };
+
+    startSession();
+
+    return () => {
+      fetch(`${baseUrl}/api/proxy/end`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ port })
+      }).catch(() => {});
+    };
+  }, [baseUrl, port]);
 
   useEffect(() => {
     // Listen for navigation messages from iframe
@@ -66,6 +97,55 @@ export default function SiteView({ port, siteName, onBack }) {
     }
   }, []);
 
+  const handleOpenInNewTab = useCallback(() => {
+    console.log("[SiteView] Opening new tab, proxyUrl:", proxyUrl);
+    
+    if (windowRef.current && !windowRef.current.closed) {
+      console.log("[SiteView] Window already open, focusing...");
+      windowRef.current.focus();
+      return;
+    }
+
+    windowRef.current = window.open(proxyUrl, `_proxy_${port}`, "noopener,noreferrer");
+    
+    if (!windowRef.current) {
+      console.error("[SiteView] Failed to open window - popup may be blocked");
+      alert("Popup blocked! Please allow popups for this site.");
+      return;
+    }
+    
+    console.log("[SiteView] Window opened successfully");
+    setIsWindowOpen(true);
+
+    // Start polling to check if window is closed
+    checkIntervalRef.current = setInterval(() => {
+      if (windowRef.current && windowRef.current.closed) {
+        console.log("[SiteView] Window closed, cleaning up...");
+        clearInterval(checkIntervalRef.current);
+        setIsWindowOpen(false);
+        windowRef.current = null;
+
+        // Call cleanup API
+        fetch(`${baseUrl}/api/proxy/end`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ port })
+        }).catch((err) => {
+          console.error("[SiteView] Cleanup failed:", err);
+        });
+      }
+    }, 1000);
+  }, [proxyUrl, port, baseUrl]);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div className="h-[var(--app-height,100vh)] flex flex-col bg-slate-900">
       {/* Header */}
@@ -91,6 +171,19 @@ export default function SiteView({ port, siteName, onBack }) {
 
         {/* Navigation buttons */}
         <div className="flex items-center gap-1">
+          <button
+            onClick={handleOpenInNewTab}
+            className={`p-2 rounded transition ${
+              isWindowOpen
+                ? "bg-blue-600 hover:bg-blue-700 text-white"
+                : "bg-slate-700 hover:bg-slate-600 text-white"
+            }`}
+            title={isWindowOpen ? "Focus opened tab" : "Open in new tab"}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </button>
           <button
             onClick={handleGoBack}
             disabled={!canGoBack}
@@ -133,13 +226,19 @@ export default function SiteView({ port, siteName, onBack }) {
 
       {/* Iframe */}
       <div className="flex-1 min-h-0">
-        <iframe
-          ref={iframeRef}
-          src={proxyUrl}
-          className="w-full h-full border-0"
-          title={siteName || `Site on port ${port}`}
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-top-navigation"
-        />
+        {sessionReady ? (
+          <iframe
+            ref={iframeRef}
+            src={proxyUrl}
+            className="w-full h-full border-0"
+            title={siteName || `Site on port ${port}`}
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-top-navigation"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-slate-400">
+            Loading...
+          </div>
+        )}
       </div>
     </div>
   );

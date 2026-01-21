@@ -6,7 +6,7 @@ import Input from "@/shared/components/ui/Input";
 import SitesList from "@/features/terminal/components/SitesList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onSelectSite, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -104,7 +104,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           )}
 
           {/* Sites Button */}
-          <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} onSelectSite={onSelectSite} />
+          <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} />
 
           {/* Codespace Button */}
           {codespaceInfo?.isCodespaces && (

@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
-export default function SitesList({ tunnelUrl, apiKey, onSelectSite }) {
+export default function SitesList({ tunnelUrl, apiKey }) {
   const [sites, setSites] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [openedWindows, setOpenedWindows] = useState({});
+  const checkIntervalsRef = useRef({});
 
   const loadSites = async () => {
     setLoading(true);
@@ -32,16 +34,93 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite }) {
     }
   }, [showModal]);
 
-  const handleSelectSite = (site) => {
-    setShowModal(false);
-    if (onSelectSite) {
-      onSelectSite(site);
+  const handleSelectSite = async (site) => {
+    const { port } = site;
+    const proxyUrl = `${tunnelUrl}/proxy/${port}/`;
+    
+    // If window already open, focus it
+    if (openedWindows[port] && !openedWindows[port].closed) {
+      openedWindows[port].focus();
+      return;
     }
+
+    // Open blank window first (synchronous - prevents popup blocking)
+    const windowRef = window.open('about:blank', `_proxy_${port}`);
+    
+    if (!windowRef) {
+      alert("Popup blocked! Please allow popups for this site.");
+      return;
+    }
+    
+    // Track window
+    setOpenedWindows(prev => ({ ...prev, [port]: windowRef }));
+
+    // Start proxy session
+    try {
+      await fetch(`${tunnelUrl}/api/proxy/start`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({ port })
+      });
+      
+      // Navigate to proxy URL
+      windowRef.location.href = proxyUrl;
+    } catch (err) {
+      console.error(`[SitesList] Failed to start proxy session:`, err);
+      alert(`Failed to start proxy session for ${site.name}`);
+      windowRef.close();
+      setOpenedWindows(prev => {
+        const updated = { ...prev };
+        delete updated[port];
+        return updated;
+      });
+      return;
+    }
+
+    // Start polling to check if window is closed
+    checkIntervalsRef.current[port] = setInterval(async () => {
+      if (windowRef.closed) {
+        clearInterval(checkIntervalsRef.current[port]);
+        delete checkIntervalsRef.current[port];
+        
+        setOpenedWindows(prev => {
+          const updated = { ...prev };
+          delete updated[port];
+          return updated;
+        });
+
+        // Call cleanup API
+        try {
+          await fetch(`${tunnelUrl}/api/proxy/end`, {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({ port })
+          });
+        } catch (err) {
+          console.error(`[SitesList] Cleanup failed for port ${port}:`, err);
+        }
+      }
+    }, 1000);
   };
 
   const handleClose = () => {
     setShowModal(false);
   };
+
+  // Cleanup all intervals on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(checkIntervalsRef.current).forEach(interval => {
+        clearInterval(interval);
+      });
+    };
+  }, []);
 
   return (
     <>
