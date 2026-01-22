@@ -2,6 +2,7 @@
 import { Server } from "socket.io";
 import { setupTerminalSocket } from "../../features/terminal/services/terminalSocket.js";
 import { setupRemoteSocket, checkRemoteAvailable } from "../../features/remote/services/remoteSocket.js";
+import { setupFileExplorerSocket } from "../../features/fileExplorer/services/fileExplorerSocket.js";
 
 export async function setupSocketIO(server) {
   const io = new Server(server, {
@@ -26,6 +27,9 @@ export async function setupSocketIO(server) {
 
   // Setup Remote Desktop namespace (/remote)
   setupRemoteSocket(io);
+
+  // Setup File Explorer (uses default namespace)
+  setupFileExplorerSocket(io);
 
   return io;
 }

@@ -131,6 +131,7 @@ export function useSocket() {
 
   return {
     socket,
+    socketRef,
     connected,
     error,
     retryStatus,

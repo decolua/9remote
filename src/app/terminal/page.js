@@ -6,10 +6,16 @@ import dynamic from "next/dynamic";
 import { useSocket } from "@/features/terminal/hooks/useSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
+import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 
 const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
 const SessionList = dynamic(() => import("@/features/terminal/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
+const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/WorkspaceList"), { ssr: false });
+const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/FileExplorer"), { ssr: false });
+const FileEditor = dynamic(() => import("@/features/fileExplorer/components/FileEditor"), { ssr: false });
+const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPanel"), { ssr: false });
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 
 export default function TerminalPage() {
@@ -40,7 +46,8 @@ export default function TerminalPage() {
   });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socket, socketRef, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const fileSocket = useFileSocket(socketRef);
 
   // Save theme to localStorage when changed
   const handleThemeChange = useCallback((newTheme) => {
@@ -132,6 +139,39 @@ export default function TerminalPage() {
     pushView({ type: "remote" });
   }, [pushView]);
 
+  const handleOpenFiles = useCallback(() => {
+    pushView({ type: "workspaces" });
+  }, [pushView]);
+
+  const handleSelectWorkspace = useCallback((workspacePath) => {
+    addRecentWorkspace(workspacePath);
+    pushView({ type: "files", workspace: workspacePath });
+  }, [pushView]);
+
+  const handleBrowseFolder = useCallback((startPath) => {
+    pushView({ type: "files", workspace: startPath });
+  }, [pushView]);
+
+  const handleOpenFile = useCallback((filePath) => {
+    pushView({ type: "editor", path: filePath });
+  }, [pushView]);
+
+  const handleOpenGit = useCallback(() => {
+    const filesView = viewStack.find(v => v.type === "files");
+    if (filesView?.workspace) {
+      pushView({ type: "git", workspace: filesView.workspace });
+    }
+  }, [pushView, viewStack]);
+
+  const handleSetWorkspace = useCallback((workspacePath) => {
+    // Update current files view with new workspace
+    const newStack = viewStack.map(v => 
+      v.type === "files" ? { ...v, workspace: workspacePath } : v
+    );
+    // This will trigger re-render with new workspace
+    addRecentWorkspace(workspacePath);
+  }, [viewStack]);
+
   const handleOpenSite = useCallback((site) => {
     // Open local site in new tab via proxy
     if (site?.port) {
@@ -178,6 +218,7 @@ export default function TerminalPage() {
           onRename={handleRenameSession}
           onDisconnect={handleDisconnect}
           onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
+          onOpenFiles={handleOpenFiles}
           tunnelUrl={auth?.tunnelUrl}
           apiKey={auth?.apiKey}
           codespaceInfo={codespaceInfo}
@@ -220,6 +261,53 @@ export default function TerminalPage() {
       {currentView.type === "remote" && (
         <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
           <RemoteDesktop onClose={popView} />
+        </div>
+      )}
+
+      {/* Workspace List */}
+      {currentView.type === "workspaces" && (
+        <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
+          <WorkspaceList
+            onSelect={handleSelectWorkspace}
+            onBrowse={handleBrowseFolder}
+            onBack={popView}
+          />
+        </div>
+      )}
+
+      {/* File Explorer */}
+      {currentView.type === "files" && (
+        <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
+          <FileExplorer
+            workspace={currentView.workspace}
+            fileSocket={fileSocket}
+            onBack={popView}
+            onOpenFile={handleOpenFile}
+            onOpenGit={handleOpenGit}
+            onSetWorkspace={handleSetWorkspace}
+          />
+        </div>
+      )}
+
+      {/* File Editor */}
+      {currentView.type === "editor" && (
+        <div className="absolute inset-0 z-30 animate-in slide-in-from-right duration-300">
+          <FileEditor
+            filePath={currentView.path}
+            fileSocket={fileSocket}
+            onBack={popView}
+          />
+        </div>
+      )}
+
+      {/* Git Panel */}
+      {currentView.type === "git" && (
+        <div className="absolute inset-0 z-30 animate-in slide-in-from-right duration-300">
+          <GitPanel
+            workspace={currentView.workspace}
+            fileSocket={fileSocket}
+            onBack={popView}
+          />
         </div>
       )}
 

@@ -6,7 +6,7 @@ import Input from "@/shared/components/ui/Input";
 import SitesList from "@/features/terminal/components/SitesList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -100,6 +100,22 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
               <span className="hidden sm:inline">Remote</span>
             </button>
           )}
+
+          {/* Files Button */}
+          <button
+            onClick={onOpenFiles}
+            disabled={!connected}
+            className={`px-3 sm:px-4 py-2 text-white text-sm font-medium rounded transition flex items-center gap-2 ${
+              connected 
+                ? "bg-emerald-600 hover:bg-emerald-700" 
+                : "bg-emerald-600/50 cursor-not-allowed"
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+            <span className="hidden sm:inline">Files</span>
+          </button>
 
           {/* Sites Button */}
           <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} />
