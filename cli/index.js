@@ -13,6 +13,7 @@ import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, saveState, clearState } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
+import { checkForUpdates } from "./utils/updateChecker.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
@@ -78,10 +79,14 @@ function startServerWithRestart(onReady) {
   const restartTimes = [];
   let currentProcess = null;
   let isShuttingDown = false;
+  let isFirstStart = true;
 
   const spawnServer = () => {
-    // Kill any existing process on port
-    killProcessOnPort(SERVER_PORT);
+    // Only kill port on first start, not on restart
+    if (isFirstStart) {
+      killProcessOnPort(SERVER_PORT);
+      isFirstStart = false;
+    }
 
     currentProcess = spawn("node", ["server.js"], {
       cwd: PROJECT_ROOT,
@@ -186,7 +191,6 @@ async function startServerAndTunnel(selectedKey) {
 
   // Start Quick Tunnel
   let tunnelUrl = null;
-  console.log(chalk.cyan(`http://localhost:${SERVER_PORT}`));
   const tunnelProcess = spawn(bin, ["tunnel", "--url", `http://localhost:${SERVER_PORT}`], {
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -420,18 +424,7 @@ async function manageKey() {
   console.log(chalk.cyan("\n🔑 Manage Key"));
   console.log(chalk.gray("━".repeat(30)));
   console.log(chalk.white(`Key: ${keyData.key}`));
-  console.log(chalk.gray(`Created: ${keyData.createdAt}`));
-
-  console.log(chalk.cyan("\n🔑 Creating temp key..."));
-  const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
-  
-  if (tempKeyData) {
-    const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
-    showQRCode(connectUrl, "📱 QR Code:");
-    console.log(chalk.gray(`Temp key: ${tempKeyData.tempKey} (expires in 30 minutes)`));
-  } else {
-    console.log(chalk.red("❌ Failed to create temp key"));
-  }
+  console.log(chalk.gray(`Created: ${keyData.createdAt}\n`));
 
   const { action } = await inquirer.prompt([
     {
@@ -460,18 +453,6 @@ async function manageKey() {
       keyData = saveKey(machineId, key, keyData.name);
       
       console.log(chalk.green(`\n✅ Key regenerated: ${keyData.key}`));
-      
-      console.log(chalk.cyan("🔑 Creating temp key..."));
-      const newTempKeyData = await createTempKey(keyData.key, WORKER_URL);
-      
-      if (newTempKeyData) {
-        const newConnectUrl = `${WORKER_URL}/login?k=${newTempKeyData.tempKey}`;
-        showQRCode(newConnectUrl, "📱 New QR Code:");
-        console.log(chalk.gray(`Temp key: ${newTempKeyData.tempKey} (expires in 30 minutes)`));
-      } else {
-        console.log(chalk.red("❌ Failed to create temp key"));
-      }
-
       await inquirer.prompt([{ type: "input", name: "continue", message: "Press Enter to continue..." }]);
     }
   }
@@ -515,6 +496,8 @@ async function autoStartDev() {
 
 
 // Start app
+checkForUpdates();
+
 if (process.argv.includes("--auto")) {
   autoStartDev().catch(console.error);
 } else {
