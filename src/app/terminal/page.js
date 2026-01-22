@@ -10,6 +10,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
 const SessionList = dynamic(() => import("@/features/terminal/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
+import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 
 export default function TerminalPage() {
   // Hydration state for Zustand
@@ -39,7 +40,7 @@ export default function TerminalPage() {
   });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socket, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
 
   // Save theme to localStorage when changed
   const handleThemeChange = useCallback((newTheme) => {
@@ -143,7 +144,7 @@ export default function TerminalPage() {
   const handleDisconnect = useCallback(() => {
     resetStore();
     sessionStorage.clear();
-    router.push("/");
+    router.push("/login");
   }, [resetStore, router]);
 
   // Only show loading on initial mount or hydration
@@ -182,6 +183,7 @@ export default function TerminalPage() {
           codespaceInfo={codespaceInfo}
           codespaceDisconnected={codespaceDisconnected}
           onStopCodespace={stopCodespace}
+          retryStatus={retryStatus}
         />
       </div>
 
@@ -221,6 +223,8 @@ export default function TerminalPage() {
         </div>
       )}
 
+      {/* Connection Modal - overlay when retrying/failed */}
+      <ConnectionModal retryStatus={retryStatus} onLogout={handleDisconnect} />
     </div>
   );
 }

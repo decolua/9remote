@@ -2,7 +2,7 @@ import chalk from "chalk";
 import { loadState, clearState } from "../utils/state.js";
 import { killCloudflared } from "../cloudflared.js";
 
-const WORKER_URL = process.env.WORKER_URL || "https://9remote-worker.YOUR_SUBDOMAIN.workers.dev";
+const WORKER_URL = process.env.WORKER_URL || "https://remote.9router.com";
 
 export default async function stop() {
   const state = loadState();

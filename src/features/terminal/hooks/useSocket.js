@@ -1,105 +1,73 @@
-import { useEffect, useState, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { io } from "socket.io-client";
+import { useEffect, useState, useCallback } from "react";
+import { useBaseSocket } from "@/shared/hooks/useBaseSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { WORKER_API } from "@/shared/constants/api";
 
-// Socket.io connection management hook
+// Socket.io connection management hook for Terminal
 export function useSocket() {
-  const [socket, setSocket] = useState(null);
-  const [connected, setConnected] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [remoteAvailable, setRemoteAvailable] = useState(false);
   const [codespaceInfo, setCodespaceInfo] = useState(null);
   const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
-  const socketRef = useRef(null);
-  const codespaceInfoRef = useRef(null);
-  const router = useRouter();
   const { getAuth } = useSessionStorage();
 
-  // Initialize socket connection
-  useEffect(() => {
-    const auth = getAuth();
-    
-    if (!auth?.tunnelUrl) {
-      router.push("/");
-      return;
+  // Handle connect - remove temp key if exists
+  const handleConnect = useCallback(async (socket, auth) => {
+    if (auth?.tempKey) {
+      try {
+        await fetch(`${WORKER_API}/api/temp-key/remove`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tempKey: auth.tempKey })
+        });
+        sessionStorage.removeItem("tempKey");
+      } catch (error) {
+        console.error("Failed to remove temp key:", error);
+      }
     }
+  }, []);
 
-    const newSocket = io(auth.tunnelUrl, {
-      path: "/socket.io",
-      transports: ["polling", "websocket"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000
-    });
+  // Handle disconnect - mark codespace as disconnected
+  const handleDisconnect = useCallback((reason) => {
+    if (codespaceInfo?.isCodespaces) {
+      setCodespaceDisconnected(true);
+    }
+  }, [codespaceInfo]);
 
-    newSocket.on("connect", async () => {
-      setConnected(true);
-      
-      // Remove temp key after successful connection (one-time use)
-      if (auth.tempKey) {
-        try {
-          await fetch(`${WORKER_API}/api/temp-key/remove`, {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tempKey: auth.tempKey })
-          });
-          
-          // Clear temp key from session after removal
-          sessionStorage.removeItem("tempKey");
-        } catch (error) {
-          console.error("Failed to remove temp key:", error);
-        }
-      }
-    });
+  const { socket, socketRef, connected, error, retryStatus } = useBaseSocket({
+    namespace: "",
+    redirectOnNoAuth: "/",
+    onConnect: handleConnect,
+    onDisconnect: handleDisconnect
+  });
 
-    newSocket.on("disconnect", (reason) => {
-      setConnected(false);
-      // If running on Codespaces, mark as disconnected (likely stopped)
-      if (codespaceInfoRef.current?.isCodespaces) {
-        setCodespaceDisconnected(true);
-      }
-      // Manual reconnect for iOS Safari background mode
-      if (reason === "transport close" || reason === "ping timeout") {
-        setTimeout(() => newSocket.connect(), 1000);
-      }
-    });
+  // Setup terminal-specific event listeners
+  useEffect(() => {
+    const currentSocket = socketRef.current;
+    if (!currentSocket) return;
 
-    newSocket.on("serverInfo", (info) => {
+    const handleServerInfo = (info) => {
       setRemoteAvailable(info.remoteAvailable);
       if (info.isCodespaces) {
-        const csInfo = {
+        setCodespaceInfo({
           isCodespaces: info.isCodespaces,
           codespaceName: info.codespaceName
-        };
-        setCodespaceInfo(csInfo);
-        codespaceInfoRef.current = csInfo;
-      }
-    });
-
-    newSocket.on("sessionClosed", (sessionId) => {
-      setSessions(prev => prev.filter(s => s.id !== sessionId));
-    });
-
-    socketRef.current = newSocket;
-    setSocket(newSocket);
-
-    // iOS Safari visibility change - reconnect when app becomes visible
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && !newSocket.connected) {
-        newSocket.connect();
+        });
       }
     };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    const handleSessionClosed = (sessionId) => {
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+    };
+
+    currentSocket.on("serverInfo", handleServerInfo);
+    currentSocket.on("sessionClosed", handleSessionClosed);
 
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      newSocket.disconnect();
+      currentSocket.off("serverInfo", handleServerInfo);
+      currentSocket.off("sessionClosed", handleSessionClosed);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [socketRef, connected]);
 
   // Load sessions list
   const loadSessions = useCallback(() => {
@@ -108,7 +76,7 @@ export function useSocket() {
     socketRef.current.emit("getSessions", (list) => {
       setSessions(list);
     });
-  }, []);
+  }, [socketRef]);
 
   // Create new session
   const createSession = useCallback((name, callback) => {
@@ -120,7 +88,7 @@ export function useSocket() {
       }
       callback?.(result);
     });
-  }, [loadSessions]);
+  }, [socketRef, loadSessions]);
 
   // Delete session
   const deleteSession = useCallback((sessionId, callback) => {
@@ -132,7 +100,7 @@ export function useSocket() {
       }
       callback?.(result);
     });
-  }, [loadSessions]);
+  }, [socketRef, loadSessions]);
 
   // Rename session
   const renameSession = useCallback((sessionId, newName, callback) => {
@@ -144,7 +112,7 @@ export function useSocket() {
       }
       callback?.(result);
     });
-  }, [loadSessions]);
+  }, [socketRef, loadSessions]);
 
   // Stop codespace
   const stopCodespace = useCallback(async () => {
@@ -162,8 +130,10 @@ export function useSocket() {
   }, [getAuth, codespaceInfo]);
 
   return {
-    socket: socketRef.current,
+    socket,
     connected,
+    error,
+    retryStatus,
     sessions,
     remoteAvailable,
     codespaceInfo,

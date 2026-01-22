@@ -6,7 +6,7 @@ import { generateApiKeyWithMachine } from "../utils/apiKey.js";
 import { saveState } from "../utils/state.js";
 import { spawnCloudflared } from "../cloudflared.js";
 
-const WORKER_URL = process.env.WORKER_URL || "https://9remote-worker.YOUR_SUBDOMAIN.workers.dev";
+const WORKER_URL = process.env.WORKER_URL || "https://remote.9router.com";
 
 export default async function start(options) {
   const spinner = ora("Starting 9Remote Terminal...").start();

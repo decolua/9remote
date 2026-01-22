@@ -6,7 +6,7 @@ import Input from "@/shared/components/ui/Input";
 import SitesList from "@/features/terminal/components/SitesList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -77,10 +77,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500 animate-pulse"}`}
             title={connected ? "Connected" : "Disconnected"}
           />
-          {!connected && (
-            <span className="text-red-400 text-xs">
-              {codespaceDisconnected ? "Codespace stopped" : "Reconnecting..."}
-            </span>
+          {!connected && codespaceDisconnected && (
+            <span className="text-red-400 text-xs">Codespace stopped</span>
           )}
         </div>
         

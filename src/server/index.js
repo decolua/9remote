@@ -51,7 +51,7 @@ async function handleCodespaceStop(req, res) {
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
-const port = parseInt(process.env.PORT || "3000", 10);
+const port = parseInt(process.env.PORT || "2208", 10);
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();

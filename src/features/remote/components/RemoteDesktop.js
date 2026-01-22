@@ -9,6 +9,7 @@ import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
 import RemoteCanvas from "@/features/remote/components/RemoteCanvas";
 import RemoteControls from "@/features/remote/components/RemoteControls";
 import Spinner from "@/shared/components/ui/Spinner";
+import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 
 export default function RemoteDesktop({ onClose }) {
   const {
@@ -17,6 +18,7 @@ export default function RemoteDesktop({ onClose }) {
     streaming,
     error,
     authenticated,
+    retryStatus,
     startStreaming,
     stopStreaming,
     emitRequestScreenWithHashes,
@@ -177,11 +179,18 @@ export default function RemoteDesktop({ onClose }) {
     });
   };
 
+  // Handle logout - back to login
+  const handleLogout = useCallback(() => {
+    sessionStorage.clear();
+    window.location.href = "/login";
+  }, []);
+
   // Loading state
   if (!authenticated) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <Spinner size="lg" text="Connecting to remote..." />
+        <ConnectionModal retryStatus={retryStatus} onLogout={handleLogout} />
       </div>
     );
   }
@@ -249,6 +258,9 @@ export default function RemoteDesktop({ onClose }) {
         onSendText={sendTextInput}
         onClose={handleClose}
       />
+
+      {/* Connection Modal - overlay when retrying/failed */}
+      <ConnectionModal retryStatus={retryStatus} onLogout={handleLogout} />
     </div>
   );
 }

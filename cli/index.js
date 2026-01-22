@@ -16,8 +16,8 @@ import { createTempKey } from "./utils/token.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
-const WORKER_URL = "https://9remote-worker.decoluadt.workers.dev";
-const SERVER_PORT = 3000;
+const WORKER_URL = "https://remote.9router.com";
+const SERVER_PORT = 2208;
 const MAX_RESTART_ATTEMPTS = 3;
 const RESTART_WINDOW_MS = 60000; // 1 minute
 
@@ -186,7 +186,8 @@ async function startServerAndTunnel(selectedKey) {
 
   // Start Quick Tunnel
   let tunnelUrl = null;
-  const tunnelProcess = spawn(bin, ["tunnel", "--url", "http://localhost:3000"], {
+  console.log(chalk.cyan(`http://localhost:${SERVER_PORT}`));
+  const tunnelProcess = spawn(bin, ["tunnel", "--url", `http://localhost:${SERVER_PORT}`], {
     stdio: ["ignore", "pipe", "pipe"]
   });
 

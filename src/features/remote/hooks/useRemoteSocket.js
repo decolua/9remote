@@ -1,89 +1,52 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import io from "socket.io-client";
+import { useBaseSocket } from "@/shared/hooks/useBaseSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
 
 export function useRemoteSocket() {
   const router = useRouter();
-  const socketRef = useRef(null);
-  const [connected, setConnected] = useState(false);
-  const [streaming, setStreaming] = useState(false);
-  const [error, setError] = useState("");
-  const [authenticated, setAuthenticated] = useState(false);
   const { getAuth } = useSessionStorage();
+  const [streaming, setStreaming] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
 
-  // Initialize socket connection - only when component mounts
-  useEffect(() => {
-    const auth = getAuth();
-    if (!auth?.apiKey) {
-      router.push("/");
-      return;
-    }
+  // Get auth for socket options
+  const auth = getAuth();
 
-    const tunnelUrl = auth?.tunnelUrl;
-    if (!tunnelUrl) {
-      router.push("/terminal");
-      return;
-    }
+  // Handle connect
+  const handleConnect = useCallback((socket) => {
+    setAuthenticated(true);
+    socket.emit("get-screen-dimensions");
+  }, []);
 
-    const serverUrl = `${tunnelUrl}${REMOTE_CONFIG.namespace}`;
-    const socket = io(serverUrl, {
-      transports: ["websocket", "polling"],
+  // Handle disconnect
+  const handleDisconnect = useCallback(() => {
+    setStreaming(false);
+    setAuthenticated(false);
+  }, []);
+
+  const { socket, socketRef, connected, error, retryStatus } = useBaseSocket({
+    namespace: REMOTE_CONFIG.namespace,
+    socketOptions: {
       timeout: 20000,
       forceNew: true,
-      auth: { apiKey: auth.apiKey },
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000
-    });
+      auth: { apiKey: auth?.apiKey }
+    },
+    redirectOnNoAuth: "/",
+    onConnect: handleConnect,
+    onDisconnect: handleDisconnect
+  });
 
-    socketRef.current = socket;
-
-    socket.on("connect", () => {
-      setConnected(true);
-      setAuthenticated(true);
-      setError("");
-      socket.emit("get-screen-dimensions");
-    });
-
-    socket.on("disconnect", (reason) => {
-      setConnected(false);
-      setStreaming(false);
-      setAuthenticated(false);
-      // Manual reconnect for iOS Safari background mode
-      if (reason === "transport close" || reason === "ping timeout") {
-        setTimeout(() => socket.connect(), 1000);
-      }
-    });
-
-    socket.on("connect_error", () => {
-      setError("Connection failed");
-      setConnected(false);
-    });
-
-    // iOS Safari visibility change - reconnect when app becomes visible
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && !socket.connected) {
-        socket.connect();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    // Cleanup on unmount
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (socket) {
-        socket.emit("stop-streaming");
-        socket.disconnect();
-      }
-      socketRef.current = null;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
+  // Redirect if no apiKey
+  useEffect(() => {
+    if (!auth?.apiKey) {
+      router.push("/");
+    } else if (!auth?.tunnelUrl) {
+      router.push("/terminal");
+    }
+  }, [auth, router]);
 
   // Start streaming
   const startStreaming = useCallback(() => {
@@ -91,7 +54,7 @@ export function useRemoteSocket() {
       socketRef.current.emit("start-streaming");
       setStreaming(true);
     }
-  }, [connected]);
+  }, [socketRef, connected]);
 
   // Stop streaming
   const stopStreaming = useCallback(() => {
@@ -99,62 +62,65 @@ export function useRemoteSocket() {
       socketRef.current.emit("stop-streaming");
       setStreaming(false);
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
-  // Emit functions
+  // Mouse emitters
   const emitMousePress = useCallback((x, y, button = "left") => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("mouse-press", { x, y, button });
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
   const emitMouseRelease = useCallback((x, y, button = "left") => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("mouse-release", { x, y, button });
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
   const emitMouseClick = useCallback((x, y, button = "left") => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("mouse-click", { x, y, button });
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
   const emitMouseMove = useCallback((x, y) => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("mouse-move", { x, y });
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
   const emitMouseDragSelect = useCallback((startX, startY, endX, endY) => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("mouse-drag-select", { startX, startY, endX, endY });
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
+  // Key emitters
   const emitKeyPress = useCallback((key, modifier = []) => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("key-press", { key, modifier });
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
   const emitTypeText = useCallback((text) => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("type-text", { text });
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
+  // Scroll
   const emitScroll = useCallback((direction, amount = 20) => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("scroll", { direction, amount });
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
+  // Screen request
   const emitRequestScreenWithHashes = useCallback((tileHashes) => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("request-screen-with-hashes", { tileHashes });
     }
-  }, [streaming]);
+  }, [socketRef, streaming]);
 
   // Logout
   const handleLogout = useCallback(() => {
@@ -166,14 +132,15 @@ export function useRemoteSocket() {
       socketRef.current.disconnect();
     }
     router.push("/terminal");
-  }, [streaming, router]);
+  }, [socketRef, streaming, router]);
 
   return {
-    socket: socketRef.current,
+    socket,
     connected,
     streaming,
     error,
     authenticated,
+    retryStatus,
     startStreaming,
     stopStreaming,
     handleLogout,
