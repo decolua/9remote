@@ -12,14 +12,11 @@ import Spinner from "@/shared/components/ui/Spinner";
 
 function LoginContent() {
   const [apiKey, setApiKey] = useState("");
-  const [rememberKey, setRememberKey] = useState(() => {
-    // Load saved preference
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("9remote_remember_key_preference");
-      return saved !== "false"; // default true
-    }
-    return true;
-  });
+  const [rememberKey, setRememberKey] = useState(true);
+  const [savedKey, setSavedKey] = useState(null);
+  const [hasSavedKey, setHasSavedKey] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+
   const searchParams = useSearchParams();
   const router = useRouter();
   const { loading, error, authenticateWithToken, authenticateWithApiKey } = useAuth();
@@ -30,9 +27,14 @@ function LoginContent() {
   const tempKey = useMemo(() => searchParams.get("k"), [searchParams]);
   const isTokenAuth = !!token || !!tempKey;
 
-  // Load saved key on mount
-  const savedKey = loadKey();
-  const hasSavedKey = hasStoredKey();
+  // Load saved data after hydration (client-side only)
+  useEffect(() => {
+    const savedPreference = localStorage.getItem("9remote_remember_key_preference");
+    setRememberKey(savedPreference !== "false");
+    setSavedKey(loadKey());
+    setHasSavedKey(hasStoredKey());
+    setIsHydrated(true);
+  }, [loadKey, hasStoredKey]);
 
   // Handle remember key checkbox change
   const handleRememberChange = (checked) => {
@@ -170,8 +172,8 @@ function LoginContent() {
             </Button>
           </div>
 
-          {/* Saved Key */}
-          {hasSavedKey && savedKey && (
+          {/* Saved Key - only render after hydration */}
+          {isHydrated && hasSavedKey && savedKey && (
             <div className="mt-6 pt-6 border-t border-slate-700">
               <h3 className="text-sm font-medium text-slate-300 mb-3">Saved Key</h3>
               <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-3">

@@ -40,8 +40,6 @@ function showQRCode(url, title = "📱 Scan QR to connect:") {
  * Helper: Show connection info
  */
 async function showConnectionInfo(selectedKey, tunnelUrl) {
-  console.log(chalk.cyan("🔑 Creating temp key..."));
-  
   const tempKeyData = await createTempKey(selectedKey, WORKER_URL);
   
   if (!tempKeyData) {
@@ -53,10 +51,11 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
 
   showQRCode(connectUrl);
 
-  console.log(chalk.white(`\nApp URL: ${chalk.blue(WORKER_URL)}`));
-  console.log(chalk.white(`Temp Key: ${chalk.yellow(tempKeyData.tempKey)}`));
-  console.log(chalk.gray(`Expires in 30 minutes (one-time use)`));
-  console.log(chalk.gray("\nPress Ctrl+C to stop server\n"));
+  console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)`));
+  console.log(chalk.gray(`--------------------------------`));
+  console.log(chalk.white(`Or enter key manually:`));
+  console.log(chalk.white(`App URL: ${chalk.blue(`${WORKER_URL}/login`)}`));
+  console.log(chalk.white(`Key: ${chalk.yellow(selectedKey)}`));
 }
 
 /**
@@ -231,7 +230,7 @@ async function startServerAndTunnel(selectedKey) {
     return null;
   }
 
-  console.log(chalk.green(`✅ Tunnel URL: ${tunnelUrl}`));
+  // Tunnel URL hidden for cleaner output
 
   // Verify tunnel is connected to server
   const maxWaitTime = 120000; // 1 minute
@@ -239,7 +238,6 @@ async function startServerAndTunnel(selectedKey) {
   const maxRetries = Math.floor(maxWaitTime / checkInterval);
   let tunnelReady = false;
   
-  console.log(chalk.cyan("🔗 Verifying tunnel connection..."));
   process.stdout.write(chalk.cyan("   Checking"));
   
   // Use Cloudflare DNS resolver to avoid system DNS cache issues
@@ -280,10 +278,9 @@ async function startServerAndTunnel(selectedKey) {
     return null;
   }
   
-  console.log(chalk.green(`✅ Tunnel ready: ${tunnelUrl}`));
+  console.log(chalk.green(`✅ Connection established`));
 
-  // Sync with worker
-  console.log(chalk.cyan("🔄 Syncing with worker..."));
+  // Sync with
   try {
     await fetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
@@ -297,7 +294,6 @@ async function startServerAndTunnel(selectedKey) {
       body: JSON.stringify({ apiKey: selectedKey, tunnelUrl })
     });
     
-    console.log(chalk.green("✅ Session synced!"));
   } catch (error) {
     console.log(chalk.yellow(`⚠️  Worker sync failed: ${error.message}`));
   }

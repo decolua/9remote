@@ -139,7 +139,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            placeholder="Session name (optional)"
+            placeholder="Terminal name (optional)"
             disabled={!connected}
           />
           <Button

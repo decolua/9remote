@@ -28,7 +28,11 @@ export function useSocket() {
 
     const newSocket = io(auth.tunnelUrl, {
       path: "/socket.io",
-      transports: ["polling", "websocket"]
+      transports: ["polling", "websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000
     });
 
     newSocket.on("connect", async () => {
@@ -51,11 +55,15 @@ export function useSocket() {
       }
     });
 
-    newSocket.on("disconnect", () => {
+    newSocket.on("disconnect", (reason) => {
       setConnected(false);
       // If running on Codespaces, mark as disconnected (likely stopped)
       if (codespaceInfoRef.current?.isCodespaces) {
         setCodespaceDisconnected(true);
+      }
+      // Manual reconnect for iOS Safari background mode
+      if (reason === "transport close" || reason === "ping timeout") {
+        setTimeout(() => newSocket.connect(), 1000);
       }
     });
 
@@ -78,7 +86,16 @@ export function useSocket() {
     socketRef.current = newSocket;
     setSocket(newSocket);
 
+    // iOS Safari visibility change - reconnect when app becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && !newSocket.connected) {
+        newSocket.connect();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       newSocket.disconnect();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -5,15 +5,32 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSocket } from "@/features/terminal/hooks/useSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 
 const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
 const SessionList = dynamic(() => import("@/features/terminal/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
 
 export default function TerminalPage() {
-  // Navigation stack: [{ type: "list" }, { type: "terminal", sessionId }, { type: "remote" }]
-  const [viewStack, setViewStack] = useState([{ type: "list" }]);
-  const [openedSessions, setOpenedSessions] = useState([]);
+  // Hydration state for Zustand
+  const [hydrated, setHydrated] = useState(false);
+  
+  // UI state from Zustand store (persisted to sessionStorage)
+  const { 
+    viewStack, 
+    openedSessions, 
+    pushView, 
+    popView: storePopView, 
+    addOpenedSession, 
+    removeOpenedSession,
+    reset: resetStore
+  } = useTerminalStore();
+  
+  // Hydrate Zustand on mount
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+  
   const [theme, setTheme] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("terminal_theme") || "dracula";
@@ -35,24 +52,11 @@ export default function TerminalPage() {
   // Current view is top of stack
   const currentView = viewStack[viewStack.length - 1];
 
-  // Get selected session from stack (find last terminal view)
-  const getSelectedSession = () => {
-    for (let i = viewStack.length - 1; i >= 0; i--) {
-      if (viewStack[i].type === "terminal") return viewStack[i].sessionId;
-    }
-    return null;
-  };
-  const selectedSession = getSelectedSession();
-
-  // Navigation helpers
-  const pushView = useCallback((view) => {
-    setViewStack(prev => [...prev, view]);
-  }, []);
-
+  // Pop view and reload sessions
   const popView = useCallback(() => {
-    setViewStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev);
+    storePopView();
     loadSessions();
-  }, [loadSessions]);
+  }, [storePopView, loadSessions]);
 
   // Load sessions when socket connects
   useEffect(() => {
@@ -105,15 +109,15 @@ export default function TerminalPage() {
   }, [createSession]);
 
   const handleSelectSession = useCallback((sessionId) => {
-    setOpenedSessions(prev => prev.includes(sessionId) ? prev : [...prev, sessionId]);
+    addOpenedSession(sessionId);
     pushView({ type: "terminal", sessionId });
-  }, [pushView]);
+  }, [addOpenedSession, pushView]);
 
   const handleDeleteSession = useCallback((sessionId) => {
     deleteSession(sessionId, () => {
-      setOpenedSessions(prev => prev.filter(id => id !== sessionId));
+      removeOpenedSession(sessionId);
     });
-  }, [deleteSession]);
+  }, [deleteSession, removeOpenedSession]);
 
   const handleRenameSession = useCallback((sessionId, newName) => {
     renameSession(sessionId, newName, (result) => {
@@ -137,13 +141,16 @@ export default function TerminalPage() {
   }, [getAuth]);
 
   const handleDisconnect = useCallback(() => {
+    resetStore();
     sessionStorage.clear();
     router.push("/");
-  }, [router]);
+  }, [resetStore, router]);
 
+  // Only show loading on initial mount or hydration
   const auth = getAuth();
+  const isInitializing = !hydrated || (!socket && !auth?.tunnelUrl);
   
-  if (!socket) {
+  if (isInitializing) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="text-slate-400">Loading...</div>

@@ -11,7 +11,7 @@ import Footer from "./Footer";
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-slate-950 text-white overflow-x-hidden">
+    <div className="min-h-screen text-white overflow-x-hidden" style={{ background: "#0a0e27" }}>
       <AnimatedBackground />
       <Navbar />
       <main className="relative z-10">

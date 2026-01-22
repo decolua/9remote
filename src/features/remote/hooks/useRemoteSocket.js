@@ -34,7 +34,11 @@ export function useRemoteSocket() {
       transports: ["websocket", "polling"],
       timeout: 20000,
       forceNew: true,
-      auth: { apiKey: auth.apiKey }
+      auth: { apiKey: auth.apiKey },
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000
     });
 
     socketRef.current = socket;
@@ -46,10 +50,14 @@ export function useRemoteSocket() {
       socket.emit("get-screen-dimensions");
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason) => {
       setConnected(false);
       setStreaming(false);
       setAuthenticated(false);
+      // Manual reconnect for iOS Safari background mode
+      if (reason === "transport close" || reason === "ping timeout") {
+        setTimeout(() => socket.connect(), 1000);
+      }
     });
 
     socket.on("connect_error", () => {
@@ -57,8 +65,17 @@ export function useRemoteSocket() {
       setConnected(false);
     });
 
+    // iOS Safari visibility change - reconnect when app becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && !socket.connected) {
+        socket.connect();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     // Cleanup on unmount
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (socket) {
         socket.emit("stop-streaming");
         socket.disconnect();

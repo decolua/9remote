@@ -19,14 +19,14 @@ export default function Navbar() {
     <nav
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         scrolled
-          ? "bg-slate-900/80 backdrop-blur-lg border-b border-blue-500/10 shadow-lg"
+          ? "bg-slate-900/80 backdrop-blur-lg border-b border-orange-500/10 shadow-lg"
           : "bg-transparent"
       }`}
     >
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center font-bold text-lg shadow-lg shadow-blue-500/20 group-hover:shadow-blue-500/40 transition-shadow">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center font-bold text-lg shadow-lg shadow-orange-500/20 group-hover:shadow-orange-500/40 transition-shadow">
             9
           </div>
           <span className="text-xl font-bold tracking-tight">9Remote</span>
@@ -69,7 +69,7 @@ export default function Navbar() {
         <div className="hidden md:flex items-center gap-4">
           <Link
             href="/login"
-            className="px-6 py-2 rounded-lg bg-blue-500 hover:bg-orange-500 text-white font-semibold text-sm shadow-lg shadow-blue-500/20 hover:shadow-orange-500/40 transition-all"
+            className="px-6 py-2 rounded-lg bg-orange-400 hover:bg-orange-500 text-white font-semibold text-sm shadow-lg shadow-orange-400/20 hover:shadow-orange-500/40 transition-all"
           >
             Get Started
           </Link>
@@ -92,7 +92,7 @@ export default function Navbar() {
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-slate-900/95 backdrop-blur-lg border-t border-blue-500/10">
+        <div className="md:hidden bg-slate-900/95 backdrop-blur-lg border-t border-orange-500/10">
           <div className="flex flex-col gap-4 p-6">
             <a
               href="#features"
@@ -125,7 +125,7 @@ export default function Navbar() {
             </a>
             <Link
               href="/login"
-              className="px-6 py-2 rounded-lg bg-blue-500 hover:bg-orange-500 text-white font-semibold text-sm text-center"
+              className="px-6 py-2 rounded-lg bg-orange-400 hover:bg-orange-500 text-white font-semibold text-sm text-center"
             >
               Get Started
             </Link>

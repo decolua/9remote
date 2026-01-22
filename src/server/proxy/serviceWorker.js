@@ -80,13 +80,16 @@ export function getSwRegistrationScript(targetPort) {
   const swUrl = proxyBase + '/sw.js';
   
   if ('serviceWorker' in navigator) {
-    // Unregister all old SWs first
+    // Only unregister SWs outside of this proxy scope
     navigator.serviceWorker.getRegistrations().then(function(registrations) {
-      return Promise.all(registrations.map(function(reg) {
+      return Promise.all(registrations.filter(function(reg) {
+        // Only unregister if it's a different proxy port or root scope
+        return !reg.scope.includes(proxyBase);
+      }).map(function(reg) {
         return reg.unregister();
       }));
     }).then(function() {
-      return navigator.serviceWorker.register(swUrl, { scope: '/' });
+      return navigator.serviceWorker.register(swUrl, { scope: proxyBase + '/' });
     }).then(function(reg) {
       // If SW is not controlling this page yet, wait and reload
       if (!navigator.serviceWorker.controller) {

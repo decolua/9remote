@@ -10,7 +10,7 @@ export default function Footer() {
           {/* Brand */}
           <div className="col-span-1 md:col-span-2">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center">
                 <span className="text-xl font-bold text-white">9</span>
               </div>
               <h3 className="text-xl font-bold text-white">9Remote</h3>
@@ -28,17 +28,17 @@ export default function Footer() {
             <h4 className="text-white font-semibold mb-4">Product</h4>
             <ul className="space-y-2">
               <li>
-                <Link href="/login" className="text-slate-400 hover:text-blue-400 text-sm transition-colors">
+                <Link href="/login" className="text-slate-400 hover:text-orange-400 text-sm transition-colors">
                   Login
                 </Link>
               </li>
               <li>
-                <Link href="/terminal" className="text-slate-400 hover:text-blue-400 text-sm transition-colors">
+                <Link href="/terminal" className="text-slate-400 hover:text-orange-400 text-sm transition-colors">
                   Terminal
                 </Link>
               </li>
               <li>
-                <Link href="/remote" className="text-slate-400 hover:text-blue-400 text-sm transition-colors">
+                <Link href="/remote" className="text-slate-400 hover:text-orange-400 text-sm transition-colors">
                   Remote Desktop
                 </Link>
               </li>
@@ -54,7 +54,7 @@ export default function Footer() {
                   href="https://github.com/decolua/9remote" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="text-slate-400 hover:text-blue-400 text-sm transition-colors"
+                  className="text-slate-400 hover:text-orange-400 text-sm transition-colors"
                 >
                   GitHub
                 </a>
@@ -64,7 +64,7 @@ export default function Footer() {
                   href="https://www.npmjs.com/package/9remote" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="text-slate-400 hover:text-blue-400 text-sm transition-colors"
+                  className="text-slate-400 hover:text-orange-400 text-sm transition-colors"
                 >
                   NPM
                 </a>
@@ -74,7 +74,7 @@ export default function Footer() {
                   href="https://github.com/decolua/9remote#readme" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="text-slate-400 hover:text-blue-400 text-sm transition-colors"
+                  className="text-slate-400 hover:text-orange-400 text-sm transition-colors"
                 >
                   Documentation
                 </a>
@@ -93,7 +93,7 @@ export default function Footer() {
               href="https://github.com/decolua/9remote" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-slate-500 hover:text-blue-400 text-xs transition-colors"
+              className="text-slate-500 hover:text-orange-400 text-xs transition-colors"
             >
               GitHub
             </a>
@@ -101,7 +101,7 @@ export default function Footer() {
               href="https://www.npmjs.com/package/9remote" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-slate-500 hover:text-blue-400 text-xs transition-colors"
+              className="text-slate-500 hover:text-orange-400 text-xs transition-colors"
             >
               NPM
             </a>

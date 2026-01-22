@@ -17,35 +17,34 @@ export const TERMINAL_OPTIONS = {
 // Mobile keyboard button configurations
 // Basic keys: most used, always visible
 export const BASIC_KEYS = [
-  // Arrows group
+  // Esc first, then up/down arrows
+  { label: "Esc", key: "Escape" },
   { label: "↑", key: "ArrowUp", icon: true },
   { label: "↓", key: "ArrowDown", icon: true },
-  { label: "←", key: "ArrowLeft", icon: true },
-  { label: "→", key: "ArrowRight", icon: true },
   // Most used (ordered by frequency)
-  { label: "Tab", key: "Tab" },
-  { label: "Esc", key: "Escape" },
   { label: "^C", key: "c", ctrl: true },
-  { label: "^Z", key: "z", ctrl: true },
-  { label: "Ctrl", key: "Ctrl", modifier: true }
+  { label: "Ctrl", key: "Ctrl", modifier: true },
+  { label: "Opt", key: "Alt", modifier: true },
+  { label: "Shift", key: "Shift", modifier: true },
+  { label: "Tab", key: "Tab" }
 ];
 
 // Extended keys: 3 rows x 6 cols = 18 keys
 export const EXTENDED_KEYS = [
-  // Row 1: Navigation
+  // Row 1: Navigation + arrows
+  { label: "←", key: "ArrowLeft", icon: true },
+  { label: "→", key: "ArrowRight", icon: true },
   { label: "Home", key: "Home" },
   { label: "End", key: "End" },
   { label: "PgUp", key: "PageUp" },
   { label: "PgDn", key: "PageDown" },
-  { label: "Del", key: "Delete" },
-  { label: "Ins", key: "Insert" },
   // Row 2: Ctrl combos
+  { label: "^Z", key: "z", ctrl: true },
   { label: "^R", key: "r", ctrl: true },
   { label: "^L", key: "l", ctrl: true },
   { label: "^A", key: "a", ctrl: true },
   { label: "^E", key: "e", ctrl: true },
   { label: "^W", key: "w", ctrl: true },
-  { label: "^U", key: "u", ctrl: true },
   // Row 3: Function keys (most used)
   { label: "F1", key: "F1" },
   { label: "F2", key: "F2" },

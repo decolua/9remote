@@ -29,7 +29,6 @@ export async function checkRemoteAvailable() {
     const robot = robotModule.default || robotModule;
     robot.getScreenSize(); // Will throw if no display
     remoteAvailable = true;
-    console.log("✅ Remote desktop available");
   } catch {
     remoteAvailable = false;
     console.log("ℹ️ Remote desktop not available (no display or robotjs not installed)");
