@@ -201,16 +201,16 @@ export default function SitesList({ tunnelUrl, apiKey }) {
       {/* Modal Overlay */}
       {showModal && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 modal-overlay"
           onClick={handleClose}
         >
           {/* Modal Content */}
           <div 
-            className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-white">Local Sites</h2>
                 <p className="text-sm text-slate-400 mt-0.5">Select a site to preview</p>
@@ -225,8 +225,35 @@ export default function SitesList({ tunnelUrl, apiKey }) {
               </button>
             </div>
 
-            {/* Body */}
-            <div className="p-4 max-h-[60vh] overflow-y-auto">
+            {/* Add Port - moved to top so keyboard doesn't cover it */}
+            <div className="px-4 py-3 border-b border-slate-700 shrink-0">
+              <div className="flex gap-2 items-center">
+                <span className="text-slate-400 text-sm whitespace-nowrap">http://localhost:</span>
+                <input
+                  type="number"
+                  value={newPort}
+                  onChange={(e) => setNewPort(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddPort()}
+                  placeholder="port"
+                  min="1"
+                  max="65535"
+                  className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-purple-500 text-sm min-w-0"
+                />
+                <button
+                  onClick={handleAddPort}
+                  disabled={!newPort}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition"
+                >
+                  Open
+                </button>
+              </div>
+            </div>
+
+            {/* Body - scrollable list */}
+            <div 
+              className="p-4 modal-scrollable"
+              style={{ maxHeight: "40vh" }}
+            >
               {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="flex items-center gap-3 text-slate-400">
@@ -326,32 +353,8 @@ export default function SitesList({ tunnelUrl, apiKey }) {
               )}
             </div>
 
-            {/* Add Port */}
-            <div className="px-4 py-3 border-t border-slate-700">
-              <div className="flex gap-2 items-center">
-                <span className="text-slate-400 text-sm whitespace-nowrap">http://localhost:</span>
-                <input
-                  type="number"
-                  value={newPort}
-                  onChange={(e) => setNewPort(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddPort()}
-                  placeholder="port"
-                  min="1"
-                  max="65535"
-                  className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-purple-500 text-sm min-w-0"
-                />
-                <button
-                  onClick={handleAddPort}
-                  disabled={!newPort}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition"
-                >
-                  Open
-                </button>
-              </div>
-            </div>
-
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-slate-700 flex items-center justify-between">
+            <div className="px-5 py-3 border-t border-slate-700 flex items-center justify-between shrink-0">
               <span className="text-xs text-slate-500">
                 {sites.length > 0 ? `${sites.length} site${sites.length > 1 ? "s" : ""} found` : ""}
               </span>

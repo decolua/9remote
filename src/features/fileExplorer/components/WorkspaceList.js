@@ -84,7 +84,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-4 overflow-auto">
+      <div className="flex-1 p-4 overflow-auto modal-scrollable">
         {/* Recent Workspaces */}
         {recent.length > 0 && (
           <div className="mb-6">

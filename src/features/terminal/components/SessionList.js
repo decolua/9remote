@@ -146,7 +146,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-4 sm:p-6 overflow-auto">
+      <div className="flex-1 p-4 sm:p-6 overflow-auto modal-scrollable">
         {/* Create new session */}
         <div className="mb-6 flex gap-2">
           <Input

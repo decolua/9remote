@@ -54,10 +54,14 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   showQRCode(connectUrl);
 
   console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)`));
-  console.log(chalk.gray(`--------------------------------`));
-  console.log(chalk.white(`Or enter key manually:`));
-  console.log(chalk.white(`App URL: ${chalk.blue(`${WORKER_URL}/login`)}`));
-  console.log(chalk.white(`Key: ${chalk.yellow(selectedKey)}`));
+  console.log(chalk.gray(`Or enter key manually:\n`));
+  console.log(chalk.gray(`┌──────────────┬────────────────────────────────────────┐`));
+  console.log(chalk.gray(`│`) + chalk.white(` App URL      `) + chalk.gray(`│`) + chalk.blue(` ${WORKER_URL}/login`.padEnd(39)) + chalk.gray(`│`));
+  console.log(chalk.gray(`├──────────────┼────────────────────────────────────────┤`));
+  console.log(chalk.gray(`│`) + chalk.white(` One-Time Key `) + chalk.gray(`│`) + chalk.bold.yellow(` ${tempKeyData.tempKey}`.padEnd(39)) + chalk.gray(`│`));
+  console.log(chalk.gray(`├──────────────┼────────────────────────────────────────┤`));
+  console.log(chalk.gray(`│`) + chalk.white(` Key          `) + chalk.gray(`│`) + chalk.gray(` ${selectedKey}`.padEnd(39)) + chalk.gray(`│`));
+  console.log(chalk.gray(`└──────────────┴────────────────────────────────────────┘`));
 }
 
 /**
@@ -89,8 +93,10 @@ function startServerWithRestart(onReady) {
       isFirstStart = false;
     }
 
-    // Use standalone server if available, otherwise fallback to dev server
-    const serverPath = fs.existsSync(STANDALONE_SERVER) ? STANDALONE_SERVER : path.join(PROJECT_ROOT, "server.js");
+    // Use dev server if src/ exists (development), otherwise use standalone (npm package)
+    const devServerPath = path.join(PROJECT_ROOT, "server.js");
+    const srcExists = fs.existsSync(path.join(PROJECT_ROOT, "src"));
+    const serverPath = srcExists ? devServerPath : STANDALONE_SERVER;
     
     currentProcess = spawn("node", [serverPath], {
       cwd: path.dirname(serverPath),
@@ -437,11 +443,33 @@ async function manageKey() {
       name: "action",
       message: "Action:",
       choices: [
+        { name: "🔐 Create One-Time Key", value: "oneTime" },
         { name: "🔄 Regenerate Key", value: "regenerate" },
         { name: chalk.gray("← Back"), value: "back" }
       ]
     }
   ]);
+
+  if (action === "oneTime") {
+    console.log(chalk.gray("\nCreating one-time key..."));
+    const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
+    
+    if (tempKeyData) {
+      const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
+      showQRCode(connectUrl);
+      
+      console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)`));
+      console.log(chalk.gray(`Or enter key manually:\n`));
+      console.log(chalk.gray(`┌──────────────┬────────────────────────────────────────┐`));
+      console.log(chalk.gray(`│`) + chalk.white(` App URL      `) + chalk.gray(`│`) + chalk.blue(` ${WORKER_URL}/login`.padEnd(39)) + chalk.gray(`│`));
+      console.log(chalk.gray(`├──────────────┼────────────────────────────────────────┤`));
+      console.log(chalk.gray(`│`) + chalk.white(` One-Time Key `) + chalk.gray(`│`) + chalk.bold.yellow(` ${tempKeyData.tempKey}`.padEnd(39)) + chalk.gray(`│`));
+      console.log(chalk.gray(`└──────────────┴────────────────────────────────────────┘`));
+    } else {
+      console.log(chalk.red("❌ Failed to create one-time key"));
+    }
+    await inquirer.prompt([{ type: "input", name: "continue", message: "Press Enter to continue..." }]);
+  }
 
   if (action === "regenerate") {
     const { confirm } = await inquirer.prompt([

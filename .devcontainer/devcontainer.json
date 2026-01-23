@@ -1,11 +1,11 @@
 {
   "name": "9Remote",
-  "postCreateCommand": "npm install",
-  "postStartCommand": "npm run dev",
-  "forwardPorts": [3000],
+  "postCreateCommand": "npm install -g 9remote",
+  "postAttachCommand": "9remote",
+  "forwardPorts": [2208],
   "portsAttributes": {
-    "3000": {
-      "label": "9Remote Server ",
+    "2208": {
+      "label": "9Remote Server",
       "onAutoForward": "notify"
     }
   }

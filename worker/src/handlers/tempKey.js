@@ -4,10 +4,10 @@ const TEMP_KEY_LENGTH = 6;
 const TEMP_KEY_EXPIRY_MINUTES = 30;
 
 /**
- * Generate random temp key (6 chars)
+ * Generate random temp key (6 chars uppercase)
  */
 function generateTempKey() {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const chars = "ABCDEFGHIJKLMNPQRSTUVWXYZ123456789";
   let result = "";
   for (let i = 0; i < TEMP_KEY_LENGTH; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));

@@ -56,8 +56,8 @@ export async function handleConnect(request, env, corsHeaders) {
 
   // Support: tempKey (new), token (old encrypted), or direct apiKey (manual entry)
   if (body.token) {
-    // Check if it's a temp key format (short, alphanumeric)
-    if (body.token.length <= 10 && /^[a-z0-9]+$/.test(body.token)) {
+    // Check if it's a temp key format (6 chars uppercase alphanumeric)
+    if (body.token.length <= 10 && /^[A-Z0-9]+$/.test(body.token)) {
       // It's a temp key
       const tempKeyData = await env.DB.prepare(`
         SELECT api_key, expires_at FROM temp_keys WHERE temp_key = ?

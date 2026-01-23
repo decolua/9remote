@@ -64,17 +64,33 @@ function LoginContent() {
     }
   };
 
-  // Handle API key submit
+  // Check if input is one-time key (6 chars uppercase alphanumeric)
+  const isOneTimeKey = (key) => {
+    return key.length === 6 && /^[A-Z0-9]+$/.test(key);
+  };
+
+  // Handle API key submit (supports both API key and one-time key)
   const handleConnect = async () => {
-    if (!apiKey.trim()) return;
-    const result = await authenticateWithApiKey(apiKey);
-    
-    if (result.success) {
-      // Save key if checkbox is checked
-      if (rememberKey) {
-        saveKey(result.apiKey || apiKey);
+    const trimmedKey = apiKey.trim().toUpperCase();
+    if (!trimmedKey) return;
+
+    // Detect one-time key vs API key
+    if (isOneTimeKey(trimmedKey)) {
+      const result = await authenticateWithToken(trimmedKey, true);
+      if (result.success) {
+        if (rememberKey && result.apiKey) {
+          saveKey(result.apiKey);
+        }
+        router.push("/terminal/");
       }
-      router.push("/terminal/");
+    } else {
+      const result = await authenticateWithApiKey(apiKey);
+      if (result.success) {
+        if (rememberKey) {
+          saveKey(result.apiKey || apiKey);
+        }
+        router.push("/terminal/");
+      }
     }
   };
 
@@ -132,7 +148,7 @@ function LoginContent() {
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
-                  placeholder="sk-xxxxxxxxxxxxxxxx-xxxxxx-xxxxxxxx"
+                  placeholder="sk-xxx... or One-Time Key (ABC123)"
                   className="w-full px-4 py-3 pr-10 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 {apiKey && (

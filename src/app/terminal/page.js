@@ -84,13 +84,14 @@ export default function TerminalPage() {
     document.documentElement.classList.add("terminal-page");
 
     const preventScroll = (e) => {
-      // Allow scroll in xterm, codemirror, file explorer, git panel
+      // Allow scroll in xterm, codemirror, file explorer, git panel, modals
       if (
         e.target.closest(".xterm-viewport") || 
         e.target.closest(".xterm-screen") ||
         e.target.closest(".cm-scroller") ||
         e.target.closest(".cm-content") ||
-        e.target.closest(".overflow-auto")
+        e.target.closest(".overflow-auto") ||
+        e.target.closest(".modal-scrollable")
       ) return;
       e.preventDefault();
     };

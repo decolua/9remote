@@ -261,7 +261,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto modal-scrollable">
         {activeTab === "status" ? (
           statusLoading ? (
             <div className="flex items-center justify-center h-32 text-slate-400">
