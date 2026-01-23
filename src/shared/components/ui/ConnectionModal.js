@@ -44,6 +44,12 @@ export default function ConnectionModal({ retryStatus, onLogout }) {
                 style={{ width: `${(retryStatus.attempt / retryStatus.maxAttempts) * 100}%` }}
               />
             </div>
+            <button
+              onClick={handleBackToLogin}
+              className="mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-lg transition"
+            >
+              Exit
+            </button>
           </div>
         ) : (
           // Failed state

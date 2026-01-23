@@ -26,6 +26,49 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+// Recursive search for files matching query
+function searchFilesRecursive(dir, query, results, maxResults = 50) {
+  if (results.length >= maxResults) return;
+  
+  try {
+    const items = fs.readdirSync(dir);
+    
+    for (const name of items) {
+      if (results.length >= maxResults) return;
+      
+      // Skip hidden and ignored
+      if (name.startsWith(".")) continue;
+      if (isIgnoredDir(name)) continue;
+      
+      const fullPath = path.join(dir, name);
+      
+      try {
+        const stat = fs.statSync(fullPath);
+        
+        if (stat.isDirectory()) {
+          // Recurse into directory
+          searchFilesRecursive(fullPath, query, results, maxResults);
+        } else {
+          // Check if filename matches query (case-insensitive)
+          if (name.toLowerCase().includes(query.toLowerCase())) {
+            results.push({
+              name,
+              path: fullPath,
+              type: isBinaryFile(name) ? "binary" : "file",
+              size: stat.size,
+              sizeFormatted: formatSize(stat.size)
+            });
+          }
+        }
+      } catch {
+        // Skip files we can't access
+      }
+    }
+  } catch {
+    // Skip directories we can't read
+  }
+}
+
 export function setupFileExplorerSocket(io) {
   io.on("connection", (socket) => {
     // Get files in directory
@@ -79,6 +122,41 @@ export function setupFileExplorerSocket(io) {
           currentPath: resolvedPath,
           parentPath: path.dirname(resolvedPath)
         });
+      } catch (error) {
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Search files by name
+    socket.on("searchFiles", ({ workspace, query }, callback) => {
+      try {
+        if (!query || query.length < 2) {
+          callback({ success: true, files: [] });
+          return;
+        }
+
+        const resolvedPath = workspace?.startsWith("~") 
+          ? workspace.replace("~", os.homedir()) 
+          : workspace || os.homedir();
+
+        if (!fs.existsSync(resolvedPath)) {
+          callback({ success: false, error: "Workspace not found" });
+          return;
+        }
+
+        const results = [];
+        searchFilesRecursive(resolvedPath, query, results, 50);
+
+        // Sort by relevance (exact match first, then by path length)
+        results.sort((a, b) => {
+          const aExact = a.name.toLowerCase() === query.toLowerCase();
+          const bExact = b.name.toLowerCase() === query.toLowerCase();
+          if (aExact && !bExact) return -1;
+          if (!aExact && bExact) return 1;
+          return a.path.length - b.path.length;
+        });
+
+        callback({ success: true, files: results });
       } catch (error) {
         callback({ success: false, error: error.message });
       }
@@ -185,24 +263,40 @@ export function setupFileExplorerSocket(io) {
       }
     });
 
-    // Git status
+    // Git status with line change stats
     socket.on("gitStatus", ({ repoPath }, callback) => {
       try {
         const result = execSync("git status --porcelain", {
           cwd: repoPath,
           encoding: "utf-8",
-          stdio: ["pipe", "pipe", "pipe"] // Suppress stderr
+          stdio: ["pipe", "pipe", "pipe"]
         });
 
-        // git status --porcelain format can vary:
-        // "XY filename" where XY is 2 chars (index + worktree status)
-        // But sometimes only shows "X filename" with 1 char
-        // Use regex to parse: match status chars at start, then space, then filename
         const lines = result.trim().split("\n").filter(Boolean);
         const files = [];
         
+        // Get diff stats for tracked files
+        let diffStats = {};
+        try {
+          const statResult = execSync("git diff HEAD --numstat", {
+            cwd: repoPath,
+            encoding: "utf-8",
+            stdio: ["pipe", "pipe", "pipe"]
+          });
+          // Format: "added\tremoved\tfilename"
+          statResult.trim().split("\n").filter(Boolean).forEach(line => {
+            const parts = line.split("\t");
+            if (parts.length >= 3) {
+              const added = parts[0] === "-" ? 0 : parseInt(parts[0], 10) || 0;
+              const deleted = parts[1] === "-" ? 0 : parseInt(parts[1], 10) || 0;
+              diffStats[parts[2]] = { added, deleted };
+            }
+          });
+        } catch {
+          // Ignore stat errors
+        }
+        
         for (const line of lines) {
-          // Match: 1-2 status chars, space(s), then filename
           const match = line.match(/^([MADRCU?! ]{1,2})\s+(.+)$/);
           
           if (!match) continue;
@@ -212,7 +306,6 @@ export function setupFileExplorerSocket(io) {
           
           if (!filePath) continue;
           
-          // Determine primary status to show
           let status;
           if (statusCode.includes("?")) {
             status = "?";
@@ -228,7 +321,24 @@ export function setupFileExplorerSocket(io) {
             status = statusCode.trim()[0] || "?";
           }
           
-          files.push({ status, path: filePath });
+          // Get stats for this file
+          const stats = diffStats[filePath] || { added: 0, deleted: 0 };
+          
+          // For untracked files, count lines as added
+          if (status === "?") {
+            try {
+              const fullPath = path.join(repoPath, filePath);
+              if (fs.existsSync(fullPath) && !isBinaryFile(filePath)) {
+                const content = fs.readFileSync(fullPath, "utf-8");
+                stats.added = content.split("\n").length;
+                stats.deleted = 0;
+              }
+            } catch {
+              // Ignore
+            }
+          }
+          
+          files.push({ status, path: filePath, added: stats.added, deleted: stats.deleted });
         }
 
         callback({ success: true, files });
@@ -292,6 +402,51 @@ ${lines.map(line => `+${line}`).join("\n")}`;
         }
 
         callback({ success: true, diff });
+      } catch (error) {
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Git discard changes for a specific file
+    socket.on("gitDiscard", ({ repoPath, file, status }, callback) => {
+      try {
+        if (!file) {
+          callback({ success: false, error: "No file specified" });
+          return;
+        }
+
+        const filePath = path.join(repoPath, file);
+
+        if (status === "?") {
+          // Untracked file - delete it
+          if (fs.existsSync(filePath)) {
+            const stat = fs.statSync(filePath);
+            if (stat.isDirectory()) {
+              fs.rmSync(filePath, { recursive: true });
+            } else {
+              fs.unlinkSync(filePath);
+            }
+          }
+        } else if (status === "A") {
+          // Added file - unstage and delete
+          execSync(`git reset HEAD -- "${file}"`, { 
+            cwd: repoPath, 
+            encoding: "utf-8",
+            stdio: ["pipe", "pipe", "pipe"]
+          });
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } else {
+          // Modified/Deleted file - restore from HEAD
+          execSync(`git checkout HEAD -- "${file}"`, { 
+            cwd: repoPath, 
+            encoding: "utf-8",
+            stdio: ["pipe", "pipe", "pipe"]
+          });
+        }
+
+        callback({ success: true });
       } catch (error) {
         callback({ success: false, error: error.message });
       }

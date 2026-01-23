@@ -231,7 +231,7 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
         )}
         <div 
           ref={editorRef} 
-          className={`h-full ${loading ? "hidden" : ""}`} 
+          className={`h-full overflow-auto ${loading ? "hidden" : ""}`} 
         />
       </div>
 

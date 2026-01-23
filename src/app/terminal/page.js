@@ -84,7 +84,14 @@ export default function TerminalPage() {
     document.documentElement.classList.add("terminal-page");
 
     const preventScroll = (e) => {
-      if (e.target.closest(".xterm-viewport") || e.target.closest(".xterm-screen")) return;
+      // Allow scroll in xterm, codemirror, file explorer, git panel
+      if (
+        e.target.closest(".xterm-viewport") || 
+        e.target.closest(".xterm-screen") ||
+        e.target.closest(".cm-scroller") ||
+        e.target.closest(".cm-content") ||
+        e.target.closest(".overflow-auto")
+      ) return;
       e.preventDefault();
     };
 
@@ -149,7 +156,7 @@ export default function TerminalPage() {
   }, [pushView]);
 
   const handleBrowseFolder = useCallback((startPath) => {
-    pushView({ type: "files", workspace: startPath });
+    pushView({ type: "browse", path: startPath });
   }, [pushView]);
 
   const handleOpenFile = useCallback((filePath) => {
@@ -164,13 +171,11 @@ export default function TerminalPage() {
   }, [pushView, viewStack]);
 
   const handleSetWorkspace = useCallback((workspacePath) => {
-    // Update current files view with new workspace
-    const newStack = viewStack.map(v => 
-      v.type === "files" ? { ...v, workspace: workspacePath } : v
-    );
-    // This will trigger re-render with new workspace
+    // Replace browse view with files view (workspace mode)
     addRecentWorkspace(workspacePath);
-  }, [viewStack]);
+    storePopView(); // Remove browse view
+    pushView({ type: "files", workspace: workspacePath });
+  }, [storePopView, pushView]);
 
   const handleOpenSite = useCallback((site) => {
     // Open local site in new tab via proxy
@@ -266,25 +271,38 @@ export default function TerminalPage() {
 
       {/* Workspace List */}
       {currentView.type === "workspaces" && (
-        <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
+        <div className="absolute inset-0 z-20 animate-in slide-in-from-bottom duration-300">
           <WorkspaceList
             onSelect={handleSelectWorkspace}
             onBrowse={handleBrowseFolder}
             onBack={popView}
+            isCodespaces={codespaceInfo?.isCodespaces}
           />
         </div>
       )}
 
-      {/* File Explorer */}
+      {/* Browse Folder (selecting workspace) */}
+      {currentView.type === "browse" && (
+        <div className="absolute inset-0 z-20 animate-in slide-in-from-bottom duration-300">
+          <FileExplorer
+            workspace={currentView.path}
+            fileSocket={fileSocket}
+            onBack={popView}
+            onSetWorkspace={handleSetWorkspace}
+            isBrowsing={true}
+          />
+        </div>
+      )}
+
+      {/* File Explorer (workspace mode) */}
       {currentView.type === "files" && (
-        <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
+        <div className="absolute inset-0 z-20 animate-in slide-in-from-bottom duration-300">
           <FileExplorer
             workspace={currentView.workspace}
             fileSocket={fileSocket}
             onBack={popView}
             onOpenFile={handleOpenFile}
             onOpenGit={handleOpenGit}
-            onSetWorkspace={handleSetWorkspace}
           />
         </div>
       )}
@@ -307,6 +325,7 @@ export default function TerminalPage() {
             workspace={currentView.workspace}
             fileSocket={fileSocket}
             onBack={popView}
+            onOpenFile={handleOpenFile}
           />
         </div>
       )}

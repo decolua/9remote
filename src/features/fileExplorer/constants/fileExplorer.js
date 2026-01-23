@@ -67,7 +67,8 @@ export const GIT_STATUS_COLORS = {
   M: "text-blue-400",
   A: "text-green-400",
   D: "text-red-400",
-  "?": "text-slate-400"
+  "?": "text-green-400",
+  U: "text-orange-400"
 };
 
 export const AUTO_SAVE_DELAY = 3000; // 3 seconds

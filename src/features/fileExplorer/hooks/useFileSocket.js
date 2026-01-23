@@ -92,6 +92,28 @@ export function useFileSocket(socketRef) {
     });
   }, [socketRef]);
 
+  // Search files
+  const searchFiles = useCallback((workspace, query) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("searchFiles", { workspace, query }, resolve);
+    });
+  }, [socketRef]);
+
+  // Git discard changes
+  const gitDiscard = useCallback((repoPath, file, status) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitDiscard", { repoPath, file, status }, resolve);
+    });
+  }, [socketRef]);
+
   return {
     getFiles,
     readFile,
@@ -100,6 +122,8 @@ export function useFileSocket(socketRef) {
     deleteItem,
     renameItem,
     gitStatus,
-    gitDiff
+    gitDiff,
+    gitDiscard,
+    searchFiles
   };
 }

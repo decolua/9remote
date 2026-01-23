@@ -1,12 +1,35 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+
+const CUSTOM_PORTS_KEY = "custom_ports";
+
+// Load custom ports from localStorage
+function getCustomPorts() {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem(CUSTOM_PORTS_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Save custom ports to localStorage
+function saveCustomPorts(ports) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(CUSTOM_PORTS_KEY, JSON.stringify(ports));
+}
 
 export default function SitesList({ tunnelUrl, apiKey }) {
   const [sites, setSites] = useState([]);
+  const [customPorts, setCustomPorts] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [openedWindows, setOpenedWindows] = useState({});
+  const [newPort, setNewPort] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false });
   const checkIntervalsRef = useRef({});
 
   const loadSites = async () => {
@@ -30,6 +53,7 @@ export default function SitesList({ tunnelUrl, apiKey }) {
 
   useEffect(() => {
     if (showModal) {
+      setCustomPorts(getCustomPorts());
       loadSites();
     }
   }, [showModal]);
@@ -111,6 +135,45 @@ export default function SitesList({ tunnelUrl, apiKey }) {
 
   const handleClose = () => {
     setShowModal(false);
+    setNewPort("");
+  };
+
+  // Add custom port
+  const handleAddPort = () => {
+    const port = parseInt(newPort, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      return;
+    }
+    // Check if port already exists in auto-detected or custom
+    const existsInAuto = sites.some(s => s.port === port);
+    const existsInCustom = customPorts.includes(port);
+    if (existsInAuto || existsInCustom) {
+      // Open existing port
+      handleSelectSite({ port, name: `Port ${port}`, protocol: "http", isCustom: true });
+      setNewPort("");
+      return;
+    }
+    // Add new custom port
+    const updated = [...customPorts, port];
+    setCustomPorts(updated);
+    saveCustomPorts(updated);
+    setNewPort("");
+    // Open immediately
+    handleSelectSite({ port, name: `Port ${port}`, protocol: "http", isCustom: true });
+  };
+
+  // Remove custom port
+  const handleRemovePort = (port) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "Remove Port",
+      message: `Remove port ${port} from saved list?`,
+      onConfirm: () => {
+        const updated = customPorts.filter(p => p !== port);
+        setCustomPorts(updated);
+        saveCustomPorts(updated);
+      }
+    });
   };
 
   // Cleanup all intervals on unmount
@@ -187,9 +250,50 @@ export default function SitesList({ tunnelUrl, apiKey }) {
                 </div>
               ) : (
                 <div className="space-y-2">
+                  {/* Custom ports - displayed first */}
+                  {customPorts
+                    .filter(port => !sites.some(s => s.port === port))
+                    .map((port) => (
+                      <div
+                        key={`custom-${port}`}
+                        className="w-full px-4 py-3 bg-slate-700/50 hover:bg-slate-700 border border-slate-600 hover:border-slate-500 rounded-lg transition group flex items-center justify-between"
+                      >
+                        <button
+                          onClick={() => handleSelectSite({ port, name: `Port ${port}`, protocol: "http", isCustom: true })}
+                          className="flex-1 flex items-center gap-3 text-left"
+                        >
+                          <div className="w-2.5 h-2.5 rounded-full bg-slate-500" />
+                          <div>
+                            <div className="text-white font-medium group-hover:text-purple-300 transition">
+                              Custom
+                            </div>
+                            <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-slate-500/20 text-slate-400">
+                                http
+                              </span>
+                              <span>Port {port}</span>
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemovePort(port);
+                          }}
+                          className="p-2 text-slate-500 hover:text-red-400 hover:bg-slate-600 rounded transition"
+                          title="Remove"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+
+                  {/* Auto-detected sites */}
                   {sites.map((site) => (
                     <button
-                      key={site.port}
+                      key={`auto-${site.port}`}
                       onClick={() => handleSelectSite(site)}
                       className="w-full px-4 py-3 text-left bg-slate-700/50 hover:bg-slate-700 border border-slate-600 hover:border-slate-500 rounded-lg transition group"
                     >
@@ -222,6 +326,30 @@ export default function SitesList({ tunnelUrl, apiKey }) {
               )}
             </div>
 
+            {/* Add Port */}
+            <div className="px-4 py-3 border-t border-slate-700">
+              <div className="flex gap-2 items-center">
+                <span className="text-slate-400 text-sm whitespace-nowrap">http://localhost:</span>
+                <input
+                  type="number"
+                  value={newPort}
+                  onChange={(e) => setNewPort(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddPort()}
+                  placeholder="port"
+                  min="1"
+                  max="65535"
+                  className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-purple-500 text-sm min-w-0"
+                />
+                <button
+                  onClick={handleAddPort}
+                  disabled={!newPort}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition"
+                >
+                  Open
+                </button>
+              </div>
+            </div>
+
             {/* Footer */}
             <div className="px-5 py-3 border-t border-slate-700 flex items-center justify-between">
               <span className="text-xs text-slate-500">
@@ -241,6 +369,15 @@ export default function SitesList({ tunnelUrl, apiKey }) {
           </div>
         </div>
       )}
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+      />
     </>
   );
 }

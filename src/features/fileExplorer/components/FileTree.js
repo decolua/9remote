@@ -1,6 +1,6 @@
 "use client";
 
-import { FILE_ICONS, LANGUAGE_MAP } from "../constants/fileExplorer.js";
+import { FILE_ICONS, LANGUAGE_MAP, GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
 
 function getFileIcon(file) {
   if (file.type === "folder") return FILE_ICONS.folder;
@@ -13,13 +13,27 @@ function getFileIcon(file) {
   return FILE_ICONS.file;
 }
 
+// Get relative path from workspace
+function getRelativePath(filePath, workspacePath) {
+  if (!workspacePath) return filePath;
+  return filePath.replace(workspacePath + "/", "");
+}
+
+// Get git status color class
+function getStatusColor(status) {
+  if (status === "folder-changed") return "text-yellow-400";
+  return GIT_STATUS_COLORS[status] || "";
+}
+
 export default function FileTree({ 
   files, 
   loading, 
   onFileClick, 
   onFolderClick, 
-  onLongPress,
-  selectedPath 
+  onMoreClick,
+  selectedPath,
+  gitStatusMap = {},
+  workspacePath
 }) {
   if (loading) {
     return (
@@ -37,49 +51,72 @@ export default function FileTree({
     );
   }
 
-  const handleTouchStart = (file, e) => {
-    const timer = setTimeout(() => {
-      onLongPress?.(file, e);
-    }, 500);
-    
-    e.currentTarget.dataset.longPressTimer = timer;
-  };
-
-  const handleTouchEnd = (e) => {
-    const timer = e.currentTarget.dataset.longPressTimer;
-    if (timer) clearTimeout(timer);
+  const handleMoreClick = (e, file) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    onMoreClick?.(file, { x: rect.right, y: rect.top });
   };
 
   return (
-    <div className="flex-1 overflow-auto">
-      {files.map((file) => (
-        <button
-          key={file.path}
-          onClick={() => file.type === "folder" ? onFolderClick(file) : onFileClick(file)}
-          onTouchStart={(e) => handleTouchStart(file, e)}
-          onTouchEnd={handleTouchEnd}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            onLongPress?.(file, e);
-          }}
-          className={`w-full px-4 py-3 flex items-center gap-3 border-b border-slate-800 hover:bg-slate-800/50 transition text-left ${
-            selectedPath === file.path ? "bg-slate-800" : ""
-          }`}
-        >
-          <span className="text-xl flex-shrink-0">{getFileIcon(file)}</span>
-          <div className="flex-1 min-w-0">
-            <div className="text-white truncate">{file.name}</div>
-            {file.type !== "folder" && file.sizeFormatted && (
-              <div className="text-slate-500 text-xs">{file.sizeFormatted}</div>
+    <div>
+      {files.map((file) => {
+        const relativePath = getRelativePath(file.path, workspacePath);
+        const gitStatus = gitStatusMap[relativePath];
+        const statusColor = getStatusColor(gitStatus);
+        
+        return (
+          <div
+            key={file.path}
+            className={`w-full px-4 py-3 flex items-center gap-3 border-b border-slate-800 hover:bg-slate-800/50 transition ${
+              selectedPath === file.path ? "bg-slate-800" : ""
+            }`}
+          >
+            <button
+              onClick={() => file.type === "folder" ? onFolderClick(file) : onFileClick(file)}
+              className="flex-1 flex items-center gap-3 text-left min-w-0"
+            >
+              <span className="text-xl flex-shrink-0">{getFileIcon(file)}</span>
+              <div className="flex-1 min-w-0">
+                <div className={`truncate ${statusColor || "text-white"}`}>
+                  {file.name}
+                  {gitStatus && gitStatus !== "folder-changed" && (
+                    <span className="ml-2 text-xs opacity-70">[{gitStatus}]</span>
+                  )}
+                </div>
+                {file.type !== "folder" && file.sizeFormatted && (
+                  <div className="text-slate-500 text-xs">{file.sizeFormatted}</div>
+                )}
+              </div>
+            </button>
+            
+            {/* More button (workspace mode only) */}
+            {onMoreClick && (
+              <button
+                onClick={(e) => handleMoreClick(e, file)}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition flex-shrink-0"
+                title="More actions"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <circle cx="12" cy="5" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="12" cy="19" r="2" />
+                </svg>
+              </button>
+            )}
+
+            {file.type === "folder" && (
+              <button
+                onClick={() => onFolderClick(file)}
+                className="p-1 text-slate-400 flex-shrink-0"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
             )}
           </div>
-          {file.type === "folder" && (
-            <svg className="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          )}
-        </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
