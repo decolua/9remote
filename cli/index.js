@@ -17,7 +17,7 @@ import { checkForUpdates } from "./utils/updateChecker.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
-const STANDALONE_SERVER = path.join(__dirname, "../dist/standalone/server.js");
+const STANDALONE_SERVER = path.join(__dirname, "../dist/server.cjs");
 const WORKER_URL = "https://remote.9router.com";
 const SERVER_PORT = 2208;
 const MAX_RESTART_ATTEMPTS = 3;

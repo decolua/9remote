@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "node cli/index.js --auto",
     "build": "next build",
-    "build:cli": "node scripts/buildCli.js",
     "build:pkg": "node scripts/buildPkg.js",
     "build:worker": "next build && node scripts/buildWorkerStatic.js",
     "deploy": "npm run build:worker && cd worker && wrangler deploy",
