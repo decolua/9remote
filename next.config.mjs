@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
+
+// Check if building for npm package (standalone) or worker (export)
+const isStandalone = process.env.BUILD_STANDALONE === "true";
+
 const nextConfig = {
-  output: "export",
+  output: isStandalone ? "standalone" : "export",
   reactStrictMode: false,
   trailingSlash: true,
   images: {

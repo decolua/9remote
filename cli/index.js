@@ -17,6 +17,7 @@ import { checkForUpdates } from "./utils/updateChecker.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
+const STANDALONE_SERVER = path.join(__dirname, "../dist/standalone/server.js");
 const WORKER_URL = "https://remote.9router.com";
 const SERVER_PORT = 2208;
 const MAX_RESTART_ATTEMPTS = 3;
@@ -88,10 +89,14 @@ function startServerWithRestart(onReady) {
       isFirstStart = false;
     }
 
-    currentProcess = spawn("node", ["server.js"], {
-      cwd: PROJECT_ROOT,
+    // Use standalone server if available, otherwise fallback to dev server
+    const serverPath = fs.existsSync(STANDALONE_SERVER) ? STANDALONE_SERVER : path.join(PROJECT_ROOT, "server.js");
+    
+    currentProcess = spawn("node", [serverPath], {
+      cwd: path.dirname(serverPath),
       stdio: ["ignore", "inherit", "inherit"],
-      detached: false
+      detached: false,
+      env: { ...process.env, PORT: String(SERVER_PORT) }
     });
 
     currentProcess.on("exit", (code, signal) => {
