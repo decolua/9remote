@@ -11,8 +11,7 @@
     "start": "node cli/index.js",
     "server": "node server.js",
     "lint": "eslint",
-    "publish": "npm run build:pkg && npm publish",
-    "postinstall": "cd node_modules/node-pty 2>/dev/null && node-gyp rebuild 2>/dev/null || true"
+    "publish": "npm run build:pkg && npm publish"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.1",
@@ -36,7 +35,7 @@
     "inquirer": "^9.3.8",
     "next": "16.1.1",
     "node-machine-id": "^1.1.12",
-    "node-pty": "^1.1.0",
+    "node-pty": "^1.2.0-beta.7",
     "ora": "^8.1.1",
     "os": "^0.1.2",
     "qrcode-terminal": "^0.12.0",
