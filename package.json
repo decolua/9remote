@@ -1,7 +1,6 @@
 {
   "name": "9remote",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "node cli/index.js --auto",
@@ -11,7 +10,8 @@
     "deploy": "npm run build:worker && cd worker && wrangler deploy",
     "start": "node cli/index.js",
     "server": "node server.js",
-    "lint": "eslint"
+    "lint": "eslint",
+    "publish": "npm run build:pkg && npm publish"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.1",
@@ -29,30 +29,20 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "chalk": "^5.4.1",
-    "cloudflared": "^0.7.1",
     "codemirror": "^6.0.2",
-    "commander": "^13.0.0",
-    "crypto-js": "^4.2.0",
     "diff2html": "^3.4.55",
     "http-proxy": "^1.18.1",
     "inquirer": "^9.3.8",
-    "isomorphic-git": "^1.36.1",
     "next": "16.1.1",
     "node-machine-id": "^1.1.12",
-    "node-pty-prebuilt-multiarch": "^0.10.1-pre.5",
     "ora": "^8.1.1",
-    "pngjs": "^7.0.0",
+    "os": "^0.1.2",
     "qrcode-terminal": "^0.12.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "sharp": "^0.34.5",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
-    "ws": "^8.18.0",
     "zustand": "^5.0.10"
-  },
-  "optionalDependencies": {
-    "@hurdlegroup/robotjs": "^0.12.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",

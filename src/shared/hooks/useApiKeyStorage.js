@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-const STORAGE_KEY = "9remote_api_key";
+const STORAGE_KEY = "9remote_api_keys";
 
 // Simple base64 encoding for basic obfuscation (not cryptographic security)
 function encode(str) {
@@ -20,48 +20,77 @@ function decode(str) {
 }
 
 export function useApiKeyStorage() {
-  // Check if running in browser
   const isBrowser = typeof window !== "undefined";
 
-  // Save single API key to localStorage
+  // Load all saved keys
+  const loadKeys = useCallback(() => {
+    if (!isBrowser) return [];
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      if (!data) return [];
+      const keys = JSON.parse(data);
+      return keys.map((item) => ({
+        ...item,
+        key: decode(item.key)
+      }));
+    } catch (err) {
+      console.error("Failed to load API keys:", err);
+      return [];
+    }
+  }, [isBrowser]);
+
+  // Save a new key (avoid duplicates)
   const saveKey = useCallback((apiKey) => {
     if (!apiKey || !isBrowser) return;
     try {
-      const encoded = encode(apiKey);
-      localStorage.setItem(STORAGE_KEY, encoded);
+      const existing = loadKeys();
+      // Check if key already exists
+      if (existing.some((item) => item.key === apiKey)) return;
+      
+      const newKey = {
+        id: Date.now().toString(),
+        key: encode(apiKey),
+        createdAt: new Date().toISOString()
+      };
+      const updated = [...existing.map((item) => ({ ...item, key: encode(item.key) })), newKey];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } catch (err) {
       console.error("Failed to save API key:", err);
     }
-  }, [isBrowser]);
+  }, [isBrowser, loadKeys]);
 
-  // Load API key from localStorage
-  const loadKey = useCallback(() => {
-    if (!isBrowser) return null;
+  // Remove a key by id
+  const removeKey = useCallback((id) => {
+    if (!isBrowser) return;
     try {
-      const encoded = localStorage.getItem(STORAGE_KEY);
-      if (!encoded) return null;
-      return decode(encoded);
+      const existing = loadKeys();
+      const updated = existing
+        .filter((item) => item.id !== id)
+        .map((item) => ({ ...item, key: encode(item.key) }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } catch (err) {
-      console.error("Failed to load API key:", err);
-      return null;
+      console.error("Failed to remove API key:", err);
     }
-  }, [isBrowser]);
+  }, [isBrowser, loadKeys]);
 
-  // Clear saved API key
-  const clearKey = useCallback(() => {
+  // Clear all saved keys
+  const clearKeys = useCallback(() => {
     if (!isBrowser) return;
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch (err) {
-      console.error("Failed to clear API key:", err);
+      console.error("Failed to clear API keys:", err);
     }
   }, [isBrowser]);
 
-  // Check if key exists
-  const hasStoredKey = useCallback(() => {
+  // Check if any keys exist
+  const hasStoredKeys = useCallback(() => {
     if (!isBrowser) return false;
     try {
-      return !!localStorage.getItem(STORAGE_KEY);
+      const data = localStorage.getItem(STORAGE_KEY);
+      if (!data) return false;
+      const keys = JSON.parse(data);
+      return keys.length > 0;
     } catch {
       return false;
     }
@@ -69,8 +98,9 @@ export function useApiKeyStorage() {
 
   return {
     saveKey,
-    loadKey,
-    clearKey,
-    hasStoredKey
+    loadKeys,
+    removeKey,
+    clearKeys,
+    hasStoredKeys
   };
 }

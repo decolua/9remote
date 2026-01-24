@@ -45,7 +45,7 @@ async function buildCli() {
     ...baseConfig,
     entryPoints: [path.join(ROOT, "cli/index.js")],
     outfile: path.join(ROOT, "dist/cli.cjs"),
-    external: ["node-pty-prebuilt-multiarch", "sharp", "@hurdlegroup/robotjs", "cloudflared"]
+    external: ["@homebridge/node-pty-prebuilt-multiarch", "sharp", "@hurdlegroup/robotjs", "cloudflared"]
   });
   
   const stats = fs.statSync(path.join(ROOT, "dist/cli.cjs"));
@@ -59,7 +59,7 @@ async function buildServer() {
     ...baseConfig,
     entryPoints: [path.join(ROOT, "src/server/standalone.js")],
     outfile: path.join(ROOT, "dist/server.cjs"),
-    external: ["node-pty-prebuilt-multiarch", "sharp", "@hurdlegroup/robotjs", "next", "react", "react-dom", "isomorphic-git"]
+    external: ["@homebridge/node-pty-prebuilt-multiarch", "sharp", "@hurdlegroup/robotjs", "next", "react", "react-dom"]
   });
   
   const stats = fs.statSync(path.join(ROOT, "dist/server.cjs"));

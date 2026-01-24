@@ -6,14 +6,15 @@ import qrcode from "qrcode-terminal";
 import { spawn, execSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
-import { bin, install } from "cloudflared";
 import fs from "fs";
+import os from "os";
 import { Resolver } from "dns/promises";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, saveState, clearState } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkForUpdates } from "./utils/updateChecker.js";
+import { ensureNativeDeps } from "./utils/installer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
@@ -72,7 +73,8 @@ function killProcessOnPort(port) {
     if (process.platform === "win32") {
       execSync(`for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /F /PID %a`, { stdio: "ignore" });
     } else {
-      execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { stdio: "ignore" });
+      const nullDevice = "/dev/null";
+      execSync(`lsof -ti:${port} | xargs kill -9 2>${nullDevice} || true`, { stdio: "ignore" });
     }
   } catch { }
 }
@@ -172,38 +174,32 @@ function setupExitHandler(serverManager, tunnelProcess) {
 }
 
 /**
- * Helper: Start server and tunnel
+ * Helper: Start Quick Tunnel with error handling
  */
-async function startServerAndTunnel(selectedKey) {
-  console.log(chalk.cyan("\n🚀 Starting server..."));
-
-  // Kill existing processes
-  try {
-    execSync("pkill -f 'node server.js' 2>/dev/null || true", { stdio: "ignore" });
-    execSync("pkill -f cloudflared 2>/dev/null || true", { stdio: "ignore" });
-  } catch { }
-
-  // Cleanup old cloudflared tunnels
-  cleanupOldTunnels();
-
-  // Start server with auto-restart
-  const serverManager = startServerWithRestart();
-
-  // Wait for server to start
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-
-  console.log(chalk.cyan("🌐 Starting tunnel..."));
-
-  // Ensure cloudflared binary is installed
-  if (!fs.existsSync(bin)) {
-    console.log(chalk.yellow("📥 Installing cloudflared..."));
-    await install(bin);
-  }
-
-  // Start Quick Tunnel
+async function startQuickTunnel(bin) {
+  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
   let tunnelUrl = null;
-  const tunnelProcess = spawn(bin, ["tunnel", "--url", `http://localhost:${SERVER_PORT}`], {
+  let tunnelErrors = [];
+  
+  const tunnelProcess = spawn(bin, ["tunnel", "--config", nullDevice, "--no-autoupdate", "--url", `http://localhost:${SERVER_PORT}`], {
     stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  // Capture stderr for debugging
+  tunnelProcess.stderr.on("data", (data) => {
+    const output = data.toString();
+    tunnelErrors.push(output);
+    
+    // Only log critical errors, skip normal operational messages
+    const isCriticalError = (
+      (output.includes("ERR") || output.includes("error") || output.includes("failed")) &&
+      !output.includes("Configuration file") && // Skip config file warnings
+      !output.includes("was empty") // Skip empty config warnings
+    );
+    
+    if (isCriticalError) {
+      console.log(chalk.yellow(`   [Tunnel] ${output.trim()}`));
+    }
   });
 
   // Parse tunnel URL from stderr
@@ -233,39 +229,147 @@ async function startServerAndTunnel(selectedKey) {
       });
     });
   } catch (error) {
-    console.log(chalk.red(`❌ Failed to start tunnel: ${error.message}`));
-    serverManager.shutdown();
+    // Show captured errors for debugging
+    if (tunnelErrors.length > 0) {
+      console.log(chalk.yellow("   📋 Tunnel error logs:"));
+      tunnelErrors.slice(-3).forEach(err => {
+        console.log(chalk.gray(`      ${err.trim()}`));
+      });
+    }
+    
     tunnelProcess.kill();
-    return null;
+    throw error;
   }
 
   if (!tunnelUrl) {
-    console.log(chalk.red("❌ Failed to get tunnel URL"));
-    serverManager.shutdown();
     tunnelProcess.kill();
+    throw new Error("Failed to get tunnel URL");
+  }
+
+  return { tunnelUrl, tunnelProcess };
+}
+
+/**
+ * Helper: Start server and tunnel
+ */
+async function startServerAndTunnel(selectedKey) {
+  console.log(chalk.cyan("\n🚀 Starting server..."));
+
+  // Kill existing processes
+  try {
+    if (process.platform === "win32") {
+      execSync("taskkill /F /IM node.exe /FI \"WINDOWTITLE eq server.js*\" 2>nul || exit 0", { stdio: "ignore" });
+      execSync("taskkill /F /IM cloudflared.exe 2>nul || exit 0", { stdio: "ignore" });
+    } else {
+      execSync("pkill -f 'node server.js' 2>/dev/null || true", { stdio: "ignore" });
+      execSync("pkill -f cloudflared 2>/dev/null || true", { stdio: "ignore" });
+    }
+  } catch { }
+
+  // Cleanup old cloudflared tunnels
+  cleanupOldTunnels();
+
+  // Start server with auto-restart
+  const serverManager = startServerWithRestart();
+
+  // Wait for server to start
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+
+  console.log(chalk.cyan("✅ Starting tunnel..."));
+
+  // Check for config file conflict
+  const configPath = path.join(os.homedir(), ".cloudflared", "config.yml");
+  if (fs.existsSync(configPath)) {
+    console.log(chalk.yellow("⚠️  Warning: Found ~/.cloudflared/config.yml"));
+    console.log(chalk.yellow("   This may conflict with Quick Tunnel. Consider renaming it temporarily."));
+  }
+
+  // Lazy load cloudflared
+  const { bin, install } = await import("cloudflared");
+
+  // Ensure cloudflared binary is installed
+  if (!fs.existsSync(bin)) {
+    console.log(chalk.yellow("📥 Installing cloudflared..."));
+    await install(bin);
+  }
+
+  // Verify cloudflared binary
+  try {
+    const versionOutput = execSync(`"${bin}" --version`, { encoding: "utf-8" });
+    console.log(chalk.gray(`   cloudflared version: ${versionOutput.trim()}`));
+  } catch (error) {
+    console.log(chalk.red(`❌ Failed to verify cloudflared binary: ${error.message}`));
+    serverManager.shutdown();
     return null;
   }
 
-  // Tunnel URL hidden for cleaner output
+  // Retry logic for Quick Tunnel
+  const MAX_TUNNEL_RETRIES = 3;
+  const RETRY_DELAY = 5000; // 5 seconds
+  let tunnelUrl = null;
+  let tunnelProcess = null;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= MAX_TUNNEL_RETRIES; attempt++) {
+    if (attempt > 1) {
+      console.log(chalk.yellow(`\n🔄 Retry attempt ${attempt}/${MAX_TUNNEL_RETRIES} (waiting 5s)...`));
+      await new Promise(r => setTimeout(r, RETRY_DELAY));
+    }
+
+    try {
+      const result = await startQuickTunnel(bin, serverManager);
+      if (result && result.tunnelUrl) {
+        tunnelUrl = result.tunnelUrl;
+        tunnelProcess = result.tunnelProcess;
+        break; // Success!
+      }
+    } catch (error) {
+      lastError = error;
+      console.log(chalk.yellow(`   Attempt ${attempt} failed: ${error.message}`));
+    }
+  }
+
+  if (!tunnelUrl) {
+    console.log(chalk.red(`\n❌ Failed to start tunnel after ${MAX_TUNNEL_RETRIES} attempts`));
+    if (lastError) {
+      console.log(chalk.red(`   Last error: ${lastError.message}`));
+    }
+    serverManager.shutdown();
+    return null;
+  }
+
+  // Show tunnel URL immediately
+  console.log(chalk.cyan(`✅ Tunnel URL: ${tunnelUrl}`));
 
   // Verify tunnel is connected to server
-  const maxWaitTime = 120000; // 1 minute
-  const checkInterval = 1000; // 2 seconds
+  const maxWaitTime = 120000; // 2 minutes
+  const checkInterval = 1000; // 1 second
   const maxRetries = Math.floor(maxWaitTime / checkInterval);
   let tunnelReady = false;
   
   process.stdout.write(chalk.cyan("   Checking"));
   
-  // Use Cloudflare DNS resolver to avoid system DNS cache issues
-  const resolver = new Resolver();
-  resolver.setServers(["1.1.1.1", "1.0.0.1"]);
+  // Multiple DNS resolvers to increase success rate
+  const dnsResolvers = [
+    ["1.1.1.1", "1.0.0.1"],      // Cloudflare DNS
+    ["8.8.8.8", "8.8.4.4"],      // Google DNS
+    ["208.67.222.222", "208.67.220.220"], // OpenDNS
+  ];
+  
+  const hostname = new URL(tunnelUrl).hostname;
   
   for (let i = 0; i < maxRetries; i++) {
+    // Try each DNS resolver in rotation
+    const resolverIndex = i % dnsResolvers.length;
+    const dnsServers = dnsResolvers[resolverIndex];
+    
     try {
-      // Force DNS lookup with Cloudflare DNS
-      const hostname = new URL(tunnelUrl).hostname;
+      // Try DNS resolution with current resolver
+      const resolver = new Resolver();
+      resolver.setServers(dnsServers);
       await resolver.resolve4(hostname);
 
+      // Try health check
       const healthRes = await fetch(`${tunnelUrl}/api/health`, { 
         signal: AbortSignal.timeout(5000) 
       });
@@ -274,12 +378,17 @@ async function startServerAndTunnel(selectedKey) {
         break;
       }
     } catch(error) {
-      // Retry
+      // Log error for debugging (only on first few attempts)
+      // if (i < 3) {
+      //   console.log(chalk.gray(`\n   [Debug] Attempt ${i + 1} failed: ${error.message}`));
+      //   console.log(chalk.gray(`   [Debug] DNS: ${dnsServers.join(", ")}`));
+      // }
+      // Retry with next resolver
     }
     
     // Animated spinner
     const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    process.stdout.write(`\r${chalk.cyan("🔗 Waiting for tunnel")} ${chalk.yellow(spinners[i % spinners.length])} ${chalk.gray(`(${i}s)`)}`);
+    process.stdout.write(`\r${chalk.cyan("✅ Waiting for tunnel")} ${chalk.yellow(spinners[i % spinners.length])} ${chalk.gray(`(${i}s)`)}`);
     
     await new Promise(r => setTimeout(r, checkInterval));
   }
@@ -529,10 +638,24 @@ async function autoStartDev() {
 
 
 // Start app
-checkForUpdates();
-
-if (process.argv.includes("--auto")) {
-  autoStartDev().catch(console.error);
-} else {
-  mainMenu().catch(console.error);
+async function start() {
+  checkForUpdates();
+  
+  // Ensure native dependencies are installed (first time only)
+  const depsReady = await ensureNativeDeps();
+  if (!depsReady) {
+    console.log(chalk.red("❌ Failed to install dependencies. Please try again."));
+    process.exit(1);
+  }
+  
+  // Wait a bit for symlinks to be fully created (filesystem sync)
+  await new Promise(r => setTimeout(r, 1000));
+  
+  if (process.argv.includes("--auto")) {
+    await autoStartDev();
+  } else {
+    await mainMenu();
+  }
 }
+
+start().catch(console.error);

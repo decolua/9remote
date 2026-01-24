@@ -6,21 +6,19 @@ import { useAuth } from "@/shared/hooks/useAuth";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import { maskApiKey } from "@/shared/utils/formatters";
 import Container from "@/shared/components/ui/Container";
-import Input from "@/shared/components/ui/Input";
 import Button from "@/shared/components/ui/Button";
 import Spinner from "@/shared/components/ui/Spinner";
 
 function LoginContent() {
   const [apiKey, setApiKey] = useState("");
   const [rememberKey, setRememberKey] = useState(true);
-  const [savedKey, setSavedKey] = useState(null);
-  const [hasSavedKey, setHasSavedKey] = useState(false);
+  const [savedKeys, setSavedKeys] = useState([]);
   const [isHydrated, setIsHydrated] = useState(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
   const { loading, error, authenticateWithToken, authenticateWithApiKey } = useAuth();
-  const { loadKey, saveKey, clearKey, hasStoredKey } = useApiKeyStorage();
+  const { loadKeys, saveKey, removeKey, hasStoredKeys } = useApiKeyStorage();
 
   // Check for token (old) or temp key (new) in URL (QR code auth)
   const token = useMemo(() => searchParams.get("t"), [searchParams]);
@@ -31,10 +29,9 @@ function LoginContent() {
   useEffect(() => {
     const savedPreference = localStorage.getItem("9remote_remember_key_preference");
     setRememberKey(savedPreference !== "false");
-    setSavedKey(loadKey());
-    setHasSavedKey(hasStoredKey());
+    setSavedKeys(loadKeys());
     setIsHydrated(true);
-  }, [loadKey, hasStoredKey]);
+  }, [loadKeys]);
 
   // Handle remember key checkbox change
   const handleRememberChange = (checked) => {
@@ -95,18 +92,18 @@ function LoginContent() {
   };
 
   // Handle login with saved key
-  const handleLoginWithSavedKey = async () => {
-    if (!savedKey) return;
-    const result = await authenticateWithApiKey(savedKey);
+  const handleLoginWithSavedKey = async (key) => {
+    if (!key) return;
+    const result = await authenticateWithApiKey(key);
     if (result.success) {
       router.push("/terminal/");
     }
   };
 
-  // Handle clear saved key
-  const handleClearSavedKey = () => {
-    clearKey();
-    window.location.reload();
+  // Handle remove a saved key
+  const handleRemoveKey = (id) => {
+    removeKey(id);
+    setSavedKeys(loadKeys());
   };
 
   // Clear input
@@ -188,43 +185,46 @@ function LoginContent() {
             </Button>
           </div>
 
-          {/* Saved Key - only render after hydration */}
-          {isHydrated && hasSavedKey && savedKey && (
+          {/* Saved Keys - only render after hydration */}
+          {isHydrated && savedKeys.length > 0 && (
             <div className="mt-6 pt-6 border-t border-slate-700">
-              <h3 className="text-sm font-medium text-slate-300 mb-3">Saved Key</h3>
-              <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div 
-                    className="flex-1 min-w-0 cursor-pointer group"
-                    onClick={handleLoginWithSavedKey}
-                  >
-                    <code className="text-sm text-slate-300 group-hover:text-blue-400 font-mono block truncate transition">
-                      {maskApiKey(savedKey)}
-                    </code>
+              <h3 className="text-sm font-medium text-slate-300 mb-3">Saved Keys</h3>
+              <div className="space-y-2">
+                {savedKeys.map((item) => (
+                  <div key={item.id} className="bg-slate-900/50 border border-slate-700 rounded-lg p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div 
+                        className="flex-1 min-w-0 cursor-pointer group"
+                        onClick={() => handleLoginWithSavedKey(item.key)}
+                      >
+                        <code className="text-sm text-slate-300 group-hover:text-blue-400 font-mono block truncate transition">
+                          {maskApiKey(item.key)}
+                        </code>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => handleLoginWithSavedKey(item.key)}
+                          disabled={loading}
+                          className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                          </svg>
+                          Login
+                        </button>
+                        <button
+                          onClick={() => handleRemoveKey(item.id)}
+                          disabled={loading}
+                          className="flex items-center gap-1.5 text-slate-400 hover:text-red-400 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleLoginWithSavedKey}
-                      disabled={loading}
-                      className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                      </svg>
-                      Login
-                    </button>
-                    <button
-                      onClick={handleClearSavedKey}
-                      disabled={loading}
-                      className="flex items-center gap-1.5 text-slate-400 hover:text-red-400 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                      Clear
-                    </button>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           )}

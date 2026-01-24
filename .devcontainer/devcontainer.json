@@ -1,6 +1,6 @@
 {
   "name": "9Remote",
-  "postCreateCommand": "npm install -g 9remote",
+  "postCreateCommand": "npm install -g 9remote@latest",
   "postAttachCommand": "9remote",
   "forwardPorts": [2208],
   "portsAttributes": {

@@ -19,7 +19,8 @@ async function getListeningPorts() {
       command = "netstat -ano | findstr LISTENING";
     } else {
       // Mac/Linux: lsof is more reliable
-      command = "lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null || netstat -tlnp 2>/dev/null";
+      const nullDevice = "/dev/null";
+      command = `lsof -iTCP -sTCP:LISTEN -P -n 2>${nullDevice} || netstat -tlnp 2>${nullDevice}`;
     }
 
     const { stdout } = await execAsync(command);

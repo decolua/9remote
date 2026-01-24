@@ -132,10 +132,16 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
     termElement.addEventListener("touchend", handleTouchEnd, { passive: true });
 
     // ResizeObserver handles all container size changes (window resize, keyboard, orientation)
+    // Debounce to prevent excessive fits during animations
+    let resizeTimeout = null;
     const resizeObserver = new ResizeObserver(() => {
-      doResize();
-      // Scroll to bottom after resize
-      setTimeout(() => termRef.current?.scrollToBottom(), 500);
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      
+      resizeTimeout = setTimeout(() => {
+        // doResize();
+        fitAddonRef.current.fit();
+        termRef.current?.scrollToBottom();
+      }, 100);
     });
     resizeObserver.observe(termElement);
 

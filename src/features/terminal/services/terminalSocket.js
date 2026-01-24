@@ -1,5 +1,5 @@
 // Terminal Socket.IO namespace
-import pty from "node-pty-prebuilt-multiarch";
+import pty from "@homebridge/node-pty-prebuilt-multiarch";
 import os from "os";
 import { isRemoteAvailable } from "../../remote/services/remoteSocket.js";
 
@@ -63,7 +63,7 @@ function buildShellEnv() {
     LC_CTYPE: "en_US.UTF-8",
     PWD: home,
     OLDPWD: home,
-    TMPDIR: env.TMPDIR || "/tmp",
+    TMPDIR: env.TMPDIR || (process.platform === "win32" ? env.TEMP || env.TMP : "/tmp"),
     __CF_USER_TEXT_ENCODING: env.__CF_USER_TEXT_ENCODING,
     XPC_FLAGS: env.XPC_FLAGS,
     XPC_SERVICE_NAME: env.XPC_SERVICE_NAME,
@@ -113,7 +113,9 @@ export function setupTerminalSocket(io) {
       const shellEnv = buildShellEnv();
 
       try {
-        const ptyProcess = pty.spawn(shell, ["-l"], {
+        // Cross-platform: Windows shells don't support -l flag
+        const shellArgs = process.platform === "win32" ? [] : ["-l"];
+        const ptyProcess = pty.spawn(shell, shellArgs, {
           name: "xterm-256color",
           cols: 80,
           rows: 24,
