@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "0.1.4",
+  "version": "0.1.3",
   "type": "module",
   "scripts": {
     "dev": "node cli/index.js --auto",
@@ -11,8 +11,7 @@
     "start": "node cli/index.js",
     "server": "node server.js",
     "lint": "eslint",
-    "publish": "npm run build:pkg && npm publish",
-    "postinstall": "node scripts/install.js || true"
+    "publish": "npm run build:pkg && npm publish"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.1",
@@ -48,9 +47,6 @@
     "socket.io-client": "^4.8.3",
     "zustand": "^5.0.10"
   },
-  "optionalDependencies": {
-    "@hurdlegroup/robotjs": "^0.12.1"
-  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",
     "@tailwindcss/postcss": "^4",
@@ -64,7 +60,6 @@
     "9remote": "./dist/cli.cjs"
   },
   "files": [
-    "dist/",
-    "scripts/install.js"
+    "dist/"
   ]
 }
