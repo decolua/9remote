@@ -106,7 +106,7 @@ export async function ensureCloudflared() {
     return BIN_PATH;
   }
   
-  console.log("📥 Downloading cloudflared...");
+  console.log("📥 Downloading tunnel binary...");
   
   const url = getDownloadUrl();
   const isArchive = url.endsWith(".tgz");
@@ -116,7 +116,7 @@ export async function ensureCloudflared() {
     await downloadFile(url, downloadDest);
     
     if (isArchive) {
-      console.log("📦 Extracting...");
+      console.log("✅ Extracting...");
       execSync(`tar -xzf "${downloadDest}" -C "${BIN_DIR}"`, { stdio: "pipe" });
       fs.unlinkSync(downloadDest);
     }
@@ -133,6 +133,22 @@ export async function ensureCloudflared() {
   }
 }
 
+// Log patterns to filter cloudflared output
+const LOG_IGNORE = [
+  "INF Starting tunnel",
+  "INF Version",
+  "GOOS:",
+  "Settings:",
+  "Autoupdate frequency",
+  "Generated Connector",
+  "Initial protocol",
+  "ICMP proxy",
+  "Created ICMP",
+  "Starting metrics server",
+  "curve preferences",
+  "Updated to new configuration"
+];
+
 /**
  * Spawn cloudflared tunnel
  * @param {string} tunnelToken
@@ -146,20 +162,45 @@ export async function spawnCloudflared(tunnelToken) {
     stdio: ["ignore", "pipe", "pipe"]
   });
   
-  child.stdout.on("data", (data) => {
-    console.log(`[cloudflared] ${data.toString().trim()}`);
-  });
+  let connectionCount = 0;
   
-  child.stderr.on("data", (data) => {
-    console.error(`[cloudflared] ${data.toString().trim()}`);
-  });
+  const handleLog = (data) => {
+    const msg = data.toString().trim();
+    
+    // Skip ignored messages
+    if (LOG_IGNORE.some(pattern => msg.includes(pattern))) {
+      return;
+    }
+    
+    // Show connection status briefly
+    if (msg.includes("Registered tunnel connection")) {
+      connectionCount++;
+      if (connectionCount <= 4) {
+        process.stdout.write(`\r   ✔ Connection ${connectionCount}/4 established`);
+        if (connectionCount === 4) {
+          process.stdout.write("\n");
+        }
+      }
+      return;
+    }
+    
+    // Show errors
+    if (msg.includes("ERR") || msg.includes("error") || msg.includes("failed")) {
+      console.error(`[cloudflared] ${msg}`);
+    }
+  };
+  
+  child.stdout.on("data", handleLog);
+  child.stderr.on("data", handleLog);
   
   child.on("error", (error) => {
     console.error("❌ cloudflared error:", error);
   });
   
   child.on("exit", (code) => {
-    console.log(`cloudflared exited with code ${code}`);
+    if (code !== 0 && code !== null) {
+      console.log(`cloudflared exited with code ${code}`);
+    }
   });
   
   // Save PID
@@ -180,6 +221,6 @@ export function killCloudflared() {
       console.log("✅ cloudflared stopped");
     }
   } catch (error) {
-    console.error("Error killing cloudflared:", error.message);
+    // Silently ignore errors
   }
 }

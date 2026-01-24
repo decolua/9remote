@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "type": "module",
   "scripts": {
     "dev": "node cli/index.js --auto",
@@ -30,7 +30,6 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "chalk": "^5.4.1",
-    "cloudflared": "^0.7.1",
     "codemirror": "^6.0.2",
     "diff2html": "^3.4.55",
     "http-proxy": "^1.18.1",

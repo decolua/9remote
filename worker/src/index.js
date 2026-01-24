@@ -1,6 +1,8 @@
 import { handleStaticAsset } from "./handlers/static.js";
 import { handleSessionCreate, handleSessionUpdate, handleConnect, handleSessionDelete } from "./handlers/session.js";
 import { handleTempKeyCreate, handleTempKeyVerify, handleTempKeyRemove } from "./handlers/tempKey.js";
+import { handleTunnelCreate, handleTunnelDelete } from "./handlers/tunnel.js";
+import { cleanupDeadTunnels } from "./tunnelService.js";
 
 // CORS headers
 const corsHeaders = {
@@ -42,7 +44,7 @@ export default {
     }
   },
 
-  // Scheduled cleanup
+  // Scheduled cleanup (runs every hour)
   async scheduled(event, env, ctx) {
     try {
       // Clean expired sessions
@@ -55,7 +57,14 @@ export default {
         DELETE FROM temp_keys WHERE expires_at < ?
       `).bind(Date.now()).run();
 
-      console.log(`Cleaned up ${sessionsResult.meta.changes} expired sessions and ${tempKeysResult.meta.changes} expired temp keys`);
+      // Clean dead tunnels (down/inactive/degraded)
+      const tunnelCleanup = await cleanupDeadTunnels(
+        env.CLOUDFLARE_ACCOUNT_ID,
+        env.CLOUDFLARE_API_KEY,
+        env.CLOUDFLARE_EMAIL
+      );
+
+      console.log(`Cleanup: ${sessionsResult.meta.changes} sessions, ${tempKeysResult.meta.changes} temp keys, ${tunnelCleanup} tunnels`);
     } catch (error) {
       console.error("Scheduled cleanup error:", error);
     }
@@ -99,6 +108,16 @@ async function handleAPI(request, pathname, env) {
   // DELETE /api/temp-key/remove
   if (request.method === "DELETE" && pathname === "/api/temp-key/remove") {
     return handleTempKeyRemove(request, env, corsHeaders);
+  }
+
+  // POST /api/tunnel/create
+  if (request.method === "POST" && pathname === "/api/tunnel/create") {
+    return handleTunnelCreate(request, env, corsHeaders);
+  }
+
+  // DELETE /api/tunnel/delete
+  if (request.method === "DELETE" && pathname === "/api/tunnel/delete") {
+    return handleTunnelDelete(request, env, corsHeaders);
   }
 
   return new Response("Not Found", { status: 404, headers: corsHeaders });

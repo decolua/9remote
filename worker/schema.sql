@@ -2,6 +2,7 @@ CREATE TABLE sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   machineId TEXT NOT NULL,
   apiKey TEXT NOT NULL UNIQUE,
+  tunnelId TEXT,
   tunnelUrl TEXT,
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
   expiresAt DATETIME DEFAULT (datetime('now', '+4 hours')),

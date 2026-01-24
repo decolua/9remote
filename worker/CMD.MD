@@ -6,10 +6,13 @@
 
 ```bash
 # Development
-npx wrangler d1 execute 9remote-db --local --file=./schema.sql
+npx wrangler d1 execute 9remote --local --file=./schema.sql
 
 # Production
-npx wrangler d1 execute 9remote-db --remote --file=./schema.sql
+npx wrangler d1 execute 9remote --remote --file=./schema.sql
+
+# Add tunnelId column (run once)
+npx wrangler d1 execute 9remote --remote --file=./migrations/001_add_tunnelId.sql
 ```
 
 ## Deploy Worker

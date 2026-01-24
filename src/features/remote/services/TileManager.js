@@ -72,7 +72,8 @@ export class TileManager {
   }
 
   async captureFullScreen() {
-    const bitmap = this.robot.screen.capture();
+    const size = this.robot.getScreenSize();
+    const bitmap = this.robot.screen.capture(0, 0, size.width, size.height);
     const imageBuffer = Buffer.from(bitmap.image);
 
     // BGRA -> RGBA

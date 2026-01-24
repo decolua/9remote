@@ -50,3 +50,4 @@ worker/src/handlers/static.js
 landing/template.html
 .devcontainer/devcontainer.json
 dist/*
+9remote-*.tgz

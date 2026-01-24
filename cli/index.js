@@ -7,14 +7,14 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
-import os from "os";
-import { Resolver } from "dns/promises";
+import dns from "dns/promises";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, saveState, clearState } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkForUpdates } from "./utils/updateChecker.js";
 import { ensureNativeDeps } from "./utils/installer.js";
+import { ensureCloudflared, spawnCloudflared, killCloudflared } from "./utils/cloudflared.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
@@ -162,11 +162,21 @@ function startServerWithRestart(onReady) {
 /**
  * Helper: Setup exit handler for server processes
  */
-function setupExitHandler(serverManager, tunnelProcess) {
-  process.on("SIGINT", () => {
+function setupExitHandler(serverManager, tunnelProcess, apiKey) {
+  process.on("SIGINT", async () => {
     console.log(chalk.yellow("\n\n🛑 Stopping server..."));
     serverManager.shutdown();
     tunnelProcess.kill();
+    
+    // Cleanup tunnel on worker
+    try {
+      await fetch(`${WORKER_URL}/api/tunnel/delete`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey })
+      });
+    } catch { }
+    
     clearState();
     console.log(chalk.green("✅ Server stopped"));
     process.exit(0);
@@ -174,79 +184,21 @@ function setupExitHandler(serverManager, tunnelProcess) {
 }
 
 /**
- * Helper: Start Quick Tunnel with error handling
+ * Helper: Create Named Tunnel via Worker API
  */
-async function startQuickTunnel(bin) {
-  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
-  let tunnelUrl = null;
-  let tunnelErrors = [];
-  
-  const tunnelProcess = spawn(bin, ["tunnel", "--config", nullDevice, "--no-autoupdate", "--url", `http://localhost:${SERVER_PORT}`], {
-    stdio: ["ignore", "pipe", "pipe"]
+async function createNamedTunnel(apiKey) {
+  const response = await fetch(`${WORKER_URL}/api/tunnel/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey })
   });
 
-  // Capture stderr for debugging
-  tunnelProcess.stderr.on("data", (data) => {
-    const output = data.toString();
-    tunnelErrors.push(output);
-    
-    // Only log critical errors, skip normal operational messages
-    const isCriticalError = (
-      (output.includes("ERR") || output.includes("error") || output.includes("failed")) &&
-      !output.includes("Configuration file") && // Skip config file warnings
-      !output.includes("was empty") // Skip empty config warnings
-    );
-    
-    if (isCriticalError) {
-      console.log(chalk.yellow(`   [Tunnel] ${output.trim()}`));
-    }
-  });
-
-  // Parse tunnel URL from stderr
-  try {
-    tunnelUrl = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timeout waiting for tunnel URL")), 30000);
-
-      tunnelProcess.stderr.on("data", (data) => {
-        const output = data.toString();
-        const match = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-        if (match) {
-          clearTimeout(timeout);
-          resolve(match[0]);
-        }
-      });
-
-      tunnelProcess.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-
-      tunnelProcess.on("close", (code) => {
-        if (code !== 0 && !tunnelUrl) {
-          clearTimeout(timeout);
-          reject(new Error(`Tunnel exited with code ${code}`));
-        }
-      });
-    });
-  } catch (error) {
-    // Show captured errors for debugging
-    if (tunnelErrors.length > 0) {
-      console.log(chalk.yellow("   📋 Tunnel error logs:"));
-      tunnelErrors.slice(-3).forEach(err => {
-        console.log(chalk.gray(`      ${err.trim()}`));
-      });
-    }
-    
-    tunnelProcess.kill();
-    throw error;
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to create tunnel");
   }
 
-  if (!tunnelUrl) {
-    tunnelProcess.kill();
-    throw new Error("Failed to get tunnel URL");
-  }
-
-  return { tunnelUrl, tunnelProcess };
+  return response.json();
 }
 
 /**
@@ -257,171 +209,120 @@ async function startServerAndTunnel(selectedKey) {
 
   // Kill existing processes
   try {
+    killCloudflared();
     if (process.platform === "win32") {
       execSync("taskkill /F /IM node.exe /FI \"WINDOWTITLE eq server.js*\" 2>nul || exit 0", { stdio: "ignore" });
-      execSync("taskkill /F /IM cloudflared.exe 2>nul || exit 0", { stdio: "ignore" });
     } else {
       execSync("pkill -f 'node server.js' 2>/dev/null || true", { stdio: "ignore" });
-      execSync("pkill -f cloudflared 2>/dev/null || true", { stdio: "ignore" });
     }
   } catch { }
 
-  // Cleanup old cloudflared tunnels
-  cleanupOldTunnels();
-
-  // Start server with auto-restart
-  const serverManager = startServerWithRestart();
-
-  // Wait for server to start
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-
-  console.log(chalk.cyan("✅ Starting tunnel..."));
-
-  // Check for config file conflict
-  const configPath = path.join(os.homedir(), ".cloudflared", "config.yml");
-  if (fs.existsSync(configPath)) {
-    console.log(chalk.yellow("⚠️  Warning: Found ~/.cloudflared/config.yml"));
-    console.log(chalk.yellow("   This may conflict with Quick Tunnel. Consider renaming it temporarily."));
-  }
-
-  // Lazy load cloudflared
-  const { bin, install } = await import("cloudflared");
-
-  // Ensure cloudflared binary is installed
-  if (!fs.existsSync(bin)) {
-    console.log(chalk.yellow("📥 Installing cloudflared..."));
-    await install(bin);
-  }
-
-  // Verify cloudflared binary
-  try {
-    const versionOutput = execSync(`"${bin}" --version`, { encoding: "utf-8" });
-    console.log(chalk.gray(`   cloudflared version: ${versionOutput.trim()}`));
-  } catch (error) {
-    console.log(chalk.red(`❌ Failed to verify cloudflared binary: ${error.message}`));
-    serverManager.shutdown();
-    return null;
-  }
-
-  // Retry logic for Quick Tunnel
-  const MAX_TUNNEL_RETRIES = 3;
-  const RETRY_DELAY = 5000; // 5 seconds
-  let tunnelUrl = null;
-  let tunnelProcess = null;
-  let lastError = null;
-
-  for (let attempt = 1; attempt <= MAX_TUNNEL_RETRIES; attempt++) {
-    if (attempt > 1) {
-      console.log(chalk.yellow(`\n🔄 Retry attempt ${attempt}/${MAX_TUNNEL_RETRIES} (waiting 5s)...`));
-      await new Promise(r => setTimeout(r, RETRY_DELAY));
-    }
-
-    try {
-      const result = await startQuickTunnel(bin, serverManager);
-      if (result && result.tunnelUrl) {
-        tunnelUrl = result.tunnelUrl;
-        tunnelProcess = result.tunnelProcess;
-        break; // Success!
-      }
-    } catch (error) {
-      lastError = error;
-      console.log(chalk.yellow(`   Attempt ${attempt} failed: ${error.message}`));
-    }
-  }
-
-  if (!tunnelUrl) {
-    console.log(chalk.red(`\n❌ Failed to start tunnel after ${MAX_TUNNEL_RETRIES} attempts`));
-    if (lastError) {
-      console.log(chalk.red(`   Last error: ${lastError.message}`));
-    }
-    serverManager.shutdown();
-    return null;
-  }
-
-  // Show tunnel URL immediately
-  console.log(chalk.cyan(`✅ Tunnel URL: ${tunnelUrl}`));
-
-  // Verify tunnel is connected to server
-  const maxWaitTime = 120000; // 2 minutes
-  const checkInterval = 1000; // 1 second
-  const maxRetries = Math.floor(maxWaitTime / checkInterval);
-  let tunnelReady = false;
-  
-  process.stdout.write(chalk.cyan("   Checking"));
-  
-  // Multiple DNS resolvers to increase success rate
-  const dnsResolvers = [
-    ["1.1.1.1", "1.0.0.1"],      // Cloudflare DNS
-    ["8.8.8.8", "8.8.4.4"],      // Google DNS
-    ["208.67.222.222", "208.67.220.220"], // OpenDNS
-  ];
-  
-  const hostname = new URL(tunnelUrl).hostname;
-  
-  for (let i = 0; i < maxRetries; i++) {
-    // Try each DNS resolver in rotation
-    const resolverIndex = i % dnsResolvers.length;
-    const dnsServers = dnsResolvers[resolverIndex];
-    
-    try {
-      // Try DNS resolution with current resolver
-      const resolver = new Resolver();
-      resolver.setServers(dnsServers);
-      await resolver.resolve4(hostname);
-
-      // Try health check
-      const healthRes = await fetch(`${tunnelUrl}/api/health`, { 
-        signal: AbortSignal.timeout(5000) 
-      });
-      if (healthRes.ok) {
-        tunnelReady = true;
-        break;
-      }
-    } catch(error) {
-      // Log error for debugging (only on first few attempts)
-      // if (i < 3) {
-      //   console.log(chalk.gray(`\n   [Debug] Attempt ${i + 1} failed: ${error.message}`));
-      //   console.log(chalk.gray(`   [Debug] DNS: ${dnsServers.join(", ")}`));
-      // }
-      // Retry with next resolver
-    }
-    
-    // Animated spinner
-    const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    process.stdout.write(`\r${chalk.cyan("✅ Waiting for tunnel")} ${chalk.yellow(spinners[i % spinners.length])} ${chalk.gray(`(${i}s)`)}`);
-    
-    await new Promise(r => setTimeout(r, checkInterval));
-  }
-  
-  // Clear line and show result
-  process.stdout.write("\r" + " ".repeat(50) + "\r");
-  
-  if (!tunnelReady) {
-    console.log(chalk.red("❌ Tunnel connection timeout (60s)"));
-    serverManager.shutdown();
-    tunnelProcess.kill();
-    return null;
-  }
-  
-  console.log(chalk.green(`✅ Connection established`));
-
-  // Sync with
+  // Create session first
   try {
     await fetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey: selectedKey })
     });
-
-    await fetch(`${WORKER_URL}/api/session/update`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: selectedKey, tunnelUrl })
-    });
-    
   } catch (error) {
-    console.log(chalk.yellow(`⚠️  Worker sync failed: ${error.message}`));
+    console.log(chalk.red(`❌ Failed to create session: ${error.message}`));
+    return null;
   }
+
+  // Start server with auto-restart
+  const serverManager = startServerWithRestart();
+
+  // Wait for server to start
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+
+  console.log(chalk.cyan("✅ Creating tunnel..."));
+
+  // Ensure cloudflared binary
+  try {
+    await ensureCloudflared();
+  } catch (error) {
+    console.log(chalk.red(`❌ Failed to install cloudflared: ${error.message}`));
+    serverManager.shutdown();
+    return null;
+  }
+
+  // Create Named Tunnel via Worker API
+  let tunnelData;
+  try {
+    tunnelData = await createNamedTunnel(selectedKey);
+    console.log(chalk.gray(`✅ Tunnel ID: ${tunnelData.tunnelId}`));
+  } catch (error) {
+    console.log(chalk.red(`❌ Failed to create tunnel: ${error.message}`));
+    serverManager.shutdown();
+    return null;
+  }
+
+  const { token, hostname: tunnelUrl } = tunnelData;
+
+  // Spawn cloudflared with token
+  console.log(chalk.cyan("✅ Starting tunnel..."));
+  let tunnelProcess;
+  try {
+    tunnelProcess = await spawnCloudflared(token);
+  } catch (error) {
+    console.log(chalk.red(`❌ Failed to start cloudflared: ${error.message}`));
+    serverManager.shutdown();
+    return null;
+  }
+
+  // Wait for tunnel to be ready
+  console.log(chalk.cyan(`✅ Tunnel URL: ${tunnelUrl}`));
+  
+  const maxWaitTime = 60000;
+  const checkInterval = 2000;
+  const maxRetries = Math.floor(maxWaitTime / checkInterval);
+  let tunnelReady = false;
+  
+  // Resolve IP using Cloudflare DNS to bypass local cache
+  const hostname = new URL(tunnelUrl).hostname;
+  let resolvedIp = null;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      // Resolve DNS using Cloudflare DNS server (bypass local cache)
+      if (!resolvedIp) {
+        const resolver = new dns.Resolver();
+        resolver.setServers(["1.1.1.1", "1.0.0.1"]);
+        const addresses = await resolver.resolve4(hostname);
+        if (addresses.length > 0) {
+          resolvedIp = addresses[0];
+        }
+      }
+      
+      if (resolvedIp) {
+        // Use curl with --resolve to bypass DNS cache and SSL issues
+        const curlResult = execSync(
+          `curl -s --max-time 5 --resolve "${hostname}:443:${resolvedIp}" "${tunnelUrl}/api/health"`,
+          { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
+        );
+        if (curlResult.includes("ok")) {
+          tunnelReady = true;
+          break;
+        }
+      }
+    } catch { }
+    
+    const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    process.stdout.write(`\r${chalk.cyan("   Waiting for tunnel")} ${chalk.yellow(spinners[i % spinners.length])} ${chalk.gray(`(${i * 2}s)`)}`);
+    
+    await new Promise(r => setTimeout(r, checkInterval));
+  }
+  
+  process.stdout.write("\r" + " ".repeat(50) + "\r");
+  
+  if (!tunnelReady) {
+    console.log(chalk.red("❌ Tunnel connection timeout"));
+    serverManager.shutdown();
+    tunnelProcess.kill();
+    return null;
+  }
+  
+  console.log(chalk.green(`✅ Connection established`));
 
   // Save state
   saveState({
@@ -434,33 +335,6 @@ async function startServerAndTunnel(selectedKey) {
   return { serverManager, tunnelProcess, tunnelUrl };
 }
 
-/**
- * Cleanup old 9remote tunnels
- */
-function cleanupOldTunnels() {
-  try {
-    if (!fs.existsSync(bin)) return;
-
-    const result = execSync(`"${bin}" tunnel list`, { encoding: "utf-8", stdio: ["pipe", "pipe", "ignore"] });
-    const lines = result.split("\n");
-
-    const oldTunnels = [];
-    for (const line of lines) {
-      const match = line.match(/([a-f0-9-]{36})\s+(9remote-\d+)/);
-      if (match) {
-        oldTunnels.push(match[1]);
-      }
-    }
-
-    if (oldTunnels.length > 0) {
-      for (const tunnelId of oldTunnels) {
-        try {
-          execSync(`"${bin}" tunnel delete -f ${tunnelId}`, { stdio: "ignore" });
-        } catch (e) { }
-      }
-    }
-  } catch (e) { }
-}
 
 /**
  * Show main menu
@@ -520,7 +394,7 @@ async function startServer() {
   const { serverManager, tunnelProcess, tunnelUrl } = result;
 
   await showConnectionInfo(keyData.key, tunnelUrl);
-  setupExitHandler(serverManager, tunnelProcess);
+  setupExitHandler(serverManager, tunnelProcess, keyData.key);
 
   // Keep process alive
   await new Promise(() => { });
@@ -630,7 +504,7 @@ async function autoStartDev() {
   const { serverManager, tunnelProcess, tunnelUrl } = result;
 
   await showConnectionInfo(keyData.key, tunnelUrl);
-  setupExitHandler(serverManager, tunnelProcess);
+  setupExitHandler(serverManager, tunnelProcess, keyData.key);
 
   // Keep process alive
   await new Promise(() => { });
