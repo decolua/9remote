@@ -1,5 +1,5 @@
 // Terminal Socket.IO namespace
-import pty from "@homebridge/node-pty-prebuilt-multiarch";
+import pty from "node-pty";
 import os from "os";
 import { isRemoteAvailable } from "../../remote/services/remoteSocket.js";
 
