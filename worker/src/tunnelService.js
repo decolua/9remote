@@ -269,6 +269,7 @@ async function listTunnelsByStatus(accountId, apiKey, email, status) {
  */
 export async function cleanupDeadTunnels(accountId, apiKey, email) {
   const statuses = ["down", "inactive", "degraded"];
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
   let cleanedCount = 0;
   
   for (const status of statuses) {
@@ -277,6 +278,27 @@ export async function cleanupDeadTunnels(accountId, apiKey, email) {
     for (const tunnel of tunnels) {
       // Only cleanup 9remote tunnels
       if (!tunnel.name.startsWith("9remote-")) continue;
+      
+      // Get last connection closed time
+      let lastClosedAt = null;
+      if (tunnel.connections && tunnel.connections.length > 0) {
+        const closedConnections = tunnel.connections
+          .filter(c => c.closed_at)
+          .map(c => new Date(c.closed_at));
+        
+        if (closedConnections.length > 0) {
+          lastClosedAt = new Date(Math.max(...closedConnections));
+        }
+      }
+      
+      // Use closed_at if available, otherwise use created_at
+      const checkTime = lastClosedAt || new Date(tunnel.created_at);
+      
+      // Only delete if disconnected for more than 30 minutes
+      if (checkTime > thirtyMinutesAgo) {
+        console.log(`[Cleanup] Skip ${tunnel.name} - disconnected < 30 min`);
+        continue;
+      }
       
       // Extract machineId from tunnel name
       const machineId = tunnel.name.replace("9remote-", "");
