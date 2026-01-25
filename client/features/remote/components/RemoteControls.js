@@ -2,6 +2,7 @@
 
 import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
+import { ChevronLeft, RefreshCw } from "@/shared/components/ui/Icon";
 
 // Remote Desktop Controls component
 export default function RemoteControls({
@@ -38,55 +39,29 @@ export default function RemoteControls({
   onSendText,
   onClose
 }) {
-  const btnBase = "px-2 py-1.5 rounded text-xs font-semibold transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed";
+  const btnBase = "px-2 py-1.5 rounded-brand text-xs font-semibold transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed";
   
   return (
     <div 
-      className="p-3 bg-slate-800 border-t border-slate-700"
+      className="p-3 bg-dark-600 border-t border-dark-400"
     >
       {/* Main Controls */}
       <div className="flex flex-row items-center justify-center mb-3">
-        <div className="flex-1 grid grid-cols-5 gap-2">
+        <div className="flex-1 grid grid-cols-4 gap-2">
           {/* Back - Return to terminal */}
           <button
             onClick={onClose}
-            className={`${btnBase} bg-slate-600 hover:bg-slate-500 text-white flex items-center justify-center gap-1`}
+            className={`${btnBase} bg-red-600 hover:bg-red-700 text-white flex items-center justify-center gap-1`}
             title="Back to Terminal"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
+            <ChevronLeft size={16} />
           </button>
-
-          {/* Start/Stop */}
-          <div className="col-span-1">
-            {!streaming ? (
-              <Button
-                variant="success"
-                size="sm"
-                onClick={onStartStreaming}
-                disabled={!connected}
-                className="w-full"
-              >
-                Start
-              </Button>
-            ) : (
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={onStopStreaming}
-                className="w-full"
-              >
-                Stop
-              </Button>
-            )}
-          </div>
 
           {/* Zoom */}
           <button
             onClick={onResetZoom}
             disabled={!streaming}
-            className={`${btnBase} bg-slate-700 hover:bg-slate-600 text-slate-300`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-dark-50 border border-dark-400 hover:border-brand-500`}
           >
             {Math.round(canvasZoom * 100)}%
           </button>
@@ -95,16 +70,16 @@ export default function RemoteControls({
           <button
             onClick={onRefresh}
             disabled={!streaming}
-            className={`${btnBase} bg-violet-600 hover:bg-violet-700 text-white`}
+            className={`${btnBase} bg-brand-500 hover:bg-brand-600 text-white shadow-lg shadow-brand-500/20 flex items-center justify-center`}
           >
-            ↻
+            <RefreshCw size={14} />
           </button>
 
           {/* Selection */}
           <button
             onClick={onToggleSelection}
             disabled={!streaming}
-            className={`${btnBase} ${selectionMode ? "bg-amber-500 text-black" : "bg-cyan-600 hover:bg-cyan-700 text-white"}`}
+            className={`${btnBase} ${selectionMode ? "bg-brand-500 text-white shadow-lg shadow-brand-500/20" : "bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500"}`}
           >
             □
           </button>
@@ -117,21 +92,21 @@ export default function RemoteControls({
           <button
             onClick={() => onEscKey(streaming)}
             disabled={!streaming}
-            className={`${btnBase} bg-purple-600 hover:bg-purple-700 text-white`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500`}
           >
             ESC
           </button>
           <button
             onClick={() => onArrowKey("up", streaming)}
             disabled={!streaming}
-            className={`${btnBase} bg-indigo-600 hover:bg-indigo-700 text-white`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500`}
           >
             ↑
           </button>
           <button
             onClick={() => onArrowKey("down", streaming)}
             disabled={!streaming}
-            className={`${btnBase} bg-indigo-600 hover:bg-indigo-700 text-white`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500`}
           >
             ↓
           </button>
@@ -142,7 +117,7 @@ export default function RemoteControls({
             onTouchStart={(e) => { e.preventDefault(); onScrollUp(streaming); }}
             onTouchEnd={onStopScrolling}
             disabled={!streaming}
-            className={`${btnBase} bg-purple-600 hover:bg-purple-700 text-white select-none`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500 select-none`}
           >
             ⇈
           </button>
@@ -153,7 +128,7 @@ export default function RemoteControls({
             onTouchStart={(e) => { e.preventDefault(); onScrollDown(streaming); }}
             onTouchEnd={onStopScrolling}
             disabled={!streaming}
-            className={`${btnBase} bg-purple-600 hover:bg-purple-700 text-white select-none`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500 select-none`}
           >
             ⇊
           </button>
@@ -165,7 +140,7 @@ export default function RemoteControls({
                 ? isDragging
                   ? "bg-red-500 text-white animate-pulse"
                   : "bg-green-500 text-white"
-                : "bg-slate-600 hover:bg-slate-500 text-white"
+                : "bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500"
             }`}
           >
             ✋
@@ -176,21 +151,21 @@ export default function RemoteControls({
           <button
             onClick={() => onTabKey(streaming)}
             disabled={!streaming}
-            className={`${btnBase} bg-purple-600 hover:bg-purple-700 text-white`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500`}
           >
             TAB
           </button>
           <button
             onClick={() => onArrowKey("left", streaming)}
             disabled={!streaming}
-            className={`${btnBase} bg-indigo-600 hover:bg-indigo-700 text-white`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500`}
           >
             ←
           </button>
           <button
             onClick={() => onArrowKey("right", streaming)}
             disabled={!streaming}
-            className={`${btnBase} bg-indigo-600 hover:bg-indigo-700 text-white`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500`}
           >
             →
           </button>
@@ -201,7 +176,7 @@ export default function RemoteControls({
             onTouchStart={(e) => { e.preventDefault(); onScrollRight(streaming); }}
             onTouchEnd={onStopScrolling}
             disabled={!streaming}
-            className={`${btnBase} bg-purple-600 hover:bg-purple-700 text-white select-none`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500 select-none`}
           >
             ⇇
           </button>
@@ -212,7 +187,7 @@ export default function RemoteControls({
             onTouchStart={(e) => { e.preventDefault(); onScrollLeft(streaming); }}
             onTouchEnd={onStopScrolling}
             disabled={!streaming}
-            className={`${btnBase} bg-purple-600 hover:bg-purple-700 text-white select-none`}
+            className={`${btnBase} bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500 select-none`}
           >
             ⇉
           </button>
@@ -227,7 +202,7 @@ export default function RemoteControls({
       </div>
 
       {/* Modifier Keys */}
-      <div className="border-t border-slate-600 pt-2 mb-3">
+      <div className="border-t border-dark-400 pt-2 mb-3">
         <div className="grid grid-cols-5 gap-1">
           {["ctrl", "cmd", "alt", "shift"].map((key) => (
             <button
@@ -236,8 +211,8 @@ export default function RemoteControls({
               disabled={!streaming}
               className={`${btnBase} ${
                 modifierKeys[key]
-                  ? "bg-orange-500 text-white"
-                  : "bg-slate-600 hover:bg-slate-500 text-white"
+                  ? "bg-brand-500 text-white shadow-lg shadow-brand-500/20"
+                  : "bg-dark-500 hover:bg-dark-400 text-white border border-dark-400 hover:border-brand-500"
               }`}
             >
               {key === "cmd" ? "Cmd" : key.charAt(0).toUpperCase() + key.slice(1)}
@@ -254,7 +229,7 @@ export default function RemoteControls({
       </div>
 
       {/* Text Input */}
-      <div className="border-t border-slate-600 pt-3">
+      <div className="border-t border-dark-400 pt-3">
         <div className="flex gap-2">
           <input
             ref={textInputRef}
@@ -268,7 +243,7 @@ export default function RemoteControls({
                 ? `${Object.keys(modifierKeys).filter(k => modifierKeys[k]).join("+")} + key...`
                 : "Type text to send..."
             }
-            className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+            className="flex-1 px-3 py-2 bg-dark-600 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-2 focus:ring-brand-500 text-base transition-all duration-200"
             disabled={!streaming}
           />
           <Button

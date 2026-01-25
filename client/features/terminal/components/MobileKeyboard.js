@@ -274,6 +274,56 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
     }
   };
 
+  // Handle file upload
+  const handleFileUpload = async (event) => {
+    // Haptic feedback
+    if (navigator.vibrate) {
+      navigator.vibrate(10);
+    }
+
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      // Check file size (limit 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert("File too large (max 5MB)");
+        return;
+      }
+
+      // Read file as base64
+      const reader = new FileReader();
+      
+      reader.onload = () => {
+        const base64Content = reader.result.split(",")[1];
+        
+        if (socket && sessionId && base64Content) {
+          // Send file to server via socket
+          socket.emit("upload-file", {
+            sessionId,
+            filename: file.name,
+            size: file.size,
+            type: file.type,
+            content: base64Content
+          });
+        }
+      };
+      
+      reader.onerror = () => {
+        alert("Failed to read file");
+      };
+      
+      reader.readAsDataURL(file);
+      
+    } catch (err) {
+      console.error("File upload error:", err);
+      alert("Failed to upload file: " + err.message);
+    }
+    
+    // Reset input
+    event.target.value = "";
+  };
+
   // Get basic keys (removed macOS CMD from main bar)
   const basicKeys = [...BASIC_KEYS];
 
@@ -349,6 +399,16 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
               </button>
             )}
           </div>
+          {/* File upload button */}
+          <label className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded transition-all duration-200 border border-dark-400 hover:border-brand-500 flex items-center gap-1 cursor-pointer">
+            📎
+            <input
+              type="file"
+              onChange={handleFileUpload}
+              className="hidden"
+              accept="*/*"
+            />
+          </label>
           <button
             onMouseDown={(e) => e.preventDefault()}
             onClick={sendTextBatch}

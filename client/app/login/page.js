@@ -173,7 +173,7 @@ function LoginContent() {
                 type="checkbox"
                 checked={rememberKey}
                 onChange={(e) => handleRememberChange(e.target.checked)}
-                className="w-4 h-4 bg-dark-700 border-dark-400 rounded text-brand-500 focus:ring-2 focus:ring-brand-500"
+                className="w-4 h-4 bg-dark-700 border-dark-400 rounded accent-brand-500 focus:ring-2 focus:ring-brand-500"
               />
               <span className="text-sm text-dark-50 group-hover:text-white transition-colors">Remember this key</span>
             </label>

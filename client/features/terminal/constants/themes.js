@@ -1,7 +1,9 @@
 // Terminal color themes inspired by Warp and popular terminal themes
+// Default theme uses terminal's default colors (no configuration)
 // 6 most popular themes: 4 dark (distinctive colors) + 2 light
 
 export const THEMES = {
+  default: {},
   dracula: {
     background: "#282a36", 
     foreground: "#f8f8f2", 

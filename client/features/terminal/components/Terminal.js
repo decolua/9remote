@@ -10,7 +10,7 @@ import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
 import { ChevronLeft, Monitor, Palette } from "@/shared/components/ui/Icon";
 
-export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "dracula", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
+export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "default", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
   const terminalRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -39,7 +39,7 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
       ...TERMINAL_OPTIONS,
       fontSize: window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize,
       fontFamily: TERMINAL_OPTIONS.fontFamily,
-      theme: THEMES[theme] || THEMES.dracula
+      theme: THEMES[theme] || THEMES.default
     });
 
     const fitAddon = new FitAddon();
@@ -223,14 +223,14 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
 
   // Update theme
   useEffect(() => {
-    const currentTheme = THEMES[theme] || THEMES.dracula;
+    const currentTheme = THEMES[theme] || THEMES.default;
     if (termRef.current) {
       termRef.current.options.theme = currentTheme;
     }
   }, [theme]);
 
   return (
-    <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: (THEMES[theme] || THEMES.dracula).background }}>
+    <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: (THEMES[theme] || THEMES.default).background }}>
       {/* Header */}
       <div className="bg-dark-600 border-b border-dark-400 px-2 sm:px-6 py-2 sm:py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2 sm:gap-3">

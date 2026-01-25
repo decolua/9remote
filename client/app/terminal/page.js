@@ -40,9 +40,9 @@ export default function TerminalPage() {
   
   const [theme, setTheme] = useState(() => {
     if (typeof window !== "undefined") {
-      return localStorage.getItem("terminal_theme") || "dracula";
+      return localStorage.getItem("terminal_theme") || "default";
     }
-    return "dracula";
+    return "default";
   });
   const router = useRouter();
   const { getAuth } = useSessionStorage();

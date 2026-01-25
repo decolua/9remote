@@ -188,7 +188,7 @@ export default function RemoteDesktop({ onClose }) {
   // Loading state
   if (!authenticated) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-dark-700 flex items-center justify-center">
         <Spinner size="lg" text="Connecting to remote..." />
         <ConnectionModal retryStatus={retryStatus} onLogout={handleLogout} />
       </div>
@@ -197,7 +197,7 @@ export default function RemoteDesktop({ onClose }) {
 
   return (
     <div
-      className="bg-slate-900 text-white flex flex-col h-[var(--app-height,100vh)] w-full"
+      className="bg-dark-700 text-white flex flex-col h-[var(--app-height,100vh)] w-full"
       style={{
         userSelect: "none",
         WebkitUserSelect: "none",

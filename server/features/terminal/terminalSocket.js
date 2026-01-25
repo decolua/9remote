@@ -1,10 +1,20 @@
 // Terminal Socket.IO namespace
 import pty from "node-pty";
 import os from "os";
+import fs from "fs";
+import path from "path";
 import { isRemoteAvailable } from "../remote/remoteSocket.js";
 
 // Store sessions: sessionId -> { pty, name, createdAt, buffer }
 const sessions = new Map();
+
+// Upload directory
+const UPLOAD_DIR = "/tmp/9remote-uploads";
+
+// Ensure upload directory exists
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
 
 // Codespaces heartbeat management
 let activeConnections = 0;
@@ -194,6 +204,37 @@ export function setupTerminalSocket(io) {
       if (session) {
         const input = Buffer.isBuffer(data) ? data.toString("utf-8") : data;
         session.pty.write(input);
+      }
+    });
+
+    // Handle file upload
+    socket.on("upload-file", ({ sessionId, filename, size, type, content }) => {
+      if (!sessionId) return;
+      const session = sessions.get(sessionId);
+      if (!session) return;
+
+      try {
+        // Generate unique filename to avoid conflicts
+        const timestamp = Date.now();
+        const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const finalFilename = `${timestamp}_${safeFilename}`;
+        const filePath = path.join(UPLOAD_DIR, finalFilename);
+
+        // Decode base64 and save file
+        const buffer = Buffer.from(content, "base64");
+        fs.writeFileSync(filePath, buffer);
+
+        console.log(`📎 File uploaded: ${filePath} (${size} bytes)`);
+
+        // Paste file path into terminal
+        session.pty.write(filePath);
+
+      } catch (error) {
+        console.error("File upload error:", error);
+        socket.emit("output", { 
+          sessionId, 
+          data: Buffer.from(`\r\nError uploading file: ${error.message}\r\n`, "utf-8") 
+        });
       }
     });
 

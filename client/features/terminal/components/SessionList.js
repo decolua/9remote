@@ -68,7 +68,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   };
 
   return (
-    <div className="h-full bg-dark-700 flex flex-col overflow-hidden">
+    <div className="h-full bg-gradient-to-br from-dark-900 via-orange-700/20 to-dark-900/10 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="bg-dark-600 border-b border-dark-400 px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">

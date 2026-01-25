@@ -54,3 +54,4 @@ dist/*
 */.next/*
 */node_modules/*
 client/out/*
+cli/dist/*
