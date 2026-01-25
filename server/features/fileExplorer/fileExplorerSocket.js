@@ -69,8 +69,57 @@ function searchFilesRecursive(dir, query, results, maxResults = 50) {
   }
 }
 
+// Get Windows drives list
+function getWindowsDrives() {
+  if (process.platform !== "win32") return [];
+  
+  try {
+    // Use wmic to get logical drives
+    const result = execSync("wmic logicaldisk get name", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    
+    // Parse output: "Name\r\nC:\r\nD:\r\n..."
+    const drives = result
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => /^[A-Z]:$/.test(line))
+      .map(drive => ({
+        letter: drive[0],
+        path: drive + "\\"
+      }));
+    
+    return drives;
+  } catch {
+    // Fallback: check common drive letters
+    const drives = [];
+    for (const letter of "CDEFGHIJ") {
+      const drivePath = `${letter}:\\`;
+      if (fs.existsSync(drivePath)) {
+        drives.push({ letter, path: drivePath });
+      }
+    }
+    return drives;
+  }
+}
+
 export function setupFileExplorerSocket(io) {
   io.on("connection", (socket) => {
+    // Get system info (OS, drives)
+    socket.on("getSystemInfo", (callback) => {
+      const platform = process.platform;
+      const isWindows = platform === "win32";
+      
+      callback({
+        success: true,
+        platform,
+        isWindows,
+        drives: isWindows ? getWindowsDrives() : [],
+        homedir: os.homedir()
+      });
+    });
+
     // Get files in directory
     socket.on("getFiles", ({ dirPath }, callback) => {
       try {

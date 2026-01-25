@@ -27,7 +27,7 @@ export default function ConnectionModal({ retryStatus, onLogout }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
+      <div className="bg-dark-600 border border-dark-400 rounded-brand-lg p-6 max-w-sm w-full mx-4 shadow-2xl">
         {retryStatus.isRetrying ? (
           // Retrying state
           <div className="text-center">
@@ -35,18 +35,18 @@ export default function ConnectionModal({ retryStatus, onLogout }) {
             <h3 className="text-white text-lg font-semibold mt-4">
               Reconnecting...
             </h3>
-            <p className="text-slate-400 mt-2">
+            <p className="text-dark-100 mt-2">
               Attempt {retryStatus.attempt} of {retryStatus.maxAttempts}
             </p>
-            <div className="mt-4 w-full bg-slate-700 rounded-full h-2">
+            <div className="mt-4 w-full bg-dark-500 rounded-full h-2">
               <div 
-                className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                className="bg-brand-500 h-2 rounded-full transition-all duration-300"
                 style={{ width: `${(retryStatus.attempt / retryStatus.maxAttempts) * 100}%` }}
               />
             </div>
             <button
               onClick={handleBackToLogin}
-              className="mt-4 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-lg transition"
+              className="mt-4 w-full py-2 bg-dark-500 hover:bg-dark-400 text-dark-50 font-medium rounded-brand transition"
             >
               Exit
             </button>
@@ -62,12 +62,12 @@ export default function ConnectionModal({ retryStatus, onLogout }) {
             <h3 className="text-white text-lg font-semibold mt-4">
               Connection Failed
             </h3>
-            <p className="text-slate-400 mt-2">
+            <p className="text-dark-100 mt-2">
               Unable to connect after {retryStatus.maxAttempts} attempts
             </p>
             <button
               onClick={handleBackToLogin}
-              className="mt-6 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition"
+              className="mt-6 w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition"
             >
               Back to Login
             </button>

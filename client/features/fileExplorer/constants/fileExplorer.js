@@ -44,16 +44,17 @@ export const LANGUAGE_MAP = {
   ".markdown": "markdown"
 };
 
-export const FILE_ICONS = {
-  folder: "📁",
-  file: "📄",
-  javascript: "🟨",
-  html: "🟧",
-  css: "🟦",
-  json: "📋",
-  markdown: "📝",
-  image: "🖼️",
-  binary: "📦"
+// Icon names for Lucide icons (rendered in components)
+export const FILE_ICON_NAMES = {
+  folder: "Folder",
+  file: "File",
+  javascript: "FileCode",
+  html: "FileCode",
+  css: "FileCode",
+  json: "FileJson",
+  markdown: "FileText",
+  image: "Image",
+  binary: "Package"
 };
 
 export const GIT_STATUS = {

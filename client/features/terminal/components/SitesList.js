@@ -234,7 +234,7 @@ export default function SitesList({ tunnelUrl, apiKey }) {
                   placeholder="port"
                   min="1"
                   max="65535"
-                  className="flex-1 px-3 py-2 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm min-w-0 transition-all duration-200"
+                  className="flex-1 px-3 py-2 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent text-sm min-w-0 transition-all duration-200"
                 />
                 <button
                   onClick={handleAddPort}

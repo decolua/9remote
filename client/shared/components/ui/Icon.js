@@ -58,4 +58,12 @@ export const {
   GitBranch,
   FolderPlus,
   FilePlus,
+  Paperclip,
+  Home,
+  HardDrive,
+  Package,
+  FileText,
+  FileJson,
+  FileCode,
+  Image,
 } = LucideIcons;

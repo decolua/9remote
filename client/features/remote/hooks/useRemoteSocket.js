@@ -77,9 +77,9 @@ export function useRemoteSocket() {
     }
   }, [socketRef, streaming]);
 
-  const emitMouseClick = useCallback((x, y, button = "left") => {
+  const emitMouseClick = useCallback((x, y, button = "left", double = false) => {
     if (socketRef.current && streaming) {
-      socketRef.current.emit("mouse-click", { x, y, button });
+      socketRef.current.emit("mouse-click", { x, y, button, double });
     }
   }, [socketRef, streaming]);
 

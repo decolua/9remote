@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useRemoteSocket } from "@/features/remote/hooks/useRemoteSocket";
 import { useCanvas } from "@/features/remote/hooks/useCanvas";
 import { useInput } from "@/features/remote/hooks/useInput";
@@ -12,6 +12,19 @@ import Spinner from "@/shared/components/ui/Spinner";
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 
 export default function RemoteDesktop({ onClose }) {
+  const [isLandscape, setIsLandscape] = useState(false);
+
+  // Detect orientation
+  useEffect(() => {
+    const checkOrientation = () => {
+      setIsLandscape(window.innerWidth > window.innerHeight);
+    };
+    
+    checkOrientation();
+    window.addEventListener("resize", checkOrientation);
+    return () => window.removeEventListener("resize", checkOrientation);
+  }, []);
+
   const {
     socket,
     connected,
@@ -197,7 +210,7 @@ export default function RemoteDesktop({ onClose }) {
 
   return (
     <div
-      className="bg-dark-700 text-white flex flex-col h-[var(--app-height,100vh)] w-full"
+      className={`bg-dark-700 text-white flex h-[var(--app-height,100vh)] w-full ${isLandscape ? "flex-row" : "flex-col"}`}
       style={{
         userSelect: "none",
         WebkitUserSelect: "none",
@@ -235,6 +248,7 @@ export default function RemoteDesktop({ onClose }) {
         textInputValue={textInputValue}
         textInputRef={textInputRef}
         keyboardVisible={keyboardVisible}
+        isLandscape={isLandscape}
         onStartStreaming={() => startStreamingWithTiles(startStreaming)}
         onStopStreaming={stopStreaming}
         onResetZoom={resetZoom}

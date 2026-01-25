@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import FileTree from "./FileTree";
 import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2 } from "@/shared/components/ui/Icon";
+import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package } from "@/shared/components/ui/Icon";
 
 export default function FileExplorer({ 
   workspace, 
@@ -339,8 +339,8 @@ export default function FileExplorer({
                   }}
                   className="w-full px-4 py-3 flex items-center gap-3 border-b border-dark-500 hover:bg-dark-600 transition-colors text-left"
                 >
-                  <span className="text-xl flex-shrink-0">
-                    {file.type === "binary" ? "📦" : "📄"}
+                  <span className="flex-shrink-0">
+                    {file.type === "binary" ? <Package size={20} className="text-red-500/70" /> : <File size={20} className="text-slate-400" />}
                   </span>
                   <div className="flex-1 min-w-0">
                     <div className="text-white truncate">{file.name}</div>
@@ -358,14 +358,14 @@ export default function FileExplorer({
         </div>
       ) : (
         <>
-          {/* Go up button */}
-          {currentPath !== "/" && !showSearch && (
+          {/* Go up button - hide when at workspace root or filesystem root */}
+          {currentPath !== "/" && !isAtWorkspace && !showSearch && (
             <button
               onClick={handleGoUp}
               className="w-full px-4 py-3 flex items-center gap-3 border-b border-dark-500 hover:bg-dark-600 transition-colors text-left flex-shrink-0"
             >
-              <ChevronLeft className="text-brand-500" size={28} />
-              <span className="text-brand-500">......</span>
+              <ChevronLeft className="text-green-500" size={28} />
+              <span className="text-green-500">......</span>
             </button>
           )}
 
@@ -437,31 +437,31 @@ export default function FileExplorer({
       {showNewItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setShowNewItemModal(false)} />
-          <div className="relative bg-slate-800 border border-slate-700 rounded-lg shadow-xl w-full max-w-sm">
-            <div className="px-4 py-3 border-b border-slate-700">
+          <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl w-full max-w-sm">
+            <div className="px-4 py-3 border-b border-dark-400">
               <h3 className="text-white font-semibold">Create New</h3>
             </div>
             <div className="p-4 space-y-4">
               <div className="flex gap-2">
                 <button
                   onClick={() => setNewItemType("file")}
-                  className={`flex-1 py-2 rounded transition ${
+                  className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${
                     newItemType === "file" 
-                      ? "bg-emerald-600 text-white" 
-                      : "bg-slate-700 text-slate-300"
+                      ? "bg-brand-500 text-white" 
+                      : "bg-dark-500 text-dark-50"
                   }`}
                 >
-                  📄 File
+                  <File size={16} className="text-slate-400" /> File
                 </button>
                 <button
                   onClick={() => setNewItemType("folder")}
-                  className={`flex-1 py-2 rounded transition ${
+                  className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${
                     newItemType === "folder" 
-                      ? "bg-emerald-600 text-white" 
-                      : "bg-slate-700 text-slate-300"
+                      ? "bg-brand-500 text-white" 
+                      : "bg-dark-500 text-dark-50"
                   }`}
                 >
-                  📁 Folder
+                  <Folder size={16} className="text-orange-500/70" /> Folder
                 </button>
               </div>
               <input
@@ -470,19 +470,19 @@ export default function FileExplorer({
                 onChange={(e) => setNewItemName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCreateItem()}
                 placeholder={newItemType === "file" ? "filename.js" : "folder-name"}
-                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white focus:outline-none focus:border-emerald-500"
+                className="w-full px-3 py-2 bg-dark-500 border border-dark-400 rounded-brand text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
                 autoFocus
               />
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowNewItemModal(false)}
-                  className="flex-1 py-2 bg-slate-700 text-white rounded hover:bg-slate-600 transition"
+                  className="flex-1 py-2 bg-dark-500 text-white rounded-brand hover:bg-dark-400 transition"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleCreateItem}
-                  className="flex-1 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition"
+                  className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition"
                 >
                   Create
                 </button>
@@ -496,8 +496,8 @@ export default function FileExplorer({
       {renameModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setRenameModal(null)} />
-          <div className="relative bg-slate-800 border border-slate-700 rounded-lg shadow-xl w-full max-w-sm">
-            <div className="px-4 py-3 border-b border-slate-700">
+          <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl w-full max-w-sm">
+            <div className="px-4 py-3 border-b border-dark-400">
               <h3 className="text-white font-semibold">Rename</h3>
             </div>
             <div className="p-4 space-y-4">
@@ -506,19 +506,19 @@ export default function FileExplorer({
                 value={renameModal.newName}
                 onChange={(e) => setRenameModal({ ...renameModal, newName: e.target.value })}
                 onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
-                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white focus:outline-none focus:border-emerald-500"
+                className="w-full px-3 py-2 bg-dark-500 border border-dark-400 rounded-brand text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
                 autoFocus
               />
               <div className="flex gap-2">
                 <button
                   onClick={() => setRenameModal(null)}
-                  className="flex-1 py-2 bg-slate-700 text-white rounded hover:bg-slate-600 transition"
+                  className="flex-1 py-2 bg-dark-500 text-white rounded-brand hover:bg-dark-400 transition"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleRenameSubmit}
-                  className="flex-1 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 transition"
+                  className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition"
                 >
                   Rename
                 </button>

@@ -15,7 +15,12 @@ export const REMOTE_CONFIG = {
   // Tile settings
   tileLoadTimeout: 600,
   batchSize: 8,
-  batchDelay: 10
+  batchDelay: 10,
+  
+  // Click detection
+  longPressDelay: 500,      // ms to trigger right-click
+  doubleClickDelay: 300,    // ms between clicks for double-click
+  moveThreshold: 10         // px movement to cancel long-press
 };
 
 export const MODIFIER_MAP = {

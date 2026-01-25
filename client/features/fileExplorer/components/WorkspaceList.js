@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import { Folder, Home, HardDrive, Sparkles } from "@/shared/components/ui/Icon";
 
 const STORAGE_KEY = "recentWorkspaces";
 const MAX_RECENT = 5;
@@ -28,7 +29,7 @@ export function removeRecentWorkspace(workspacePath) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
 }
 
-export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces }) {
+export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces, systemInfo }) {
   const [recent, setRecent] = useState([]);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, path: null, name: "" });
 
@@ -96,7 +97,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                   onClick={() => onSelect(workspace.path)}
                   className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
                 >
-                  <span className="text-2xl flex-shrink-0">📁</span>
+                  <Folder size={24} className="text-orange-500/70 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-white font-medium truncate">
                       {getWorkspaceName(workspace.path)}
@@ -130,33 +131,58 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
         <div>
           <h2 className="text-dark-100 text-sm font-medium mb-3">Select Workspace</h2>
           <div className="space-y-2">
-            <button
-              onClick={() => onBrowse("~")}
-              className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
-            >
-              <span className="text-2xl">🏠</span>
-              <div className="flex-1">
-                <div className="text-white font-medium">Home</div>
-                <div className="text-dark-100 text-sm">~/</div>
-              </div>
-              <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
+            {/* Windows: Show drives */}
+            {systemInfo?.isWindows ? (
+              <>
+                {systemInfo.drives?.map((drive) => (
+                  <button
+                    key={drive.letter}
+                    onClick={() => onBrowse(drive.path)}
+                    className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
+                  >
+                    <HardDrive size={24} className="text-blue-500/70" />
+                    <div className="flex-1">
+                      <div className="text-white font-medium">Drive {drive.letter}</div>
+                      <div className="text-dark-100 text-sm">{drive.path}</div>
+                    </div>
+                    <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                ))}
+              </>
+            ) : (
+              <>
+                {/* macOS/Linux: Show Home and Root */}
+                <button
+                  onClick={() => onBrowse("~")}
+                  className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
+                >
+                  <Home size={24} className="text-blue-500/70" />
+                  <div className="flex-1">
+                    <div className="text-white font-medium">Home</div>
+                    <div className="text-dark-100 text-sm">~/</div>
+                  </div>
+                  <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
 
-            <button
-              onClick={() => onBrowse("/")}
-              className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
-            >
-              <span className="text-2xl">📂</span>
-              <div className="flex-1">
-                <div className="text-white font-medium">Root</div>
-                <div className="text-dark-100 text-sm">/</div>
-              </div>
-              <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
+                <button
+                  onClick={() => onBrowse("/")}
+                  className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
+                >
+                  <HardDrive size={24} className="text-slate-400" />
+                  <div className="flex-1">
+                    <div className="text-white font-medium">Root</div>
+                    <div className="text-dark-100 text-sm">/</div>
+                  </div>
+                  <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </>
+            )}
 
             {/* Codespaces workspaces folder */}
             {isCodespaces && (
@@ -164,7 +190,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                 onClick={() => onBrowse("/workspaces")}
                 className="w-full bg-purple-900/30 border border-purple-700/50 rounded-brand-lg p-4 flex items-center gap-3 hover:border-purple-600 transition text-left"
               >
-                <span className="text-2xl">✨</span>
+                <Sparkles size={24} className="text-purple-400" />
                 <div className="flex-1">
                   <div className="text-white font-medium">Codespaces</div>
                   <div className="text-purple-400 text-sm">/workspaces</div>

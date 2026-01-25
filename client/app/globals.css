@@ -37,6 +37,12 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+
+/* iOS keyboard toolbar accent color */
+input, textarea {
+  accent-color: #f28c28;
 }
 
 /* Prevent iOS Safari bounce/scroll when keyboard opens */
@@ -66,5 +72,11 @@ html.terminal-page body {
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+}
+
+/* Disable text selection on buttons */
+button {
+  -webkit-user-select: none;
+  user-select: none;
 }
 

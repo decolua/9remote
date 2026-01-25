@@ -48,6 +48,7 @@ export default function TerminalPage() {
   const { getAuth } = useSessionStorage();
   const { socket, socketRef, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
   const fileSocket = useFileSocket(socketRef);
+  const [systemInfo, setSystemInfo] = useState(null);
 
   // Save theme to localStorage when changed
   const handleThemeChange = useCallback((newTheme) => {
@@ -147,9 +148,16 @@ export default function TerminalPage() {
     pushView({ type: "remote" });
   }, [pushView]);
 
-  const handleOpenFiles = useCallback(() => {
+  const handleOpenFiles = useCallback(async () => {
+    // Fetch system info when opening workspaces view
+    if (!systemInfo) {
+      const info = await fileSocket.getSystemInfo();
+      if (info.success) {
+        setSystemInfo(info);
+      }
+    }
     pushView({ type: "workspaces" });
-  }, [pushView]);
+  }, [pushView, fileSocket, systemInfo]);
 
   const handleSelectWorkspace = useCallback((workspacePath) => {
     addRecentWorkspace(workspacePath);
@@ -278,6 +286,7 @@ export default function TerminalPage() {
             onBrowse={handleBrowseFolder}
             onBack={popView}
             isCodespaces={codespaceInfo?.isCodespaces}
+            systemInfo={systemInfo}
           />
         </div>
       )}

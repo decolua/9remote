@@ -7,12 +7,12 @@ export default function SaveKeyDialog({ isOpen, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-slate-700 p-6">
+      <div className="bg-dark-600 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400 p-6">
         <h2 className="text-xl font-bold text-white mb-3">
           Lưu API Key?
         </h2>
         
-        <p className="text-slate-300 mb-4">
+        <p className="text-dark-50 mb-4">
           Bạn có muốn lưu API key này trên thiết bị để sử dụng lần sau không?
         </p>
 

@@ -1,0 +1,12 @@
+{
+  "name": "test-robotjs",
+  "version": "1.0.0",
+  "description": "Test robotjs screen capture",
+  "main": "test.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@hurdlegroup/robotjs": "^0.12.1"
+  }
+}

@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { SPECIAL_KEYS, CTRL_ARROW_KEYS } from "@/features/terminal/constants/keyMappings";
 import { BASIC_KEYS, EXTENDED_KEYS, MAC_KEY, BUTTON_STYLES } from "@/features/terminal/constants/terminalConfig";
+import { vibrate } from "@/shared/utils/vibration";
+import { Paperclip } from "@/shared/components/ui/Icon";
 
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -178,10 +180,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   if (!isMobile || !socket || !sessionId) return null;
 
   const handleModifierToggle = (modifier) => {
-    // Haptic feedback
-    if (navigator.vibrate) {
-      navigator.vibrate(10);
-    }
+    vibrate();
     
     if (modifier === "Ctrl") {
       setCtrlPressed(!ctrlPressed);
@@ -195,10 +194,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   };
 
   const sendKey = (key, forceModifiers = {}) => {
-    // Haptic feedback
-    if (navigator.vibrate) {
-      navigator.vibrate(10);
-    }
+    vibrate();
     
     const data = generateCombination(key, forceModifiers);
 
@@ -215,10 +211,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   };
 
   const toggleExpanded = () => {
-    // Haptic feedback
-    if (navigator.vibrate) {
-      navigator.vibrate(10);
-    }
+    vibrate();
     
     const newState = !isExpanded;
     setIsExpanded(newState);
@@ -236,10 +229,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   };
 
   const toggleTextInput = () => {
-    // Haptic feedback
-    if (navigator.vibrate) {
-      navigator.vibrate(10);
-    }
+    vibrate();
     
     const newState = !showTextInput;
     setShowTextInput(newState);
@@ -256,10 +246,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   };
 
   const sendTextBatch = () => {
-    // Haptic feedback
-    if (navigator.vibrate) {
-      navigator.vibrate(15);
-    }
+    vibrate(15);
     
     if (!textInput.trim() || !socket || !sessionId) return;
     socket.emit("input", { sessionId, data: textInput });
@@ -276,10 +263,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
 
   // Handle file upload
   const handleFileUpload = async (event) => {
-    // Haptic feedback
-    if (navigator.vibrate) {
-      navigator.vibrate(10);
-    }
+    vibrate();
 
     const file = event.target.files?.[0];
     if (!file) return;
@@ -375,6 +359,16 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
           }`}
       >
         <div className="p-2 flex gap-2 items-center">
+          {/* File upload button */}
+          <label className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-sm font-medium rounded transition-all duration-200 border border-dark-400 hover:border-brand-500 flex items-center gap-1 cursor-pointer">
+            <Paperclip size={16} className="text-orange-500/70" />
+            <input
+              type="file"
+              onChange={handleFileUpload}
+              className="hidden"
+              accept="*/*"
+            />
+          </label>
           <div className="flex-1 relative">
             <input
               ref={textInputRef}
@@ -383,7 +377,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
               onChange={(e) => setTextInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendTextBatch()}
               placeholder="Type command and send..."
-              className="w-full px-3 py-2 pr-8 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all duration-200"
+              className="w-full px-3 py-2 pr-8 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200"
             />
             {/* Clear button */}
             {textInput && (
@@ -399,16 +393,6 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
               </button>
             )}
           </div>
-          {/* File upload button */}
-          <label className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded transition-all duration-200 border border-dark-400 hover:border-brand-500 flex items-center gap-1 cursor-pointer">
-            📎
-            <input
-              type="file"
-              onChange={handleFileUpload}
-              className="hidden"
-              accept="*/*"
-            />
-          </label>
           <button
             onMouseDown={(e) => e.preventDefault()}
             onClick={sendTextBatch}

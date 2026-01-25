@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect } from "react";
+import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
 
 export function useCanvas(socketEmitFunctions) {
   const canvasRef = useRef(null);
@@ -16,6 +17,16 @@ export function useCanvas(socketEmitFunctions) {
   const [recentZoomGesture, setRecentZoomGesture] = useState(false);
   const zoomGestureTimeoutRef = useRef(null);
   const [clickIndicator, setClickIndicator] = useState(null);
+  
+  // Long-press and double-click detection
+  const longPressTimerRef = useRef(null);
+  const longPressTriggeredRef = useRef(false);
+  const touchStartPosRef = useRef({ x: 0, y: 0 });
+  const lastClickTimeRef = useRef(0);
+  const lastClickPosRef = useRef({ x: 0, y: 0 });
+  
+  // Store server dimensions for recalculation on resize
+  const serverDimensionsRef = useRef({ width: 0, height: 0 });
 
   // Get percentage-based coordinates
   const getCanvasCoordinates = useCallback((clientX, clientY) => {
@@ -70,25 +81,107 @@ export function useCanvas(socketEmitFunctions) {
     setCanvasPan({ x: 0, y: 0 });
   }, []);
 
-  // Initialize canvas size
+  // Cancel long-press timer
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  // Start long-press detection
+  const startLongPress = useCallback((clientX, clientY, percentX, percentY) => {
+    cancelLongPress();
+    longPressTriggeredRef.current = false;
+    touchStartPosRef.current = { x: clientX, y: clientY };
+    
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      showClickIndicator(clientX, clientY);
+      socketEmitFunctions?.emitMouseClick(percentX, percentY, "right");
+    }, REMOTE_CONFIG.longPressDelay);
+  }, [cancelLongPress, showClickIndicator, socketEmitFunctions]);
+
+  // Check if double-click
+  const checkDoubleClick = useCallback((clientX, clientY) => {
+    const now = Date.now();
+    const timeDiff = now - lastClickTimeRef.current;
+    const dx = Math.abs(clientX - lastClickPosRef.current.x);
+    const dy = Math.abs(clientY - lastClickPosRef.current.y);
+    
+    const isDoubleClick = timeDiff < REMOTE_CONFIG.doubleClickDelay && 
+                          dx < REMOTE_CONFIG.moveThreshold && 
+                          dy < REMOTE_CONFIG.moveThreshold;
+    
+    lastClickTimeRef.current = now;
+    lastClickPosRef.current = { x: clientX, y: clientY };
+    
+    return isDoubleClick;
+  }, []);
+
+  // Cleanup on unmount
   useEffect(() => {
+    return () => cancelLongPress();
+  }, [cancelLongPress]);
+
+  // Recalculate display size based on container and server dimensions
+  // Always maximize one dimension to 100% while maintaining aspect ratio
+  const recalculateDisplaySize = useCallback(() => {
+    const container = canvasContainerRef.current;
+    const serverWidth = serverDimensionsRef.current.width;
+    const serverHeight = serverDimensionsRef.current.height;
+    
+    if (!container || serverWidth === 0 || serverHeight === 0) return;
+    
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    const serverAspect = serverWidth / serverHeight;
+    const containerAspect = containerWidth / containerHeight;
+    
+    let displayWidth, displayHeight;
+    
+    if (containerAspect > serverAspect) {
+      // Container is wider than server aspect → height = 100%, calculate width
+      displayHeight = containerHeight;
+      displayWidth = containerHeight * serverAspect;
+    } else {
+      // Container is taller than server aspect → width = 100%, calculate height
+      displayWidth = containerWidth;
+      displayHeight = containerWidth / serverAspect;
+    }
+    
+    setBaseCanvasSize({ width: displayWidth, height: displayHeight });
+  }, []);
+
+  // Handle resize/rotate
+  useEffect(() => {
+    let resizeTimeout = null;
+    
     const handleResize = () => {
-      const container = canvasContainerRef.current;
-      if (container) {
-        const { width, height } = container.getBoundingClientRect();
-        setBaseCanvasSize(prev => {
-          if (prev.width === 0 && prev.height === 0) {
-            return { width: Math.max(width, 1920), height: Math.max(height, 1080) };
-          }
-          return prev;
-        });
-      }
+      // Debounce to ensure container has updated dimensions
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        recalculateDisplaySize();
+      }, 100);
     };
 
-    handleResize();
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    window.addEventListener("orientationchange", handleResize);
+    
+    // Also listen for visual viewport changes (iOS Safari)
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleResize);
+    }
+    
+    return () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", handleResize);
+      }
+    };
+  }, [recalculateDisplaySize]);
 
   // Handle canvas interaction
   const handleCanvasInteraction = useCallback((event, type, options) => {
@@ -144,9 +237,20 @@ export function useCanvas(socketEmitFunctions) {
         setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
         if (selectionMode) {
           handleSelection(touch.clientX, touch.clientY, "start");
+        } else if (!dragMode) {
+          // Start long-press detection for right-click
+          const { percentX, percentY } = getCanvasCoordinates(touch.clientX, touch.clientY);
+          startLongPress(touch.clientX, touch.clientY, percentX, percentY);
         }
         return;
       } else if (type === "touchmove") {
+        // Cancel long-press if moved too much
+        const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+        const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+        if (dx > REMOTE_CONFIG.moveThreshold || dy > REMOTE_CONFIG.moveThreshold) {
+          cancelLongPress();
+        }
+        
         if (selectionMode && selectionStart) {
           handleSelection(touch.clientX, touch.clientY, "move");
           return;
@@ -158,6 +262,7 @@ export function useCanvas(socketEmitFunctions) {
 
           if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
             setIsPanning(true);
+            cancelLongPress();
             const canvasDisplayWidth = baseCanvasSize.width * canvasZoom;
             const canvasDisplayHeight = baseCanvasSize.height * canvasZoom;
             const containerWidth = canvasContainerRef.current?.clientWidth || 0;
@@ -178,8 +283,11 @@ export function useCanvas(socketEmitFunctions) {
 
     // Touch end
     if (type === "touchend") {
+      cancelLongPress();
       const wasZooming = isZooming;
       const wasPanning = isPanning;
+      const wasLongPress = longPressTriggeredRef.current;
+      longPressTriggeredRef.current = false;
 
       if (wasZooming) {
         setRecentZoomGesture(true);
@@ -194,7 +302,8 @@ export function useCanvas(socketEmitFunctions) {
       setIsZooming(false);
       setIsPanning(false);
 
-      if (wasZooming || wasPanning || recentZoomGesture) return;
+      // Skip click if was zooming, panning, or long-press already triggered
+      if (wasZooming || wasPanning || recentZoomGesture || wasLongPress) return;
 
       if (event.type.startsWith("touch")) {
         const touch = event.changedTouches?.[0];
@@ -215,7 +324,13 @@ export function useCanvas(socketEmitFunctions) {
                 socketEmitFunctions.emitMouseRelease(percentX, percentY, "left");
               }
             } else {
-              socketEmitFunctions.emitMouseClick(percentX, percentY, "left");
+              // Check for double-click
+              const isDoubleClick = checkDoubleClick(touch.clientX, touch.clientY);
+              if (isDoubleClick) {
+                socketEmitFunctions.emitMouseClick(percentX, percentY, "left", true);
+              } else {
+                socketEmitFunctions.emitMouseClick(percentX, percentY, "left");
+              }
             }
           }
         }
@@ -257,7 +372,13 @@ export function useCanvas(socketEmitFunctions) {
             socketEmitFunctions.emitMouseRelease(percentX, percentY, "left");
           }
         } else {
-          socketEmitFunctions.emitMouseClick(percentX, percentY, "left");
+          // Check for double-click (desktop)
+          const isDoubleClick = checkDoubleClick(clientX, clientY);
+          if (isDoubleClick) {
+            socketEmitFunctions.emitMouseClick(percentX, percentY, "left", true);
+          } else {
+            socketEmitFunctions.emitMouseClick(percentX, percentY, "left");
+          }
         }
       }
     } else if (type === "move" && !isMobile) {
@@ -270,7 +391,8 @@ export function useCanvas(socketEmitFunctions) {
   }, [
     isZooming, isPanning, canvasZoom, lastTouchDistance, lastTouchCenter,
     baseCanvasSize, recentZoomGesture, getCanvasCoordinates, showClickIndicator,
-    getTouchDistance, getTouchCenter, socketEmitFunctions
+    getTouchDistance, getTouchCenter, socketEmitFunctions, cancelLongPress,
+    startLongPress, checkDoubleClick
   ]);
 
   // Handle canvas dimensions from server
@@ -283,11 +405,9 @@ export function useCanvas(socketEmitFunctions) {
 
     canvas.width = dimensions.width;
     canvas.height = dimensions.height;
-
-    const containerWidth = container.clientWidth;
-    const initialScale = containerWidth / dimensions.width;
-    const displayWidth = containerWidth;
-    const displayHeight = dimensions.height * initialScale;
+    
+    // Store server dimensions for recalculation on resize
+    serverDimensionsRef.current = { width: dimensions.width, height: dimensions.height };
 
     if (dimensionsChanged) {
       const ctx = canvas.getContext("2d");
@@ -300,9 +420,10 @@ export function useCanvas(socketEmitFunctions) {
       }
     }
 
-    setBaseCanvasSize({ width: displayWidth, height: displayHeight });
+    // Calculate display size
+    recalculateDisplaySize();
     return dimensionsChanged;
-  }, []);
+  }, [recalculateDisplaySize]);
 
   return {
     canvasRef,

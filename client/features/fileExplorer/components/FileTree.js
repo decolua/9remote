@@ -1,16 +1,44 @@
 "use client";
 
-import { FILE_ICONS, LANGUAGE_MAP, GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
+import { FILE_ICON_NAMES, LANGUAGE_MAP, GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
+import { Folder, File, FileCode, FileJson, FileText, Image, Package } from "@/shared/components/ui/Icon";
+
+const ICON_COMPONENTS = {
+  Folder,
+  File,
+  FileCode,
+  FileJson,
+  FileText,
+  Image,
+  Package
+};
+
+// Icon colors by type
+const ICON_COLORS = {
+  Folder: "text-orange-500/70",
+  File: "text-slate-400",
+  FileCode: "text-yellow-500/70",
+  FileJson: "text-green-500/70",
+  FileText: "text-purple-500/70",
+  Package: "text-red-500/70",
+  Image: "text-pink-500/70"
+};
 
 function getFileIcon(file) {
-  if (file.type === "folder") return FILE_ICONS.folder;
-  if (file.type === "binary") return FILE_ICONS.binary;
+  let iconName;
+  if (file.type === "folder") {
+    iconName = FILE_ICON_NAMES.folder;
+  } else if (file.type === "binary") {
+    iconName = FILE_ICON_NAMES.binary;
+  } else {
+    const ext = "." + file.name.split(".").pop()?.toLowerCase();
+    const lang = LANGUAGE_MAP[ext];
+    iconName = (lang && FILE_ICON_NAMES[lang]) || FILE_ICON_NAMES.file;
+  }
   
-  const ext = "." + file.name.split(".").pop()?.toLowerCase();
-  const lang = LANGUAGE_MAP[ext];
-  
-  if (lang && FILE_ICONS[lang]) return FILE_ICONS[lang];
-  return FILE_ICONS.file;
+  const IconComponent = ICON_COMPONENTS[iconName];
+  const colorClass = ICON_COLORS[iconName] || "text-slate-400";
+  return IconComponent ? <IconComponent size={20} className={colorClass} /> : null;
 }
 
 // Get relative path from workspace
@@ -75,7 +103,7 @@ export default function FileTree({
               onClick={() => file.type === "folder" ? onFolderClick(file) : onFileClick(file)}
               className="flex-1 flex items-center gap-3 text-left min-w-0"
             >
-              <span className="text-xl flex-shrink-0">{getFileIcon(file)}</span>
+              <span className="flex-shrink-0">{getFileIcon(file)}</span>
               <div className="flex-1 min-w-0">
                 <div className={`truncate ${statusColor || "text-white"}`}>
                   {file.name}

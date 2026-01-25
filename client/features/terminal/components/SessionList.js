@@ -203,7 +203,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                           if (e.key === "Escape") handleCancelEdit();
                         }}
                         onBlur={() => handleSaveEdit(session.id)}
-                        className="w-full bg-dark-700 text-white px-2 py-1 rounded-brand border border-dark-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
+                        className="w-full bg-dark-700 text-white px-2 py-1 rounded-brand border border-dark-400 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
                         autoFocus
                       />
                     ) : (
@@ -267,9 +267,9 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setShowCodespaceModal(false)}
           />
-          <div className="relative bg-slate-800 border border-slate-700 rounded-lg shadow-2xl max-w-sm w-full">
+          <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-2xl max-w-sm w-full">
             {/* Header */}
-            <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
+            <div className="px-5 py-4 border-b border-dark-400 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                 <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
@@ -278,7 +278,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
               </h3>
               <button
                 onClick={() => setShowCodespaceModal(false)}
-                className="text-slate-400 hover:text-white transition"
+                className="text-dark-100 hover:text-white transition"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -289,11 +289,11 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             {/* Info */}
             <div className="px-5 py-4 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-slate-400 text-sm">Name</span>
+                <span className="text-dark-100 text-sm">Name</span>
                 <span className="text-white font-medium">{codespaceInfo?.codespaceName || "Unknown"}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-400 text-sm">Status</span>
+                <span className="text-dark-100 text-sm">Status</span>
                 <span className="text-green-400 font-medium flex items-center gap-1">
                   <span className="w-2 h-2 bg-green-400 rounded-full" />
                   Running
@@ -302,18 +302,18 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             </div>
 
             {/* Stop section */}
-            <div className="px-5 py-4 border-t border-slate-700 space-y-3">
-              <p className="text-slate-300 text-sm flex items-start gap-2">
+            <div className="px-5 py-4 border-t border-dark-400 space-y-3">
+              <p className="text-dark-50 text-sm flex items-start gap-2">
                 <span className="text-yellow-400">💡</span>
                 Stop to save usage
               </p>
-              <p className="text-slate-400 text-xs flex items-start gap-2">
+              <p className="text-dark-100 text-xs flex items-start gap-2">
                 <span className="text-orange-400">⚠️</span>
                 To restart, go to GitHub
               </p>
               <button
                 onClick={handleStopCodespace}
-                className="w-full py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded transition flex items-center justify-center gap-2"
+                className="w-full py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-brand transition flex items-center justify-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

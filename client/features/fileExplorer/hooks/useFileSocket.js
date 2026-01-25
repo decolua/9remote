@@ -4,6 +4,17 @@ import { useCallback } from "react";
 
 // File Explorer socket hook - uses existing socket from useSocket
 export function useFileSocket(socketRef) {
+  // Get system info (OS, drives)
+  const getSystemInfo = useCallback(() => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("getSystemInfo", resolve);
+    });
+  }, [socketRef]);
+
   // Get files in directory
   const getFiles = useCallback((dirPath) => {
     return new Promise((resolve) => {
@@ -115,6 +126,7 @@ export function useFileSocket(socketRef) {
   }, [socketRef]);
 
   return {
+    getSystemInfo,
     getFiles,
     readFile,
     writeFile,

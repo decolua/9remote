@@ -152,7 +152,7 @@ function LoginContent() {
                   onChange={(e) => setApiKey(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
                   placeholder="sk-xxx... or One-Time Key (ABC123)"
-                  className="w-full px-4 py-3 pr-10 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
+                  className="w-full px-4 py-3 pr-10 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
                 />
                 {apiKey && (
                   <button
@@ -173,7 +173,7 @@ function LoginContent() {
                 type="checkbox"
                 checked={rememberKey}
                 onChange={(e) => handleRememberChange(e.target.checked)}
-                className="w-4 h-4 bg-dark-700 border-dark-400 rounded accent-brand-500 focus:ring-2 focus:ring-brand-500"
+                className="w-4 h-4 bg-dark-700 border-dark-400 rounded accent-brand-500 focus:ring-1 focus:ring-brand-500"
               />
               <span className="text-sm text-dark-50 group-hover:text-white transition-colors">Remember this key</span>
             </label>

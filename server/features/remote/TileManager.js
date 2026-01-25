@@ -12,7 +12,6 @@ export class TileManager {
     this.robot = robot;
     this.tileSize = 100;
     this.lastTileChecksums = new Map();
-    this.lastTileBuffers = new Map();
     this.screenWidth = 0;
     this.screenHeight = 0;
     this.tilesPerRow = 0;
@@ -29,6 +28,9 @@ export class TileManager {
     this.sharedScreenCache = null;
     this.lastCaptureTime = 0;
     this.CACHE_TTL = 100;
+    this.dpiScale = 1;
+    this.captureWidth = 0;
+    this.captureHeight = 0;
 
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
@@ -42,6 +44,10 @@ export class TileManager {
       const { width, height } = this.robot.getScreenSize();
       this.screenWidth = width;
       this.screenHeight = height;
+      
+      // Detect DPI scale once at initialization
+      this.detectDpiScale();
+      
       this.scaledWidth = Math.floor(width * this.scaleFactor);
       this.scaledHeight = Math.floor(height * this.scaleFactor);
       this.tilesPerRow = Math.ceil(this.scaledWidth / this.tileSize);
@@ -57,11 +63,14 @@ export class TileManager {
         this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
       }
 
-      console.log(`🖥️ TileManager: ${width}x${height} -> ${this.totalTiles} tiles`);
+      console.log(`🖥️ TileManager: ${width}x${height} (DPI ${this.dpiScale}x) -> ${this.totalTiles} tiles`);
     } catch (error) {
       console.error("Screen dimensions error:", error);
       this.screenWidth = 1920;
       this.screenHeight = 1080;
+      this.dpiScale = 1;
+      this.captureWidth = 1920;
+      this.captureHeight = 1080;
       this.scaledWidth = 1728;
       this.scaledHeight = 972;
       this.tileSize = 120;
@@ -71,18 +80,32 @@ export class TileManager {
     }
   }
 
+  detectDpiScale() {
+    if (process.platform === "darwin") {
+      // macOS: Detect Retina scale by capturing 1x1
+      const testCapture = this.robot.screen.capture(0, 0, 1, 1);
+      this.dpiScale = testCapture.byteWidth / testCapture.bytesPerPixel;
+    } else {
+      // Windows/Linux: Detect by capturing at 2x logical and comparing
+      const testWidth = Math.min(this.screenWidth * 2, 4096);
+      const testHeight = Math.min(this.screenHeight * 2, 4096);
+      const testCapture = this.robot.screen.capture(0, 0, testWidth, testHeight);
+      const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
+      
+      if (actualWidth > this.screenWidth) {
+        this.dpiScale = actualWidth / this.screenWidth;
+      } else {
+        this.dpiScale = 1;
+      }
+    }
+    
+    this.captureWidth = Math.floor(this.screenWidth * this.dpiScale);
+    this.captureHeight = Math.floor(this.screenHeight * this.dpiScale);
+  }
+
   async captureFullScreen() {
-    const size = this.robot.getScreenSize();
-    
-    // Detect DPI scale factor by capturing 1x1 pixel and checking actual dimensions
-    const testCapture = this.robot.screen.capture(0, 0, 1, 1);
-    const scaleFactor = testCapture.byteWidth / testCapture.bytesPerPixel;
-    
-    // Capture with scaled dimensions for Retina/HiDPI displays
-    const captureWidth = Math.floor(size.width * scaleFactor);
-    const captureHeight = Math.floor(size.height * scaleFactor);
-    
-    const bitmap = this.robot.screen.capture(0, 0, captureWidth, captureHeight);
+    // Use cached DPI scale - no need to detect every capture
+    const bitmap = this.robot.screen.capture(0, 0, this.captureWidth, this.captureHeight);
     const imageBuffer = Buffer.from(bitmap.image);
 
     // BGRA -> RGBA
@@ -94,29 +117,26 @@ export class TileManager {
     }
 
     const actualWidth = bitmap.byteWidth / bitmap.bytesPerPixel;
+    const actualHeight = bitmap.height;
     let finalBuffer = imageBuffer;
     let finalWidth = actualWidth;
-    let finalHeight = bitmap.height;
+    let finalHeight = actualHeight;
 
-    if (this.scaleFactor < 1.0) {
-      const targetWidth = Math.floor(actualWidth * this.scaleFactor);
-      const targetHeight = Math.floor(bitmap.height * this.scaleFactor);
+    // Resize to logical size for performance (skip if already at logical size)
+    if (this.dpiScale > 1 || this.scaleFactor < 1.0) {
+      const targetWidth = Math.floor(this.screenWidth * this.scaleFactor);
+      const targetHeight = Math.floor(this.screenHeight * this.scaleFactor);
 
       const scaledBuffer = await sharp(imageBuffer, {
-        raw: { width: actualWidth, height: bitmap.height, channels: bitmap.bytesPerPixel }
+        raw: { width: actualWidth, height: actualHeight, channels: bitmap.bytesPerPixel }
       })
-        .resize(targetWidth, targetHeight, { kernel: sharp.kernel.lanczos3, fit: "fill" })
+        .resize(targetWidth, targetHeight, { kernel: sharp.kernel.nearest, fit: "fill" })
         .raw()
         .toBuffer();
 
       finalBuffer = scaledBuffer;
       finalWidth = targetWidth;
       finalHeight = targetHeight;
-      this.scaledWidth = targetWidth;
-      this.scaledHeight = targetHeight;
-      this.tilesPerRow = Math.ceil(targetWidth / this.tileSize);
-      this.tilesPerColumn = Math.ceil(targetHeight / this.tileSize);
-      this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
     }
 
     return { buffer: finalBuffer, width: finalWidth, height: finalHeight, channels: bitmap.bytesPerPixel };
@@ -146,19 +166,23 @@ export class TileManager {
       const changedTileIndices = [];
       this.frameCount++;
 
+      // Extract all tiles and cache for reuse
+      const extractedTiles = [];
+      for (let i = 0; i < this.totalTiles; i++) {
+        extractedTiles[i] = this.extractTile(screenData, i);
+      }
+
       if (this.lastTileChecksums.size === 0) {
-        const tilePromises = [];
-        for (let i = 0; i < this.totalTiles; i++) {
-          tilePromises.push(this.processTileAsync(screenData, i, true));
-        }
+        const tilePromises = extractedTiles.map((tileData, i) => 
+          this.processTileAsync(screenData, i, tileData)
+        );
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);
         return changedTiles;
       }
 
       for (let i = 0; i < this.totalTiles; i++) {
-        const tileData = await this.extractTile(screenData, i);
-        const checksum = this.calculateTileChecksum(tileData.buffer);
+        const checksum = this.calculateTileChecksum(extractedTiles[i].buffer);
         const lastChecksum = this.lastTileChecksums.get(i);
         if (checksum !== lastChecksum) {
           changedTileIndices.push(i);
@@ -169,14 +193,15 @@ export class TileManager {
       const changePercentage = changedTileIndices.length / this.totalTiles;
 
       if (changePercentage > this.changeThreshold) {
-        const tilePromises = [];
-        for (let i = 0; i < this.totalTiles; i++) {
-          tilePromises.push(this.processTileAsync(screenData, i, true));
-        }
+        const tilePromises = extractedTiles.map((tileData, i) => 
+          this.processTileAsync(screenData, i, tileData)
+        );
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
-        const tilePromises = changedTileIndices.map(i => this.processTileAsync(screenData, i, false));
+        const tilePromises = changedTileIndices.map(i => 
+          this.processTileAsync(screenData, i, extractedTiles[i])
+        );
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);
       }
@@ -187,11 +212,10 @@ export class TileManager {
     }
   }
 
-  async processTileAsync(screenData, tileIndex) {
-    const tileData = await this.extractTile(screenData, tileIndex);
+  async processTileAsync(screenData, tileIndex, cachedTileData = null) {
+    const tileData = cachedTileData || this.extractTile(screenData, tileIndex);
     const checksum = this.calculateTileChecksum(tileData.buffer);
     this.lastTileChecksums.set(tileIndex, checksum);
-    this.lastTileBuffers.set(tileIndex, tileData.buffer);
 
     const compressedImage = await this.compressTileImage(tileData.buffer, tileData.width, tileData.height);
     const { row, col } = this.getTilePosition(tileIndex);
@@ -228,7 +252,7 @@ export class TileManager {
     };
   }
 
-  async extractTile(screenData, tileIndex) {
+  extractTile(screenData, tileIndex) {
     const { row, col } = this.getTilePosition(tileIndex);
     const startX = col * this.tileSize;
     const startY = row * this.tileSize;
@@ -236,20 +260,19 @@ export class TileManager {
     const endY = Math.min(startY + this.tileSize, screenData.height);
     const tileWidth = endX - startX;
     const tileHeight = endY - startY;
+    const channels = screenData.channels;
+    const rowBytes = tileWidth * channels;
 
-    const tileBuffer = Buffer.alloc(tileWidth * tileHeight * screenData.channels);
+    const tileBuffer = Buffer.alloc(tileWidth * tileHeight * channels);
 
+    // Copy row by row using Buffer.copy (much faster than pixel loop)
     for (let y = 0; y < tileHeight; y++) {
-      for (let x = 0; x < tileWidth; x++) {
-        const srcOffset = ((startY + y) * screenData.width + (startX + x)) * screenData.channels;
-        const dstOffset = (y * tileWidth + x) * screenData.channels;
-        for (let c = 0; c < screenData.channels; c++) {
-          tileBuffer[dstOffset + c] = screenData.buffer[srcOffset + c];
-        }
-      }
+      const srcOffset = ((startY + y) * screenData.width + startX) * channels;
+      const dstOffset = y * rowBytes;
+      screenData.buffer.copy(tileBuffer, dstOffset, srcOffset, srcOffset + rowBytes);
     }
 
-    return { buffer: tileBuffer, width: tileWidth, height: tileHeight, channels: screenData.channels, tileIndex, x: startX, y: startY };
+    return { buffer: tileBuffer, width: tileWidth, height: tileHeight, channels, tileIndex, x: startX, y: startY };
   }
 
   async compressTileImage(buffer, width, height) {
@@ -294,19 +317,20 @@ export class TileManager {
       const changedTileIndices = [];
       this.frameCount++;
 
+      // Extract all tiles and cache for reuse
+      const extractedTiles = [];
       const currentTileHashes = new Map();
       for (let i = 0; i < this.totalTiles; i++) {
-        const tileData = await this.extractTile(screenData, i);
-        const checksum = this.calculateTileChecksum(tileData.buffer);
+        extractedTiles[i] = this.extractTile(screenData, i);
+        const checksum = this.calculateTileChecksum(extractedTiles[i].buffer);
         currentTileHashes.set(i, checksum);
         this.lastTileChecksums.set(i, checksum);
       }
 
       if (!clientTileHashes || clientTileHashes.length === 0) {
-        const tilePromises = [];
-        for (let i = 0; i < this.totalTiles; i++) {
-          tilePromises.push(this.processTileAsync(screenData, i, true));
-        }
+        const tilePromises = extractedTiles.map((tileData, i) => 
+          this.processTileAsync(screenData, i, tileData)
+        );
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);
         return { tiles: changedTiles, currentHashes: Array.from(currentTileHashes.values()) };
@@ -321,14 +345,15 @@ export class TileManager {
       const changePercentage = changedTileIndices.length / this.totalTiles;
 
       if (changePercentage > this.changeThreshold) {
-        const tilePromises = [];
-        for (let i = 0; i < this.totalTiles; i++) {
-          tilePromises.push(this.processTileAsync(screenData, i, true));
-        }
+        const tilePromises = extractedTiles.map((tileData, i) => 
+          this.processTileAsync(screenData, i, tileData)
+        );
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
-        const tilePromises = changedTileIndices.map(i => this.processTileAsync(screenData, i, false));
+        const tilePromises = changedTileIndices.map(i => 
+          this.processTileAsync(screenData, i, extractedTiles[i])
+        );
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);
       }
@@ -341,7 +366,6 @@ export class TileManager {
 
   reset() {
     this.lastTileChecksums.clear();
-    this.lastTileBuffers.clear();
     this.frameCount = 0;
   }
 

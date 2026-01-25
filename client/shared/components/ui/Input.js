@@ -13,7 +13,7 @@ export default function Input({
   className = "",
   ...props 
 }) {
-  const baseClasses = "w-full px-4 py-3 bg-dark-600 border rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-2 transition-all duration-200";
+  const baseClasses = "w-full px-4 py-3 bg-dark-600 border rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 transition-all duration-200";
   const borderClasses = error 
     ? "border-red-500 focus:border-red-500 focus:ring-red-500" 
     : "border-dark-400 focus:border-transparent focus:ring-brand-500";
