@@ -5,6 +5,7 @@ import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
 import SitesList from "@/features/terminal/components/SitesList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import { Terminal, Monitor, FolderOpen, LogOut, X, Pencil, Trash2, Sparkles } from "@/shared/components/ui/Icon";
 
 export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus }) {
   const [newName, setNewName] = useState("");
@@ -67,10 +68,13 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   };
 
   return (
-    <div className="h-full bg-slate-900 flex flex-col overflow-hidden">
+    <div className="h-full bg-dark-700 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2">
+      <div className="bg-dark-600 border-b border-dark-400 px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 bg-brand-500/10 rounded-brand">
+            <Terminal className="text-brand-500" size={20} />
+          </div>
           <h1 className="text-white text-lg font-semibold">9Remote</h1>
           {/* Connection indicator */}
           <span 
@@ -88,15 +92,13 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             <button
               onClick={onOpenRemote}
               disabled={!connected}
-              className={`px-3 sm:px-4 py-2 text-white text-sm font-medium rounded transition flex items-center gap-2 ${
+              className={`px-3 sm:px-4 py-2 text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border ${
                 connected 
-                  ? "bg-indigo-600 hover:bg-indigo-700" 
-                  : "bg-indigo-600/50 cursor-not-allowed"
+                  ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500" 
+                  : "bg-dark-500/30 text-dark-200 border-dark-400 cursor-not-allowed"
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
+              <Monitor className="text-brand-500" size={16} />
               <span className="hidden sm:inline">Remote</span>
             </button>
           )}
@@ -105,15 +107,13 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           <button
             onClick={onOpenFiles}
             disabled={!connected}
-            className={`px-3 sm:px-4 py-2 text-white text-sm font-medium rounded transition flex items-center gap-2 ${
+            className={`px-3 sm:px-4 py-2 text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border ${
               connected 
-                ? "bg-emerald-600 hover:bg-emerald-700" 
-                : "bg-emerald-600/50 cursor-not-allowed"
+                ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500" 
+                : "bg-dark-500/30 text-dark-200 border-dark-400 cursor-not-allowed"
             }`}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-            </svg>
+            <FolderOpen className="text-brand-500" size={16} />
             <span className="hidden sm:inline">Files</span>
           </button>
 
@@ -124,24 +124,22 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           {codespaceInfo?.isCodespaces && (
             <button
               onClick={() => setShowCodespaceModal(true)}
-              className="px-2 sm:px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded transition flex items-center gap-1"
+              className="px-2 sm:px-3 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-1 border border-dark-400 hover:border-brand-500"
               title="Codespace Info"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-              </svg>
+              <Sparkles className="text-brand-500" size={16} />
               <span className="hidden sm:inline">Codespace</span>
             </button>
           )}
 
           {/* Logout Button */}
-          <Button
-            variant="danger"
-            size="sm"
+          <button
             onClick={handleLogoutWithConfirm}
+            className="px-3 py-2 bg-dark-500 hover:bg-red-600 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border border-dark-400 hover:border-red-500"
           >
-            Logout
-          </Button>
+            <LogOut size={16} />
+            <span className="hidden sm:inline">Logout</span>
+          </button>
         </div>
       </div>
 
@@ -170,16 +168,19 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         {/* Sessions list */}
         {sessions.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-slate-400 mb-4">No active sessions</p>
-            <p className="text-slate-500 text-sm">Create a new session to get started</p>
+            <div className="inline-flex p-4 bg-dark-600 rounded-brand-lg mb-4">
+              <Terminal className="text-dark-100" size={48} />
+            </div>
+            <p className="text-dark-50 mb-2 font-medium">No active sessions</p>
+            <p className="text-dark-100 text-sm">Create a new session to get started</p>
           </div>
         ) : (
           <div className="space-y-3">
             {sessions.map((session) => (
               <div
                 key={session.id}
-                className={`bg-slate-800 border border-slate-700 rounded-lg p-4 flex items-center justify-between transition ${
-                  connected ? "hover:border-slate-600" : "opacity-50"
+                className={`bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center justify-between transition-all duration-200 ${
+                  connected ? "hover:border-brand-500/50 hover:shadow-lg hover:shadow-brand-500/10" : "opacity-50"
                 }`}
               >
                 <div 
@@ -187,9 +188,9 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                   onClick={() => connected && editingId !== session.id && onSelect(session.id)}
                 >
                   {/* Terminal Icon */}
-                  <svg className="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
+                  <div className="p-2 bg-brand-500/10 rounded-brand flex-shrink-0">
+                    <Terminal className="text-brand-500" size={20} />
+                  </div>
 
                   <div className="flex-1 min-w-0">
                     {editingId === session.id ? (
@@ -202,13 +203,13 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                           if (e.key === "Escape") handleCancelEdit();
                         }}
                         onBlur={() => handleSaveEdit(session.id)}
-                        className="w-full bg-slate-700 text-white px-2 py-1 rounded border border-slate-600 focus:outline-none focus:border-blue-500"
+                        className="w-full bg-dark-700 text-white px-2 py-1 rounded-brand border border-dark-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
                         autoFocus
                       />
                     ) : (
                       <>
                         <h3 className="text-white font-medium truncate">{session.name}</h3>
-                        <p className="text-slate-400 text-sm">
+                        <p className="text-dark-100 text-sm">
                           Created {new Date(session.createdAt).toLocaleTimeString()}
                         </p>
                       </>
@@ -220,32 +221,28 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                   <button
                     onClick={() => handleStartEdit(session)}
                     disabled={!connected}
-                    className={`p-2 rounded transition ${
+                    className={`p-2 rounded-brand transition-all duration-200 ${
                       connected 
-                        ? "bg-slate-700 hover:bg-blue-600 text-slate-300 hover:text-white" 
-                        : "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                        ? "bg-dark-500 hover:bg-brand-500 text-dark-100 hover:text-white border border-dark-400 hover:border-brand-500" 
+                        : "bg-dark-500/50 text-dark-200 cursor-not-allowed border border-dark-400"
                     }`}
                     title="Edit name"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
+                    <Pencil size={16} />
                   </button>
 
                   {/* Delete Button */}
                   <button
                     onClick={() => handleDeleteWithConfirm(session.id, session.name)}
                     disabled={!connected}
-                    className={`p-2 rounded transition ${
+                    className={`p-2 rounded-brand transition-all duration-200 ${
                       connected 
-                        ? "bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white" 
-                        : "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                        ? "bg-dark-500 hover:bg-red-600 text-dark-100 hover:text-white border border-dark-400 hover:border-red-500" 
+                        : "bg-dark-500/50 text-dark-200 cursor-not-allowed border border-dark-400"
                     }`}
                     title="Delete"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <Trash2 size={16} />
                   </button>
                 </div>
               </div>

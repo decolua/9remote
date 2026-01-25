@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import { Globe, X, Trash2, RefreshCw, Loader2 } from "@/shared/components/ui/Icon";
 
 const CUSTOM_PORTS_KEY = "custom_ports";
 
@@ -190,11 +191,9 @@ export default function SitesList({ tunnelUrl, apiKey }) {
       {/* Trigger Button */}
       <button
         onClick={() => setShowModal(true)}
-        className="px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded transition flex items-center gap-2"
+        className="px-3 sm:px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border border-dark-400 hover:border-brand-500"
       >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-        </svg>
+        <Globe className="text-brand-500" size={16} />
         <span className="hidden sm:inline">Sites</span>
       </button>
 
@@ -206,29 +205,27 @@ export default function SitesList({ tunnelUrl, apiKey }) {
         >
           {/* Modal Content */}
           <div 
-            className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            className="bg-dark-600 border border-dark-400 rounded-brand-lg shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-dark-400 shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-white">Local Sites</h2>
-                <p className="text-sm text-slate-400 mt-0.5">Select a site to preview</p>
+                <p className="text-sm text-dark-100 mt-0.5">Select a site to preview</p>
               </div>
               <button
                 onClick={handleClose}
-                className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition"
+                className="p-2 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X size={20} />
               </button>
             </div>
 
             {/* Add Port - moved to top so keyboard doesn't cover it */}
-            <div className="px-4 py-3 border-b border-slate-700 shrink-0">
+            <div className="px-4 py-3 border-b border-dark-400 shrink-0">
               <div className="flex gap-2 items-center">
-                <span className="text-slate-400 text-sm whitespace-nowrap">http://localhost:</span>
+                <span className="text-dark-100 text-sm whitespace-nowrap">http://localhost:</span>
                 <input
                   type="number"
                   value={newPort}
@@ -237,12 +234,12 @@ export default function SitesList({ tunnelUrl, apiKey }) {
                   placeholder="port"
                   min="1"
                   max="65535"
-                  className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-purple-500 text-sm min-w-0"
+                  className="flex-1 px-3 py-2 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm min-w-0 transition-all duration-200"
                 />
                 <button
                   onClick={handleAddPort}
                   disabled={!newPort}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition"
+                  className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded-brand transition-all duration-200 shadow-lg shadow-brand-500/20"
                 >
                   Open
                 </button>
@@ -251,29 +248,23 @@ export default function SitesList({ tunnelUrl, apiKey }) {
 
             {/* Body - scrollable list */}
             <div 
-              className="p-4 modal-scrollable"
+              className="p-4 modal-scrollable overflow-y-auto"
               style={{ maxHeight: "40vh" }}
             >
               {loading ? (
                 <div className="flex items-center justify-center py-8">
-                  <div className="flex items-center gap-3 text-slate-400">
-                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
+                  <div className="flex items-center gap-3 text-dark-100">
+                    <Loader2 className="animate-spin" size={20} />
                     <span>Loading Sites...</span>
                   </div>
                 </div>
               ) : sites.length === 0 ? (
                 <div className="text-center py-8">
-                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-slate-700 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h.01M15 10h.01M9.5 15a3.5 3.5 0 005 0" />
-                    </svg>
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-brand-lg bg-dark-500 flex items-center justify-center">
+                    <Globe className="text-dark-100" size={24} />
                   </div>
-                  <p className="text-slate-400 font-medium">No sites found</p>
-                  <p className="text-slate-500 text-sm mt-1">Start a local dev server to see it here</p>
+                  <p className="text-dark-50 font-medium">No sites found</p>
+                  <p className="text-dark-100 text-sm mt-1">Start a local dev server to see it here</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -283,19 +274,19 @@ export default function SitesList({ tunnelUrl, apiKey }) {
                     .map((port) => (
                       <div
                         key={`custom-${port}`}
-                        className="w-full px-4 py-3 bg-slate-700/50 hover:bg-slate-700 border border-slate-600 hover:border-slate-500 rounded-lg transition group flex items-center justify-between"
+                        className="w-full px-4 py-3 bg-dark-700/50 hover:bg-dark-600 border border-dark-400 hover:border-brand-500 rounded-brand-lg transition-all duration-200 group flex items-center justify-between"
                       >
                         <button
                           onClick={() => handleSelectSite({ port, name: `Port ${port}`, protocol: "http", isCustom: true })}
                           className="flex-1 flex items-center gap-3 text-left"
                         >
-                          <div className="w-2.5 h-2.5 rounded-full bg-slate-500" />
+                          <div className="w-2.5 h-2.5 rounded-full bg-dark-200" />
                           <div>
-                            <div className="text-white font-medium group-hover:text-purple-300 transition">
+                            <div className="text-white font-medium group-hover:text-brand-500 transition-colors">
                               Custom
                             </div>
-                            <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-slate-500/20 text-slate-400">
+                            <div className="text-xs text-dark-100 mt-0.5 flex items-center gap-2">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-dark-500 text-dark-100">
                                 http
                               </span>
                               <span>Port {port}</span>
@@ -307,12 +298,10 @@ export default function SitesList({ tunnelUrl, apiKey }) {
                             e.stopPropagation();
                             handleRemovePort(port);
                           }}
-                          className="p-2 text-slate-500 hover:text-red-400 hover:bg-slate-600 rounded transition"
+                          className="p-2 text-dark-100 hover:text-red-400 hover:bg-dark-500 rounded-brand transition-colors"
                           title="Remove"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
+                          <Trash2 size={16} />
                         </button>
                       </div>
                     ))}
@@ -322,16 +311,16 @@ export default function SitesList({ tunnelUrl, apiKey }) {
                     <button
                       key={`auto-${site.port}`}
                       onClick={() => handleSelectSite(site)}
-                      className="w-full px-4 py-3 text-left bg-slate-700/50 hover:bg-slate-700 border border-slate-600 hover:border-slate-500 rounded-lg transition group"
+                      className="w-full px-4 py-3 text-left bg-dark-700/50 hover:bg-dark-600 border border-dark-400 hover:border-brand-500 rounded-brand-lg transition-all duration-200 group"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
                           <div>
-                            <div className="text-white font-medium group-hover:text-purple-300 transition">
+                            <div className="text-white font-medium group-hover:text-brand-500 transition-colors">
                               {site.name}
                             </div>
-                            <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
+                            <div className="text-xs text-dark-100 mt-0.5 flex items-center gap-2">
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium uppercase ${
                                 site.protocol === "https" 
                                   ? "bg-green-500/20 text-green-400" 
@@ -343,7 +332,7 @@ export default function SitesList({ tunnelUrl, apiKey }) {
                             </div>
                           </div>
                         </div>
-                        <svg className="w-5 h-5 text-slate-500 group-hover:text-purple-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 text-dark-100 group-hover:text-brand-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
                       </div>
@@ -354,18 +343,16 @@ export default function SitesList({ tunnelUrl, apiKey }) {
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-slate-700 flex items-center justify-between shrink-0">
-              <span className="text-xs text-slate-500">
+            <div className="px-5 py-3 border-t border-dark-400 flex items-center justify-between shrink-0">
+              <span className="text-xs text-dark-100">
                 {sites.length > 0 ? `${sites.length} site${sites.length > 1 ? "s" : ""} found` : ""}
               </span>
               <button
                 onClick={loadSites}
                 disabled={loading}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors disabled:opacity-50"
               >
-                <svg className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
+                <RefreshCw className={loading ? "animate-spin" : ""} size={16} />
                 Refresh
               </button>
             </div>

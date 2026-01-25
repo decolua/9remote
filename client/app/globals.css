@@ -1,29 +1,42 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  /* Brand Orange Colors */
+  --color-brand-50: #fff4e6;
+  --color-brand-100: #ffe8cc;
+  --color-brand-200: #ffd199;
+  --color-brand-300: #ffba66;
+  --color-brand-400: #ffa333;
+  --color-brand-500: #f28c28;
+  --color-brand-600: #e67a0f;
+  --color-brand-700: #b35f0b;
+  --color-brand-800: #804408;
+  --color-brand-900: #4d2905;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  /* Dark Background Colors */
+  --color-dark-50: #e0e0e0;
+  --color-dark-100: #a0a0a0;
+  --color-dark-200: #808080;
+  --color-dark-300: #606060;
+  --color-dark-400: #404040;
+  --color-dark-500: #252525;
+  --color-dark-600: #1a1a1a;
+  --color-dark-700: #121212;
+  --color-dark-800: #0d0d0d;
+  --color-dark-900: #080808;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Border Radius */
+  --radius-brand: 12px;
+  --radius-brand-lg: 16px;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-  background-color: #111;
+  background-color: #121212;
+  color: #ffffff;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Prevent iOS Safari bounce/scroll when keyboard opens */

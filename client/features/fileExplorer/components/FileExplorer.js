@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import FileTree from "./FileTree";
 import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2 } from "@/shared/components/ui/Icon";
 
 export default function FileExplorer({ 
   workspace, 
@@ -229,17 +230,15 @@ export default function FileExplorer({
   const isAtWorkspace = currentPath === workspace;
 
   return (
-    <div className="h-full bg-slate-900 flex flex-col">
+    <div className="h-full bg-dark-700 flex flex-col">
       {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-4 py-3 flex items-center gap-2 flex-shrink-0">
+      <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-2 flex-shrink-0">
         <button
           onClick={onBack}
-          className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
           title="Close"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <X size={20} />
         </button>
         
         <div className="flex-1 min-w-0">
@@ -252,7 +251,7 @@ export default function FileExplorer({
         {isBrowsing && (
           <button
             onClick={handleSetAsWorkspace}
-            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded transition font-medium"
+            className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs rounded-brand transition-all duration-200 font-medium shadow-lg shadow-brand-500/20"
             title="Set as workspace"
           >
             Set Workspace
@@ -263,12 +262,10 @@ export default function FileExplorer({
         {!isBrowsing && (
           <button
             onClick={() => setShowSearch(true)}
-            className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+            className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
             title="Search files"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+            <Search className="text-brand-500" size={20} />
           </button>
         )}
 
@@ -277,26 +274,22 @@ export default function FileExplorer({
           <button
             onClick={onOpenGit}
             disabled={!hasGit}
-            className={`p-2 rounded transition ${
+            className={`p-2 rounded-brand transition-all duration-200 border ${
               hasGit 
-                ? "bg-orange-600 hover:bg-orange-700 text-white" 
-                : "bg-slate-700 text-slate-500 cursor-not-allowed"
+                ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500" 
+                : "bg-dark-500/30 text-dark-200 border-dark-400 cursor-not-allowed"
             }`}
             title={hasGit ? "Git" : "No git repository"}
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M21.62 11.11l-8.73-8.73a1.3 1.3 0 00-1.78 0L8.89 4.6l2.25 2.25a1.54 1.54 0 011.94 1.94l2.17 2.17a1.54 1.54 0 11-.92.86l-2.02-2.02v5.32a1.54 1.54 0 11-1.27-.07V9.65a1.54 1.54 0 01-.84-2.02L7.97 5.4 2.38 11a1.3 1.3 0 000 1.78l8.73 8.73a1.3 1.3 0 001.78 0l8.73-8.62a1.3 1.3 0 000-1.78z"/>
-            </svg>
+            <GitBranch className={hasGit ? "text-brand-500" : "text-dark-200"} size={20} />
           </button>
         )}
       </div>
 
       {/* Search bar */}
       {showSearch && (
-        <div className="bg-slate-800 border-b border-slate-700 px-4 py-2 flex items-center gap-2 flex-shrink-0">
-          <svg className="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+        <div className="bg-dark-600 border-b border-dark-400 px-4 py-2 flex items-center gap-2 flex-shrink-0">
+          <Search className="text-dark-100 flex-shrink-0" size={20} />
           <input
             type="text"
             value={searchQuery}
@@ -306,15 +299,13 @@ export default function FileExplorer({
             autoFocus
           />
           {searchLoading && (
-            <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin" />
+            <Loader2 className="animate-spin text-brand-500" size={16} />
           )}
           <button
             onClick={closeSearch}
-            className="p-1 text-slate-400 hover:text-white transition"
+            className="p-1 text-dark-100 hover:text-white transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X size={20} />
           </button>
         </div>
       )}
@@ -330,11 +321,11 @@ export default function FileExplorer({
       {showSearch && searchQuery.length >= 2 ? (
         <div className="flex-1 min-h-0 overflow-auto">
           {searchLoading ? (
-            <div className="flex items-center justify-center h-32 text-slate-400">
+            <div className="flex items-center justify-center h-32 text-dark-100">
               Searching...
             </div>
           ) : searchResults.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-slate-400">
+            <div className="flex items-center justify-center h-32 text-dark-100">
               No files found
             </div>
           ) : (
@@ -346,19 +337,19 @@ export default function FileExplorer({
                     onOpenFile(file.path);
                     closeSearch();
                   }}
-                  className="w-full px-4 py-3 flex items-center gap-3 border-b border-slate-800 hover:bg-slate-800/50 transition text-left"
+                  className="w-full px-4 py-3 flex items-center gap-3 border-b border-dark-500 hover:bg-dark-600 transition-colors text-left"
                 >
                   <span className="text-xl flex-shrink-0">
                     {file.type === "binary" ? "📦" : "📄"}
                   </span>
                   <div className="flex-1 min-w-0">
                     <div className="text-white truncate">{file.name}</div>
-                    <div className="text-slate-500 text-xs truncate">
+                    <div className="text-dark-100 text-xs truncate">
                       {file.path.replace(workspace, "").replace(/^\//, "")}
                     </div>
                   </div>
                   {file.sizeFormatted && (
-                    <span className="text-slate-500 text-xs flex-shrink-0">{file.sizeFormatted}</span>
+                    <span className="text-dark-100 text-xs flex-shrink-0">{file.sizeFormatted}</span>
                   )}
                 </button>
               ))}
@@ -371,12 +362,10 @@ export default function FileExplorer({
           {currentPath !== "/" && !showSearch && (
             <button
               onClick={handleGoUp}
-              className="w-full px-4 py-3 flex items-center gap-3 border-b border-slate-800 hover:bg-slate-800/50 transition text-left flex-shrink-0"
+              className="w-full px-4 py-3 flex items-center gap-3 border-b border-dark-500 hover:bg-dark-600 transition-colors text-left flex-shrink-0"
             >
-              <svg className="w-7 h-7 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              <span className="text-green-400">......</span>
+              <ChevronLeft className="text-brand-500" size={28} />
+              <span className="text-brand-500">......</span>
             </button>
           )}
 
@@ -399,11 +388,9 @@ export default function FileExplorer({
       {!isBrowsing && (
         <button
           onClick={() => setShowNewItemModal(true)}
-          className="absolute bottom-6 right-6 w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full shadow-lg flex items-center justify-center transition"
+          className="absolute bottom-6 right-6 w-14 h-14 bg-brand-500 hover:bg-brand-600 text-white rounded-full shadow-lg shadow-brand-500/30 flex items-center justify-center transition-all duration-200"
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+          <Plus size={24} />
         </button>
       )}
 
@@ -412,7 +399,7 @@ export default function FileExplorer({
         <>
           <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
           <div
-            className="fixed z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden min-w-[140px]"
+            className="fixed z-50 bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl overflow-hidden min-w-[140px]"
             style={{ 
               right: 16,
               top: Math.min(contextMenu.y, window.innerHeight - 160)
@@ -420,11 +407,9 @@ export default function FileExplorer({
           >
             <button
               onClick={() => handleRename(contextMenu.file)}
-              className="w-full px-4 py-3 text-left text-white hover:bg-slate-700 flex items-center gap-3"
+              className="w-full px-4 py-3 text-left text-white hover:bg-dark-500 flex items-center gap-3 transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
+              <Pencil size={16} />
               Rename
             </button>
             <button
@@ -432,20 +417,16 @@ export default function FileExplorer({
                 navigator.clipboard.writeText(contextMenu.file.path);
                 closeContextMenu();
               }}
-              className="w-full px-4 py-3 text-left text-white hover:bg-slate-700 flex items-center gap-3"
+              className="w-full px-4 py-3 text-left text-white hover:bg-dark-500 flex items-center gap-3 transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-              </svg>
+              <Copy size={16} />
               Copy path
             </button>
             <button
               onClick={() => handleDelete(contextMenu.file)}
-              className="w-full px-4 py-3 text-left text-red-400 hover:bg-slate-700 flex items-center gap-3"
+              className="w-full px-4 py-3 text-left text-red-400 hover:bg-dark-500 flex items-center gap-3 transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
+              <Trash2 size={16} />
               Delete
             </button>
           </div>

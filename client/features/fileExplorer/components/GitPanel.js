@@ -5,6 +5,7 @@ import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import { GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import { ChevronLeft, Eye, Trash2, RefreshCw } from "@/shared/components/ui/Icon";
 
 export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) {
   const [activeTab, setActiveTab] = useState("status");
@@ -124,7 +125,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       });
       diff2htmlUi.draw();
     } catch {
-      node.innerHTML = `<pre class="text-slate-400 p-4">${diff || "No changes"}</pre>`;
+      node.innerHTML = `<pre class="text-dark-100 p-4">${diff || "No changes"}</pre>`;
     }
   }, [activeTab, diff, diffLoading]);
 
@@ -144,7 +145,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
     return (
       <div
         key={file.path}
-        className="px-3 py-2 bg-slate-800 rounded hover:bg-slate-700 transition"
+        className="px-3 py-2 bg-dark-600 rounded hover:bg-dark-500 transition"
       >
         <div className="flex items-center gap-2">
           {/* Status badge */}
@@ -159,7 +160,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           >
             <div className="text-white font-medium truncate">{fileName}</div>
             {dirPath && (
-              <div className="text-slate-500 text-xs truncate">{dirPath}</div>
+              <div className="text-dark-100 text-xs truncate">{dirPath}</div>
             )}
           </button>
           
@@ -175,7 +176,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           {file.status !== "D" && (
             <button
               onClick={(e) => { e.stopPropagation(); handleOpenFile(file.path); }}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-600 rounded transition flex-shrink-0"
+              className="p-1.5 text-dark-100 hover:text-white hover:bg-dark-400 rounded-brand transition-all duration-200 flex-shrink-0"
               title="Open file"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -187,7 +188,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           {/* Discard button */}
           <button
             onClick={(e) => { e.stopPropagation(); handleDiscardFile(file.path, file.status); }}
-            className="p-1.5 text-slate-400 hover:text-orange-400 hover:bg-slate-600 rounded transition flex-shrink-0"
+            className="p-1.5 text-dark-100 hover:text-orange-400 hover:bg-dark-400 rounded-brand transition-all duration-200 flex-shrink-0"
             title="Discard changes"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -200,12 +201,12 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
   };
 
   return (
-    <div className="h-full bg-slate-900 flex flex-col">
+    <div className="h-full bg-dark-700 flex flex-col">
       {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-4 py-3 flex items-center gap-3 flex-shrink-0">
+      <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-3 flex-shrink-0">
         <button
           onClick={onBack}
-          className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -220,7 +221,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
               loadDiff(selectedFile, selectedFileStatus);
             }
           }}
-          className="ml-auto p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+          className="ml-auto p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200"
           title="Refresh"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -230,13 +231,13 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-700 flex-shrink-0">
+      <div className="flex border-b border-dark-400 flex-shrink-0">
         <button
           onClick={() => setActiveTab("status")}
           className={`flex-1 py-3 text-center font-medium transition ${
             activeTab === "status"
               ? "text-white border-b-2 border-emerald-500"
-              : "text-slate-400 hover:text-white"
+              : "text-dark-100 hover:text-white"
           }`}
         >
           Status
@@ -246,7 +247,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           className={`flex-1 py-3 text-center font-medium transition ${
             activeTab === "diff"
               ? "text-white border-b-2 border-emerald-500"
-              : "text-slate-400 hover:text-white"
+              : "text-dark-100 hover:text-white"
           }`}
         >
           Diff
@@ -264,20 +265,20 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       <div className="flex-1 overflow-auto modal-scrollable">
         {activeTab === "status" ? (
           statusLoading ? (
-            <div className="flex items-center justify-center h-32 text-slate-400">
+            <div className="flex items-center justify-center h-32 text-dark-100">
               Loading...
             </div>
           ) :
           <div className="p-4 space-y-4">
             {statusFiles.length === 0 ? (
-              <div className="text-center text-slate-400 py-8">
+              <div className="text-center text-dark-100 py-8">
                 No changes
               </div>
             ) : (
               <>
                 {groupedFiles.modified.length > 0 && (
                   <div>
-                    <h3 className="text-slate-400 text-sm mb-2">Modified ({groupedFiles.modified.length})</h3>
+                    <h3 className="text-dark-100 text-sm mb-2">Modified ({groupedFiles.modified.length})</h3>
                     <div className="space-y-1">
                       {groupedFiles.modified.map(renderFileItem)}
                     </div>
@@ -286,7 +287,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
 
                 {groupedFiles.added.length > 0 && (
                   <div>
-                    <h3 className="text-slate-400 text-sm mb-2">Added ({groupedFiles.added.length})</h3>
+                    <h3 className="text-dark-100 text-sm mb-2">Added ({groupedFiles.added.length})</h3>
                     <div className="space-y-1">
                       {groupedFiles.added.map(renderFileItem)}
                     </div>
@@ -295,7 +296,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
 
                 {groupedFiles.deleted.length > 0 && (
                   <div>
-                    <h3 className="text-slate-400 text-sm mb-2">Deleted ({groupedFiles.deleted.length})</h3>
+                    <h3 className="text-dark-100 text-sm mb-2">Deleted ({groupedFiles.deleted.length})</h3>
                     <div className="space-y-1">
                       {groupedFiles.deleted.map(renderFileItem)}
                     </div>
@@ -304,7 +305,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
 
                 {groupedFiles.untracked.length > 0 && (
                   <div>
-                    <h3 className="text-slate-400 text-sm mb-2">Untracked ({groupedFiles.untracked.length})</h3>
+                    <h3 className="text-dark-100 text-sm mb-2">Untracked ({groupedFiles.untracked.length})</h3>
                     <div className="space-y-1">
                       {groupedFiles.untracked.map(renderFileItem)}
                     </div>
@@ -326,7 +327,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                       loadDiff(file.path, file.status);
                     }
                   }}
-                  className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                  className="flex-1 px-3 py-2 bg-dark-600 border border-dark-400 rounded text-white focus:outline-none focus:border-emerald-500"
                 >
                   {statusFiles.map(file => (
                     <option key={file.path} value={file.path}>
@@ -337,7 +338,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                 <button
                   onClick={handleDiscard}
                   disabled={!selectedFile || diffLoading}
-                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition flex items-center gap-2"
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-dark-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2"
                   title="Discard changes"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -348,16 +349,16 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
             )}
             
             {diffLoading ? (
-              <div className="flex items-center justify-center h-32 text-slate-400">
+              <div className="flex items-center justify-center h-32 text-dark-100">
                 Loading...
               </div>
             ) : diff ? (
               <div 
                 ref={diffContainerRef}
-                className="diff-dark-theme bg-slate-800 rounded overflow-hidden text-sm"
+                className="diff-dark-theme bg-dark-600 rounded overflow-hidden text-sm"
               />
             ) : (
-              <div className="flex items-center justify-center h-32 text-slate-400">
+              <div className="flex items-center justify-center h-32 text-dark-100">
                 No changes
               </div>
             )}

@@ -178,6 +178,11 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   if (!isMobile || !socket || !sessionId) return null;
 
   const handleModifierToggle = (modifier) => {
+    // Haptic feedback
+    if (navigator.vibrate) {
+      navigator.vibrate(10);
+    }
+    
     if (modifier === "Ctrl") {
       setCtrlPressed(!ctrlPressed);
     } else if (modifier === "Meta") {
@@ -190,6 +195,11 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   };
 
   const sendKey = (key, forceModifiers = {}) => {
+    // Haptic feedback
+    if (navigator.vibrate) {
+      navigator.vibrate(10);
+    }
+    
     const data = generateCombination(key, forceModifiers);
 
     // Send directly via socket - same as real keyboard input
@@ -205,6 +215,11 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   };
 
   const toggleExpanded = () => {
+    // Haptic feedback
+    if (navigator.vibrate) {
+      navigator.vibrate(10);
+    }
+    
     const newState = !isExpanded;
     setIsExpanded(newState);
     setShowTextInput(false); // Close text input when toggling extended
@@ -221,6 +236,11 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   };
 
   const toggleTextInput = () => {
+    // Haptic feedback
+    if (navigator.vibrate) {
+      navigator.vibrate(10);
+    }
+    
     const newState = !showTextInput;
     setShowTextInput(newState);
     setIsExpanded(false); // Close extended when opening text input
@@ -236,6 +256,11 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   };
 
   const sendTextBatch = () => {
+    // Haptic feedback
+    if (navigator.vibrate) {
+      navigator.vibrate(15);
+    }
+    
     if (!textInput.trim() || !socket || !sessionId) return;
     socket.emit("input", { sessionId, data: textInput });
     setTextInput("");
@@ -274,7 +299,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
     <div className="flex flex-col">
       {/* Expanded keyboard panel */}
       <div
-        className={`bg-gradient-to-b from-slate-900 to-slate-950 border-t border-slate-700 transition-all duration-300 overflow-hidden ${isExpanded ? "max-h-32 opacity-100" : "max-h-0 opacity-0"
+        className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${isExpanded ? "max-h-32 opacity-100" : "max-h-0 opacity-0"
           }`}
       >
         <div className="p-2 overflow-y-auto max-h-32">
@@ -284,7 +309,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
                 key={idx}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => sendKey(keyConfig.key, { ctrl: keyConfig.ctrl })}
-                className={`${normalButtonClass} ${keyConfig.ctrl ? "text-orange-300" : ""}`}
+                className={`${normalButtonClass} ${keyConfig.ctrl ? "text-brand-400" : ""}`}
                 style={{ minHeight: "28px" }}
               >
                 {keyConfig.label}
@@ -296,7 +321,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
 
       {/* Text Input Panel */}
       <div
-        className={`bg-gradient-to-b from-slate-900 to-slate-950 border-t border-slate-700 transition-all duration-300 overflow-hidden ${showTextInput ? "max-h-16 opacity-100" : "max-h-0 opacity-0"
+        className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${showTextInput ? "max-h-16 opacity-100" : "max-h-0 opacity-0"
           }`}
       >
         <div className="p-2 flex gap-2 items-center">
@@ -308,7 +333,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
               onChange={(e) => setTextInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendTextBatch()}
               placeholder="Type command and send..."
-              className="w-full px-3 py-2 pr-8 bg-slate-700 border border-slate-600 rounded-lg text-white text-base placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-3 py-2 pr-8 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all duration-200"
             />
             {/* Clear button */}
             {textInput && (
@@ -318,7 +343,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
                   setTextInput("");
                   textInputRef.current?.focus();
                 }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-slate-400 hover:text-white transition"
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-dark-100 hover:text-white transition-colors"
               >
                 ×
               </button>
@@ -328,7 +353,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
             onMouseDown={(e) => e.preventDefault()}
             onClick={sendTextBatch}
             disabled={!textInput.trim()}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition"
+            className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:opacity-50 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20"
           >
             Send
           </button>
@@ -336,7 +361,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
       </div>
 
       {/* Bottom keyboard bar */}
-      <div className="bg-gradient-to-t from-slate-900 via-slate-900 to-slate-800 border-t-2 border-slate-700 px-1.5 py-2 safe-area-bottom">
+      <div className="bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 safe-area-bottom">
         <div className="flex items-center justify-between gap-0.5 max-w-4xl mx-auto">
           {/* Esc button - separate group */}
           <div className="flex gap-0.5">
@@ -383,7 +408,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
                     else if (isCtrlCombo) sendKey(keyConfig.key, { ctrl: true });
                     else sendKey(keyConfig.key);
                   }}
-                  className={`${buttonClass} ${isCtrlCombo ? "text-orange-300" : ""}`}
+                  className={`${buttonClass} ${isCtrlCombo ? "text-brand-400" : ""}`}
                   style={BUTTON_STYLES.size}
                 >
                   {keyConfig.label}

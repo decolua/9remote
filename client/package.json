@@ -8,10 +8,6 @@
     "start": "next start"
   },
   "dependencies": {
-    "next": "16.1.1",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "socket.io-client": "^4.8.3",
     "@codemirror/commands": "^6.10.1",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.11",
@@ -28,6 +24,11 @@
     "@xterm/xterm": "^6.0.0",
     "codemirror": "^6.0.2",
     "diff2html": "^3.4.55",
+    "lucide-react": "^0.563.0",
+    "next": "16.1.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "socket.io-client": "^4.8.3",
     "zustand": "^5.0.10"
   },
   "devDependencies": {

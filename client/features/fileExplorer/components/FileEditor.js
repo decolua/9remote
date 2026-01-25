@@ -10,6 +10,7 @@ import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { AUTO_SAVE_DELAY, LANGUAGE_MAP } from "../constants/fileExplorer.js";
+import { ChevronLeft, Save, Loader2 } from "@/shared/components/ui/Icon";
 
 const languageExtensions = {
   javascript: javascript(),
@@ -173,16 +174,14 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
   };
 
   return (
-    <div className="h-full bg-slate-900 flex flex-col">
+    <div className="h-full bg-dark-700 flex flex-col">
       {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-4 py-3 flex items-center gap-2 flex-shrink-0">
+      <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-2 flex-shrink-0">
         <button
           onClick={handleBack}
-          className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
+          <ChevronLeft size={20} />
         </button>
 
         <div className="flex-1 flex items-center gap-2 min-w-0">
@@ -198,18 +197,16 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
         <button
           onClick={saveFile}
           disabled={!hasChanges || saving}
-          className={`px-3 py-2 rounded transition flex items-center gap-1 ${
+          className={`px-3 py-2 rounded-brand transition-all duration-200 flex items-center gap-1 ${
             hasChanges && !saving
-              ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-              : "bg-slate-700 text-slate-500"
+              ? "bg-brand-500 hover:bg-brand-600 text-white shadow-lg shadow-brand-500/20"
+              : "bg-dark-500 text-dark-200 cursor-not-allowed"
           }`}
         >
           {saving ? (
-            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            <Loader2 className="animate-spin" size={16} />
           ) : (
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-            </svg>
+            <Save size={16} />
           )}
           <span className="hidden sm:inline">Save</span>
         </button>
@@ -225,7 +222,7 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
       {/* Editor */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {loading && (
-          <div className="h-full flex items-center justify-center text-slate-400">
+          <div className="h-full flex items-center justify-center text-dark-100">
             Loading...
           </div>
         )}
@@ -236,7 +233,7 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
       </div>
 
       {/* Code shortcuts toolbar */}
-      <div className="bg-slate-800 border-t border-slate-700 px-2 py-2 flex gap-1 overflow-x-auto flex-shrink-0">
+      <div className="bg-dark-600 border-t border-dark-400 px-2 py-2 flex gap-1 overflow-x-auto flex-shrink-0">
         {[
           { label: "Tab", text: "  " },
           { label: "{}", text: "{}" },
@@ -252,7 +249,7 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
           <button
             key={item.label}
             onClick={() => insertText(item.text)}
-            className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded transition whitespace-nowrap"
+            className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm rounded-brand transition-all duration-200 whitespace-nowrap border border-dark-400 hover:border-brand-500"
           >
             {item.label}
           </button>

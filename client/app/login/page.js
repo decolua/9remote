@@ -8,6 +8,7 @@ import { maskApiKey } from "@/shared/utils/formatters";
 import Container from "@/shared/components/ui/Container";
 import Button from "@/shared/components/ui/Button";
 import Spinner from "@/shared/components/ui/Spinner";
+import { X, Eye, EyeOff, LogIn, Trash2, Terminal } from "@/shared/components/ui/Icon";
 
 function LoginContent() {
   const [apiKey, setApiKey] = useState("");
@@ -115,7 +116,7 @@ function LoginContent() {
   if (isTokenAuth && loading) {
     return (
       <Container>
-        <div className="bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full border border-slate-700">
+        <div className="bg-dark-600 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
           <Spinner size="lg" text="Authenticating with token..." />
         </div>
       </Container>
@@ -125,18 +126,23 @@ function LoginContent() {
   return (
     <>
       <Container>
-        <div className="bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full border border-slate-700">
-          <h1 className="text-4xl font-bold text-white mb-2">
-            9Remote Terminal
-          </h1>
+        <div className="bg-dark-600 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-brand-500/10 rounded-brand">
+              <Terminal className="text-brand-500" size={32} />
+            </div>
+            <h1 className="text-4xl font-bold text-white">
+              9Remote
+            </h1>
+          </div>
 
-          <p className="text-slate-400 mb-8">
+          <p className="text-dark-100 mb-8">
             Access your terminal from anywhere
           </p>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-dark-50 mb-2">
                 Access Key
               </label>
               <div className="relative">
@@ -146,16 +152,14 @@ function LoginContent() {
                   onChange={(e) => setApiKey(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
                   placeholder="sk-xxx... or One-Time Key (ABC123)"
-                  className="w-full px-4 py-3 pr-10 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-3 pr-10 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
                 />
                 {apiKey && (
                   <button
                     onClick={handleClearInput}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-100 hover:text-white transition-colors"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <X size={20} />
                   </button>
                 )}
               </div>
@@ -164,14 +168,14 @@ function LoginContent() {
               )}
             </div>
 
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 cursor-pointer group">
               <input
                 type="checkbox"
                 checked={rememberKey}
                 onChange={(e) => handleRememberChange(e.target.checked)}
-                className="w-4 h-4 bg-slate-900 border-slate-700 rounded text-blue-500 focus:ring-2 focus:ring-blue-500"
+                className="w-4 h-4 bg-dark-700 border-dark-400 rounded text-brand-500 focus:ring-2 focus:ring-brand-500"
               />
-              <span className="text-sm text-slate-300">Remember this key</span>
+              <span className="text-sm text-dark-50 group-hover:text-white transition-colors">Remember this key</span>
             </label>
 
             <Button
@@ -187,39 +191,35 @@ function LoginContent() {
 
           {/* Saved Keys - only render after hydration */}
           {isHydrated && savedKeys.length > 0 && (
-            <div className="mt-6 pt-6 border-t border-slate-700">
-              <h3 className="text-sm font-medium text-slate-300 mb-3">Saved Keys</h3>
+            <div className="mt-6 pt-6 border-t border-dark-400">
+              <h3 className="text-sm font-medium text-dark-50 mb-3">Saved Keys</h3>
               <div className="space-y-2">
                 {savedKeys.map((item) => (
-                  <div key={item.id} className="bg-slate-900/50 border border-slate-700 rounded-lg p-3">
+                  <div key={item.id} className="bg-dark-700/50 border border-dark-400 rounded-brand p-3 hover:border-brand-500/30 transition-colors">
                     <div className="flex items-center justify-between gap-3">
                       <div 
                         className="flex-1 min-w-0 cursor-pointer group"
                         onClick={() => handleLoginWithSavedKey(item.key)}
                       >
-                        <code className="text-sm text-slate-300 group-hover:text-blue-400 font-mono block truncate transition">
+                        <code className="text-sm text-dark-50 group-hover:text-brand-500 font-mono block truncate transition-colors">
                           {maskApiKey(item.key)}
                         </code>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleLoginWithSavedKey(item.key)}
                           disabled={loading}
-                          className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="flex items-center gap-1.5 text-brand-500 hover:text-brand-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                          </svg>
+                          <LogIn size={16} />
                           Login
                         </button>
                         <button
                           onClick={() => handleRemoveKey(item.id)}
                           disabled={loading}
-                          className="flex items-center gap-1.5 text-slate-400 hover:text-red-400 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="flex items-center gap-1 text-dark-100 hover:text-red-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
+                          <Trash2 size={16} />
                         </button>
                       </div>
                     </div>

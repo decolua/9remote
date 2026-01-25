@@ -8,6 +8,7 @@ import SitesList from "@/features/terminal/components/SitesList";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
+import { ChevronLeft, Monitor, Palette } from "@/shared/components/ui/Icon";
 
 export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "dracula", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
   const terminalRef = useRef(null);
@@ -231,16 +232,14 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
   return (
     <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: (THEMES[theme] || THEMES.dracula).background }}>
       {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-2 sm:px-6 py-2 sm:py-3 flex items-center justify-between flex-shrink-0">
+      <div className="bg-dark-600 border-b border-dark-400 px-2 sm:px-6 py-2 sm:py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={onBack}
-            className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+            className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
             title="Back"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft size={20} />
           </button>
           {/* Connection indicator - green if WS connected, red if not */}
           <span 
@@ -261,15 +260,13 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
             <button
               onClick={onOpenRemote}
               disabled={!wsConnected}
-              className={`px-3 sm:px-4 py-2 text-white text-sm font-medium rounded transition flex items-center gap-2 ${
+              className={`px-3 sm:px-4 py-2 text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border ${
                 wsConnected 
-                  ? "bg-indigo-600 hover:bg-indigo-700" 
-                  : "bg-indigo-600/50 cursor-not-allowed"
+                  ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500" 
+                  : "bg-dark-500/30 text-dark-200 border-dark-400 cursor-not-allowed"
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
+              <Monitor className="text-brand-500" size={16} />
               <span className="hidden sm:inline">Remote</span>
             </button>
           )}
@@ -281,22 +278,22 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
           <div className="relative">
             <button
               onClick={() => setShowThemePicker(!showThemePicker)}
-              className="px-3 sm:px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded transition flex items-center gap-2"
+              className="px-3 sm:px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border border-dark-400 hover:border-brand-500"
             >
-              <span className="w-4 h-4 rounded-full" style={{ background: (THEMES[theme] || THEMES.dracula).background, border: "2px solid #94a3b8" }} />
+              <Palette className="text-brand-500" size={16} />
               <span className="hidden sm:inline">Theme</span>
             </button>
 
             {showThemePicker && (
-              <div className="absolute right-0 top-full mt-2 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-50 p-2 min-w-[120px]">
+              <div className="absolute right-0 top-full mt-2 bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl z-50 p-2 min-w-[120px]">
                 {Object.keys(THEMES).map((t) => (
                   <button
                     key={t}
                     onClick={() => { onThemeChange(t); setShowThemePicker(false); }}
-                    className={`w-full px-3 py-2 text-left text-sm rounded flex items-center gap-2 ${theme === t ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-700"
+                    className={`w-full px-3 py-2 text-left text-sm rounded-brand flex items-center gap-2 transition-all duration-200 ${theme === t ? "bg-brand-500 text-white" : "text-dark-50 hover:bg-dark-500"
                       }`}
                   >
-                    <span className="w-3 h-3 rounded-full" style={{ background: THEMES[t].background, border: "2px solid #94a3b8" }} />
+                    <span className="w-3 h-3 rounded-full border-2 border-dark-100" style={{ background: THEMES[t].background }} />
                     {t.charAt(0).toUpperCase() + t.slice(1)}
                   </button>
                 ))}
@@ -310,7 +307,7 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
       <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden p-2 sm:p-4">
         <div
           ref={terminalRef}
-          className="w-full h-full rounded-lg overflow-hidden shadow-2xl"
+          className="w-full h-full rounded-brand-lg overflow-hidden shadow-2xl"
         />
       </div>
 

@@ -11,13 +11,13 @@ export default function Button({
   className = "",
   ...props 
 }) {
-  const baseClasses = "font-semibold rounded-lg transition transform active:scale-[0.98]";
+  const baseClasses = "font-semibold rounded-brand transition-all duration-200 transform active:scale-[0.98]";
   
   const variantClasses = {
-    primary: "bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white",
-    secondary: "bg-slate-700 hover:bg-slate-600 disabled:bg-slate-600 text-white",
-    danger: "bg-red-500 hover:bg-red-600 disabled:bg-slate-600 text-white",
-    success: "bg-green-600 hover:bg-green-700 disabled:bg-slate-600 text-white"
+    primary: "bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 text-white shadow-lg shadow-brand-500/20",
+    secondary: "bg-dark-500 hover:bg-dark-400 disabled:bg-dark-600 text-white border border-dark-400",
+    danger: "bg-red-500 hover:bg-red-600 disabled:bg-dark-500 text-white",
+    success: "bg-green-600 hover:bg-green-700 disabled:bg-dark-500 text-white"
   };
   
   const sizeClasses = {

@@ -199,8 +199,8 @@ export default function TerminalPage() {
   
   if (isInitializing) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-slate-400">Loading...</div>
+      <div className="min-h-screen bg-dark-700 flex items-center justify-center">
+        <div className="text-dark-100">Loading...</div>
       </div>
     );
   }
@@ -265,14 +265,14 @@ export default function TerminalPage() {
 
       {/* Remote Desktop - conditional render */}
       {currentView.type === "remote" && (
-        <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
+        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
           <RemoteDesktop onClose={popView} />
         </div>
       )}
 
       {/* Workspace List */}
       {currentView.type === "workspaces" && (
-        <div className="absolute inset-0 z-20 animate-in slide-in-from-bottom duration-300">
+        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
           <WorkspaceList
             onSelect={handleSelectWorkspace}
             onBrowse={handleBrowseFolder}
@@ -284,7 +284,7 @@ export default function TerminalPage() {
 
       {/* Browse Folder (selecting workspace) */}
       {currentView.type === "browse" && (
-        <div className="absolute inset-0 z-20 animate-in slide-in-from-bottom duration-300">
+        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
           <FileExplorer
             workspace={currentView.path}
             fileSocket={fileSocket}
@@ -297,7 +297,7 @@ export default function TerminalPage() {
 
       {/* File Explorer (workspace mode) */}
       {currentView.type === "files" && (
-        <div className="absolute inset-0 z-20 animate-in slide-in-from-bottom duration-300">
+        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
           <FileExplorer
             workspace={currentView.workspace}
             fileSocket={fileSocket}
@@ -310,7 +310,7 @@ export default function TerminalPage() {
 
       {/* File Editor */}
       {currentView.type === "editor" && (
-        <div className="absolute inset-0 z-30 animate-in slide-in-from-right duration-300">
+        <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
           <FileEditor
             filePath={currentView.path}
             fileSocket={fileSocket}
@@ -321,7 +321,7 @@ export default function TerminalPage() {
 
       {/* Git Panel */}
       {currentView.type === "git" && (
-        <div className="absolute inset-0 z-30 animate-in slide-in-from-right duration-300">
+        <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
           <GitPanel
             workspace={currentView.workspace}
             fileSocket={fileSocket}

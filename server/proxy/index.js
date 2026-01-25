@@ -164,7 +164,7 @@ export function handleProxyRequest(proxy, req, res, targetPort, targetPath, sear
     target: `http://localhost:${targetPort}`,
     changeOrigin: true
   }, (err) => {
-    console.error(`[Proxy] Error for port ${targetPort}:`, err.message);
+    // console.error(`[Proxy] Error for port ${targetPort}:`, err.message);
     res.writeHead(502);
     res.end(`Bad Gateway: ${err.message}`);
   });

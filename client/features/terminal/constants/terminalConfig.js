@@ -59,10 +59,10 @@ export const MAC_KEY = { label: "⌘", key: "Meta", modifier: true };
 
 // Keyboard button styles
 export const BUTTON_STYLES = {
-  base: "flex items-center justify-center rounded-md font-semibold text-[11px] transition-all duration-100 shadow-sm",
-  normal: "bg-gradient-to-br from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 active:from-slate-500 active:to-slate-600 text-white border border-slate-600",
-  arrow: "bg-gradient-to-br from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 active:from-slate-500 active:to-slate-600 text-white text-sm border border-slate-600",
-  modifierActive: "bg-gradient-to-br from-orange-500 to-orange-600 active:from-orange-400 active:to-orange-500 text-white shadow-md ring-1 ring-orange-400",
+  base: "flex items-center justify-center rounded font-semibold text-xs transition-all duration-200 shadow-sm",
+  normal: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400",
+  arrow: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white text-sm border border-dark-400",
+  modifierActive: "bg-gradient-to-br from-brand-500 to-brand-600 active:from-brand-400 active:to-brand-500 text-white shadow-md shadow-brand-500/30 ring-1 ring-brand-400",
   // Square sizes
   size: { width: "32px", height: "32px" },
   sizeSmall: { width: "28px", height: "28px" }
