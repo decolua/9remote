@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Build npm package: Next.js standalone + CLI bundle + Server bundle
+ * Build npm package: CLI bundle + Server bundle (lightweight - no Next.js)
  */
 
 import { execSync } from "child_process";
@@ -13,9 +13,9 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 
-function run(cmd) {
+function run(cmd, cwd = ROOT) {
   console.log(`> ${cmd}`);
-  execSync(cmd, { stdio: "inherit", cwd: ROOT });
+  execSync(cmd, { stdio: "inherit", cwd });
 }
 
 function ensureDir(dir) {
@@ -41,72 +41,60 @@ const baseConfig = {
 async function buildCli() {
   console.log("\n📦 Bundling CLI...");
   
+  const outfile = path.join(ROOT, "cli/dist/cli.cjs");
+  ensureDir(path.dirname(outfile));
+  
   await esbuild.build({
     ...baseConfig,
     entryPoints: [path.join(ROOT, "cli/index.js")],
-    outfile: path.join(ROOT, "dist/cli.cjs"),
+    outfile,
     external: ["node-pty", "sharp", "cloudflared", "@hurdlegroup/robotjs"]
   });
   
-  const stats = fs.statSync(path.join(ROOT, "dist/cli.cjs"));
-  console.log(`✅ CLI → dist/cli.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
+  const stats = fs.statSync(outfile);
+  console.log(`✅ CLI → cli/dist/cli.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
 }
 
 async function buildServer() {
   console.log("\n📦 Bundling Server...");
   
+  const outfile = path.join(ROOT, "cli/dist/server.cjs");
+  ensureDir(path.dirname(outfile));
+  
   await esbuild.build({
     ...baseConfig,
-    entryPoints: [path.join(ROOT, "src/server/standalone.js")],
-    outfile: path.join(ROOT, "dist/server.cjs"),
-    external: ["node-pty", "sharp", "next", "react", "react-dom", "@hurdlegroup/robotjs"]
+    entryPoints: [path.join(ROOT, "server/index.js")],
+    outfile,
+    external: ["node-pty", "sharp", "@hurdlegroup/robotjs"]
   });
   
-  const stats = fs.statSync(path.join(ROOT, "dist/server.cjs"));
-  console.log(`✅ Server → dist/server.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
+  const stats = fs.statSync(outfile);
+  console.log(`✅ Server → cli/dist/server.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
 }
 
 async function build() {
-  console.log("🔨 Building npm package...\n");
-  
-  ensureDir(path.join(ROOT, "dist"));
+  console.log("🔨 Building npm package (lightweight - no Next.js)...\n");
 
-  // Step 1: Build Next.js standalone
-  console.log("📦 Building Next.js standalone...");
-  run("BUILD_STANDALONE=true npm run build");
+  // Clean old dist
+  const distDir = path.join(ROOT, "cli/dist");
+  if (fs.existsSync(distDir)) {
+    fs.rmSync(distDir, { recursive: true });
+  }
 
-  // Step 2: Bundle CLI + Server
+  // Bundle CLI + Server into cli/dist/
   await buildCli();
   await buildServer();
 
-  // Step 3: Copy standalone to dist
-  console.log("\n📦 Preparing package files...");
-  
-  const standalonePath = path.join(ROOT, ".next/standalone");
-  const staticPath = path.join(ROOT, ".next/static");
-  const distStandalone = path.join(ROOT, "dist/standalone");
-  const distStatic = path.join(ROOT, "dist/standalone/.next/static");
-
-  if (fs.existsSync(distStandalone)) fs.rmSync(distStandalone, { recursive: true });
-  
-  fs.cpSync(standalonePath, distStandalone, { recursive: true });
-  fs.cpSync(staticPath, distStatic, { recursive: true });
-  
-  const publicPath = path.join(ROOT, "public");
-  if (fs.existsSync(publicPath)) {
-    fs.cpSync(publicPath, path.join(ROOT, "dist/standalone/public"), { recursive: true });
-  }
-
-  // Remove unnecessary files
-  const cleanup = ["dist/standalone/node_modules/typescript", "dist/standalone/node_modules/.package-lock.json"];
-  for (const p of cleanup) {
-    const fullPath = path.join(ROOT, p);
-    if (fs.existsSync(fullPath)) fs.rmSync(fullPath, { recursive: true });
-  }
-
-  // Step 4: Create npm pack
+  // Create npm pack from cli/
   console.log("\n📦 Creating npm package...");
-  run("npm pack");
+  run("npm pack", path.join(ROOT, "cli"));
+
+  // Move .tgz to root
+  const tgzFiles = fs.readdirSync(path.join(ROOT, "cli")).filter(f => f.endsWith(".tgz"));
+  for (const tgz of tgzFiles) {
+    fs.renameSync(path.join(ROOT, "cli", tgz), path.join(ROOT, tgz));
+    console.log(`📦 Package: ${tgz}`);
+  }
 
   console.log("\n✅ Package build complete!");
 }

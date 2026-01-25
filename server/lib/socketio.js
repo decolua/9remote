@@ -1,8 +1,8 @@
 // Main Socket.IO setup
 import { Server } from "socket.io";
-import { setupTerminalSocket } from "../../features/terminal/services/terminalSocket.js";
-import { setupRemoteSocket, checkRemoteAvailable } from "../../features/remote/services/remoteSocket.js";
-import { setupFileExplorerSocket } from "../../features/fileExplorer/services/fileExplorerSocket.js";
+import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
+import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
+import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
 
 export async function setupSocketIO(server) {
   const io = new Server(server, {

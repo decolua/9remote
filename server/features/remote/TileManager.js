@@ -73,7 +73,16 @@ export class TileManager {
 
   async captureFullScreen() {
     const size = this.robot.getScreenSize();
-    const bitmap = this.robot.screen.capture(0, 0, size.width, size.height);
+    
+    // Detect DPI scale factor by capturing 1x1 pixel and checking actual dimensions
+    const testCapture = this.robot.screen.capture(0, 0, 1, 1);
+    const scaleFactor = testCapture.byteWidth / testCapture.bytesPerPixel;
+    
+    // Capture with scaled dimensions for Retina/HiDPI displays
+    const captureWidth = Math.floor(size.width * scaleFactor);
+    const captureHeight = Math.floor(size.height * scaleFactor);
+    
+    const bitmap = this.robot.screen.capture(0, 0, captureWidth, captureHeight);
     const imageBuffer = Buffer.from(bitmap.image);
 
     // BGRA -> RGBA

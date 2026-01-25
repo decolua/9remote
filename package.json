@@ -1,69 +1,28 @@
 {
-  "name": "9remote",
-  "version": "0.1.7",
+  "name": "9remote-monorepo",
+  "version": "0.1.10",
+  "private": true,
   "type": "module",
+  "workspaces": [
+    "cli",
+    "server",
+    "client",
+    "worker"
+  ],
   "scripts": {
-    "dev": "node cli/index.js --auto",
-    "build": "next build",
-    "build:pkg": "node scripts/buildPkg.js",
-    "build:worker": "next build && node scripts/buildWorkerStatic.js",
-    "deploy": "npm run build:worker && cd worker && wrangler deploy",
+    "dev": "npm-run-all --parallel dev:cli dev:client",
+    "dev:cli": "node cli/index.js --auto",
+    "dev:client": "npm run dev --workspace=client",
     "start": "node cli/index.js",
-    "server": "node server.js",
-    "lint": "eslint",
-    "publish": "npm run build:pkg && npm publish",
-    "postinstall": "node scripts/install.js || true"
-  },
-  "dependencies": {
-    "@codemirror/commands": "^6.10.1",
-    "@codemirror/lang-css": "^6.3.1",
-    "@codemirror/lang-html": "^6.4.11",
-    "@codemirror/lang-javascript": "^6.2.4",
-    "@codemirror/lang-json": "^6.0.2",
-    "@codemirror/lang-markdown": "^6.5.0",
-    "@codemirror/lang-python": "^6.2.1",
-    "@codemirror/language": "^6.12.1",
-    "@codemirror/search": "^6.6.0",
-    "@codemirror/state": "^6.5.4",
-    "@codemirror/theme-one-dark": "^6.1.3",
-    "@codemirror/view": "^6.39.11",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
-    "chalk": "^5.4.1",
-    "codemirror": "^6.0.2",
-    "diff2html": "^3.4.55",
-    "http-proxy": "^1.18.1",
-    "inquirer": "^9.3.8",
-    "next": "16.1.1",
-    "node-machine-id": "^1.1.12",
-    "node-pty": "^1.2.0-beta.7",
-    "ora": "^8.1.1",
-    "os": "^0.1.2",
-    "qrcode-terminal": "^0.12.0",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "sharp": "^0.33.5",
-    "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3",
-    "zustand": "^5.0.10"
-  },
-  "optionalDependencies": {
-    "@hurdlegroup/robotjs": "^0.12.1"
+    "build:pkg": "node scripts/syncVersion.js && node scripts/buildPkg.js",
+    "build:worker": "npm run build --workspace=client && node scripts/buildWorkerStatic.js",
+    "deploy": "npm run build:worker && cd worker && wrangler deploy",
+    "publish": "npm run build:pkg && cd cli && npm publish"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241218.0",
-    "@tailwindcss/postcss": "^4",
     "esbuild": "^0.27.2",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
-    "tailwindcss": "^4",
-    "wrangler": "^3.92.0"
-  },
-  "bin": {
-    "9remote": "./dist/cli.cjs"
-  },
-  "files": [
-    "dist/",
-    "scripts/install.js"
-  ]
+    "npm-run-all": "^4.1.5"
+  }
 }

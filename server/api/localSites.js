@@ -2,8 +2,8 @@
  * API handler for /api/local-sites
  */
 
-import { scanLocalSites } from "../../features/terminal/services/portScanner.js";
-import { verifyApiKeyCrc } from "../../../cli/utils/apiKey.js";
+import { scanLocalSites } from "../features/terminal/portScanner.js";
+import { verifyApiKeyCrc } from "../../cli/utils/apiKey.js";
 
 /**
  * Handle /api/local-sites request

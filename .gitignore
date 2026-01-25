@@ -51,3 +51,6 @@ landing/template.html
 .devcontainer/devcontainer.json
 dist/*
 9remote-*.tgz
+*/.next/*
+*/node_modules/*
+client/out/*

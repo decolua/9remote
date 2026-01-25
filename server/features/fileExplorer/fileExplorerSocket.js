@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { execSync } from "child_process";
-import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE } from "../constants/fileExplorer.js";
+import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE } from "./constants.js";
 
 function isIgnoredDir(name) {
   return IGNORED_DIRS.includes(name);

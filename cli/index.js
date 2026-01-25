@@ -18,7 +18,10 @@ import { ensureCloudflared, spawnCloudflared, killCloudflared } from "./utils/cl
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
-const STANDALONE_SERVER = path.join(__dirname, "../dist/server.cjs");
+// When running from dist/cli.cjs, server.cjs is in same folder
+// When running from cli/index.js (dev), use server/index.js
+const STANDALONE_SERVER = path.join(__dirname, "server.cjs");
+const DEV_SERVER = path.join(PROJECT_ROOT, "server/index.js");
 const WORKER_URL = "https://remote.9router.com";
 const SERVER_PORT = 2208;
 const MAX_RESTART_ATTEMPTS = 3;
@@ -95,10 +98,14 @@ function startServerWithRestart(onReady) {
       isFirstStart = false;
     }
 
-    // Use dev server if src/ exists (development), otherwise use standalone (npm package)
-    const devServerPath = path.join(PROJECT_ROOT, "server.js");
-    const srcExists = fs.existsSync(path.join(PROJECT_ROOT, "src"));
-    const serverPath = srcExists ? devServerPath : STANDALONE_SERVER;
+    // Use dev server if exists (development), otherwise use standalone (npm package)
+    const useDevServer = fs.existsSync(DEV_SERVER);
+    const serverPath = useDevServer ? DEV_SERVER : STANDALONE_SERVER;
+    
+    if (!fs.existsSync(serverPath)) {
+      console.error(`❌ Server not found: ${serverPath}`);
+      process.exit(1);
+    }
     
     currentProcess = spawn("node", [serverPath], {
       cwd: path.dirname(serverPath),

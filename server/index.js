@@ -1,41 +1,14 @@
 /**
- * Standalone server wrapper - wraps Next.js standalone with custom server features
+ * Server entry point - Socket.IO backend
  */
 
 import { createServer } from "http";
 import { parse } from "url";
-import path from "path";
-import { fileURLToPath } from "url";
 import { exec } from "child_process";
-
-// Socket.IO and features
-import { Server as SocketServer } from "socket.io";
-import { setupTerminalSocket } from "../features/terminal/services/terminalSocket.js";
-import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/services/remoteSocket.js";
-import { setupFileExplorerSocket } from "../features/fileExplorer/services/fileExplorerSocket.js";
-
-// Proxy
-import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
+import { setupSocketIO } from "./lib/socketio.js";
 import { handleLocalSites } from "./api/localSites.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
-
-// __dirname will be dist/ when bundled, src/server/ when running from source
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = parseInt(process.env.PORT || "2208", 10);
-
-// Resolve standalone path relative to the bundled file location
-function getStandalonePath() {
-  // When bundled: dist/server.cjs -> dist/standalone
-  // When source: src/server/standalone.js -> dist/standalone
-  const bundledPath = path.resolve(__dirname, "standalone");
-  const sourcePath = path.resolve(__dirname, "../../dist/standalone");
-  
-  const fs = require("fs");
-  if (fs.existsSync(bundledPath)) return bundledPath;
-  if (fs.existsSync(sourcePath)) return sourcePath;
-  
-  throw new Error(`Standalone not found at ${bundledPath} or ${sourcePath}`);
-}
+import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
 
 function isCodespaces() {
   return process.env.CODESPACES === "true";
@@ -67,55 +40,17 @@ async function handleCodespaceStop(req, res) {
 
   setTimeout(() => {
     exec(`gh codespace stop -c ${codespaceName}`, (error) => {
-      if (error) console.error("Failed to stop codespace:", error);
+      if (error) {
+        console.error("Failed to stop codespace:", error);
+      }
     });
   }, 500);
 }
 
-function setupSocketIO(server) {
-  const io = new SocketServer(server, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"],
-      credentials: true,
-      allowedHeaders: ["*"]
-    },
-    transports: ["websocket", "polling"],
-    allowEIO3: true,
-    allowUpgrades: true,
-    pingTimeout: 60000,
-    pingInterval: 25000
-  });
+const hostname = "localhost";
+const port = parseInt(process.env.PORT || "2208", 10);
 
-  checkRemoteAvailable();
-  setupTerminalSocket(io);
-  setupRemoteSocket(io);
-  setupFileExplorerSocket(io);
-
-  return io;
-}
-
-async function startServer() {
-  // Dynamic import Next.js standalone handler
-  const standalonePath = getStandalonePath();
-  
-  // Set up Next.js environment
-  process.env.NODE_ENV = "production";
-  process.chdir(standalonePath);
-  
-  // Import Next.js from standalone
-  const next = await import("next");
-  const nextApp = next.default({ 
-    dev: false, 
-    dir: standalonePath,
-    conf: {
-      distDir: ".next"
-    }
-  });
-  
-  await nextApp.prepare();
-  const handle = nextApp.getRequestHandler();
-  
+export async function startServer() {
   const proxy = createProxyServer();
   
   const server = createServer(async (req, res) => {
@@ -193,8 +128,9 @@ async function startServer() {
         }
       }
       
-      // Next.js handler
-      await handle(req, res, parsedUrl);
+      // 404 for unknown routes
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: "Not found" }));
     } catch (err) {
       console.error("Error:", req.url, err);
       res.statusCode = 500;
@@ -202,14 +138,13 @@ async function startServer() {
     }
   });
 
-  setupSocketIO(server);
+  await setupSocketIO(server);
 
-  server.listen(PORT, () => {
-    console.log(`✅ Ready on http://localhost:${PORT}`);
+  server.listen(port, (err) => {
+    if (err) throw err;
+    console.log(`✅ Server ready on http://${hostname}:${port}`);
   });
 }
 
-startServer().catch(err => {
-  console.error("Failed to start server:", err);
-  process.exit(1);
-});
+// Auto start if run directly
+startServer();

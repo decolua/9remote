@@ -1,7 +1,7 @@
 // Terminal Socket.IO namespace
 import pty from "node-pty";
 import os from "os";
-import { isRemoteAvailable } from "../../remote/services/remoteSocket.js";
+import { isRemoteAvailable } from "../remote/remoteSocket.js";
 
 // Store sessions: sessionId -> { pty, name, createdAt, buffer }
 const sessions = new Map();
@@ -42,6 +42,14 @@ function getDefaultShell() {
     return process.env.COMSPEC || "powershell.exe";
   }
   return process.env.SHELL || "/bin/zsh";
+}
+
+function getDefaultCwd() {
+  // If running in Codespaces, default to /workspaces
+  if (isCodespaces()) {
+    return "/workspaces";
+  }
+  return os.homedir();
 }
 
 function buildShellEnv() {
@@ -111,6 +119,7 @@ export function setupTerminalSocket(io) {
       const sessionId = `session-${Date.now()}`;
       const shell = getDefaultShell();
       const shellEnv = buildShellEnv();
+      const defaultCwd = getDefaultCwd();
 
       try {
         // Cross-platform: Windows shells don't support -l flag
@@ -119,7 +128,7 @@ export function setupTerminalSocket(io) {
           name: "xterm-256color",
           cols: 80,
           rows: 24,
-          cwd: os.homedir(),
+          cwd: defaultCwd,
           env: shellEnv,
           useConpty: false
         });

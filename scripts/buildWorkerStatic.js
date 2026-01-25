@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Build Worker Static Handler
- * Converts Next.js static export (out/) to inline JS for Cloudflare Worker
+ * Converts Next.js static export (client/out/) to inline JS for Cloudflare Worker
  */
 
 import fs from "fs";
@@ -10,7 +10,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
-const OUT_DIR = path.join(ROOT, "out");
+const OUT_DIR = path.join(ROOT, "client/out");
 const WORKER_STATIC = path.join(ROOT, "worker/src/handlers/static.js");
 
 function escapeString(str) {
@@ -126,7 +126,7 @@ export async function handleStaticAsset(request, env, corsHeaders) {
 console.log("📦 Building Worker static handler from Next.js export...");
 
 if (!fs.existsSync(OUT_DIR)) {
-  console.error("❌ Error: out/ directory not found. Run 'npm run build' first.");
+  console.error("❌ Error: client/out/ directory not found. Run 'npm run build --workspace=client' first.");
   process.exit(1);
 }
 
