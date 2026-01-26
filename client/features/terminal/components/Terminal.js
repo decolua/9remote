@@ -4,13 +4,14 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import SitesList from "@/features/terminal/components/SitesList";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
+import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useSites } from "@/features/terminal/hooks/useSites";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
-import { ChevronLeft, Monitor, Palette } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Settings } from "@/shared/components/ui/Icon";
 
-export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "default", onThemeChange, onBack, onOpenRemote, onSelectSite, tunnelUrl, apiKey }) {
+export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "default", onThemeChange, onBack, onLogout, onOpenRemote, onOpenFiles, onSelectSite, tunnelUrl, apiKey, codespaceInfo, onStopCodespace, sessions = [], openedSessions = [], onSwitchSession }) {
   const terminalRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -19,9 +20,82 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
 
   const [sessionConnected, setSessionConnected] = useState(false);
   const [sessionName, setSessionName] = useState("");
-  const [showThemePicker, setShowThemePicker] = useState(false);
 
-  // Touch scroll will be set up after terminal is initialized
+  // Slide menu store
+  const { open: openMenu, setContext, setCallbacks, setSites, setLoadingSites } = useSlideMenuStore();
+
+  // Use sites hook for DRY code
+  const { sites, loading: loadingSites, loadSites, openSite } = useSites(tunnelUrl, apiKey);
+
+  // Ref for tabs container to auto-scroll to active tab
+  const tabsContainerRef = useRef(null);
+  const activeTabRef = useRef(null);
+
+  // Auto scroll to active tab when sessionId changes
+  useEffect(() => {
+    if (isActive && activeTabRef.current && tabsContainerRef.current) {
+      activeTabRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center'
+      });
+    }
+  }, [sessionId, isActive]);
+
+  // Sync sites to store
+  useEffect(() => {
+    setSites(sites);
+    setLoadingSites(loadingSites);
+  }, [sites, loadingSites, setSites, setLoadingSites]);
+
+  // Handle site selection
+  const handleSelectSite = useCallback(async (site) => {
+    await openSite(site);
+  }, [openSite]);
+
+  // Socket ref for menu context
+  const menuSocketRef = useRef(null);
+  menuSocketRef.current = socket;
+
+  // Set up menu context and callbacks - only when active
+  useEffect(() => {
+    if (!isActive) return;
+    
+    setContext({
+      connected: wsConnected,
+      remoteAvailable: !!onOpenRemote,
+      codespaceInfo,
+      showTheme: true,
+      theme,
+      socketRef: menuSocketRef,
+    });
+
+    setCallbacks({
+      onRemote: onOpenRemote,
+      onFiles: onOpenFiles,
+      onSites: loadSites,
+      onSelectSite: handleSelectSite,
+      onRefreshSites: loadSites,
+      onCodespace: null,
+      onLogout,
+      onThemeChange,
+      onStopCodespace,
+    });
+  }, [
+    isActive,
+    wsConnected, 
+    onOpenRemote, 
+    onOpenFiles, 
+    codespaceInfo, 
+    onLogout, 
+    onStopCodespace,
+    theme,
+    onThemeChange,
+    loadSites,
+    handleSelectSite,
+    setContext,
+    setCallbacks
+  ]);
 
   // Centralized resize handler - single source of truth
   const doResize = useCallback(() => {
@@ -156,6 +230,14 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
       }
     });
 
+    // Listen for session rename events
+    const handleSessionRenamed = ({ sessionId: renamedId, name }) => {
+      if (renamedId === sessionId) {
+        setSessionName(name);
+      }
+    };
+    socket.on("session-renamed", handleSessionRenamed);
+
     // Global output handler - filter by sessionId
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
@@ -186,6 +268,7 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
       if (outputHandlerRef.current) {
         socket.off("output", outputHandlerRef.current);
       }
+      socket.off("session-renamed", handleSessionRenamed);
       if (inputHandlerRef.current) {
         inputHandlerRef.current.dispose();
       }
@@ -232,82 +315,62 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
   return (
     <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: (THEMES[theme] || THEMES.default).background }}>
       {/* Header */}
-      <div className="bg-dark-600 border-b border-dark-400 px-2 sm:px-6 py-2 sm:py-3 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <button
-            onClick={onBack}
-            className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
-            title="Back"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          {/* Connection indicator - green if WS connected, red if not */}
-          <span 
-            className={`w-2 h-2 rounded-full ${wsConnected ? "bg-green-500" : "bg-red-500 animate-pulse"}`}
-            title={wsConnected ? "Connected" : "Disconnected"}
-          />
-          {!wsConnected && (
-            <span className="text-red-400 text-xs hidden sm:inline">Reconnecting...</span>
-          )}
-          <h1 className="text-white text-sm sm:text-base font-semibold truncate max-w-[150px] sm:max-w-none">
-            {sessionName || "Terminal"}
-          </h1>
-        </div>
+      <div className="bg-dark-600 border-b border-dark-400 px-2 sm:px-4 py-2 flex items-center gap-2 flex-shrink-0">
+        {/* Back Button */}
+        <button
+          onClick={onBack}
+          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
+          title="Back"
+        >
+          <ChevronLeft size={20} />
+        </button>
 
-        <div className="flex items-center gap-2">
-          {/* Remote Desktop Button - only show if available and connected */}
-          {onOpenRemote && (
-            <button
-              onClick={onOpenRemote}
-              disabled={!wsConnected}
-              className={`px-3 sm:px-4 py-2 text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border ${
-                wsConnected 
-                  ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500" 
-                  : "bg-dark-500/30 text-dark-200 border-dark-400 cursor-not-allowed"
-              }`}
-            >
-              <Monitor className="text-brand-500" size={16} />
-              <span className="hidden sm:inline">Remote</span>
-            </button>
-          )}
-
-          {/* Sites List */}
-          <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} onSelectSite={onSelectSite} />
-
-          {/* Theme Picker */}
-          <div className="relative">
-            <button
-              onClick={() => setShowThemePicker(!showThemePicker)}
-              className="px-3 sm:px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border border-dark-400 hover:border-brand-500"
-            >
-              <Palette className="text-brand-500" size={16} />
-              <span className="hidden sm:inline">Theme</span>
-            </button>
-
-            {showThemePicker && (
-              <div className="absolute right-0 top-full mt-2 bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl z-50 p-2 min-w-[120px]">
-                {Object.keys(THEMES).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => { onThemeChange(t); setShowThemePicker(false); }}
-                    className={`w-full px-3 py-2 text-left text-sm rounded-brand flex items-center gap-2 transition-all duration-200 ${theme === t ? "bg-brand-500 text-white" : "text-dark-50 hover:bg-dark-500"
-                      }`}
-                  >
-                    <span className="w-3 h-3 rounded-full border-2 border-dark-100" style={{ background: THEMES[t].background }} />
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
-                  </button>
-                ))}
-              </div>
-            )}
+        {/* Terminal Tabs - Horizontal Scroll */}
+        <div 
+          ref={tabsContainerRef}
+          className="flex-1 overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-dark-400 scrollbar-track-transparent"
+        >
+          <div className="flex gap-0.5 min-w-max">
+            {sessions.map((session) => {
+              const isActiveTab = session.id === sessionId;
+              return (
+                <button
+                  key={session.id}
+                  ref={isActiveTab ? activeTabRef : null}
+                  onClick={() => onSwitchSession && onSwitchSession(session.id)}
+                  className={`px-2 py-1 text-sm font-medium transition-colors duration-200 flex items-center gap-2 whitespace-nowrap ${
+                    isActiveTab
+                      ? " text-brand-500"
+                      : "border-dark-400 text-dark-50 hover:border-brand-500 hover:text-white"
+                  }`}
+                >
+                  <span 
+                    className={`w-1.5 h-1.5 rounded-full ${wsConnected ? "bg-green-400" : "bg-red-400"}`}
+                  />
+                  <span className="truncate max-w-[120px]">
+                    {session.name || "Terminal"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
+
+        {/* Menu Button */}
+        <button
+          onClick={() => openMenu()}
+          className="p-2 bg-dark-500 hover:bg-dark-400 text-brand-500 rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
+          title="Menu"
+        >
+          <Settings size={20} />
+        </button>
       </div>
 
       {/* Terminal */}
       <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden p-2 sm:p-4">
         <div
           ref={terminalRef}
-          className="w-full h-full rounded-brand-lg overflow-hidden shadow-2xl"
+          className="w-full h-full rounded-sm overflow-hidden"
         />
       </div>
 

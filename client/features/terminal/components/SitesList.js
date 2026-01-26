@@ -23,7 +23,7 @@ function saveCustomPorts(ports) {
   localStorage.setItem(CUSTOM_PORTS_KEY, JSON.stringify(ports));
 }
 
-export default function SitesList({ tunnelUrl, apiKey }) {
+export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
   const [sites, setSites] = useState([]);
   const [customPorts, setCustomPorts] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -32,6 +32,10 @@ export default function SitesList({ tunnelUrl, apiKey }) {
   const [newPort, setNewPort] = useState("");
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false });
   const checkIntervalsRef = useRef({});
+
+  // Use external control if provided, otherwise use internal state
+  const isModalOpen = externalIsOpen !== undefined ? externalIsOpen : showModal;
+  const handleCloseModal = externalOnClose || (() => setShowModal(false));
 
   const loadSites = async () => {
     setLoading(true);
@@ -53,11 +57,11 @@ export default function SitesList({ tunnelUrl, apiKey }) {
   };
 
   useEffect(() => {
-    if (showModal) {
+    if (isModalOpen) {
       setCustomPorts(getCustomPorts());
       loadSites();
     }
-  }, [showModal]);
+  }, [isModalOpen]);
 
   const handleSelectSite = async (site) => {
     const { port } = site;
@@ -93,6 +97,11 @@ export default function SitesList({ tunnelUrl, apiKey }) {
       
       // Navigate to proxy URL
       windowRef.location.href = proxyUrl;
+
+      // Call external onSelectSite if provided
+      if (onSelectSite) {
+        onSelectSite(site);
+      }
     } catch (err) {
       console.error(`[SitesList] Failed to start proxy session:`, err);
       alert(`Failed to start proxy session for ${site.name}`);
@@ -135,7 +144,7 @@ export default function SitesList({ tunnelUrl, apiKey }) {
   };
 
   const handleClose = () => {
-    setShowModal(false);
+    handleCloseModal();
     setNewPort("");
   };
 
@@ -188,19 +197,21 @@ export default function SitesList({ tunnelUrl, apiKey }) {
 
   return (
     <>
-      {/* Trigger Button */}
-      <button
-        onClick={() => setShowModal(true)}
-        className="px-3 sm:px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border border-dark-400 hover:border-brand-500"
-      >
-        <Globe className="text-brand-500" size={16} />
-        <span className="hidden sm:inline">Sites</span>
-      </button>
+      {/* Trigger Button - only show if not externally controlled */}
+      {externalIsOpen === undefined && (
+        <button
+          onClick={() => setShowModal(true)}
+          className="px-3 sm:px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border border-dark-400 hover:border-brand-500"
+        >
+          <Globe className="text-brand-500" size={16} />
+          <span className="hidden sm:inline">Sites</span>
+        </button>
+      )}
 
       {/* Modal Overlay */}
-      {showModal && (
+      {isModalOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 modal-overlay"
+          className="fixed inset-0 bg-black/30 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 modal-overlay"
           onClick={handleClose}
         >
           {/* Modal Content */}
@@ -253,7 +264,7 @@ export default function SitesList({ tunnelUrl, apiKey }) {
             >
               {loading ? (
                 <div className="flex items-center justify-center py-8">
-                  <div className="flex items-center gap-3 text-dark-100">
+                  <div className="flex items-center gap-3 text-brand-500">
                     <Loader2 className="animate-spin" size={20} />
                     <span>Loading Sites...</span>
                   </div>
@@ -352,7 +363,7 @@ export default function SitesList({ tunnelUrl, apiKey }) {
                 disabled={loading}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors disabled:opacity-50"
               >
-                <RefreshCw className={loading ? "animate-spin" : ""} size={16} />
+                <RefreshCw className={loading ? "animate-spin text-brand-500" : ""} size={16} />
                 Refresh
               </button>
             </div>

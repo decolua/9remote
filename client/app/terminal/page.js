@@ -17,6 +17,8 @@ const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/Fi
 const FileEditor = dynamic(() => import("@/features/fileExplorer/components/FileEditor"), { ssr: false });
 const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPanel"), { ssr: false });
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import SlideMenu from "@/shared/components/ui/SlideMenu";
 
 export default function TerminalPage() {
   // Hydration state for Zustand
@@ -28,6 +30,7 @@ export default function TerminalPage() {
     openedSessions, 
     pushView, 
     popView: storePopView, 
+    setViewStack,
     addOpenedSession, 
     removeOpenedSession,
     reset: resetStore
@@ -49,6 +52,7 @@ export default function TerminalPage() {
   const { socket, socketRef, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
   const fileSocket = useFileSocket(socketRef);
   const [systemInfo, setSystemInfo] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
 
   // Save theme to localStorage when changed
   const handleThemeChange = useCallback((newTheme) => {
@@ -73,6 +77,19 @@ export default function TerminalPage() {
       loadSessions();
     }
   }, [socket, loadSessions]);
+
+  // Cleanup openedSessions - remove sessions that no longer exist
+  useEffect(() => {
+    if (sessions.length > 0 && openedSessions.length > 0) {
+      const validSessionIds = sessions.map(s => s.id);
+      const invalidSessions = openedSessions.filter(sid => !validSessionIds.includes(sid));
+      
+      if (invalidSessions.length > 0) {
+        console.log("Cleaning up invalid sessions:", invalidSessions);
+        invalidSessions.forEach(sid => removeOpenedSession(sid));
+      }
+    }
+  }, [sessions, openedSessions, removeOpenedSession]);
 
   // VisualViewport height - handle mobile keyboard
   useEffect(() => {
@@ -121,14 +138,26 @@ export default function TerminalPage() {
     createSession(name, (result) => {
       if (!result.success) {
         alert("Failed to create session: " + result.error);
+      } else if (result.sessionId) {
+        // Add newly created session to openedSessions
+        addOpenedSession(result.sessionId);
       }
     });
-  }, [createSession]);
+  }, [createSession, addOpenedSession]);
 
   const handleSelectSession = useCallback((sessionId) => {
     addOpenedSession(sessionId);
-    pushView({ type: "terminal", sessionId });
-  }, [addOpenedSession, pushView]);
+    // Check if we're already in a terminal view
+    if (currentView.type === "terminal") {
+      // Replace current terminal view instead of pushing (no stack)
+      const newStack = [...viewStack];
+      newStack[newStack.length - 1] = { type: "terminal", sessionId };
+      setViewStack(newStack);
+    } else {
+      // Push new terminal view (from SessionList)
+      pushView({ type: "terminal", sessionId });
+    }
+  }, [addOpenedSession, currentView, viewStack, setViewStack, pushView]);
 
   const handleDeleteSession = useCallback((sessionId) => {
     deleteSession(sessionId, () => {
@@ -201,6 +230,20 @@ export default function TerminalPage() {
     router.push("/login");
   }, [resetStore, router]);
 
+  // Logout with confirmation dialog
+  const handleLogoutWithConfirm = useCallback(() => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "Logout",
+      message: "Are you sure you want to logout?",
+      onConfirm: handleDisconnect
+    });
+  }, [handleDisconnect]);
+
+  const closeConfirmDialog = useCallback(() => {
+    setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: null });
+  }, []);
+
   // Only show loading on initial mount or hydration
   const auth = getAuth();
   const isInitializing = !hydrated || (!socket && !auth?.tunnelUrl);
@@ -230,7 +273,7 @@ export default function TerminalPage() {
           onCreate={handleCreateSession}
           onDelete={handleDeleteSession}
           onRename={handleRenameSession}
-          onDisconnect={handleDisconnect}
+          onLogout={handleLogoutWithConfirm}
           onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
           onOpenFiles={handleOpenFiles}
           tunnelUrl={auth?.tunnelUrl}
@@ -239,19 +282,27 @@ export default function TerminalPage() {
           codespaceDisconnected={codespaceDisconnected}
           onStopCodespace={stopCodespace}
           retryStatus={retryStatus}
+          isActive={currentView.type === "list"}
+          socketRef={socketRef}
         />
       </div>
 
       {/* Terminals - keep alive for caching */}
       {openedSessions.map((sessionId) => {
         const isActive = currentView.type === "terminal" && currentView.sessionId === sessionId;
+        // Check if we're in terminal view (for slide animation from list)
+        const isTerminalView = currentView.type === "terminal";
         return (
           <div 
-            key={sessionId} 
+            key={`terminal-${sessionId}-${sessions.length}`}
             className={`absolute inset-0 transition-all duration-300 ease-out ${
+              isTerminalView
+                ? "translate-x-0"
+                : "translate-x-full"
+            } ${
               isActive 
-                ? "translate-x-0 opacity-100 z-10" 
-                : "translate-x-full opacity-0 z-0 pointer-events-none"
+                ? "opacity-100 z-10" 
+                : "opacity-0 z-0 pointer-events-none"
             }`}
           >
             <Terminal 
@@ -262,10 +313,17 @@ export default function TerminalPage() {
               theme={theme}
               onThemeChange={handleThemeChange}
               onBack={popView}
+              onLogout={handleLogoutWithConfirm}
               onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
+              onOpenFiles={handleOpenFiles}
               onSelectSite={handleOpenSite}
               tunnelUrl={auth?.tunnelUrl}
               apiKey={auth?.apiKey}
+              codespaceInfo={codespaceInfo}
+              onStopCodespace={stopCodespace}
+              sessions={sessions}
+              openedSessions={openedSessions}
+              onSwitchSession={handleSelectSession}
             />
           </div>
         );
@@ -342,6 +400,18 @@ export default function TerminalPage() {
 
       {/* Connection Modal - overlay when retrying/failed */}
       <ConnectionModal retryStatus={retryStatus} onLogout={handleDisconnect} />
+
+      {/* Global Slide Menu - single instance at page level */}
+      <SlideMenu />
+
+      {/* Confirm Dialog - page level for logout confirmation */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={closeConfirmDialog}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+      />
     </div>
   );
 }

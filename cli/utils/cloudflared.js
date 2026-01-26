@@ -175,6 +175,11 @@ export async function spawnCloudflared(tunnelToken) {
       return;
     }
     
+    // Skip errors during intentional shutdown
+    if (isIntentionalShutdown) {
+      return;
+    }
+    
     // Show connection status briefly
     if (msg.includes("Registered tunnel connection")) {
       connectionCount++;

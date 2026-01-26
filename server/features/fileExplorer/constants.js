@@ -4,18 +4,7 @@ export const MAX_FILE_SIZE = 200 * 1024; // 200KB
 
 export const IGNORED_DIRS = [
   "node_modules",
-  ".git",
-  "dist",
-  "build",
-  ".next",
-  "coverage",
-  "__pycache__",
-  ".cache",
-  ".vscode",
-  ".idea",
-  ".turbo",
-  ".vercel",
-  ".output"
+  ".git"
 ];
 
 export const BINARY_EXTENSIONS = [

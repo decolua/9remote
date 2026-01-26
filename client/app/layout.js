@@ -13,19 +13,42 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: "9Remote Terminal",
-  description: "Access your terminal from anywhere - secure remote terminal access"
+  description: "Access your terminal from anywhere - secure remote terminal access",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "9Remote"
+  },
+  applicationName: "9Remote Terminal",
+  icons: {
+    icon: [
+      { url: "/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
+      { url: "/icon-512.svg", sizes: "512x512", type: "image/svg+xml" }
+    ],
+    apple: [
+      { url: "/icon-192.svg", sizes: "192x192", type: "image/svg+xml" }
+    ]
+  },
+  themeColor: "#ff6b35"
 };
 
 export const viewport = {
     width: "device-width",
     initialScale: 1,
     maximumScale: 1,
-    userScalable: false
+    userScalable: false,
+    themeColor: "#ff6b35"
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

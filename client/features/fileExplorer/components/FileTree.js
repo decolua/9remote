@@ -87,10 +87,11 @@ export default function FileTree({
 
   return (
     <div>
-      {files.map((file) => {
+      {files.map((file, index) => {
         const relativePath = getRelativePath(file.path, workspacePath);
         const gitStatus = gitStatusMap[relativePath];
         const statusColor = getStatusColor(gitStatus);
+        // const staggerClass = `menu-item-stagger-${Math.min(index + 1, 6)}`;
         
         return (
           <div

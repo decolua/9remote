@@ -29,8 +29,80 @@ function getCodespaceInfo() {
   if (!isCodespaces()) return null;
   return {
     isCodespaces: true,
-    codespaceName: process.env.CODESPACE_NAME || "unknown"
+    codespaceName: process.env.CODESPACE_NAME || "unknown",
+    workspacePath: process.env.CODESPACE_VSCODE_FOLDER || process.cwd()
   };
+}
+
+// Devcontainer config for auto start
+const DEVCONTAINER_CONFIG = {
+  name: "9Remote",
+  postCreateCommand: "npm install -g 9remote@latest",
+  postAttachCommand: "9remote",
+  forwardPorts: [2208],
+  portsAttributes: {
+    "2208": {
+      label: "9Remote Server",
+      onAutoForward: "notify"
+    }
+  }
+};
+
+function getDevcontainerPath(workspacePath) {
+  return path.join(workspacePath, ".devcontainer", "devcontainer.json");
+}
+
+function getAutoStartStatus(workspacePath) {
+  try {
+    const devcontainerPath = getDevcontainerPath(workspacePath);
+    if (!fs.existsSync(devcontainerPath)) {
+      return { enabled: false, exists: false };
+    }
+    const content = fs.readFileSync(devcontainerPath, "utf8");
+    const config = JSON.parse(content);
+    const enabled = config.postAttachCommand === "9remote";
+    return { enabled, exists: true };
+  } catch {
+    return { enabled: false, exists: false, error: "Failed to read config" };
+  }
+}
+
+function setAutoStart(workspacePath, enabled) {
+  try {
+    const devcontainerDir = path.join(workspacePath, ".devcontainer");
+    const devcontainerPath = getDevcontainerPath(workspacePath);
+    
+    // Create .devcontainer directory if not exists
+    if (!fs.existsSync(devcontainerDir)) {
+      fs.mkdirSync(devcontainerDir, { recursive: true });
+    }
+    
+    let config = { ...DEVCONTAINER_CONFIG };
+    
+    // If file exists, merge with existing config
+    if (fs.existsSync(devcontainerPath)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(devcontainerPath, "utf8"));
+        config = { ...existing };
+      } catch {
+        // Use default config if parse fails
+      }
+    }
+    
+    if (enabled) {
+      config.postAttachCommand = "9remote";
+      if (!config.postCreateCommand) {
+        config.postCreateCommand = "npm install -g 9remote@latest";
+      }
+    } else {
+      delete config.postAttachCommand;
+    }
+    
+    fs.writeFileSync(devcontainerPath, JSON.stringify(config, null, 2));
+    return { success: true, enabled };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 }
 
 function startCodespaceHeartbeat() {
@@ -264,10 +336,34 @@ export function setupTerminalSocket(io) {
       const session = sessions.get(sessionId);
       if (session) {
         session.name = name;
+        // Broadcast to all clients that session was renamed
+        io.emit("session-renamed", { sessionId, name });
         callback({ success: true });
       } else {
         callback({ success: false, error: "Session not found" });
       }
+    });
+
+    // Get auto start status (Codespaces only)
+    socket.on("getAutoStartStatus", (callback) => {
+      if (!isCodespaces()) {
+        callback({ success: false, error: "Not in Codespaces" });
+        return;
+      }
+      const workspacePath = process.env.CODESPACE_VSCODE_FOLDER || process.cwd();
+      const status = getAutoStartStatus(workspacePath);
+      callback({ success: true, ...status });
+    });
+
+    // Set auto start (Codespaces only)
+    socket.on("setAutoStart", ({ enabled }, callback) => {
+      if (!isCodespaces()) {
+        callback({ success: false, error: "Not in Codespaces" });
+        return;
+      }
+      const workspacePath = process.env.CODESPACE_VSCODE_FOLDER || process.cwd();
+      const result = setAutoStart(workspacePath, enabled);
+      callback(result);
     });
 
     socket.on("disconnect", () => {

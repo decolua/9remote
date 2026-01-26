@@ -436,7 +436,7 @@ export default function FileExplorer({
       {/* New Item Modal */}
       {showNewItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setShowNewItemModal(false)} />
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setShowNewItemModal(false)} />
           <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl w-full max-w-sm">
             <div className="px-4 py-3 border-b border-dark-400">
               <h3 className="text-white font-semibold">Create New</h3>
@@ -495,7 +495,7 @@ export default function FileExplorer({
       {/* Rename Modal */}
       {renameModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setRenameModal(null)} />
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setRenameModal(null)} />
           <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl w-full max-w-sm">
             <div className="px-4 py-3 border-b border-dark-400">
               <h3 className="text-white font-semibold">Rename</h3>

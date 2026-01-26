@@ -1,19 +1,75 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
-import SitesList from "@/features/terminal/components/SitesList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { Terminal, Monitor, FolderOpen, LogOut, X, Pencil, Trash2, Sparkles } from "@/shared/components/ui/Icon";
+import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useSites } from "@/features/terminal/hooks/useSites";
+import { Terminal, Pencil, Trash2, Settings } from "@/shared/components/ui/Icon";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onDisconnect, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
-  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
-  const [showCodespaceModal, setShowCodespaceModal] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
+
+  // Slide menu store
+  const { open: openMenu, setContext, setCallbacks, setSites, setLoadingSites } = useSlideMenuStore();
+
+  // Use sites hook for DRY code
+  const { sites, loading: loadingSites, loadSites, openSite } = useSites(tunnelUrl, apiKey);
+
+  // Sync sites to store
+  useEffect(() => {
+    setSites(sites);
+    setLoadingSites(loadingSites);
+  }, [sites, loadingSites, setSites, setLoadingSites]);
+
+  // Handle site selection
+  const handleSelectSite = useCallback(async (site) => {
+    await openSite(site);
+  }, [openSite]);
+
+  // Set up menu context and callbacks - only when active
+  useEffect(() => {
+    if (!isActive) return;
+    
+    setContext({
+      connected,
+      remoteAvailable: !!onOpenRemote,
+      codespaceInfo,
+      showTheme: false,
+      theme: "default",
+      socketRef,
+    });
+
+    setCallbacks({
+      onRemote: onOpenRemote,
+      onFiles: onOpenFiles,
+      onSites: loadSites,
+      onSelectSite: handleSelectSite,
+      onRefreshSites: loadSites,
+      onCodespace: null,
+      onLogout,
+      onThemeChange: null,
+      onStopCodespace,
+    });
+  }, [
+    isActive,
+    connected, 
+    onOpenRemote, 
+    onOpenFiles, 
+    codespaceInfo, 
+    onLogout, 
+    onStopCodespace,
+    loadSites,
+    handleSelectSite,
+    setContext,
+    setCallbacks,
+    socketRef
+  ]);
 
   const handleCreate = async () => {
     if (creating || !connected) return;
@@ -41,30 +97,18 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   };
 
   const handleDeleteWithConfirm = (sessionId, sessionName) => {
-    setConfirmDialog({
-      isOpen: true,
-      title: "Delete Session",
-      message: `Are you sure you want to delete "${sessionName}"?`,
-      onConfirm: () => onDelete(sessionId)
-    });
+    setDeleteConfirm({ isOpen: true, sessionId, sessionName });
   };
 
-  const handleLogoutWithConfirm = () => {
-    setConfirmDialog({
-      isOpen: true,
-      title: "Logout",
-      message: "Are you sure you want to logout?",
-      onConfirm: onDisconnect
-    });
+  const closeDeleteConfirm = () => {
+    setDeleteConfirm({ isOpen: false, sessionId: null, sessionName: "" });
   };
 
-  const handleStopCodespace = () => {
-    setShowCodespaceModal(false);
-    onStopCodespace();
-  };
-
-  const closeConfirmDialog = () => {
-    setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: null });
+  const confirmDelete = () => {
+    if (deleteConfirm.sessionId) {
+      onDelete(deleteConfirm.sessionId);
+    }
+    closeDeleteConfirm();
   };
 
   return (
@@ -86,61 +130,14 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           )}
         </div>
         
-        <div className="flex items-center gap-2">
-          {/* Remote Desktop Button - only show if available and connected */}
-          {onOpenRemote && (
-            <button
-              onClick={onOpenRemote}
-              disabled={!connected}
-              className={`px-3 sm:px-4 py-2 text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border ${
-                connected 
-                  ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500" 
-                  : "bg-dark-500/30 text-dark-200 border-dark-400 cursor-not-allowed"
-              }`}
-            >
-              <Monitor className="text-brand-500" size={16} />
-              <span className="hidden sm:inline">Remote</span>
-            </button>
-          )}
-
-          {/* Files Button */}
-          <button
-            onClick={onOpenFiles}
-            disabled={!connected}
-            className={`px-3 sm:px-4 py-2 text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border ${
-              connected 
-                ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500" 
-                : "bg-dark-500/30 text-dark-200 border-dark-400 cursor-not-allowed"
-            }`}
-          >
-            <FolderOpen className="text-brand-500" size={16} />
-            <span className="hidden sm:inline">Files</span>
-          </button>
-
-          {/* Sites Button */}
-          <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} />
-
-          {/* Codespace Button */}
-          {codespaceInfo?.isCodespaces && (
-            <button
-              onClick={() => setShowCodespaceModal(true)}
-              className="px-2 sm:px-3 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-1 border border-dark-400 hover:border-brand-500"
-              title="Codespace Info"
-            >
-              <Sparkles className="text-brand-500" size={16} />
-              <span className="hidden sm:inline">Codespace</span>
-            </button>
-          )}
-
-          {/* Logout Button */}
-          <button
-            onClick={handleLogoutWithConfirm}
-            className="px-3 py-2 bg-dark-500 hover:bg-red-600 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border border-dark-400 hover:border-red-500"
-          >
-            <LogOut size={16} />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
-        </div>
+        {/* Menu Button */}
+        <button
+          onClick={() => openMenu()}
+          className="p-2 bg-dark-500 hover:bg-dark-400 text-brand-500 rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
+          title="Menu"
+        >
+          <Settings size={20} />
+        </button>
       </div>
 
       {/* Content */}
@@ -251,80 +248,14 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         )}
       </div>
 
-      {/* Confirm Dialog */}
+      {/* Delete Session Confirm Dialog */}
       <ConfirmDialog
-        isOpen={confirmDialog.isOpen}
-        onClose={closeConfirmDialog}
-        onConfirm={confirmDialog.onConfirm}
-        title={confirmDialog.title}
-        message={confirmDialog.message}
+        isOpen={deleteConfirm.isOpen}
+        onClose={closeDeleteConfirm}
+        onConfirm={confirmDelete}
+        title="Delete Session"
+        message={`Are you sure you want to delete "${deleteConfirm.sessionName}"?`}
       />
-
-      {/* Codespace Modal */}
-      {showCodespaceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowCodespaceModal(false)}
-          />
-          <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-2xl max-w-sm w-full">
-            {/* Header */}
-            <div className="px-5 py-4 border-b border-dark-400 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                </svg>
-                Codespace
-              </h3>
-              <button
-                onClick={() => setShowCodespaceModal(false)}
-                className="text-dark-100 hover:text-white transition"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Info */}
-            <div className="px-5 py-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-dark-100 text-sm">Name</span>
-                <span className="text-white font-medium">{codespaceInfo?.codespaceName || "Unknown"}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-dark-100 text-sm">Status</span>
-                <span className="text-green-400 font-medium flex items-center gap-1">
-                  <span className="w-2 h-2 bg-green-400 rounded-full" />
-                  Running
-                </span>
-              </div>
-            </div>
-
-            {/* Stop section */}
-            <div className="px-5 py-4 border-t border-dark-400 space-y-3">
-              <p className="text-dark-50 text-sm flex items-start gap-2">
-                <span className="text-yellow-400">💡</span>
-                Stop to save usage
-              </p>
-              <p className="text-dark-100 text-xs flex items-start gap-2">
-                <span className="text-orange-400">⚠️</span>
-                To restart, go to GitHub
-              </p>
-              <button
-                onClick={handleStopCodespace}
-                className="w-full py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-brand transition flex items-center justify-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-                </svg>
-                Stop Codespace
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

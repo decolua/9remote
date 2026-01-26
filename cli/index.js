@@ -13,7 +13,6 @@ import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, saveState, clearState } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkForUpdates } from "./utils/updateChecker.js";
-import { ensureNativeDeps } from "./utils/installer.js";
 import { ensureCloudflared, spawnCloudflared, killCloudflared } from "./utils/cloudflared.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -214,14 +213,9 @@ async function createNamedTunnel(apiKey) {
 async function startServerAndTunnel(selectedKey) {
   console.log(chalk.cyan("\n🚀 Starting server..."));
 
-  // Kill existing processes
+  // Kill existing cloudflared process
   try {
     killCloudflared();
-    if (process.platform === "win32") {
-      execSync("taskkill /F /IM node.exe /FI \"WINDOWTITLE eq server.js*\" 2>nul || exit 0", { stdio: "ignore" });
-    } else {
-      execSync("pkill -f 'node server.js' 2>/dev/null || true", { stdio: "ignore" });
-    }
   } catch { }
 
   // Create session first
@@ -521,16 +515,6 @@ async function autoStartDev() {
 // Start app
 async function start() {
   checkForUpdates();
-  
-  // Ensure native dependencies are installed (first time only)
-  const depsReady = await ensureNativeDeps();
-  if (!depsReady) {
-    console.log(chalk.red("❌ Failed to install dependencies. Please try again."));
-    process.exit(1);
-  }
-  
-  // Wait a bit for symlinks to be fully created (filesystem sync)
-  await new Promise(r => setTimeout(r, 1000));
   
   if (process.argv.includes("--auto")) {
     await autoStartDev();

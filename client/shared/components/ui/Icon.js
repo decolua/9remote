@@ -50,7 +50,7 @@ export const {
   RefreshCw,
   Play,
   Pause,
-  Stop,
+  Square,
   Pencil,
   Sparkles,
   Globe,
@@ -66,4 +66,8 @@ export const {
   FileJson,
   FileCode,
   Image,
+  Menu,
+  Share,
+  Smartphone,
+  MoreVertical,
 } = LucideIcons;

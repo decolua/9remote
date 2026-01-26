@@ -10,8 +10,8 @@ export default function Spinner({ size = "md", text, className = "" }) {
   
   return (
     <div className={`flex flex-col items-center justify-center gap-3 ${className}`}>
-      <div className={`animate-spin rounded-full border-blue-500 ${sizeClasses[size]}`}></div>
-      {text && <p className="text-slate-400 text-sm">{text}</p>}
+      <div className={`animate-spin rounded-full border-brand-500 border-t-transparent ${sizeClasses[size]}`}></div>
+      {text && <p className="text-brand-500 text-sm font-medium">{text}</p>}
     </div>
   );
 }
