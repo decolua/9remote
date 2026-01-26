@@ -11,6 +11,9 @@ const BIN_NAME = IS_WINDOWS ? `${BINARY_NAME}.exe` : BINARY_NAME;
 const BIN_PATH = path.join(BIN_DIR, BIN_NAME);
 const PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 
+// Track intentional shutdown to suppress exit logs
+let isIntentionalShutdown = false;
+
 const GITHUB_BASE_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download";
 
 /**
@@ -198,7 +201,8 @@ export async function spawnCloudflared(tunnelToken) {
   });
   
   child.on("exit", (code) => {
-    if (code !== 0 && code !== null) {
+    // Only log unexpected exits
+    if (!isIntentionalShutdown && code !== 0 && code !== null) {
       console.log(`cloudflared exited with code ${code}`);
     }
   });
@@ -215,10 +219,10 @@ export async function spawnCloudflared(tunnelToken) {
 export function killCloudflared() {
   try {
     if (fs.existsSync(PID_FILE)) {
+      isIntentionalShutdown = true;
       const pid = parseInt(fs.readFileSync(PID_FILE, "utf8"));
       process.kill(pid);
       fs.unlinkSync(PID_FILE);
-      console.log("✅ cloudflared stopped");
     }
   } catch (error) {
     // Silently ignore errors
