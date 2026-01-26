@@ -7,16 +7,20 @@
     "cli",
     "server",
     "client",
-    "worker"
+    "worker",
+    "gitbook"
   ],
   "scripts": {
     "dev": "npm-run-all --parallel dev:cli dev:client",
     "dev:cli": "node cli/index.js --auto",
     "dev:client": "npm run dev --workspace=client",
+    "dev:docs": "npm run dev --workspace=gitbook",
     "start": "node cli/index.js",
     "build:pkg": "node scripts/syncVersion.js && node scripts/buildPkg.js",
     "build:worker": "npm run build --workspace=client && node scripts/buildWorkerStatic.js",
+    "build:docs": "npm run build --workspace=gitbook",
     "deploy": "npm run build:worker && cd worker && wrangler deploy",
+    "deploy:docs": "npm run build:docs && cd gitbook && npx wrangler pages deploy out --project-name=9remote-docs",
     "publish": "npm run build:pkg && cd cli && npm publish"
   },
   "devDependencies": {

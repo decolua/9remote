@@ -55,3 +55,4 @@ dist/*
 */node_modules/*
 client/out/*
 cli/dist/*
+.docs/*
