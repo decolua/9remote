@@ -2,10 +2,11 @@ import { handleStaticAsset } from "./handlers/static.js";
 import { handleSessionCreate, handleSessionUpdate, handleConnect, handleSessionDelete } from "./handlers/session.js";
 import { handleTempKeyCreate, handleTempKeyVerify, handleTempKeyRemove } from "./handlers/tempKey.js";
 import { handleTunnelCreate, handleTunnelDelete } from "./handlers/tunnel.js";
+import { handleVersion } from "./handlers/version.js";
 import { cleanupDeadTunnels } from "./tunnelService.js";
 
 // CORS headers
-const corsHeaders = {
+export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-API-Key"
@@ -75,6 +76,11 @@ export default {
  * Handle API routes
  */
 async function handleAPI(request, pathname, env) {
+  // GET /api/version
+  if (request.method === "GET" && pathname === "/api/version") {
+    return handleVersion(request, env);
+  }
+
   // POST /api/session/create
   if (request.method === "POST" && pathname === "/api/session/create") {
     return handleSessionCreate(request, env, corsHeaders);

@@ -122,6 +122,35 @@ export async function handleStaticAsset(request, env, corsHeaders) {
 `;
 }
 
+function updateWranglerToml() {
+  const WRANGLER_TOML = path.join(ROOT, "worker/wrangler.toml");
+  const CLIENT_PKG = path.join(ROOT, "client/package.json");
+  
+  // Read client version
+  const clientPkg = JSON.parse(fs.readFileSync(CLIENT_PKG, "utf-8"));
+  const version = clientPkg.version;
+  const buildTime = new Date().toISOString();
+  
+  // Read wrangler.toml
+  let tomlContent = fs.readFileSync(WRANGLER_TOML, "utf-8");
+  
+  // Update or add BUILD_VERSION and BUILD_TIME in [vars] section
+  if (tomlContent.includes("BUILD_VERSION")) {
+    tomlContent = tomlContent.replace(/BUILD_VERSION = ".*"/, `BUILD_VERSION = "${version}"`);
+  } else {
+    tomlContent = tomlContent.replace(/(\[vars\][^\[]*)/s, `$1BUILD_VERSION = "${version}"\n`);
+  }
+  
+  if (tomlContent.includes("BUILD_TIME")) {
+    tomlContent = tomlContent.replace(/BUILD_TIME = ".*"/, `BUILD_TIME = "${buildTime}"`);
+  } else {
+    tomlContent = tomlContent.replace(/(\[vars\][^\[]*)/s, `$1BUILD_TIME = "${buildTime}"\n`);
+  }
+  
+  fs.writeFileSync(WRANGLER_TOML, tomlContent);
+  console.log(`📝 Updated wrangler.toml: version=${version}, buildTime=${buildTime}`);
+}
+
 // Main
 console.log("📦 Building Worker static handler from Next.js export...");
 
@@ -137,4 +166,8 @@ const handler = generateStaticHandler(files);
 fs.writeFileSync(WORKER_STATIC, handler);
 
 console.log(`✅ Generated: ${WORKER_STATIC}`);
+
+// Update wrangler.toml with version info
+updateWranglerToml();
+
 console.log("🚀 Run 'cd worker && npx wrangler deploy' to deploy");

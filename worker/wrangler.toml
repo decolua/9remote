@@ -14,6 +14,8 @@ CLOUDFLARE_EMAIL = "decoluadt@gmail.com"
 # Get Global API Key from: https://dash.cloudflare.com/profile/api-tokens
 CLOUDFLARE_API_KEY = "***REMOVED***"
 
+BUILD_VERSION = "0.1.7"
+BUILD_TIME = "2026-01-27T04:45:52.400Z"
 [[d1_databases]]
 binding = "DB"
 database_name = "9remote"
