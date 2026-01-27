@@ -6,7 +6,7 @@ export default function SaveKeyDialog({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
       <div className="bg-dark-600 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400 p-6">
         <h2 className="text-xl font-bold text-white mb-3">
           Lưu API Key?

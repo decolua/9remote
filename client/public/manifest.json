@@ -5,7 +5,7 @@
   "start_url": "/terminal",
   "display": "standalone",
   "background_color": "#0f0f0f",
-  "theme_color": "#ff6b35",
+  "theme_color": "#121212",
   "orientation": "any",
   "icons": [
     {

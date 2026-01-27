@@ -166,3 +166,12 @@ button {
   user-select: none;
 }
 
+/* iOS PWA Safe Area Support */
+.safe-area-bottom {
+  padding-bottom: 30px;
+}
+
+body.keyboard-open .safe-area-bottom {
+  padding-bottom: 10px;
+}
+

@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useSocket } from "@/features/terminal/hooks/useSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 
@@ -53,6 +54,7 @@ export default function TerminalPage() {
   const fileSocket = useFileSocket(socketRef);
   const [systemInfo, setSystemInfo] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
+  const { setKeyboardOpen } = useUIStore();
 
   // Save theme to localStorage when changed
   const handleThemeChange = useCallback((newTheme) => {
@@ -95,6 +97,8 @@ export default function TerminalPage() {
   useEffect(() => {
     const updateAppHeight = () => {
       const vh = window.visualViewport?.height || window.innerHeight;
+      const isKeyboardOpen = vh < window.innerHeight - 100;
+      setKeyboardOpen(isKeyboardOpen);
       document.documentElement.style.setProperty("--app-height", `${vh}px`);
       window.scrollTo(0, 0);
     };

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { Globe, X, Trash2, RefreshCw, Loader2 } from "@/shared/components/ui/Icon";
+import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 
 const CUSTOM_PORTS_KEY = "custom_ports";
 
@@ -24,21 +25,25 @@ function saveCustomPorts(ports) {
 }
 
 export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
-  const [sites, setSites] = useState([]);
   const [customPorts, setCustomPorts] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [openedWindows, setOpenedWindows] = useState({});
   const [newPort, setNewPort] = useState("");
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false });
   const checkIntervalsRef = useRef({});
+
+  // Get sites state from store (shared across all instances)
+  const { cachedSites, currentSites, loadingSites, setCachedSites, setCurrentSites, setLoadingSites } = useSlideMenuStore();
 
   // Use external control if provided, otherwise use internal state
   const isModalOpen = externalIsOpen !== undefined ? externalIsOpen : showModal;
   const handleCloseModal = externalOnClose || (() => setShowModal(false));
 
   const loadSites = async () => {
-    setLoading(true);
+    // Only show loading if we don't have cached or current data
+    if (!currentSites || currentSites.length === 0) {
+      setLoadingSites(true);
+    }
     try {
       const response = await fetch(`${tunnelUrl}/api/local-sites`, {
         headers: {
@@ -47,18 +52,25 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
       });
       if (response.ok) {
         const data = await response.json();
-        setSites(data);
+        setCurrentSites(data);
+        setCachedSites(data); // Cache to store
       }
     } catch (error) {
       console.error("Failed to load local sites:", error);
     } finally {
-      setLoading(false);
+      setLoadingSites(false);
     }
   };
 
   useEffect(() => {
     if (isModalOpen) {
       setCustomPorts(getCustomPorts());
+      // Show cached sites immediately if we don't have current sites
+      if ((!currentSites || currentSites.length === 0) && cachedSites && cachedSites.length > 0) {
+        setCurrentSites(cachedSites);
+        setLoadingSites(false); // Don't show loading if we have cache
+      }
+      // Then load fresh data in background
       loadSites();
     }
   }, [isModalOpen]);
@@ -155,7 +167,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
       return;
     }
     // Check if port already exists in auto-detected or custom
-    const existsInAuto = sites.some(s => s.port === port);
+    const existsInAuto = currentSites.some(s => s.port === port);
     const existsInCustom = customPorts.includes(port);
     if (existsInAuto || existsInCustom) {
       // Open existing port
@@ -211,7 +223,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
       {/* Modal Overlay */}
       {isModalOpen && (
         <div 
-          className="fixed inset-0 bg-black/30 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 modal-overlay"
+          className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 modal-overlay"
           onClick={handleClose}
         >
           {/* Modal Content */}
@@ -222,7 +234,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-dark-400 shrink-0">
               <div>
-                <h2 className="text-lg font-semibold text-white">Local Sites</h2>
+                <h2 className="text-lg font-semibold text-orange-400">Local Sites</h2>
                 <p className="text-sm text-dark-100 mt-0.5">Select a site to preview</p>
               </div>
               <button
@@ -262,14 +274,14 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
               className="p-4 modal-scrollable overflow-y-auto"
               style={{ maxHeight: "40vh" }}
             >
-              {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="flex items-center gap-3 text-brand-500">
-                    <Loader2 className="animate-spin" size={20} />
-                    <span>Loading Sites...</span>
-                  </div>
+            {loadingSites ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="flex items-center gap-3 text-brand-500">
+                  <Loader2 className="animate-spin" size={20} />
+                  <span>Loading Sites...</span>
                 </div>
-              ) : sites.length === 0 ? (
+              </div>
+            ) : currentSites.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="w-12 h-12 mx-auto mb-3 rounded-brand-lg bg-dark-500 flex items-center justify-center">
                     <Globe className="text-dark-100" size={24} />
@@ -281,7 +293,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                 <div className="space-y-2">
                   {/* Custom ports - displayed first */}
                   {customPorts
-                    .filter(port => !sites.some(s => s.port === port))
+                    .filter(port => !currentSites.some(s => s.port === port))
                     .map((port) => (
                       <div
                         key={`custom-${port}`}
@@ -318,7 +330,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                     ))}
 
                   {/* Auto-detected sites */}
-                  {sites.map((site) => (
+                  {currentSites.map((site) => (
                     <button
                       key={`auto-${site.port}`}
                       onClick={() => handleSelectSite(site)}
@@ -356,14 +368,14 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
             {/* Footer */}
             <div className="px-5 py-3 border-t border-dark-400 flex items-center justify-between shrink-0">
               <span className="text-xs text-dark-100">
-                {sites.length > 0 ? `${sites.length} site${sites.length > 1 ? "s" : ""} found` : ""}
+                {currentSites.length > 0 ? `${currentSites.length} site${currentSites.length > 1 ? "s" : ""} found` : ""}
               </span>
               <button
                 onClick={loadSites}
-                disabled={loading}
+                disabled={loadingSites}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors disabled:opacity-50"
               >
-                <RefreshCw className={loading ? "animate-spin text-brand-500" : ""} size={16} />
+                <RefreshCw className={loadingSites ? "animate-spin text-brand-500" : ""} size={16} />
                 Refresh
               </button>
             </div>

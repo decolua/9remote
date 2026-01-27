@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Monitor, FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check } from "@/shared/components/ui/Icon";
 import { THEMES } from "@/features/terminal/constants/themes";
+import { vibrate } from "@/shared/utils/vibration";
 
 /**
  * Shared menu items for SlideMenu (DRY)
@@ -20,11 +21,13 @@ export default function MenuItems({
   codespaceInfo = null,
   showTheme = false,
   theme = "default",
-  onThemeChange
+  onThemeChange,
+  hideActions = [] // Array of actions to hide: ['remote', 'files', 'sites']
 }) {
   const [expandedSection, setExpandedSection] = useState(null);
 
   const handleThemeChange = (newTheme) => {
+    vibrate();
     if (onThemeChange) {
       onThemeChange(newTheme);
     }
@@ -37,7 +40,7 @@ export default function MenuItems({
       {showTheme && (
         <div className="border border-dark-400 rounded-brand-lg overflow-hidden menu-item-stagger-1">
           <button
-            onClick={() => setExpandedSection(expandedSection === "theme" ? null : "theme")}
+            onClick={() => { vibrate(); setExpandedSection(expandedSection === "theme" ? null : "theme"); }}
             className="w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white text-left flex items-center justify-between transition-colors"
           >
             <div className="flex items-center gap-3">
@@ -69,9 +72,9 @@ export default function MenuItems({
       )}
 
       {/* Remote Desktop */}
-      {remoteAvailable && onRemote && (
+      {!hideActions.includes('remote') && remoteAvailable && onRemote && (
         <button
-          onClick={onRemote}
+          onClick={() => { vibrate(); onRemote(); }}
           disabled={!connected}
           className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
             showTheme ? "menu-item-stagger-2" : "menu-item-stagger-1"
@@ -87,9 +90,9 @@ export default function MenuItems({
       )}
 
       {/* Files */}
-      {onFiles && (
+      {!hideActions.includes('files') && onFiles && (
         <button
-          onClick={onFiles}
+          onClick={() => { vibrate(); onFiles(); }}
           disabled={!connected}
           className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
             showTheme ? "menu-item-stagger-3" : "menu-item-stagger-2"
@@ -105,9 +108,9 @@ export default function MenuItems({
       )}
 
       {/* Sites */}
-      {onSites && (
+      {!hideActions.includes('sites') && onSites && (
         <button
-          onClick={onSites}
+          onClick={() => { vibrate(); onSites(); }}
           disabled={!connected}
           className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
             showTheme ? "menu-item-stagger-4" : "menu-item-stagger-3"
@@ -125,7 +128,7 @@ export default function MenuItems({
       {/* Install App */}
       {onInstallApp && (
         <button
-          onClick={onInstallApp}
+          onClick={() => { vibrate(); onInstallApp(); }}
           className={`w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
             showTheme ? "menu-item-stagger-5" : "menu-item-stagger-4"
           }`}
@@ -138,7 +141,7 @@ export default function MenuItems({
       {/* Codespace */}
       {codespaceInfo?.isCodespaces && onCodespace && (
         <button
-          onClick={onCodespace}
+          onClick={() => { vibrate(); onCodespace(); }}
           className={`w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
             showTheme ? "menu-item-stagger-6" : "menu-item-stagger-5"
           }`}
@@ -151,7 +154,7 @@ export default function MenuItems({
       {/* Logout */}
       {onLogout && (
         <button
-          onClick={onLogout}
+          onClick={() => { vibrate(); onLogout(); }}
           className={`w-full px-4 py-3 bg-dark-700 hover:bg-red-600 text-white rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 hover:border-red-500 ${
             showTheme ? "menu-item-stagger-7" : "menu-item-stagger-6"
           }`}

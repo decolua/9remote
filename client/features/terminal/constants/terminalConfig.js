@@ -64,6 +64,6 @@ export const BUTTON_STYLES = {
   arrow: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white text-sm border border-dark-400",
   modifierActive: "bg-gradient-to-br from-brand-500 to-brand-600 active:from-brand-400 active:to-brand-500 text-white shadow-md shadow-brand-500/30 ring-1 ring-brand-400",
   // Square sizes
-  size: { width: "32px", height: "32px" },
+  size: { width: "34px", height: "34px" },
   sizeSmall: { width: "28px", height: "28px" }
 };

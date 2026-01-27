@@ -1,0 +1,64 @@
+// Service Worker - Network First Strategy (Always fetch fresh content)
+const CACHE_NAME = "9remote-v1";
+
+// Install event - cache essential assets
+self.addEventListener("install", (event) => {
+  self.skipWaiting(); // Activate immediately
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll([
+        "/",
+        "/terminal/",
+        "/remote/",
+        "/manifest.json"
+      ]).catch(() => {
+        // Ignore cache errors during install
+        console.log("Cache install failed, continuing anyway");
+      });
+    })
+  );
+});
+
+// Activate event - clean old caches
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    })
+  );
+  return self.clients.claim(); // Take control immediately
+});
+
+// Fetch event - Network first, fallback to cache
+self.addEventListener("fetch", (event) => {
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        // Clone response to cache it
+        const responseToCache = response.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseToCache);
+        });
+        return response;
+      })
+      .catch(() => {
+        // Network failed, try cache
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // No cache available
+          return new Response("Offline - No cached version available", {
+            status: 503,
+            statusText: "Service Unavailable"
+          });
+        });
+      })
+  );
+});

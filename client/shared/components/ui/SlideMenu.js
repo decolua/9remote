@@ -5,6 +5,8 @@ import { X, Sparkles, Square, ChevronLeft, Loader2 } from "@/shared/components/u
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import MenuItems from "@/features/terminal/components/MenuItems";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
+import SitesList from "@/features/terminal/components/SitesList";
+import { vibrate } from "@/shared/utils/vibration";
 
 /**
  * SlideMenu - Global full-screen menu that slides from right to left
@@ -16,12 +18,12 @@ export default function SlideMenu() {
     activePanel,
     context,
     callbacks,
-    sites,
-    loadingSites,
     close,
     setActivePanel,
     openMenu,
   } = useSlideMenuStore();
+
+  const [sitesModalOpen, setSitesModalOpen] = useState(false);
 
   // Prevent body scroll when menu is open
   useEffect(() => {
@@ -48,10 +50,10 @@ export default function SlideMenu() {
 
   // Panel-specific handlers
   const handleOpenPwa = useCallback(() => setActivePanel("pwa"), [setActivePanel]);
-  const handleOpenSites = useCallback(() => setActivePanel("sites"), [setActivePanel]);
   const handleOpenCodespace = useCallback(() => setActivePanel("codespace"), [setActivePanel]);
 
   const handleBack = useCallback(() => {
+    vibrate();
     setActivePanel("menu");
   }, [setActivePanel]);
 
@@ -67,9 +69,10 @@ export default function SlideMenu() {
   }, [close, callbacks]);
 
   const handleSites = useCallback(() => {
-    handleOpenSites();
+    close();
+    setSitesModalOpen(true);
     callbacks.onSites?.();
-  }, [handleOpenSites, callbacks]);
+  }, [close, callbacks]);
 
   const handleInstallApp = useCallback(() => {
     handleOpenPwa();
@@ -98,24 +101,29 @@ export default function SlideMenu() {
     callbacks.onStopCodespace?.();
   }, [close, callbacks]);
 
-  const handleSelectSite = useCallback((site) => {
-    close();
-    callbacks.onSelectSite?.(site);
-  }, [close, callbacks]);
+  const handleCloseSitesModal = useCallback(() => {
+    setSitesModalOpen(false);
+  }, []);
 
-  const handleRefreshSites = useCallback(() => {
-    callbacks.onRefreshSites?.();
-  }, [callbacks]);
-
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return (
+      <>
+        {/* Sites Modal - Always rendered even when menu is closed */}
+        <SitesList
+          tunnelUrl={context.tunnelUrl}
+          apiKey={context.apiKey}
+          isOpen={sitesModalOpen}
+          onClose={handleCloseSitesModal}
+        />
+      </>
+    );
+  }
 
   // Get title based on active panel
   const getTitle = () => {
     switch (activePanel) {
       case "pwa":
         return "Install as App";
-      case "sites":
-        return "Local Sites";
       case "codespace":
         return "Codespace";
       default:
@@ -130,7 +138,7 @@ export default function SlideMenu() {
     <div className="fixed inset-0 z-50 flex">
       {/* Backdrop - more transparent to see behind */}
       <div
-        className="absolute inset-0 bg-black/30 backdrop-blur-[2px] fade-in"
+        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] fade-in"
         onClick={close}
       />
 
@@ -178,19 +186,11 @@ export default function SlideMenu() {
               showTheme={context.showTheme}
               theme={context.theme}
               onThemeChange={handleThemeChange}
+              hideActions={context.hideActions || []}
             />
           )}
 
           {activePanel === "pwa" && <PwaInstallGuide />}
-
-          {activePanel === "sites" && (
-            <SitesPanel
-              sites={sites}
-              loading={loadingSites}
-              onSelect={handleSelectSite}
-              onRefresh={handleRefreshSites}
-            />
-          )}
 
           {activePanel === "codespace" && (
             <CodespacePanel
@@ -201,64 +201,14 @@ export default function SlideMenu() {
           )}
         </div>
       </div>
-    </div>
-  );
-}
 
-/**
- * Sites Panel Component
- */
-function SitesPanel({ sites, loading, onSelect, onRefresh }) {
-  return (
-    <div className="flex flex-col h-full">
-      {/* Sites List */}
-      <div className="flex-1 overflow-y-auto p-5">
-        {loading ? (
-          <div className="text-center py-8">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500"></div>
-            <p className="text-dark-100 text-sm mt-3">Loading sites...</p>
-          </div>
-        ) : sites.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-dark-100">No running sites found</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {sites.map((site) => (
-              <button
-                key={site.port}
-                onClick={() => onSelect(site)}
-                className="w-full p-4 bg-dark-700 hover:bg-dark-600 text-left rounded-brand-lg border border-dark-400 hover:border-brand-500 transition-all duration-200 group"
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-white font-medium">Port {site.port}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    site.status === "listening" 
-                      ? "bg-green-500/10 text-green-400" 
-                      : "bg-yellow-500/10 text-yellow-400"
-                  }`}>
-                    {site.status}
-                  </span>
-                </div>
-                {site.process && (
-                  <p className="text-dark-100 text-sm truncate">{site.process}</p>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="px-5 py-3 border-t border-dark-400 flex-shrink-0">
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          className="w-full py-2 bg-dark-700 hover:bg-dark-600 text-white font-medium rounded-brand transition disabled:opacity-50"
-        >
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
-      </div>
+      {/* Sites Modal - Shared across all contexts */}
+      <SitesList
+        tunnelUrl={context.tunnelUrl}
+        apiKey={context.apiKey}
+        isOpen={sitesModalOpen}
+        onClose={handleCloseSitesModal}
+      />
     </div>
   );
 }

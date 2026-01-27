@@ -102,22 +102,18 @@ function tryHttps(port, timeout = 2000) {
 
 /**
  * Check if port is running HTTP/HTTPS service
+ * Optimized: Check both HTTP and HTTPS in parallel, use whichever responds first
  */
 async function checkPort(port) {
-  // Known HTTPS ports
-  const httpsFirst = [443, 8443, 9443].includes(port);
+  // Check both protocols in parallel
+  const [httpResult, httpsResult] = await Promise.all([
+    tryHttp(port),
+    tryHttps(port)
+  ]);
 
-  if (httpsFirst) {
-    const httpsResult = await tryHttps(port);
-    if (httpsResult.active) return { port, ...httpsResult };
-    const httpResult = await tryHttp(port);
-    if (httpResult.active) return { port, ...httpResult };
-  } else {
-    const httpResult = await tryHttp(port);
-    if (httpResult.active) return { port, ...httpResult };
-    const httpsResult = await tryHttps(port);
-    if (httpsResult.active) return { port, ...httpsResult };
-  }
+  // Prefer HTTPS if both work
+  if (httpsResult.active) return { port, ...httpsResult };
+  if (httpResult.active) return { port, ...httpResult };
 
   return { port, active: false };
 }

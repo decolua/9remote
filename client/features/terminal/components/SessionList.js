@@ -5,8 +5,9 @@ import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
-import { useSites } from "@/features/terminal/hooks/useSites";
-import { Terminal, Pencil, Trash2, Settings } from "@/shared/components/ui/Icon";
+import SitesList from "@/features/terminal/components/SitesList";
+import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
 
 export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef }) {
   const [newName, setNewName] = useState("");
@@ -14,23 +15,10 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
+  const [sitesModalOpen, setSitesModalOpen] = useState(false);
 
   // Slide menu store
-  const { open: openMenu, setContext, setCallbacks, setSites, setLoadingSites } = useSlideMenuStore();
-
-  // Use sites hook for DRY code
-  const { sites, loading: loadingSites, loadSites, openSite } = useSites(tunnelUrl, apiKey);
-
-  // Sync sites to store
-  useEffect(() => {
-    setSites(sites);
-    setLoadingSites(loadingSites);
-  }, [sites, loadingSites, setSites, setLoadingSites]);
-
-  // Handle site selection
-  const handleSelectSite = useCallback(async (site) => {
-    await openSite(site);
-  }, [openSite]);
+  const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
 
   // Set up menu context and callbacks - only when active
   useEffect(() => {
@@ -43,14 +31,17 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       showTheme: false,
       theme: "default",
       socketRef,
+      hideActions: ['remote', 'files', 'sites'], // Hide these actions in SessionList menu
+      tunnelUrl,
+      apiKey
     });
 
     setCallbacks({
-      onRemote: onOpenRemote,
-      onFiles: onOpenFiles,
-      onSites: loadSites,
-      onSelectSite: handleSelectSite,
-      onRefreshSites: loadSites,
+      onRemote: null, // Handled by header buttons
+      onFiles: null, // Handled by header buttons
+      onSites: null, // Handled by header buttons
+      onSelectSite: null,
+      onRefreshSites: null,
       onCodespace: null,
       onLogout,
       onThemeChange: null,
@@ -64,8 +55,6 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     codespaceInfo, 
     onLogout, 
     onStopCodespace,
-    loadSites,
-    handleSelectSite,
     setContext,
     setCallbacks,
     socketRef
@@ -111,6 +100,15 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     closeDeleteConfirm();
   };
 
+  const handleOpenSites = () => {
+    vibrate();
+    setSitesModalOpen(true);
+  };
+
+  const handleCloseSitesModal = () => {
+    setSitesModalOpen(false);
+  };
+
   return (
     <div className="h-full bg-gradient-to-br from-dark-900 via-orange-700/20 to-dark-900/10 flex flex-col overflow-hidden">
       {/* Header */}
@@ -130,14 +128,61 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           )}
         </div>
         
-        {/* Menu Button */}
-        <button
-          onClick={() => openMenu()}
-          className="p-2 bg-dark-500 hover:bg-dark-400 text-brand-500 rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
-          title="Menu"
-        >
-          <Settings size={20} />
-        </button>
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2">
+          {/* Remote Button */}
+          {onOpenRemote && (
+            <button
+              onClick={() => { vibrate(); onOpenRemote(); }}
+              disabled={!connected}
+              className={`p-2 rounded-brand transition-all duration-200 border ${
+                connected
+                  ? "bg-dark-500 hover:bg-dark-400 text-brand-500 border-dark-400 hover:border-brand-500"
+                  : "bg-dark-500/50 text-dark-200 cursor-not-allowed border-dark-400"
+              }`}
+              title="Remote Desktop"
+            >
+              <Monitor size={20} />
+            </button>
+          )}
+
+          {/* Files Button */}
+          <button
+            onClick={() => { vibrate(); onOpenFiles(); }}
+            disabled={!connected}
+            className={`p-2 rounded-brand transition-all duration-200 border ${
+              connected
+                ? "bg-dark-500 hover:bg-dark-400 text-brand-500 border-dark-400 hover:border-brand-500"
+                : "bg-dark-500/50 text-dark-200 cursor-not-allowed border-dark-400"
+            }`}
+            title="Files"
+          >
+            <FolderOpen size={20} />
+          </button>
+
+          {/* Sites Button */}
+          <button
+            onClick={handleOpenSites}
+            disabled={!connected}
+            className={`p-2 rounded-brand transition-all duration-200 border ${
+              connected
+                ? "bg-dark-500 hover:bg-dark-400 text-brand-500 border-dark-400 hover:border-brand-500"
+                : "bg-dark-500/50 text-dark-200 cursor-not-allowed border-dark-400"
+            }`}
+            title="Sites"
+          >
+            <Globe size={20} />
+          </button>
+
+          {/* Menu Button */}
+          <button
+            onClick={() => { vibrate(); openMenu(); }}
+            className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
+            title="Menu"
+          >
+            <Settings size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -255,6 +300,14 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         onConfirm={confirmDelete}
         title="Delete Session"
         message={`Are you sure you want to delete "${deleteConfirm.sessionName}"?`}
+      />
+
+      {/* Sites Modal - Reuse SitesList component */}
+      <SitesList
+        tunnelUrl={tunnelUrl}
+        apiKey={apiKey}
+        isOpen={sitesModalOpen}
+        onClose={handleCloseSitesModal}
       />
     </div>
   );

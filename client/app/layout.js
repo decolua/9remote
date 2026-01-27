@@ -30,7 +30,7 @@ export const metadata = {
       { url: "/icon-192.svg", sizes: "192x192", type: "image/svg+xml" }
     ]
   },
-  themeColor: "#ff6b35"
+  themeColor: "#121212"
 };
 
 export const viewport = {
@@ -38,7 +38,7 @@ export const viewport = {
     initialScale: 1,
     maximumScale: 1,
     userScalable: false,
-    themeColor: "#ff6b35"
+    themeColor: "#121212"
 };
 
 export default function RootLayout({ children }) {
@@ -48,6 +48,31 @@ export default function RootLayout({ children }) {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js').then(function(registration) {
+                    // Check for updates on every page load
+                    registration.update();
+                    
+                    // Listen for updates
+                    registration.addEventListener('updatefound', function() {
+                      const newWorker = registration.installing;
+                      newWorker.addEventListener('statechange', function() {
+                        if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                          // New service worker activated, reload page
+                          window.location.reload();
+                        }
+                      });
+                    });
+                  });
+                });
+              }
+            `
+          }}
+        />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}

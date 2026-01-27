@@ -6,10 +6,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
-import { useSites } from "@/features/terminal/hooks/useSites";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
 import { ChevronLeft, Settings } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
 
 export default function Terminal({ socket, connected: wsConnected, sessionId, isActive = true, theme = "default", onThemeChange, onBack, onLogout, onOpenRemote, onOpenFiles, onSelectSite, tunnelUrl, apiKey, codespaceInfo, onStopCodespace, sessions = [], openedSessions = [], onSwitchSession }) {
   const terminalRef = useRef(null);
@@ -22,10 +22,7 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
   const [sessionName, setSessionName] = useState("");
 
   // Slide menu store
-  const { open: openMenu, setContext, setCallbacks, setSites, setLoadingSites } = useSlideMenuStore();
-
-  // Use sites hook for DRY code
-  const { sites, loading: loadingSites, loadSites, openSite } = useSites(tunnelUrl, apiKey);
+  const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
 
   // Ref for tabs container to auto-scroll to active tab
   const tabsContainerRef = useRef(null);
@@ -42,17 +39,6 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
     }
   }, [sessionId, isActive]);
 
-  // Sync sites to store
-  useEffect(() => {
-    setSites(sites);
-    setLoadingSites(loadingSites);
-  }, [sites, loadingSites, setSites, setLoadingSites]);
-
-  // Handle site selection
-  const handleSelectSite = useCallback(async (site) => {
-    await openSite(site);
-  }, [openSite]);
-
   // Socket ref for menu context
   const menuSocketRef = useRef(null);
   menuSocketRef.current = socket;
@@ -68,14 +54,14 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
       showTheme: true,
       theme,
       socketRef: menuSocketRef,
+      tunnelUrl,
+      apiKey
     });
 
     setCallbacks({
       onRemote: onOpenRemote,
       onFiles: onOpenFiles,
-      onSites: loadSites,
-      onSelectSite: handleSelectSite,
-      onRefreshSites: loadSites,
+      onSites: null, // Sites handled by SitesList modal
       onCodespace: null,
       onLogout,
       onThemeChange,
@@ -91,8 +77,8 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
     onStopCodespace,
     theme,
     onThemeChange,
-    loadSites,
-    handleSelectSite,
+    tunnelUrl,
+    apiKey,
     setContext,
     setCallbacks
   ]);
@@ -149,6 +135,8 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
 
     const handleTouchMove = (e) => {
       if (e.touches.length === 1) {
+        e.preventDefault(); // Prevent page scroll, handle scroll ourselves
+        
         const touchY = e.touches[0].clientY;
         const now = performance.now();
         const deltaY = lastTouchY - touchY;
@@ -318,7 +306,7 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
       <div className="bg-dark-600 border-b border-dark-400 px-2 sm:px-4 py-2 flex items-center gap-2 flex-shrink-0">
         {/* Back Button */}
         <button
-          onClick={onBack}
+          onClick={() => { vibrate(); onBack(); }}
           className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
           title="Back"
         >
@@ -358,8 +346,8 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
 
         {/* Menu Button */}
         <button
-          onClick={() => openMenu()}
-          className="p-2 bg-dark-500 hover:bg-dark-400 text-brand-500 rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
+          onClick={() => { vibrate(); openMenu(); }}
+          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
           title="Menu"
         >
           <Settings size={20} />
@@ -370,7 +358,7 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
       <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden p-2 sm:p-4">
         <div
           ref={terminalRef}
-          className="w-full h-full rounded-sm overflow-hidden"
+          className="xterm-screen w-full h-full rounded-sm overflow-hidden"
         />
       </div>
 
