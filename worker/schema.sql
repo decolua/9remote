@@ -5,8 +5,8 @@ CREATE TABLE sessions (
   tunnelId TEXT,
   tunnelUrl TEXT,
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-  expiresAt DATETIME DEFAULT (datetime('now', '+4 hours')),
-  lastAccessAt DATETIME
+  expiresAt DATETIME DEFAULT (datetime('now', '+7 days')),
+  lastAccessAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_apiKey ON sessions(apiKey);

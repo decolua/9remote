@@ -13,7 +13,7 @@ import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, saveState, clearState } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkForUpdates } from "./utils/updateChecker.js";
-import { ensureCloudflared, spawnCloudflared, killCloudflared } from "./utils/cloudflared.js";
+import { ensureCloudflared, spawnCloudflared, killCloudflared, resetRestartCounter } from "./utils/cloudflared.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
@@ -173,6 +173,7 @@ function setupExitHandler(serverManager, tunnelProcess, apiKey) {
     console.log(chalk.yellow("\n\n🛑 Stopping server..."));
     serverManager.shutdown();
     tunnelProcess.kill();
+    resetRestartCounter();
     
     // Cleanup tunnel on worker
     try {
@@ -260,13 +261,22 @@ async function startServerAndTunnel(selectedKey) {
 
   const { token, hostname: tunnelUrl } = tunnelData;
 
-  // Spawn cloudflared with token
+  // Spawn cloudflared with token and auto-restart callback
   console.log(chalk.cyan("✅ Starting tunnel..."));
   let tunnelProcess;
-  try {
-    tunnelProcess = await spawnCloudflared(token);
-  } catch (error) {
-    console.log(chalk.red(`❌ Failed to start cloudflared: ${error.message}`));
+  
+  const startTunnel = async (tunnelToken) => {
+    try {
+      tunnelProcess = await spawnCloudflared(tunnelToken, startTunnel);
+      return tunnelProcess;
+    } catch (error) {
+      console.log(chalk.red(`❌ Failed to start cloudflared: ${error.message}`));
+      return null;
+    }
+  };
+  
+  tunnelProcess = await startTunnel(token);
+  if (!tunnelProcess) {
     serverManager.shutdown();
     return null;
   }

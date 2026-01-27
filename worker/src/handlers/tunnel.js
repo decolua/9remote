@@ -24,7 +24,7 @@ export async function handleTunnelCreate(request, env, corsHeaders) {
 
     // Update session with tunnelId
     await env.DB.prepare(`
-      UPDATE sessions SET tunnelId = ?, tunnelUrl = ?
+      UPDATE sessions SET tunnelId = ?, tunnelUrl = ?, lastAccessAt = datetime('now')
       WHERE apiKey = ?
     `).bind(tunnelId, hostname, apiKey).run();
 

@@ -269,7 +269,7 @@ async function listTunnelsByStatus(accountId, apiKey, email, status) {
  */
 export async function cleanupDeadTunnels(accountId, apiKey, email) {
   const statuses = ["down", "inactive", "degraded"];
-  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
   let cleanedCount = 0;
   
   for (const status of statuses) {
@@ -294,9 +294,9 @@ export async function cleanupDeadTunnels(accountId, apiKey, email) {
       // Use closed_at if available, otherwise use created_at
       const checkTime = lastClosedAt || new Date(tunnel.created_at);
       
-      // Only delete if disconnected for more than 30 minutes
-      if (checkTime > thirtyMinutesAgo) {
-        console.log(`[Cleanup] Skip ${tunnel.name} - disconnected < 30 min`);
+      // Only delete if disconnected for more than 1 hour
+      if (checkTime > oneHourAgo) {
+        console.log(`[Cleanup] Skip ${tunnel.name} - disconnected < 1 hour`);
         continue;
       }
       

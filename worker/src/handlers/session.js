@@ -19,8 +19,8 @@ export async function handleSessionCreate(request, env, corsHeaders) {
 
   // Create new session (tunnelUrl will be updated later)
   await env.DB.prepare(`
-    INSERT INTO sessions (machineId, apiKey, tunnelUrl)
-    VALUES (?, ?, NULL)
+    INSERT INTO sessions (machineId, apiKey, tunnelUrl, lastAccessAt)
+    VALUES (?, ?, NULL, datetime('now'))
   `).bind(machineId, apiKey).run();
 
   return jsonResponse({ success: true, machineId }, corsHeaders);

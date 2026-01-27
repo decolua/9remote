@@ -14,6 +14,12 @@ const PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 // Track intentional shutdown to suppress exit logs
 let isIntentionalShutdown = false;
 
+// Auto-restart configuration
+const MAX_RESTART_ATTEMPTS = 3;
+const RESTART_WINDOW_MS = 60000; // 1 minute
+let restartTimes = [];
+let restartCallback = null;
+
 const GITHUB_BASE_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download";
 
 /**
@@ -155,10 +161,16 @@ const LOG_IGNORE = [
 /**
  * Spawn cloudflared tunnel
  * @param {string} tunnelToken
+ * @param {Function} onRestart - Callback when tunnel needs restart
  * @returns {ChildProcess}
  */
-export async function spawnCloudflared(tunnelToken) {
+export async function spawnCloudflared(tunnelToken, onRestart = null) {
   const binaryPath = await ensureCloudflared();
+  
+  // Store restart callback
+  if (onRestart) {
+    restartCallback = onRestart;
+  }
   
   const child = spawn(binaryPath, ["tunnel", "run", "--token", tunnelToken], {
     detached: false,
@@ -209,6 +221,24 @@ export async function spawnCloudflared(tunnelToken) {
     // Only log unexpected exits
     if (!isIntentionalShutdown && code !== 0 && code !== null) {
       console.log(`cloudflared exited with code ${code}`);
+      
+      // Auto-restart logic
+      if (restartCallback) {
+        const now = Date.now();
+        restartTimes.push(now);
+        
+        // Remove old restart times outside window
+        restartTimes = restartTimes.filter(t => t > now - RESTART_WINDOW_MS);
+        
+        if (restartTimes.length <= MAX_RESTART_ATTEMPTS) {
+          console.log(`🔄 Restarting tunnel... (attempt ${restartTimes.length}/${MAX_RESTART_ATTEMPTS})`);
+          setTimeout(() => {
+            restartCallback(tunnelToken);
+          }, 2000);
+        } else {
+          console.log(`❌ Too many tunnel restarts (${MAX_RESTART_ATTEMPTS} in ${RESTART_WINDOW_MS / 1000}s). Giving up.`);
+        }
+      }
     }
   });
   
@@ -232,4 +262,12 @@ export function killCloudflared() {
   } catch (error) {
     // Silently ignore errors
   }
+}
+
+/**
+ * Reset restart counter
+ */
+export function resetRestartCounter() {
+  restartTimes = [];
+  restartCallback = null;
 }
