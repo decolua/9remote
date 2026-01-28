@@ -10,6 +10,7 @@ import RemoteCanvas from "@/features/remote/components/RemoteCanvas";
 import RemoteControls from "@/features/remote/components/RemoteControls";
 import Spinner from "@/shared/components/ui/Spinner";
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
+import { vibrate } from "@/shared/utils/vibration";
 
 export default function RemoteDesktop({ onClose }) {
   const [isLandscape, setIsLandscape] = useState(false);

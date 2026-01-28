@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { vibrate } from "@/shared/utils/vibration";
 
 export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", cancelText = "Cancel" }) {
   // Close on Escape key
@@ -42,13 +43,14 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
         {/* Footer */}
         <div className="px-6 py-4 border-t border-dark-400 flex justify-end gap-3">
           <button
-            onClick={onClose}
+            onClick={() => { vibrate(); onClose(); }}
             className="px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition font-medium"
           >
             {cancelText}
           </button>
           <button
             onClick={() => {
+              vibrate();
               onConfirm();
               onClose();
             }}

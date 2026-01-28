@@ -88,7 +88,7 @@ function Terminal({
         </button>
 
         {/* Terminal Tabs */}
-        <div ref={tabsContainerRef} className="flex-1 overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-dark-400 scrollbar-track-transparent">
+        <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-dark-400 scrollbar-track-transparent">
           <div className="flex gap-0.5 min-w-max">
             {sessions.map((session) => {
               const isActiveTab = session.id === sessionId;
@@ -96,7 +96,7 @@ function Terminal({
                 <button
                   key={session.id}
                   ref={isActiveTab ? activeTabRef : null}
-                  onClick={() => onSwitchSession?.(session.id)}
+                  onClick={() => { vibrate(); onSwitchSession?.(session.id); }}
                   className={`px-2 py-1 text-sm font-medium transition-colors duration-200 flex items-center gap-2 whitespace-nowrap ${
                     isActiveTab ? "text-brand-500" : "text-dark-50 hover:text-white"
                   }`}

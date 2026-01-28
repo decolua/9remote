@@ -6,6 +6,7 @@ import "diff2html/bundles/css/diff2html.min.css";
 import { GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { ChevronLeft, Eye, Trash2, RefreshCw } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
 
 export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) {
   const [activeTab, setActiveTab] = useState("status");
@@ -155,7 +156,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           
           {/* File info - clickable to view diff */}
           <button
-            onClick={() => { loadDiff(file.path, file.status); setActiveTab("diff"); }}
+            onClick={() => { vibrate(); loadDiff(file.path, file.status); setActiveTab("diff"); }}
             className="flex-1 min-w-0 text-left"
           >
             <div className="text-white font-medium truncate">{fileName}</div>
@@ -175,7 +176,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           {/* Open file button (not for deleted) */}
           {file.status !== "D" && (
             <button
-              onClick={(e) => { e.stopPropagation(); handleOpenFile(file.path); }}
+              onClick={(e) => { e.stopPropagation(); vibrate(); handleOpenFile(file.path); }}
               className="p-1.5 text-dark-100 hover:text-white hover:bg-dark-400 rounded-brand transition-all duration-200 flex-shrink-0"
               title="Open file"
             >
@@ -187,7 +188,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           
           {/* Discard button */}
           <button
-            onClick={(e) => { e.stopPropagation(); handleDiscardFile(file.path, file.status); }}
+            onClick={(e) => { e.stopPropagation(); vibrate(); handleDiscardFile(file.path, file.status); }}
             className="p-1.5 text-dark-100 hover:text-orange-400 hover:bg-dark-400 rounded-brand transition-all duration-200 flex-shrink-0"
             title="Discard changes"
           >
@@ -205,7 +206,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       {/* Header */}
       <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-3 flex-shrink-0">
         <button
-          onClick={onBack}
+          onClick={() => { vibrate(); onBack(); }}
           className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -215,6 +216,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
         <h1 className="text-white text-lg font-semibold">Git</h1>
         <button
           onClick={() => {
+            vibrate();
             if (activeTab === "status") {
               loadStatus();
             } else {
@@ -233,7 +235,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       {/* Tabs */}
       <div className="flex border-b border-dark-400 flex-shrink-0">
         <button
-          onClick={() => setActiveTab("status")}
+          onClick={() => { vibrate(); setActiveTab("status"); }}
           className={`flex-1 py-3 text-center font-medium transition ${
             activeTab === "status"
               ? "text-white border-b-2 border-emerald-500"
@@ -243,7 +245,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           Status
         </button>
         <button
-          onClick={handleSwitchToDiff}
+          onClick={() => { vibrate(); handleSwitchToDiff(); }}
           className={`flex-1 py-3 text-center font-medium transition ${
             activeTab === "diff"
               ? "text-white border-b-2 border-emerald-500"
@@ -322,6 +324,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                 <select
                   value={selectedFile || ""}
                   onChange={(e) => {
+                    vibrate();
                     const file = statusFiles.find(f => f.path === e.target.value);
                     if (file) {
                       loadDiff(file.path, file.status);
@@ -336,7 +339,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                   ))}
                 </select>
                 <button
-                  onClick={handleDiscard}
+                  onClick={() => { vibrate(); handleDiscard(); }}
                   disabled={!selectedFile || diffLoading}
                   className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-dark-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2"
                   title="Discard changes"

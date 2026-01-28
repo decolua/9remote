@@ -198,7 +198,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           />
           <Button
             variant="primary"
-            onClick={handleCreate}
+            onClick={() => { vibrate(); handleCreate(); }}
             disabled={creating || !connected}
             loading={creating}
             className="whitespace-nowrap"
@@ -227,7 +227,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
               >
                 <div 
                   className={`flex-1 flex items-center gap-3 ${connected && editingId !== session.id ? "cursor-pointer" : "cursor-default"}`}
-                  onClick={() => connected && editingId !== session.id && onSelect(session.id)}
+                  onClick={() => { if (connected && editingId !== session.id) { vibrate(); onSelect(session.id); } }}
                 >
                   {/* Terminal Icon */}
                   <div className="p-2 bg-brand-500/10 rounded-brand flex-shrink-0">
@@ -261,7 +261,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                 <div className="flex gap-2 ml-3">
                   {/* Edit Button */}
                   <button
-                    onClick={() => handleStartEdit(session)}
+                    onClick={() => { vibrate(); handleStartEdit(session); }}
                     disabled={!connected}
                     className={`p-2 rounded-brand transition-all duration-200 ${
                       connected 
@@ -275,7 +275,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
 
                   {/* Delete Button */}
                   <button
-                    onClick={() => handleDeleteWithConfirm(session.id, session.name)}
+                    onClick={() => { vibrate(); handleDeleteWithConfirm(session.id, session.name); }}
                     disabled={!connected}
                     className={`p-2 rounded-brand transition-all duration-200 ${
                       connected 

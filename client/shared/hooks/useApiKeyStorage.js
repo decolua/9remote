@@ -44,13 +44,25 @@ export function useApiKeyStorage() {
     if (!apiKey || !isBrowser) return;
     try {
       const existing = loadKeys();
-      // Check if key already exists
-      if (existing.some((item) => item.key === apiKey)) return;
+      // Check if key already exists - if so, update lastLoginDate
+      const existingIndex = existing.findIndex((item) => item.key === apiKey);
+      
+      if (existingIndex !== -1) {
+        // Update existing key's lastLoginDate
+        const updated = existing.map((item, idx) => ({
+          ...item,
+          key: encode(item.key),
+          lastLoginDate: idx === existingIndex ? new Date().toISOString() : item.lastLoginDate
+        }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        return;
+      }
       
       const newKey = {
         id: Date.now().toString(),
         key: encode(apiKey),
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        lastLoginDate: new Date().toISOString()
       };
       const updated = [...existing.map((item) => ({ ...item, key: encode(item.key) })), newKey];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -96,11 +108,28 @@ export function useApiKeyStorage() {
     }
   }, [isBrowser]);
 
+  // Update last login date for a key
+  const updateLastLogin = useCallback((apiKey) => {
+    if (!apiKey || !isBrowser) return;
+    try {
+      const existing = loadKeys();
+      const updated = existing.map((item) => ({
+        ...item,
+        key: encode(item.key),
+        lastLoginDate: item.key === apiKey ? new Date().toISOString() : item.lastLoginDate
+      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch (err) {
+      console.error("Failed to update last login date:", err);
+    }
+  }, [isBrowser, loadKeys]);
+
   return {
     saveKey,
     loadKeys,
     removeKey,
     clearKeys,
-    hasStoredKeys
+    hasStoredKeys,
+    updateLastLogin
   };
 }

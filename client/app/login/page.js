@@ -15,11 +15,12 @@ function LoginContent() {
   const [rememberKey, setRememberKey] = useState(true);
   const [savedKeys, setSavedKeys] = useState([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
   const { loading, error, authenticateWithToken, authenticateWithApiKey } = useAuth();
-  const { loadKeys, saveKey, removeKey, hasStoredKeys } = useApiKeyStorage();
+  const { loadKeys, saveKey, removeKey, hasStoredKeys, updateLastLogin } = useApiKeyStorage();
 
   // Check for token (old) or temp key (new) in URL (QR code auth)
   const token = useMemo(() => searchParams.get("t"), [searchParams]);
@@ -62,9 +63,9 @@ function LoginContent() {
     }
   };
 
-  // Check if input is one-time key (6 chars uppercase alphanumeric)
+  // Check if input is one-time key (6 chars alphanumeric, case-insensitive)
   const isOneTimeKey = (key) => {
-    return key.length === 6 && /^[A-Z0-9]+$/.test(key);
+    return key.length === 6 && /^[A-Z0-9]+$/i.test(key);
   };
 
   // Handle API key submit (supports both API key and one-time key)
@@ -97,6 +98,7 @@ function LoginContent() {
     if (!key) return;
     const result = await authenticateWithApiKey(key);
     if (result.success) {
+      updateLastLogin(key);
       router.push("/terminal/");
     }
   };
@@ -110,6 +112,29 @@ function LoginContent() {
   // Clear input
   const handleClearInput = () => {
     setApiKey("");
+  };
+
+  // Format date for display
+  const formatLoginDate = (dateString) => {
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return "Just now";
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+      
+      // Format as date if older than a week
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch {
+      return "";
+    }
   };
 
   // Token auth loading screen
@@ -147,20 +172,30 @@ function LoginContent() {
               </label>
               <div className="relative">
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
                   placeholder="sk-xxx... or One-Time Key (ABC123)"
-                  className="w-full px-4 py-3 pr-10 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
+                  className="w-full px-4 py-3 pr-20 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
                 />
                 {apiKey && (
-                  <button
-                    onClick={handleClearInput}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-100 hover:text-white transition-colors"
-                  >
-                    <X size={20} />
-                  </button>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                    <button
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-dark-100 hover:text-white transition-colors"
+                      type="button"
+                    >
+                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
+                    <button
+                      onClick={handleClearInput}
+                      className="text-dark-100 hover:text-white transition-colors"
+                      type="button"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                 )}
               </div>
               {error && (
@@ -204,6 +239,11 @@ function LoginContent() {
                         <code className="text-sm text-dark-50 group-hover:text-brand-500 font-mono block truncate transition-colors">
                           {maskApiKey(item.key)}
                         </code>
+                        {item.lastLoginDate && (
+                          <span className="text-xs text-dark-100 mt-1 block">
+                            Last login: {formatLoginDate(item.lastLoginDate)}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <button

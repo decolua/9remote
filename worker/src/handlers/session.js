@@ -56,24 +56,25 @@ export async function handleConnect(request, env, corsHeaders) {
 
   // Support: tempKey (new), token (old encrypted), or direct apiKey (manual entry)
   if (body.token) {
-    // Check if it's a temp key format (6 chars uppercase alphanumeric)
-    if (body.token.length <= 10 && /^[A-Z0-9]+$/.test(body.token)) {
-      // It's a temp key
+    // Check if it's a temp key format (6 chars alphanumeric, case-insensitive)
+    if (body.token.length <= 10 && /^[A-Z0-9]+$/i.test(body.token)) {
+      // It's a temp key - convert to uppercase for database lookup
+      const normalizedToken = body.token.toUpperCase();
       const tempKeyData = await env.DB.prepare(`
         SELECT api_key, expires_at FROM temp_keys WHERE temp_key = ?
-      `).bind(body.token).first();
+      `).bind(normalizedToken).first();
 
       if (!tempKeyData) {
         return jsonError("Invalid or expired temp key", 401, corsHeaders);
       }
 
       if (Date.now() > tempKeyData.expires_at) {
-        await env.DB.prepare(`DELETE FROM temp_keys WHERE temp_key = ?`).bind(body.token).run();
+        await env.DB.prepare(`DELETE FROM temp_keys WHERE temp_key = ?`).bind(normalizedToken).run();
         return jsonError("Temp key expired", 410, corsHeaders);
       }
 
       apiKey = tempKeyData.api_key;
-      tempKey = body.token;
+      tempKey = normalizedToken;
     } else {
       // Old encrypted token
       const payload = decryptToken(body.token);

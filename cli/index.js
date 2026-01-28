@@ -27,6 +27,19 @@ const MAX_RESTART_ATTEMPTS = 3;
 const RESTART_WINDOW_MS = 60000; // 1 minute
 
 /**
+ * Get current version from package.json
+ */
+function getVersion() {
+  try {
+    const packagePath = path.join(__dirname, "package.json");
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+    return packageJson.version;
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
  * Helper: Show QR code for connect URL
  */
 function showQRCode(url, title = "📱 Scan QR to connect:") {
@@ -524,6 +537,9 @@ async function autoStartDev() {
 
 // Start app
 async function start() {
+  const version = getVersion();
+  console.log(chalk.cyan(`\n🚀 9Remote CLI v${version}\n`));
+  
   checkForUpdates();
   
   const command = process.argv[2];

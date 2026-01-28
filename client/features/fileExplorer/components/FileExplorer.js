@@ -5,6 +5,7 @@ import FileTree from "./FileTree";
 import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
 
 export default function FileExplorer({ 
   workspace, 
@@ -234,7 +235,7 @@ export default function FileExplorer({
       {/* Header */}
       <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-2 flex-shrink-0">
         <button
-          onClick={onBack}
+          onClick={() => { vibrate(); onBack(); }}
           className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
           title="Close"
         >
@@ -250,7 +251,7 @@ export default function FileExplorer({
         {/* Browse mode: Set workspace button */}
         {isBrowsing && (
           <button
-            onClick={handleSetAsWorkspace}
+            onClick={() => { vibrate(); handleSetAsWorkspace(); }}
             className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs rounded-brand transition-all duration-200 font-medium shadow-lg shadow-brand-500/20"
             title="Set as workspace"
           >
@@ -261,7 +262,7 @@ export default function FileExplorer({
         {/* Workspace mode: Search button */}
         {!isBrowsing && (
           <button
-            onClick={() => setShowSearch(true)}
+            onClick={() => { vibrate(); setShowSearch(true); }}
             className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
             title="Search files"
           >
@@ -272,7 +273,7 @@ export default function FileExplorer({
         {/* Workspace mode: Git button */}
         {!isBrowsing && (
           <button
-            onClick={onOpenGit}
+            onClick={() => { vibrate(); onOpenGit(); }}
             disabled={!hasGit}
             className={`p-2 rounded-brand transition-all duration-200 border ${
               hasGit 
@@ -302,7 +303,7 @@ export default function FileExplorer({
             <Loader2 className="animate-spin text-brand-500" size={16} />
           )}
           <button
-            onClick={closeSearch}
+            onClick={() => { vibrate(); closeSearch(); }}
             className="p-1 text-dark-100 hover:text-white transition-colors"
           >
             <X size={20} />
@@ -334,6 +335,7 @@ export default function FileExplorer({
                 <button
                   key={file.path}
                   onClick={() => {
+                    vibrate();
                     onOpenFile(file.path);
                     closeSearch();
                   }}
@@ -361,7 +363,7 @@ export default function FileExplorer({
           {/* Go up button - hide when at workspace root or filesystem root */}
           {currentPath !== "/" && !isAtWorkspace && !showSearch && (
             <button
-              onClick={handleGoUp}
+              onClick={() => { vibrate(); handleGoUp(); }}
               className="w-full px-4 py-3 flex items-center gap-3 border-b border-dark-500 hover:bg-dark-600 transition-colors text-left flex-shrink-0"
             >
               <ChevronLeft className="text-green-500" size={28} />
@@ -387,7 +389,7 @@ export default function FileExplorer({
       {/* FAB - New (workspace mode only) */}
       {!isBrowsing && (
         <button
-          onClick={() => setShowNewItemModal(true)}
+          onClick={() => { vibrate(); setShowNewItemModal(true); }}
           className="absolute bottom-6 right-6 w-14 h-14 bg-brand-500 hover:bg-brand-600 text-white rounded-full shadow-lg shadow-brand-500/30 flex items-center justify-center transition-all duration-200"
         >
           <Plus size={24} />
@@ -406,7 +408,7 @@ export default function FileExplorer({
             }}
           >
             <button
-              onClick={() => handleRename(contextMenu.file)}
+              onClick={() => { vibrate(); handleRename(contextMenu.file); }}
               className="w-full px-4 py-3 text-left text-white hover:bg-dark-500 flex items-center gap-3 transition-colors"
             >
               <Pencil size={16} />
@@ -414,6 +416,7 @@ export default function FileExplorer({
             </button>
             <button
               onClick={() => {
+                vibrate();
                 navigator.clipboard.writeText(contextMenu.file.path);
                 closeContextMenu();
               }}
@@ -423,7 +426,7 @@ export default function FileExplorer({
               Copy path
             </button>
             <button
-              onClick={() => handleDelete(contextMenu.file)}
+              onClick={() => { vibrate(); handleDelete(contextMenu.file); }}
               className="w-full px-4 py-3 text-left text-red-400 hover:bg-dark-500 flex items-center gap-3 transition-colors"
             >
               <Trash2 size={16} />
@@ -444,7 +447,7 @@ export default function FileExplorer({
             <div className="p-4 space-y-4">
               <div className="flex gap-2">
                 <button
-                  onClick={() => setNewItemType("file")}
+                  onClick={() => { vibrate(); setNewItemType("file"); }}
                   className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${
                     newItemType === "file" 
                       ? "bg-brand-500 text-white" 
@@ -454,7 +457,7 @@ export default function FileExplorer({
                   <File size={16} className="text-slate-400" /> File
                 </button>
                 <button
-                  onClick={() => setNewItemType("folder")}
+                  onClick={() => { vibrate(); setNewItemType("folder"); }}
                   className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${
                     newItemType === "folder" 
                       ? "bg-brand-500 text-white" 
@@ -475,13 +478,13 @@ export default function FileExplorer({
               />
               <div className="flex gap-2">
                 <button
-                  onClick={() => setShowNewItemModal(false)}
+                  onClick={() => { vibrate(); setShowNewItemModal(false); }}
                   className="flex-1 py-2 bg-dark-500 text-white rounded-brand hover:bg-dark-400 transition"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleCreateItem}
+                  onClick={() => { vibrate(); handleCreateItem(); }}
                   className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition"
                 >
                   Create
@@ -511,13 +514,13 @@ export default function FileExplorer({
               />
               <div className="flex gap-2">
                 <button
-                  onClick={() => setRenameModal(null)}
+                  onClick={() => { vibrate(); setRenameModal(null); }}
                   className="flex-1 py-2 bg-dark-500 text-white rounded-brand hover:bg-dark-400 transition"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleRenameSubmit}
+                  onClick={() => { vibrate(); handleRenameSubmit(); }}
                   className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition"
                 >
                   Rename

@@ -73,7 +73,7 @@ export async function handleTempKeyCreate(request, env, corsHeaders) {
 
 /**
  * Handle GET /api/temp-key/verify?k=abc123
- * Verify temp key and return API key
+ * Verify temp key and return API key (case-insensitive)
  */
 export async function handleTempKeyVerify(request, env, corsHeaders) {
   try {
@@ -84,11 +84,14 @@ export async function handleTempKeyVerify(request, env, corsHeaders) {
       return jsonError("Missing temp key", 400, corsHeaders);
     }
 
+    // Normalize to uppercase for case-insensitive lookup
+    const normalizedTempKey = tempKey.toUpperCase();
+
     const result = await env.DB.prepare(`
       SELECT api_key, expires_at
       FROM temp_keys
       WHERE temp_key = ?
-    `).bind(tempKey).first();
+    `).bind(normalizedTempKey).first();
 
     if (!result) {
       return jsonError("Invalid temp key", 404, corsHeaders);
@@ -97,13 +100,13 @@ export async function handleTempKeyVerify(request, env, corsHeaders) {
     // Check expiry
     if (Date.now() > result.expires_at) {
       // Delete expired key
-      await env.DB.prepare(`DELETE FROM temp_keys WHERE temp_key = ?`).bind(tempKey).run();
+      await env.DB.prepare(`DELETE FROM temp_keys WHERE temp_key = ?`).bind(normalizedTempKey).run();
       return jsonError("Temp key expired", 410, corsHeaders);
     }
 
     return jsonResponse({
       apiKey: result.api_key,
-      tempKey
+      tempKey: normalizedTempKey
     }, corsHeaders);
   } catch (error) {
     console.error("Error verifying temp key:", error);
@@ -113,7 +116,7 @@ export async function handleTempKeyVerify(request, env, corsHeaders) {
 
 /**
  * Handle DELETE /api/temp-key/remove
- * Remove temp key (called by server after client connected)
+ * Remove temp key (called by server after client connected, case-insensitive)
  */
 export async function handleTempKeyRemove(request, env, corsHeaders) {
   try {
@@ -123,9 +126,12 @@ export async function handleTempKeyRemove(request, env, corsHeaders) {
       return jsonError("Missing temp key", 400, corsHeaders);
     }
 
+    // Normalize to uppercase for case-insensitive lookup
+    const normalizedTempKey = tempKey.toUpperCase();
+
     const result = await env.DB.prepare(`
       DELETE FROM temp_keys WHERE temp_key = ?
-    `).bind(tempKey).run();
+    `).bind(normalizedTempKey).run();
 
     return jsonResponse({
       success: true,

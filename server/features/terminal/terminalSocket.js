@@ -296,7 +296,6 @@ let daemonIo = null;
 export async function initializeTerminal() {
   // Daemon mode - recommended
   if (PERSISTENCE_MODE === "daemon") {
-    console.log("🚀 Daemon mode - persistent PTY with scrollback");
     
     const connected = await daemonClient.initDaemonClient();
     if (!connected) {
@@ -310,7 +309,6 @@ export async function initializeTerminal() {
           name: s.name,
           createdAt: s.createdAt
         });
-        console.log(`🔄 Found daemon session: ${s.id} (${s.name})`);
       }
       
       if (daemonSessions.length > 0) {
@@ -615,7 +613,11 @@ export function setupTerminalSocket(io) {
         console.log(`📎 File uploaded: ${filePath} (${size} bytes)`);
 
         // Paste file path into terminal
-        if (session.pty) {
+        if (session.daemon && daemonClient.isConnected()) {
+          // Daemon mode: send via daemon client
+          daemonClient.sendInput(sessionId, filePath);
+        } else if (session.pty) {
+          // Buffer mode: send via PTY
           session.pty.write(filePath);
         }
 

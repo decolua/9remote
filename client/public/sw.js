@@ -37,27 +37,39 @@ self.addEventListener("activate", (event) => {
 
 // Fetch event - Network first, fallback to cache
 self.addEventListener("fetch", (event) => {
+  // Only cache GET requests (Cache API doesn't support POST/PUT/DELETE)
+  const isGetRequest = event.request.method === "GET";
+  
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Clone response to cache it
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
+        // Only cache GET requests
+        if (isGetRequest) {
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
         return response;
       })
       .catch(() => {
-        // Network failed, try cache
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          // No cache available
-          return new Response("Offline - No cached version available", {
-            status: 503,
-            statusText: "Service Unavailable"
+        // Network failed, try cache (only for GET requests)
+        if (isGetRequest) {
+          return caches.match(event.request).then((cachedResponse) => {
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+            // No cache available
+            return new Response("Offline - No cached version available", {
+              status: 503,
+              statusText: "Service Unavailable"
+            });
           });
+        }
+        // Non-GET requests: return error
+        return new Response("Network error", {
+          status: 503,
+          statusText: "Service Unavailable"
         });
       })
   );

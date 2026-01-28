@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Spinner from "./Spinner";
+import { vibrate } from "@/shared/utils/vibration";
 
 /**
  * Connection overlay modal - shows when retrying or failed
@@ -45,7 +46,7 @@ export default function ConnectionModal({ retryStatus, onLogout }) {
               />
             </div>
             <button
-              onClick={handleBackToLogin}
+              onClick={() => { vibrate(); handleBackToLogin(); }}
               className="mt-4 w-full py-2 bg-dark-500 hover:bg-dark-400 text-dark-50 font-medium rounded-brand transition"
             >
               Exit
@@ -66,7 +67,7 @@ export default function ConnectionModal({ retryStatus, onLogout }) {
               Unable to connect after {retryStatus.maxAttempts} attempts
             </p>
             <button
-              onClick={handleBackToLogin}
+              onClick={() => { vibrate(); handleBackToLogin(); }}
               className="mt-6 w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition"
             >
               Back to Login

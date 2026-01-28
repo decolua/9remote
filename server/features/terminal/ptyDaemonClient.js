@@ -198,15 +198,31 @@ async function startDaemon() {
 
   // Capture daemon output for debugging
   const logPath = path.join(SOCKET_DIR, "daemon.log");
-  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+  let logFd;
+  
+  try {
+    logFd = fs.openSync(logPath, "a");
+  } catch (e) {
+    console.error("[DaemonClient] Failed to open log file:", e.message);
+    logFd = "ignore";
+  }
   
   const daemon = spawn("node", [DAEMON_SCRIPT], {
     detached: true,
-    stdio: ["ignore", logStream, logStream],
+    stdio: ["ignore", logFd, logFd],
     cwd: __dirname
   });
 
   daemon.unref();
+  
+  // Close log fd after spawn
+  if (typeof logFd === "number") {
+    try {
+      fs.closeSync(logFd);
+    } catch (e) {
+      // Ignore close errors
+    }
+  }
   
   console.log("[DaemonClient] Spawned daemon process, PID:", daemon.pid);
   console.log("[DaemonClient] Daemon logs:", logPath);
@@ -235,9 +251,7 @@ async function connectToDaemon() {
   if (connected || reconnecting) return;
   reconnecting = true;
 
-  try {
-    console.log("[DaemonClient] Checking if daemon is running...");
-    
+  try {    
     // Check if daemon is running
     if (!(await isDaemonRunning())) {
       console.log("[DaemonClient] Daemon not running, attempting to start...");
@@ -249,7 +263,6 @@ async function connectToDaemon() {
         return false;
       }
     } else {
-      console.log("[DaemonClient] Daemon already running");
     }
 
     // Connect

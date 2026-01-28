@@ -11,6 +11,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { AUTO_SAVE_DELAY, LANGUAGE_MAP } from "../constants/fileExplorer.js";
 import { ChevronLeft, Save, Loader2 } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
 
 const languageExtensions = {
   javascript: javascript(),
@@ -178,7 +179,7 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
       {/* Header */}
       <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-2 flex-shrink-0">
         <button
-          onClick={handleBack}
+          onClick={() => { vibrate(); handleBack(); }}
           className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
         >
           <ChevronLeft size={20} />
@@ -195,7 +196,7 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
         </div>
 
         <button
-          onClick={saveFile}
+          onClick={() => { vibrate(); saveFile(); }}
           disabled={!hasChanges || saving}
           className={`px-3 py-2 rounded-brand transition-all duration-200 flex items-center gap-1 ${
             hasChanges && !saving
@@ -248,7 +249,7 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
         ].map((item) => (
           <button
             key={item.label}
-            onClick={() => insertText(item.text)}
+            onClick={() => { vibrate(); insertText(item.text); }}
             className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm rounded-brand transition-all duration-200 whitespace-nowrap border border-dark-400 hover:border-brand-500"
           >
             {item.label}

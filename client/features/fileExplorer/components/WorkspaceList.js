@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { Folder, Home, HardDrive, Sparkles } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
 
 const STORAGE_KEY = "recentWorkspaces";
 const MAX_RECENT = 5;
@@ -74,7 +75,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
       {/* Header */}
       <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-3 flex-shrink-0">
         <button
-          onClick={onBack}
+          onClick={() => { vibrate(); onBack(); }}
           className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -94,7 +95,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
               {recent.map((workspace) => (
                 <button
                   key={workspace.path}
-                  onClick={() => onSelect(workspace.path)}
+                  onClick={() => { vibrate(); onSelect(workspace.path); }}
                   className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
                 >
                   <Folder size={24} className="text-orange-500/70 flex-shrink-0" />
@@ -110,7 +111,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                     </div>
                   </div>
                   <div
-                    onClick={(e) => handleRemoveClick(e, workspace)}
+                    onClick={(e) => { vibrate(); handleRemoveClick(e, workspace); }}
                     className="p-2 text-dark-100 hover:text-red-400 hover:bg-dark-500 rounded-brand transition-all duration-200 flex-shrink-0"
                     title="Remove from recent"
                   >
@@ -137,7 +138,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                 {systemInfo.drives?.map((drive) => (
                   <button
                     key={drive.letter}
-                    onClick={() => onBrowse(drive.path)}
+                    onClick={() => { vibrate(); onBrowse(drive.path); }}
                     className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
                   >
                     <HardDrive size={24} className="text-blue-500/70" />
@@ -155,7 +156,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
               <>
                 {/* macOS/Linux: Show Home and Root */}
                 <button
-                  onClick={() => onBrowse("~")}
+                  onClick={() => { vibrate(); onBrowse("~"); }}
                   className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
                 >
                   <Home size={24} className="text-blue-500/70" />
@@ -169,7 +170,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                 </button>
 
                 <button
-                  onClick={() => onBrowse("/")}
+                  onClick={() => { vibrate(); onBrowse("/"); }}
                   className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
                 >
                   <HardDrive size={24} className="text-slate-400" />
@@ -187,7 +188,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
             {/* Codespaces workspaces folder */}
             {isCodespaces && (
               <button
-                onClick={() => onBrowse("/workspaces")}
+                onClick={() => { vibrate(); onBrowse("/workspaces"); }}
                 className="w-full bg-purple-900/30 border border-purple-700/50 rounded-brand-lg p-4 flex items-center gap-3 hover:border-purple-600 transition text-left"
               >
                 <Sparkles size={24} className="text-purple-400" />

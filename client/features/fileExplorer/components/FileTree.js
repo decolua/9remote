@@ -2,6 +2,7 @@
 
 import { FILE_ICON_NAMES, LANGUAGE_MAP, GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
 import { Folder, File, FileCode, FileJson, FileText, Image, Package } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
 
 const ICON_COMPONENTS = {
   Folder,
@@ -101,7 +102,7 @@ export default function FileTree({
             }`}
           >
             <button
-              onClick={() => file.type === "folder" ? onFolderClick(file) : onFileClick(file)}
+              onClick={() => { vibrate(); file.type === "folder" ? onFolderClick(file) : onFileClick(file); }}
               className="flex-1 flex items-center gap-3 text-left min-w-0"
             >
               <span className="flex-shrink-0">{getFileIcon(file)}</span>
@@ -121,7 +122,7 @@ export default function FileTree({
             {/* More button (workspace mode only) */}
             {onMoreClick && (
               <button
-                onClick={(e) => handleMoreClick(e, file)}
+                onClick={(e) => { vibrate(); handleMoreClick(e, file); }}
                 className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition flex-shrink-0"
                 title="More actions"
               >
@@ -135,7 +136,7 @@ export default function FileTree({
 
             {file.type === "folder" && (
               <button
-                onClick={() => onFolderClick(file)}
+                onClick={() => { vibrate(); onFolderClick(file); }}
                 className="p-1 text-slate-400 flex-shrink-0"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
