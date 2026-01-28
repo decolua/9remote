@@ -181,25 +181,50 @@ function isDaemonRunning() {
  */
 async function startDaemon() {
   console.log("[DaemonClient] Starting PTY Daemon...");
+  console.log("[DaemonClient] Script path:", DAEMON_SCRIPT);
+  console.log("[DaemonClient] Socket path:", SOCKET_PATH);
+  console.log("[DaemonClient] Working dir:", __dirname);
 
+  // Ensure socket directory exists
+  if (!fs.existsSync(SOCKET_DIR)) {
+    try {
+      fs.mkdirSync(SOCKET_DIR, { recursive: true });
+      console.log("[DaemonClient] Created socket directory:", SOCKET_DIR);
+    } catch (e) {
+      console.error("[DaemonClient] Failed to create socket directory:", e.message);
+      return false;
+    }
+  }
+
+  // Capture daemon output for debugging
+  const logPath = path.join(SOCKET_DIR, "daemon.log");
+  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+  
   const daemon = spawn("node", [DAEMON_SCRIPT], {
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", logStream, logStream],
     cwd: __dirname
   });
 
   daemon.unref();
+  
+  console.log("[DaemonClient] Spawned daemon process, PID:", daemon.pid);
+  console.log("[DaemonClient] Daemon logs:", logPath);
 
   // Wait for daemon to start
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 100));
     if (await isDaemonRunning()) {
-      console.log("[DaemonClient] Daemon started, PID:", daemon.pid);
+      console.log("[DaemonClient] ✅ Daemon started successfully");
       return true;
+    }
+    if (i % 5 === 0) {
+      console.log(`[DaemonClient] Waiting for daemon... (${i * 100}ms)`);
     }
   }
 
-  console.error("[DaemonClient] Failed to start daemon");
+  console.error("[DaemonClient] ❌ Failed to start daemon after 2s");
+  console.error("[DaemonClient] Check logs at:", logPath);
   return false;
 }
 
@@ -211,21 +236,37 @@ async function connectToDaemon() {
   reconnecting = true;
 
   try {
+    console.log("[DaemonClient] Checking if daemon is running...");
+    
     // Check if daemon is running
     if (!(await isDaemonRunning())) {
+      console.log("[DaemonClient] Daemon not running, attempting to start...");
+      
       // Start daemon
       if (!(await startDaemon())) {
+        console.error("[DaemonClient] ❌ Failed to start daemon");
         reconnecting = false;
         return false;
       }
+    } else {
+      console.log("[DaemonClient] Daemon already running");
     }
 
     // Connect
+    console.log("[DaemonClient] Connecting to daemon...");
     return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        console.error("[DaemonClient] ❌ Connection timeout after 5s");
+        if (client) client.destroy();
+        reconnecting = false;
+        resolve(false);
+      }, 5000);
+
       client = net.connect(SOCKET_PATH);
 
       client.on("connect", () => {
-        console.log("[DaemonClient] Connected to daemon");
+        clearTimeout(timeout);
+        console.log("[DaemonClient] ✅ Connected to daemon");
         connected = true;
         reconnecting = false;
         emit("connected");
@@ -257,19 +298,22 @@ async function connectToDaemon() {
         // Auto-reconnect after 2s
         setTimeout(() => {
           if (!connected && !reconnecting) {
+            console.log("[DaemonClient] Attempting to reconnect...");
             connectToDaemon();
           }
         }, 2000);
       });
 
       client.on("error", (err) => {
-        console.error("[DaemonClient] Connection error:", err.message);
+        clearTimeout(timeout);
+        console.error("[DaemonClient] ❌ Connection error:", err.message);
+        console.error("[DaemonClient] Error code:", err.code);
         reconnecting = false;
         resolve(false);
       });
     });
   } catch (e) {
-    console.error("[DaemonClient] Connect error:", e);
+    console.error("[DaemonClient] ❌ Connect error:", e);
     reconnecting = false;
     return false;
   }

@@ -240,14 +240,33 @@ function handleMessage(client, message) {
  * Start daemon server
  */
 function startDaemon() {
+  console.log("[Daemon] Starting PTY Daemon...");
+  console.log("[Daemon] PID:", process.pid);
+  console.log("[Daemon] Node version:", process.version);
+  console.log("[Daemon] Platform:", process.platform);
+  console.log("[Daemon] Socket dir:", SOCKET_DIR);
+  console.log("[Daemon] Socket path:", SOCKET_PATH);
+
   // Ensure socket directory exists
   if (!fs.existsSync(SOCKET_DIR)) {
-    fs.mkdirSync(SOCKET_DIR, { recursive: true });
+    try {
+      fs.mkdirSync(SOCKET_DIR, { recursive: true });
+      console.log("[Daemon] Created socket directory");
+    } catch (e) {
+      console.error("[Daemon] Failed to create socket directory:", e);
+      process.exit(1);
+    }
   }
 
   // Remove stale socket file
   if (process.platform !== "win32" && fs.existsSync(SOCKET_PATH)) {
-    fs.unlinkSync(SOCKET_PATH);
+    try {
+      fs.unlinkSync(SOCKET_PATH);
+      console.log("[Daemon] Removed stale socket file");
+    } catch (e) {
+      console.error("[Daemon] Failed to remove stale socket:", e);
+      process.exit(1);
+    }
   }
 
   const server = net.createServer((client) => {
@@ -286,11 +305,14 @@ function startDaemon() {
 
   server.on("error", (err) => {
     console.error("[Daemon] Server error:", err);
+    if (err.code === "EADDRINUSE") {
+      console.error("[Daemon] Socket already in use, exiting");
+    }
     process.exit(1);
   });
 
   server.listen(SOCKET_PATH, () => {
-    console.log(`[Daemon] PTY Daemon listening on ${SOCKET_PATH}`);
+    console.log(`[Daemon] ✅ PTY Daemon listening on ${SOCKET_PATH}`);
     console.log(`[Daemon] PID: ${process.pid}`);
   });
 
