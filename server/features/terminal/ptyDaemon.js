@@ -25,6 +25,51 @@ const clients = new Set();
 
 // Constants
 const MAX_BUFFER_SIZE = 50 * 1024; // 50KB per session
+const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
+
+// Log file path
+const LOG_PATH = path.join(SOCKET_DIR, "daemon.log");
+
+/**
+ * Check and truncate log file if exceeds limit
+ */
+function checkLogSize() {
+  try {
+    if (fs.existsSync(LOG_PATH)) {
+      const stats = fs.statSync(LOG_PATH);
+      if (stats.size > MAX_LOG_SIZE) {
+        // Keep last 1MB of logs
+        const content = fs.readFileSync(LOG_PATH, "utf8");
+        const truncated = content.slice(-1024 * 1024);
+        fs.writeFileSync(LOG_PATH, truncated);
+      }
+    }
+  } catch (e) {
+    // Ignore log management errors
+  }
+}
+
+/**
+ * Log error with timestamp to file
+ */
+function logError(message, error = null) {
+  checkLogSize();
+  const timestamp = new Date().toISOString();
+  let logLine = `[${timestamp}] ERROR: ${message}`;
+  if (error) {
+    logLine += ` - ${error.message || error}`;
+  }
+  logLine += "\n";
+  
+  try {
+    fs.appendFileSync(LOG_PATH, logLine);
+  } catch (e) {
+    // Ignore write errors
+  }
+  
+  // Also output to stderr for immediate visibility
+  console.error(logLine.trim());
+}
 
 /**
  * Get default shell
@@ -124,18 +169,15 @@ function createSession(sessionId, name, cols = 80, rows = 24) {
       });
     });
 
-    ptyProcess.onExit(({ exitCode }) => {
-      console.log(`[Daemon] PTY exited: ${sessionId}, code=${exitCode}`);
+    ptyProcess.onExit(() => {
       sessions.delete(sessionId);
       broadcast({ type: "sessionClosed", sessionId });
     });
 
     sessions.set(sessionId, session);
-    console.log(`[Daemon] Session created: ${sessionId}`);
-    
     return { success: true, sessionId };
   } catch (error) {
-    console.error(`[Daemon] Failed to create session:`, error);
+    logError("Failed to create session", error);
     return { success: false, error: error.message };
   }
 }
@@ -232,7 +274,7 @@ function handleMessage(client, message) {
       break;
 
     default:
-      console.log(`[Daemon] Unknown message type: ${type}`);
+      logError(`Unknown message type: ${type}`);
   }
 }
 
@@ -240,20 +282,13 @@ function handleMessage(client, message) {
  * Start daemon server
  */
 function startDaemon() {
-  console.log("[Daemon] Starting PTY Daemon...");
-  console.log("[Daemon] PID:", process.pid);
-  console.log("[Daemon] Node version:", process.version);
-  console.log("[Daemon] Platform:", process.platform);
-  console.log("[Daemon] Socket dir:", SOCKET_DIR);
-  console.log("[Daemon] Socket path:", SOCKET_PATH);
 
   // Ensure socket directory exists
   if (!fs.existsSync(SOCKET_DIR)) {
     try {
       fs.mkdirSync(SOCKET_DIR, { recursive: true });
-      console.log("[Daemon] Created socket directory");
     } catch (e) {
-      console.error("[Daemon] Failed to create socket directory:", e);
+      logError("Failed to create socket directory", e);
       process.exit(1);
     }
   }
@@ -262,15 +297,13 @@ function startDaemon() {
   if (process.platform !== "win32" && fs.existsSync(SOCKET_PATH)) {
     try {
       fs.unlinkSync(SOCKET_PATH);
-      console.log("[Daemon] Removed stale socket file");
     } catch (e) {
-      console.error("[Daemon] Failed to remove stale socket:", e);
+      logError("Failed to remove stale socket", e);
       process.exit(1);
     }
   }
 
   const server = net.createServer((client) => {
-    console.log("[Daemon] Client connected");
     clients.add(client);
 
     let buffer = "";
@@ -286,40 +319,35 @@ function startDaemon() {
             const message = JSON.parse(line);
             handleMessage(client, message);
           } catch (e) {
-            console.error("[Daemon] Invalid message:", line);
+            logError("Invalid message", line);
           }
         }
       }
     });
 
     client.on("close", () => {
-      console.log("[Daemon] Client disconnected");
       clients.delete(client);
     });
 
     client.on("error", (err) => {
-      console.error("[Daemon] Client error:", err.message);
+      logError("Client error", err);
       clients.delete(client);
     });
   });
 
   server.on("error", (err) => {
-    console.error("[Daemon] Server error:", err);
+    logError("Server error", err);
     if (err.code === "EADDRINUSE") {
-      console.error("[Daemon] Socket already in use, exiting");
+      logError("Socket already in use, exiting");
     }
     process.exit(1);
   });
 
-  server.listen(SOCKET_PATH, () => {
-    console.log(`[Daemon] ✅ PTY Daemon listening on ${SOCKET_PATH}`);
-    console.log(`[Daemon] PID: ${process.pid}`);
-  });
+  server.listen(SOCKET_PATH);
 
   // Graceful shutdown
   process.on("SIGTERM", () => {
-    console.log("[Daemon] Received SIGTERM, shutting down...");
-    for (const [id, session] of sessions) {
+    for (const [, session] of sessions) {
       if (session.pty) {
         session.pty.kill();
       }
@@ -332,7 +360,6 @@ function startDaemon() {
   });
 
   process.on("SIGINT", () => {
-    console.log("[Daemon] Received SIGINT, shutting down...");
     process.emit("SIGTERM");
   });
 }

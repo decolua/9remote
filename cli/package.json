@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "index.js",

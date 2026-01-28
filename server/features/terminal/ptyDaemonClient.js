@@ -156,24 +156,35 @@ function handleMessage(message) {
 }
 
 /**
- * Check if daemon is running
+ * Check if daemon is running by attempting to connect
  */
 function isDaemonRunning() {
-  if (process.platform === "win32") {
-    // Windows: try to connect
-    return new Promise((resolve) => {
-      const testClient = net.connect(SOCKET_PATH);
-      testClient.on("connect", () => {
-        testClient.destroy();
-        resolve(true);
-      });
-      testClient.on("error", () => {
-        resolve(false);
-      });
+  return new Promise((resolve) => {
+    const testClient = net.connect(SOCKET_PATH);
+    const timeout = setTimeout(() => {
+      testClient.destroy();
+      resolve(false);
+    }, 1000);
+    
+    testClient.on("connect", () => {
+      clearTimeout(timeout);
+      testClient.destroy();
+      resolve(true);
     });
-  } else {
-    return Promise.resolve(fs.existsSync(SOCKET_PATH));
-  }
+    
+    testClient.on("error", () => {
+      clearTimeout(timeout);
+      // Remove stale socket file on Unix
+      if (process.platform !== "win32" && fs.existsSync(SOCKET_PATH)) {
+        try {
+          fs.unlinkSync(SOCKET_PATH);
+        } catch (e) {
+          // Ignore
+        }
+      }
+      resolve(false);
+    });
+  });
 }
 
 /**
