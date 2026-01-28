@@ -526,9 +526,13 @@ async function autoStartDev() {
 async function start() {
   checkForUpdates();
   
-  if (process.argv.includes("--auto")) {
+  const command = process.argv[2];
+  
+  if (command === "start" || process.argv.includes("--auto")) {
+    // Direct start: 9remote start
     await autoStartDev();
   } else {
+    // Menu mode: 9remote
     await mainMenu();
   }
 }

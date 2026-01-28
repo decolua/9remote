@@ -147,17 +147,19 @@ html.terminal-page body {
   touch-action: none;
 }
 
-/* Terminal wrapper - isolate scroll to xterm only */
+/* Terminal wrapper */
 .terminal-wrapper {
   overflow: hidden !important;
-  touch-action: none;
 }
 
-/* Allow scroll only inside xterm viewport */
+/* XTerm - enable touch events for JS scroll handler */
+.terminal-wrapper .xterm-screen {
+  touch-action: pan-y !important;
+}
+
+/* XTerm scrollbar - visible for debugging */
 .terminal-wrapper .xterm-viewport {
-  touch-action: pan-y;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
+  overflow-y: auto !important;
 }
 
 /* Disable text selection on buttons */

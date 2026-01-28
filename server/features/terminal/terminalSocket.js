@@ -4,20 +4,15 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 import { isRemoteAvailable } from "../remote/remoteSocket.js";
-import { 
-  ensureZellij, 
-  isZellijAvailable, 
-  listZellijSessions,
-  attachZellijSession,
-  killZellijSession,
-  getZellijSessionInfo
-} from "../../utils/zellij.js";
+import * as daemonClient from "./ptyDaemonClient.js";
 
-// Store sessions: sessionId -> { pty, name, createdAt, buffer, zellijSession }
+// Store sessions: sessionId -> { pty, name, createdAt, buffer, daemon }
 const sessions = new Map();
 
-// Zellij availability flag
-let zellijEnabled = false;
+// Persistence mode:
+// - "daemon": PTY Daemon (persistent + scrollback) ⭐ Recommended
+// - "buffer": PTY + file persistence (scrollback, no process persistence)
+const PERSISTENCE_MODE = "daemon";
 
 // Session metadata file for preserving names across restarts
 const SESSION_METADATA_FILE = path.join(os.homedir(), ".9remote", "sessions.json");
@@ -46,13 +41,10 @@ function saveSessionMetadata() {
   try {
     const metadata = {};
     for (const [id, session] of sessions) {
-      if (session.zellijSession) {
-        metadata[id] = {
-          name: session.name,
-          createdAt: session.createdAt,
-          zellijSession: session.zellijSession
-        };
-      }
+      metadata[id] = {
+        name: session.name,
+        createdAt: session.createdAt
+      };
     }
     
     const dir = path.dirname(SESSION_METADATA_FILE);
@@ -93,7 +85,7 @@ function getCodespaceInfo() {
 const DEVCONTAINER_CONFIG = {
   name: "9Remote",
   postCreateCommand: "npm install -g 9remote@latest",
-  postAttachCommand: "9remote",
+  postAttachCommand: "9remote start",
   forwardPorts: [2208],
   portsAttributes: {
     "2208": {
@@ -115,7 +107,7 @@ function getAutoStartStatus(workspacePath) {
     }
     const content = fs.readFileSync(devcontainerPath, "utf8");
     const config = JSON.parse(content);
-    const enabled = config.postAttachCommand === "9remote";
+    const enabled = config.postAttachCommand === "9remote start" || config.postAttachCommand === "9remote";
     return { enabled, exists: true };
   } catch {
     return { enabled: false, exists: false, error: "Failed to read config" };
@@ -145,7 +137,7 @@ function setAutoStart(workspacePath, enabled) {
     }
     
     if (enabled) {
-      config.postAttachCommand = "9remote";
+      config.postAttachCommand = "9remote start";
       if (!config.postCreateCommand) {
         config.postCreateCommand = "npm install -g 9remote@latest";
       }
@@ -222,55 +214,160 @@ function buildShellEnv() {
   return env;
 }
 
+// Buffer persistence directory
+const BUFFER_DIR = path.join(os.homedir(), ".9remote", "buffers");
+
 /**
- * Initialize Zellij and restore sessions
+ * Ensure buffer directory exists
  */
-export async function initializeZellij() {
+function ensureBufferDir() {
+  if (!fs.existsSync(BUFFER_DIR)) {
+    fs.mkdirSync(BUFFER_DIR, { recursive: true });
+  }
+}
+
+/**
+ * Save session buffer to file
+ */
+function saveSessionBuffer(sessionId, buffer) {
+  if (PERSISTENCE_MODE !== "buffer") return;
+  ensureBufferDir();
+  const filePath = path.join(BUFFER_DIR, `${sessionId}.buf`);
   try {
-    await ensureZellij();
-    zellijEnabled = true;
-    console.log("✅ Zellij enabled - sessions will persist");
-    
-    // Load saved session metadata (names, etc)
-    const savedMetadata = loadSessionMetadata();
-    
-    // Restore existing Zellij sessions
-    const existingSessions = await listZellijSessions();
-    for (const session of existingSessions) {
-      // Parse sessionId from Zellij session name (format: 9remote-{sessionId})
-      const match = session.name.match(/^9remote-(.+)$/);
-      if (match) {
-        const sessionId = match[1];
-        
-        // Get saved metadata or use default
-        const metadata = savedMetadata[sessionId] || {};
-        const sessionName = metadata.name || `Terminal ${sessions.size + 1}`;
-        const createdAt = metadata.createdAt || Date.now();
-        
-        console.log(`🔄 Restored session: ${sessionId} (${sessionName})`);
-        
-        sessions.set(sessionId, {
-          zellijSession: session.name,
-          name: sessionName,
-          createdAt: createdAt,
-          buffer: [],
-          restored: true,
-          needsAttach: true
-        });
-      }
-    }
-    
-    if (existingSessions.length > 0) {
-      console.log(`✅ Restored ${existingSessions.length} session(s)`);
+    const content = buffer.join("");
+    fs.writeFileSync(filePath, content, "utf8");
+  } catch (error) {
+    console.log(`⚠️  Failed to save buffer for ${sessionId}:`, error.message);
+  }
+}
+
+/**
+ * Load session buffer from file
+ */
+function loadSessionBuffer(sessionId) {
+  if (PERSISTENCE_MODE !== "buffer") return null;
+  const filePath = path.join(BUFFER_DIR, `${sessionId}.buf`);
+  try {
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, "utf8");
+      return content;
     }
   } catch (error) {
-    console.log("⚠️  Zellij not available - sessions will not persist");
-    console.log("   Install Zellij for full session persistence: https://zellij.dev");
-    zellijEnabled = false;
+    console.log(`⚠️  Failed to load buffer for ${sessionId}:`, error.message);
+  }
+  return null;
+}
+
+/**
+ * Delete session buffer file
+ */
+function deleteSessionBuffer(sessionId) {
+  const filePath = path.join(BUFFER_DIR, `${sessionId}.buf`);
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    // Ignore
+  }
+}
+
+/**
+ * List saved buffer sessions (for restore)
+ */
+function listSavedBufferSessions() {
+  ensureBufferDir();
+  try {
+    const files = fs.readdirSync(BUFFER_DIR);
+    return files
+      .filter(f => f.endsWith(".buf"))
+      .map(f => f.replace(".buf", ""));
+  } catch (error) {
+    return [];
+  }
+}
+
+// Store daemon IO handler reference
+let daemonIo = null;
+
+/**
+ * Initialize terminal sessions
+ */
+export async function initializeTerminal() {
+  // Daemon mode - recommended
+  if (PERSISTENCE_MODE === "daemon") {
+    console.log("🚀 Daemon mode - persistent PTY with scrollback");
+    
+    const connected = await daemonClient.initDaemonClient();
+    if (!connected) {
+      console.error("❌ Failed to connect to PTY daemon, falling back to buffer mode");
+    } else {
+      // Load existing sessions from daemon
+      const daemonSessions = await daemonClient.listSessions();
+      for (const s of daemonSessions) {
+        sessions.set(s.id, {
+          daemon: true,
+          name: s.name,
+          createdAt: s.createdAt
+        });
+        console.log(`🔄 Found daemon session: ${s.id} (${s.name})`);
+      }
+      
+      if (daemonSessions.length > 0) {
+        console.log(`✅ Connected to daemon with ${daemonSessions.length} session(s)`);
+      } else {
+        console.log("✅ Connected to PTY daemon");
+      }
+      return;
+    }
+  }
+
+  // Buffer mode (fallback)
+  console.log("📦 Buffer persistence mode - scrollback enabled");
+  
+  const savedSessions = listSavedBufferSessions();
+  const metadata = loadSessionMetadata();
+  
+  for (const sessionId of savedSessions) {
+    const meta = metadata[sessionId] || {};
+    sessions.set(sessionId, {
+      pty: null,
+      name: meta.name || `Terminal ${sessions.size + 1}`,
+      createdAt: meta.createdAt || Date.now(),
+      buffer: [],
+      needsRestore: true
+    });
+    console.log(`🔄 Found saved session: ${sessionId}`);
+  }
+  
+  if (savedSessions.length > 0) {
+    console.log(`✅ Found ${savedSessions.length} saved session(s)`);
   }
 }
 
 export function setupTerminalSocket(io) {
+  daemonIo = io;
+  
+  // Setup daemon event handlers (forward to socket.io clients)
+  if (PERSISTENCE_MODE === "daemon") {
+    daemonClient.on("output", ({ sessionId, data }) => {
+      io.emit("output", { sessionId, data });
+    });
+    
+    daemonClient.on("sessionClosed", (sessionId) => {
+      sessions.delete(sessionId);
+      io.emit("sessionClosed", sessionId);
+    });
+    
+    daemonClient.on("sessionRenamed", ({ sessionId, name }) => {
+      const session = sessions.get(sessionId);
+      if (session) {
+        session.name = name;
+      }
+      io.emit("session-renamed", { sessionId, name });
+    });
+  }
+
   io.on("connection", (socket) => {
     console.log(`📟 Terminal client connected: ${socket.id}`);
     
@@ -280,10 +377,10 @@ export function setupTerminalSocket(io) {
       startCodespaceHeartbeat();
     }
 
-    // Send server info immediately on connect (include Codespace info and Zellij status)
+    // Send server info immediately on connect
     socket.emit("serverInfo", { 
       remoteAvailable: isRemoteAvailable(),
-      zellijEnabled,
+      daemonMode: PERSISTENCE_MODE === "daemon" && daemonClient.isConnected(),
       ...getCodespaceInfo()
     });
 
@@ -309,58 +406,24 @@ export function setupTerminalSocket(io) {
       const defaultCwd = getDefaultCwd();
 
       try {
-        let sessionData;
-        
-        if (zellijEnabled) {
-          // Use Zellij for persistent sessions
-          const zellijSessionName = `9remote-${sessionId}`;
-          
-          try {
-            // Attach to Zellij session via PTY
-            const ptyProcess = attachZellijSession(zellijSessionName, pty, shellEnv, defaultCwd);
-            
-            sessionData = {
-              pty: ptyProcess,
-              zellijSession: zellijSessionName,
+        // Daemon mode
+        if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
+          const result = await daemonClient.createSession(name, 80, 24);
+          if (result.success) {
+            sessions.set(result.sessionId, {
+              daemon: true,
               name: name || `Terminal ${sessions.size + 1}`,
-              createdAt: Date.now(),
-              buffer: []
-            };
-            
-            // Buffer output (max 50KB)
-            const MAX_BUFFER_SIZE = 50 * 1024;
-            ptyProcess.onData((data) => {
-              sessionData.buffer.push(data);
-              let totalSize = sessionData.buffer.reduce((sum, chunk) => sum + chunk.length, 0);
-              while (totalSize > MAX_BUFFER_SIZE && sessionData.buffer.length > 1) {
-                const removed = sessionData.buffer.shift();
-                totalSize -= removed.length;
-              }
-
-              io.emit("output", { sessionId, data: Buffer.from(data, "utf-8") });
+              createdAt: Date.now()
             });
-
-            ptyProcess.onExit(({ exitCode }) => {
-              console.log(`Zellij session exited: ${zellijSessionName}, code=${exitCode}`);
-              // Mark PTY as closed
-              sessionData.pty = null;
-              // Don't delete session - it persists in Zellij
-              // Client can reconnect later
-            });
-            
-            console.log(`Zellij session attached: ${zellijSessionName}`);
-            
-            // Save metadata for persistence
-            saveSessionMetadata();
-          } catch (error) {
-            console.error("Failed to attach Zellij session, falling back to PTY:", error);
-            zellijEnabled = false;
+            callback({ success: true, sessionId: result.sessionId });
+          } else {
+            callback({ success: false, error: result.error });
           }
+          return;
         }
-        
-        if (!zellijEnabled) {
-          // Fallback to PTY
-          const shellArgs = process.platform === "win32" ? [] : ["-l"];
+
+        // Buffer mode PTY
+        const shellArgs = process.platform === "win32" ? [] : ["-l"];
           const ptyProcess = pty.spawn(shell, shellArgs, {
             name: "xterm-256color",
             cols: 80,
@@ -379,6 +442,8 @@ export function setupTerminalSocket(io) {
 
           // Buffer output (max 50KB)
           const MAX_BUFFER_SIZE = 50 * 1024;
+          let saveTimeout = null;
+          
           ptyProcess.onData((data) => {
             sessionData.buffer.push(data);
             let totalSize = sessionData.buffer.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -388,19 +453,31 @@ export function setupTerminalSocket(io) {
             }
 
             io.emit("output", { sessionId, data: Buffer.from(data, "utf-8") });
+            
+            // Debounced save buffer to file (every 2s of inactivity)
+            if (PERSISTENCE_MODE === "buffer") {
+              if (saveTimeout) clearTimeout(saveTimeout);
+              saveTimeout = setTimeout(() => {
+                saveSessionBuffer(sessionId, sessionData.buffer);
+              }, 2000);
+            }
           });
 
           ptyProcess.onExit(({ exitCode }) => {
             console.log(`PTY exited: sessionId=${sessionId}, code=${exitCode}`);
+            // Save final buffer before deleting
+            if (PERSISTENCE_MODE === "buffer" && sessionData.buffer.length > 0) {
+              saveSessionBuffer(sessionId, sessionData.buffer);
+            }
             sessions.delete(sessionId);
+            deleteSessionBuffer(sessionId);
             io.emit("sessionClosed", sessionId);
           });
           
           console.log(`PTY created: sessionId=${sessionId}, name=${name}`);
-        }
 
         sessions.set(sessionId, sessionData);
-        callback({ success: true, sessionId, zellijEnabled });
+        callback({ success: true, sessionId });
       } catch (error) {
         console.error("Failed to create session:", error);
         callback({ success: false, error: error.message });
@@ -408,28 +485,54 @@ export function setupTerminalSocket(io) {
     });
 
     // Join session - attach PTY if needed
-    socket.on("joinSession", (sessionId, callback) => {
+    socket.on("joinSession", async (sessionId, callback) => {
       const session = sessions.get(sessionId);
       if (!session) {
         callback({ success: false, error: "Session not found" });
         return;
       }
 
-      // If session needs attach (restored session), attach PTY now
-      if (session.needsAttach && session.zellijSession) {
+      // Daemon mode
+      if (session.daemon && daemonClient.isConnected()) {
+        try {
+          const result = await daemonClient.joinSession(sessionId);
+          callback({ success: result.success, name: result.name, error: result.error });
+        } catch (e) {
+          callback({ success: false, error: e.message });
+        }
+        return;
+      }
+
+      // Buffer mode: restore PTY for saved session
+      if (session.needsRestore && PERSISTENCE_MODE === "buffer") {
         try {
           const shell = getDefaultShell();
           const shellEnv = buildShellEnv();
           const defaultCwd = getDefaultCwd();
+          const shellArgs = process.platform === "win32" ? [] : ["-l"];
           
-          const ptyProcess = attachZellijSession(session.zellijSession, pty, shellEnv, defaultCwd);
+          const ptyProcess = pty.spawn(shell, shellArgs, {
+            name: "xterm-256color",
+            cols: 80,
+            rows: 24,
+            cwd: defaultCwd,
+            env: shellEnv,
+            useConpty: false
+          });
           
-          // Update session with PTY
           session.pty = ptyProcess;
-          session.needsAttach = false;
+          session.needsRestore = false;
           
-          // Buffer output
+          // Load saved buffer
+          const savedBuffer = loadSessionBuffer(sessionId);
+          if (savedBuffer) {
+            session.buffer = [savedBuffer];
+          }
+          
+          // Buffer output with persistence
           const MAX_BUFFER_SIZE = 50 * 1024;
+          let saveTimeout = null;
+          
           ptyProcess.onData((data) => {
             session.buffer.push(data);
             let totalSize = session.buffer.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -439,19 +542,28 @@ export function setupTerminalSocket(io) {
             }
 
             io.emit("output", { sessionId, data: Buffer.from(data, "utf-8") });
+            
+            // Debounced save
+            if (saveTimeout) clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+              saveSessionBuffer(sessionId, session.buffer);
+            }, 2000);
           });
 
           ptyProcess.onExit(({ exitCode }) => {
-            console.log(`Zellij session exited: ${session.zellijSession}, code=${exitCode}`);
-            // Mark PTY as closed
-            session.pty = null;
-            session.needsAttach = true; // Allow re-attach
+            console.log(`PTY exited: sessionId=${sessionId}, code=${exitCode}`);
+            if (session.buffer.length > 0) {
+              saveSessionBuffer(sessionId, session.buffer);
+            }
+            sessions.delete(sessionId);
+            deleteSessionBuffer(sessionId);
+            io.emit("sessionClosed", sessionId);
           });
           
-          console.log(`✅ Attached to restored session: ${sessionId}`);
+          console.log(`✅ Restored PTY session: ${sessionId}`);
         } catch (error) {
-          console.error("Failed to attach restored session:", error);
-          callback({ success: false, error: "Failed to attach session" });
+          console.error("Failed to restore session:", error);
+          callback({ success: false, error: "Failed to restore session" });
           return;
         }
       }
@@ -470,11 +582,16 @@ export function setupTerminalSocket(io) {
       if (!sessionId) return;
       const session = sessions.get(sessionId);
       if (session) {
+        // Daemon mode
+        if (session.daemon && daemonClient.isConnected()) {
+          daemonClient.sendInput(sessionId, data);
+          return;
+        }
+        
         const input = Buffer.isBuffer(data) ? data.toString("utf-8") : data;
         if (session.pty) {
           session.pty.write(input);
         }
-        // Note: Zellij sessions handle input through attach mechanism
       }
     });
 
@@ -501,7 +618,6 @@ export function setupTerminalSocket(io) {
         if (session.pty) {
           session.pty.write(filePath);
         }
-        // Note: Zellij sessions handle file paths through attach mechanism
 
       } catch (error) {
         console.error("File upload error:", error);
@@ -516,31 +632,45 @@ export function setupTerminalSocket(io) {
     socket.on("resize", ({ sessionId, cols, rows }) => {
       if (!sessionId) return;
       const session = sessions.get(sessionId);
-      if (session && session.pty) {
+      if (!session) return;
+      
+      // Daemon mode
+      if (session.daemon && daemonClient.isConnected()) {
+        daemonClient.resizeSession(sessionId, cols, rows);
+        return;
+      }
+      
+      if (session.pty) {
         try {
           session.pty.resize(cols, rows);
         } catch (error) {
-          // PTY might be closed, ignore error
           console.log(`Resize failed for ${sessionId}: ${error.message}`);
         }
       }
-      // Note: Zellij handles resize automatically
     });
 
     // Delete session
-    socket.on("deleteSession", (sessionId, callback) => {
+    socket.on("deleteSession", async (sessionId, callback) => {
       const session = sessions.get(sessionId);
       if (session) {
-        if (session.zellijSession) {
-          // Kill Zellij session
-          killZellijSession(session.zellijSession);
-        } else if (session.pty) {
-          // Kill PTY
+        // Daemon mode
+        if (session.daemon && daemonClient.isConnected()) {
+          try {
+            await daemonClient.deleteSession(sessionId);
+            sessions.delete(sessionId);
+            callback({ success: true });
+          } catch (e) {
+            callback({ success: false, error: e.message });
+          }
+          return;
+        }
+        
+        if (session.pty) {
           session.pty.kill();
         }
         sessions.delete(sessionId);
+        deleteSessionBuffer(sessionId);
         io.emit("sessionClosed", sessionId);
-        // Save metadata for persistence
         saveSessionMetadata();
         callback({ success: true });
       } else {
@@ -549,13 +679,23 @@ export function setupTerminalSocket(io) {
     });
 
     // Rename session
-    socket.on("renameSession", ({ sessionId, name }, callback) => {
+    socket.on("renameSession", async ({ sessionId, name }, callback) => {
       const session = sessions.get(sessionId);
       if (session) {
+        // Daemon mode
+        if (session.daemon && daemonClient.isConnected()) {
+          try {
+            await daemonClient.renameSession(sessionId, name);
+            session.name = name;
+            callback({ success: true });
+          } catch (e) {
+            callback({ success: false, error: e.message });
+          }
+          return;
+        }
+        
         session.name = name;
-        // Broadcast to all clients that session was renamed
         io.emit("session-renamed", { sessionId, name });
-        // Save metadata for persistence
         saveSessionMetadata();
         callback({ success: true });
       } else {

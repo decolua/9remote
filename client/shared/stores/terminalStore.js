@@ -34,6 +34,8 @@ export const useTerminalStore = create(
         openedSessions: state.openedSessions.filter(id => id !== sessionId)
       })),
       
+      clearOpenedSessions: () => set({ openedSessions: [] }),
+      
       // Get current view
       getCurrentView: () => {
         const { viewStack } = get();

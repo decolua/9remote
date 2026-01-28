@@ -9,7 +9,7 @@ import { setupSocketIO } from "./lib/socketio.js";
 import { handleLocalSites } from "./api/localSites.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
-import { initializeZellij } from "./features/terminal/terminalSocket.js";
+import { initializeTerminal } from "./features/terminal/terminalSocket.js";
 
 function isCodespaces() {
   return process.env.CODESPACES === "true";
@@ -52,8 +52,8 @@ const hostname = "localhost";
 const port = parseInt(process.env.PORT || "2208", 10);
 
 export async function startServer() {
-  // Initialize Zellij for session persistence
-  await initializeZellij();
+  // Initialize terminal sessions
+  await initializeTerminal();
   
   const proxy = createProxyServer();
   

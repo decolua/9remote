@@ -34,6 +34,7 @@ export default function TerminalPage() {
     setViewStack,
     addOpenedSession, 
     removeOpenedSession,
+    clearOpenedSessions,
     reset: resetStore
   } = useTerminalStore();
   
@@ -69,9 +70,13 @@ export default function TerminalPage() {
 
   // Pop view and reload sessions
   const popView = useCallback(() => {
+    // Clear all opened sessions when going back from terminal to list (unmount terminals)
+    if (currentView.type === "terminal") {
+      clearOpenedSessions();
+    }
     storePopView();
     loadSessions();
-  }, [storePopView, loadSessions]);
+  }, [currentView, clearOpenedSessions, storePopView, loadSessions]);
 
   // Load sessions when socket connects
   useEffect(() => {
@@ -298,7 +303,7 @@ export default function TerminalPage() {
         const isTerminalView = currentView.type === "terminal";
         return (
           <div 
-            key={`terminal-${sessionId}-${sessions.length}`}
+            key={sessionId}
             className={`absolute inset-0 transition-all duration-300 ease-out ${
               isTerminalView
                 ? "translate-x-0"
