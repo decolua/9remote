@@ -26,10 +26,20 @@ const SERVER_PORT = 2208;
 const MAX_RESTART_ATTEMPTS = 3;
 const RESTART_WINDOW_MS = 60000; // 1 minute
 
+// Orange color from gitbook (#E68A6E)
+const ORANGE = chalk.rgb(230, 138, 110);
+const ORANGE_DIM = chalk.rgb(200, 120, 95);
+
 /**
  * Get current version from package.json
  */
 function getVersion() {
+  // When bundled, version is injected at build time
+  if (typeof __CLI_VERSION__ !== "undefined") {
+    return __CLI_VERSION__;
+  }
+  
+  // Dev mode: read from package.json
   try {
     const packagePath = path.join(__dirname, "package.json");
     const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
@@ -40,10 +50,46 @@ function getVersion() {
 }
 
 /**
+ * Show banner
+ */
+function showBanner() {
+  const version = getVersion();
+  const width = 63;
+  
+  console.log("");
+  console.log(ORANGE("╔" + "═".repeat(width - 2) + "╗"));
+  console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
+  
+  const title = `🚀  9Remote v${version}`;
+  const titlePadding = Math.floor((width - 2 - title.length) / 2);
+  console.log(
+    ORANGE("║") + 
+    " ".repeat(titlePadding) + 
+    ORANGE.bold(title) + 
+    " ".repeat(width - 2 - titlePadding - title.length) + 
+    ORANGE("║")
+  );
+  
+  const subtitle = "Remote terminal access from anywhere";
+  const subtitlePadding = Math.floor((width - 2 - subtitle.length) / 2);
+  console.log(
+    ORANGE("║") + 
+    " ".repeat(subtitlePadding) + 
+    chalk.gray(subtitle) + 
+    " ".repeat(width - 2 - subtitlePadding - subtitle.length) + 
+    ORANGE("║")
+  );
+  
+  console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
+  console.log(ORANGE("╚" + "═".repeat(width - 2) + "╝"));
+  console.log("");
+}
+
+/**
  * Helper: Show QR code for connect URL
  */
 function showQRCode(url, title = "📱 Scan QR to connect:") {
-  console.log(chalk.cyan(`\n${title}`));
+  console.log(ORANGE(`\n${title}`));
   qrcode.generate(url, {
     small: true,
     type: 'terminal',
@@ -66,18 +112,60 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   }
 
   const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
+  const width = 63;
 
   showQRCode(connectUrl);
 
-  console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)`));
-  console.log(chalk.gray(`Or enter key manually:\n`));
-  console.log(chalk.gray(`┌──────────────┬────────────────────────────────────────┐`));
-  console.log(chalk.gray(`│`) + chalk.white(` App URL      `) + chalk.gray(`│`) + chalk.blue(` ${WORKER_URL}/login`.padEnd(39)) + chalk.gray(`│`));
-  console.log(chalk.gray(`├──────────────┼────────────────────────────────────────┤`));
-  console.log(chalk.gray(`│`) + chalk.white(` One-Time Key `) + chalk.gray(`│`) + chalk.bold.yellow(` ${tempKeyData.tempKey}`.padEnd(39)) + chalk.gray(`│`));
-  console.log(chalk.gray(`├──────────────┼────────────────────────────────────────┤`));
-  console.log(chalk.gray(`│`) + chalk.white(` Key          `) + chalk.gray(`│`) + chalk.gray(` ${selectedKey}`.padEnd(39)) + chalk.gray(`│`));
-  console.log(chalk.gray(`└──────────────┴────────────────────────────────────────┘`));
+  console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)\n`));
+  
+  console.log(ORANGE("╔" + "═".repeat(width - 2) + "╗"));
+  console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
+  
+  // App URL
+  const appLabel = "App URL";
+  const appValue = `${WORKER_URL}/login`;
+  const appPadding = 2; // Left padding
+  const appContent = `${appLabel.padEnd(16)}${appValue}`;
+  const appSpaceAfter = width - 2 - appPadding - appContent.length;
+  console.log(
+    ORANGE("║") + 
+    " ".repeat(appPadding) + 
+    chalk.white(appLabel.padEnd(16)) + 
+    chalk.gray(appValue) + 
+    " ".repeat(appSpaceAfter) + 
+    ORANGE("║")
+  );
+  
+  // One-Time Key
+  const keyLabel = "One-Time Key";
+  const keyValue = tempKeyData.tempKey;
+  const keyContent = `${keyLabel.padEnd(16)}${keyValue}`;
+  const keySpaceAfter = width - 2 - appPadding - keyContent.length;
+  console.log(
+    ORANGE("║") + 
+    " ".repeat(appPadding) + 
+    chalk.white(keyLabel.padEnd(16)) + 
+    ORANGE.bold(keyValue) + 
+    " ".repeat(keySpaceAfter) + 
+    ORANGE("║")
+  );
+  
+  // Permanent Key
+  const permLabel = "Key";
+  const permValue = selectedKey;
+  const permContent = `${permLabel.padEnd(16)}${permValue}`;
+  const permSpaceAfter = width - 2 - appPadding - permContent.length;
+  console.log(
+    ORANGE("║") + 
+    " ".repeat(appPadding) + 
+    chalk.white(permLabel.padEnd(16)) + 
+    chalk.gray(permValue) + 
+    " ".repeat(permSpaceAfter) + 
+    ORANGE("║")
+  );
+  
+  console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
+  console.log(ORANGE("╚" + "═".repeat(width - 2) + "╝"));
 }
 
 /**
@@ -225,7 +313,7 @@ async function createNamedTunnel(apiKey) {
  * Helper: Start server and tunnel
  */
 async function startServerAndTunnel(selectedKey) {
-  console.log(chalk.cyan("\n🚀 Starting server..."));
+  console.log(ORANGE("\n🚀 Starting server..."));
 
   // Kill existing cloudflared process
   try {
@@ -250,7 +338,7 @@ async function startServerAndTunnel(selectedKey) {
   // Wait for server to start
   await new Promise((resolve) => setTimeout(resolve, 2000));
 
-  console.log(chalk.cyan("✅ Creating tunnel..."));
+  console.log(ORANGE("✅ Creating tunnel..."));
 
   // Ensure cloudflared binary
   try {
@@ -265,7 +353,7 @@ async function startServerAndTunnel(selectedKey) {
   let tunnelData;
   try {
     tunnelData = await createNamedTunnel(selectedKey);
-    console.log(chalk.gray(`✅ Tunnel ID: ${tunnelData.tunnelId}`));
+    console.log(ORANGE(`✅ Tunnel ID: ${tunnelData.tunnelId}`));
   } catch (error) {
     console.log(chalk.red(`❌ Failed to create tunnel: ${error.message}`));
     serverManager.shutdown();
@@ -275,7 +363,7 @@ async function startServerAndTunnel(selectedKey) {
   const { token, hostname: tunnelUrl } = tunnelData;
 
   // Spawn cloudflared with token and auto-restart callback
-  console.log(chalk.cyan("✅ Starting tunnel..."));
+  console.log(ORANGE("✅ Starting tunnel..."));
   let tunnelProcess;
   
   const startTunnel = async (tunnelToken) => {
@@ -295,7 +383,7 @@ async function startServerAndTunnel(selectedKey) {
   }
 
   // Wait for tunnel to be ready
-  console.log(chalk.cyan(`✅ Tunnel URL: ${tunnelUrl}`));
+  console.log(ORANGE(`✅ Tunnel URL: ${tunnelUrl}`));
   
   const maxWaitTime = 60000;
   const checkInterval = 2000;
@@ -332,7 +420,7 @@ async function startServerAndTunnel(selectedKey) {
     } catch { }
     
     const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    process.stdout.write(`\r${chalk.cyan("   Waiting for tunnel")} ${chalk.yellow(spinners[i % spinners.length])} ${chalk.gray(`(${i * 2}s)`)}`);
+    process.stdout.write(`\r${ORANGE("   Waiting for tunnel")} ${ORANGE(spinners[i % spinners.length])} ${chalk.gray(`(${i * 2}s)`)}`);
     
     await new Promise(r => setTimeout(r, checkInterval));
   }
@@ -346,7 +434,7 @@ async function startServerAndTunnel(selectedKey) {
     return null;
   }
   
-  console.log(chalk.green(`✅ Connection established`));
+  console.log(ORANGE(`✅ Connection established`));
 
   // Save state
   saveState({
@@ -365,8 +453,7 @@ async function startServerAndTunnel(selectedKey) {
  */
 async function mainMenu() {
   console.clear();
-  console.log(chalk.cyan.bold("\n🖥️  9Remote Terminal"));
-  console.log(chalk.gray("━".repeat(30)));
+  showBanner();
 
   const { action } = await inquirer.prompt([
     {
@@ -439,7 +526,7 @@ async function manageKey() {
     console.log(chalk.green("✅ Default key created!"));
   }
 
-  console.log(chalk.cyan("\n🔑 Manage Key"));
+  console.log(ORANGE("\n🔑 Manage Key"));
   console.log(chalk.gray("━".repeat(30)));
   console.log(chalk.white(`Key: ${keyData.key}`));
   console.log(chalk.gray(`Created: ${keyData.createdAt}\n`));
@@ -463,15 +550,46 @@ async function manageKey() {
     
     if (tempKeyData) {
       const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
+      const width = 63;
+      
       showQRCode(connectUrl);
       
-      console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)`));
-      console.log(chalk.gray(`Or enter key manually:\n`));
-      console.log(chalk.gray(`┌──────────────┬────────────────────────────────────────┐`));
-      console.log(chalk.gray(`│`) + chalk.white(` App URL      `) + chalk.gray(`│`) + chalk.blue(` ${WORKER_URL}/login`.padEnd(39)) + chalk.gray(`│`));
-      console.log(chalk.gray(`├──────────────┼────────────────────────────────────────┤`));
-      console.log(chalk.gray(`│`) + chalk.white(` One-Time Key `) + chalk.gray(`│`) + chalk.bold.yellow(` ${tempKeyData.tempKey}`.padEnd(39)) + chalk.gray(`│`));
-      console.log(chalk.gray(`└──────────────┴────────────────────────────────────────┘`));
+      console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)\n`));
+      
+      console.log(ORANGE("╔" + "═".repeat(width - 2) + "╗"));
+      console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
+      
+      // App URL
+      const appLabel = "App URL";
+      const appValue = `${WORKER_URL}/login`;
+      const appPadding = 2;
+      const appContent = `${appLabel.padEnd(16)}${appValue}`;
+      const appSpaceAfter = width - 2 - appPadding - appContent.length;
+      console.log(
+        ORANGE("║") + 
+        " ".repeat(appPadding) + 
+        chalk.white(appLabel.padEnd(16)) + 
+        chalk.gray(appValue) + 
+        " ".repeat(appSpaceAfter) + 
+        ORANGE("║")
+      );
+      
+      // One-Time Key
+      const keyLabel = "One-Time Key";
+      const keyValue = tempKeyData.tempKey;
+      const keyContent = `${keyLabel.padEnd(16)}${keyValue}`;
+      const keySpaceAfter = width - 2 - appPadding - keyContent.length;
+      console.log(
+        ORANGE("║") + 
+        " ".repeat(appPadding) + 
+        chalk.white(keyLabel.padEnd(16)) + 
+        ORANGE.bold(keyValue) + 
+        " ".repeat(keySpaceAfter) + 
+        ORANGE("║")
+      );
+      
+      console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
+      console.log(ORANGE("╚" + "═".repeat(width - 2) + "╝"));
     } else {
       console.log(chalk.red("❌ Failed to create one-time key"));
     }
@@ -504,8 +622,7 @@ async function manageKey() {
  * Auto start dev server (--auto flag)
  */
 async function autoStartDev() {
-  console.log(chalk.cyan.bold("\n🖥️  9Remote Dev Mode"));
-  console.log(chalk.gray("━".repeat(30)));
+  showBanner();
 
   const machineId = await getConsistentMachineId();
   let keyData = loadKey();
@@ -537,9 +654,6 @@ async function autoStartDev() {
 
 // Start app
 async function start() {
-  const version = getVersion();
-  console.log(chalk.cyan(`\n🚀 9Remote CLI v${version}\n`));
-  
   checkForUpdates();
   
   const command = process.argv[2];

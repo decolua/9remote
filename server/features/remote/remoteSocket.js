@@ -19,7 +19,7 @@ export async function checkRemoteAvailable() {
   // Quick check for known headless environments
   if (isKnownHeadless()) {
     remoteAvailable = false;
-    console.log("ℹ️ Remote desktop not available (headless environment)");
+    console.log("✅ Remote desktop not available (headless environment)");
     return remoteAvailable;
   }
   
@@ -31,7 +31,7 @@ export async function checkRemoteAvailable() {
     remoteAvailable = true;
   } catch {
     remoteAvailable = false;
-    console.log("ℹ️ Remote desktop not available (no display or robotjs not installed)");
+    console.log("✅ Remote desktop not available (no display or robotjs not installed)");
   }
   return remoteAvailable;
 }

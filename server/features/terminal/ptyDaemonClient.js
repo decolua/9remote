@@ -18,7 +18,11 @@ const SOCKET_PATH = process.platform === "win32"
   ? "\\\\.\\pipe\\9remote-pty"
   : path.join(SOCKET_DIR, "pty-daemon.sock");
 
-const DAEMON_SCRIPT = path.join(__dirname, "ptyDaemon.js");
+// Daemon script locations
+// - Source: dev mode (server/features/terminal/ptyDaemon.js)
+// - Dist: package mode (dist/ptyDaemon.cjs)
+const DAEMON_SCRIPT_SOURCE = path.join(__dirname, "ptyDaemon.js");
+const DAEMON_SCRIPT_DIST = path.join(__dirname, "ptyDaemon.cjs");
 
 // Client state
 let client = null;
@@ -188,40 +192,65 @@ function isDaemonRunning() {
 }
 
 /**
+ * Get daemon script path - run from original location (not copy)
+ * because node-pty is a native module that needs node_modules
+ */
+function getDaemonScript() {
+  // Ensure socket directory exists
+  if (!fs.existsSync(SOCKET_DIR)) {
+    fs.mkdirSync(SOCKET_DIR, { recursive: true });
+  }
+  
+  // Check source first (dev mode)
+  if (fs.existsSync(DAEMON_SCRIPT_SOURCE)) {
+    return { script: DAEMON_SCRIPT_SOURCE, cwd: __dirname };
+  }
+  
+  // Check dist (package mode)
+  if (fs.existsSync(DAEMON_SCRIPT_DIST)) {
+    return { script: DAEMON_SCRIPT_DIST, cwd: __dirname };
+  }
+
+  console.error("[DaemonClient] ❌ Daemon script not found");
+  return null;
+}
+
+/**
  * Start daemon process
  */
 async function startDaemon() {
-  console.log("[DaemonClient] Starting PTY Daemon...");
-  console.log("[DaemonClient] Script path:", DAEMON_SCRIPT);
-  console.log("[DaemonClient] Socket path:", SOCKET_PATH);
-  console.log("[DaemonClient] Working dir:", __dirname);
-
   // Ensure socket directory exists
   if (!fs.existsSync(SOCKET_DIR)) {
     try {
       fs.mkdirSync(SOCKET_DIR, { recursive: true });
-      console.log("[DaemonClient] Created socket directory:", SOCKET_DIR);
     } catch (e) {
       console.error("[DaemonClient] Failed to create socket directory:", e.message);
       return false;
     }
   }
 
+  const daemonInfo = getDaemonScript();
+  if (!daemonInfo) {
+    return false;
+  }
+
+  const { script, cwd } = daemonInfo;
+
   // Capture daemon output for debugging
   const logPath = path.join(SOCKET_DIR, "daemon.log");
   let logFd;
   
   try {
-    logFd = fs.openSync(logPath, "a");
+    logFd = fs.openSync(logPath, "w"); // Use 'w' to clear old logs
   } catch (e) {
     console.error("[DaemonClient] Failed to open log file:", e.message);
     logFd = "ignore";
   }
   
-  const daemon = spawn("node", [DAEMON_SCRIPT], {
+  const daemon = spawn("node", [script], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
-    cwd: __dirname
+    cwd: cwd // Run from script's directory so it can find node_modules
   });
 
   daemon.unref();
@@ -234,24 +263,26 @@ async function startDaemon() {
       // Ignore close errors
     }
   }
-  
-  console.log("[DaemonClient] Spawned daemon process, PID:", daemon.pid);
-  console.log("[DaemonClient] Daemon logs:", logPath);
 
   // Wait for daemon to start
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 100));
     if (await isDaemonRunning()) {
-      console.log("[DaemonClient] ✅ Daemon started successfully");
       return true;
-    }
-    if (i % 5 === 0) {
-      console.log(`[DaemonClient] Waiting for daemon... (${i * 100}ms)`);
     }
   }
 
-  console.error("[DaemonClient] ❌ Failed to start daemon after 2s");
-  console.error("[DaemonClient] Check logs at:", logPath);
+  // Show daemon log if failed
+  console.error("[DaemonClient] ❌ Failed to start daemon");
+  try {
+    const log = fs.readFileSync(logPath, "utf8");
+    if (log.trim()) {
+      console.error("[DaemonClient] Daemon log:");
+      console.error(log);
+    }
+  } catch (e) {
+    // Ignore
+  }
   return false;
 }
 
@@ -265,19 +296,15 @@ async function connectToDaemon() {
   try {    
     // Check if daemon is running
     if (!(await isDaemonRunning())) {
-      console.log("[DaemonClient] Daemon not running, attempting to start...");
-      
       // Start daemon
       if (!(await startDaemon())) {
         console.error("[DaemonClient] ❌ Failed to start daemon");
         reconnecting = false;
         return false;
       }
-    } else {
     }
 
     // Connect
-    console.log("[DaemonClient] Connecting to daemon...");
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         console.error("[DaemonClient] ❌ Connection timeout after 5s");
@@ -290,7 +317,6 @@ async function connectToDaemon() {
 
       client.on("connect", () => {
         clearTimeout(timeout);
-        console.log("[DaemonClient] ✅ Connected to daemon");
         connected = true;
         reconnecting = false;
         emit("connected");
@@ -314,7 +340,6 @@ async function connectToDaemon() {
       });
 
       client.on("close", () => {
-        console.log("[DaemonClient] Disconnected from daemon");
         connected = false;
         client = null;
         emit("disconnected");
@@ -322,7 +347,6 @@ async function connectToDaemon() {
         // Auto-reconnect after 2s
         setTimeout(() => {
           if (!connected && !reconnecting) {
-            console.log("[DaemonClient] Attempting to reconnect...");
             connectToDaemon();
           }
         }, 2000);

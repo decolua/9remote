@@ -10,6 +10,9 @@ import { handleLocalSites } from "./api/localSites.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
 import { initializeTerminal } from "./features/terminal/terminalSocket.js";
+import chalk from "chalk";
+
+const ORANGE = chalk.rgb(230, 138, 110);  
 
 function isCodespaces() {
   return process.env.CODESPACES === "true";
@@ -146,7 +149,7 @@ export async function startServer() {
 
   server.listen(port, (err) => {
     if (err) throw err;
-    console.log(`✅ Server ready on http://${hostname}:${port}`);
+    console.log(ORANGE(`✅ Server ready on http://${hostname}:${port}`));
   });
 }
 

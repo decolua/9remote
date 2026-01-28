@@ -5,6 +5,9 @@ import fs from "fs";
 import path from "path";
 import { isRemoteAvailable } from "../remote/remoteSocket.js";
 import * as daemonClient from "./ptyDaemonClient.js";
+import chalk from "chalk";
+
+const ORANGE = chalk.rgb(230, 138, 110);
 
 // Store sessions: sessionId -> { pty, name, createdAt, buffer, daemon }
 const sessions = new Map();
@@ -312,9 +315,9 @@ export async function initializeTerminal() {
       }
       
       if (daemonSessions.length > 0) {
-        console.log(`✅ Connected to daemon with ${daemonSessions.length} session(s)`);
+        console.log(ORANGE(`✅ Connected to daemon with ${daemonSessions.length} session(s)`));
       } else {
-        console.log("✅ Connected to PTY daemon");
+        console.log(ORANGE("✅ Connected to PTY daemon"));
       }
       return;
     }

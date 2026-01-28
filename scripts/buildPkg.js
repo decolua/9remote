@@ -13,6 +13,12 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 
+// Read version from cli/package.json
+const cliPackageJson = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "cli/package.json"), "utf-8")
+);
+const VERSION = cliPackageJson.version;
+
 function run(cmd, cwd = ROOT) {
   console.log(`> ${cmd}`);
   execSync(cmd, { stdio: "inherit", cwd });
@@ -34,7 +40,8 @@ const baseConfig = {
     js: "const __importMetaUrl = require('url').pathToFileURL(__filename).href;"
   },
   define: {
-    "import.meta.url": "__importMetaUrl"
+    "import.meta.url": "__importMetaUrl",
+    "__CLI_VERSION__": JSON.stringify(VERSION)
   }
 };
 
@@ -72,6 +79,23 @@ async function buildServer() {
   console.log(`✅ Server → cli/dist/server.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
 }
 
+async function buildDaemon() {
+  console.log("\n📦 Bundling PTY Daemon...");
+  
+  const outfile = path.join(ROOT, "cli/dist/ptyDaemon.cjs");
+  ensureDir(path.dirname(outfile));
+  
+  await esbuild.build({
+    ...baseConfig,
+    entryPoints: [path.join(ROOT, "server/features/terminal/ptyDaemon.js")],
+    outfile,
+    external: ["node-pty"]
+  });
+  
+  const stats = fs.statSync(outfile);
+  console.log(`✅ Daemon → cli/dist/ptyDaemon.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
+}
+
 async function build() {
   console.log("🔨 Building npm package (lightweight - no Next.js)...\n");
 
@@ -81,9 +105,10 @@ async function build() {
     fs.rmSync(distDir, { recursive: true });
   }
 
-  // Bundle CLI + Server into cli/dist/
+  // Bundle CLI + Server + Daemon into cli/dist/
   await buildCli();
   await buildServer();
+  await buildDaemon();
 
   // Create npm pack from cli/
   console.log("\n📦 Creating npm package...");
