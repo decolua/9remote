@@ -191,7 +191,7 @@ export default function Terminal({ socket, connected: wsConnected, sessionId, is
     };
 
     termElement.addEventListener("touchstart", handleTouchStart, { passive: true });
-    termElement.addEventListener("touchmove", handleTouchMove, { passive: true });
+    termElement.addEventListener("touchmove", handleTouchMove, { passive: false });
     termElement.addEventListener("touchend", handleTouchEnd, { passive: true });
 
     // ResizeObserver handles all container size changes (window resize, keyboard, orientation)
