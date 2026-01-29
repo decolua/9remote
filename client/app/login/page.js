@@ -8,7 +8,8 @@ import { maskApiKey } from "@/shared/utils/formatters";
 import Container from "@/shared/components/ui/Container";
 import Button from "@/shared/components/ui/Button";
 import Spinner from "@/shared/components/ui/Spinner";
-import { X, Eye, EyeOff, LogIn, Trash2, Terminal } from "@/shared/components/ui/Icon";
+import QRScanner from "@/shared/components/ui/QRScanner";
+import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode } from "@/shared/components/ui/Icon";
 
 function LoginContent() {
   const [apiKey, setApiKey] = useState("");
@@ -16,6 +17,7 @@ function LoginContent() {
   const [savedKeys, setSavedKeys] = useState([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -109,6 +111,25 @@ function LoginContent() {
     setSavedKeys(loadKeys());
   };
 
+  // Handle QR scan result
+  const handleQRScan = async (tempKey) => {
+    console.log("handleQRScan called with tempKey:", tempKey);
+    
+    const result = await authenticateWithToken(tempKey, true);
+    
+    console.log("Authentication result:", result);
+    
+    if (result.success) {
+      console.log("Authentication successful, redirecting to /terminal/");
+      if (rememberKey && result.apiKey) {
+        saveKey(result.apiKey);
+      }
+      router.push("/terminal/");
+    } else {
+      console.error("Authentication failed:", result.error);
+    }
+  };
+
   // Clear input
   const handleClearInput = () => {
     setApiKey("");
@@ -164,6 +185,32 @@ function LoginContent() {
           <p className="text-dark-100 mb-8">
             Access your terminal from anywhere
           </p>
+
+          {/* QR Scan Section - Temporarily hidden */}
+          {false && (
+            <>
+              <div className="flex flex-col items-center mb-3">
+                <button
+                  onClick={() => setShowQRScanner(true)}
+                  className="flex flex-col items-center gap-2 p-2 border border-dark-400 rounded-brand hover:border-brand-500 hover:scale-105 transition-all duration-200"
+                  aria-label="Scan QR Code"
+                >
+                  <QrCode size={48} strokeWidth={1.5} className="text-brand-500" />
+                  <span className="text-sm text-dark-100">Tap to scan</span>
+                </button>
+              </div>
+
+              {/* Divider */}
+              <div className="relative mb-3">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-dark-400"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-4 bg-dark-600 text-dark-100">or enter key manually</span>
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="space-y-4">
             <div>
@@ -271,6 +318,12 @@ function LoginContent() {
         </div>
       </Container>
 
+      {/* QR Scanner Modal */}
+      <QRScanner
+        isOpen={showQRScanner}
+        onClose={() => setShowQRScanner(false)}
+        onScan={handleQRScan}
+      />
     </>
   );
 }

@@ -70,4 +70,5 @@ export const {
   Share,
   Smartphone,
   MoreVertical,
+  QrCode,
 } = LucideIcons;
