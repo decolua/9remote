@@ -125,9 +125,9 @@ Find files quickly:
 - No need to browse every time
 
 **Git Status Colors**
-- 🟢 Green - New files
-- 🟡 Yellow - Modified files
-- 🔴 Red - Deleted files
+- [icon:check-circle] Green - New files
+- [icon:alert-triangle] Yellow - Modified files
+- [icon:alert-triangle] Red - Deleted files
 
 **Large Projects**
 - Use search instead of browsing

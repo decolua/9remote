@@ -23,7 +23,7 @@ const STANDALONE_SERVER = path.join(__dirname, "server.cjs");
 const DEV_SERVER = path.join(PROJECT_ROOT, "server/index.js");
 const WORKER_URL = "https://remote.9router.com";
 const SERVER_PORT = 2208;
-const MAX_RESTART_ATTEMPTS = 3;
+const MAX_RESTART_ATTEMPTS = 10;
 const RESTART_WINDOW_MS = 60000; // 1 minute
 
 // Orange color from gitbook (#E68A6E)
@@ -185,7 +185,7 @@ function killProcessOnPort(port) {
 /**
  * Start server with auto-restart on crash
  */
-function startServerWithRestart(onReady) {
+function startServerWithRestart(onReady, onServerCrash) {
   const restartTimes = [];
   let currentProcess = null;
   let isShuttingDown = false;
@@ -196,6 +196,7 @@ function startServerWithRestart(onReady) {
     if (isFirstStart) {
       killProcessOnPort(SERVER_PORT);
       isFirstStart = false;
+    } else {
     }
 
     // Use dev server if exists (development), otherwise use standalone (npm package)
@@ -213,9 +214,12 @@ function startServerWithRestart(onReady) {
       detached: false,
       env: { ...process.env, PORT: String(SERVER_PORT) }
     });
+    
 
     currentProcess.on("exit", (code, signal) => {
-      if (isShuttingDown) return;
+      if (isShuttingDown) {
+        return;
+      }
 
       // Check if it's a crash (non-zero exit code or unexpected signal)
       if (code !== 0 || signal) {
@@ -236,11 +240,19 @@ function startServerWithRestart(onReady) {
         }
 
         console.log(chalk.yellow(`🔄 Restarting server... (attempt ${restartTimes.length}/${MAX_RESTART_ATTEMPTS})`));
+        console.log(ORANGE_DIM("⚠️  [DEBUG] NOTE: Tunnel connection may be stale - will restart tunnel"));
+        
+        // ✅ Callback để restart cloudflared
+        if (onServerCrash) {
+          console.log(chalk.yellow("✅ Restarting tunnel connection..."));
+          onServerCrash();
+        }
         
         // Wait a bit before restart
         setTimeout(() => {
           spawnServer();
         }, 1000);
+      } else {
       }
     });
 
@@ -269,23 +281,20 @@ function startServerWithRestart(onReady) {
 /**
  * Helper: Setup exit handler for server processes
  */
+let exitHandlerRegistered = false;
+
 function setupExitHandler(serverManager, tunnelProcess, apiKey) {
+  if (exitHandlerRegistered) return;
+  exitHandlerRegistered = true;
+  
   process.on("SIGINT", async () => {
     console.log(chalk.yellow("\n\n🛑 Stopping server..."));
+    
     serverManager.shutdown();
     tunnelProcess.kill();
     resetRestartCounter();
-    
-    // Cleanup tunnel on worker
-    try {
-      await fetch(`${WORKER_URL}/api/tunnel/delete`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey })
-      });
-    } catch { }
-    
     clearState();
+    
     console.log(chalk.green("✅ Server stopped"));
     process.exit(0);
   });
@@ -306,7 +315,8 @@ async function createNamedTunnel(apiKey) {
     throw new Error(error.error || "Failed to create tunnel");
   }
 
-  return response.json();
+  const data = await response.json();
+  return data;
 }
 
 /**
@@ -318,22 +328,91 @@ async function startServerAndTunnel(selectedKey) {
   // Kill existing cloudflared process
   try {
     killCloudflared();
+    // Wait for process to be killed
+    await new Promise(resolve => setTimeout(resolve, 1000));
   } catch { }
 
   // Create session first
   try {
-    await fetch(`${WORKER_URL}/api/session/create`, {
+    const sessionResponse = await fetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey: selectedKey })
     });
+    
+    if (!sessionResponse.ok) {
+      const text = await sessionResponse.text();
+      console.log(chalk.red(`❌ Failed to create session: ${sessionResponse.status} ${sessionResponse.statusText}`));
+      console.log(chalk.yellow(`Response: ${text.substring(0, 200)}`));
+      return null;
+    }
+    
+    const sessionData = await sessionResponse.json();
   } catch (error) {
     console.log(chalk.red(`❌ Failed to create session: ${error.message}`));
     return null;
   }
 
   // Start server with auto-restart
-  const serverManager = startServerWithRestart();
+  const serverManager = startServerWithRestart(null, async () => {
+    // Callback khi server crash - đợi server ready rồi gửi SIGHUP
+    
+    if (!tunnelProcess) {
+      return;
+    }
+    
+    // Wait for server to be ready
+    const maxWait = 60000; // 60s
+    const checkInterval = 1000; // 1s
+    const maxRetries = Math.floor(maxWait / checkInterval);
+    let serverReady = false;
+    
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await fetch(`http://localhost:${SERVER_PORT}/api/health`, {
+          method: "GET",
+          timeout: 2000
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.status === "ok") {
+            serverReady = true;
+            console.log(chalk.green(`✅ Server ready after ${i + 1}s`));
+            break;
+          }
+        }
+      } catch (err) {
+        // Server not ready yet
+      }
+      
+      if (i % 5 === 0) {
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
+    
+    if (!serverReady) {
+      console.log(chalk.red("❌ Server not ready after 60s - skipping tunnel reconnect"));
+      return;
+    }
+    
+    // Server ready - send SIGHUP to cloudflared to reconnect
+    try {
+      process.kill(tunnelProcess.pid, "SIGHUP");
+      console.log(chalk.green("✅ SIGHUP sent - cloudflared should reconnect"));
+    } catch (err) {      
+      // Fallback: kill and restart
+      try {
+        tunnelProcess.kill();
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        tunnelProcess = await startTunnel(token);
+        console.log(chalk.green("✅ Tunnel restarted"));
+      } catch (restartErr) {
+        console.log(chalk.red(`❌ Failed to restart tunnel: ${restartErr.message}`));
+      }
+    }
+  });
 
   // Wait for server to start
   await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -381,6 +460,7 @@ async function startServerAndTunnel(selectedKey) {
     serverManager.shutdown();
     return null;
   }
+  
 
   // Wait for tunnel to be ready
   console.log(ORANGE(`✅ Tunnel URL: ${tunnelUrl}`));
@@ -415,9 +495,11 @@ async function startServerAndTunnel(selectedKey) {
         if (curlResult.includes("ok")) {
           tunnelReady = true;
           break;
+        } else {
         }
       }
-    } catch { }
+    } catch (err) {
+    }
     
     const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     process.stdout.write(`\r${ORANGE("   Waiting for tunnel")} ${ORANGE(spinners[i % spinners.length])} ${chalk.gray(`(${i * 2}s)`)}`);

@@ -1,116 +1,130 @@
 # Using GitHub Codespaces
 
-Try 9Remote instantly in your browser - no installation required!
+Access your Codespace from anywhere using 9Remote - perfect for coding on the go!
 
-## What is Codespaces?
+## What is This?
 
-GitHub Codespaces lets you run 9Remote directly in your browser without installing anything on your computer. Perfect for:
-- Quick testing before installing
-- Accessing from any device
-- No technical setup needed
-- Works on Chromebooks, tablets, or any computer
+GitHub Codespaces gives you a cloud development environment. With 9Remote, you can access it from your phone or any device, anywhere.
 
-## How to Use
+## Quick Setup
 
-### Step 1: Open in Browser
+### Step 1: Install 9Remote in Your Codespace
 
-1. Visit the 9Remote GitHub page
-2. Click the green **"Code"** button
-3. Select **"Codespaces"** tab
-4. Click **"Create codespace"**
+Open the terminal in your Codespace and run:
 
-Your browser will open a cloud computer with 9Remote already installed!
+```bash
+npm install -g 9remote
+```
 
-### Step 2: Wait a Moment
+### Step 2: Enable Auto-Start (Recommended)
 
-The cloud computer needs 1-2 minutes to start up. You'll see a loading screen - just wait.
+**Method 1: From 9Remote App (Easiest)**
 
-### Step 3: Start 9Remote
+1. Connect to your Codespace with 9Remote
+2. Open the menu (☰)
+3. Tap "Codespace"
+4. Toggle "Auto Start 9Remote" ON
 
-Once ready, you'll see a terminal window. The server will start automatically and show you a **QR code**.
+Now 9Remote will start automatically every time you open this Codespace!
 
-### Step 4: Connect from Your Phone
+**Method 2: Using devcontainer.json**
 
-**Scan the QR code** with your phone camera, or:
+Create or edit `.devcontainer/devcontainer.json` in your repo:
 
-1. Copy the access key shown on screen
-2. Open your phone browser
-3. Go to: `remote.9router.com/login`
-4. Enter the key
-5. Tap "Connect"
+```json
+{
+  "postStartCommand": "9remote start"
+}
+```
 
-That's it! You're now connected to the cloud computer.
+This will start 9Remote automatically without showing the menu.
+
+### Step 3: Connect from Your Phone
+
+After 9Remote starts, you'll see:
+- **QR Code** - Scan with your phone camera
+- **Access Key** - Or enter manually at `remote.9router.com/login`
+
+That's it! Now you can code from your phone.
 
 ## What Can You Do?
 
-Once connected, you can:
-- ✅ Use the terminal (run commands)
-- ✅ Control the desktop
-- ✅ Browse and edit files
-- ✅ Test all 9Remote features
+Once connected:
+- [icon:check-circle] Run terminal commands
+- [icon:check-circle] Edit code files
+- [icon:check-circle] View desktop (if enabled)
+- [icon:check-circle] Access your dev server
+- [icon:check-circle] Debug from anywhere
 
-Everything runs in the cloud - your phone just controls it!
+## Usage Tips
 
-## Important to Know
-
-**Free Usage**
-- Free GitHub accounts get 60 hours/month
-- More than enough for testing
+**Free Tier**
+- 60 hours/month free
+- Perfect for side projects
 - No credit card needed
 
 **Auto-Stop**
-- The cloud computer stops after 30 minutes of no activity
+- Codespace stops after 30 min idle
 - Your work is saved
-- Just create a new one to continue
+- 9Remote reconnects when you restart
 
-**No Installation**
-- Nothing installed on your computer
-- Everything runs in the cloud
-- Close browser anytime - no cleanup needed
+**Port Forwarding**
+- Dev servers (3000, 8080, etc.) work automatically
+- Access via 9Remote tunnel
+- No manual port setup needed
 
-## When to Use Codespaces
+## Common Use Cases
 
-**Good for:**
-- Testing 9Remote before installing
-- Quick access from any device
-- Learning how it works
-- Temporary use
+**1. Code on the Go**
+- Stuck in traffic? Fix that bug from your phone
+- At cafe without laptop? Review PRs
+- Traveling light? Full dev environment in pocket
 
-**Not ideal for:**
-- Daily use (use local installation instead)
-- Long-term projects
-- When you need it always available
+**2. Quick Fixes**
+- Emergency hotfix needed
+- Check logs remotely
+- Restart services
+
+**3. Show & Tell**
+- Demo your work from phone
+- Share screen in meetings
+- Quick code reviews
 
 ## Troubleshooting
 
-**Can't create Codespace?**
-- Need a free GitHub account
-- Sign up at github.com
-- Then try again
+**9Remote not starting?**
+```bash
+# Check if installed
+9remote --version
 
-**QR code not showing?**
-- Wait 2-3 minutes for full startup
-- Refresh the page
-- Try creating a new Codespace
+# Reinstall if needed
+npm install -g 9remote
+```
 
 **Can't connect from phone?**
-- Make sure phone has internet
-- Try entering key manually
-- Check the key is copied correctly
+- Wait 30 seconds after Codespace starts
+- Check QR code is visible
+- Try manual key entry
 
-## Ready for Real Use?
+**Codespace stopped?**
+- Just restart it from GitHub
+- 9Remote auto-starts (if configured)
+- Reconnect from phone
 
-If you like 9Remote and want to use it regularly, install it on your computer:
+## Ready for Local Use?
 
-👉 **[Installation Guide](getting-started)**
+If you want 9Remote on your own computer:
 
-Local installation is:
-- Faster
-- Always available
-- Uses your own computer
+[icon:arrow-right] **[Installation Guide](/getting-started)**
+
+Local installation:
+- Faster performance
 - No time limits
+- Works offline
+- Your own machine
 
 ---
 
-**Questions?** Check our [FAQ](../faq) or [Troubleshooting](../troubleshooting) guide.
+**Questions?** Check our [FAQ](/faq) or [Troubleshooting](/troubleshooting) guide.
+
 

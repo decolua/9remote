@@ -1,21 +1,24 @@
 "use client";
 
 export default function AnimatedBackground() {
+
+  return null;
+  
   return (
-    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none" style={{ background: "#0a0e27" }}>
+    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none" style={{ background: "transparent" }}>
       {/* Grid pattern */}
       <div 
-        className="absolute inset-0 opacity-[0.08]"
+        className="absolute inset-0 opacity-[0.03]"
         style={{
           backgroundImage: `
-            linear-gradient(to right, #00ff9f 1px, transparent 1px),
-            linear-gradient(to bottom, #00ff9f 1px, transparent 1px)
+            linear-gradient(to right, #E68A6E 1px, transparent 1px),
+            linear-gradient(to bottom, #E68A6E 1px, transparent 1px)
           `,
           backgroundSize: "50px 50px"
         }}
       />
 
-      {/* Blob 1 - Green */}
+      {/* Blob 1 - Warm orange */}
       <div 
         className="blob blob-1"
         style={{
@@ -25,13 +28,13 @@ export default function AnimatedBackground() {
           width: "700px",
           height: "700px",
           borderRadius: "50%",
-          background: "rgba(0, 255, 159, 0.18)",
+          background: "rgba(230, 138, 110, 0.08)",
           filter: "blur(130px)",
           animation: "blob 20s ease-in-out infinite"
         }}
       />
 
-      {/* Blob 2 - Cyan */}
+      {/* Blob 2 - Light peach */}
       <div 
         className="blob blob-2"
         style={{
@@ -41,14 +44,14 @@ export default function AnimatedBackground() {
           width: "600px",
           height: "600px",
           borderRadius: "50%",
-          background: "rgba(0, 217, 255, 0.15)",
+          background: "rgba(250, 229, 222, 0.5)",
           filter: "blur(130px)",
           animation: "blob 22s ease-in-out infinite",
           animationDelay: "2s"
         }}
       />
 
-      {/* Blob 3 - Magenta */}
+      {/* Blob 3 - Soft coral */}
       <div 
         className="blob blob-3"
         style={{
@@ -58,18 +61,18 @@ export default function AnimatedBackground() {
           width: "650px",
           height: "650px",
           borderRadius: "50%",
-          background: "rgba(255, 0, 255, 0.12)",
+          background: "rgba(244, 203, 189, 0.4)",
           filter: "blur(130px)",
           animation: "blob 25s ease-in-out infinite",
           animationDelay: "4s"
         }}
       />
 
-      {/* Vignette overlay */}
+      {/* Light vignette overlay */}
       <div 
         className="absolute inset-0"
         style={{
-          background: "radial-gradient(circle at center, transparent 0%, rgba(10, 14, 39, 0.5) 100%)"
+          background: "radial-gradient(circle at center, transparent 0%, rgba(255, 255, 255, 0.3) 100%)"
         }}
       />
 

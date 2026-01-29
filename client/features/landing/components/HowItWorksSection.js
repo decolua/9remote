@@ -23,20 +23,20 @@ export default function HowItWorksSection() {
   ];
 
   return (
-    <section id="how-it-works" className="relative py-20 px-4 sm:px-6 lg:px-8 bg-slate-900/30">
+    <section id="how-it-works" className="relative py-20 px-4 sm:px-6 lg:px-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-white">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-gray-900">
             How It Works
           </h2>
-          <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             Get started in 3 simple steps
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
           {/* Connection lines (desktop only) */}
-          <div className="hidden md:block absolute top-16 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-orange-500 via-orange-500 to-orange-500" />
+          <div className="hidden md:block absolute top-16 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-[#E68A6E] via-[#E68A6E] to-[#E68A6E]" />
 
           {steps.map((step, index) => (
             <div
@@ -50,23 +50,23 @@ export default function HowItWorksSection() {
               {/* Step number circle */}
               <div className="flex justify-center mb-6">
                 <div className="relative">
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-orange-500/50 relative z-10">
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#E68A6E] to-[#E68A6E] flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-[#E68A6E]/50 relative z-10">
                     {step.number}
                   </div>
-                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 animate-ping opacity-20" />
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#E68A6E] to-[#E68A6E] animate-ping opacity-20" />
                 </div>
               </div>
 
               {/* Step content */}
               <div className="text-center">
-                <h3 className="text-xl font-semibold text-white mb-2">
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
                   {step.title}
                 </h3>
-                <p className="text-slate-400 text-sm mb-4">
+                <p className="text-gray-600 text-sm mb-4">
                   {step.description}
                 </p>
-                <div className="p-3 bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-lg">
-                  <code className="text-orange-400 font-mono text-xs sm:text-sm">
+                <div className="p-3 bg-white backdrop-blur-sm border border-gray-200 rounded-lg">
+                  <code className="text-[#E68A6E] font-mono text-xs sm:text-sm">
                     {step.command}
                   </code>
                 </div>

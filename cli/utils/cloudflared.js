@@ -15,7 +15,7 @@ const PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 let isIntentionalShutdown = false;
 
 // Auto-restart configuration
-const MAX_RESTART_ATTEMPTS = 3;
+const MAX_RESTART_ATTEMPTS = 5;
 const RESTART_WINDOW_MS = 60000; // 1 minute
 let restartTimes = [];
 let restartCallback = null;
@@ -177,6 +177,11 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
     stdio: ["ignore", "pipe", "pipe"]
   });
   
+  // Reset intentional shutdown flag immediately after spawn
+  // This ensures auto-restart works if cloudflared crashes
+  isIntentionalShutdown = false;
+  console.log(`✅ Cloudflared spawned with PID: ${child.pid}`);
+  
   let connectionCount = 0;
   
   const handleLog = (data) => {
@@ -204,10 +209,7 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
       return;
     }
     
-    // Show errors
-    if (msg.includes("ERR") || msg.includes("error") || msg.includes("failed")) {
-      console.error(`[cloudflared] ${msg}`);
-    }
+    // Suppress all other cloudflared logs
   };
   
   child.stdout.on("data", handleLog);
@@ -217,10 +219,12 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
     console.error("❌ cloudflared error:", error);
   });
   
-  child.on("exit", (code) => {
-    // Only log unexpected exits
-    if (!isIntentionalShutdown && code !== 0 && code !== null) {
-      console.log(`cloudflared exited with code ${code}`);
+  child.on("exit", (code, signal) => {
+    console.log(`⚠️  Cloudflared process exited (code: ${code}, signal: ${signal}, intentional: ${isIntentionalShutdown})`);
+    
+    // Restart on ANY unexpected exit (including code 0 if not intentional)
+    if (!isIntentionalShutdown) {
+      console.log(`⚠️  Cloudflared unexpected exit detected - will restart`);
       
       // Auto-restart logic
       if (restartCallback) {
@@ -233,12 +237,17 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
         if (restartTimes.length <= MAX_RESTART_ATTEMPTS) {
           console.log(`🔄 Restarting tunnel... (attempt ${restartTimes.length}/${MAX_RESTART_ATTEMPTS})`);
           setTimeout(() => {
+            console.log(`🔄 Executing tunnel restart...`);
             restartCallback(tunnelToken);
           }, 2000);
         } else {
           console.log(`❌ Too many tunnel restarts (${MAX_RESTART_ATTEMPTS} in ${RESTART_WINDOW_MS / 1000}s). Giving up.`);
         }
+      } else {
+        console.log(`⚠️  No restart callback registered`);
       }
+    } else {
+      console.log(`ℹ️  Cloudflared exit ignored (intentional shutdown)`);
     }
   });
   
@@ -256,11 +265,13 @@ export function killCloudflared() {
     if (fs.existsSync(PID_FILE)) {
       isIntentionalShutdown = true;
       const pid = parseInt(fs.readFileSync(PID_FILE, "utf8"));
+      // console.log(`🔄 Killing cloudflared process PID: ${pid}`);
       process.kill(pid);
       fs.unlinkSync(PID_FILE);
+      console.log(`✅ Cloudflared killed`);
     }
   } catch (error) {
-    // Silently ignore errors
+    // console.log(`⚠️  Error killing cloudflared: ${error.message}`);
   }
 }
 

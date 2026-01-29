@@ -4,7 +4,7 @@ import Link from "next/link";
 
 export default function Footer() {
   return (
-    <footer className="relative border-t border-slate-800 bg-slate-950/50 backdrop-blur-sm py-12 px-4 sm:px-6 lg:px-8">
+    <footer className="relative border-t border-gray-200 bg-gray-50/50 backdrop-blur-sm py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
           {/* Brand */}
@@ -13,32 +13,32 @@ export default function Footer() {
               <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center">
                 <span className="text-xl font-bold text-white">9</span>
               </div>
-              <h3 className="text-xl font-bold text-white">9Remote</h3>
+              <h3 className="text-xl font-bold text-gray-900">9Remote</h3>
             </div>
-            <p className="text-slate-400 text-sm max-w-md mb-4">
+            <p className="text-gray-600 text-sm max-w-md mb-4">
               Secure remote terminal and desktop access. Connect to your machines from anywhere in the world.
             </p>
-            <p className="text-slate-500 text-xs">
+            <p className="text-gray-500 text-xs">
               © {new Date().getFullYear()} 9Remote. All rights reserved.
             </p>
           </div>
 
           {/* Product */}
           <div>
-            <h4 className="text-white font-semibold mb-4">Product</h4>
+            <h4 className="text-gray-900 font-semibold mb-4">Product</h4>
             <ul className="space-y-2">
               <li>
-                <Link href="/login" className="text-slate-400 hover:text-orange-400 text-sm transition-colors">
+                <Link href="/login" className="text-gray-600 hover:text-orange-400 text-sm transition-colors">
                   Login
                 </Link>
               </li>
               <li>
-                <Link href="/terminal" className="text-slate-400 hover:text-orange-400 text-sm transition-colors">
+                <Link href="/terminal" className="text-gray-600 hover:text-orange-400 text-sm transition-colors">
                   Terminal
                 </Link>
               </li>
               <li>
-                <Link href="/remote" className="text-slate-400 hover:text-orange-400 text-sm transition-colors">
+                <Link href="/remote" className="text-gray-600 hover:text-orange-400 text-sm transition-colors">
                   Remote Desktop
                 </Link>
               </li>
@@ -47,14 +47,14 @@ export default function Footer() {
 
           {/* Resources */}
           <div>
-            <h4 className="text-white font-semibold mb-4">Resources</h4>
+            <h4 className="text-gray-900 font-semibold mb-4">Resources</h4>
             <ul className="space-y-2">
               <li>
                 <a 
                   href="https://github.com/decolua/9remote" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="text-slate-400 hover:text-orange-400 text-sm transition-colors"
+                  className="text-gray-600 hover:text-orange-400 text-sm transition-colors"
                 >
                   GitHub
                 </a>
@@ -64,7 +64,7 @@ export default function Footer() {
                   href="https://www.npmjs.com/package/9remote" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="text-slate-400 hover:text-orange-400 text-sm transition-colors"
+                  className="text-gray-600 hover:text-orange-400 text-sm transition-colors"
                 >
                   NPM
                 </a>
@@ -74,7 +74,7 @@ export default function Footer() {
                   href="https://github.com/decolua/9remote#readme" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="text-slate-400 hover:text-orange-400 text-sm transition-colors"
+                  className="text-gray-600 hover:text-orange-400 text-sm transition-colors"
                 >
                   Documentation
                 </a>
@@ -84,8 +84,8 @@ export default function Footer() {
         </div>
 
         {/* Bottom bar */}
-        <div className="pt-8 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4">
-          <p className="text-slate-500 text-xs">
+        <div className="pt-8 border-t border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <p className="text-gray-500 text-xs">
             Built with Next.js, Socket.io, and Cloudflare Workers
           </p>
           <div className="flex gap-6">
@@ -93,7 +93,7 @@ export default function Footer() {
               href="https://github.com/decolua/9remote" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-slate-500 hover:text-orange-400 text-xs transition-colors"
+              className="text-gray-500 hover:text-orange-400 text-xs transition-colors"
             >
               GitHub
             </a>
@@ -101,7 +101,7 @@ export default function Footer() {
               href="https://www.npmjs.com/package/9remote" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-slate-500 hover:text-orange-400 text-xs transition-colors"
+              className="text-gray-500 hover:text-orange-400 text-xs transition-colors"
             >
               NPM
             </a>

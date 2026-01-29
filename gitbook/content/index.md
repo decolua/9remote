@@ -8,12 +8,12 @@
 
 ### Key Features
 
-- **🖥️ Remote Terminal** - Full terminal access with multi-session support
-- **🖱️ Remote Desktop** - Control your desktop with mouse and keyboard
-- **📁 File Explorer** - Browse, edit files, and manage Git repositories
-- **🔒 Secure by Default** - Encrypted connections via Cloudflare tunnel
-- **⚡ Zero Configuration** - Just one command to start
-- **📱 Works Everywhere** - Browser, mobile, desktop - all supported
+- **[icon:monitor] Remote Terminal** - Full terminal access with multi-session support
+- **[icon:mouse] Remote Desktop** - Control your desktop with mouse and keyboard
+- **[icon:folder] File Explorer** - Browse, edit files, and manage Git repositories
+- **[icon:lock] Secure by Default** - Encrypted connections via Cloudflare tunnel
+- **[icon:zap] Zero Configuration** - Just one command to start
+- **[icon:smartphone] Works Everywhere** - Browser, mobile, desktop - all supported
 
 ### Why Choose 9Remote?
 

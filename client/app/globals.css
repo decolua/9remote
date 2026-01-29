@@ -2,17 +2,17 @@
 @import "tailwindcss";
 
 @theme {
-  /* Brand Orange Colors */
-  --color-brand-50: #fff4e6;
-  --color-brand-100: #ffe8cc;
-  --color-brand-200: #ffd199;
-  --color-brand-300: #ffba66;
-  --color-brand-400: #ffa333;
-  --color-brand-500: #f28c28;
-  --color-brand-600: #e67a0f;
-  --color-brand-700: #b35f0b;
-  --color-brand-800: #804408;
-  --color-brand-900: #4d2905;
+  /* Brand Colors */
+  --color-brand-50: #fdf3f0;
+  --color-brand-100: #fae5de;
+  --color-brand-200: #f4cbbd;
+  --color-brand-300: #efb19c;
+  --color-brand-400: #e9977b;
+  --color-brand-500: #E68A6E;
+  --color-brand-600: #d96f50;
+  --color-brand-700: #b9563b;
+  --color-brand-800: #8b3f2c;
+  --color-brand-900: #5c291d;
 
   /* Dark Background Colors */
   --color-dark-50: #e0e0e0;
@@ -128,7 +128,7 @@ body {
 
 /* iOS keyboard toolbar accent color */
 input, textarea {
-  accent-color: #f28c28;
+  accent-color: #E68A6E;
 }
 
 /* Prevent iOS Safari bounce/scroll when keyboard opens */

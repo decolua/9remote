@@ -4,63 +4,63 @@ export default function FeaturesSection() {
   const features = [
     {
       icon: (
-        <svg className="w-10 h-10 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
         </svg>
       ),
-      title: "Remote Terminal",
-      description: "Full terminal access from browser with XTerm.js. Execute commands in real-time.",
-      iconColor: "text-green-400"
+      title: "Code from bed",
+      description: "Terminal on phone",
+      iconColor: "text-[#E68A6E]"
     },
     {
       icon: (
-        <svg className="w-10 h-10 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 15.546c-.523 0-1.046.151-1.5.454a2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.701 2.701 0 00-1.5-.454M9 6v2m3-2v2m3-2v2M9 3h.01M12 3h.01M15 3h.01M21 21v-7a2 2 0 00-2-2H5a2 2 0 00-2 2v7h18zm-3-9v-2a2 2 0 00-2-2H8a2 2 0 00-2 2v2h12z" />
         </svg>
       ),
-      title: "Remote Desktop",
-      description: "Control your desktop remotely with mouse and keyboard support. Stream your screen.",
-      iconColor: "text-blue-400"
+      title: "Deploy at cafe",
+      description: "No heavy laptop needed",
+      iconColor: "text-[#E68A6E]"
     },
     {
       icon: (
-        <svg className="w-10 h-10 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+      title: "Fix bugs anywhere",
+      description: "Access from everywhere",
+      iconColor: "text-[#E68A6E]"
+    },
+    {
+      icon: (
+        <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+      ),
+      title: "Secure & fast",
+      description: "Auto tunnel, <50ms",
+      iconColor: "text-[#E68A6E]"
+    },
+    {
+      icon: (
+        <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 12h2a1 1 0 001-1v-2a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zM17 8h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1z" />
         </svg>
       ),
-      title: "QR Code Auth",
-      description: "Instant connection with QR scan. No manual key entry needed.",
-      iconColor: "text-purple-400"
+      title: "Simple & powerful",
+      description: "Just scan QR",
+      iconColor: "text-[#E68A6E]"
     },
     {
       icon: (
-        <svg className="w-10 h-10 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-        </svg>
-      ),
-      title: "Auto Tunnel",
-      description: "Cloudflare tunnel automatically created. No port forwarding or firewall config.",
-      iconColor: "text-cyan-400"
-    },
-    {
-      icon: (
-        <svg className="w-10 h-10 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1v-3z" />
-        </svg>
-      ),
-      title: "Multi-Session",
-      description: "Manage multiple terminal sessions simultaneously. Switch between them easily.",
-      iconColor: "text-yellow-400"
-    },
-    {
-      icon: (
-        <svg className="w-10 h-10 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       ),
-      title: "Real-time Sync",
-      description: "Socket.io powered instant synchronization. Low latency, high performance.",
-      iconColor: "text-orange-400"
+      title: "Light & smooth",
+      description: "No lag, no freeze",
+      iconColor: "text-[#E68A6E]"
     }
   ];
 
@@ -68,10 +68,10 @@ export default function FeaturesSection() {
     <section id="features" className="relative py-20 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-white">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-gray-900">
             Powerful Features
           </h2>
-          <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             Everything you need for secure remote access
           </p>
         </div>
@@ -80,7 +80,7 @@ export default function FeaturesSection() {
           {features.map((feature, index) => (
             <div
               key={index}
-              className="group p-6 bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-xl hover:border-orange-500/50 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-orange-500/10"
+              className="group p-6 bg-white backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm hover:border-[#E68A6E]/50 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-[#E68A6E]/10"
               style={{
                 animation: `fadeInUp 0.6s ease-out ${index * 0.1}s forwards`,
                 opacity: 0
@@ -89,10 +89,10 @@ export default function FeaturesSection() {
               <div className={`${feature.iconColor} mb-4 group-hover:scale-110 transition-all duration-300`}>
                 {feature.icon}
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2 transition-colors duration-300">
+              <h3 className="text-xl font-semibold text-gray-900 mb-2 transition-colors duration-300">
                 {feature.title}
               </h3>
-              <p className="text-slate-400 text-sm">
+              <p className="text-gray-600 text-sm">
                 {feature.description}
               </p>
             </div>

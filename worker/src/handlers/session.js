@@ -14,13 +14,14 @@ export async function handleSessionCreate(request, env, corsHeaders) {
 
   const { machineId } = parseApiKey(apiKey);
 
-  // Delete old session if exists
-  await env.DB.prepare(`DELETE FROM sessions WHERE machineId = ?`).bind(machineId).run();
-
-  // Create new session (tunnelUrl will be updated later)
+  // UPSERT session - keep existing tunnelUrl if CLI restart
   await env.DB.prepare(`
-    INSERT INTO sessions (machineId, apiKey, tunnelUrl, lastAccessAt)
-    VALUES (?, ?, NULL, datetime('now'))
+    INSERT INTO sessions (machineId, apiKey, tunnelUrl, lastAccessAt, expiresAt)
+    VALUES (?, ?, NULL, datetime('now'), datetime('now', '+7 days'))
+    ON CONFLICT(apiKey) 
+    DO UPDATE SET 
+      lastAccessAt = datetime('now'),
+      expiresAt = datetime('now', '+7 days')
   `).bind(machineId, apiKey).run();
 
   return jsonResponse({ success: true, machineId }, corsHeaders);

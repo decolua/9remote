@@ -27,9 +27,47 @@ export async function createTunnel(accountId, apiKey, email, machineId) {
   // Check if tunnel already exists
   const existingTunnel = await getTunnelByName(accountId, apiKey, email, tunnelName);
   if (existingTunnel) {
-    // Delete old tunnel first (also deletes DNS record)
-    await deleteTunnel(accountId, apiKey, email, existingTunnel.id, machineId);
+    console.log(`[Tunnel] Found existing tunnel: ${existingTunnel.id} (status: ${existingTunnel.status || 'unknown'})`);
+    
+    // Check CNAME to validate tunnel
+    const existingCname = await findDnsRecord(apiKey, email, machineId);
+    const expectedCnameContent = `${existingTunnel.id}.cfargotunnel.com`;
+    
+    if (existingCname && existingCname.content === expectedCnameContent) {
+      // CNAME valid → REUSE tunnel
+      console.log(`[Tunnel] CNAME valid - reusing existing tunnel (no DNS propagation delay)`);
+      
+      // Get FRESH token from Cloudflare
+      const tokenResponse = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/cfd_tunnel/${existingTunnel.id}/token`,
+        {
+          method: "GET",
+          headers: buildCfHeaders(apiKey, email)
+        }
+      );
+      const tokenData = await tokenResponse.json();
+      
+      if (!tokenData.success) {
+        throw new Error(`Failed to get tunnel token: ${JSON.stringify(tokenData.errors)}`);
+      }
+      
+      // Update ingress config (phòng trường hợp config thay đổi)
+      await configureTunnelIngress(accountId, apiKey, email, existingTunnel.id, publicHostname);
+      
+      return {
+        tunnelId: existingTunnel.id,
+        token: tokenData.result,
+        hostname: `https://${publicHostname}`
+      };
+    } else {
+      // CNAME mismatch → DELETE old tunnel and create new
+      console.log(`[Tunnel] CNAME mismatch (expected: ${expectedCnameContent}, got: ${existingCname?.content || 'none'}) - deleting old tunnel`);
+      await deleteTunnel(accountId, apiKey, email, existingTunnel.id, machineId);
+      console.log(`[Tunnel] Old tunnel deleted, creating new one...`);
+    }
   }
+  
+  console.log(`[Tunnel] Creating new tunnel...`);
   
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${accountId}/cfd_tunnel`,
@@ -51,12 +89,17 @@ export async function createTunnel(accountId, apiKey, email, machineId) {
 
   const tunnelId = data.result.id;
   
+  console.log(`[Tunnel] Created new tunnel: ${tunnelId}`);
+  
   // Create or update DNS CNAME record (reuse if exists - no spam)
+  console.log(`[Tunnel] Upserting DNS record for ${publicHostname}...`);
   await upsertDnsRecord(apiKey, email, machineId, tunnelId);
   
   // Configure tunnel ingress with public hostname
+  console.log(`[Tunnel] Configuring ingress for ${publicHostname} -> localhost:2208`);
   await configureTunnelIngress(accountId, apiKey, email, tunnelId, publicHostname);
 
+  console.log(`[Tunnel] Tunnel ready: ${publicHostname}`);
   return {
     tunnelId,
     token: data.result.token,

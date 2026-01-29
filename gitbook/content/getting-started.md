@@ -54,7 +54,7 @@ You have two ways to connect:
 
 Want to try 9Remote without installing? Use GitHub Codespaces - it runs in your browser!
 
-👉 **[Try in Browser (Codespaces)](getting-started/codespaces)**
+[icon:arrow-right] **[Try in Browser (Codespaces)](getting-started/codespaces)**
 
 Quick overview:
 1. Open 9Remote on GitHub

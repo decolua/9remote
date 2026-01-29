@@ -15,7 +15,7 @@ CLOUDFLARE_EMAIL = "decoluadt@gmail.com"
 CLOUDFLARE_API_KEY = "***REMOVED***"
 
 BUILD_VERSION = "0.1.7"
-BUILD_TIME = "2026-01-28T16:26:49.823Z"
+BUILD_TIME = "2026-01-29T11:40:30.114Z"
 [[d1_databases]]
 binding = "DB"
 database_name = "9remote"

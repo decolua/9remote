@@ -20,6 +20,14 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
     return isMac ? "macos" : "linux";
   }, []);
 
+  // Detect iOS PWA standalone mode
+  const isIosPwa = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    const isStandalone = window.navigator.standalone === true;
+    return isIos && isStandalone;
+  }, []);
+
   const [ctrlPressed, setCtrlPressed] = useState(false);
   const [metaPressed, setMetaPressed] = useState(false);
   const [altPressed, setAltPressed] = useState(false);
@@ -181,7 +189,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
 
   const handleModifierToggle = (modifier) => {
     vibrate();
-    
+
     if (modifier === "Ctrl") {
       setCtrlPressed(!ctrlPressed);
     } else if (modifier === "Meta") {
@@ -195,7 +203,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
 
   const sendKey = (key, forceModifiers = {}) => {
     vibrate();
-    
+
     const data = generateCombination(key, forceModifiers);
 
     // Send directly via socket - same as real keyboard input
@@ -212,7 +220,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
 
   const toggleExpanded = () => {
     vibrate();
-    
+
     const newState = !isExpanded;
     setIsExpanded(newState);
     setShowTextInput(false); // Close text input when toggling extended
@@ -230,7 +238,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
 
   const toggleTextInput = () => {
     vibrate();
-    
+
     const newState = !showTextInput;
     setShowTextInput(newState);
     setIsExpanded(false); // Close extended when opening text input
@@ -247,7 +255,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
 
   const sendTextBatch = () => {
     vibrate(15);
-    
+
     if (!textInput.trim() || !socket || !sessionId) return;
     socket.emit("input", { sessionId, data: textInput });
     setTextInput("");
@@ -277,10 +285,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
 
       // Read file as base64
       const reader = new FileReader();
-      
+
       reader.onload = () => {
         const base64Content = reader.result.split(",")[1];
-        
+
         if (socket && sessionId && base64Content) {
           // Send file to server via socket
           socket.emit("upload-file", {
@@ -292,18 +300,18 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
           });
         }
       };
-      
+
       reader.onerror = () => {
         alert("Failed to read file");
       };
-      
+
       reader.readAsDataURL(file);
-      
+
     } catch (err) {
       console.error("File upload error:", err);
       alert("Failed to upload file: " + err.message);
     }
-    
+
     // Reset input
     event.target.value = "";
   };
@@ -355,12 +363,12 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
 
       {/* Text Input Panel */}
       <div
-        className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${showTextInput ? "max-h-16 opacity-100" : "max-h-0 opacity-0"
+        className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${showTextInput ? "max-h-24 opacity-100" : "max-h-0 opacity-0"
           }`}
       >
         <div className="p-2 flex gap-2 items-center">
           {/* File upload button */}
-          <label className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-sm font-medium rounded transition-all duration-200 border border-dark-400 hover:border-brand-500 flex items-center gap-1 cursor-pointer">
+          <label className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-sm font-medium rounded transition-all duration-200 border border-dark-400 hover:border-brand-500 flex items-center gap-1 cursor-pointer flex-shrink-0">
             <Paperclip size={16} className="text-orange-500/70" />
             <input
               type="file"
@@ -369,35 +377,33 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
               accept="*/*"
             />
           </label>
-          <div className="flex-1 relative">
-            <input
-              ref={textInputRef}
-              type="text"
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && sendTextBatch()}
-              placeholder="Type command and send..."
-              className="w-full px-3 py-2 pr-8 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200"
-            />
-            {/* Clear button */}
-            {textInput && (
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setTextInput("");
-                  textInputRef.current?.focus();
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-dark-100 hover:text-white transition-colors"
-              >
-                ×
-              </button>
-            )}
-          </div>
+
+          <textarea
+            ref={textInputRef}
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Type command and send..."
+            rows={Math.min(2, (textInput.match(/\n/g) || []).length + 1)}
+            className="w-full px-3 py-2 pr-8 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none"
+          />
+          {/* Clear button */}
+          {textInput && (
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setTextInput("");
+                textInputRef.current?.focus();
+              }}
+              className="absolute right-2 top-2 w-5 h-5 flex items-center justify-center text-dark-100 hover:text-white transition-colors"
+            >
+              ×
+            </button>
+          )}
           <button
             onMouseDown={(e) => e.preventDefault()}
             onClick={sendTextBatch}
             disabled={!textInput.trim()}
-            className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:opacity-50 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20"
+            className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:opacity-50 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0"
           >
             Send
           </button>
@@ -405,7 +411,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
       </div>
 
       {/* Bottom keyboard bar */}
-      <div className="bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 safe-area-bottom">
+      <div className={`bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
         <div className="flex items-center justify-between gap-0.5 max-w-4xl mx-auto">
           {/* Esc button - separate group */}
           <div className="flex gap-0.5">
