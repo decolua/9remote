@@ -79,6 +79,7 @@ export class ResourceManager {
       }
       
       if (clientData?.tileManager) {
+        clientData.tileManager.clearMemory();
         clientData.tileManager.cleanup();
         clientData.tileManager.reset();
       }

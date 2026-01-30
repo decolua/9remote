@@ -364,6 +364,12 @@ export class TileManager {
     }
   }
 
+  clearMemory() {
+    this.sharedScreenCache = null;
+    this.lastCaptureTime = 0;
+    this.lastTileChecksums.clear();
+  }
+
   reset() {
     this.lastTileChecksums.clear();
     this.frameCount = 0;

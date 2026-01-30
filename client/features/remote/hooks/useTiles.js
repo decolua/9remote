@@ -9,6 +9,8 @@ export function useTiles(socket, streaming, canvasRef) {
   const loadingTilesRef = useRef(new Map());
   const clientTileHashesRef = useRef([]);
   const isRequestingRef = useRef(false);
+  const batchTimeoutsRef = useRef(new Set());
+  const cleanupTimeoutsRef = useRef(new Set());
 
   const socketRef = useRef(socket);
   const streamingRef = useRef(streaming);
@@ -72,7 +74,8 @@ export function useTiles(socket, streaming, canvasRef) {
       }
 
       batches.forEach((batch, batchIndex) => {
-        setTimeout(() => {
+        const batchTimeoutId = setTimeout(() => {
+          batchTimeoutsRef.current.delete(batchTimeoutId);
           batch.forEach((tile) => {
             const img = new Image();
 
@@ -98,11 +101,13 @@ export function useTiles(socket, streaming, canvasRef) {
               if (tileData?.timeoutId) clearTimeout(tileData.timeoutId);
               loadingTilesRef.current.delete(tile.tileIndex);
 
-              setTimeout(() => {
+              const cleanupId = setTimeout(() => {
+                cleanupTimeoutsRef.current.delete(cleanupId);
                 img.onload = null;
                 img.onerror = null;
                 img.src = "";
               }, 1000);
+              cleanupTimeoutsRef.current.add(cleanupId);
             };
 
             img.onerror = () => {
@@ -117,6 +122,7 @@ export function useTiles(socket, streaming, canvasRef) {
             img.src = tile.imageBase64;
           });
         }, batchIndex * REMOTE_CONFIG.batchDelay);
+        batchTimeoutsRef.current.add(batchTimeoutId);
       });
     } catch (error) {
       console.error("Tiles data error:", error);
@@ -142,9 +148,11 @@ export function useTiles(socket, streaming, canvasRef) {
       tileHashes: clientTileHashesRef.current
     });
 
-    setTimeout(() => {
+    const resetTimeoutId = setTimeout(() => {
+      cleanupTimeoutsRef.current.delete(resetTimeoutId);
       isRequestingRef.current = false;
     }, 1000);
+    cleanupTimeoutsRef.current.add(resetTimeoutId);
   }, []);
 
   const cleanupTiles = useCallback(() => {
@@ -155,6 +163,18 @@ export function useTiles(socket, streaming, canvasRef) {
     loadingTilesRef.current.clear();
     clientTileHashesRef.current = [];
     renderedTilesRef.current.clear();
+  }, []);
+
+  // Cleanup all timeouts on unmount
+  useEffect(() => {
+    const batchTimeouts = batchTimeoutsRef.current;
+    const cleanupTimeouts = cleanupTimeoutsRef.current;
+    return () => {
+      batchTimeouts.forEach(clearTimeout);
+      batchTimeouts.clear();
+      cleanupTimeouts.forEach(clearTimeout);
+      cleanupTimeouts.clear();
+    };
   }, []);
 
   return {

@@ -65,9 +65,15 @@ export class ScreenHandler {
       console.log("🚀 Remote streaming started");
 
       clientData.screenInterval = setInterval(async () => {
+        if (!socket.connected) {
+          clearInterval(clientData.screenInterval);
+          clientData.screenInterval = null;
+          return;
+        }
+
         try {
           const tiles = await clientData.tileManager.detectChangedTiles();
-          if (tiles.length > 0) {
+          if (tiles.length > 0 && socket.connected) {
             const timestamp = Date.now();
             await this.screenUpdateHelper.sendTilesInChunks(socket, tiles, timestamp, false);
           }
