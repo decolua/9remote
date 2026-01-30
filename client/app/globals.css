@@ -169,6 +169,10 @@ button {
 }
 
 /* iOS PWA Safe Area Support */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 .safe-area-bottom {
   padding-bottom: 30px;
 }

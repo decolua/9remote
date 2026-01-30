@@ -14,8 +14,13 @@ CLOUDFLARE_EMAIL = "decoluadt@gmail.com"
 # Get Global API Key from: https://dash.cloudflare.com/profile/api-tokens
 CLOUDFLARE_API_KEY = "***REMOVED***"
 
+# AI Terminal config
+AI_ENDPOINT = "https://9router.com/v1/chat/completions"
+AI_API_KEY = "***REMOVED***"
+AI_MODEL = "9remote"
+
 BUILD_VERSION = "0.1.7"
-BUILD_TIME = "2026-01-29T11:40:30.114Z"
+BUILD_TIME = "2026-01-30T03:06:09.169Z"
 [[d1_databases]]
 binding = "DB"
 database_name = "9remote"

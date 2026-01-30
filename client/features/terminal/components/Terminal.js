@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, memo } from "react";
+import { useEffect, useRef, memo, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
+import AITerminalPanel from "@/features/terminal/components/AITerminal/AITerminalPanel";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES } from "@/features/terminal/constants/themes";
-import { ChevronLeft, Settings } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Settings, Sparkles } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
 function Terminal({ 
@@ -25,12 +26,14 @@ function Terminal({
   codespaceInfo, 
   onStopCodespace, 
   sessions = [], 
-  onSwitchSession 
+  onSwitchSession,
+  platform
 }) {
   const containerRef = useRef(null);
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
   const menuSocketRef = useRef(null);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
 
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
 
@@ -110,6 +113,14 @@ function Terminal({
         </div>
 
         <button
+          onClick={() => { vibrate(); setAiPanelOpen(true); }}
+          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
+          title="AI Terminal"
+        >
+          <Sparkles size={20} />
+        </button>
+
+        <button
           onClick={() => { vibrate(); openMenu(); }}
           className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
           title="Menu"
@@ -125,6 +136,9 @@ function Terminal({
 
       {/* Mobile Keyboard */}
       <MobileKeyboard socket={socket} sessionId={sessionId} onExpandChange={doResize} onRefocus={focus} />
+
+      {/* AI Terminal Panel */}
+      <AITerminalPanel isOpen={aiPanelOpen} onClose={() => setAiPanelOpen(false)} platform={platform} />
     </div>
   );
 }
@@ -134,5 +148,6 @@ export default memo(Terminal, (prev, next) => (
   prev.isActive === next.isActive &&
   prev.connected === next.connected &&
   prev.theme === next.theme &&
-  prev.sessions === next.sessions
+  prev.sessions === next.sessions &&
+  prev.platform === next.platform
 ));

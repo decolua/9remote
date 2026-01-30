@@ -71,4 +71,6 @@ export const {
   Smartphone,
   MoreVertical,
   QrCode,
+  Send,
+  SendHorizontal,
 } = LucideIcons;

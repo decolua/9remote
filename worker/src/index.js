@@ -3,6 +3,7 @@ import { handleSessionCreate, handleSessionUpdate, handleConnect, handleSessionD
 import { handleTempKeyCreate, handleTempKeyVerify, handleTempKeyRemove } from "./handlers/tempKey.js";
 import { handleTunnelCreate, handleTunnelDelete } from "./handlers/tunnel.js";
 import { handleVersion } from "./handlers/version.js";
+import { handleAITerminal } from "./handlers/aiTerminal.js";
 import { cleanupDeadTunnels } from "./tunnelService.js";
 
 // CORS headers
@@ -124,6 +125,11 @@ async function handleAPI(request, pathname, env) {
   // DELETE /api/tunnel/delete
   if (request.method === "DELETE" && pathname === "/api/tunnel/delete") {
     return handleTunnelDelete(request, env, corsHeaders);
+  }
+
+  // POST /api/ai-terminal
+  if (request.method === "POST" && pathname === "/api/ai-terminal") {
+    return handleAITerminal(request, env, corsHeaders);
   }
 
   return new Response("Not Found", { status: 404, headers: corsHeaders });

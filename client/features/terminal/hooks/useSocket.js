@@ -9,6 +9,7 @@ export function useSocket() {
   const [remoteAvailable, setRemoteAvailable] = useState(false);
   const [codespaceInfo, setCodespaceInfo] = useState(null);
   const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
+  const [platform, setPlatform] = useState(null);
   const { getAuth } = useSessionStorage();
 
   // Handle connect - remove temp key if exists
@@ -48,6 +49,7 @@ export function useSocket() {
 
     const handleServerInfo = (info) => {
       setRemoteAvailable(info.remoteAvailable);
+      setPlatform(info.platform);
       if (info.isCodespaces) {
         setCodespaceInfo({
           isCodespaces: info.isCodespaces,
@@ -139,6 +141,7 @@ export function useSocket() {
     remoteAvailable,
     codespaceInfo,
     codespaceDisconnected,
+    platform,
     loadSessions,
     createSession,
     deleteSession,

@@ -51,7 +51,7 @@ export default function TerminalPage() {
   });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socket, socketRef, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, platform, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
   const fileSocket = useFileSocket(socketRef);
   const [systemInfo, setSystemInfo] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
@@ -333,6 +333,7 @@ export default function TerminalPage() {
               sessions={sessions}
               openedSessions={openedSessions}
               onSwitchSession={handleSelectSession}
+              platform={platform}
             />
           </div>
         );

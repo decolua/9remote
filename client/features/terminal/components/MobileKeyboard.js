@@ -5,6 +5,7 @@ import { SPECIAL_KEYS, CTRL_ARROW_KEYS } from "@/features/terminal/constants/key
 import { BASIC_KEYS, EXTENDED_KEYS, MAC_KEY, BUTTON_STYLES } from "@/features/terminal/constants/terminalConfig";
 import { vibrate } from "@/shared/utils/vibration";
 import { Paperclip } from "@/shared/components/ui/Icon";
+import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -13,20 +14,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
   const [isMobile, setIsMobile] = useState(false);
   const textInputRef = useRef(null);
 
-  // Detect OS once on mount - no effect needed
-  const os = useMemo(() => {
-    if (typeof window === "undefined") return "linux";
-    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-    return isMac ? "macos" : "linux";
-  }, []);
-
-  // Detect iOS PWA standalone mode
-  const isIosPwa = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent);
-    const isStandalone = window.navigator.standalone === true;
-    return isIos && isStandalone;
-  }, []);
+  const { isIosPwa, osType: os } = useDeviceInfo();
 
   const [ctrlPressed, setCtrlPressed] = useState(false);
   const [metaPressed, setMetaPressed] = useState(false);

@@ -382,6 +382,7 @@ export function setupTerminalSocket(io) {
     socket.emit("serverInfo", { 
       remoteAvailable: isRemoteAvailable(),
       daemonMode: PERSISTENCE_MODE === "daemon" && daemonClient.isConnected(),
+      platform: process.platform,
       ...getCodespaceInfo()
     });
 
