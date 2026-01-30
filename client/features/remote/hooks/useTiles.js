@@ -31,10 +31,16 @@ export function useTiles(socket, streaming, canvasRef) {
 
       const img = new Image();
       img.onload = () => {
-        ctx.drawImage(img, 0, 0, data.screen.width, data.screen.height);
-        renderedTilesRef.current.clear();
-        for (let i = 0; i < totalTileCount; i++) {
-          renderedTilesRef.current.add(i);
+        // Check canvas still valid before drawing
+        if (!canvasRef?.current) return;
+        try {
+          ctx.drawImage(img, 0, 0, data.screen.width, data.screen.height);
+          renderedTilesRef.current.clear();
+          for (let i = 0; i < totalTileCount; i++) {
+            renderedTilesRef.current.add(i);
+          }
+        } catch (e) {
+          // Canvas may have been unmounted
         }
       };
       img.src = data.screen.imageBase64;
@@ -93,8 +99,14 @@ export function useTiles(socket, streaming, canvasRef) {
               if (!img.complete || img.naturalWidth === 0) return;
 
               requestAnimationFrame(() => {
-                ctx.drawImage(img, tile.x, tile.y, tile.width, tile.height);
-                renderedTilesRef.current.add(tile.tileIndex);
+                // Check canvas still valid before drawing
+                if (!canvasRef?.current) return;
+                try {
+                  ctx.drawImage(img, tile.x, tile.y, tile.width, tile.height);
+                  renderedTilesRef.current.add(tile.tileIndex);
+                } catch (e) {
+                  // Canvas may have been unmounted
+                }
               });
 
               const tileData = loadingTilesRef.current.get(tile.tileIndex);

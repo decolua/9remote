@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useBaseSocket } from "@/shared/hooks/useBaseSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
@@ -11,20 +11,31 @@ export function useRemoteSocket() {
   const { getAuth } = useSessionStorage();
   const [streaming, setStreaming] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const mountedRef = useRef(true);
 
   // Get auth for socket options
   const auth = getAuth();
 
   // Handle connect
   const handleConnect = useCallback((socket) => {
+    if (!mountedRef.current) return;
     setAuthenticated(true);
     socket.emit("get-screen-dimensions");
   }, []);
 
   // Handle disconnect
   const handleDisconnect = useCallback(() => {
+    if (!mountedRef.current) return;
     setStreaming(false);
     setAuthenticated(false);
+  }, []);
+
+  // Cleanup mounted ref
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const { socket, socketRef, connected, error, retryStatus } = useBaseSocket({
