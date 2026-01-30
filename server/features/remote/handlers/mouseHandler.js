@@ -17,7 +17,13 @@ export class MouseHandler {
       this.lastMouseMove = now;
 
       try {
-        robot.moveMouse(data.x, data.y);
+        const dimensions = robot.getScreenSize();
+        const pcX = Math.round((data.x / 100) * dimensions.width);
+        const pcY = Math.round((data.y / 100) * dimensions.height);
+        const finalX = Math.max(0, Math.min(dimensions.width - 1, pcX));
+        const finalY = Math.max(0, Math.min(dimensions.height - 1, pcY));
+        
+        robot.moveMouse(finalX, finalY);
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
         console.error("Mouse move error:", error.message);

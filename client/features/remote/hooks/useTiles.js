@@ -121,6 +121,7 @@ export function useTiles(socket, streaming, canvasRef) {
                 cleanupTimeoutsRef.current.delete(cleanupId);
                 img.onload = null;
                 img.onerror = null;
+                if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
                 img.src = "";
               }, 1000);
               cleanupTimeoutsRef.current.add(cleanupId);
@@ -132,10 +133,17 @@ export function useTiles(socket, streaming, canvasRef) {
               loadingTilesRef.current.delete(tile.tileIndex);
               img.onload = null;
               img.onerror = null;
+              if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
               img.src = "";
             };
 
-            img.src = tile.imageBase64;
+            // Support both binary buffer and legacy base64
+            if (tile.imageBuffer) {
+              const blob = new Blob([tile.imageBuffer], { type: "image/webp" });
+              img.src = URL.createObjectURL(blob);
+            } else if (tile.imageBase64) {
+              img.src = tile.imageBase64;
+            }
           });
         }, batchIndex * REMOTE_CONFIG.batchDelay);
         batchTimeoutsRef.current.add(batchTimeoutId);

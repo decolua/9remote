@@ -128,5 +128,12 @@ export class ScreenHandler {
         socket.emit("screen-error", { error: error.message });
       }
     }));
+
+    // Boost stream - reset idle to speed up streaming immediately
+    socket.on("boost-stream", requireAuth(() => {
+      const clientData = this.resourceManager.getClient(socket.id);
+      if (!clientData) return;
+      clientData.idleFrameCount = 0;
+    }));
   }
 }

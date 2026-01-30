@@ -27,6 +27,13 @@ export function useCanvas(socketEmitFunctions) {
   
   // Store server dimensions for recalculation on resize
   const serverDimensionsRef = useRef({ width: 0, height: 0 });
+  
+  // Edge scroll with momentum
+  const [isEdgeScrolling, setIsEdgeScrolling] = useState(false);
+  const edgeScrollAccumRef = useRef({ x: 0, y: 0 });
+  const velocityRef = useRef({ x: 0, y: 0 });
+  const lastTouchTimeRef = useRef(0);
+  const momentumFrameRef = useRef(null);
 
   // Get percentage-based coordinates
   const getCanvasCoordinates = useCallback((clientX, clientY) => {
@@ -119,10 +126,53 @@ export function useCanvas(socketEmitFunctions) {
     return isDoubleClick;
   }, []);
 
+  // Stop momentum scroll
+  const stopMomentum = useCallback(() => {
+    if (momentumFrameRef.current) {
+      cancelAnimationFrame(momentumFrameRef.current);
+      momentumFrameRef.current = null;
+    }
+    velocityRef.current = { x: 0, y: 0 };
+    edgeScrollAccumRef.current = { x: 0, y: 0 };
+    setIsEdgeScrolling(false);
+  }, []);
+
+  // Start momentum scroll after touch release (vertical only)
+  const startMomentumScroll = useCallback(() => {
+    const { momentumFriction, momentumMinVelocity, edgeScrollMultiplier } = REMOTE_CONFIG;
+    
+    const animate = () => {
+      const vy = velocityRef.current.y;
+      
+      if (Math.abs(vy) < momentumMinVelocity) {
+        stopMomentum();
+        return;
+      }
+      
+      // Emit vertical scroll based on velocity
+      const scrollY = Math.round(vy * edgeScrollMultiplier);
+      
+      if (Math.abs(scrollY) >= 1) {
+        socketEmitFunctions?.emitScroll(scrollY > 0 ? "up" : "down", Math.abs(scrollY), false);
+      }
+      
+      // Apply friction
+      velocityRef.current.x *= momentumFriction;
+      velocityRef.current.y *= momentumFriction;
+      
+      momentumFrameRef.current = requestAnimationFrame(animate);
+    };
+    
+    momentumFrameRef.current = requestAnimationFrame(animate);
+  }, [socketEmitFunctions, stopMomentum]);
+
   // Cleanup on unmount
   useEffect(() => {
-    return () => cancelLongPress();
-  }, [cancelLongPress]);
+    return () => {
+      cancelLongPress();
+      stopMomentum();
+    };
+  }, [cancelLongPress, stopMomentum]);
 
   // Recalculate display size based on container and server dimensions
   // Always maximize one dimension to 100% while maintaining aspect ratio
@@ -235,6 +285,11 @@ export function useCanvas(socketEmitFunctions) {
 
       if (type === "touch") {
         setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+        lastTouchTimeRef.current = Date.now();
+        velocityRef.current = { x: 0, y: 0 };
+        edgeScrollAccumRef.current = { x: 0, y: 0 };
+        stopMomentum();
+        
         if (selectionMode) {
           handleSelection(touch.clientX, touch.clientY, "start");
         } else if (!dragMode) {
@@ -256,13 +311,64 @@ export function useCanvas(socketEmitFunctions) {
           return;
         }
 
-        if (canvasZoom > 1 && !selectionMode) {
+        if (!selectionMode && !dragMode) {
           const deltaX = touch.clientX - lastTouchCenter.x;
           const deltaY = touch.clientY - lastTouchCenter.y;
+          
+          // Calculate velocity for momentum
+          const now = Date.now();
+          const dt = now - lastTouchTimeRef.current;
+          if (dt > 0) {
+            velocityRef.current = {
+              x: deltaX / dt * 16, // Normalize to ~60fps frame
+              y: deltaY / dt * 16
+            };
+            lastTouchTimeRef.current = now;
+          }
 
           if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
-            setIsPanning(true);
             cancelLongPress();
+            const touchCoords = getCanvasCoordinates(touch.clientX, touch.clientY);
+            
+            // Only scroll vertically when swipe is predominantly vertical
+            const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX) * 1.5;
+            
+            // Helper: process accumulated vertical scroll only
+            const processScroll = (overflowY) => {
+              if (!isVerticalSwipe) return; // Skip if not vertical swipe
+              
+              edgeScrollAccumRef.current.y += overflowY;
+              
+              if (!isEdgeScrolling) {
+                socketEmitFunctions?.emitBoostStream?.();
+                socketEmitFunctions?.emitMouseMove?.(touchCoords.percentX, touchCoords.percentY);
+                setIsEdgeScrolling(true);
+              }
+              
+              const { edgeScrollThreshold, edgeScrollMultiplier } = REMOTE_CONFIG;
+              
+              if (Math.abs(edgeScrollAccumRef.current.y) >= edgeScrollThreshold) {
+                const scrollAmount = Math.round(Math.abs(edgeScrollAccumRef.current.y) * edgeScrollMultiplier);
+                socketEmitFunctions?.emitScroll(
+                  edgeScrollAccumRef.current.y > 0 ? "up" : "down",
+                  Math.max(1, scrollAmount),
+                  false
+                );
+                edgeScrollAccumRef.current.y = 0;
+              }
+            };
+            
+            // When zoom = 1: direct vertical scroll (like 2-finger on macbook)
+            if (canvasZoom === 1) {
+              if (isVerticalSwipe) {
+                processScroll(deltaY);
+              }
+              setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+              return;
+            }
+            
+            // Zoom > 1: Pan first, edge scroll only when fully at edge
+            setIsPanning(true);
             const canvasDisplayWidth = baseCanvasSize.width * canvasZoom;
             const canvasDisplayHeight = baseCanvasSize.height * canvasZoom;
             const containerWidth = canvasContainerRef.current?.clientWidth || 0;
@@ -270,10 +376,25 @@ export function useCanvas(socketEmitFunctions) {
             const maxPanX = Math.min(0, containerWidth - canvasDisplayWidth);
             const maxPanY = Math.min(0, containerHeight - canvasDisplayHeight);
 
-            setCanvasPan(prev => ({
-              x: Math.max(maxPanX, Math.min(0, prev.x + deltaX)),
-              y: Math.max(maxPanY, Math.min(0, prev.y + deltaY))
-            }));
+            setCanvasPan(prev => {
+              const newX = Math.max(maxPanX, Math.min(0, prev.x + deltaX));
+              const newY = Math.max(maxPanY, Math.min(0, prev.y + deltaY));
+              
+              // Check if vertical pan actually moved (not stuck at edge)
+              const panMovedY = Math.abs(newY - prev.y) > 0.5;
+              
+              // Only scroll if pan is completely stuck at vertical edge
+              const overflowY = !panMovedY ? (prev.y + deltaY) - newY : 0;
+              
+              if (Math.abs(overflowY) > 0) {
+                processScroll(overflowY);
+              } else {
+                edgeScrollAccumRef.current.y = 0;
+                setIsEdgeScrolling(false);
+              }
+              
+              return { x: newX, y: newY };
+            });
             setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
           }
           return;
@@ -286,6 +407,7 @@ export function useCanvas(socketEmitFunctions) {
       cancelLongPress();
       const wasZooming = isZooming;
       const wasPanning = isPanning;
+      const wasEdgeScrolling = isEdgeScrolling;
       const wasLongPress = longPressTriggeredRef.current;
       longPressTriggeredRef.current = false;
 
@@ -299,11 +421,19 @@ export function useCanvas(socketEmitFunctions) {
         }, 200);
       }
 
+      // Start momentum scroll if was edge scrolling with velocity
+      if (wasEdgeScrolling && (Math.abs(velocityRef.current.x) > REMOTE_CONFIG.momentumMinVelocity || 
+          Math.abs(velocityRef.current.y) > REMOTE_CONFIG.momentumMinVelocity)) {
+        startMomentumScroll();
+      } else {
+        stopMomentum();
+      }
+
       setIsZooming(false);
       setIsPanning(false);
 
-      // Skip click if was zooming, panning, or long-press already triggered
-      if (wasZooming || wasPanning || recentZoomGesture || wasLongPress) return;
+      // Skip click if was zooming, panning, edge scrolling, or long-press already triggered
+      if (wasZooming || wasPanning || wasEdgeScrolling || recentZoomGesture || wasLongPress) return;
 
       if (event.type.startsWith("touch")) {
         const touch = event.changedTouches?.[0];
@@ -389,10 +519,10 @@ export function useCanvas(socketEmitFunctions) {
       socketEmitFunctions.emitMouseMove(percentX, percentY);
     }
   }, [
-    isZooming, isPanning, canvasZoom, lastTouchDistance, lastTouchCenter,
+    isZooming, isPanning, isEdgeScrolling, canvasZoom, lastTouchDistance, lastTouchCenter,
     baseCanvasSize, recentZoomGesture, getCanvasCoordinates, showClickIndicator,
     getTouchDistance, getTouchCenter, socketEmitFunctions, cancelLongPress,
-    startLongPress, checkDoubleClick
+    startLongPress, checkDoubleClick, stopMomentum, startMomentumScroll
   ]);
 
   // Handle canvas dimensions from server

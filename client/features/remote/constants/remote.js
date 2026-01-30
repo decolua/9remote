@@ -21,7 +21,14 @@ export const REMOTE_CONFIG = {
   // Click detection
   longPressDelay: 1000,      // ms to trigger right-click
   doubleClickDelay: 300,    // ms between clicks for double-click
-  moveThreshold: 10         // px movement to cancel long-press
+  moveThreshold: 10,        // px movement to cancel long-press
+ 
+  
+  // Edge scroll with momentum
+  edgeScrollThreshold: 15,     // px overflow to trigger scroll
+  edgeScrollMultiplier: 1.5,   // convert overflow to scroll amount (higher = faster)
+  momentumFriction: 0.94,      // velocity decay per frame (higher = longer momentum)
+  momentumMinVelocity: 0.3     // stop when velocity below this
 };
 
 export const MODIFIER_MAP = {

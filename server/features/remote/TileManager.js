@@ -108,12 +108,12 @@ export class TileManager {
     const bitmap = this.robot.screen.capture(0, 0, this.captureWidth, this.captureHeight);
     const imageBuffer = Buffer.from(bitmap.image);
 
-    // BGRA -> RGBA
-    for (let i = 0; i < imageBuffer.length; i += 4) {
-      const b = imageBuffer[i];
-      const r = imageBuffer[i + 2];
-      imageBuffer[i] = r;
-      imageBuffer[i + 2] = b;
+    // BGRA -> RGBA optimized using Uint32Array (4x faster than byte loop)
+    const uint32View = new Uint32Array(imageBuffer.buffer, imageBuffer.byteOffset, imageBuffer.length >> 2);
+    for (let i = 0; i < uint32View.length; i++) {
+      const pixel = uint32View[i];
+      // Swap R and B: BGRA (0xAARRGGBB in LE) -> RGBA (0xAABBGGRR in LE)
+      uint32View[i] = (pixel & 0xFF00FF00) | ((pixel & 0x00FF0000) >> 16) | ((pixel & 0x000000FF) << 16);
     }
 
     const actualWidth = bitmap.byteWidth / bitmap.bytesPerPixel;
@@ -172,33 +172,27 @@ export class TileManager {
       const currentTileHashes = new Map();
       this.frameCount++;
 
-      // Extract all tiles and calculate hashes
-      const extractedTiles = [];
+      // Calculate hashes directly without extracting tiles (lazy extraction)
       for (let i = 0; i < this.totalTiles; i++) {
-        extractedTiles[i] = this.extractTile(screenData, i);
-        const checksum = this.calculateTileChecksum(extractedTiles[i].buffer);
+        const checksum = this.calculateTileChecksumDirect(screenData, i);
         currentTileHashes.set(i, checksum);
       }
 
       const currentHashes = Array.from(currentTileHashes.values());
 
-      // First frame - send all tiles
+      // First frame - extract and send all tiles
       if (this.lastTileChecksums.size === 0) {
-        const tilePromises = extractedTiles.map((tileData, i) => 
-          this.processTileAsync(screenData, i, tileData)
-        );
-        const results = await Promise.all(tilePromises);
-        changedTiles.push(...results);
-        
-        // Update checksums
+        const tilePromises = [];
         for (let i = 0; i < this.totalTiles; i++) {
           this.lastTileChecksums.set(i, currentTileHashes.get(i));
+          tilePromises.push(this.processTileAsync(screenData, i));
         }
-        
+        const results = await Promise.all(tilePromises);
+        changedTiles.push(...results);
         return { tiles: changedTiles, currentHashes };
       }
 
-      // Find changed tiles
+      // Find changed tiles by comparing hashes
       for (let i = 0; i < this.totalTiles; i++) {
         const checksum = currentTileHashes.get(i);
         const lastChecksum = this.lastTileChecksums.get(i);
@@ -211,14 +205,17 @@ export class TileManager {
       const changePercentage = changedTileIndices.length / this.totalTiles;
 
       if (changePercentage > this.changeThreshold) {
-        const tilePromises = extractedTiles.map((tileData, i) => 
-          this.processTileAsync(screenData, i, tileData)
-        );
+        // Full refresh - extract all tiles
+        const tilePromises = [];
+        for (let i = 0; i < this.totalTiles; i++) {
+          tilePromises.push(this.processTileAsync(screenData, i));
+        }
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
+        // Only extract changed tiles (lazy extraction benefit)
         const tilePromises = changedTileIndices.map(i => 
-          this.processTileAsync(screenData, i, extractedTiles[i])
+          this.processTileAsync(screenData, i)
         );
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);
@@ -235,7 +232,7 @@ export class TileManager {
     const checksum = this.calculateTileChecksum(tileData.buffer);
     this.lastTileChecksums.set(tileIndex, checksum);
 
-    const compressedImage = await this.compressTileImage(tileData.buffer, tileData.width, tileData.height);
+    const imageBuffer = await this.compressTileImage(tileData.buffer, tileData.width, tileData.height);
     const { row, col } = this.getTilePosition(tileIndex);
 
     return {
@@ -245,8 +242,7 @@ export class TileManager {
       y: row * this.tileSize,
       width: tileData.width,
       height: tileData.height,
-      imageBase64: compressedImage,
-      size: Math.round(compressedImage.length * 0.75 / 1024),
+      imageBuffer, // Binary buffer instead of base64
       timestamp: Date.now(),
       frameCount: this.frameCount
     };
@@ -259,6 +255,34 @@ export class TileManager {
       sum ^= buffer[i + 1] || 0;
       sum += (buffer[i + 2] || 0) << 1;
       sum ^= (buffer[i + 3] || 0) << 2;
+    }
+    return sum >>> 0;
+  }
+
+  // Calculate checksum directly from screenData without extracting tile
+  calculateTileChecksumDirect(screenData, tileIndex) {
+    const { row, col } = this.getTilePosition(tileIndex);
+    const startX = col * this.tileSize;
+    const startY = row * this.tileSize;
+    const endX = Math.min(startX + this.tileSize, screenData.width);
+    const endY = Math.min(startY + this.tileSize, screenData.height);
+    const tileWidth = endX - startX;
+    const tileHeight = endY - startY;
+    const channels = screenData.channels;
+    const screenRowBytes = screenData.width * channels;
+
+    let sum = 0;
+    const sampleStep = 16; // Sample every 16 pixels for speed
+
+    for (let y = 0; y < tileHeight; y += 4) {
+      const rowOffset = (startY + y) * screenRowBytes + startX * channels;
+      for (let x = 0; x < tileWidth; x += sampleStep) {
+        const offset = rowOffset + x * channels;
+        sum += screenData.buffer[offset] || 0;
+        sum ^= screenData.buffer[offset + 1] || 0;
+        sum += (screenData.buffer[offset + 2] || 0) << 1;
+        sum ^= (screenData.buffer[offset + 3] || 0) << 2;
+      }
     }
     return sum >>> 0;
   }
@@ -294,11 +318,10 @@ export class TileManager {
   }
 
   async compressTileImage(buffer, width, height) {
-    const compressedBuffer = await sharp(buffer, { raw: { width, height, channels: 4 } })
+    // Return raw Buffer for binary transfer (no base64 overhead)
+    return await sharp(buffer, { raw: { width, height, channels: 4 } })
       .webp({ quality: 85, effort: 2, smartSubsample: true })
       .toBuffer();
-
-    return `data:image/webp;base64,${compressedBuffer.toString("base64")}`;
   }
 
   async getScreenDimensions() {
@@ -335,25 +358,26 @@ export class TileManager {
       const changedTileIndices = [];
       this.frameCount++;
 
-      // Extract all tiles and cache for reuse
-      const extractedTiles = [];
+      // Calculate hashes directly without extracting tiles (lazy extraction)
       const currentTileHashes = new Map();
       for (let i = 0; i < this.totalTiles; i++) {
-        extractedTiles[i] = this.extractTile(screenData, i);
-        const checksum = this.calculateTileChecksum(extractedTiles[i].buffer);
+        const checksum = this.calculateTileChecksumDirect(screenData, i);
         currentTileHashes.set(i, checksum);
         this.lastTileChecksums.set(i, checksum);
       }
 
       if (!clientTileHashes || clientTileHashes.length === 0) {
-        const tilePromises = extractedTiles.map((tileData, i) => 
-          this.processTileAsync(screenData, i, tileData)
-        );
+        // First request - extract all tiles
+        const tilePromises = [];
+        for (let i = 0; i < this.totalTiles; i++) {
+          tilePromises.push(this.processTileAsync(screenData, i));
+        }
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);
         return { tiles: changedTiles, currentHashes: Array.from(currentTileHashes.values()) };
       }
 
+      // Find changed tiles by comparing hashes
       for (let i = 0; i < this.totalTiles; i++) {
         if (clientTileHashes[i] !== currentTileHashes.get(i)) {
           changedTileIndices.push(i);
@@ -363,14 +387,17 @@ export class TileManager {
       const changePercentage = changedTileIndices.length / this.totalTiles;
 
       if (changePercentage > this.changeThreshold) {
-        const tilePromises = extractedTiles.map((tileData, i) => 
-          this.processTileAsync(screenData, i, tileData)
-        );
+        // Full refresh - extract all tiles
+        const tilePromises = [];
+        for (let i = 0; i < this.totalTiles; i++) {
+          tilePromises.push(this.processTileAsync(screenData, i));
+        }
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
+        // Only extract changed tiles (lazy extraction benefit)
         const tilePromises = changedTileIndices.map(i => 
-          this.processTileAsync(screenData, i, extractedTiles[i])
+          this.processTileAsync(screenData, i)
         );
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);

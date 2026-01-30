@@ -120,9 +120,16 @@ export function useRemoteSocket() {
   }, [socketRef, streaming]);
 
   // Scroll
-  const emitScroll = useCallback((direction, amount = 20) => {
+  const emitScroll = useCallback((direction, amount = 20, horizontal = false) => {
     if (socketRef.current && streaming) {
-      socketRef.current.emit("scroll", { direction, amount });
+      socketRef.current.emit("scroll", { direction, amount, horizontal });
+    }
+  }, [socketRef, streaming]);
+
+  // Boost stream (speed up streaming temporarily)
+  const emitBoostStream = useCallback(() => {
+    if (socketRef.current && streaming) {
+      socketRef.current.emit("boost-stream");
     }
   }, [socketRef, streaming]);
 
@@ -163,6 +170,7 @@ export function useRemoteSocket() {
     emitMouseDragSelect,
     emitKeyPress,
     emitTypeText,
-    emitScroll
+    emitScroll,
+    emitBoostStream
   };
 }
