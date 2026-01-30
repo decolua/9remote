@@ -33,7 +33,9 @@ function Terminal({
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
   const menuSocketRef = useRef(null);
+  const longPressTimer = useRef(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [showPastePopup, setShowPastePopup] = useState(false);
 
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
 
@@ -77,6 +79,34 @@ function Terminal({
   }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, theme, onThemeChange, tunnelUrl, apiKey, setContext, setCallbacks]);
 
   const currentTheme = THEMES[theme] || THEMES.default;
+
+  // Long press handlers for paste popup
+  const handleTouchStart = () => {
+    longPressTimer.current = setTimeout(() => {
+      vibrate();
+      setShowPastePopup(true);
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && socket) {
+        socket.emit("input", { sessionId, data: text });
+        vibrate();
+      }
+    } catch (err) {
+      console.error("Clipboard read failed:", err);
+    }
+    setShowPastePopup(false);
+  };
 
   return (
     <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: currentTheme.background }}>
@@ -131,11 +161,32 @@ function Terminal({
 
       {/* Terminal Container */}
       <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden p-2 sm:p-4">
-        <div ref={containerRef} className="xterm-screen w-full h-full rounded-sm overflow-hidden" />
+        <div 
+          ref={containerRef} 
+          className="xterm-screen w-full h-full rounded-sm overflow-hidden"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onTouchMove={handleTouchEnd}
+        />
       </div>
 
+      {/* Paste Popup */}
+      {showPastePopup && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={() => setShowPastePopup(false)}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); handlePaste(); }}
+            className="px-6 py-3 bg-dark-500 hover:bg-dark-400 text-white rounded-brand border border-dark-400 hover:border-brand-500 font-medium transition-all duration-200"
+          >
+            Paste
+          </button>
+        </div>
+      )}
+
       {/* Mobile Keyboard */}
-      <MobileKeyboard socket={socket} sessionId={sessionId} onExpandChange={doResize} onRefocus={focus} />
+      <MobileKeyboard socket={socket} sessionId={sessionId} onExpandChange={doResize} onRefocus={focus} platform={platform} />
 
       {/* AI Terminal Panel */}
       <AITerminalPanel isOpen={aiPanelOpen} onClose={() => setAiPanelOpen(false)} platform={platform} />

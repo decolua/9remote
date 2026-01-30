@@ -5,7 +5,8 @@ export const REMOTE_CONFIG = {
   namespace: "/remote",
   
   // Streaming settings
-  hashRequestInterval: 200, // ms between hash requests
+  hashRequestInterval: 1500, // ms between hash verify requests (backup sync)
+  lastDataThreshold: 500,    // skip request if received data within this ms
   
   // Throttling
   mouseThrottle: 8,

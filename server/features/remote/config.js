@@ -24,11 +24,13 @@ export const remoteConfig = {
     maxChunkTimersPerClient: 50
   },
 
-  // Streaming
+  // Streaming - adaptive intervals
   streaming: {
-    autoStreamingInterval: 100,
+    activeInterval: 100,      // Fast interval when changes detected
+    idleInterval: 400,        // Slower interval when idle
+    idleThreshold: 3,         // Consecutive no-change frames to switch to idle
+    actionCaptureDelay: 50,   // Delay after user action to capture
     chunkSize: 32,
-    chunkDelay: 5,
-    updateDelayAfterAction: 200
+    chunkDelay: 5
   }
 };

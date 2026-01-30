@@ -57,39 +57,61 @@ export class ScreenHandler {
       const clientData = this.resourceManager.getClient(socket.id);
       if (!clientData) return;
 
-      if (clientData.screenInterval) {
-        clearInterval(clientData.screenInterval);
-        clientData.screenInterval = null;
+      if (clientData.streamingTimeout) {
+        clearTimeout(clientData.streamingTimeout);
+        clientData.streamingTimeout = null;
       }
 
       console.log("🚀 Remote streaming started");
 
-      clientData.screenInterval = setInterval(async () => {
-        if (!socket.connected) {
-          clearInterval(clientData.screenInterval);
-          clientData.screenInterval = null;
+      // Adaptive streaming state
+      clientData.idleFrameCount = 0;
+      clientData.isStreaming = true;
+
+      const streamLoop = async () => {
+        if (!socket.connected || !clientData.isStreaming) {
+          clientData.streamingTimeout = null;
           return;
         }
 
         try {
-          const tiles = await clientData.tileManager.detectChangedTiles();
-          if (tiles.length > 0 && socket.connected) {
-            const timestamp = Date.now();
-            await this.screenUpdateHelper.sendTilesInChunks(socket, tiles, timestamp, false);
+          const result = await clientData.tileManager.detectChangedTilesWithHashes();
+          const hasChanges = result.tiles.length > 0;
+
+          if (hasChanges && socket.connected) {
+            socket.emit("tiles-data", {
+              tiles: result.tiles,
+              timestamp: Date.now(),
+              currentHashes: result.currentHashes
+            });
+            clientData.idleFrameCount = 0;
+          } else {
+            clientData.idleFrameCount++;
           }
+
+          // Adaptive interval: fast when active, slower when idle
+          const { activeInterval, idleInterval, idleThreshold } = this.resourceManager.getStreamingConfig();
+          const nextInterval = clientData.idleFrameCount >= idleThreshold ? idleInterval : activeInterval;
+
+          clientData.streamingTimeout = setTimeout(streamLoop, nextInterval);
         } catch (error) {
           console.error("Auto streaming error:", error);
+          clientData.streamingTimeout = setTimeout(streamLoop, 200);
         }
-      }, 400);
+      };
+
+      // Start immediately
+      streamLoop();
     }));
 
     socket.on("stop-streaming", () => {
       const clientData = this.resourceManager.getClient(socket.id);
       if (!clientData) return;
 
-      if (clientData.screenInterval) {
-        clearInterval(clientData.screenInterval);
-        clientData.screenInterval = null;
+      clientData.isStreaming = false;
+      if (clientData.streamingTimeout) {
+        clearTimeout(clientData.streamingTimeout);
+        clientData.streamingTimeout = null;
       }
       console.log("⏹️ Remote streaming stopped");
     });

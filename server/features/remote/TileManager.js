@@ -157,32 +157,50 @@ export class TileManager {
   }
 
   async detectChangedTiles() {
-    if (this.isProcessing) return [];
+    const result = await this.detectChangedTilesWithHashes();
+    return result.tiles;
+  }
+
+  async detectChangedTilesWithHashes() {
+    if (this.isProcessing) return { tiles: [], currentHashes: Array.from(this.lastTileChecksums.values()) };
     this.isProcessing = true;
 
     try {
       const screenData = await this.getSharedScreenCapture();
       const changedTiles = [];
       const changedTileIndices = [];
+      const currentTileHashes = new Map();
       this.frameCount++;
 
-      // Extract all tiles and cache for reuse
+      // Extract all tiles and calculate hashes
       const extractedTiles = [];
       for (let i = 0; i < this.totalTiles; i++) {
         extractedTiles[i] = this.extractTile(screenData, i);
+        const checksum = this.calculateTileChecksum(extractedTiles[i].buffer);
+        currentTileHashes.set(i, checksum);
       }
 
+      const currentHashes = Array.from(currentTileHashes.values());
+
+      // First frame - send all tiles
       if (this.lastTileChecksums.size === 0) {
         const tilePromises = extractedTiles.map((tileData, i) => 
           this.processTileAsync(screenData, i, tileData)
         );
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);
-        return changedTiles;
+        
+        // Update checksums
+        for (let i = 0; i < this.totalTiles; i++) {
+          this.lastTileChecksums.set(i, currentTileHashes.get(i));
+        }
+        
+        return { tiles: changedTiles, currentHashes };
       }
 
+      // Find changed tiles
       for (let i = 0; i < this.totalTiles; i++) {
-        const checksum = this.calculateTileChecksum(extractedTiles[i].buffer);
+        const checksum = currentTileHashes.get(i);
         const lastChecksum = this.lastTileChecksums.get(i);
         if (checksum !== lastChecksum) {
           changedTileIndices.push(i);
@@ -206,7 +224,7 @@ export class TileManager {
         changedTiles.push(...results);
       }
 
-      return changedTiles;
+      return { tiles: changedTiles, currentHashes };
     } finally {
       this.isProcessing = false;
     }

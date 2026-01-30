@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { SPECIAL_KEYS, CTRL_ARROW_KEYS } from "@/features/terminal/constants/keyMappings";
 import { BASIC_KEYS, EXTENDED_KEYS, MAC_KEY, BUTTON_STYLES } from "@/features/terminal/constants/terminalConfig";
 import { vibrate } from "@/shared/utils/vibration";
 import { Paperclip } from "@/shared/components/ui/Icon";
 import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 
-const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
+const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInput, setTextInput] = useState("");
@@ -399,7 +399,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
       </div>
 
       {/* Bottom keyboard bar */}
-      <div className={`bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
+      <div className={`overflow-x-auto bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
         <div className="flex items-center justify-between gap-0.5 max-w-4xl mx-auto">
           {/* Esc button - separate group */}
           <div className="flex gap-0.5">
@@ -429,34 +429,48 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus }) => {
           </div>
 
           {/* Control keys (from index 3) */}
-          <div className="flex gap-0.5 justify-center flex-wrap">
-            {basicKeys.slice(3).map((keyConfig) => {
+          <div className="flex gap-0.5 justify-center">
+            {basicKeys.slice(3).map((keyConfig, idx) => {
               const isModifier = keyConfig.modifier === true;
               const isCtrlCombo = keyConfig.ctrl === true;
               const buttonClass = isModifier
                 ? getModifierClass(keyConfig.key)
                 : normalButtonClass;
 
+              // Insert Command button after Shift (index 3 = Shift in slice)
+              const isAfterShift = idx === 3 && platform === "darwin";
+
               return (
-                <button
-                  key={keyConfig.key + keyConfig.label}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    if (isModifier) handleModifierToggle(keyConfig.key);
-                    else if (isCtrlCombo) sendKey(keyConfig.key, { ctrl: true });
-                    else sendKey(keyConfig.key);
-                  }}
-                  className={`${buttonClass} ${isCtrlCombo ? "text-brand-400" : ""}`}
-                  style={BUTTON_STYLES.size}
-                >
-                  {keyConfig.label}
-                </button>
+                <React.Fragment key={keyConfig.key + keyConfig.label}>
+                  {isAfterShift && (
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleModifierToggle(MAC_KEY.key)}
+                      className={getModifierClass(MAC_KEY.key)}
+                      style={BUTTON_STYLES.size}
+                    >
+                      {MAC_KEY.label}
+                    </button>
+                  )}
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      if (isModifier) handleModifierToggle(keyConfig.key);
+                      else if (isCtrlCombo) sendKey(keyConfig.key, { ctrl: true });
+                      else sendKey(keyConfig.key);
+                    }}
+                    className={`${buttonClass} ${isCtrlCombo ? "text-brand-400" : ""}`}
+                    style={BUTTON_STYLES.size}
+                  >
+                    {keyConfig.label}
+                  </button>
+                </React.Fragment>
               );
             })}
           </div>
 
           {/* Text input button */}
-          <div className="flex gap-0.5 justify-center flex-wrap">
+          <div className="flex gap-0.5 justify-center">
             <button
               onMouseDown={(e) => e.preventDefault()}
               onClick={toggleTextInput}

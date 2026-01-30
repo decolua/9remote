@@ -38,6 +38,8 @@ export class MouseHandler {
         robot.moveMouse(finalX, finalY);
         robot.mouseClick(data.button || "left", data.double || false);
 
+        // Reset idle counter to speed up streaming after action
+        clientData.idleFrameCount = 0;
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
         console.error("Mouse click error:", error.message);
@@ -100,6 +102,9 @@ export class MouseHandler {
         }
 
         robot.scrollMouse(scrollX, scrollY);
+        
+        // Reset idle counter to speed up streaming after scroll
+        clientData.idleFrameCount = 0;
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
         console.error("Scroll error:", error.message);

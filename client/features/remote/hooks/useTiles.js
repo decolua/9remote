@@ -9,6 +9,7 @@ export function useTiles(socket, streaming, canvasRef) {
   const loadingTilesRef = useRef(new Map());
   const clientTileHashesRef = useRef([]);
   const isRequestingRef = useRef(false);
+  const lastDataTimeRef = useRef(0);
   const batchTimeoutsRef = useRef(new Set());
   const cleanupTimeoutsRef = useRef(new Set());
 
@@ -58,7 +59,10 @@ export function useTiles(socket, streaming, canvasRef) {
       const ctx = canvas.getContext("2d");
       ctx.imageSmoothingEnabled = false;
 
-      // Update client hashes
+      // Update last data time for throttling
+      lastDataTimeRef.current = Date.now();
+
+      // Update client hashes from any response
       if (data.currentHashes && Array.isArray(data.currentHashes)) {
         clientTileHashesRef.current = [...data.currentHashes];
         isRequestingRef.current = false;
@@ -154,6 +158,12 @@ export function useTiles(socket, streaming, canvasRef) {
   const requestScreenWithHashes = useCallback(() => {
     if (!socketRef.current || !streamingRef.current) return;
     if (isRequestingRef.current) return;
+    
+    // Skip if recently received data (server is actively pushing)
+    const timeSinceLastData = Date.now() - lastDataTimeRef.current;
+    if (timeSinceLastData < REMOTE_CONFIG.lastDataThreshold && clientTileHashesRef.current.length > 0) {
+      return;
+    }
 
     isRequestingRef.current = true;
     socketRef.current.emit("request-screen-with-hashes", {
@@ -175,6 +185,7 @@ export function useTiles(socket, streaming, canvasRef) {
     loadingTilesRef.current.clear();
     clientTileHashesRef.current = [];
     renderedTilesRef.current.clear();
+    lastDataTimeRef.current = 0;
   }, []);
 
   // Cleanup all timeouts on unmount

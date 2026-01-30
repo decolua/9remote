@@ -20,6 +20,8 @@ export class KeyboardHandler {
       try {
         if (!data.key || typeof data.key !== "string") return;
 
+        const clientData = this.resourceManager.getClient(socket.id);
+
         let key = data.key;
         if (key.length === 1) {
           robot.keyTap(key, data.modifier || []);
@@ -49,6 +51,10 @@ export class KeyboardHandler {
           }
         }
 
+        // Reset idle counter to speed up streaming after keypress
+        if (clientData) {
+          clientData.idleFrameCount = 0;
+        }
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
         console.error("Key press error:", error.message);
@@ -69,16 +75,19 @@ export class KeyboardHandler {
         }
 
         const safeText = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+        const clientData = this.resourceManager.getClient(socket.id);
 
         setTimeout(() => {
           try {
             robot.typeString(safeText);
             this.resourceManager.updateClientActivity(socket.id);
 
-            // Clear screen cache to force fresh capture after typing
-            const clientData = this.resourceManager.getClient(socket.id);
-            if (clientData?.tileManager) {
-              clientData.tileManager.clearScreenCache();
+            // Reset idle counter and clear cache for immediate screen update
+            if (clientData) {
+              clientData.idleFrameCount = 0;
+              if (clientData.tileManager) {
+                clientData.tileManager.clearScreenCache();
+              }
             }
           } catch (typeError) {
             console.error("Robot typeString error:", typeError.message);

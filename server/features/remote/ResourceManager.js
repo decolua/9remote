@@ -61,6 +61,14 @@ export class ResourceManager {
 
   cleanupClientResources(socketId, clientData) {
     try {
+      // Stop adaptive streaming
+      clientData.isStreaming = false;
+      if (clientData?.streamingTimeout) {
+        clearTimeout(clientData.streamingTimeout);
+        clientData.streamingTimeout = null;
+      }
+      
+      // Legacy interval cleanup
       if (clientData?.screenInterval) {
         clearInterval(clientData.screenInterval);
         clientData.screenInterval = null;
@@ -86,6 +94,10 @@ export class ResourceManager {
     } catch (error) {
       console.error(`Error cleaning up ${socketId}:`, error.message);
     }
+  }
+
+  getStreamingConfig() {
+    return remoteConfig.streaming;
   }
 
   removeClient(socketId) {
