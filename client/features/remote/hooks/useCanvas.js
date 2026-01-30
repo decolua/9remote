@@ -255,25 +255,43 @@ export function useCanvas(socketEmitFunctions) {
         setLastTouchCenter(center);
         return;
       } else if (type === "touchmove" && isZooming) {
+        const container = canvasContainerRef.current;
+        if (!container) return;
+        
+        const containerRect = container.getBoundingClientRect();
+        const containerWidth = container.clientWidth;
+        const containerHeight = container.clientHeight;
+        
+        // Focal point relative to container
+        const focalX = center.x - containerRect.left;
+        const focalY = center.y - containerRect.top;
+        
         if (lastTouchDistance > 0) {
           const scale = distance / lastTouchDistance;
-          setCanvasZoom(prev => Math.max(1, Math.min(4, prev * scale)));
+          const oldZoom = canvasZoom;
+          const newZoom = Math.max(1, Math.min(4, oldZoom * scale));
+          
+          // Calculate new pan to keep focal point fixed
+          // Formula: newPan = focal - (focal - oldPan) * (newZoom / oldZoom)
+          const zoomRatio = newZoom / oldZoom;
+          const canvasDisplayWidth = baseCanvasSize.width * newZoom;
+          const canvasDisplayHeight = baseCanvasSize.height * newZoom;
+          const maxPanX = Math.min(0, containerWidth - canvasDisplayWidth);
+          const maxPanY = Math.min(0, containerHeight - canvasDisplayHeight);
+          
+          setCanvasPan(prev => {
+            const newPanX = focalX - (focalX - prev.x) * zoomRatio;
+            const newPanY = focalY - (focalY - prev.y) * zoomRatio;
+            return {
+              x: Math.max(maxPanX, Math.min(0, newPanX)),
+              y: Math.max(maxPanY, Math.min(0, newPanY))
+            };
+          });
+          
+          setCanvasZoom(newZoom);
           setLastTouchDistance(distance);
         }
 
-        const deltaX = center.x - lastTouchCenter.x;
-        const deltaY = center.y - lastTouchCenter.y;
-        const canvasDisplayWidth = baseCanvasSize.width * canvasZoom;
-        const canvasDisplayHeight = baseCanvasSize.height * canvasZoom;
-        const containerWidth = canvasContainerRef.current?.clientWidth || 0;
-        const containerHeight = canvasContainerRef.current?.clientHeight || 0;
-        const maxPanX = Math.min(0, containerWidth - canvasDisplayWidth);
-        const maxPanY = Math.min(0, containerHeight - canvasDisplayHeight);
-
-        setCanvasPan(prev => ({
-          x: Math.max(maxPanX, Math.min(0, prev.x + deltaX)),
-          y: Math.max(maxPanY, Math.min(0, prev.y + deltaY))
-        }));
         setLastTouchCenter(center);
         return;
       }
@@ -282,6 +300,12 @@ export function useCanvas(socketEmitFunctions) {
     // Single touch handling
     if (event.type.startsWith("touch") && event.touches?.length === 1) {
       const touch = event.touches[0];
+
+      // Skip single touch processing if was just zooming (transitioning from 2 fingers to 1)
+      if (isZooming) {
+        setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+        return;
+      }
 
       if (type === "touch") {
         setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
