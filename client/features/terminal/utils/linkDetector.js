@@ -1,5 +1,6 @@
 import { LINK_PATTERNS, LINK_TYPES } from "../constants/linkPatterns.js";
 import { useTerminalStore } from "../../../shared/stores/terminalStore.js";
+import { getRecentWorkspaces } from "../../fileExplorer/components/WorkspaceList.js";
 
 // LRU cache for link detection results (performance optimization)
 const detectionCache = new Map();
@@ -203,7 +204,7 @@ export function detectLinks(lineText, bufferLineNumber) {
 export function getCurrentWorkspace() {
   const { viewStack } = useTerminalStore.getState();
   
-  // Loop backwards to find nearest "files" view with workspace
+  // 1. Find in viewStack (priority)
   for (let i = viewStack.length - 1; i >= 0; i--) {
     const view = viewStack[i];
     
@@ -211,13 +212,18 @@ export function getCurrentWorkspace() {
       return view.workspace;
     }
     
-    // Fallback: extract directory from "editor" view path
     if (view.type === "editor" && view.path) {
       const lastSlashIndex = view.path.lastIndexOf("/");
       if (lastSlashIndex > 0) {
         return view.path.substring(0, lastSlashIndex);
       }
     }
+  }
+  
+  // 2. Fallback: get from localStorage (most recent workspace)
+  const recent = getRecentWorkspaces();
+  if (recent.length > 0) {
+    return recent[0].path;
   }
   
   return null;
