@@ -33,7 +33,7 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/terminal" className="text-gray-600 hover:text-orange-400 text-sm transition-colors">
+                <Link href="/workspace" className="text-gray-600 hover:text-orange-400 text-sm transition-colors">
                   Terminal
                 </Link>
               </li>

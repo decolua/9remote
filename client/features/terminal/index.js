@@ -1,10 +1,8 @@
 // Terminal feature exports
 export { default as Terminal } from "./components/Terminal.js";
-export { default as SessionList } from "./components/SessionList.js";
 export { default as SitesList } from "./components/SitesList.js";
 export { default as MobileKeyboard } from "./components/MobileKeyboard.js";
 
-export { useSocket } from "./hooks/useSocket.js";
 export { useTouchScroll } from "./hooks/useTouchScroll.js";
 
 export * from "./constants/keyMappings.js";

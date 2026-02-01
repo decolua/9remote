@@ -62,7 +62,7 @@ function LoginContent() {
       if (rememberKey && result.apiKey) {
         saveKey(result.apiKey);
       }
-      router.push("/terminal/");
+      router.push("/workspace/");
     }
   };
 
@@ -83,7 +83,7 @@ function LoginContent() {
         if (rememberKey && result.apiKey) {
           saveKey(result.apiKey);
         }
-        router.push("/terminal/");
+        router.push("/workspace/");
       }
     } else {
       const result = await authenticateWithApiKey(apiKey);
@@ -91,7 +91,7 @@ function LoginContent() {
         if (rememberKey) {
           saveKey(result.apiKey || apiKey);
         }
-        router.push("/terminal/");
+        router.push("/workspace/");
       }
     }
   };
@@ -102,7 +102,7 @@ function LoginContent() {
     const result = await authenticateWithApiKey(key);
     if (result.success) {
       updateLastLogin(key);
-      router.push("/terminal/");
+      router.push("/workspace/");
     }
   };
 
@@ -121,11 +121,11 @@ function LoginContent() {
     console.log("Authentication result:", result);
     
     if (result.success) {
-      console.log("Authentication successful, redirecting to /terminal/");
+      console.log("Authentication successful, redirecting to /workspace/");
       if (rememberKey && result.apiKey) {
         saveKey(result.apiKey);
       }
-      router.push("/terminal/");
+      router.push("/workspace/");
     } else {
       console.error("Authentication failed:", result.error);
     }

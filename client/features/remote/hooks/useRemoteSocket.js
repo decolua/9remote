@@ -55,7 +55,7 @@ export function useRemoteSocket() {
     if (!auth?.apiKey) {
       router.push("/");
     } else if (!auth?.tunnelUrl) {
-      router.push("/terminal");
+      router.push("/workspace");
     }
   }, [auth, router]);
 
@@ -149,7 +149,7 @@ export function useRemoteSocket() {
     if (socketRef.current) {
       socketRef.current.disconnect();
     }
-    router.push("/terminal");
+    router.push("/workspace");
   }, [socketRef, streaming, router]);
 
   return {

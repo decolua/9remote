@@ -44,7 +44,7 @@ export default function HeroSection() {
           </Link>
 
           <Link 
-            href="/terminal"
+            href="/workspace"
             className="group px-8 py-4 bg-white backdrop-blur-sm border border-gray-300 rounded-lg font-bold text-gray-900 hover:bg-gray-50 hover:border-[#E68A6E]/50 transition-all duration-300 hover:scale-105 w-full sm:w-auto"
           >
             <span className="flex items-center justify-center gap-2">

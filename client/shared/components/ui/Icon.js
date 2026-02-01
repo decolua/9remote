@@ -74,4 +74,5 @@ export const {
   Send,
   SendHorizontal,
   ExternalLink,
+  ChevronDown,
 } = LucideIcons;

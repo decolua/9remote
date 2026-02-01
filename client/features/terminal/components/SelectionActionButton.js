@@ -106,7 +106,7 @@ export default function SelectionActionButton({
  * @param {string} text - Selected text
  * @returns {Object} Detection result with type flags and matched text
  */
-function detectSelectionType(text) {
+export function detectSelectionType(text) {
   const trimmed = text.trim();
   
   // Check if it's a URL

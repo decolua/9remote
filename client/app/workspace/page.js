@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { useSocket } from "@/features/terminal/hooks/useSocket";
+import { useSocket } from "@/features/session/hooks/useSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useUIStore } from "@/shared/stores/uiStore";
@@ -12,7 +12,7 @@ import { addRecentWorkspace } from "@/features/fileExplorer/components/Workspace
 import MobileBackgroundImage from "@/shared/components/ui/MobileBackground";
 
 const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
-const SessionList = dynamic(() => import("@/features/terminal/components/SessionList"), { ssr: false });
+const SessionList = dynamic(() => import("@/features/session/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
 const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/WorkspaceList"), { ssr: false });
 const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/FileExplorer"), { ssr: false });
@@ -22,7 +22,8 @@ import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
 
-export default function TerminalPage() {
+// Main workspace page - contains sessions, terminal, file explorer, remote desktop, etc.
+export default function WorkspacePage() {
   // Hydration state for Zustand
   const [hydrated, setHydrated] = useState(false);
   
