@@ -306,39 +306,6 @@ export async function initializeTerminal() {
     } else {
       // Load existing sessions from daemon
       const daemonSessions = await daemonClient.listSessions();
-      
-      // If daemon has no sessions, try restore from saved metadata
-      if (daemonSessions.length === 0) {
-        const savedMetadata = loadSessionMetadata();
-        const savedIds = Object.keys(savedMetadata);
-        
-        if (savedIds.length > 0) {
-          console.log(ORANGE(`🔄 Restoring ${savedIds.length} session(s) from metadata...`));
-          
-          for (const sessionId of savedIds) {
-            const meta = savedMetadata[sessionId];
-            try {
-              const result = await daemonClient.createSession(meta.name, 80, 24);
-              if (result.success) {
-                sessions.set(result.sessionId, {
-                  daemon: true,
-                  name: meta.name,
-                  createdAt: meta.createdAt || Date.now()
-                });
-              }
-            } catch (e) {
-              console.error(`Failed to restore session ${sessionId}:`, e.message);
-            }
-          }
-          
-          // Update metadata with new session IDs
-          saveSessionMetadata();
-          console.log(ORANGE(`✅ Restored ${sessions.size} session(s)`));
-          return;
-        }
-      }
-      
-      // Load from daemon
       for (const s of daemonSessions) {
         sessions.set(s.id, {
           daemon: true,
@@ -450,7 +417,6 @@ export function setupTerminalSocket(io) {
               name: name || `Terminal ${sessions.size + 1}`,
               createdAt: Date.now()
             });
-            saveSessionMetadata();
             callback({ success: true, sessionId: result.sessionId });
           } else {
             callback({ success: false, error: result.error });
@@ -513,7 +479,6 @@ export function setupTerminalSocket(io) {
           console.log(`PTY created: sessionId=${sessionId}, name=${name}`);
 
         sessions.set(sessionId, sessionData);
-        saveSessionMetadata();
         callback({ success: true, sessionId });
       } catch (error) {
         console.error("Failed to create session:", error);
@@ -699,7 +664,6 @@ export function setupTerminalSocket(io) {
           try {
             await daemonClient.deleteSession(sessionId);
             sessions.delete(sessionId);
-            saveSessionMetadata();
             callback({ success: true });
           } catch (e) {
             callback({ success: false, error: e.message });
@@ -729,7 +693,6 @@ export function setupTerminalSocket(io) {
           try {
             await daemonClient.renameSession(sessionId, name);
             session.name = name;
-            saveSessionMetadata();
             callback({ success: true });
           } catch (e) {
             callback({ success: false, error: e.message });

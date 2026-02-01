@@ -12,7 +12,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInput, setTextInput] = useState("");
   const [isMobile, setIsMobile] = useState(false);
+  const [showPasteInput, setShowPasteInput] = useState(false);
   const textInputRef = useRef(null);
+  const pasteInputRef = useRef(null);
 
   const { isIosPwa, osType: os } = useDeviceInfo();
 
@@ -118,6 +120,21 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
+  // Try clipboard API, fallback to input popup
+  const tryPasteFromClipboard = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && socket) {
+        socket.emit("input", { sessionId, data: text });
+        vibrate();
+        return true;
+      }
+    } catch (err) {
+      console.error("Clipboard API failed, showing input fallback:", err);
+    }
+    return false;
+  }, [socket, sessionId]);
+
   // Intercept keyboard input when modifiers are active
   useEffect(() => {
     if (!isMobile || !socket || !sessionId) return;
@@ -125,7 +142,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     const hasActiveModifier = ctrlPressed || metaPressed || altPressed || shiftPressed;
     if (!hasActiveModifier) return;
 
-    const handleKeyDown = (e) => {
+    const handleKeyDown = async (e) => {
       // Only intercept if we have an active modifier
       if (!ctrlPressed && !metaPressed && !altPressed && !shiftPressed) return;
 
@@ -138,6 +155,20 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
 
       // Get the key to send
       let key = e.key;
+
+      // Handle paste shortcut (Ctrl+V or Cmd+V)
+      if ((ctrlPressed || metaPressed) && key.toLowerCase() === "v") {
+        const success = await tryPasteFromClipboard();
+        if (!success) {
+          setShowPasteInput(true);
+          setTimeout(() => pasteInputRef.current?.focus(), 100);
+        }
+        setCtrlPressed(false);
+        setMetaPressed(false);
+        setAltPressed(false);
+        setShiftPressed(false);
+        return;
+      }
 
       // Map special keys
       if (key === "Backspace") key = "Backspace";
@@ -171,7 +202,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [isMobile, socket, sessionId, ctrlPressed, metaPressed, altPressed, shiftPressed, generateCombination]);
+  }, [isMobile, socket, sessionId, ctrlPressed, metaPressed, altPressed, shiftPressed, generateCombination, tryPasteFromClipboard]);
 
   if (!isMobile || !socket || !sessionId) return null;
 
@@ -189,8 +220,34 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     }
   };
 
-  const sendKey = (key, forceModifiers = {}) => {
+  const handlePasteInput = (e) => {
+    e.preventDefault();
+    const text = e.clipboardData?.getData("text");
+    if (text && socket) {
+      socket.emit("input", { sessionId, data: text });
+      vibrate();
+    }
+    setShowPasteInput(false);
+  };
+
+  const sendKey = async (key, forceModifiers = {}) => {
     vibrate();
+
+    // Handle paste shortcut (Ctrl+V or Cmd+V)
+    const ctrl = forceModifiers.ctrl || ctrlPressed;
+    const meta = forceModifiers.meta || metaPressed;
+    if ((ctrl || meta) && key.toLowerCase() === "v") {
+      const success = await tryPasteFromClipboard();
+      if (!success) {
+        setShowPasteInput(true);
+        setTimeout(() => pasteInputRef.current?.focus(), 100);
+      }
+      setCtrlPressed(false);
+      setMetaPressed(false);
+      setAltPressed(false);
+      setShiftPressed(false);
+      return;
+    }
 
     const data = generateCombination(key, forceModifiers);
 
@@ -327,6 +384,22 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
 
   return (
     <div className="flex flex-col">
+      {/* Paste Input Fallback */}
+      {showPasteInput && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={() => setShowPasteInput(false)}
+        >
+          <input
+            ref={pasteInputRef}
+            placeholder="Paste here (Cmd+V)"
+            onPaste={handlePasteInput}
+            onClick={(e) => e.stopPropagation()}
+            className="px-6 py-3 bg-dark-500 text-white rounded-brand border border-dark-400 focus:border-brand-500 font-medium transition-all duration-200 outline-none text-center w-64"
+          />
+        </div>
+      )}
+
       {/* Expanded keyboard panel */}
       <div
         className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${isExpanded ? "max-h-32 opacity-100" : "max-h-0 opacity-0"
