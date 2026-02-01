@@ -9,6 +9,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
+import MobileBackgroundImage from "@/shared/components/ui/MobileBackground";
 
 const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
 const SessionList = dynamic(() => import("@/features/terminal/components/SessionList"), { ssr: false });
@@ -55,7 +56,7 @@ export default function TerminalPage() {
   const fileSocket = useFileSocket(socketRef);
   const [systemInfo, setSystemInfo] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
-  const { setKeyboardOpen } = useUIStore();
+  const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen); // Selector - only subscribe to function
 
   // Save theme to localStorage when changed
   const handleThemeChange = useCallback((newTheme) => {
@@ -100,10 +101,18 @@ export default function TerminalPage() {
 
   // VisualViewport height - handle mobile keyboard
   useEffect(() => {
+    let lastKeyboardState = false; // Track keyboard state to prevent unnecessary updates
+    
     const updateAppHeight = () => {
       const vh = window.visualViewport?.height || window.innerHeight;
       const isKeyboardOpen = vh < window.innerHeight - 100;
-      setKeyboardOpen(isKeyboardOpen);
+      
+      // Only update if keyboard state actually changed
+      if (lastKeyboardState !== isKeyboardOpen) {
+        lastKeyboardState = isKeyboardOpen;
+        setKeyboardOpen(isKeyboardOpen);
+      }
+      
       document.documentElement.style.setProperty("--app-height", `${vh}px`);
       window.scrollTo(0, 0);
     };
@@ -266,7 +275,9 @@ export default function TerminalPage() {
   }
 
   return (
-    <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
+    <>
+      <MobileBackgroundImage />
+      <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
       {/* Session List */}
       <div 
         className={`absolute inset-0 transition-all duration-300 ease-out ${
@@ -390,6 +401,8 @@ export default function TerminalPage() {
         <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
           <FileEditor
             filePath={currentView.path}
+            line={currentView.line}
+            column={currentView.column}
             fileSocket={fileSocket}
             onBack={popView}
           />
@@ -422,6 +435,7 @@ export default function TerminalPage() {
         title={confirmDialog.title}
         message={confirmDialog.message}
       />
-    </div>
+      </div>
+    </>
   );
 }

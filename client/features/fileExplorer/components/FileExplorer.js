@@ -61,7 +61,16 @@ export default function FileExplorer({
           }
         }
       });
-      setGitStatusMap(statusMap);
+      // Only update if changed to prevent unnecessary re-renders
+      setGitStatusMap(prevMap => {
+        const prevKeys = Object.keys(prevMap);
+        const newKeys = Object.keys(statusMap);
+        if (prevKeys.length !== newKeys.length) return statusMap;
+        for (const key of newKeys) {
+          if (prevMap[key] !== statusMap[key]) return statusMap;
+        }
+        return prevMap; // No change, keep previous reference
+      });
     } else {
       setGitStatusMap({});
     }
@@ -80,7 +89,14 @@ export default function FileExplorer({
       if (isBrowsing) {
         filteredFiles = result.files.filter(f => f.type === "folder");
       }
-      setFiles(filteredFiles);
+      // Only update if changed to prevent unnecessary re-renders
+      setFiles(prevFiles => {
+        if (prevFiles.length !== filteredFiles.length) return filteredFiles;
+        for (let i = 0; i < filteredFiles.length; i++) {
+          if (prevFiles[i]?.name !== filteredFiles[i]?.name) return filteredFiles;
+        }
+        return prevFiles; // No change
+      });
       setCurrentPath(result.currentPath);
     } else {
       setError(result.error);
@@ -127,7 +143,8 @@ export default function FileExplorer({
     if (!isBrowsing) {
       checkGit(workspace);
     }
-  }, [workspace, loadFiles, checkGit, isBrowsing]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace, isBrowsing]); // Removed loadFiles, checkGit from deps to prevent loop
 
   // Cleanup search timer
   useEffect(() => {

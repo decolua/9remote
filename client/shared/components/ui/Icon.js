@@ -73,4 +73,5 @@ export const {
   QrCode,
   Send,
   SendHorizontal,
+  ExternalLink,
 } = LucideIcons;

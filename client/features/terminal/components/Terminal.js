@@ -4,11 +4,13 @@ import { useEffect, useRef, memo, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import AITerminalPanel from "@/features/terminal/components/AITerminal/AITerminalPanel";
+import SelectionActionButton from "@/features/terminal/components/SelectionActionButton";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { ChevronLeft, Settings, Sparkles } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 
 function Terminal({ 
   socket, 
@@ -36,14 +38,16 @@ function Terminal({
   const longPressTimer = useRef(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [showPastePopup, setShowPastePopup] = useState(false);
+  const [selectionAction, setSelectionAction] = useState(null);
 
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
+  const { pushView } = useTerminalStore();
 
   // Update socket ref outside render
   useEffect(() => {
     menuSocketRef.current = socket;
   }, [socket]);
-  const { doResize, focus } = useXTerm({ socket, sessionId, theme, isActive, containerRef });
+  const { termRef, doResize, focus } = useXTerm({ socket, sessionId, theme, isActive, containerRef });
 
   // Auto scroll to active tab
   useEffect(() => {
@@ -106,6 +110,108 @@ function Terminal({
       console.error("Clipboard read failed:", err);
     }
     setShowPastePopup(false);
+  };
+
+  // Listen for terminal selection changes
+  useEffect(() => {
+    if (!termRef.current || !containerRef.current || !isActive) return;
+
+    const term = termRef.current;
+    
+    const handleSelectionChange = () => {
+      const selection = term.getSelection();
+      
+      if (!selection || selection.trim().length === 0) {
+        setSelectionAction(null);
+        return;
+      }
+
+      // Get selection position from terminal
+      const selectionPosition = term.getSelectionPosition();
+      if (!selectionPosition) {
+        setSelectionAction(null);
+        return;
+      }
+
+      // Calculate screen position relative to terminal container
+      const containerRect = containerRef.current.getBoundingClientRect();
+      
+      // Use actual screen coordinates from selection, not buffer coordinates
+      // selectionPosition gives buffer coordinates, we need to convert to screen position
+      // For now, use a simpler approach: position FAB at selection end
+      const windowSelection = window.getSelection();
+      let screenX = containerRect.left + containerRect.width / 2; // Default to center
+      let screenY = containerRect.top + 100; // Default near top
+      
+      if (windowSelection && windowSelection.rangeCount > 0) {
+        const range = windowSelection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        screenX = rect.left + rect.width / 2;
+        screenY = rect.top;
+      }
+      
+      console.log("📍 Selection position calculated:", { 
+        screenX, 
+        screenY,
+        containerRect,
+        selectionPosition 
+      });
+
+      setSelectionAction({
+        text: selection,
+        position: { x: screenX, y: screenY }
+      });
+    };
+
+    const disposable = term.onSelectionChange(handleSelectionChange);
+
+    return () => {
+      disposable.dispose();
+    };
+  }, [termRef, containerRef, isActive]);
+
+  // Selection action handlers
+  const handleOpenFile = (path, line, column) => {
+    // Focus terminal first to preserve keyboard state on mobile
+    if (termRef.current) {
+      termRef.current.focus();
+    }
+    
+    // Small delay to ensure focus is set before navigation
+    setTimeout(() => {
+      pushView({
+        type: "editor",
+        path,
+        line,
+        column
+      });
+    }, 50);
+  };
+
+  const handleOpenUrl = (url) => {
+    window.open(url, "_blank");
+  };
+
+  const handleCopy = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      vibrate();
+    } catch (err) {
+      console.error("Copy failed:", err);
+    }
+  };
+
+  const handleCloseSelection = () => {
+    setSelectionAction(null);
+    if (termRef.current) {
+      termRef.current.clearSelection();
+      // Restore focus to terminal to keep keyboard open on mobile
+      setTimeout(() => {
+        if (termRef.current) {
+          termRef.current.focus();
+        }
+      }, 100);
+    }
   };
 
   return (
@@ -190,6 +296,18 @@ function Terminal({
 
       {/* AI Terminal Panel */}
       <AITerminalPanel isOpen={aiPanelOpen} onClose={() => setAiPanelOpen(false)} platform={platform} />
+
+      {/* Selection Action Button */}
+      {selectionAction && (
+        <SelectionActionButton
+          text={selectionAction.text}
+          position={selectionAction.position}
+          onOpenFile={handleOpenFile}
+          onOpenUrl={handleOpenUrl}
+          onCopy={handleCopy}
+          onClose={handleCloseSelection}
+        />
+      )}
     </div>
   );
 }

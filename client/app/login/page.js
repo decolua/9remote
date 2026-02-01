@@ -9,6 +9,7 @@ import Container from "@/shared/components/ui/Container";
 import Button from "@/shared/components/ui/Button";
 import Spinner from "@/shared/components/ui/Spinner";
 import QRScanner from "@/shared/components/ui/QRScanner";
+import MobileBackgroundImage from "@/shared/components/ui/MobileBackground";
 import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode } from "@/shared/components/ui/Icon";
 
 function LoginContent() {
@@ -161,18 +162,22 @@ function LoginContent() {
   // Token auth loading screen
   if (isTokenAuth && loading) {
     return (
-      <Container>
-        <div className="bg-dark-600 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
-          <Spinner size="lg" text="Authenticating with token..." />
-        </div>
-      </Container>
+      <>
+        <MobileBackgroundImage />
+        <Container>
+          <div className="bg-dark-600 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
+            <Spinner size="lg" text="Authenticating with token..." />
+          </div>
+        </Container>
+      </>
     );
   }
 
   return (
     <>
+      <MobileBackgroundImage />
       <Container>
-        <div className="bg-dark-600 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
+        <div className="bg-dark-600/90 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-brand-500/10 rounded-brand">
               <Terminal className="text-brand-500" size={32} />
@@ -331,9 +336,12 @@ function LoginContent() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <Container>
-        <Spinner text="Loading..." />
-      </Container>
+      <>
+        <MobileBackgroundImage />
+        <Container>
+          <Spinner text="Loading..." />
+        </Container>
+      </>
     }>
       <LoginContent />
     </Suspense>

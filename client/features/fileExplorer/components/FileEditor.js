@@ -27,7 +27,7 @@ function getLanguageExtension(filePath) {
   return languageExtensions[lang] || [];
 }
 
-export default function FileEditor({ filePath, fileSocket, onBack }) {
+export default function FileEditor({ filePath, fileSocket, onBack, line, column }) {
   const editorRef = useRef(null);
   const viewRef = useRef(null);
   const [loading, setLoading] = useState(true);
@@ -150,6 +150,30 @@ export default function FileEditor({ filePath, fileSocket, onBack }) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, content, filePath]);
+
+  // Jump to line/column when line prop changes
+  useEffect(() => {
+    if (!viewRef.current || !line) return;
+
+    const view = viewRef.current;
+    const doc = view.state.doc;
+
+    // Clamp line number to valid range (1-based to 0-based conversion)
+    const targetLine = Math.max(1, Math.min(line, doc.lines));
+    const lineObj = doc.line(targetLine);
+
+    // Calculate position with column, clamp column to line length
+    const targetColumn = column || 0;
+    const position = lineObj.from + Math.min(targetColumn, lineObj.length);
+
+    // Dispatch selection and scroll into view
+    view.dispatch({
+      selection: { anchor: position, head: position },
+      scrollIntoView: true
+    });
+
+    view.focus();
+  }, [line, column]);
 
   // Insert text at cursor
   const insertText = (text) => {
