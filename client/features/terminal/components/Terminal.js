@@ -5,7 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import AITerminalPanel from "@/features/terminal/components/AITerminal/AITerminalPanel";
 import { detectSelectionType } from "@/features/terminal/components/SelectionActionButton";
-import { parseFilePathWithLine } from "@/features/terminal/utils/linkDetector";
+import { parseFilePathWithLine, getCurrentWorkspace } from "@/features/terminal/utils/linkDetector";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES } from "@/features/terminal/constants/themes";
@@ -183,11 +183,20 @@ function Terminal({
       termRef.current.focus();
     }
     
+    // Resolve relative path with workspace
+    let finalPath = path;
+    if (!path.startsWith("/")) {
+      const workspace = getCurrentWorkspace();
+      if (workspace) {
+        finalPath = `${workspace}/${path}`;
+      }
+    }
+    
     // Small delay to ensure focus is set before navigation
     setTimeout(() => {
       pushView({
         type: "editor",
-        path,
+        path: finalPath,
         line,
         column
       });

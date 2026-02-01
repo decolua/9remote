@@ -417,6 +417,7 @@ export function setupTerminalSocket(io) {
               name: name || `Terminal ${sessions.size + 1}`,
               createdAt: Date.now()
             });
+            saveSessionMetadata();
             callback({ success: true, sessionId: result.sessionId });
           } else {
             callback({ success: false, error: result.error });
@@ -479,6 +480,7 @@ export function setupTerminalSocket(io) {
           console.log(`PTY created: sessionId=${sessionId}, name=${name}`);
 
         sessions.set(sessionId, sessionData);
+        saveSessionMetadata();
         callback({ success: true, sessionId });
       } catch (error) {
         console.error("Failed to create session:", error);
@@ -664,6 +666,7 @@ export function setupTerminalSocket(io) {
           try {
             await daemonClient.deleteSession(sessionId);
             sessions.delete(sessionId);
+            saveSessionMetadata();
             callback({ success: true });
           } catch (e) {
             callback({ success: false, error: e.message });
@@ -693,6 +696,7 @@ export function setupTerminalSocket(io) {
           try {
             await daemonClient.renameSession(sessionId, name);
             session.name = name;
+            saveSessionMetadata();
             callback({ success: true });
           } catch (e) {
             callback({ success: false, error: e.message });
