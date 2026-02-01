@@ -306,6 +306,39 @@ export async function initializeTerminal() {
     } else {
       // Load existing sessions from daemon
       const daemonSessions = await daemonClient.listSessions();
+      
+      // If daemon has no sessions, try restore from saved metadata
+      if (daemonSessions.length === 0) {
+        const savedMetadata = loadSessionMetadata();
+        const savedIds = Object.keys(savedMetadata);
+        
+        if (savedIds.length > 0) {
+          console.log(ORANGE(`🔄 Restoring ${savedIds.length} session(s) from metadata...`));
+          
+          for (const sessionId of savedIds) {
+            const meta = savedMetadata[sessionId];
+            try {
+              const result = await daemonClient.createSession(meta.name, 80, 24);
+              if (result.success) {
+                sessions.set(result.sessionId, {
+                  daemon: true,
+                  name: meta.name,
+                  createdAt: meta.createdAt || Date.now()
+                });
+              }
+            } catch (e) {
+              console.error(`Failed to restore session ${sessionId}:`, e.message);
+            }
+          }
+          
+          // Update metadata with new session IDs
+          saveSessionMetadata();
+          console.log(ORANGE(`✅ Restored ${sessions.size} session(s)`));
+          return;
+        }
+      }
+      
+      // Load from daemon
       for (const s of daemonSessions) {
         sessions.set(s.id, {
           daemon: true,
