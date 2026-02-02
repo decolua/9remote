@@ -26,7 +26,8 @@ export const BASIC_KEYS = [
   { label: "Ctrl", key: "Ctrl", modifier: true },
   { label: "Opt", key: "Alt", modifier: true },
   { label: "Shift", key: "Shift", modifier: true },
-  { label: "Tab", key: "Tab" }
+  { label: "Tab", key: "Tab" },
+  { label: "↵", key: "Enter" }
 ];
 
 // Extended keys: 3 rows x 6 cols = 18 keys

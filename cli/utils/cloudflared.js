@@ -4,6 +4,11 @@ import https from "https";
 import os from "os";
 import { execSync, spawn } from "child_process";
 
+// Network change detection
+let networkMonitorInterval = null;
+let lastNetworkState = null;
+let currentTunnelToken = null;
+
 const BIN_DIR = path.join(os.homedir(), ".9remote", "bin");
 const BINARY_NAME = "cloudflared";
 const IS_WINDOWS = os.platform() === "win32";
@@ -167,10 +172,11 @@ const LOG_IGNORE = [
 export async function spawnCloudflared(tunnelToken, onRestart = null) {
   const binaryPath = await ensureCloudflared();
   
-  // Store restart callback
+  // Store restart callback and token for network change restart
   if (onRestart) {
     restartCallback = onRestart;
   }
+  currentTunnelToken = tunnelToken;
   
   const child = spawn(binaryPath, ["tunnel", "run", "--token", tunnelToken], {
     detached: false,
@@ -254,6 +260,9 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
   // Save PID
   fs.writeFileSync(PID_FILE, child.pid.toString());
   
+  // Start network monitor
+  startNetworkMonitor();
+  
   return child;
 }
 
@@ -276,9 +285,71 @@ export function killCloudflared() {
 }
 
 /**
- * Reset restart counter
+ * Reset restart counter and stop network monitor
  */
 export function resetRestartCounter() {
   restartTimes = [];
   restartCallback = null;
+  currentTunnelToken = null;
+  stopNetworkMonitor();
+}
+
+/**
+ * Get network state fingerprint (only active interfaces with IP)
+ */
+function getNetworkFingerprint() {
+  const interfaces = os.networkInterfaces();
+  const active = [];
+  
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (!addr.internal && addr.family === "IPv4") {
+        active.push(`${name}:${addr.address}`);
+      }
+    }
+  }
+  
+  return active.sort().join("|");
+}
+
+/**
+ * Start network change monitor
+ */
+function startNetworkMonitor() {
+  if (networkMonitorInterval) return;
+  
+  lastNetworkState = getNetworkFingerprint();
+  
+  networkMonitorInterval = setInterval(() => {
+    const current = getNetworkFingerprint();
+    
+    if (current !== lastNetworkState) {
+      console.log("🔄 Network change detected - restarting tunnel...");
+      lastNetworkState = current;
+      
+      // Kill cloudflared (sets isIntentionalShutdown = true)
+      killCloudflared();
+      
+      // Directly trigger restart instead of relying on exit event
+      // (exit event won't restart because isIntentionalShutdown = true)
+      if (restartCallback && currentTunnelToken) {
+        setTimeout(() => {
+          console.log("🔄 Restarting tunnel after network change...");
+          restartCallback(currentTunnelToken);
+        }, 2000);
+      }
+    }
+  }, 5000);
+}
+
+/**
+ * Stop network monitor
+ */
+function stopNetworkMonitor() {
+  if (networkMonitorInterval) {
+    clearInterval(networkMonitorInterval);
+    networkMonitorInterval = null;
+  }
+  lastNetworkState = null;
 }

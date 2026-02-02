@@ -3,7 +3,9 @@
 // 6 most popular themes: 4 dark (distinctive colors) + 2 light
 
 export const THEMES = {
-  default: {},
+  default: {
+    background: "#000000",
+  },
   dracula: {
     background: "#282a36", 
     foreground: "#f8f8f2", 

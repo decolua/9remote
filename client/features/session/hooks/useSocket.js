@@ -35,6 +35,12 @@ export function useSocket() {
     }
   }, [codespaceInfo]);
 
+  // Handle codespace stopping event - server is about to shut down
+  const [codespaceStopping, setCodespaceStopping] = useState(false);
+  const handleCodespaceStopping = useCallback(() => {
+    setCodespaceStopping(true);
+  }, []);
+
   const { socket, socketRef, connected, error, retryStatus } = useBaseSocket({
     namespace: "",
     redirectOnNoAuth: "/",
@@ -64,12 +70,14 @@ export function useSocket() {
 
     currentSocket.on("serverInfo", handleServerInfo);
     currentSocket.on("sessionClosed", handleSessionClosed);
+    currentSocket.on("codespace:stopping", handleCodespaceStopping);
 
     return () => {
       currentSocket.off("serverInfo", handleServerInfo);
       currentSocket.off("sessionClosed", handleSessionClosed);
+      currentSocket.off("codespace:stopping", handleCodespaceStopping);
     };
-  }, [socketRef, connected]);
+  }, [socketRef, connected, handleCodespaceStopping]);
 
   // Load sessions list
   const loadSessions = useCallback(() => {
@@ -141,6 +149,7 @@ export function useSocket() {
     remoteAvailable,
     codespaceInfo,
     codespaceDisconnected,
+    codespaceStopping,
     platform,
     loadSessions,
     createSession,

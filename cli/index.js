@@ -54,7 +54,7 @@ function getVersion() {
  */
 function showBanner() {
   const version = getVersion();
-  const width = 63;
+  const width = Math.min(44, process.stdout.columns || 44);
   
   console.log("");
   console.log(ORANGE("╔" + "═".repeat(width - 2) + "╗"));

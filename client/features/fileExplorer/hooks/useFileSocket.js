@@ -92,6 +92,17 @@ export function useFileSocket(socketRef) {
     });
   }, [socketRef]);
 
+  // Git file status - check single file
+  const gitFileStatus = useCallback((repoPath, filePath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitFileStatus", { repoPath, filePath }, resolve);
+    });
+  }, [socketRef]);
+
   // Git diff
   const gitDiff = useCallback((repoPath, file, status) => {
     return new Promise((resolve) => {
@@ -134,6 +145,7 @@ export function useFileSocket(socketRef) {
     deleteItem,
     renameItem,
     gitStatus,
+    gitFileStatus,
     gitDiff,
     gitDiscard,
     searchFiles

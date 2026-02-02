@@ -472,8 +472,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
       </div>
 
       {/* Bottom keyboard bar */}
-      <div className={`overflow-x-auto bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
-        <div className="flex items-center justify-between gap-0.5 max-w-4xl mx-auto">
+      <div className={`overflow-auto bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
+        <div className="flex items-center justify-between gap-2 max-w-4xl mx-auto">
           {/* Esc button - separate group */}
           <div className="flex gap-0.5">
             <button

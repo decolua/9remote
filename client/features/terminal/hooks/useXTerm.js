@@ -13,19 +13,26 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
   const fitAddonRef = useRef(null);
   const inputHandlerRef = useRef(null);
   const resizeTimerRef = useRef(null);
+  const doResizeRef = useRef(null);
+  const stopMomentumRef = useRef(null);
   const [termReady, setTermReady] = useState(false);
 
-  // Resize with debounce singleton
+  // Resize with debounce singleton - uses rAF to ensure layout is stable
   const doResize = useCallback(() => {
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = setTimeout(() => {
-      if (!fitAddonRef.current || !termRef.current || !socket) return;
-      fitAddonRef.current.fit();
-      const { cols, rows } = termRef.current;
-      socket.emit("resize", { sessionId, cols, rows });
-      resizeTimerRef.current = null;
-    }, 100);
+      requestAnimationFrame(() => {
+        if (!fitAddonRef.current || !termRef.current || !socket) return;
+        fitAddonRef.current.fit();
+        const { cols, rows } = termRef.current;
+        socket.emit("resize", { sessionId, cols, rows });
+        resizeTimerRef.current = null;
+      });
+    }, 150);
   }, [socket, sessionId]);
+
+  // Keep ref updated for use in useEffect without stale closure
+  doResizeRef.current = doResize;
 
   // Initialize XTerm instance
   useEffect(() => {
@@ -46,26 +53,33 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
 
     term.open(containerRef.current);
 
-    // WebGL addon for better performance
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => webglAddon.dispose());
-      term.loadAddon(webglAddon);
-    } catch (e) {
-      console.warn("WebGL not supported, using canvas renderer");
-    }
+    // WebGL addon loaded after joinSession to avoid blank screen
+    let webglAddon = null;
+    const loadWebGL = () => {
+      if (webglAddon) return;
+      try {
+        // webglAddon = new WebglAddon();
+        // webglAddon.onContextLoss(() => webglAddon.dispose());
+        // term.loadAddon(webglAddon);
+      } catch (e) {
+        console.warn("WebGL not supported, using canvas renderer");
+      }
+    };
 
     // Initial fit and mark ready
     let checkCount = 0;
     const maxChecks = 50;
     const checkReady = () => {
       checkCount++;
+      const width = containerRef.current?.offsetWidth || 0;
+      const height = containerRef.current?.offsetHeight || 0;
+      
       if (checkCount > maxChecks) {
         setTermReady(true);
         return;
       }
 
-      if (term.element) {
+      if (term.element && width > 0 && height > 0) {
         fitAddon.fit();
         socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
         setTermReady(true);
@@ -75,30 +89,8 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
     };
     setTimeout(checkReady, 50);
 
-    // ResizeObserver - debounced resize with change detection
-    let resizeTimeout = null;
-    let fitTimeout = null;
-    let lastCols = 0;
-    let lastRows = 0;
-    const resizeObserver = new ResizeObserver(() => {
-      if (resizeTimeout) clearTimeout(resizeTimeout);
-      if (fitTimeout) clearTimeout(fitTimeout);
-      
-      resizeTimeout = setTimeout(() => {
-        if (!fitAddonRef.current || !termRef.current) return;
-        // fitAddonRef.current.fit();
-        const { cols, rows } = termRef.current;
-        if (cols !== lastCols || rows !== lastRows) {
-          lastCols = cols;
-          lastRows = rows;
-          socket.emit("resize", { sessionId, cols, rows });
-        }
-
-        fitTimeout = setTimeout(() => {
-          fitAddonRef.current.fit();
-        }, 200);
-      }, 200);
-    });
+    // ResizeObserver - delegate to doResize (debounced + rAF)
+    const resizeObserver = new ResizeObserver(() => doResizeRef.current?.());
     resizeObserver.observe(containerRef.current);
 
     // Output handler - filter by sessionId
@@ -117,13 +109,19 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
 
     // Join session - after output handler is ready
     socket.emit("joinSession", sessionId, (result) => {
-      if (!result.success) {
+      if (result.success) {
+        // Load WebGL and re-fit after join to ensure proper render
+        setTimeout(() => {
+          loadWebGL();
+          fitAddon.fit();
+        }, 100);
+      } else {
         term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);
       }
     });
 
-    // Orientation change handler
-    const handleOrientationChange = () => setTimeout(doResize, 300);
+    // Orientation change handler - delegate to doResize via ref
+    const handleOrientationChange = () => setTimeout(() => doResizeRef.current?.(), 300);
     window.addEventListener("orientationchange", handleOrientationChange);
 
     return () => {
@@ -132,6 +130,7 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
       socket.off("output", handleOutput);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+      if (webglAddon) webglAddon.dispose();
       fitAddon.dispose();
       term.dispose();
       termRef.current = null;
@@ -193,7 +192,9 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
         cancelAnimationFrame(momentumId);
         momentumId = null;
       }
+      velocity = 0;
     };
+    stopMomentumRef.current = stopMomentum;
 
     const doMomentum = () => {
       if (!termRef.current || Math.abs(velocity) < MIN_VELOCITY) {
@@ -261,6 +262,7 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
   return {
     termRef,
     doResize,
-    focus: () => termRef.current?.focus()
+    focus: () => termRef.current?.focus(),
+    stopMomentum: () => stopMomentumRef.current?.()
   };
 }

@@ -49,7 +49,7 @@ function Terminal({
   useEffect(() => {
     menuSocketRef.current = socket;
   }, [socket]);
-  const { termRef, doResize, focus } = useXTerm({ socket, sessionId, theme, isActive, containerRef });
+  const { termRef, doResize, focus, stopMomentum } = useXTerm({ socket, sessionId, theme, isActive, containerRef });
 
   // Auto scroll to active tab
   useEffect(() => {
@@ -154,10 +154,10 @@ function Terminal({
   }, [termRef, isActive]);
 
   const handleScrollToBottom = () => {
-    if (termRef.current) {
-      termRef.current.scrollToBottom();
-      vibrate();
-    }
+    if (!termRef.current) return;
+    vibrate();
+    stopMomentum();
+    termRef.current.scrollToBottom();
   };
 
   // Listen for terminal selection changes - auto open file/URL on double-click
@@ -222,7 +222,7 @@ function Terminal({
   };
 
   return (
-    <div className="h-[var(--app-height,100vh)] flex flex-col overflow-hidden" style={{ background: currentTheme.background }}>
+    <div className="h-full flex flex-col overflow-hidden" style={{ background: currentTheme.background }}>
       {/* Header */}
       <div className="bg-dark-600 border-b border-dark-400 px-2 sm:px-4 py-2 flex items-center gap-2 flex-shrink-0">
         <button
@@ -291,7 +291,7 @@ function Terminal({
               e.stopPropagation();
               handleScrollToBottom();
             }}
-            className="absolute bottom-5 right-5 z-50 p-2 bg-black/30 hover:bg-black/50 text-white rounded-full border border-white/20 shadow-lg transition-all duration-200 hover:scale-105"
+            className="absolute bottom-5 right-7 z-50 p-2 bg-black/30 hover:bg-black/50 text-white rounded-full border border-white/20 shadow-lg transition-all duration-200 hover:scale-105"
             title="Scroll to bottom"
           >
             <ChevronDown size={20} />

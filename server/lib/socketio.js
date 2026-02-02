@@ -4,6 +4,12 @@ import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
 import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
 
+let ioInstance = null;
+
+export function getIO() {
+  return ioInstance;
+}
+
 export async function setupSocketIO(server) {
   const io = new Server(server, {
     cors: {
@@ -31,5 +37,6 @@ export async function setupSocketIO(server) {
   // Setup File Explorer (uses default namespace)
   setupFileExplorerSocket(io);
 
+  ioInstance = io;
   return io;
 }

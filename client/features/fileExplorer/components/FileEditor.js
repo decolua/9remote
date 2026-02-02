@@ -10,7 +10,7 @@ import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { AUTO_SAVE_DELAY, LANGUAGE_MAP } from "../constants/fileExplorer.js";
-import { ChevronLeft, Save, Loader2 } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Save, Loader2, GitBranch } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
 const languageExtensions = {
@@ -27,7 +27,7 @@ function getLanguageExtension(filePath) {
   return languageExtensions[lang] || [];
 }
 
-export default function FileEditor({ filePath, fileSocket, onBack, line, column }) {
+export default function FileEditor({ filePath, fileSocket, onBack, line, column, workspace }) {
   const editorRef = useRef(null);
   const viewRef = useRef(null);
   const [loading, setLoading] = useState(true);
@@ -36,6 +36,10 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column 
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState(false);
+  const [gitStatus, setGitStatus] = useState(null);
+  const [showDiff, setShowDiff] = useState(false);
+  const [diffContent, setDiffContent] = useState("");
+  const [loadingDiff, setLoadingDiff] = useState(false);
   const originalContentRef = useRef("");
   const autoSaveTimerRef = useRef(null);
 
@@ -97,6 +101,36 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column 
       }
     };
   }, [filePath, fileSocket]);
+
+  // Check git status for this file
+  useEffect(() => {
+    if (!workspace || !filePath) return;
+
+    const checkGitStatus = async () => {
+      const result = await fileSocket.gitFileStatus(workspace, filePath);
+      if (result.success && result.status) {
+        setGitStatus(result);
+      } else {
+        setGitStatus(null);
+      }
+    };
+
+    checkGitStatus();
+  }, [filePath, workspace, fileSocket]);
+
+  // Show git diff
+  const handleShowDiff = async () => {
+    if (!gitStatus || !workspace) return;
+    
+    setLoadingDiff(true);
+    const result = await fileSocket.gitDiff(workspace, gitStatus.file, gitStatus.status);
+    setLoadingDiff(false);
+    
+    if (result.success) {
+      setDiffContent(result.diff);
+      setShowDiff(true);
+    }
+  };
 
   // Setup editor after content is loaded and ref is available
   useEffect(() => {
@@ -219,6 +253,18 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column 
           )}
         </div>
 
+        {/* Git button - only show if file has git changes */}
+        {gitStatus && (
+          <button
+            onClick={() => { vibrate(); handleShowDiff(); }}
+            disabled={loadingDiff}
+            className="p-2 bg-dark-500 hover:bg-dark-400 text-orange-400 rounded-brand transition-all duration-200 border border-dark-400 hover:border-orange-500"
+            title={`Git: ${gitStatus.status === "M" ? "Modified" : gitStatus.status === "A" ? "Added" : gitStatus.status === "?" ? "Untracked" : gitStatus.status}`}
+          >
+            {loadingDiff ? <Loader2 className="animate-spin" size={16} /> : <GitBranch size={16} />}
+          </button>
+        )}
+
         <button
           onClick={() => { vibrate(); saveFile(); }}
           disabled={!hasChanges || saving}
@@ -256,6 +302,38 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column 
           className={`h-full overflow-auto ${loading ? "hidden" : ""}`} 
         />
       </div>
+
+      {/* Git Diff Modal */}
+      {showDiff && (
+        <div 
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowDiff(false)}
+        >
+          <div 
+            className="bg-dark-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden border border-dark-400"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bg-dark-600 px-4 py-3 flex items-center justify-between border-b border-dark-400">
+              <span className="text-white font-medium">Git Diff: {fileName}</span>
+              <button
+                onClick={() => setShowDiff(false)}
+                className="p-1 hover:bg-dark-500 rounded transition-colors text-dark-100 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <pre className="flex-1 overflow-auto p-4 text-sm font-mono whitespace-pre-wrap">
+              {diffContent.split("\n").map((line, i) => {
+                let className = "text-dark-100";
+                if (line.startsWith("+") && !line.startsWith("+++")) className = "text-green-400";
+                else if (line.startsWith("-") && !line.startsWith("---")) className = "text-red-400";
+                else if (line.startsWith("@@")) className = "text-blue-400";
+                return <div key={i} className={className}>{line}</div>;
+              })}
+            </pre>
+          </div>
+        </div>
+      )}
 
       {/* Code shortcuts toolbar */}
       <div className="bg-dark-600 border-t border-dark-400 px-2 py-2 flex gap-1 overflow-x-auto flex-shrink-0">

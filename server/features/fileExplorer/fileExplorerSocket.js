@@ -396,6 +396,45 @@ export function setupFileExplorerSocket(io) {
       }
     });
 
+    // Git file status - check single file
+    socket.on("gitFileStatus", ({ repoPath, filePath }, callback) => {
+      try {
+        // Get relative path from repo root
+        const relativePath = path.relative(repoPath, filePath);
+        
+        const result = execSync(`git status --porcelain -- "${relativePath}"`, {
+          cwd: repoPath,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"]
+        });
+
+        const line = result.trim();
+        if (!line) {
+          callback({ success: true, status: null }); // No changes
+          return;
+        }
+
+        const match = line.match(/^([MADRCU?! ]{1,2})\s+(.+)$/);
+        if (!match) {
+          callback({ success: true, status: null });
+          return;
+        }
+
+        const statusCode = match[1];
+        let status;
+        if (statusCode.includes("?")) status = "?";
+        else if (statusCode.includes("A")) status = "A";
+        else if (statusCode.includes("D")) status = "D";
+        else if (statusCode.includes("M")) status = "M";
+        else if (statusCode.includes("R")) status = "R";
+        else status = statusCode.trim()[0] || "?";
+
+        callback({ success: true, status, file: relativePath });
+      } catch {
+        callback({ success: true, status: null }); // Not in git or no changes
+      }
+    });
+
     // Git diff - includes staged, unstaged, and untracked files
     socket.on("gitDiff", ({ repoPath, file, status }, callback) => {
       try {

@@ -85,6 +85,10 @@ function getDefaultShell() {
  * Get default working directory
  */
 function getDefaultCwd() {
+  // Codespaces environment
+  if (process.env.CODESPACES === "true") {
+    return process.env.CODESPACE_VSCODE_FOLDER || "/workspaces";
+  }
   return process.env.HOME || process.env.USERPROFILE || os.homedir();
 }
 

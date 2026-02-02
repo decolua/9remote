@@ -5,7 +5,7 @@
 import { createServer } from "http";
 import { parse } from "url";
 import { exec } from "child_process";
-import { setupSocketIO } from "./lib/socketio.js";
+import { setupSocketIO, getIO } from "./lib/socketio.js";
 import { handleLocalSites } from "./api/localSites.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
@@ -36,6 +36,12 @@ async function handleCodespaceStop(req, res) {
     res.writeHead(400);
     res.end(JSON.stringify({ error: "Codespace name not found" }));
     return;
+  }
+
+  // Emit event to all clients before stopping
+  const io = getIO();
+  if (io) {
+    io.emit("codespace:stopping");
   }
 
   res.setHeader("Content-Type", "application/json");

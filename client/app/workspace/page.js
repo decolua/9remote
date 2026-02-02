@@ -53,7 +53,7 @@ export default function WorkspacePage() {
   });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, platform, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socket, socketRef, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
   const fileSocket = useFileSocket(socketRef);
   const [systemInfo, setSystemInfo] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
@@ -249,6 +249,13 @@ export default function WorkspacePage() {
     router.push("/login");
   }, [resetStore, router]);
 
+  // Redirect to login when codespace is stopping
+  useEffect(() => {
+    if (codespaceStopping) {
+      handleDisconnect();
+    }
+  }, [codespaceStopping, handleDisconnect]);
+
   // Logout with confirmation dialog
   const handleLogoutWithConfirm = useCallback(() => {
     setConfirmDialog({
@@ -277,7 +284,7 @@ export default function WorkspacePage() {
 
   return (
     <>
-      <MobileBackgroundImage />
+      {/* <MobileBackgroundImage /> */}
       <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
       {/* Session List */}
       <div 
@@ -406,6 +413,7 @@ export default function WorkspacePage() {
             column={currentView.column}
             fileSocket={fileSocket}
             onBack={popView}
+            workspace={viewStack.find(v => v.type === "files")?.workspace}
           />
         </div>
       )}
