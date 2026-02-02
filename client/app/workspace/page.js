@@ -216,9 +216,19 @@ export default function WorkspacePage() {
     pushView({ type: "browse", path: startPath });
   }, [pushView]);
 
-  const handleOpenFile = useCallback((filePath) => {
+  const handleOpenFile = useCallback((filePath, folderPath) => {
+    // Save current folder path so we can restore it when back from editor
+    if (folderPath) {
+      // Update files view with current folder path before opening editor
+      const filesViewIndex = viewStack.findIndex(v => v.type === "files");
+      if (filesViewIndex !== -1) {
+        const newStack = [...viewStack];
+        newStack[filesViewIndex] = { ...newStack[filesViewIndex], currentPath: folderPath };
+        setViewStack(newStack);
+      }
+    }
     pushView({ type: "editor", path: filePath });
-  }, [pushView]);
+  }, [pushView, viewStack, setViewStack]);
 
   const handleOpenGit = useCallback(() => {
     const filesView = viewStack.find(v => v.type === "files");
@@ -396,6 +406,7 @@ export default function WorkspacePage() {
         <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
           <FileExplorer
             workspace={currentView.workspace}
+            initialPath={currentView.currentPath}
             fileSocket={fileSocket}
             onBack={popView}
             onOpenFile={handleOpenFile}

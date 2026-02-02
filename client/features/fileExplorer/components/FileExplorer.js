@@ -9,6 +9,7 @@ import { vibrate } from "@/shared/utils/vibration";
 
 export default function FileExplorer({ 
   workspace, 
+  initialPath,
   fileSocket, 
   onBack, 
   onOpenFile, 
@@ -16,7 +17,7 @@ export default function FileExplorer({
   onSetWorkspace,
   isBrowsing = false
 }) {
-  const [currentPath, setCurrentPath] = useState(workspace);
+  const [currentPath, setCurrentPath] = useState(initialPath || workspace);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -139,12 +140,13 @@ export default function FileExplorer({
   }, []);
 
   useEffect(() => {
-    loadFiles(workspace);
+    const startPath = initialPath || workspace;
+    loadFiles(startPath);
     if (!isBrowsing) {
       checkGit(workspace);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace, isBrowsing]); // Removed loadFiles, checkGit from deps to prevent loop
+  }, [workspace, initialPath, isBrowsing]); // Removed loadFiles, checkGit from deps to prevent loop
 
   // Cleanup search timer
   useEffect(() => {
@@ -166,7 +168,8 @@ export default function FileExplorer({
       setTimeout(() => setError(""), 3000);
       return;
     }
-    onOpenFile?.(file.path);
+    // Pass currentPath so parent can restore folder when back from editor
+    onOpenFile?.(file.path, currentPath);
   };
 
   const handleGoUp = () => {
@@ -384,21 +387,46 @@ export default function FileExplorer({
               className="w-full px-4 py-3 flex items-center gap-3 border-b border-dark-500 hover:bg-dark-600 transition-colors text-left flex-shrink-0"
             >
               <ChevronLeft className="text-green-500" size={28} />
-              <span className="text-green-500">......</span>
+              <span className="text-green-500">{currentPath.split("/").pop() || "/"}</span>
             </button>
           )}
 
-          {/* File Tree */}
+          {/* File Tree or Grid (browse mode) */}
           <div className="flex-1 min-h-0 overflow-auto">
-            <FileTree
-              files={files}
-              loading={loading}
-              onFileClick={handleFileClick}
-              onFolderClick={handleFolderClick}
-              onMoreClick={isBrowsing ? null : handleMoreClick}
-              gitStatusMap={isBrowsing ? {} : gitStatusMap}
-              workspacePath={workspace}
-            />
+            {isBrowsing ? (
+              // Grid view for browse mode
+              <div className="p-4">
+                {loading ? (
+                  <div className="flex items-center justify-center h-32 text-dark-100">Loading...</div>
+                ) : files.length === 0 ? (
+                  <div className="flex items-center justify-center h-32 text-dark-100">Empty folder</div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {files.map((file) => (
+                      <button
+                        key={file.path}
+                        onClick={() => { vibrate(); handleFolderClick(file); }}
+                        className="bg-dark-600 border border-dark-400 rounded-brand-lg p-2 flex flex-col items-center gap-1 hover:border-brand-500/50 hover:bg-dark-500 transition-all duration-200 text-center"
+                      >
+                        <Folder size={48} className="text-yellow-500/80" />
+                        <span className="text-white text-xs font-medium truncate w-full">{file.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              // List view for workspace mode
+              <FileTree
+                files={files}
+                loading={loading}
+                onFileClick={handleFileClick}
+                onFolderClick={handleFolderClick}
+                onMoreClick={handleMoreClick}
+                gitStatusMap={gitStatusMap}
+                workspacePath={workspace}
+              />
+            )}
           </div>
         </>
       )}

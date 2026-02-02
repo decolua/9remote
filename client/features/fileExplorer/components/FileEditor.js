@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState } from "@codemirror/state";
+import { undo, redo, cursorLineUp, cursorLineDown, cursorCharLeft, cursorCharRight } from "@codemirror/commands";
 import { javascript } from "@codemirror/lang-javascript";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
@@ -30,6 +31,7 @@ function getLanguageExtension(filePath) {
 export default function FileEditor({ filePath, fileSocket, onBack, line, column, workspace }) {
   const editorRef = useRef(null);
   const viewRef = useRef(null);
+  const textInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState(null);
   const [error, setError] = useState("");
@@ -42,6 +44,12 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
   const [loadingDiff, setLoadingDiff] = useState(false);
   const originalContentRef = useRef("");
   const autoSaveTimerRef = useRef(null);
+  
+  // Keyboard state
+  const [ctrlPressed, setCtrlPressed] = useState(false);
+  const [altPressed, setAltPressed] = useState(false);
+  const [showTextInput, setShowTextInput] = useState(false);
+  const [textInput, setTextInput] = useState("");
 
   const fileName = filePath.split("/").pop();
 
@@ -224,6 +232,29 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
     view.focus();
   };
 
+  // Dispatch keyboard event with modifiers to CodeMirror
+  const dispatchKey = (key, { ctrl = false, alt = false } = {}) => {
+    if (!viewRef.current) return;
+    
+    const view = viewRef.current;
+    const event = new KeyboardEvent("keydown", {
+      key,
+      code: key.length === 1 ? `Key${key.toUpperCase()}` : key,
+      ctrlKey: ctrl || ctrlPressed,
+      altKey: alt || altPressed,
+      metaKey: ctrl || ctrlPressed, // For macOS compatibility
+      bubbles: true,
+      cancelable: true
+    });
+    
+    view.contentDOM.dispatchEvent(event);
+    view.focus();
+    
+    // Reset modifiers after dispatch
+    setCtrlPressed(false);
+    setAltPressed(false);
+  };
+
   // Handle back with unsaved changes
   const handleBack = async () => {
     if (hasChanges) {
@@ -335,28 +366,109 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
         </div>
       )}
 
-      {/* Code shortcuts toolbar */}
-      <div className="bg-dark-600 border-t border-dark-400 px-2 py-2 flex gap-1 overflow-x-auto flex-shrink-0">
-        {[
-          { label: "Tab", text: "  " },
-          { label: "{}", text: "{}" },
-          { label: "()", text: "()" },
-          { label: "[]", text: "[]" },
-          { label: "\"\"", text: "\"\"" },
-          { label: "''", text: "''" },
-          { label: "``", text: "``" },
-          { label: "=>", text: " => " },
-          { label: ";", text: ";" },
-          { label: ":", text: ": " }
-        ].map((item) => (
+      {/* Text Input Panel */}
+      <div className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${showTextInput ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}>
+        <div className="p-2 flex gap-2 items-center">
+          <textarea
+            ref={textInputRef}
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Type text and insert..."
+            rows={1}
+            className="w-full px-3 py-2 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none"
+          />
           <button
-            key={item.label}
-            onClick={() => { vibrate(); insertText(item.text); }}
-            className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm rounded-brand transition-all duration-200 whitespace-nowrap border border-dark-400 hover:border-brand-500"
+            onClick={() => {
+              vibrate();
+              if (textInput.trim()) {
+                insertText(textInput);
+                setTextInput("");
+              }
+              setShowTextInput(false);
+            }}
+            disabled={!textInput.trim()}
+            className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:opacity-50 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0"
           >
-            {item.label}
+            Insert
           </button>
-        ))}
+        </div>
+      </div>
+
+      {/* Code shortcuts toolbar - 2 rows */}
+      <div className="bg-dark-600 border-t border-dark-400 px-2 py-2 flex flex-col gap-1 flex-shrink-0">
+        {/* Row 1: Navigation + modifiers */}
+        <div className="flex gap-1">
+          {[
+            { label: "Esc", key: "Escape" },
+            { label: "Tab", key: "Tab" },
+            { label: "←", key: "ArrowLeft" },
+            { label: "→", key: "ArrowRight" },
+            { label: "↑", key: "ArrowUp" },
+            { label: "↓", key: "ArrowDown" },
+            { label: "Ctrl", modifier: "ctrl" },
+            { label: "Opt", modifier: "alt" }
+          ].map((item) => (
+            <button
+              key={item.label}
+              onClick={() => {
+                vibrate();
+                if (item.modifier === "ctrl") {
+                  setCtrlPressed(!ctrlPressed);
+                  setAltPressed(false);
+                } else if (item.modifier === "alt") {
+                  setAltPressed(!altPressed);
+                  setCtrlPressed(false);
+                } else {
+                  dispatchKey(item.key);
+                }
+              }}
+              className={`flex-1 py-2 text-white text-xs rounded-brand transition-all duration-200 border ${
+                (item.modifier === "ctrl" && ctrlPressed) || (item.modifier === "alt" && altPressed)
+                  ? "bg-brand-500 border-brand-400 shadow-md shadow-brand-500/30"
+                  : "bg-dark-500 hover:bg-dark-400 border-dark-400 hover:border-brand-500"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        {/* Row 2: Actions + code shortcuts + text input */}
+        <div className="flex gap-1">
+          {[
+            { label: "Undo", key: "z", ctrl: true },
+            { label: "Redo", key: "y", ctrl: true },
+            { label: "{}", text: "{}" },
+            { label: "()", text: "()" },
+            { label: "[]", text: "[]" },
+            { label: "\"\"", text: "\"\"" },
+            { label: "=>", text: " => " },
+            { label: "Aa", toggleTextInput: true }
+          ].map((item) => (
+            <button
+              key={item.label}
+              onClick={() => {
+                vibrate();
+                if (item.toggleTextInput) {
+                  setShowTextInput(!showTextInput);
+                  if (!showTextInput) {
+                    setTimeout(() => textInputRef.current?.focus(), 350);
+                  }
+                } else if (item.text) {
+                  insertText(item.text);
+                } else if (item.key) {
+                  dispatchKey(item.key, { ctrl: item.ctrl, alt: item.alt });
+                }
+              }}
+              className={`flex-1 py-2 text-white text-xs rounded-brand transition-all duration-200 border ${
+                item.toggleTextInput && showTextInput
+                  ? "bg-brand-500 border-brand-400 shadow-md shadow-brand-500/30"
+                  : "bg-dark-500 hover:bg-dark-400 border-dark-400 hover:border-brand-500"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
