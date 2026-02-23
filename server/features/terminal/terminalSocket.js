@@ -214,6 +214,16 @@ function buildShellEnv() {
     SHLVL: "1"
   });
 
+  // Inject shell integration to track working directory
+  const isZsh = shell.includes("zsh");
+  const isBash = shell.includes("bash");
+  
+  if (isBash) {
+    // For bash: use PROMPT_COMMAND
+    const existingPrompt = env.PROMPT_COMMAND || "";
+    env.PROMPT_COMMAND = `printf "\\e]7;file://%s\\a" "\${HOSTNAME}\${PWD}"${existingPrompt ? `; ${existingPrompt}` : ""}`;
+  }
+
   return env;
 }
 
@@ -415,7 +425,8 @@ export function setupTerminalSocket(io) {
             sessions.set(result.sessionId, {
               daemon: true,
               name: name || `Terminal ${sessions.size + 1}`,
-              createdAt: Date.now()
+              createdAt: Date.now(),
+              cwd: result.cwd
             });
             callback({ success: true, sessionId: result.sessionId });
           } else {
@@ -439,7 +450,8 @@ export function setupTerminalSocket(io) {
             pty: ptyProcess,
             name: name || `Terminal ${sessions.size + 1}`,
             createdAt: Date.now(),
-            buffer: []
+            buffer: [],
+            cwd: defaultCwd
           };
 
           // Buffer output (max 50KB)
@@ -498,7 +510,7 @@ export function setupTerminalSocket(io) {
       if (session.daemon && daemonClient.isConnected()) {
         try {
           const result = await daemonClient.joinSession(sessionId);
-          callback({ success: result.success, name: result.name, error: result.error });
+          callback({ success: result.success, name: result.name, cwd: result.cwd, error: result.error });
         } catch (e) {
           callback({ success: false, error: e.message });
         }
@@ -524,6 +536,7 @@ export function setupTerminalSocket(io) {
           
           session.pty = ptyProcess;
           session.needsRestore = false;
+          session.cwd = defaultCwd;
           
           // Load saved buffer
           const savedBuffer = loadSessionBuffer(sessionId);
@@ -576,7 +589,7 @@ export function setupTerminalSocket(io) {
         socket.emit("output", { sessionId, data: Buffer.from(history, "utf-8") });
       }
 
-      callback({ success: true, name: session.name });
+      callback({ success: true, name: session.name, cwd: session.cwd });
     });
 
     // Terminal input

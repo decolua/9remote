@@ -57,7 +57,7 @@ The 9Remote CLI is built with Node.js. It's required to run the server on your c
 
 ### Can I use a custom domain?
 
-Not currently, but it's on our roadmap. For now, all connections go through `remote.9router.com`.
+Not currently, but it's on our roadmap. For now, all connections go through `9remote.cc`.
 
 ### Does it support IPv6?
 

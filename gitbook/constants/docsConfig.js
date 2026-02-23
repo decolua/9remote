@@ -2,7 +2,7 @@ export const DOCS_CONFIG = {
   title: "9Remote Documentation",
   description: "Access your terminal, desktop, and files from anywhere",
   logo: "9Remote",
-  appUrl: "https://remote.9router.com",
+  appUrl: "https://9remote.cc",
   githubUrl: "https://github.com/yourusername/9remote",
   
   navigation: [

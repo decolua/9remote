@@ -43,7 +43,7 @@ This will start 9Remote automatically without showing the menu.
 
 After 9Remote starts, you'll see:
 - **QR Code** - Scan with your phone camera
-- **Access Key** - Or enter manually at `remote.9router.com/login`
+- **Access Key** - Or enter manually at `9remote.cc/login`
 
 That's it! Now you can code from your phone.
 

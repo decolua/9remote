@@ -163,6 +163,11 @@ export default function MenuItems({
           <span className="font-medium">Logout</span>
         </button>
       )}
+
+      {/* Version */}
+      <p className="text-right text-dark-100 text-sm mt-4 mr-1">
+        Version {process.env.NEXT_PUBLIC_SERVER_VERSION}
+      </p>
     </div>
   );
 }

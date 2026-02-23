@@ -96,12 +96,34 @@ function getDefaultCwd() {
  * Build shell environment
  */
 function buildShellEnv() {
-  return {
+  const env = {
     ...process.env,
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     LANG: process.env.LANG || "en_US.UTF-8"
   };
+  
+  // Inject shell integration to track working directory
+  const shell = getDefaultShell();
+  const isZsh = shell.includes("zsh");
+  const isBash = shell.includes("bash");
+  
+  if (isZsh) {
+    // For zsh: use precmd hook to emit OSC 7
+    env.ZDOTDIR = env.ZDOTDIR || env.HOME;
+    const precmdHook = `
+precmd() {
+  print -Pn "\\e]7;file://%m\${PWD}\\e\\\\"
+}
+`;
+    env._9REMOTE_PRECMD = precmdHook;
+  } else if (isBash) {
+    // For bash: use PROMPT_COMMAND
+    const existingPrompt = env.PROMPT_COMMAND || "";
+    env.PROMPT_COMMAND = `printf "\\e]7;file://%s\\a" "\${HOSTNAME}\${PWD}"${existingPrompt ? `; ${existingPrompt}` : ""}`;
+  }
+  
+  return env;
 }
 
 /**
@@ -139,13 +161,14 @@ function createSession(sessionId, name, cols = 80, rows = 24) {
 
   const shell = getDefaultShell();
   const shellArgs = process.platform === "win32" ? [] : ["-l"];
+  const cwd = getDefaultCwd();
   
   try {
     const ptyProcess = pty.spawn(shell, shellArgs, {
       name: "xterm-256color",
       cols,
       rows,
-      cwd: getDefaultCwd(),
+      cwd,
       env: buildShellEnv(),
       useConpty: process.platform === "win32"
     });
@@ -154,7 +177,8 @@ function createSession(sessionId, name, cols = 80, rows = 24) {
       pty: ptyProcess,
       buffer: [],
       name: name || `Terminal ${sessions.size + 1}`,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      cwd // Store initial cwd
     };
 
     // Buffer output and broadcast to clients
@@ -179,7 +203,7 @@ function createSession(sessionId, name, cols = 80, rows = 24) {
     });
 
     sessions.set(sessionId, session);
-    return { success: true, sessionId };
+    return { success: true, sessionId, cwd };
   } catch (error) {
     logError("Failed to create session", error);
     return { success: false, error: error.message };
@@ -231,7 +255,7 @@ function handleMessage(client, message) {
           data: Buffer.from(history).toString("base64")
         });
       }
-      send(client, { type: "joinResult", success: true, name: session.name, requestId: payload.requestId });
+      send(client, { type: "joinResult", success: true, name: session.name, cwd: session.cwd, requestId: payload.requestId });
       break;
 
     case "input":

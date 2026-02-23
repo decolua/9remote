@@ -53,20 +53,9 @@ export default function RootLayout({ children }) {
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(function(registration) {
-                    // Check for updates on every page load
-                    registration.update();
-                    
-                    // Listen for updates
-                    registration.addEventListener('updatefound', function() {
-                      const newWorker = registration.installing;
-                      newWorker.addEventListener('statechange', function() {
-                        if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
-                          // New service worker activated, reload page
-                          window.location.reload();
-                        }
-                      });
-                    });
+                  // Register minimal SW for PWA support only
+                  navigator.serviceWorker.register('/sw.js').catch(function(err) {
+                    console.log('SW registration failed:', err);
                   });
                 });
               }

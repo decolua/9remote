@@ -46,7 +46,7 @@ You have two ways to connect:
 
 ### Option 2: Manual Key Entry
 
-1. Visit: `https://remote.9router.com/login`
+1. Visit: `https://9remote.cc/login`
 2. Enter the access key shown in terminal
 3. Click "Connect"
 

@@ -12,8 +12,11 @@ import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, saveState, clearState } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
-import { checkForUpdates } from "./utils/updateChecker.js";
+import { checkAndUpdate } from "./utils/updateChecker.js";
 import { ensureCloudflared, spawnCloudflared, killCloudflared, resetRestartCounter } from "./utils/cloudflared.js";
+
+// Parse --skip-update flag
+const skipUpdate = process.argv.includes("--skip-update");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
@@ -21,7 +24,7 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 // When running from cli/index.js (dev), use server/index.js
 const STANDALONE_SERVER = path.join(__dirname, "server.cjs");
 const DEV_SERVER = path.join(PROJECT_ROOT, "server/index.js");
-const WORKER_URL = "https://remote.9router.com";
+const WORKER_URL = "https://9remote.cc";
 const SERVER_PORT = 2208;
 const MAX_RESTART_ATTEMPTS = 10;
 const RESTART_WINDOW_MS = 60000; // 1 minute
@@ -112,60 +115,30 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   }
 
   const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
-  const width = 63;
+  const width = Math.min(44, process.stdout.columns || 55);
 
   showQRCode(connectUrl);
 
   console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)\n`));
   
-  console.log(ORANGE("╔" + "═".repeat(width - 2) + "╗"));
-  console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
+  console.log(ORANGE("═".repeat(width)));
   
   // App URL
   const appLabel = "App URL";
   const appValue = `${WORKER_URL}/login`;
-  const appPadding = 2; // Left padding
-  const appContent = `${appLabel.padEnd(16)}${appValue}`;
-  const appSpaceAfter = width - 2 - appPadding - appContent.length;
-  console.log(
-    ORANGE("║") + 
-    " ".repeat(appPadding) + 
-    chalk.white(appLabel.padEnd(16)) + 
-    chalk.gray(appValue) + 
-    " ".repeat(appSpaceAfter) + 
-    ORANGE("║")
-  );
+  console.log(chalk.white(appLabel.padEnd(14)) + chalk.gray(appValue));
   
   // One-Time Key
   const keyLabel = "One-Time Key";
   const keyValue = tempKeyData.tempKey;
-  const keyContent = `${keyLabel.padEnd(16)}${keyValue}`;
-  const keySpaceAfter = width - 2 - appPadding - keyContent.length;
-  console.log(
-    ORANGE("║") + 
-    " ".repeat(appPadding) + 
-    chalk.white(keyLabel.padEnd(16)) + 
-    ORANGE.bold(keyValue) + 
-    " ".repeat(keySpaceAfter) + 
-    ORANGE("║")
-  );
+  console.log(chalk.white(keyLabel.padEnd(14)) + ORANGE.bold(keyValue));
   
   // Permanent Key
   const permLabel = "Key";
   const permValue = selectedKey;
-  const permContent = `${permLabel.padEnd(16)}${permValue}`;
-  const permSpaceAfter = width - 2 - appPadding - permContent.length;
-  console.log(
-    ORANGE("║") + 
-    " ".repeat(appPadding) + 
-    chalk.white(permLabel.padEnd(16)) + 
-    chalk.gray(permValue) + 
-    " ".repeat(permSpaceAfter) + 
-    ORANGE("║")
-  );
+  console.log(chalk.white(permLabel.padEnd(14)) + chalk.gray(permValue));
   
-  console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
-  console.log(ORANGE("╚" + "═".repeat(width - 2) + "╝"));
+  console.log(ORANGE("═".repeat(width)));
 }
 
 /**
@@ -632,46 +605,25 @@ async function manageKey() {
     
     if (tempKeyData) {
       const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
-      const width = 63;
+      const width = Math.min(50, process.stdout.columns || 50);
       
       showQRCode(connectUrl);
       
       console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)\n`));
       
-      console.log(ORANGE("╔" + "═".repeat(width - 2) + "╗"));
-      console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
+      console.log(ORANGE("═".repeat(width)));
       
       // App URL
       const appLabel = "App URL";
       const appValue = `${WORKER_URL}/login`;
-      const appPadding = 2;
-      const appContent = `${appLabel.padEnd(16)}${appValue}`;
-      const appSpaceAfter = width - 2 - appPadding - appContent.length;
-      console.log(
-        ORANGE("║") + 
-        " ".repeat(appPadding) + 
-        chalk.white(appLabel.padEnd(16)) + 
-        chalk.gray(appValue) + 
-        " ".repeat(appSpaceAfter) + 
-        ORANGE("║")
-      );
+      console.log(chalk.white(appLabel.padEnd(16)) + chalk.gray(appValue));
       
       // One-Time Key
       const keyLabel = "One-Time Key";
       const keyValue = tempKeyData.tempKey;
-      const keyContent = `${keyLabel.padEnd(16)}${keyValue}`;
-      const keySpaceAfter = width - 2 - appPadding - keyContent.length;
-      console.log(
-        ORANGE("║") + 
-        " ".repeat(appPadding) + 
-        chalk.white(keyLabel.padEnd(16)) + 
-        ORANGE.bold(keyValue) + 
-        " ".repeat(keySpaceAfter) + 
-        ORANGE("║")
-      );
+      console.log(chalk.white(keyLabel.padEnd(16)) + ORANGE.bold(keyValue));
       
-      console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
-      console.log(ORANGE("╚" + "═".repeat(width - 2) + "╝"));
+      console.log(ORANGE("═".repeat(width)));
     } else {
       console.log(chalk.red("❌ Failed to create one-time key"));
     }
@@ -736,7 +688,9 @@ async function autoStartDev() {
 
 // Start app
 async function start() {
-  checkForUpdates();
+  // Check and auto-update (exits if update started)
+  const hasUpdate = await checkAndUpdate(skipUpdate);
+  if (hasUpdate) return;
   
   const command = process.argv[2];
   

@@ -1,6 +1,5 @@
 import { LINK_PATTERNS, LINK_TYPES } from "../constants/linkPatterns.js";
 import { useTerminalStore } from "../../../shared/stores/terminalStore.js";
-import { getRecentWorkspaces } from "../../fileExplorer/components/WorkspaceList.js";
 
 // LRU cache for link detection results (performance optimization)
 const detectionCache = new Map();
@@ -198,38 +197,6 @@ export function detectLinks(lineText, bufferLineNumber) {
 }
 
 /**
- * Get current workspace path from viewStack
- * @returns {string|null} Workspace path or null
- */
-export function getCurrentWorkspace() {
-  const { viewStack } = useTerminalStore.getState();
-  
-  // 1. Find in viewStack (priority)
-  for (let i = viewStack.length - 1; i >= 0; i--) {
-    const view = viewStack[i];
-    
-    if (view.type === "files" && view.workspace) {
-      return view.workspace;
-    }
-    
-    if (view.type === "editor" && view.path) {
-      const lastSlashIndex = view.path.lastIndexOf("/");
-      if (lastSlashIndex > 0) {
-        return view.path.substring(0, lastSlashIndex);
-      }
-    }
-  }
-  
-  // 2. Fallback: get from localStorage (most recent workspace)
-  const recent = getRecentWorkspaces();
-  if (recent.length > 0) {
-    return recent[0].path;
-  }
-  
-  return null;
-}
-
-/**
  * Parse file path with optional line and column numbers
  * @param {string} text - File path text (e.g., "file.js:123:45")
  * @returns {Object} Object with path, line, column properties
@@ -271,42 +238,23 @@ export function handleLinkClick(link) {
   const { type, text } = link;
   
   if (type === LINK_TYPES.WEB) {
-    // Open web links in new tab
     window.open(text, "_blank");
     return;
   }
   
-  // Parse file path with line/column
   const { path, line, column } = parseFilePathWithLine(text);
   
   if (type === LINK_TYPES.FILE_ABSOLUTE) {
-    // Open absolute path directly
     const { pushView } = useTerminalStore.getState();
-    pushView({
-      type: "editor",
-      path,
-      line,
-      column
-    });
+    pushView({ type: "editor", path, line, column });
     return;
   }
   
   if (type === LINK_TYPES.FILE_RELATIVE) {
-    // Resolve relative path with workspace
-    const workspace = getCurrentWorkspace();
-    
-    if (!workspace) {
-      console.warn("Cannot open relative path: workspace not found in viewStack");
-      return;
-    }
-    
-    const absolutePath = `${workspace}/${path}`;
+    // Note: Relative paths from link provider fallback to current implementation
+    // Double-click in Terminal.js will use actual terminal cwd
+    console.warn("Relative path from link provider - may not be accurate");
     const { pushView } = useTerminalStore.getState();
-    pushView({
-      type: "editor",
-      path: absolutePath,
-      line,
-      column
-    });
+    pushView({ type: "editor", path, line, column });
   }
 }

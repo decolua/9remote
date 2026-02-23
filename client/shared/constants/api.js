@@ -1,6 +1,6 @@
 // API endpoints configuration
 
-export const WORKER_API = "https://remote.9router.com";
+export const WORKER_API = "https://9remote.cc";
 
 export const API_ENDPOINTS = {
   connect: `${WORKER_API}/api/connect`,

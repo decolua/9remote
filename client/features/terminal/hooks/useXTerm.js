@@ -15,6 +15,7 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
   const resizeTimerRef = useRef(null);
   const doResizeRef = useRef(null);
   const stopMomentumRef = useRef(null);
+  const cwdRef = useRef(null); // Track current working directory
   const [termReady, setTermReady] = useState(false);
 
   // Resize with debounce singleton - uses rAF to ensure layout is stable
@@ -58,9 +59,9 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
     const loadWebGL = () => {
       if (webglAddon) return;
       try {
-        // webglAddon = new WebglAddon();
-        // webglAddon.onContextLoss(() => webglAddon.dispose());
-        // term.loadAddon(webglAddon);
+        webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => webglAddon.dispose());
+        term.loadAddon(webglAddon);
       } catch (e) {
         console.warn("WebGL not supported, using canvas renderer");
       }
@@ -97,6 +98,16 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
       const data = payload.data;
+      
+      // Parse OSC 7 sequence to track working directory
+      if (typeof data === "string" || data instanceof Uint8Array) {
+        const text = typeof data === "string" ? data : String.fromCharCode.apply(null, data);
+        const osc7Match = text.match(/\x1b\]7;file:\/\/[^\/]*(.+?)\x07/);
+        if (osc7Match && osc7Match[1]) {
+          cwdRef.current = decodeURIComponent(osc7Match[1]);
+        }
+      }
+      
       if (data instanceof ArrayBuffer || (data && data.buffer)) {
         term.write(new Uint8Array(data));
       } else if (typeof data === "string") {
@@ -110,6 +121,11 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
     // Join session - after output handler is ready
     socket.emit("joinSession", sessionId, (result) => {
       if (result.success) {
+        // Initialize cwd if available
+        if (result.cwd) {
+          cwdRef.current = result.cwd;
+        }
+        
         // Load WebGL and re-fit after join to ensure proper render
         setTimeout(() => {
           loadWebGL();
@@ -261,6 +277,7 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
 
   return {
     termRef,
+    cwdRef, // Expose cwd for file path resolution
     doResize,
     focus: () => termRef.current?.focus(),
     stopMomentum: () => stopMomentumRef.current?.()

@@ -1,4 +1,4 @@
-const TUNNEL_DOMAIN = "9router.com";
+const TUNNEL_DOMAIN = "9remote.cc";
 const ZONE_ID = "04a8428adbeed74b1a9364fcfb0ce145";
 
 /**

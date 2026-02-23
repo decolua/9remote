@@ -5,7 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import AITerminalPanel from "@/features/terminal/components/AITerminal/AITerminalPanel";
 import { detectSelectionType } from "@/features/terminal/components/SelectionActionButton";
-import { parseFilePathWithLine, getCurrentWorkspace } from "@/features/terminal/utils/linkDetector";
+import { parseFilePathWithLine } from "@/features/terminal/utils/linkDetector";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES } from "@/features/terminal/constants/themes";
@@ -13,22 +13,22 @@ import { ChevronLeft, ChevronDown, Settings, Sparkles } from "@/shared/component
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 
-function Terminal({ 
-  socket, 
-  connected, 
-  sessionId, 
-  isActive = true, 
-  theme = "default", 
-  onThemeChange, 
-  onBack, 
-  onLogout, 
-  onOpenRemote, 
-  onOpenFiles, 
-  tunnelUrl, 
-  apiKey, 
-  codespaceInfo, 
-  onStopCodespace, 
-  sessions = [], 
+function Terminal({
+  socket,
+  connected,
+  sessionId,
+  isActive = true,
+  theme = "default",
+  onThemeChange,
+  onBack,
+  onLogout,
+  onOpenRemote,
+  onOpenFiles,
+  tunnelUrl,
+  apiKey,
+  codespaceInfo,
+  onStopCodespace,
+  sessions = [],
   onSwitchSession,
   platform
 }) {
@@ -49,7 +49,7 @@ function Terminal({
   useEffect(() => {
     menuSocketRef.current = socket;
   }, [socket]);
-  const { termRef, doResize, focus, stopMomentum } = useXTerm({ socket, sessionId, theme, isActive, containerRef });
+  const { termRef, cwdRef, doResize, focus, stopMomentum } = useXTerm({ socket, sessionId, theme, isActive, containerRef });
 
   // Auto scroll to active tab
   useEffect(() => {
@@ -61,7 +61,7 @@ function Terminal({
   // Set up menu context - only when active
   useEffect(() => {
     if (!isActive) return;
-    
+
     setContext({
       connected,
       remoteAvailable: !!onOpenRemote,
@@ -137,7 +137,7 @@ function Terminal({
 
     const term = termRef.current;
     const MIN_SCROLL_THRESHOLD = 5; // Only show button when scrolled up more than 5 lines
-    
+
     const checkScrollPosition = () => {
       const buffer = term.buffer.active;
       const scrollDistance = buffer.baseY - buffer.viewportY;
@@ -162,28 +162,39 @@ function Terminal({
 
   // Listen for terminal selection changes - auto open file/URL on double-click
   useEffect(() => {
-    if (!termRef.current || !isActive) return;
+    if (!termRef.current || !isActive || !socket) return;
 
     const term = termRef.current;
-    
-    const handleSelectionChange = () => {
+
+    const handleSelectionChange = async () => {
       const selection = term.getSelection();
-      
+
       if (!selection || selection.trim().length === 0) return;
 
-      // Detect if selection is a file or URL - open directly
+      // Detect if selection is a file or URL
       const detected = detectSelectionType(selection);
-      
-      if (detected.isFile) {
-        const { path, line, column } = parseFilePathWithLine(detected.match);
-        term.clearSelection();
-        handleOpenFile(path, line, column);
-        return;
-      }
-      
+
       if (detected.isUrl) {
         term.clearSelection();
         window.open(detected.match, "_blank");
+        return;
+      }
+
+      if (detected.isFile) {
+        const { path, line, column } = parseFilePathWithLine(detected.match);
+        term.clearSelection();
+        
+        // Resolve path with cached cwd from OSC 7
+        let finalPath = path;
+        if (!path.startsWith("/") && cwdRef.current) {
+          finalPath = `${cwdRef.current}/${path}`;
+        }
+        
+        // Focus terminal and open file
+        if (termRef.current) termRef.current.focus();
+        setTimeout(() => {
+          pushView({ type: "editor", path: finalPath, line, column });
+        }, 50);
       }
     };
 
@@ -192,34 +203,7 @@ function Terminal({
     return () => {
       disposable.dispose();
     };
-  }, [termRef, isActive]);
-
-  // Selection action handlers
-  const handleOpenFile = (path, line, column) => {
-    // Focus terminal first to preserve keyboard state on mobile
-    if (termRef.current) {
-      termRef.current.focus();
-    }
-    
-    // Resolve relative path with workspace
-    let finalPath = path;
-    if (!path.startsWith("/")) {
-      const workspace = getCurrentWorkspace();
-      if (workspace) {
-        finalPath = `${workspace}/${path}`;
-      }
-    }
-    
-    // Small delay to ensure focus is set before navigation
-    setTimeout(() => {
-      pushView({
-        type: "editor",
-        path: finalPath,
-        line,
-        column
-      });
-    }, 50);
-  };
+  }, [termRef, isActive, socket, sessionId, pushView]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden" style={{ background: currentTheme.background }}>
@@ -243,9 +227,8 @@ function Terminal({
                   key={session.id}
                   ref={isActiveTab ? activeTabRef : null}
                   onClick={() => { vibrate(); onSwitchSession?.(session.id); }}
-                  className={`px-2 py-1 text-sm font-medium transition-colors duration-200 flex items-center gap-2 whitespace-nowrap ${
-                    isActiveTab ? "text-brand-500" : "text-dark-50 hover:text-white"
-                  }`}
+                  className={`px-2 py-1 text-sm font-medium transition-colors duration-200 flex items-center gap-2 whitespace-nowrap ${isActiveTab ? "text-brand-500" : "text-dark-50 hover:text-white"
+                    }`}
                 >
                   <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} />
                   <span className="truncate max-w-[120px]">{session.name || "Terminal"}</span>
@@ -274,14 +257,14 @@ function Terminal({
 
       {/* Terminal Container */}
       <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden p-2 sm:p-4 relative">
-        <div 
-          ref={containerRef} 
+        <div
+          ref={containerRef}
           className="xterm-screen w-full h-full rounded-sm overflow-hidden"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           onTouchMove={handleTouchEnd}
         />
-        
+
         {/* Scroll to Bottom Button */}
         {showScrollButton && (
           <button
@@ -301,7 +284,7 @@ function Terminal({
 
       {/* Paste Input Fallback */}
       {showPasteInput && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
           onClick={() => setShowPasteInput(false)}
         >

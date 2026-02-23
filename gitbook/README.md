@@ -1,6 +1,6 @@
 # 9Remote Documentation
 
-Deploy to Cloudflare Pages: https://docs.9router.com
+Deploy to Cloudflare Pages: https://docs.9remote.cc
 
 ## Local Development
 
@@ -55,12 +55,12 @@ npx wrangler pages deploy out --project-name=9remote-docs
 
 1. Go to Cloudflare Dashboard
 2. Pages → 9remote-docs → Custom domains
-3. Add: `docs.9router.com`
+3. Add: `docs.9remote.cc`
 4. DNS will be configured automatically
 
 ## Environment
 
-- **Production**: https://docs.9router.com
+- **Production**: https://docs.9remote.cc
 - **Preview**: https://9remote-docs.pages.dev
 
 ## Structure
