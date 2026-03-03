@@ -20,7 +20,7 @@ export default function RemoteDesktop({ onClose }) {
     const checkOrientation = () => {
       setIsLandscape(window.innerWidth > window.innerHeight);
     };
-    
+
     checkOrientation();
     window.addEventListener("resize", checkOrientation);
     return () => window.removeEventListener("resize", checkOrientation);
@@ -199,16 +199,6 @@ export default function RemoteDesktop({ onClose }) {
     window.location.href = "/login";
   }, []);
 
-  // Loading state
-  if (!authenticated) {
-    return (
-      <div className="min-h-screen bg-dark-700 flex items-center justify-center">
-        <Spinner size="lg" text="Connecting to remote..." />
-        <ConnectionModal retryStatus={retryStatus} onLogout={handleLogout} />
-      </div>
-    );
-  }
-
   return (
     <div
       className={`bg-dark-700 text-white flex h-[var(--app-height,100vh)] w-full ${isLandscape ? "flex-row" : "flex-col"}`}
@@ -221,22 +211,28 @@ export default function RemoteDesktop({ onClose }) {
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <RemoteCanvas
-        canvasRef={canvasRef}
-        canvasContainerRef={canvasContainerRef}
-        canvasZoom={canvasZoom}
-        canvasPan={canvasPan}
-        baseCanvasSize={baseCanvasSize}
-        streaming={streaming}
-        selectionRect={selectionRect}
-        clickIndicator={clickIndicator}
-        onMouseDown={createInteractionHandler("click")}
-        onMouseMove={createInteractionHandler("move")}
-        onTouchStart={createInteractionHandler("touch")}
-        onTouchMove={createInteractionHandler("touchmove")}
-        onTouchEnd={createInteractionHandler("touchend")}
-        onKeyDown={(e) => handleCanvasKeyPress(e, streaming)}
-      />
+      {!authenticated ? (
+        <div className="flex-1 flex items-center justify-center bg-dark-700">
+          <Spinner size="lg" text="Connecting to remote..." />
+        </div>
+      ) : (
+        <RemoteCanvas
+          canvasRef={canvasRef}
+          canvasContainerRef={canvasContainerRef}
+          canvasZoom={canvasZoom}
+          canvasPan={canvasPan}
+          baseCanvasSize={baseCanvasSize}
+          streaming={streaming}
+          selectionRect={selectionRect}
+          clickIndicator={clickIndicator}
+          onMouseDown={createInteractionHandler("click")}
+          onMouseMove={createInteractionHandler("move")}
+          onTouchStart={createInteractionHandler("touch")}
+          onTouchMove={createInteractionHandler("touchmove")}
+          onTouchEnd={createInteractionHandler("touchend")}
+          onKeyDown={(e) => handleCanvasKeyPress(e, streaming)}
+        />
+      )}
 
       <RemoteControls
         streaming={streaming}
