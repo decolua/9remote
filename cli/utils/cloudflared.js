@@ -183,44 +183,40 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
     stdio: ["ignore", "pipe", "pipe"]
   });
   
-  // Reset intentional shutdown flag immediately after spawn
-  // This ensures auto-restart works if cloudflared crashes
   isIntentionalShutdown = false;
   console.log(`✅ Cloudflared spawned with PID: ${child.pid}`);
   
-  let connectionCount = 0;
-  
-  const handleLog = (data) => {
-    const msg = data.toString().trim();
-    
-    // Skip ignored messages
-    if (LOG_IGNORE.some(pattern => msg.includes(pattern))) {
-      return;
-    }
-    
-    // Skip errors during intentional shutdown
-    if (isIntentionalShutdown) {
-      return;
-    }
-    
-    // Show connection status briefly
-    if (msg.includes("Registered tunnel connection")) {
-      connectionCount++;
-      if (connectionCount <= 4) {
-        process.stdout.write(`\r   ✔ Connection ${connectionCount}/4 established`);
-        if (connectionCount === 4) {
-          process.stdout.write("\n");
+  // Wait for 4 connections before resolving (tunnel is truly ready)
+  await new Promise((resolve, reject) => {
+    let connectionCount = 0;
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) { resolved = true; resolve(child); }
+    }, 90000);
+
+    const handleLog = (data) => {
+      const msg = data.toString().trim();
+      if (LOG_IGNORE.some(pattern => msg.includes(pattern))) return;
+      if (isIntentionalShutdown) return;
+      if (msg.includes("Registered tunnel connection")) {
+        connectionCount++;
+        if (connectionCount <= 4) {
+          process.stdout.write(`\r   ✔ Connection ${connectionCount}/4 established`);
+          if (connectionCount === 4) {
+            process.stdout.write("\n");
+            if (!resolved) { resolved = true; clearTimeout(timeout); resolve(child); }
+          }
         }
+        return;
       }
-      return;
-    }
-    
-    // Suppress all other cloudflared logs
-  };
-  
-  child.stdout.on("data", handleLog);
-  child.stderr.on("data", handleLog);
-  
+    };
+
+    child.stdout.on("data", handleLog);
+    child.stderr.on("data", handleLog);
+    child.on("error", (err) => { if (!resolved) { resolved = true; clearTimeout(timeout); reject(err); } });
+    child.on("exit", (code) => { if (!resolved) { resolved = true; clearTimeout(timeout); reject(new Error(`cloudflared exited with code ${code}`)); } });
+  });
+
   child.on("error", (error) => {
     console.error("❌ cloudflared error:", error);
   });

@@ -7,10 +7,9 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
-import dns from "dns/promises";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
-import { loadKey, saveKey, saveState, clearState } from "./utils/state.js";
+import { loadKey, saveKey, loadState, saveState, clearState } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate } from "./utils/updateChecker.js";
 import { ensureCloudflared, spawnCloudflared, killCloudflared, resetRestartCounter } from "./utils/cloudflared.js";
@@ -26,6 +25,7 @@ const STANDALONE_SERVER = path.join(__dirname, "server.cjs");
 const DEV_SERVER = path.join(PROJECT_ROOT, "server/index.js");
 const WORKER_URL = "https://9remote.cc";
 const SERVER_PORT = 2208;
+const SHORT_ID_CHARS = "abcdefghijklmnpqrstuvwxyz23456789";
 const MAX_RESTART_ATTEMPTS = 10;
 const RESTART_WINDOW_MS = 60000; // 1 minute
 
@@ -86,6 +86,17 @@ function showBanner() {
   console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
   console.log(ORANGE("╚" + "═".repeat(width - 2) + "╝"));
   console.log("");
+}
+
+/**
+ * Generate short random ID for tunnel subdomain
+ */
+function generateShortId() {
+  let result = "";
+  for (let i = 0; i < 6; i++) {
+    result += SHORT_ID_CHARS.charAt(Math.floor(Math.random() * SHORT_ID_CHARS.length));
+  }
+  return result;
 }
 
 /**
@@ -305,12 +316,16 @@ async function startServerAndTunnel(selectedKey) {
     await new Promise(resolve => setTimeout(resolve, 1000));
   } catch { }
 
+  // Reuse existing shortId or generate new one
+  const existingState = loadState();
+  const shortId = existingState?.shortId || generateShortId();
+
   // Create session first
   try {
     const sessionResponse = await fetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: selectedKey })
+      body: JSON.stringify({ apiKey: selectedKey, shortId })
     });
     
     if (!sessionResponse.ok) {
@@ -435,65 +450,33 @@ async function startServerAndTunnel(selectedKey) {
   }
   
 
-  // Wait for tunnel to be ready
-  console.log(ORANGE(`✅ Tunnel URL: ${tunnelUrl}`));
-  
-  const maxWaitTime = 60000;
-  const checkInterval = 2000;
-  const maxRetries = Math.floor(maxWaitTime / checkInterval);
+  // Verify tunnel reachable from outside
+  const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   let tunnelReady = false;
-  
-  // Resolve IP using Cloudflare DNS to bypass local cache
-  const hostname = new URL(tunnelUrl).hostname;
-  let resolvedIp = null;
-  
-  for (let i = 0; i < maxRetries; i++) {
+  for (let i = 0; i < 15; i++) {
     try {
-      // Resolve DNS using Cloudflare DNS server (bypass local cache)
-      if (!resolvedIp) {
-        const resolver = new dns.Resolver();
-        resolver.setServers(["1.1.1.1", "1.0.0.1"]);
-        const addresses = await resolver.resolve4(hostname);
-        if (addresses.length > 0) {
-          resolvedIp = addresses[0];
-        }
-      }
-      
-      if (resolvedIp) {
-        // Use curl with --resolve to bypass DNS cache and SSL issues
-        const curlResult = execSync(
-          `curl -s --max-time 5 --resolve "${hostname}:443:${resolvedIp}" "${tunnelUrl}/api/health"`,
-          { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
-        );
-        if (curlResult.includes("ok")) {
-          tunnelReady = true;
-          break;
-        } else {
-        }
-      }
-    } catch (err) {
-    }
-    
-    const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    process.stdout.write(`\r${ORANGE("   Waiting for tunnel")} ${ORANGE(spinners[i % spinners.length])} ${chalk.gray(`(${i * 2}s)`)}`);
-    
-    await new Promise(r => setTimeout(r, checkInterval));
+      const res = await fetch(`${tunnelUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) { tunnelReady = true; break; }
+    } catch { }
+    process.stdout.write(`\r   Verifying tunnel ${spinners[i % spinners.length]} (${i * 2}s)`);
+    await new Promise(r => setTimeout(r, 2000));
   }
-  
-  process.stdout.write("\r" + " ".repeat(50) + "\r");
-  
+  process.stdout.write("\r" + " ".repeat(40) + "\r");
+
   if (!tunnelReady) {
-    console.log(chalk.red("❌ Tunnel connection timeout"));
+    console.log(chalk.red("❌ Tunnel not reachable from outside"));
     serverManager.shutdown();
     tunnelProcess.kill();
     return null;
   }
-  
+
+  console.log(ORANGE(`✅ Tunnel URL: ${tunnelUrl}`));
   console.log(ORANGE(`✅ Connection established`));
 
-  // Save state
+  // Save state (persist shortId for reuse on restart)
   saveState({
     apiKey: selectedKey,
+    shortId,
     tunnelUrl,
     serverPid: serverManager.getProcess()?.pid,
     tunnelPid: tunnelProcess.pid

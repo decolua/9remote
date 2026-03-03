@@ -9,7 +9,7 @@ function verifyServerConnection(tunnelUrl, timeout = 10000) {
   return new Promise((resolve) => {
     const socket = io(tunnelUrl, {
       path: "/socket.io",
-      transports: ["polling", "websocket"],
+      transports: ["websocket"],
       timeout: timeout
     });
 

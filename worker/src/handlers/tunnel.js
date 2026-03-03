@@ -3,7 +3,6 @@ import { createTunnel, deleteTunnel } from "../tunnelService.js";
 
 /**
  * Handle POST /api/tunnel/create
- * CLI calls to get tunnel credentials
  */
 export async function handleTunnelCreate(request, env, corsHeaders) {
   const { apiKey } = await request.json();
@@ -14,15 +13,24 @@ export async function handleTunnelCreate(request, env, corsHeaders) {
 
   const { machineId } = parseApiKey(apiKey);
 
+  // Get shortId from session (set by CLI on session/create)
+  const session = await env.DB.prepare(`
+    SELECT shortId FROM sessions WHERE apiKey = ?
+  `).bind(apiKey).first();
+
+  if (!session?.shortId) {
+    return jsonError("Session missing shortId", 400, corsHeaders);
+  }
+
   try {
     const { tunnelId, token, hostname } = await createTunnel(
       env.CLOUDFLARE_ACCOUNT_ID,
       env.CLOUDFLARE_API_KEY,
       env.CLOUDFLARE_EMAIL,
-      machineId
+      machineId,
+      session.shortId
     );
 
-    // Update session with tunnelId
     await env.DB.prepare(`
       UPDATE sessions SET tunnelId = ?, tunnelUrl = ?, lastAccessAt = datetime('now')
       WHERE apiKey = ?
@@ -37,7 +45,6 @@ export async function handleTunnelCreate(request, env, corsHeaders) {
 
 /**
  * Handle DELETE /api/tunnel/delete
- * CLI calls on shutdown to cleanup tunnel
  */
 export async function handleTunnelDelete(request, env, corsHeaders) {
   const { apiKey } = await request.json();
@@ -46,12 +53,9 @@ export async function handleTunnelDelete(request, env, corsHeaders) {
     return jsonError("Invalid API key", 400, corsHeaders);
   }
 
-  // Get tunnelId from session
   const session = await env.DB.prepare(`
-    SELECT tunnelId FROM sessions WHERE apiKey = ?
+    SELECT tunnelId, shortId FROM sessions WHERE apiKey = ?
   `).bind(apiKey).first();
-
-  const { machineId } = parseApiKey(apiKey);
 
   if (session?.tunnelId) {
     try {
@@ -60,13 +64,11 @@ export async function handleTunnelDelete(request, env, corsHeaders) {
         env.CLOUDFLARE_API_KEY,
         env.CLOUDFLARE_EMAIL,
         session.tunnelId,
-        machineId
+        session.shortId
       );
 
-      // Clear tunnelId from session
       await env.DB.prepare(`
-        UPDATE sessions SET tunnelId = NULL, tunnelUrl = NULL
-        WHERE apiKey = ?
+        UPDATE sessions SET tunnelId = NULL, tunnelUrl = NULL WHERE apiKey = ?
       `).bind(apiKey).run();
     } catch (error) {
       console.error("Tunnel delete error:", error);
@@ -76,7 +78,6 @@ export async function handleTunnelDelete(request, env, corsHeaders) {
   return jsonResponse({ success: true }, corsHeaders);
 }
 
-// Helpers - reuse pattern from session.js
 function jsonResponse(data, corsHeaders) {
   return new Response(JSON.stringify(data), {
     headers: { ...corsHeaders, "Content-Type": "application/json" }

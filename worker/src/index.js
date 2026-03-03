@@ -24,6 +24,7 @@ export default {
     }
 
     try {
+
       // Static files (GET)
       if (request.method === "GET") {
         return handleStaticAsset(request, env, corsHeaders);

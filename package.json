@@ -1,6 +1,6 @@
 {
   "name": "9remote-monorepo",
-  "version": "0.1.33",
+  "version": "0.1.37",
   "private": true,
   "type": "module",
   "workspaces": [

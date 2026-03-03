@@ -13,7 +13,7 @@ const RETRY_CONFIG = {
 };
 
 const DEFAULT_SOCKET_OPTIONS = {
-  transports: ["polling", "websocket"],
+  transports: ["websocket"],  // WebSocket only - polling not supported via Cloudflare Proxy
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
