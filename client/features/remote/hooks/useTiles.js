@@ -3,6 +3,30 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
 
+// Detect Chromium for createImageBitmap(blob) non-blocking path
+const _isChromium = typeof window !== "undefined" && Boolean(window.chrome);
+
+/**
+ * Decode image blob to ImageBitmap off main thread (cross-browser).
+ * Chrome: createImageBitmap(blob) is non-blocking.
+ * Safari/Firefox: img.decode() + createImageBitmap(img) is non-blocking.
+ * Fallback: new Image() for unsupported browsers.
+ */
+async function _decodeTile(blob) {
+  if (typeof createImageBitmap === "undefined") return null;
+  if (_isChromium) {
+    return createImageBitmap(blob);
+  }
+  // Safari / Firefox path
+  const img = new Image();
+  const url = URL.createObjectURL(blob);
+  img.src = url;
+  await img.decode();
+  const bitmap = await createImageBitmap(img);
+  URL.revokeObjectURL(url);
+  return bitmap;
+}
+
 export function useTiles(socket, streaming, canvasRef) {
   const [totalTileCount, setTotalTileCount] = useState(126);
   const renderedTilesRef = useRef(new Set());
@@ -69,9 +93,8 @@ export function useTiles(socket, streaming, canvasRef) {
       }
 
       // Cancel old loading tiles
-      for (const [tileIndex, tileData] of loadingTilesRef.current.entries()) {
-        if (tileData.timeoutId) clearTimeout(tileData.timeoutId);
-        tileData.img.src = "";
+      for (const [, tileData] of loadingTilesRef.current.entries()) {
+        if (tileData.controller) tileData.controller.cancelled = true;
       }
       loadingTilesRef.current.clear();
 
@@ -87,62 +110,72 @@ export function useTiles(socket, streaming, canvasRef) {
         const batchTimeoutId = setTimeout(() => {
           batchTimeoutsRef.current.delete(batchTimeoutId);
           batch.forEach((tile) => {
-            const img = new Image();
+            if (!tile.imageBuffer && !tile.imageBase64) return;
+
+            const blob = tile.imageBuffer
+              ? new Blob([tile.imageBuffer], { type: "image/jpeg" })
+              : null;
+
+            // Track loading for cancellation
+            const controller = { cancelled: false };
+            loadingTilesRef.current.set(tile.tileIndex, { controller, img: { src: "" } });
 
             const timeoutId = setTimeout(() => {
+              controller.cancelled = true;
               loadingTilesRef.current.delete(tile.tileIndex);
-              img.onload = null;
-              img.onerror = null;
-              img.src = "";
             }, REMOTE_CONFIG.tileLoadTimeout);
 
-            loadingTilesRef.current.set(tile.tileIndex, { img, timeoutId });
-
-            img.onload = () => {
-              if (!loadingTilesRef.current.get(tile.tileIndex)) return;
-              if (!img.complete || img.naturalWidth === 0) return;
+            const drawBitmap = (bitmap) => {
+              if (controller.cancelled || !canvasRef?.current) {
+                bitmap?.close?.();
+                return;
+              }
+              clearTimeout(timeoutId);
+              loadingTilesRef.current.delete(tile.tileIndex);
 
               requestAnimationFrame(() => {
-                // Check canvas still valid before drawing
-                if (!canvasRef?.current) return;
+                if (!canvasRef?.current) { bitmap?.close?.(); return; }
                 try {
-                  ctx.drawImage(img, tile.x, tile.y, tile.width, tile.height);
+                  ctx.drawImage(bitmap, tile.x, tile.y, tile.width, tile.height);
                   renderedTilesRef.current.add(tile.tileIndex);
+                  bitmap?.close?.();
                 } catch (e) {
                   // Canvas may have been unmounted
                 }
               });
-
-              const tileData = loadingTilesRef.current.get(tile.tileIndex);
-              if (tileData?.timeoutId) clearTimeout(tileData.timeoutId);
-              loadingTilesRef.current.delete(tile.tileIndex);
-
-              const cleanupId = setTimeout(() => {
-                cleanupTimeoutsRef.current.delete(cleanupId);
-                img.onload = null;
-                img.onerror = null;
-                if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
-                img.src = "";
-              }, 1000);
-              cleanupTimeoutsRef.current.add(cleanupId);
             };
 
-            img.onerror = () => {
-              const tileData = loadingTilesRef.current.get(tile.tileIndex);
-              if (tileData?.timeoutId) clearTimeout(tileData.timeoutId);
-              loadingTilesRef.current.delete(tile.tileIndex);
-              img.onload = null;
-              img.onerror = null;
-              if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
-              img.src = "";
-            };
-
-            // Support both binary buffer and legacy base64
-            if (tile.imageBuffer) {
-              const blob = new Blob([tile.imageBuffer], { type: "image/webp" });
-              img.src = URL.createObjectURL(blob);
-            } else if (tile.imageBase64) {
-              img.src = tile.imageBase64;
+            // Try createImageBitmap (non-blocking), fallback to new Image()
+            if (blob && typeof createImageBitmap !== "undefined") {
+              _decodeTile(blob)
+                .then(drawBitmap)
+                .catch(() => {
+                  // Fallback: new Image() if createImageBitmap fails
+                  if (controller.cancelled) return;
+                  const img = new Image();
+                  const url = URL.createObjectURL(blob);
+                  img.onload = () => {
+                    drawBitmap(img);
+                    URL.revokeObjectURL(url);
+                  };
+                  img.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    clearTimeout(timeoutId);
+                    loadingTilesRef.current.delete(tile.tileIndex);
+                  };
+                  img.src = url;
+                });
+            } else {
+              // Legacy fallback: base64 or no createImageBitmap support
+              const img = new Image();
+              img.onload = () => drawBitmap(img);
+              img.onerror = () => {
+                clearTimeout(timeoutId);
+                loadingTilesRef.current.delete(tile.tileIndex);
+              };
+              img.src = blob
+                ? URL.createObjectURL(blob)
+                : tile.imageBase64;
             }
           });
         }, batchIndex * REMOTE_CONFIG.batchDelay);
@@ -187,8 +220,7 @@ export function useTiles(socket, streaming, canvasRef) {
 
   const cleanupTiles = useCallback(() => {
     for (const [, tileData] of loadingTilesRef.current.entries()) {
-      if (tileData.timeoutId) clearTimeout(tileData.timeoutId);
-      tileData.img.src = "";
+      if (tileData.controller) tileData.controller.cancelled = true;
     }
     loadingTilesRef.current.clear();
     clientTileHashesRef.current = [];

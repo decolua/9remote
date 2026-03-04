@@ -75,6 +75,7 @@ export class ScreenHandler {
         }
 
         try {
+          const frameStart = performance.now();
           const result = await clientData.tileManager.detectChangedTilesWithHashes();
           const hasChanges = result.tiles.length > 0;
 
@@ -89,9 +90,10 @@ export class ScreenHandler {
             clientData.idleFrameCount++;
           }
 
-          // Adaptive interval: fast when active, slower when idle
+          // Adaptive interval: subtract processing time to hit target FPS
           const { activeInterval, idleInterval, idleThreshold } = this.resourceManager.getStreamingConfig();
-          const nextInterval = clientData.idleFrameCount >= idleThreshold ? idleInterval : activeInterval;
+          const baseInterval = clientData.idleFrameCount >= idleThreshold ? idleInterval : activeInterval;
+          const nextInterval = Math.max(0, baseInterval - (performance.now() - frameStart));
 
           clientData.streamingTimeout = setTimeout(streamLoop, nextInterval);
         } catch (error) {

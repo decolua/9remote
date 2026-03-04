@@ -26,7 +26,7 @@ export const remoteConfig = {
 
   // Streaming - adaptive intervals
   streaming: {
-    activeInterval: 100,      // Fast interval when changes detected
+    activeInterval: 80,      // Fast interval when changes detected
     idleInterval: 400,        // Slower interval when idle
     idleThreshold: 3,         // Consecutive no-change frames to switch to idle
     actionCaptureDelay: 50,   // Delay after user action to capture

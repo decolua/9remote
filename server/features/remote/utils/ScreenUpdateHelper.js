@@ -26,6 +26,7 @@ export class ScreenUpdateHelper {
         clientChunkTimers.delete(timerId);
         
         if (socket.connected) {
+          // const totalBytes = chunk.reduce((sum, t) => sum + (t.imageBuffer?.length || 0), 0);
           socket.emit("tiles-data", {
             tiles: chunk,
             timestamp: timestamp,
@@ -34,7 +35,8 @@ export class ScreenUpdateHelper {
             chunkInfo: {
               chunkIndex: i,
               totalChunks: chunks.length,
-              isLastChunk: isLastChunk
+              isLastChunk: isLastChunk,
+              // bytes: totalBytes
             }
           });
         }

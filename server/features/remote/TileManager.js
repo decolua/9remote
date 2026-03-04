@@ -81,24 +81,22 @@ export class TileManager {
   }
 
   detectDpiScale() {
-    if (process.platform === "darwin") {
-      // macOS: Detect Retina scale by capturing 1x1
-      const testCapture = this.robot.screen.capture(0, 0, 1, 1);
-      this.dpiScale = testCapture.byteWidth / testCapture.bytesPerPixel;
+    // Capture a reliable sample size to avoid stride/alignment issues with small captures
+    const sampleW = Math.min(100, this.screenWidth);
+    const sampleH = Math.min(100, this.screenHeight);
+    const testCapture = this.robot.screen.capture(0, 0, sampleW, sampleH);
+
+    // actualWidth = byteWidth / bytesPerPixel gives real pixel width of capture
+    const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
+    const scale = actualWidth / sampleW;
+
+    // Only accept integer scales 1x or 2x (Retina); anything else is misdetect
+    if (scale >= 1.9 && scale <= 2.1) {
+      this.dpiScale = 2;
     } else {
-      // Windows/Linux: Detect by capturing at 2x logical and comparing
-      const testWidth = Math.min(this.screenWidth * 2, 4096);
-      const testHeight = Math.min(this.screenHeight * 2, 4096);
-      const testCapture = this.robot.screen.capture(0, 0, testWidth, testHeight);
-      const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
-      
-      if (actualWidth > this.screenWidth) {
-        this.dpiScale = actualWidth / this.screenWidth;
-      } else {
-        this.dpiScale = 1;
-      }
+      this.dpiScale = 1;
     }
-    
+
     this.captureWidth = Math.floor(this.screenWidth * this.dpiScale);
     this.captureHeight = Math.floor(this.screenHeight * this.dpiScale);
   }
@@ -229,9 +227,7 @@ export class TileManager {
 
   async processTileAsync(screenData, tileIndex, cachedTileData = null) {
     const tileData = cachedTileData || this.extractTile(screenData, tileIndex);
-    const checksum = this.calculateTileChecksum(tileData.buffer);
-    this.lastTileChecksums.set(tileIndex, checksum);
-
+    // Don't overwrite checksum here - detectChangedTilesWithHashes already updated it correctly
     const imageBuffer = await this.compressTileImage(tileData.buffer, tileData.width, tileData.height);
     const { row, col } = this.getTilePosition(tileIndex);
 
@@ -319,8 +315,8 @@ export class TileManager {
 
   async compressTileImage(buffer, width, height) {
     // Return raw Buffer for binary transfer (no base64 overhead)
-    return await sharp(buffer, { raw: { width, height, channels: 4 } })
-      .webp({ quality: 85, effort: 2, smartSubsample: true })
+    return sharp(buffer, { raw: { width, height, channels: 4 } })
+      .jpeg({ quality: 80 })
       .toBuffer();
   }
 
