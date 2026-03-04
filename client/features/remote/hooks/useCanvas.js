@@ -14,6 +14,8 @@ export function useCanvas(socketEmitFunctions) {
   const [lastTouchDistance, setLastTouchDistance] = useState(0);
   const [lastTouchCenter, setLastTouchCenter] = useState({ x: 0, y: 0 });
   const [baseCanvasSize, setBaseCanvasSize] = useState({ width: 0, height: 0 });
+  // fitScale: CSS scale to fit server canvas into container at zoom=1
+  const [fitScale, setFitScale] = useState(1);
   const [recentZoomGesture, setRecentZoomGesture] = useState(false);
   const zoomGestureTimeoutRef = useRef(null);
   const [clickIndicator, setClickIndicator] = useState(null);
@@ -36,28 +38,30 @@ export function useCanvas(socketEmitFunctions) {
   const momentumFrameRef = useRef(null);
 
   // Get percentage-based coordinates
+  // Canvas is rendered at server resolution, scaled by fitScale * canvasZoom via CSS transform.
+  // We reverse the full CSS transform to map screen coords → canvas logical coords.
   const getCanvasCoordinates = useCallback((clientX, clientY) => {
     const canvas = canvasRef.current;
     const container = canvasContainerRef.current;
-    if (!canvas || !container || baseCanvasSize.width === 0) {
+    if (!canvas || !container || canvas.width === 0) {
       return { percentX: 0, percentY: 0 };
     }
 
+    const totalScale = fitScale * canvasZoom;
     const containerRect = container.getBoundingClientRect();
     const containerX = clientX - containerRect.left;
     const containerY = clientY - containerRect.top;
-    const unPannedX = containerX - canvasPan.x;
-    const unPannedY = containerY - canvasPan.y;
-    const transformedX = unPannedX / canvasZoom;
-    const transformedY = unPannedY / canvasZoom;
-    const percentX = (transformedX / baseCanvasSize.width) * 100;
-    const percentY = (transformedY / baseCanvasSize.height) * 100;
+    // Reverse pan then reverse scale to get canvas logical pixel
+    const canvasX = (containerX - canvasPan.x) / totalScale;
+    const canvasY = (containerY - canvasPan.y) / totalScale;
+    const percentX = (canvasX / canvas.width) * 100;
+    const percentY = (canvasY / canvas.height) * 100;
 
     return {
       percentX: Math.max(0, Math.min(100, percentX)),
       percentY: Math.max(0, Math.min(100, percentY))
     };
-  }, [canvasPan, canvasZoom, baseCanvasSize]);
+  }, [canvasPan, canvasZoom, fitScale]);
 
   const getTouchDistance = useCallback((touches) => {
     const dx = touches[0].clientX - touches[1].clientX;
@@ -174,33 +178,23 @@ export function useCanvas(socketEmitFunctions) {
     };
   }, [cancelLongPress, stopMomentum]);
 
-  // Recalculate display size based on container and server dimensions
-  // Always maximize one dimension to 100% while maintaining aspect ratio
+  // Recalculate fitScale: CSS scale that fits server canvas into container at zoom=1
   const recalculateDisplaySize = useCallback(() => {
     const container = canvasContainerRef.current;
+    const canvas = canvasRef.current;
     const serverWidth = serverDimensionsRef.current.width;
     const serverHeight = serverDimensionsRef.current.height;
-    
-    if (!container || serverWidth === 0 || serverHeight === 0) return;
-    
+
+    if (!container || !canvas || serverWidth === 0 || serverHeight === 0) return;
+
     const containerWidth = container.clientWidth;
     const containerHeight = container.clientHeight;
-    const serverAspect = serverWidth / serverHeight;
-    const containerAspect = containerWidth / containerHeight;
-    
-    let displayWidth, displayHeight;
-    
-    if (containerAspect > serverAspect) {
-      // Container is wider than server aspect → height = 100%, calculate width
-      displayHeight = containerHeight;
-      displayWidth = containerHeight * serverAspect;
-    } else {
-      // Container is taller than server aspect → width = 100%, calculate height
-      displayWidth = containerWidth;
-      displayHeight = containerWidth / serverAspect;
-    }
-    
-    setBaseCanvasSize({ width: displayWidth, height: displayHeight });
+    // Scale to fit entire canvas within container, preserving aspect ratio
+    const scale = Math.min(containerWidth / serverWidth, containerHeight / serverHeight);
+    setFitScale(scale);
+
+    // baseCanvasSize still used for pan boundary calculations (scaled size at zoom=1)
+    setBaseCanvasSize({ width: serverWidth * scale, height: serverHeight * scale });
   }, []);
 
   // Handle resize/rotate
@@ -270,15 +264,14 @@ export function useCanvas(socketEmitFunctions) {
           const scale = distance / lastTouchDistance;
           const oldZoom = canvasZoom;
           const newZoom = Math.max(1, Math.min(4, oldZoom * scale));
-          
-          // Calculate new pan to keep focal point fixed
-          // Formula: newPan = focal - (focal - oldPan) * (newZoom / oldZoom)
+
+          // Canvas display size = serverSize * fitScale * canvasZoom
           const zoomRatio = newZoom / oldZoom;
           const canvasDisplayWidth = baseCanvasSize.width * newZoom;
           const canvasDisplayHeight = baseCanvasSize.height * newZoom;
           const maxPanX = Math.min(0, containerWidth - canvasDisplayWidth);
           const maxPanY = Math.min(0, containerHeight - canvasDisplayHeight);
-          
+
           setCanvasPan(prev => {
             const newPanX = focalX - (focalX - prev.x) * zoomRatio;
             const newPanY = focalY - (focalY - prev.y) * zoomRatio;
@@ -287,7 +280,7 @@ export function useCanvas(socketEmitFunctions) {
               y: Math.max(maxPanY, Math.min(0, newPanY))
             };
           });
-          
+
           setCanvasZoom(newZoom);
           setLastTouchDistance(distance);
         }
@@ -584,6 +577,7 @@ export function useCanvas(socketEmitFunctions) {
     canvasContainerRef,
     canvasZoom,
     canvasPan,
+    fitScale,
     baseCanvasSize,
     zoomGestureTimeoutRef,
     clickIndicator,

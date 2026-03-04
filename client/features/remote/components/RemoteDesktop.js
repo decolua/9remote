@@ -73,6 +73,7 @@ export default function RemoteDesktop({ onClose }) {
     canvasContainerRef,
     canvasZoom,
     canvasPan,
+    fitScale,
     baseCanvasSize,
     zoomGestureTimeoutRef,
     clickIndicator,
@@ -219,7 +220,7 @@ export default function RemoteDesktop({ onClose }) {
           canvasContainerRef={canvasContainerRef}
           canvasZoom={canvasZoom}
           canvasPan={canvasPan}
-          baseCanvasSize={baseCanvasSize}
+          fitScale={fitScale}
           streaming={streaming}
           selectionRect={selectionRect}
           clickIndicator={clickIndicator}

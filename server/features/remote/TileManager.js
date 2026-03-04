@@ -21,7 +21,7 @@ export class TileManager {
     this.tempDir = path.join(__dirname, "../../temp");
     this.compressionQuality = 1;
     this.changeThreshold = 1;
-    this.scaleFactor = 0.99;
+    this.scaleFactor = 1.0;
     this.scaledWidth = 0;
     this.scaledHeight = 0;
     this.isProcessing = false;
@@ -83,21 +83,22 @@ export class TileManager {
 
   detectDpiScale() {
     if (process.platform === "darwin") {
-      // macOS: Detect Retina scale by capturing 1x1
+      // macOS: Retina screens capture physical pixels — detect scale via 1x1 capture
       const testCapture = this.robot.screen.capture(0, 0, 1, 1);
       this.dpiScale = testCapture.byteWidth / testCapture.bytesPerPixel;
     } else {
-      // Windows/Linux: Detect by capturing at 2x logical and comparing
-      const testWidth = Math.min(this.screenWidth * 2, 4096);
-      const testHeight = Math.min(this.screenHeight * 2, 4096);
-      const testCapture = this.robot.screen.capture(0, 0, testWidth, testHeight);
-      const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
-
-      if (actualWidth > this.screenWidth) {
-        this.dpiScale = actualWidth / this.screenWidth;
-      } else {
-        this.dpiScale = 1;
-      }
+      // Windows (GDI BitBlt) and Linux (X11) always capture at logical pixels — dpiScale is always 1.
+      // Capturing screenWidth*2 to detect physical pixels caused native crash (BadMatch / out-of-bounds).
+      // const testWidth = Math.min(this.screenWidth * 2, 4096);
+      // const testHeight = Math.min(this.screenHeight * 2, 4096);
+      // const testCapture = this.robot.screen.capture(0, 0, testWidth, testHeight);
+      // const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
+      // if (actualWidth > this.screenWidth) {
+      //   this.dpiScale = actualWidth / this.screenWidth;
+      // } else {
+      //   this.dpiScale = 1;
+      // }
+      this.dpiScale = 1;
     }
 
     this.captureWidth = Math.floor(this.screenWidth * this.dpiScale);
@@ -222,6 +223,15 @@ export class TileManager {
         changedTiles.push(...results);
       }
 
+      // if (changedTiles.length > 0) {
+      //   const sizes = changedTiles.map(t => t.imageBuffer.length);
+      //   const total = sizes.reduce((a, b) => a + b, 0);
+      //   const avg = total / sizes.length;
+      //   const min = Math.min(...sizes);
+      //   const max = Math.max(...sizes);
+      //   console.log(`[Stream] ${changedTiles.length} tiles | avg ${(avg / 1024).toFixed(1)}KB | min ${(min / 1024).toFixed(1)}KB | max ${(max / 1024).toFixed(1)}KB | total ${(total / 1024).toFixed(1)}KB`);
+      // }
+
       return { tiles: changedTiles, currentHashes };
     } finally {
       this.isProcessing = false;
@@ -245,17 +255,6 @@ export class TileManager {
       timestamp: Date.now(),
       frameCount: this.frameCount
     };
-  }
-
-  calculateTileChecksum(buffer) {
-    let sum = 0;
-    for (let i = 0; i < buffer.length; i += 64) {
-      sum += buffer[i] || 0;
-      sum ^= buffer[i + 1] || 0;
-      sum += (buffer[i + 2] || 0) << 1;
-      sum ^= (buffer[i + 3] || 0) << 2;
-    }
-    return sum >>> 0;
   }
 
   // Calculate checksum directly from screenData without extracting tile

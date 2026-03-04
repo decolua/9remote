@@ -6,7 +6,7 @@ export default function RemoteCanvas({
   canvasContainerRef,
   canvasZoom,
   canvasPan,
-  baseCanvasSize,
+  fitScale,
   streaming,
   selectionRect,
   clickIndicator,
@@ -17,6 +17,11 @@ export default function RemoteCanvas({
   onTouchEnd,
   onKeyDown
 }) {
+  // Canvas physical size = server resolution (set via canvas.width/height in handleCanvasDimensions).
+  // CSS transform: scale(fitScale * canvasZoom) to fit into container then apply user zoom.
+  // translate is applied before scale (via separate transform step) to pan in screen space.
+  const totalScale = fitScale * canvasZoom;
+
   return (
     <div
       className="w-full h-full overflow-hidden relative flex-1"
@@ -32,10 +37,9 @@ export default function RemoteCanvas({
           WebkitUserSelect: "none",
           WebkitTouchCallout: "none",
           WebkitTapHighlightColor: "transparent",
-          width: `${baseCanvasSize.width * canvasZoom}px`,
-          height: `${baseCanvasSize.height * canvasZoom}px`,
-          transform: `translate(${canvasPan.x}px, ${canvasPan.y}px)`,
-          imageRendering: "pixelated"
+          transform: `translate3d(${canvasPan.x}px, ${canvasPan.y}px, 0) scale(${totalScale})`,
+          imageRendering: "auto",
+          willChange: "transform"
         }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
