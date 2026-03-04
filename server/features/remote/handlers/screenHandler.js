@@ -1,9 +1,43 @@
 // Screen Handler for Remote Desktop
 
+/**
+ * Encode a single tile to binary for DataChannel transfer.
+ * Format: [20-byte header + N-byte JPEG]
+ * Header: tileIndex(4) x(4) y(4) width(4) height(4)
+ */
+function encodeTileBinary(tile) {
+  const header = Buffer.alloc(20);
+  header.writeUInt32LE(tile.tileIndex, 0);
+  header.writeUInt32LE(tile.x, 4);
+  header.writeUInt32LE(tile.y, 8);
+  header.writeUInt32LE(tile.width, 12);
+  header.writeUInt32LE(tile.height, 16);
+  return Buffer.concat([header, tile.imageBuffer]);
+}
+
 export class ScreenHandler {
-  constructor(resourceManager, screenUpdateHelper) {
+  constructor(resourceManager, screenUpdateHelper, webrtcManager = null) {
     this.resourceManager = resourceManager;
     this.screenUpdateHelper = screenUpdateHelper;
+    this.webrtcManager = webrtcManager;
+  }
+
+  /**
+   * Send tiles via DataChannel if open, fallback to socket.emit.
+   * Logs transport only when it changes (DC ↔ WS).
+   */
+  _sendTiles(socket, payload) {
+    if (this.webrtcManager?.isReady(socket.id) && payload.tiles?.length > 0) {
+      // Send each tile as a separate DC message — stays well under 64KB SCTP limit
+      let allSent = true;
+      for (const tile of payload.tiles) {
+        const binary = encodeTileBinary(tile);
+        const sent = this.webrtcManager.sendTile(socket.id, binary);
+        if (!sent) { allSent = false; break; }
+      }
+      if (allSent) return;
+    }
+    socket.emit("tiles-data", payload);
   }
 
   setupScreenHandlers(socket, requireAuth) {
@@ -14,7 +48,7 @@ export class ScreenHandler {
       try {
         const changedTiles = await clientData.tileManager.detectChangedTiles();
         if (changedTiles.length > 0) {
-          socket.emit("tiles-data", { tiles: changedTiles, timestamp: Date.now() });
+          this._sendTiles(socket, { tiles: changedTiles, timestamp: Date.now() });
         }
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
@@ -32,13 +66,14 @@ export class ScreenHandler {
         const result = await clientData.tileManager.compareClientTileHashes(clientTileHashes);
 
         if (result?.tiles?.length > 0) {
-          socket.emit("tiles-data", {
+          this._sendTiles(socket, {
             tiles: result.tiles,
             timestamp: Date.now(),
             currentHashes: result.currentHashes,
             changedIndices: result.changedIndices
           });
         } else {
+          // Always send hashes update via WS (lightweight, no DC needed)
           socket.emit("tiles-data", {
             tiles: [],
             timestamp: Date.now(),
@@ -80,7 +115,7 @@ export class ScreenHandler {
           const hasChanges = result.tiles.length > 0;
 
           if (hasChanges && socket.connected) {
-            socket.emit("tiles-data", {
+            this._sendTiles(socket, {
               tiles: result.tiles,
               timestamp: Date.now(),
               currentHashes: result.currentHashes

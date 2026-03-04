@@ -1,6 +1,13 @@
 // Remote Desktop Server Configuration
 
 export const remoteConfig = {
+  // WebRTC transport config
+  // enableWebRTC: true  → init WebRTC manager, handle offer/answer signaling
+  // enableTurn: false   → STUN P2P only, skip TURN credential fetch
+  webrtc: {
+    enableWebRTC: true,
+    enableTurn: false
+  },
   // Robot settings
   robotSettings: {
     mouseDelay: 2,

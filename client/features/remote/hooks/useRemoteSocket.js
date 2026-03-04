@@ -5,30 +5,59 @@ import { useRouter } from "next/navigation";
 import { useBaseSocket } from "@/shared/hooks/useBaseSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
+import { useWebRTC } from "./useWebRTC";
 
-export function useRemoteSocket() {
+export function useRemoteSocket({ onWebRTCTilesData } = {}) {
   const router = useRouter();
   const { getAuth } = useSessionStorage();
   const [streaming, setStreaming] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const [transport, setTransport] = useState("ws"); // "ws" | "dc"
   const mountedRef = useRef(true);
 
-  // Get auth for socket options
   const auth = getAuth();
 
-  // Handle connect
+  // WebRTC fallback — DC failed, stay on WS (already default)
+  const handleWebRTCFallback = useCallback(() => {
+    if (!mountedRef.current) return;
+    setTransport("ws");
+  }, []);
+
+  // DC open → upgrade transport, tiles now come via DC
+  const handleWebRTCReady = useCallback((via) => {
+    if (!mountedRef.current) return;
+    // via: "dc-stun" | "dc-turn" | "ws"
+    setTransport(via.startsWith("dc") ? via : "ws");
+  }, []);
+
+  // Shared socketRef — synced after socket connects
+  const webrtcSocketRef = useRef(null);
+
+  const { start: startWebRTC, stop: stopWebRTC } = useWebRTC({
+    socketRef: webrtcSocketRef,
+    apiKey: auth?.apiKey,
+    onFallback: handleWebRTCFallback,
+    onReady: handleWebRTCReady,
+    onTilesData: onWebRTCTilesData
+  });
+
+  // Handle connect — start WS immediately, negotiate WebRTC in background if enabled
   const handleConnect = useCallback((socket) => {
     if (!mountedRef.current) return;
     setAuthenticated(true);
     socket.emit("get-screen-dimensions");
-  }, []);
+    webrtcSocketRef.current = socket;
+    if (REMOTE_CONFIG.enableWebRTC) startWebRTC();
+  }, [startWebRTC]);
 
   // Handle disconnect
   const handleDisconnect = useCallback(() => {
     if (!mountedRef.current) return;
     setStreaming(false);
     setAuthenticated(false);
-  }, []);
+    setTransport("ws");
+    stopWebRTC();
+  }, [stopWebRTC]);
 
   // Cleanup mounted ref
   useEffect(() => {
@@ -50,7 +79,7 @@ export function useRemoteSocket() {
     onDisconnect: handleDisconnect
   });
 
-  // Redirect if no apiKey
+  // Redirect if no auth
   useEffect(() => {
     if (!auth?.apiKey) {
       router.push("/");
@@ -59,12 +88,11 @@ export function useRemoteSocket() {
     }
   }, [auth, router]);
 
-  // Start streaming
+  // Start streaming via WS immediately (DC upgrade happens automatically when ready)
   const startStreaming = useCallback(() => {
-    if (socketRef.current && connected) {
-      socketRef.current.emit("start-streaming");
-      setStreaming(true);
-    }
+    if (!socketRef.current || !connected) return;
+    socketRef.current.emit("start-streaming");
+    setStreaming(true);
   }, [socketRef, connected]);
 
   // Stop streaming
@@ -126,7 +154,7 @@ export function useRemoteSocket() {
     }
   }, [socketRef, streaming]);
 
-  // Boost stream (speed up streaming temporarily)
+  // Boost stream
   const emitBoostStream = useCallback(() => {
     if (socketRef.current && streaming) {
       socketRef.current.emit("boost-stream");
@@ -159,6 +187,7 @@ export function useRemoteSocket() {
     error,
     authenticated,
     retryStatus,
+    transport,
     startStreaming,
     stopStreaming,
     handleLogout,

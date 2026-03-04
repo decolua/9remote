@@ -9,9 +9,31 @@ import { vibrate } from "@/shared/utils/vibration";
 const v = (fn, ...args) => { vibrate(); fn?.(...args); };
 
 // Remote Desktop Controls component
+// Transport status — same style as other buttons, not clickable
+function TransportBadge({ transport }) {
+  const textColor = {
+    "dc-stun": "text-green-400",
+    "dc-turn": "text-blue-400",
+    "ws":      "text-dark-200"
+  }[transport] || "text-dark-200";
+
+  const label = {
+    "dc-stun": "P2P",
+    "dc-turn": "RTC",
+    "ws":      "WS"
+  }[transport] || "WS";
+
+  return (
+    <div className={`px-2 py-1.5 rounded-brand text-xs font-semibold shadow-sm bg-gradient-to-br from-dark-500 to-dark-600 border border-dark-400 cursor-default select-none text-center ${textColor}`}>
+      {label}
+    </div>
+  );
+}
+
 export default function RemoteControls({
   streaming,
   connected,
+  transport,
   canvasZoom,
   selectionMode,
   dragMode,
@@ -68,6 +90,7 @@ export default function RemoteControls({
             <RefreshCw size={12} />
           </button>
         </div>
+        <TransportBadge transport={transport} />
 
         {/* Zoom & Selection */}
         <div className="grid grid-cols-2 gap-1">
@@ -250,7 +273,7 @@ export default function RemoteControls({
     >
       {/* Main Controls */}
       <div className="flex flex-row items-center justify-center mb-3">
-        <div className="flex-1 grid grid-cols-4 gap-2">
+        <div className="flex-1 grid grid-cols-5 gap-2">
           {/* Back - Return to terminal */}
           <button
             onClick={() => v(onClose)}
@@ -286,7 +309,11 @@ export default function RemoteControls({
           >
             □
           </button>
+
+          {/* Transport status */}
+          <TransportBadge transport={transport} />
         </div>
+
       </div>
 
       {/* Navigation Controls */}

@@ -1,4 +1,10 @@
-// Remote Desktop Socket.IO namespace
+import { WebRTCManager } from "./webrtcManager.js";
+import { remoteConfig } from "./config.js";
+
+const { enableWebRTC, enableTurn } = remoteConfig.webrtc;
+
+// Singleton WebRTC manager (only used if enableWebRTC is true)
+const webrtcManager = enableWebRTC ? new WebRTCManager() : null;
 
 // Track remote availability globally
 let remoteAvailable = null;
@@ -41,7 +47,14 @@ export function isRemoteAvailable() {
   return remoteAvailable === true;
 }
 
-export async function setupRemoteSocket(io) {
+export async function setupRemoteSocket(io, apiKey) {
+  // Init WebRTC only if enabled; fetch TURN only if enableTurn is true
+  if (enableWebRTC && webrtcManager) {
+    const key = enableTurn ? apiKey : null;
+    webrtcManager.init(key).catch(err =>
+      console.error("[WebRTC] init error:", err.message)
+    );
+  }
   let robot = null;
   let TileManager = null;
   let ResourceManager = null;
@@ -116,7 +129,7 @@ export async function setupRemoteSocket(io) {
       screenUpdateHelper = new ScreenUpdateHelper(resourceManager);
       mouseHandler = new MouseHandler(robot, resourceManager);
       keyboardHandler = new KeyboardHandler(robot, resourceManager);
-      screenHandler = new ScreenHandler(resourceManager, screenUpdateHelper);
+      screenHandler = new ScreenHandler(resourceManager, screenUpdateHelper, webrtcManager);
       resourceManager.startResourceMonitoring();
     }
 
@@ -140,9 +153,31 @@ export async function setupRemoteSocket(io) {
     keyboardHandler.setupKeyboardHandlers(socket, requireAuth);
     screenHandler.setupScreenHandlers(socket, requireAuth);
 
+    // WebRTC signaling: server acts as the answerer peer
+    if (enableWebRTC && webrtcManager) {
+      socket.on("webrtc:offer", async ({ sdp }) => {
+        try {
+          const { pc } = webrtcManager.createPeer(socket.id);
+          pc.onLocalCandidate((candidate, mid) => {
+            if (candidate) socket.emit("webrtc:ice-candidate", { candidate, mid });
+          });
+          const answerSdp = await webrtcManager.processOffer(socket.id, sdp);
+          socket.emit("webrtc:answer", { sdp: answerSdp });
+        } catch (err) {
+          console.error("[WebRTC] offer error:", err.message);
+          socket.emit("webrtc:error", { message: err.message });
+        }
+      });
+
+      socket.on("webrtc:ice-candidate", ({ candidate, mid }) => {
+        webrtcManager.addIceCandidate(socket.id, candidate, mid || "0");
+      });
+    }
+
     socket.on("disconnect", () => {
       console.log("🖥️ Remote client disconnected:", socket.id);
       resourceManager.removeClient(socket.id);
+      if (enableWebRTC && webrtcManager) webrtcManager.closePeer(socket.id);
     });
   });
 }

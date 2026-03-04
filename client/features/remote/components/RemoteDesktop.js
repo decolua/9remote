@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { useRemoteSocket } from "@/features/remote/hooks/useRemoteSocket";
 import { useCanvas } from "@/features/remote/hooks/useCanvas";
 import { useInput } from "@/features/remote/hooks/useInput";
@@ -26,6 +26,9 @@ export default function RemoteDesktop({ onClose }) {
     return () => window.removeEventListener("resize", checkOrientation);
   }, []);
 
+  // useTiles ref — forward WebRTC tiles into the same handler as WS tiles
+  const webrtcTilesHandlerRef = useRef(null);
+
   const {
     socket,
     connected,
@@ -33,6 +36,7 @@ export default function RemoteDesktop({ onClose }) {
     error,
     authenticated,
     retryStatus,
+    transport,
     startStreaming,
     stopStreaming,
     emitRequestScreenWithHashes,
@@ -44,7 +48,9 @@ export default function RemoteDesktop({ onClose }) {
     emitKeyPress,
     emitTypeText,
     emitScroll
-  } = useRemoteSocket();
+  } = useRemoteSocket({
+    onWebRTCTilesData: (data) => webrtcTilesHandlerRef.current?.(data)
+  });
 
   const socketEmitFunctions = {
     emitRequestScreenWithHashes,
@@ -121,6 +127,11 @@ export default function RemoteDesktop({ onClose }) {
     cleanupTiles,
     requestScreenWithHashes
   } = useTiles(socket, streaming, canvasRef);
+
+  // Wire WebRTC tiles handler after useTiles is ready
+  useEffect(() => {
+    webrtcTilesHandlerRef.current = handleTilesData;
+  }, [handleTilesData]);
 
   // Socket event listeners
   useEffect(() => {
@@ -246,6 +257,7 @@ export default function RemoteDesktop({ onClose }) {
         textInputRef={textInputRef}
         keyboardVisible={keyboardVisible}
         isLandscape={isLandscape}
+        transport={transport}
         onStartStreaming={() => startStreamingWithTiles(startStreaming)}
         onStopStreaming={stopStreaming}
         onResetZoom={resetZoom}

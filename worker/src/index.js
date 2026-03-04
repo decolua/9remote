@@ -4,6 +4,7 @@ import { handleTempKeyCreate, handleTempKeyVerify, handleTempKeyRemove } from ".
 import { handleTunnelCreate, handleTunnelDelete } from "./handlers/tunnel.js";
 import { handleVersion } from "./handlers/version.js";
 import { handleAITerminal } from "./handlers/aiTerminal.js";
+import { handleTurnCredentials } from "./handlers/webrtc.js";
 import { cleanupDeadTunnels } from "./tunnelService.js";
 
 // CORS headers
@@ -25,14 +26,14 @@ export default {
 
     try {
 
+      // API routes (must be before static handler)
+      if (pathname.startsWith("/api/")) {
+        return handleAPI(request, pathname, env);
+      }
+
       // Static files (GET)
       if (request.method === "GET") {
         return handleStaticAsset(request, env, corsHeaders);
-      }
-
-      // API routes
-      if (pathname.startsWith("/api/")) {
-        return handleAPI(request, pathname, env);
       }
 
       // 404
@@ -131,6 +132,11 @@ async function handleAPI(request, pathname, env) {
   // POST /api/ai-terminal
   if (request.method === "POST" && pathname === "/api/ai-terminal") {
     return handleAITerminal(request, env, corsHeaders);
+  }
+
+  // GET /api/webrtc/turn-credentials
+  if (request.method === "GET" && pathname === "/api/webrtc/turn-credentials") {
+    return handleTurnCredentials(request, env, corsHeaders);
   }
 
   return new Response("Not Found", { status: 404, headers: corsHeaders });

@@ -316,7 +316,7 @@ export class TileManager {
   async compressTileImage(buffer, width, height) {
     // Return raw Buffer for binary transfer (no base64 overhead)
     return sharp(buffer, { raw: { width, height, channels: 4 } })
-      .jpeg({ quality: 80 })
+      .jpeg({ quality: 85 })
       .toBuffer();
   }
 
