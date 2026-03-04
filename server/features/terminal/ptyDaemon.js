@@ -164,12 +164,15 @@ function createSession(sessionId, name, cols = 80, rows = 24) {
   const cwd = getDefaultCwd();
   
   try {
+    const shellEnv = buildShellEnv();
+    shellEnv.NINE_REMOTE_SESSION_ID = sessionId;
+    
     const ptyProcess = pty.spawn(shell, shellArgs, {
       name: "xterm-256color",
       cols,
       rows,
       cwd,
-      env: buildShellEnv(),
+      env: shellEnv,
       useConpty: process.platform === "win32"
     });
 

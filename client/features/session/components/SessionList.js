@@ -9,7 +9,7 @@ import SitesList from "@/features/terminal/components/SitesList";
 import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -31,9 +31,13 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       showTheme: false,
       theme: "default",
       socketRef,
-      hideActions: ['remote', 'files', 'sites'], // Hide these actions in SessionList menu
+      hideActions: ['remote', 'files', 'sites'],
       tunnelUrl,
-      apiKey
+      apiKey,
+      subscribeToPush,
+      unsubscribeFromPush,
+      notifications,
+      clearNotification
     });
 
     setCallbacks({
@@ -57,7 +61,9 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     onStopCodespace,
     setContext,
     setCallbacks,
-    socketRef
+    socketRef,
+    subscribeToPush,
+    unsubscribeFromPush
   ]);
 
   const handleCreate = async () => {

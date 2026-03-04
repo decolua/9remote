@@ -10,7 +10,8 @@
   "dependencies": {
     "http-proxy": "^1.18.1",
     "sharp": "^0.33.5",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "web-push": "^3.6.7"
   },
   "optionalDependencies": {
     "@hurdlegroup/robotjs": "^0.12.1",

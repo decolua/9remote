@@ -30,7 +30,11 @@ function Terminal({
   onStopCodespace,
   sessions = [],
   onSwitchSession,
-  platform
+  platform,
+  subscribeToPush,
+  unsubscribeFromPush,
+  notifications = {},
+  clearNotification
 }) {
   const containerRef = useRef(null);
   const tabsContainerRef = useRef(null);
@@ -56,7 +60,11 @@ function Terminal({
     if (isActive && activeTabRef.current && tabsContainerRef.current) {
       activeTabRef.current.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
     }
-  }, [sessionId, isActive]);
+    // Clear notification when viewing this session
+    if (isActive && sessionId) {
+      clearNotification(sessionId);
+    }
+  }, [sessionId, isActive, clearNotification]);
 
   // Set up menu context - only when active
   useEffect(() => {
@@ -70,7 +78,9 @@ function Terminal({
       theme,
       socketRef: menuSocketRef,
       tunnelUrl,
-      apiKey
+      apiKey,
+      subscribeToPush,
+      unsubscribeFromPush
     });
 
     setCallbacks({
@@ -222,15 +232,20 @@ function Terminal({
           <div className="flex gap-0.5 min-w-max">
             {sessions.map((session) => {
               const isActiveTab = session.id === sessionId;
+              const hasNotif = !!notifications[session.id];
               return (
                 <button
                   key={session.id}
                   ref={isActiveTab ? activeTabRef : null}
-                  onClick={() => { vibrate(); onSwitchSession?.(session.id); }}
+                  onClick={() => {
+                    vibrate();
+                    clearNotification(session.id);
+                    onSwitchSession?.(session.id);
+                  }}
                   className={`px-2 py-1 text-sm font-medium transition-colors duration-200 flex items-center gap-2 whitespace-nowrap ${isActiveTab ? "text-brand-500" : "text-dark-50 hover:text-white"
                     }`}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full ${hasNotif ? "bg-yellow-400 animate-pulse" : connected ? "bg-green-400" : "bg-red-400"}`} />
                   <span className="truncate max-w-[120px]">{session.name || "Terminal"}</span>
                 </button>
               );
@@ -313,5 +328,6 @@ export default memo(Terminal, (prev, next) => (
   prev.connected === next.connected &&
   prev.theme === next.theme &&
   prev.sessions === next.sessions &&
-  prev.platform === next.platform
+  prev.platform === next.platform &&
+  prev.notifications === next.notifications
 ));

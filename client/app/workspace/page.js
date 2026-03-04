@@ -10,6 +10,7 @@ import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 import MobileBackgroundImage from "@/shared/components/ui/MobileBackground";
+import { useNotification } from "@/shared/hooks/useNotification";
 
 const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
 const SessionList = dynamic(() => import("@/features/session/components/SessionList"), { ssr: false });
@@ -55,6 +56,7 @@ export default function WorkspacePage() {
   const { getAuth } = useSessionStorage();
   const { socket, socketRef, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
   const fileSocket = useFileSocket(socketRef);
+  const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
   const [systemInfo, setSystemInfo] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen); // Selector - only subscribe to function
@@ -322,6 +324,12 @@ export default function WorkspacePage() {
           retryStatus={retryStatus}
           isActive={currentView.type === "list"}
           socketRef={socketRef}
+          subscribeToPush={subscribeToPush}
+          unsubscribeFromPush={unsubscribeFromPush}
+          notifications={notifications}
+          clearNotification={clearNotification}
+          isActive={currentView.type === "list"}
+          socketRef={socketRef}
         />
       </div>
 
@@ -363,6 +371,10 @@ export default function WorkspacePage() {
               openedSessions={openedSessions}
               onSwitchSession={handleSelectSession}
               platform={platform}
+              subscribeToPush={subscribeToPush}
+              unsubscribeFromPush={unsubscribeFromPush}
+              notifications={notifications}
+              clearNotification={clearNotification}
             />
           </div>
         );

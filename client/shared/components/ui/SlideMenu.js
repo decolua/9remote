@@ -187,6 +187,9 @@ export default function SlideMenu() {
               theme={context.theme}
               onThemeChange={handleThemeChange}
               hideActions={context.hideActions || []}
+              socketRef={context.socketRef}
+              subscribeToPush={context.subscribeToPush}
+              unsubscribeFromPush={context.unsubscribeFromPush}
             />
           )}
 
