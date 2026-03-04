@@ -1,4 +1,5 @@
 import { WebRTCManager } from "./webrtcManager.js";
+import { WebRTCHandler } from "./handlers/webrtcHandler.js";
 import { remoteConfig } from "./config.js";
 
 const { enableWebRTC, enableTurn } = remoteConfig.webrtc;
@@ -103,6 +104,7 @@ export async function setupRemoteSocket(io, apiKey) {
   let mouseHandler = null;
   let keyboardHandler = null;
   let screenHandler = null;
+  const webrtcHandler = enableWebRTC && webrtcManager ? new WebRTCHandler(webrtcManager) : null;
 
   remoteNs.on("connection", async (socket) => {
     // Check apiKey from handshake auth
@@ -152,27 +154,7 @@ export async function setupRemoteSocket(io, apiKey) {
     mouseHandler.setupMouseHandlers(socket, requireAuth);
     keyboardHandler.setupKeyboardHandlers(socket, requireAuth);
     screenHandler.setupScreenHandlers(socket, requireAuth);
-
-    // WebRTC signaling: server acts as the answerer peer
-    if (enableWebRTC && webrtcManager) {
-      socket.on("webrtc:offer", async ({ sdp }) => {
-        try {
-          const { pc } = webrtcManager.createPeer(socket.id);
-          pc.onLocalCandidate((candidate, mid) => {
-            if (candidate) socket.emit("webrtc:ice-candidate", { candidate, mid });
-          });
-          const answerSdp = await webrtcManager.processOffer(socket.id, sdp);
-          socket.emit("webrtc:answer", { sdp: answerSdp });
-        } catch (err) {
-          console.error("[WebRTC] offer error:", err.message);
-          socket.emit("webrtc:error", { message: err.message });
-        }
-      });
-
-      socket.on("webrtc:ice-candidate", ({ candidate, mid }) => {
-        webrtcManager.addIceCandidate(socket.id, candidate, mid || "0");
-      });
-    }
+    webrtcHandler?.setupWebRTCHandlers(socket);
 
     socket.on("disconnect", () => {
       console.log("🖥️ Remote client disconnected:", socket.id);

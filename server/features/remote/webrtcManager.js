@@ -1,13 +1,8 @@
 import nodeDataChannel from "node-datachannel";
+import { remoteConfig } from "./config.js";
 
 const { PeerConnection } = nodeDataChannel;
-
-// Max binary message per DataChannel send (1 tile = header 20B + JPEG ~5–30KB, well under limit)
-const DC_MAX_MESSAGE_SIZE = 65536; // 64KB — SCTP hard limit in node-datachannel
-
-const WORKER_TURN_API = "https://9remote.cc/api/webrtc/turn-credentials";
-// TTL is 24h, refresh 1h before expiry
-const TURN_REFRESH_INTERVAL = (24 - 1) * 60 * 60 * 1000;
+const { turnApiUrl, turnRefreshInterval, dcMaxMessageSize, answerTimeout } = remoteConfig.webrtc;
 
 // Default STUN-only fallback (used until TURN creds are fetched)
 const DEFAULT_ICE = [
@@ -20,7 +15,7 @@ const DEFAULT_ICE = [
  */
 async function fetchTurnIceServers(apiKey) {
   try {
-    const resp = await fetch(WORKER_TURN_API, {
+    const resp = await fetch(turnApiUrl, {
       headers: { "X-API-Key": apiKey }
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -88,18 +83,15 @@ export class WebRTCManager {
       this.iceServers = servers;
       console.log(`[WebRTC] TURN credentials loaded (${servers.length} servers)`);
     }
-    // Schedule next refresh before expiry
     clearTimeout(this._refreshTimer);
     this._refreshTimer = setTimeout(
       () => this._refreshTurnCredentials(),
-      TURN_REFRESH_INTERVAL
+      turnRefreshInterval
     );
   }
 
   /**
    * Create server-side PeerConnection for a client socket.
-   * Returns { pc, dcReady } where dcReady is a Promise that resolves
-   * with the DataChannel once it is open, or rejects on timeout.
    */
   createPeer(socketId) {
     this.closePeer(socketId);
@@ -141,12 +133,12 @@ export class WebRTCManager {
 
       try {
         pc.setRemoteDescription(sdp, "offer");
-        pc.setLocalDescription(); // generates answer + triggers gathering
+        pc.setLocalDescription();
       } catch (err) {
         reject(err);
       }
 
-      setTimeout(() => reject(new Error("Answer timeout")), 10000);
+      setTimeout(() => reject(new Error("Answer timeout")), answerTimeout);
     });
   }
 
@@ -171,7 +163,7 @@ export class WebRTCManager {
     const entry = this.peers.get(socketId);
     if (!entry?.dc) return false;
     try {
-      if (buffer.length > DC_MAX_MESSAGE_SIZE) {
+      if (buffer.length > dcMaxMessageSize) {
         console.warn(`[WebRTC] tile too large (${buffer.length}B), skipping DC → WS fallback`);
         return false;
       }

@@ -5,8 +5,15 @@ export const remoteConfig = {
   // enableWebRTC: true  → init WebRTC manager, handle offer/answer signaling
   // enableTurn: false   → STUN P2P only, skip TURN credential fetch
   webrtc: {
-    enableWebRTC: true,
-    enableTurn: false
+    enableWebRTC: false,
+    enableTurn: true,
+    turnApiUrl: "https://9remote.cc/api/webrtc/turn-credentials",
+    // TTL is 24h, refresh 1h before expiry
+    turnRefreshInterval: (24 - 1) * 60 * 60 * 1000,
+    // 64KB — SCTP hard limit in node-datachannel
+    dcMaxMessageSize: 65536,
+    // Answer SDP timeout
+    answerTimeout: 10000
   },
   // Robot settings
   robotSettings: {

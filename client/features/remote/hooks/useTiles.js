@@ -92,13 +92,13 @@ export function useTiles(socket, streaming, canvasRef) {
         isRequestingRef.current = false;
       }
 
-      // Cancel old loading tiles
-      for (const [, tileData] of loadingTilesRef.current.entries()) {
-        if (tileData.controller) tileData.controller.cancelled = true;
-      }
-      loadingTilesRef.current.clear();
-
       if (!data.tiles?.length) return;
+
+      // Cancel only tiles that overlap with incoming payload — leaves other tiles intact
+      for (const tile of data.tiles) {
+        const existing = loadingTilesRef.current.get(tile.tileIndex);
+        if (existing?.controller) existing.controller.cancelled = true;
+      }
 
       // Batch process tiles
       const batches = [];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState, useRef } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useRemoteSocket } from "@/features/remote/hooks/useRemoteSocket";
 import { useCanvas } from "@/features/remote/hooks/useCanvas";
 import { useInput } from "@/features/remote/hooks/useInput";
@@ -10,7 +10,6 @@ import RemoteCanvas from "@/features/remote/components/RemoteCanvas";
 import RemoteControls from "@/features/remote/components/RemoteControls";
 import Spinner from "@/shared/components/ui/Spinner";
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
-import { vibrate } from "@/shared/utils/vibration";
 
 export default function RemoteDesktop({ onClose }) {
   const [isLandscape, setIsLandscape] = useState(false);
@@ -26,11 +25,11 @@ export default function RemoteDesktop({ onClose }) {
     return () => window.removeEventListener("resize", checkOrientation);
   }, []);
 
-  // useTiles ref — forward WebRTC tiles into the same handler as WS tiles
-  const webrtcTilesHandlerRef = useRef(null);
-
   const {
     socket,
+    socketRef,
+    remoteTransportRef,
+    transportVersion,
     connected,
     streaming,
     error,
@@ -48,9 +47,7 @@ export default function RemoteDesktop({ onClose }) {
     emitKeyPress,
     emitTypeText,
     emitScroll
-  } = useRemoteSocket({
-    onWebRTCTilesData: (data) => webrtcTilesHandlerRef.current?.(data)
-  });
+  } = useRemoteSocket();
 
   const socketEmitFunctions = {
     emitRequestScreenWithHashes,
@@ -128,57 +125,47 @@ export default function RemoteDesktop({ onClose }) {
     requestScreenWithHashes
   } = useTiles(socket, streaming, canvasRef);
 
-  // Wire WebRTC tiles handler after useTiles is ready
+  // Register all screen events on RemoteTransport (handles both WS + DC tiles uniformly).
+  // Re-runs on transportVersion bump so listeners always bind to the latest transport instance.
   useEffect(() => {
-    webrtcTilesHandlerRef.current = handleTilesData;
-  }, [handleTilesData]);
-
-  // Socket event listeners
-  useEffect(() => {
-    if (!authenticated || !socket) return;
+    if (!transportVersion) return;
+    const t = remoteTransportRef.current;
+    if (!t) return;
 
     const onScreenDimensions = (dimensions) => {
       handleScreenDimensions(dimensions);
       handleCanvasDimensions(dimensions, renderedTilesRef);
-
       setTimeout(() => {
-        if (!streaming && socket && connected) {
+        if (!streaming && socketRef.current && connected) {
           startStreamingWithTiles(startStreaming);
         }
       }, 100);
     };
-
     const onFullScreenData = (data) => handleFullScreenData(data);
     const onTilesData = (data) => handleTilesData(data);
-    const onScreenError = (error) => console.error("Screen error:", error);
+    const onScreenError = (err) => console.error("Screen error:", err);
 
-    socket.on("screen-dimensions", onScreenDimensions);
-    socket.on("full-screen-data", onFullScreenData);
-    socket.on("tiles-data", onTilesData);
-    socket.on("screen-error", onScreenError);
+    t.on("screen-dimensions", onScreenDimensions);
+    t.on("full-screen-data", onFullScreenData);
+    t.on("tiles-data", onTilesData);
+    t.on("screen-error", onScreenError);
 
     return () => {
-      socket.off("screen-dimensions", onScreenDimensions);
-      socket.off("full-screen-data", onFullScreenData);
-      socket.off("tiles-data", onTilesData);
-      socket.off("screen-error", onScreenError);
+      t.off("screen-dimensions", onScreenDimensions);
+      t.off("full-screen-data", onFullScreenData);
+      t.off("tiles-data", onTilesData);
+      t.off("screen-error", onScreenError);
       cleanupTiles();
-      if (zoomGestureTimeoutRef.current) {
-        clearTimeout(zoomGestureTimeoutRef.current);
-      }
+      if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);
     };
-  }, [authenticated, socket, streaming, connected, startStreaming, handleScreenDimensions, handleCanvasDimensions, renderedTilesRef, startStreamingWithTiles, handleFullScreenData, handleTilesData, cleanupTiles, zoomGestureTimeoutRef]);
+  }, [transportVersion, streaming, connected, startStreaming, handleScreenDimensions, handleCanvasDimensions, renderedTilesRef, startStreamingWithTiles, handleFullScreenData, handleTilesData, cleanupTiles, zoomGestureTimeoutRef, remoteTransportRef, socketRef]);
 
   // Hash request interval
   useEffect(() => {
     if (!streaming || !socket || !connected) return;
-
     const hashRequestInterval = setInterval(() => {
-      if (streaming && socket && connected) {
-        requestScreenWithHashes();
-      }
+      if (streaming && socket && connected) requestScreenWithHashes();
     }, REMOTE_CONFIG.hashRequestInterval);
-
     return () => clearInterval(hashRequestInterval);
   }, [streaming, socket, connected, requestScreenWithHashes]);
 

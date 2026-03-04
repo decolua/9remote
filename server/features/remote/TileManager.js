@@ -31,7 +31,8 @@ export class TileManager {
     this.dpiScale = 1;
     this.captureWidth = 0;
     this.captureHeight = 0;
-
+    this.compressionQuality = 85;
+    
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
     }
@@ -318,7 +319,7 @@ export class TileManager {
   async compressTileImage(buffer, width, height) {
     // Return raw Buffer for binary transfer (no base64 overhead)
     return sharp(buffer, { raw: { width, height, channels: 4 } })
-      .jpeg({ quality: 85 })
+      .jpeg({ quality: this.compressionQuality })
       .toBuffer();
   }
 
