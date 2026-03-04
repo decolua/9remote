@@ -72,7 +72,7 @@ async function buildServer() {
     ...baseConfig,
     entryPoints: [path.join(ROOT, "server/index.js")],
     outfile,
-    external: ["node-pty", "sharp", "@hurdlegroup/robotjs"]
+    external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel"]
   });
   
   const stats = fs.statSync(outfile);

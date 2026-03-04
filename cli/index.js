@@ -341,6 +341,9 @@ async function startServerAndTunnel(selectedKey) {
     return null;
   }
 
+  // tunnelProcess declared here so the serverManager crash callback can reference it
+  let tunnelProcess = null;
+
   // Start server with auto-restart
   const serverManager = startServerWithRestart(null, async () => {
     // Callback khi server crash - đợi server ready rồi gửi SIGHUP
@@ -431,7 +434,6 @@ async function startServerAndTunnel(selectedKey) {
 
   // Spawn cloudflared with token and auto-restart callback
   console.log(ORANGE("✅ Starting tunnel..."));
-  let tunnelProcess;
   
   const startTunnel = async (tunnelToken) => {
     try {

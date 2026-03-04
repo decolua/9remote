@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "0.1.39",
+  "version": "0.1.43",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "index.js",
@@ -25,7 +25,8 @@
   "optionalDependencies": {
     "node-pty": "^1.2.0-beta.7",
     "@hurdlegroup/robotjs": "^0.12.1",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "node-datachannel": "^0.32.1"
   },
   "files": [
     "dist/",

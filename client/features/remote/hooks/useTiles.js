@@ -123,7 +123,13 @@ export function useTiles(socket, streaming, canvasRef) {
             const timeoutId = setTimeout(() => {
               controller.cancelled = true;
               loadingTilesRef.current.delete(tile.tileIndex);
+              clientTileHashesRef.current[tile.tileIndex] = null;
             }, REMOTE_CONFIG.tileLoadTimeout);
+
+            // Reset hash so next sync will re-request this tile
+            const invalidateTileHash = () => {
+              clientTileHashesRef.current[tile.tileIndex] = null;
+            };
 
             const drawBitmap = (bitmap) => {
               if (controller.cancelled || !canvasRef?.current) {
@@ -140,7 +146,7 @@ export function useTiles(socket, streaming, canvasRef) {
                   renderedTilesRef.current.add(tile.tileIndex);
                   bitmap?.close?.();
                 } catch (e) {
-                  // Canvas may have been unmounted
+                  invalidateTileHash();
                 }
               });
             };
@@ -162,6 +168,7 @@ export function useTiles(socket, streaming, canvasRef) {
                     URL.revokeObjectURL(url);
                     clearTimeout(timeoutId);
                     loadingTilesRef.current.delete(tile.tileIndex);
+                    invalidateTileHash();
                   };
                   img.src = url;
                 });
@@ -172,6 +179,7 @@ export function useTiles(socket, streaming, canvasRef) {
               img.onerror = () => {
                 clearTimeout(timeoutId);
                 loadingTilesRef.current.delete(tile.tileIndex);
+                invalidateTileHash();
               };
               img.src = blob
                 ? URL.createObjectURL(blob)

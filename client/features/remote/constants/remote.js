@@ -22,7 +22,7 @@ export const REMOTE_CONFIG = {
   // Tile settings
   tileLoadTimeout: 600,
   batchSize: 8,
-  batchDelay: 5,
+  batchDelay: 10,
   
   // Click detection
   longPressDelay: 1000,      // ms to trigger right-click

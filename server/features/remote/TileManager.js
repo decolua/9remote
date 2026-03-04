@@ -44,10 +44,10 @@ export class TileManager {
       const { width, height } = this.robot.getScreenSize();
       this.screenWidth = width;
       this.screenHeight = height;
-      
+
       // Detect DPI scale once at initialization
       this.detectDpiScale();
-      
+
       this.scaledWidth = Math.floor(width * this.scaleFactor);
       this.scaledHeight = Math.floor(height * this.scaleFactor);
       this.tilesPerRow = Math.ceil(this.scaledWidth / this.tileSize);
@@ -81,20 +81,22 @@ export class TileManager {
   }
 
   detectDpiScale() {
-    // Capture a reliable sample size to avoid stride/alignment issues with small captures
-    const sampleW = Math.min(100, this.screenWidth);
-    const sampleH = Math.min(100, this.screenHeight);
-    const testCapture = this.robot.screen.capture(0, 0, sampleW, sampleH);
-
-    // actualWidth = byteWidth / bytesPerPixel gives real pixel width of capture
-    const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
-    const scale = actualWidth / sampleW;
-
-    // Only accept integer scales 1x or 2x (Retina); anything else is misdetect
-    if (scale >= 1.9 && scale <= 2.1) {
-      this.dpiScale = 2;
+    if (process.platform === "darwin") {
+      // macOS: Detect Retina scale by capturing 1x1
+      const testCapture = this.robot.screen.capture(0, 0, 1, 1);
+      this.dpiScale = testCapture.byteWidth / testCapture.bytesPerPixel;
     } else {
-      this.dpiScale = 1;
+      // Windows/Linux: Detect by capturing at 2x logical and comparing
+      const testWidth = Math.min(this.screenWidth * 2, 4096);
+      const testHeight = Math.min(this.screenHeight * 2, 4096);
+      const testCapture = this.robot.screen.capture(0, 0, testWidth, testHeight);
+      const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
+
+      if (actualWidth > this.screenWidth) {
+        this.dpiScale = actualWidth / this.screenWidth;
+      } else {
+        this.dpiScale = 1;
+      }
     }
 
     this.captureWidth = Math.floor(this.screenWidth * this.dpiScale);
@@ -212,7 +214,7 @@ export class TileManager {
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
         // Only extract changed tiles (lazy extraction benefit)
-        const tilePromises = changedTileIndices.map(i => 
+        const tilePromises = changedTileIndices.map(i =>
           this.processTileAsync(screenData, i)
         );
         const results = await Promise.all(tilePromises);
@@ -392,7 +394,7 @@ export class TileManager {
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
         // Only extract changed tiles (lazy extraction benefit)
-        const tilePromises = changedTileIndices.map(i => 
+        const tilePromises = changedTileIndices.map(i =>
           this.processTileAsync(screenData, i)
         );
         const results = await Promise.all(tilePromises);
