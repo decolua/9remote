@@ -76,4 +76,5 @@ export const {
   ExternalLink,
   ChevronDown,
   Bell,
+  Zap,
 } = LucideIcons;

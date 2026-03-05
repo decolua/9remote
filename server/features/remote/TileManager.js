@@ -2,6 +2,7 @@
 import sharp from "sharp";
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -99,6 +100,24 @@ export class TileManager {
       //   this.dpiScale = 1;
       // }
       this.dpiScale = 1;
+
+      // Windows: Node.js process is DPI-unaware by default — GetSystemMetrics returns virtualized
+      // (scaled-down) size. We query physical resolution via EnumDisplaySettings (dmPelsWidth)
+      // which is not affected by DPI awareness, to compute the real dpiScale.
+      if (process.platform === "win32") {
+        try {
+          const out = execSync(
+            "powershell -NonInteractive -NoProfile -WindowStyle Hidden -command \"Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class Disp{[DllImport(\\\"user32\\\")]public static extern bool EnumDisplaySettings(string d,int m,ref DEVMODE dm);[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Ansi)]public struct DEVMODE{[MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)]public string dmDeviceName;public short dmSpecVersion,dmDriverVersion,dmSize,dmDriverExtra;public int dmFields;public int dmPositionX,dmPositionY,dmDisplayOrientation,dmDisplayFixedOutput;public short dmColor,dmDuplex,dmYResolution,dmTTOption,dmCollate;[MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)]public string dmFormName;public short dmLogPixels;public int dmBitsPerPel,dmPelsWidth,dmPelsHeight,dmDisplayFlags,dmDisplayFrequency;}}'; $dm=New-Object Disp+DEVMODE; $dm.dmSize=[System.Runtime.InteropServices.Marshal]::SizeOf($dm); [Disp]::EnumDisplaySettings($null,-1,[ref]$dm) | Out-Null; Write-Output $dm.dmPelsWidth\"",
+            { encoding: "utf8", windowsHide: true }
+          ).trim();
+          const physW = Number(out);
+          if (physW > 0 && physW !== this.screenWidth) {
+            this.dpiScale = physW / this.screenWidth;
+          }
+        } catch {
+          // Fallback: dpiScale = 1
+        }
+      }
     }
 
     this.captureWidth = Math.floor(this.screenWidth * this.dpiScale);

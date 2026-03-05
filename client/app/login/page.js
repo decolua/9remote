@@ -177,7 +177,7 @@ function LoginContent() {
     <>
       <MobileBackgroundImage />
       <Container>
-        <div className="bg-dark-600/90 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
+        <div className="bg-dark-600 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-brand-500/10 rounded-brand">
               <Terminal className="text-brand-500" size={32} />

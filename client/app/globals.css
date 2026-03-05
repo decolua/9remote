@@ -3,16 +3,16 @@
 
 @theme {
   /* Brand Colors */
-  --color-brand-50: #fdf3f0;
-  --color-brand-100: #fae5de;
-  --color-brand-200: #f4cbbd;
-  --color-brand-300: #efb19c;
-  --color-brand-400: #e9977b;
-  --color-brand-500: #E68A6E;
-  --color-brand-600: #d96f50;
-  --color-brand-700: #b9563b;
-  --color-brand-800: #8b3f2c;
-  --color-brand-900: #5c291d;
+  --color-brand-50: #fff2ec;
+  --color-brand-100: #ffe0cc;
+  --color-brand-200: #ffbf99;
+  --color-brand-300: #ff9566;
+  --color-brand-400: #ff6e33;
+  --color-brand-500: #FF570A;
+  --color-brand-600: #e04400;
+  --color-brand-700: #b33500;
+  --color-brand-800: #7a2400;
+  --color-brand-900: #3d1200;
 
   /* Dark Background Colors */
   --color-dark-50: #e0e0e0;
@@ -128,7 +128,7 @@ body {
 
 /* iOS keyboard toolbar accent color */
 input, textarea {
-  accent-color: #E68A6E;
+  accent-color: #FF570A;
 }
 
 /* Prevent iOS Safari bounce/scroll when keyboard opens */
@@ -179,5 +179,17 @@ button {
 
 body.keyboard-open .safe-area-bottom {
   padding-bottom: 10px;
+}
+
+/* Dot Grid Background Pattern */
+.dot-grid-bg {
+  background-color: #0d0d0d;
+  background-image: 
+    radial-gradient(circle at 15% 20%, rgba(255, 87, 10, 0.25) 0%, transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(255, 87, 10, 0.15) 0%, transparent 40%),
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+  background-position: 0 0, 0 0, 0 0, 0 0;
 }
 

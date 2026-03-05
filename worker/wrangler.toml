@@ -27,7 +27,7 @@ TURN_KEY_ID = "7e896708cbd77c30e5d1211f48ea859f"
 TURN_KEY_SECRET = "***REMOVED***"
 
 BUILD_VERSION = "0.1.7"
-BUILD_TIME = "2026-03-04T10:48:33.175Z"
+BUILD_TIME = "2026-03-05T06:50:07.026Z"
 [[d1_databases]]
 binding = "DB"
 database_name = "9remote"

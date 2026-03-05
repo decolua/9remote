@@ -36,7 +36,7 @@ export default function HowItWorksSection() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
           {/* Connection lines (desktop only) */}
-          <div className="hidden md:block absolute top-16 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-[#E68A6E] via-[#E68A6E] to-[#E68A6E]" />
+          <div className="hidden md:block absolute top-16 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-brand-500 via-brand-500 to-brand-500" />
 
           {steps.map((step, index) => (
             <div
@@ -50,10 +50,10 @@ export default function HowItWorksSection() {
               {/* Step number circle */}
               <div className="flex justify-center mb-6">
                 <div className="relative">
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#E68A6E] to-[#E68A6E] flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-[#E68A6E]/50 relative z-10">
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-brand-500 to-brand-500 flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-brand-500/50 relative z-10">
                     {step.number}
                   </div>
-                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#E68A6E] to-[#E68A6E] animate-ping opacity-20" />
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-brand-500 to-brand-500 animate-ping opacity-20" />
                 </div>
               </div>
 
@@ -66,7 +66,7 @@ export default function HowItWorksSection() {
                   {step.description}
                 </p>
                 <div className="p-3 bg-white backdrop-blur-sm border border-gray-200 rounded-lg">
-                  <code className="text-[#E68A6E] font-mono text-xs sm:text-sm">
+                  <code className="text-brand-500 font-mono text-xs sm:text-sm">
                     {step.command}
                   </code>
                 </div>

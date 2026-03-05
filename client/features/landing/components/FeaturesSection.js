@@ -10,7 +10,7 @@ export default function FeaturesSection() {
       ),
       title: "Code from bed",
       description: "Terminal on phone",
-      iconColor: "text-[#E68A6E]"
+      iconColor: "text-brand-500"
     },
     {
       icon: (
@@ -20,7 +20,7 @@ export default function FeaturesSection() {
       ),
       title: "Deploy at cafe",
       description: "No heavy laptop needed",
-      iconColor: "text-[#E68A6E]"
+      iconColor: "text-brand-500"
     },
     {
       icon: (
@@ -30,7 +30,7 @@ export default function FeaturesSection() {
       ),
       title: "Fix bugs anywhere",
       description: "Access from everywhere",
-      iconColor: "text-[#E68A6E]"
+      iconColor: "text-brand-500"
     },
     {
       icon: (
@@ -40,7 +40,7 @@ export default function FeaturesSection() {
       ),
       title: "Secure & fast",
       description: "Auto tunnel, <50ms",
-      iconColor: "text-[#E68A6E]"
+      iconColor: "text-brand-500"
     },
     {
       icon: (
@@ -50,7 +50,7 @@ export default function FeaturesSection() {
       ),
       title: "Simple & powerful",
       description: "Just scan QR",
-      iconColor: "text-[#E68A6E]"
+      iconColor: "text-brand-500"
     },
     {
       icon: (
@@ -60,7 +60,7 @@ export default function FeaturesSection() {
       ),
       title: "Light & smooth",
       description: "No lag, no freeze",
-      iconColor: "text-[#E68A6E]"
+      iconColor: "text-brand-500"
     }
   ];
 
@@ -80,7 +80,7 @@ export default function FeaturesSection() {
           {features.map((feature, index) => (
             <div
               key={index}
-              className="group p-6 bg-white backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm hover:border-[#E68A6E]/50 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-[#E68A6E]/10"
+              className="group p-6 bg-white backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm hover:border-brand-500/50 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-brand-500/10"
               style={{
                 animation: `fadeInUp 0.6s ease-out ${index * 0.1}s forwards`,
                 opacity: 0

@@ -118,13 +118,13 @@ export default function TerminalDemoSection() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
           {/* Desktop Terminal */}
           <div className="relative">
-            <div className="absolute -inset-4 bg-gradient-to-r from-[#E68A6E]/20 to-[#E68A6E]/10 rounded-2xl blur-2xl" />
+            <div className="absolute -inset-4 bg-gradient-to-r from-brand-500/20 to-brand-500/10 rounded-2xl blur-2xl" />
             <div className="relative bg-white rounded-xl overflow-hidden shadow-2xl border border-gray-200">
               {/* Terminal header */}
               <div className="flex items-center gap-2 px-4 py-3 bg-gray-100 border-b border-gray-200">
                 <div className="w-3 h-3 rounded-full bg-red-500" />
                 <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                <div className="w-3 h-3 rounded-full bg-[#E68A6E]" />
+                <div className="w-3 h-3 rounded-full bg-brand-500" />
                 <span className="ml-2 text-xs text-gray-600 font-mono">terminal — Desktop</span>
               </div>
 
@@ -139,12 +139,12 @@ export default function TerminalDemoSection() {
                         : line.type === "success"
                         ? "text-green-400"
                         : line.type === "qr"
-                        ? "text-[#E68A6E]"
+                        ? "text-brand-500"
                         : "text-gray-600"
                     }`}
                   >
                     {line.type === "command" && (
-                      <span className="text-[#E68A6E] mr-2">$</span>
+                      <span className="text-brand-500 mr-2">$</span>
                     )}
                     {line.text}
                   </div>
@@ -152,10 +152,10 @@ export default function TerminalDemoSection() {
                 {desktopText && (
                   <div className="mb-2 text-gray-900">
                     {desktopCommands[desktopLines.length]?.type === "command" && (
-                      <span className="text-[#E68A6E] mr-2">$</span>
+                      <span className="text-brand-500 mr-2">$</span>
                     )}
                     {desktopText}
-                    <span className="inline-block w-2 h-4 bg-[#E68A6E] ml-1 animate-pulse" />
+                    <span className="inline-block w-2 h-4 bg-brand-500 ml-1 animate-pulse" />
                   </div>
                 )}
               </div>
@@ -176,7 +176,7 @@ export default function TerminalDemoSection() {
                   <div className="h-10 bg-white border-b border-gray-200 flex items-center justify-between px-3 pt-5">
                     <span className="text-xs font-semibold text-gray-900">Claude AI</span>
                     <div className="flex items-center gap-1">
-                      <svg className="w-3 h-3 text-[#E68A6E]" fill="currentColor" viewBox="0 0 20 20">
+                      <svg className="w-3 h-3 text-brand-500" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M17.778 8.222c-4.296-4.296-11.26-4.296-15.556 0A1 1 0 01.808 6.808c5.076-5.077 13.308-5.077 18.384 0a1 1 0 01-1.414 1.414zM14.95 11.05a7 7 0 00-9.9 0 1 1 0 01-1.414-1.414 9 9 0 0112.728 0 1 1 0 01-1.414 1.414zM12.12 13.88a3 3 0 00-4.242 0 1 1 0 01-1.415-1.415 5 5 0 017.072 0 1 1 0 01-1.415 1.415zM9 16a1 1 0 011-1h.01a1 1 0 110 2H10a1 1 0 01-1-1z" clipRule="evenodd" />
                       </svg>
                     </div>
@@ -192,7 +192,7 @@ export default function TerminalDemoSection() {
                         <div
                           className={`max-w-[80%] rounded-2xl px-3 py-2 ${
                             message.role === "user"
-                              ? "bg-[#E68A6E] text-white"
+                              ? "bg-brand-500 text-white"
                               : "bg-white border border-gray-200 text-gray-900"
                           }`}
                         >
@@ -207,7 +207,7 @@ export default function TerminalDemoSection() {
                         <div
                           className={`max-w-[80%] rounded-2xl px-3 py-2 ${
                             isTypingUser
-                              ? "bg-[#E68A6E] text-white"
+                              ? "bg-brand-500 text-white"
                               : "bg-white border border-gray-200 text-gray-900"
                           }`}
                         >
@@ -229,7 +229,7 @@ export default function TerminalDemoSection() {
                         className="flex-1 bg-transparent text-[10px] text-gray-600 outline-none"
                         disabled
                       />
-                      <div className="w-6 h-6 bg-[#E68A6E] rounded-full flex items-center justify-center">
+                      <div className="w-6 h-6 bg-brand-500 rounded-full flex items-center justify-center">
                         <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                         </svg>
@@ -243,7 +243,7 @@ export default function TerminalDemoSection() {
               </div>
 
               {/* Connection line */}
-              <div className="absolute top-1/2 -left-20 w-20 h-0.5 bg-gradient-to-r from-[#E68A6E] to-transparent animate-pulse" />
+              <div className="absolute top-1/2 -left-20 w-20 h-0.5 bg-gradient-to-r from-brand-500 to-transparent animate-pulse" />
             </div>
           </div>
         </div>

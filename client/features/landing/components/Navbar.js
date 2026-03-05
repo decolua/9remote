@@ -26,7 +26,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E68A6E] to-[#E68A6E] flex items-center justify-center font-bold text-lg shadow-lg shadow-[#E68A6E]/20 group-hover:shadow-[#E68A6E]/40 transition-shadow text-white">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-500 flex items-center justify-center font-bold text-lg shadow-lg shadow-brand-500/20 group-hover:shadow-brand-500/40 transition-shadow text-white">
             9
           </div>
           <span className="text-xl font-bold tracking-tight">9Remote</span>
@@ -69,7 +69,7 @@ export default function Navbar() {
         <div className="hidden md:flex items-center gap-4">
           <Link
             href="/login"
-            className="px-6 py-2 rounded-lg bg-[#E68A6E] hover:bg-[#E68A6E]/90 text-white font-semibold text-sm shadow-lg shadow-[#E68A6E]/20 hover:shadow-[#E68A6E]/40 transition-all"
+            className="px-6 py-2 rounded-lg bg-brand-500 hover:bg-brand-500/90 text-white font-semibold text-sm shadow-lg shadow-brand-500/20 hover:shadow-brand-500/40 transition-all"
           >
             Login
           </Link>
@@ -125,7 +125,7 @@ export default function Navbar() {
             </a>
             <Link
               href="/login"
-              className="px-6 py-2 rounded-lg bg-[#E68A6E] hover:bg-[#E68A6E]/90 text-white font-semibold text-sm text-center"
+              className="px-6 py-2 rounded-lg bg-brand-500 hover:bg-brand-500/90 text-white font-semibold text-sm text-center"
             >
               Login
             </Link>

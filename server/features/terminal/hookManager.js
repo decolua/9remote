@@ -38,13 +38,18 @@ function enableClaudeHook() {
   const filePath = getClaudeSettingsPath();
   const settings = readJsonFile(filePath);
   
-  const stopCmd = "curl -s \"http://localhost:2208/api/notify?type=stop&sessionId=$NINE_REMOTE_SESSION_ID&tool=claude\" > /dev/null 2>&1";
+  const stopCmd = "command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 \"http://localhost:2208/api/notify?type=stop&sessionId=$NINE_REMOTE_SESSION_ID&tool=claude\" > /dev/null 2>&1 & true";
+  const notifyCmd = "command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 \"http://localhost:2208/api/notify?type=notification&sessionId=$NINE_REMOTE_SESSION_ID&tool=claude\" > /dev/null 2>&1 & true";
   
   settings.hooks = {
     ...settings.hooks,
     Stop: [{
       matcher: "",
       hooks: [{ type: "command", command: stopCmd }]
+    }],
+    Notification: [{
+      matcher: "permission_prompt|idle_prompt",
+      hooks: [{ type: "command", command: notifyCmd }]
     }]
   };
   
@@ -75,7 +80,7 @@ function enableCodexHook() {
     fs.mkdirSync(dir, { recursive: true });
   }
   
-  const cmd = "curl -s \"http://localhost:2208/api/notify?type=stop&sessionId=$NINE_REMOTE_SESSION_ID&tool=codex\" > /dev/null 2>&1";
+  const cmd = "command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 \"http://localhost:2208/api/notify?type=stop&sessionId=$NINE_REMOTE_SESSION_ID&tool=codex\" > /dev/null 2>&1 & true";
   
   let content = "";
   if (fs.existsSync(filePath)) {
@@ -103,8 +108,8 @@ function enableGeminiHook() {
   const filePath = getGeminiSettingsPath();
   const settings = readJsonFile(filePath);
   
-  const stopCmd = "curl -s \"http://localhost:2208/api/notify?type=stop&sessionId=$NINE_REMOTE_SESSION_ID&tool=gemini\" > /dev/null 2>&1";
-  const notifyCmd = "curl -s \"http://localhost:2208/api/notify?type=notification&sessionId=$NINE_REMOTE_SESSION_ID&tool=gemini\" > /dev/null 2>&1";
+  const stopCmd = "command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 \"http://localhost:2208/api/notify?type=stop&sessionId=$NINE_REMOTE_SESSION_ID&tool=gemini\" > /dev/null 2>&1 & true";
+  const notifyCmd = "command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 \"http://localhost:2208/api/notify?type=notification&sessionId=$NINE_REMOTE_SESSION_ID&tool=gemini\" > /dev/null 2>&1 & true";
   
   settings.hooks = {
     ...settings.hooks,

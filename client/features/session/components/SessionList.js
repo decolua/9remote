@@ -6,7 +6,7 @@ import Input from "@/shared/components/ui/Input";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import SitesList from "@/features/terminal/components/SitesList";
-import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe } from "@/shared/components/ui/Icon";
+import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
 export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification }) {
@@ -116,12 +116,12 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   };
 
   return (
-    <div className="h-full bg-gradient-to-br from-dark-900/20 via-blue-700/20 to-dark-900/10 flex flex-col overflow-hidden">
+    <div className="h-full dot-grid-bg flex flex-col overflow-hidden">
       {/* Header */}
       <div className="bg-dark-600 border-b border-dark-400 px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-1.5 bg-brand-500/10 rounded-brand">
-            <Terminal className="text-brand-500" size={20} />
+            <Zap className="text-brand-500" size={20} />
           </div>
           <h1 className="text-white text-lg font-semibold">9Remote</h1>
           {/* Connection indicator */}
@@ -143,7 +143,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
               disabled={!connected}
               className={`p-2 rounded-brand transition-all duration-200 border ${
                 connected
-                  ? "bg-dark-500 hover:bg-dark-400 text-brand-500 border-dark-400 hover:border-brand-500"
+                  ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500"
                   : "bg-dark-500/50 text-dark-200 cursor-not-allowed border-dark-400"
               }`}
               title="Remote Desktop"
@@ -158,7 +158,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             disabled={!connected}
             className={`p-2 rounded-brand transition-all duration-200 border ${
               connected
-                ? "bg-dark-500 hover:bg-dark-400 text-brand-500 border-dark-400 hover:border-brand-500"
+                ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500"
                 : "bg-dark-500/50 text-dark-200 cursor-not-allowed border-dark-400"
             }`}
             title="Files"
@@ -172,7 +172,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             disabled={!connected}
             className={`p-2 rounded-brand transition-all duration-200 border ${
               connected
-                ? "bg-dark-500 hover:bg-dark-400 text-brand-500 border-dark-400 hover:border-brand-500"
+                ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500"
                 : "bg-dark-500/50 text-dark-200 cursor-not-allowed border-dark-400"
             }`}
             title="Sites"

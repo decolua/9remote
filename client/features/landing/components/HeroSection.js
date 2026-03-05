@@ -6,20 +6,20 @@ export default function HeroSection() {
   return (
     <section className="relative min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 pt-20">
       {/* Glow effect */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#E68A6E]/5 rounded-full blur-[120px] pointer-events-none" />
+      {/* <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-brand-500/5 rounded-full blur-[120px] pointer-events-none" /> */}
       
       <div className="max-w-6xl mx-auto text-center relative z-10">
         {/* Version badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-2 mb-8 rounded-full border border-[#E68A6E]/30 bg-[#E68A6E]/10 backdrop-blur-sm animate-fade-in">
-          <span className="w-2 h-2 rounded-full bg-[#E68A6E] animate-pulse" />
-          <span className="text-sm text-[#E68A6E] font-medium">v1.0 Now Available</span>
+        <div className="inline-flex items-center gap-2 px-4 py-2 mb-8 rounded-full border border-brand-500/30 bg-brand-500/10 backdrop-blur-sm animate-fade-in">
+          <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse" />
+          <span className="text-sm text-brand-500 font-medium">v1.0 Now Available</span>
         </div>
 
         {/* Main heading */}
         <h1 className="text-3xl sm:text-4xl lg:text-5xl xl:text-6xl mb-6 animate-fade-in-delay-1" style={{ fontWeight: 900 }}>
           <span className="block text-gray-900 mb-4">Want to code from bed?</span>
           <span className="block text-gray-900 mb-4">Fix bugs while having coffee?</span>
-          <span className="block bg-gradient-to-r from-[#E68A6E] to-[#E68A6E] bg-clip-text text-transparent">
+          <span className="block bg-gradient-to-r from-brand-500 to-brand-500 bg-clip-text text-transparent">
             Deploy while on vacation?
           </span>
         </h1>
@@ -32,7 +32,7 @@ export default function HeroSection() {
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-16 animate-fade-in-delay-4">
           <Link 
             href="/login"
-            className="group relative px-8 py-4 bg-gradient-to-r from-[#E68A6E] to-[#E68A6E] rounded-lg font-bold text-white shadow-lg shadow-[#E68A6E]/40 hover:shadow-[#E68A6E]/60 transition-all duration-300 hover:scale-105 w-full sm:w-auto overflow-hidden"
+            className="group relative px-8 py-4 bg-gradient-to-r from-brand-500 to-brand-500 rounded-lg font-bold text-white shadow-lg shadow-brand-500/40 hover:shadow-brand-500/60 transition-all duration-300 hover:scale-105 w-full sm:w-auto overflow-hidden"
           >
             <span className="relative z-10 flex items-center justify-center gap-2">
               <span>Login</span>
@@ -40,12 +40,12 @@ export default function HeroSection() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </span>
-            <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-[#E68A6E] to-[#D67A5E] opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-brand-500 to-brand-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
           </Link>
 
           <Link 
             href="/workspace"
-            className="group px-8 py-4 bg-white backdrop-blur-sm border border-gray-300 rounded-lg font-bold text-gray-900 hover:bg-gray-50 hover:border-[#E68A6E]/50 transition-all duration-300 hover:scale-105 w-full sm:w-auto"
+            className="group px-8 py-4 bg-white backdrop-blur-sm border border-gray-300 rounded-lg font-bold text-gray-900 hover:bg-gray-50 hover:border-brand-500/50 transition-all duration-300 hover:scale-105 w-full sm:w-auto"
           >
             <span className="flex items-center justify-center gap-2">
               <span>View Demo</span>
@@ -64,22 +64,22 @@ export default function HeroSection() {
               <div className="flex gap-2">
                 <div className="w-3 h-3 rounded-full bg-red-500" />
                 <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                <div className="w-3 h-3 rounded-full bg-[#E68A6E]" />
+                <div className="w-3 h-3 rounded-full bg-brand-500" />
               </div>
               <span className="text-xs text-gray-500 ml-2">terminal</span>
             </div>
             
             <div className="space-y-3 font-mono text-sm">
               <div className="flex items-center gap-2">
-                <span className="text-[#E68A6E]">$</span>
+                <span className="text-brand-500">$</span>
                 <code className="text-gray-900">npm install -g 9remote</code>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[#E68A6E]">$</span>
+                <span className="text-brand-500">$</span>
                 <code className="text-gray-900">9remote start</code>
               </div>
               <div className="text-gray-600 text-xs mt-3 flex items-center gap-2">
-                <svg className="w-4 h-4 text-[#E68A6E]" fill="currentColor" viewBox="0 0 20 20">
+                <svg className="w-4 h-4 text-brand-500" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
                 <span>Ready in 30 seconds</span>
@@ -91,15 +91,15 @@ export default function HeroSection() {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-8 max-w-2xl mx-auto mt-16 animate-fade-in-delay-6">
           <div className="text-center">
-            <div className="text-3xl font-bold text-[#E68A6E] mb-1">100%</div>
+            <div className="text-3xl font-bold text-brand-500 mb-1">100%</div>
             <div className="text-sm text-gray-600">Secure</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-[#E68A6E] mb-1">&lt;50ms</div>
+            <div className="text-3xl font-bold text-brand-500 mb-1">&lt;50ms</div>
             <div className="text-sm text-gray-600">Latency</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-[#E68A6E] mb-1">24/7</div>
+            <div className="text-3xl font-bold text-brand-500 mb-1">24/7</div>
             <div className="text-sm text-gray-600">Available</div>
           </div>
         </div>
