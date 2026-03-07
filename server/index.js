@@ -231,6 +231,60 @@ export async function startServer() {
     if (err) throw err;
     console.log(ORANGE(`✅ Server ready on http://${hostname}:${port}`));
   });
+
+  // Graceful shutdown handler
+  let isShuttingDown = false;
+  
+  const gracefulShutdown = async (signal) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    
+    console.log(chalk.yellow(`\n🛑 Received ${signal}, shutting down gracefully...`));
+    
+    // Set timeout to force exit if cleanup takes too long
+    const forceExitTimeout = setTimeout(() => {
+      console.log(chalk.red("⚠️  Forced exit after 5s timeout"));
+      process.exit(1);
+    }, 5000);
+    
+    try {
+      // 1. Stop accepting new connections
+      server.close(() => {
+        console.log(chalk.gray("✓ HTTP server closed"));
+      });
+      
+      // 2. Close all Socket.IO connections
+      const io = getIO();
+      if (io) {
+        io.emit("server:shutdown");
+        io.close(() => {
+          console.log(chalk.gray("✓ Socket.IO closed"));
+        });
+      }
+      
+      // 3. Wait a bit for cleanup
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      clearTimeout(forceExitTimeout);
+      console.log(chalk.green("✅ Server stopped cleanly"));
+      process.exit(0);
+    } catch (error) {
+      console.error(chalk.red("❌ Error during shutdown:"), error);
+      clearTimeout(forceExitTimeout);
+      process.exit(1);
+    }
+  };
+  
+  // Register signal handlers
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  
+  // Windows-specific signal
+  if (process.platform === "win32") {
+    process.on("SIGBREAK", () => gracefulShutdown("SIGBREAK"));
+  }
+  
+  return server;
 }
 
 // Auto start if run directly

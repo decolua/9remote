@@ -33,7 +33,7 @@ export class TileManager {
     this.captureWidth = 0;
     this.captureHeight = 0;
     this.compressionQuality = 85;
-    
+
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
     }
@@ -65,7 +65,7 @@ export class TileManager {
         this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
       }
 
-      console.log(`🖥️ TileManager: ${width}x${height} (DPI ${this.dpiScale}x) -> ${this.totalTiles} tiles`);
+      console.log(`🖥️ [TileManager Init] Logical: ${width}x${height} | DPI Scale: ${this.dpiScale}x | Capture: ${this.captureWidth}x${this.captureHeight} | Scaled: ${this.scaledWidth}x${this.scaledHeight} | Tiles: ${this.totalTiles}`);
     } catch (error) {
       console.error("Screen dimensions error:", error);
       this.screenWidth = 1920;
@@ -87,46 +87,82 @@ export class TileManager {
       // macOS: Retina screens capture physical pixels — detect scale via 1x1 capture
       const testCapture = this.robot.screen.capture(0, 0, 1, 1);
       this.dpiScale = testCapture.byteWidth / testCapture.bytesPerPixel;
+    } else if (process.platform === "win32") {
+      this.dpiScale = this._detectDpiScaleWin32();
     } else {
-      // Windows (GDI BitBlt) and Linux (X11) always capture at logical pixels — dpiScale is always 1.
-      // Capturing screenWidth*2 to detect physical pixels caused native crash (BadMatch / out-of-bounds).
-      // const testWidth = Math.min(this.screenWidth * 2, 4096);
-      // const testHeight = Math.min(this.screenHeight * 2, 4096);
-      // const testCapture = this.robot.screen.capture(0, 0, testWidth, testHeight);
-      // const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
-      // if (actualWidth > this.screenWidth) {
-      //   this.dpiScale = actualWidth / this.screenWidth;
-      // } else {
-      //   this.dpiScale = 1;
-      // }
+      // Linux (X11): always logical pixels
       this.dpiScale = 1;
-
-      // Windows: Node.js process is DPI-unaware by default — GetSystemMetrics returns virtualized
-      // (scaled-down) size. We query physical resolution via EnumDisplaySettings (dmPelsWidth)
-      // which is not affected by DPI awareness, to compute the real dpiScale.
-      if (process.platform === "win32") {
-        try {
-          const out = execSync(
-            "powershell -NonInteractive -NoProfile -WindowStyle Hidden -command \"Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class Disp{[DllImport(\\\"user32\\\")]public static extern bool EnumDisplaySettings(string d,int m,ref DEVMODE dm);[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Ansi)]public struct DEVMODE{[MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)]public string dmDeviceName;public short dmSpecVersion,dmDriverVersion,dmSize,dmDriverExtra;public int dmFields;public int dmPositionX,dmPositionY,dmDisplayOrientation,dmDisplayFixedOutput;public short dmColor,dmDuplex,dmYResolution,dmTTOption,dmCollate;[MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)]public string dmFormName;public short dmLogPixels;public int dmBitsPerPel,dmPelsWidth,dmPelsHeight,dmDisplayFlags,dmDisplayFrequency;}}'; $dm=New-Object Disp+DEVMODE; $dm.dmSize=[System.Runtime.InteropServices.Marshal]::SizeOf($dm); [Disp]::EnumDisplaySettings($null,-1,[ref]$dm) | Out-Null; Write-Output $dm.dmPelsWidth\"",
-            { encoding: "utf8", windowsHide: true }
-          ).trim();
-          const physW = Number(out);
-          if (physW > 0 && physW !== this.screenWidth) {
-            this.dpiScale = physW / this.screenWidth;
-          }
-        } catch {
-          // Fallback: dpiScale = 1
-        }
-      }
     }
 
     this.captureWidth = Math.floor(this.screenWidth * this.dpiScale);
     this.captureHeight = Math.floor(this.screenHeight * this.dpiScale);
   }
 
+  _detectDpiScaleWin32() {
+    console.log(`🔍 [DPI Detection] screenWidth from robot: ${this.screenWidth}x${this.screenHeight}`);
+    
+    // Strategy 1: Read AppliedDPI from WindowMetrics registry (Windows 10/11)
+    // 96 DPI = 100%, 120 = 125%, 144 = 150%, 192 = 200%
+    try {
+      const out = execSync(
+        "powershell -NonInteractive -NoProfile -WindowStyle Hidden -command \"try{Get-ItemPropertyValue 'HKCU:\\Control Panel\\Desktop\\WindowMetrics' -Name AppliedDPI}catch{0}\"",
+        { encoding: "utf8", windowsHide: true }
+      ).trim();
+      const dpi = Number(out);
+      console.log(`🔍 [DPI Detection] Strategy 1 (Registry AppliedDPI): ${dpi} DPI`);
+      if (dpi >= 96) {
+        const scale = dpi / 96;
+        console.log(`✅ [DPI Detection] Using registry scale: ${scale}x (${dpi}/96)`);
+        return scale;
+      }
+    } catch (err) {
+      console.log(`❌ [DPI Detection] Strategy 1 failed:`, err.message);
+    }
+
+    // Strategy 2: Query physical resolution via WMI and compare with logical
+    try {
+      const out = execSync(
+        "powershell -NonInteractive -NoProfile -WindowStyle Hidden -command \"(Get-WmiObject -Class Win32_VideoController | Select-Object -First 1).CurrentHorizontalResolution\"",
+        { encoding: "utf8", windowsHide: true }
+      ).trim();
+      const physW = Number(out);
+      console.log(`🔍 [DPI Detection] Strategy 2 (WMI): physical width = ${physW}px`);
+      if (physW > 0 && physW > this.screenWidth) {
+        const scale = physW / this.screenWidth;
+        console.log(`✅ [DPI Detection] Using WMI scale: ${scale}x (${physW}/${this.screenWidth})`);
+        return scale;
+      }
+    } catch (err) {
+      console.log(`❌ [DPI Detection] Strategy 2 failed:`, err.message);
+    }
+
+    // Strategy 3: Query physical resolution via EnumDisplaySettings and compare with logical
+    try {
+      const out = execSync(
+        "powershell -NonInteractive -NoProfile -WindowStyle Hidden -command \"Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class Disp{[DllImport(\\\"user32\\\")]public static extern bool EnumDisplaySettings(string d,int m,ref DEVMODE dm);[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Ansi)]public struct DEVMODE{[MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)]public string dmDeviceName;public short dmSpecVersion,dmDriverVersion,dmSize,dmDriverExtra;public int dmFields;public int dmPositionX,dmPositionY,dmDisplayOrientation,dmDisplayFixedOutput;public short dmColor,dmDuplex,dmYResolution,dmTTOption,dmCollate;[MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)]public string dmFormName;public short dmLogPixels;public int dmBitsPerPel,dmPelsWidth,dmPelsHeight,dmDisplayFlags,dmDisplayFrequency;}}'; $dm=New-Object Disp+DEVMODE; $dm.dmSize=[System.Runtime.InteropServices.Marshal]::SizeOf($dm); [Disp]::EnumDisplaySettings($null,-1,[ref]$dm) | Out-Null; Write-Output $dm.dmPelsWidth\"",
+        { encoding: "utf8", windowsHide: true }
+      ).trim();
+      const physW = Number(out);
+      console.log(`🔍 [DPI Detection] Strategy 3 (EnumDisplaySettings): physical width = ${physW}px`);
+      if (physW > 0 && physW > this.screenWidth) {
+        const scale = physW / this.screenWidth;
+        console.log(`✅ [DPI Detection] Using EnumDisplaySettings scale: ${scale}x (${physW}/${this.screenWidth})`);
+        return scale;
+      }
+    } catch (err) {
+      console.log(`❌ [DPI Detection] Strategy 3 failed:`, err.message);
+    }
+
+    console.log(`⚠️ [DPI Detection] All strategies failed, fallback to 1x`);
+    return 1;
+  }
+
   async captureFullScreen() {
     // Use cached DPI scale - no need to detect every capture
     const bitmap = this.robot.screen.capture(0, 0, this.captureWidth, this.captureHeight);
+    const actualWidth = bitmap.byteWidth / bitmap.bytesPerPixel;
+    const actualHeight = bitmap.height;
+    
     const imageBuffer = Buffer.from(bitmap.image);
 
     // BGRA -> RGBA optimized using Uint32Array (4x faster than byte loop)
@@ -137,8 +173,6 @@ export class TileManager {
       uint32View[i] = (pixel & 0xFF00FF00) | ((pixel & 0x00FF0000) >> 16) | ((pixel & 0x000000FF) << 16);
     }
 
-    const actualWidth = bitmap.byteWidth / bitmap.bytesPerPixel;
-    const actualHeight = bitmap.height;
     let finalBuffer = imageBuffer;
     let finalWidth = actualWidth;
     let finalHeight = actualHeight;
