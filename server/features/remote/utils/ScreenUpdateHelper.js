@@ -1,5 +1,5 @@
 // Screen Update Helper for Remote Desktop
-import { remoteConfig } from "../config.js";
+import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
 
 export class ScreenUpdateHelper {
   constructor(resourceManager) {
@@ -9,7 +9,7 @@ export class ScreenUpdateHelper {
   async sendTilesInChunks(socket, tiles, timestamp, userAction = false) {
     if (!tiles || tiles.length === 0) return;
     
-    const CHUNK_SIZE = remoteConfig.streaming.chunkSize;
+    const CHUNK_SIZE = REMOTE_CONFIG.streaming.chunkSize;
     const chunks = [];
     
     for (let i = 0; i < tiles.length; i += CHUNK_SIZE) {
@@ -40,7 +40,7 @@ export class ScreenUpdateHelper {
             }
           });
         }
-      }, i * remoteConfig.streaming.chunkDelay);
+      }, i * REMOTE_CONFIG.streaming.chunkDelay);
       
       clientChunkTimers.add(timerId);
     }

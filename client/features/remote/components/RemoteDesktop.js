@@ -5,14 +5,17 @@ import { useRemoteSocket } from "@/features/remote/hooks/useRemoteSocket";
 import { useCanvas } from "@/features/remote/hooks/useCanvas";
 import { useInput } from "@/features/remote/hooks/useInput";
 import { useTiles } from "@/features/remote/hooks/useTiles";
-import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
+import { useBenchmark } from "@/features/remote/hooks/useBenchmark";
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import RemoteCanvas from "@/features/remote/components/RemoteCanvas";
 import RemoteControls from "@/features/remote/components/RemoteControls";
+import DebugPanel from "@/features/remote/components/DebugPanel";
 import Spinner from "@/shared/components/ui/Spinner";
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 
 export default function RemoteDesktop({ onClose }) {
   const [isLandscape, setIsLandscape] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   // Detect orientation
   useEffect(() => {
@@ -24,6 +27,9 @@ export default function RemoteDesktop({ onClose }) {
     window.addEventListener("resize", checkOrientation);
     return () => window.removeEventListener("resize", checkOrientation);
   }, []);
+  
+  // Benchmark hook
+  const { stats, trackTilesReceived, resetStats } = useBenchmark();
 
   const {
     socket,
@@ -143,7 +149,12 @@ export default function RemoteDesktop({ onClose }) {
       }, 100);
     };
     const onFullScreenData = (data) => handleFullScreenData(data);
-    const onTilesData = (data) => handleTilesData(data);
+    const onTilesData = (data) => {
+      if (showDebug) {
+        trackTilesReceived(data, data.transport || "ws");
+      }
+      handleTilesData(data);
+    };
     const onScreenError = (err) => console.error("Screen error:", err);
 
     t.on("screen-dimensions", onScreenDimensions);
@@ -159,7 +170,7 @@ export default function RemoteDesktop({ onClose }) {
       cleanupTiles();
       if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);
     };
-  }, [transportVersion, streaming, connected, startStreaming, handleScreenDimensions, handleCanvasDimensions, renderedTilesRef, startStreamingWithTiles, handleFullScreenData, handleTilesData, cleanupTiles, zoomGestureTimeoutRef, remoteTransportRef, socketRef]);
+  }, [transportVersion, streaming, connected, startStreaming, handleScreenDimensions, handleCanvasDimensions, renderedTilesRef, startStreamingWithTiles, handleFullScreenData, handleTilesData, cleanupTiles, zoomGestureTimeoutRef, remoteTransportRef, socketRef, trackTilesReceived, showDebug]);
 
   // Hash request interval
   useEffect(() => {
@@ -268,7 +279,17 @@ export default function RemoteDesktop({ onClose }) {
         onTextInputKeyDown={(e) => handleModifiedTextInput(e, streaming)}
         onSendText={sendTextInput}
         onClose={handleClose}
+        onToggleDebug={() => setShowDebug(!showDebug)}
       />
+
+      {/* Debug Panel */}
+      {showDebug && (
+        <DebugPanel
+          stats={stats}
+          onReset={resetStats}
+          onClose={() => setShowDebug(false)}
+        />
+      )}
 
       {/* Connection Modal - overlay when retrying/failed */}
       <ConnectionModal retryStatus={retryStatus} onLogout={handleLogout} />

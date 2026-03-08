@@ -1,5 +1,5 @@
 // Mouse Handler for Remote Desktop
-import { remoteConfig } from "../config.js";
+import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
 
 export class MouseHandler {
   constructor(robot, resourceManager) {
@@ -13,7 +13,7 @@ export class MouseHandler {
 
     socket.on("mouse-move", requireAuth((data) => {
       const now = Date.now();
-      if (now - this.lastMouseMove < remoteConfig.throttling.mouseThrottle) return;
+      if (now - this.lastMouseMove < REMOTE_CONFIG.throttling.mouseThrottle) return;
       this.lastMouseMove = now;
 
       try {

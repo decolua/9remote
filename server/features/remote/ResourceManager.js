@@ -1,5 +1,5 @@
 // Resource Manager for Remote Desktop
-import { remoteConfig } from "./config.js";
+import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 
 export class ResourceManager {
   constructor() {
@@ -14,11 +14,11 @@ export class ResourceManager {
       const usage = process.memoryUsage();
       const memoryMB = Math.round(usage.heapUsed / 1024 / 1024);
       
-      if (memoryMB > remoteConfig.resourceManagement.memoryWarningThreshold) {
+      if (memoryMB > REMOTE_CONFIG.resourceManagement.memoryWarningThreshold) {
         console.warn(`⚠️ High memory: ${memoryMB}MB`);
         this.cleanupInactiveClients();
       }
-    }, remoteConfig.resourceManagement.memoryCheckInterval);
+    }, REMOTE_CONFIG.resourceManagement.memoryCheckInterval);
   }
 
   stopResourceMonitoring() {
@@ -48,7 +48,7 @@ export class ResourceManager {
 
   cleanupInactiveClients() {
     const now = Date.now();
-    const inactiveTimeout = remoteConfig.resourceManagement.inactiveTimeout;
+    const inactiveTimeout = REMOTE_CONFIG.resourceManagement.inactiveTimeout;
     
     for (const [socketId, clientData] of this.activeClients.entries()) {
       if (now - clientData.lastActivity > inactiveTimeout) {
@@ -97,7 +97,11 @@ export class ResourceManager {
   }
 
   getStreamingConfig() {
-    return remoteConfig.streaming;
+    return REMOTE_CONFIG.streaming;
+  }
+
+  getWebRTCConfig() {
+    return REMOTE_CONFIG.webrtc;
   }
 
   removeClient(socketId) {

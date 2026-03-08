@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
-import { API_ENDPOINTS } from "@/shared/constants/api";
+import { API_ENDPOINTS } from "@/shared/constants/API";
 import { useSessionStorage } from "./useSessionStorage";
 
 const RETRY_CONFIG = {

@@ -1,8 +1,8 @@
 import { WebRTCManager } from "./webrtcManager.js";
 import { WebRTCHandler } from "./handlers/webrtcHandler.js";
-import { remoteConfig } from "./config.js";
+import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 
-const { enableWebRTC, enableTurn } = remoteConfig.webrtc;
+const { enableWebRTC, enableTurn } = REMOTE_CONFIG.webrtc;
 
 // Singleton WebRTC manager (only used if enableWebRTC is true)
 const webrtcManager = enableWebRTC ? new WebRTCManager() : null;

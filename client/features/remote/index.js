@@ -8,4 +8,4 @@ export { useCanvas } from "./hooks/useCanvas.js";
 export { useInput } from "./hooks/useInput.js";
 export { useTiles } from "./hooks/useTiles.js";
 
-export * from "./constants/remote.js";
+export * from "./constants/REMOTE_CONFIG.js";

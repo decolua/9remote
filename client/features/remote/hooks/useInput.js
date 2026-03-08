@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { MODIFIER_MAP, SPECIAL_KEYS, REMOTE_CONFIG } from "@/features/remote/constants/remote";
+import { MODIFIER_MAP, SPECIAL_KEYS, REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 export function useInput(socketEmitFunctions) {
   const [textInputValue, setTextInputValue] = useState("");

@@ -140,8 +140,17 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
     const handleOrientationChange = () => setTimeout(() => doResizeRef.current?.(), 300);
     window.addEventListener("orientationchange", handleOrientationChange);
 
+    // Force redraw when tab becomes visible again (WebGL renderer may not repaint after tab switch)
+    const handleVisibilityChange = () => {
+      if (!document.hidden && termRef.current) {
+        termRef.current.refresh(0, termRef.current.rows - 1);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       window.removeEventListener("orientationchange", handleOrientationChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       resizeObserver.disconnect();
       socket.off("output", handleOutput);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();

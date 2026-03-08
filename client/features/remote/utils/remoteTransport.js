@@ -7,31 +7,41 @@
  * Strategy:
  *   - SEND  : prefer DC when open, fallback to socket
  *   - RECEIVE: socket handles all JSON events (control + hashes)
- *              DC delivers binary tile frames → decoded → re-emitted as "tiles-data"
+ *              DC delivers binary tile frames → decoded off-thread via Worker → re-emitted as "tiles-data"
  */
 
-/**
- * Decode a single tile binary message from DataChannel.
- * Format: [20-byte header + N-byte JPEG]
- * Header: tileIndex(4) x(4) y(4) width(4) height(4)
- */
-function decodeTileBinary(buffer) {
-  const view = new DataView(buffer);
-  return {
-    tileIndex: view.getUint32(0, true),
-    x:         view.getUint32(4, true),
-    y:         view.getUint32(8, true),
-    width:     view.getUint32(12, true),
-    height:    view.getUint32(16, true),
-    imageBuffer: buffer.slice(20)
+let _worker = null;
+let _workerMsgId = 0;
+// Map<id, resolve> for pending worker messages
+const _workerPending = new Map();
+// Track latest server timestamp seen per tileIndex — drop stale batches before emit
+const _latestTileTs = new Map();
+// Accumulate decoded chunks — flush after all pending onmessage callbacks drain
+let _pendingEmit = null;
+let _flushTimer = null;
+
+function getWorker() {
+  if (_worker) return _worker;
+  // Next.js: use URL constructor for worker bundling
+  _worker = new Worker(
+    new URL("../workers/tileDecoder.worker.js", import.meta.url)
+  );
+  _worker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
+    const resolve = _workerPending.get(id);
+    if (!resolve) return;
+    _workerPending.delete(id);
+    resolve(error ? null : { tiles, timestamp, hasBitmap });
   };
+  _worker.onerror = (err) => {
+    console.error("[Worker] tileDecoder error:", err.message);
+  };
+  return _worker;
 }
 
 export class RemoteTransport {
   constructor(socket) {
     this._socket = socket;
     this._dc = null;            // RTCDataChannel, set when DC opens
-    this._rafRef = null;
     this._tileBatch = [];
 
     // Internal event bus for DC-originated events
@@ -44,6 +54,9 @@ export class RemoteTransport {
       this._emit(eventName, ...args);
     };
     this._proxiedEvents = new Map(); // eventName → proxy fn (for cleanup)
+    
+    // Track transport method for benchmark
+    this._lastTransport = null;
   }
 
   // ─── Public API ────────────────────────────────────────────────────────────
@@ -55,7 +68,13 @@ export class RemoteTransport {
     if (!this._listeners.has(eventName)) {
       this._listeners.set(eventName, new Set());
       // Mirror socket event into our bus (only once per event name)
-      const proxy = (...args) => this._emit(eventName, ...args);
+      const proxy = (...args) => {
+        // Tag WS events with transport method
+        if (eventName === "tiles-data" && args[0] && !args[0].transport) {
+          args[0].transport = "ws";
+        }
+        this._emit(eventName, ...args);
+      };
       this._proxiedEvents.set(eventName, proxy);
       this._socket?.on(eventName, proxy);
     }
@@ -112,11 +131,10 @@ export class RemoteTransport {
       this._dc.onclose = null;
       this._dc = null;
     }
-    if (this._rafRef) {
-      cancelAnimationFrame(this._rafRef);
-      this._rafRef = null;
-    }
     this._tileBatch = [];
+    _latestTileTs.clear();
+    _pendingEmit = null;
+    if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
   }
 
   /**
@@ -140,24 +158,54 @@ export class RemoteTransport {
     for (const handler of set) handler(...args);
   }
 
-  /** Decode binary tile from DC, batch via rAF, re-emit as "tiles-data" */
+  /** Decode batch tiles from DC via Worker (off main thread), emit as "tiles-data" */
   _receiveDCTile(buffer) {
-    try {
-      this._tileBatch.push(decodeTileBinary(buffer));
-    } catch (err) {
-      console.error("[Transport] decode tile error:", err.message);
-      return;
-    }
-    // Flush all tiles collected within one animation frame (single render pass)
-    if (!this._rafRef) {
-      this._rafRef = requestAnimationFrame(() => {
-        this._rafRef = null;
-        const tiles = this._tileBatch;
-        this._tileBatch = [];
-        if (tiles.length > 0) {
-          this._emit("tiles-data", { tiles, timestamp: Date.now() });
+    const id = ++_workerMsgId;
+
+    new Promise((resolve) => {
+      _workerPending.set(id, resolve);
+      getWorker().postMessage({ buffer, id }, [buffer]);
+    }).then((result) => {
+      if (!result) return;
+      const { tiles, timestamp, hasBitmap } = result;
+
+      // Merge into pending emit — newer tile overwrites older for same tileIndex
+      if (!_pendingEmit) {
+        _pendingEmit = { tiles: new Map(), timestamp, hasBitmap };
+      }
+      for (const tile of tiles) {
+        const prev = _latestTileTs.get(tile.tileIndex) ?? 0;
+        if (timestamp >= prev) {
+          _latestTileTs.set(tile.tileIndex, timestamp);
+          // Close old bitmap if overwriting
+          _pendingEmit.tiles.get(tile.tileIndex)?.bitmap?.close?.();
+          _pendingEmit.tiles.set(tile.tileIndex, tile);
+          if (timestamp > _pendingEmit.timestamp) _pendingEmit.timestamp = timestamp;
+        } else {
+          tile.bitmap?.close?.();
         }
-      });
-    }
+      }
+
+      // Flush via setTimeout(0) — macrotask runs after ALL pending onmessage callbacks
+      // This ensures chunks from same frame are merged before emitting
+      if (_flushTimer) clearTimeout(_flushTimer);
+      const self = this;
+      _flushTimer = setTimeout(() => {
+        _flushTimer = null;
+        if (!_pendingEmit) return;
+        const { tiles: tileMap, timestamp: ts, hasBitmap: hb } = _pendingEmit;
+        _pendingEmit = null;
+        const freshTiles = [...tileMap.values()];
+        if (!freshTiles.length) return;
+        self._emit("tiles-data", { tiles: freshTiles, timestamp: ts, hasBitmap: hb, transport: "webrtc" });
+      }, 0);
+    });
+  }
+  
+  /**
+   * Get current transport method (webrtc or ws)
+   */
+  getTransport() {
+    return this._dc ? "webrtc" : "ws";
   }
 }

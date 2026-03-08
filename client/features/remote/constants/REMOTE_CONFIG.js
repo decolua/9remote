@@ -7,8 +7,15 @@ export const REMOTE_CONFIG = {
   // WebRTC transport config
   // enableWebRTC: true  → negotiate DataChannel for faster streaming
   // enableTurn: false   → STUN P2P only, no TURN relay (set true for cross-network)
-  enableWebRTC: false,
-  enableTurn: true,
+  enableWebRTC: true,
+  enableTurn: false,
+  // DataChannel chunk size (tiles per message) — synced with server
+  dcChunkSize: 8,
+  // DataChannel reliability mode
+  // reliable: true → TCP-like (guaranteed delivery, ordered)
+  // reliable: false → UDP-like (lower latency, may lose packets)
+  dcReliable: false,
+  dcOrdered: false,
   
   // Streaming settings
   hashRequestInterval: 1500, // ms between hash verify requests (backup sync)
@@ -21,8 +28,8 @@ export const REMOTE_CONFIG = {
   
   // Tile settings
   tileLoadTimeout: 600,
-  batchSize: 8,
-  batchDelay: 1,
+  batchSize: 16,
+  batchDelay: 3,
   
   // Click detection
   longPressDelay: 1000,      // ms to trigger right-click

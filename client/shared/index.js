@@ -14,4 +14,4 @@ export { useTerminalStore } from "./stores/terminalStore.js";
 export { useSlideMenuStore } from "./stores/slideMenuStore.js";
 
 // Shared constants
-export * from "./constants/api.js";
+export * from "./constants/API.js";

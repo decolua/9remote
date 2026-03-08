@@ -2,17 +2,33 @@
 
 /**
  * Encode a single tile to binary for DataChannel transfer.
- * Format: [20-byte header + N-byte JPEG]
- * Header: tileIndex(4) x(4) y(4) width(4) height(4)
+ * Format: [24-byte header + N-byte JPEG]
+ * Header: tileIndex(4) x(4) y(4) width(4) height(4) imageSize(4)
  */
 function encodeTileBinary(tile) {
-  const header = Buffer.alloc(20);
+  const header = Buffer.alloc(24);
   header.writeUInt32LE(tile.tileIndex, 0);
   header.writeUInt32LE(tile.x, 4);
   header.writeUInt32LE(tile.y, 8);
   header.writeUInt32LE(tile.width, 12);
   header.writeUInt32LE(tile.height, 16);
+  header.writeUInt32LE(tile.imageBuffer.length, 20);
   return Buffer.concat([header, tile.imageBuffer]);
+}
+
+/**
+ * Encode batch tiles to binary for DataChannel transfer.
+ * Format: [4-byte tileCount] + [8-byte timestamp Float64BE] + [tile1 binary] + ...
+ * Each tile: [24-byte header + N-byte JPEG]
+ * timestamp is passed in so all chunks of the same frame share the same value.
+ */
+function encodeTilesBatch(tiles, timestamp) {
+  const batchHeader = Buffer.alloc(12);
+  batchHeader.writeUInt32LE(tiles.length, 0);
+  batchHeader.writeDoubleBE(timestamp, 4);
+
+  const encodedTiles = tiles.map(tile => encodeTileBinary(tile));
+  return Buffer.concat([batchHeader, ...encodedTiles]);
 }
 
 export class ScreenHandler {
@@ -24,18 +40,25 @@ export class ScreenHandler {
 
   /**
    * Send tiles via DataChannel if open, fallback to socket.emit.
-   * Logs transport only when it changes (DC ↔ WS).
+   * WebRTC: chunks tiles by dcChunkSize to stay under 64KB SCTP limit.
    */
   _sendTiles(socket, payload) {
     if (this.webrtcManager?.isReady(socket.id) && payload.tiles?.length > 0) {
-      // Send each tile as a separate DC message — stays well under 64KB SCTP limit
-      let allSent = true;
-      for (const tile of payload.tiles) {
-        const binary = encodeTileBinary(tile);
-        const sent = this.webrtcManager.sendTile(socket.id, binary);
-        if (!sent) { allSent = false; break; }
+      const { dcChunkSize, dcMaxTilesPerFrame } = this.resourceManager.getWebRTCConfig();
+
+      // Fallback to WS when too many tiles — DC can't drain fast enough
+      if (payload.tiles.length > dcMaxTilesPerFrame) {
+        socket.emit("tiles-data", payload);
+        return;
       }
-      if (allSent) return;
+
+      const frameTs = payload.timestamp ?? Date.now();
+      const chunks = [];
+      for (let i = 0; i < payload.tiles.length; i += dcChunkSize) {
+        chunks.push(encodeTilesBatch(payload.tiles.slice(i, i + dcChunkSize), frameTs));
+      }
+      this.webrtcManager.sendFrame(socket.id, chunks);
+      return;
     }
     socket.emit("tiles-data", payload);
   }
@@ -125,9 +148,9 @@ export class ScreenHandler {
             clientData.idleFrameCount++;
           }
 
-          // Adaptive interval: subtract processing time to hit target FPS
           const { activeInterval, idleInterval, idleThreshold } = this.resourceManager.getStreamingConfig();
           const baseInterval = clientData.idleFrameCount >= idleThreshold ? idleInterval : activeInterval;
+
           const nextInterval = Math.max(0, baseInterval - (performance.now() - frameStart));
 
           clientData.streamingTimeout = setTimeout(streamLoop, nextInterval);

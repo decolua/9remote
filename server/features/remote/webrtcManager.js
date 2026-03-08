@@ -1,8 +1,8 @@
 import nodeDataChannel from "node-datachannel";
-import { remoteConfig } from "./config.js";
+import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 
 const { PeerConnection } = nodeDataChannel;
-const { turnApiUrl, turnRefreshInterval, dcMaxMessageSize, answerTimeout } = remoteConfig.webrtc;
+const { turnApiUrl, turnRefreshInterval, dcMaxMessageSize, dcBufferThreshold, answerTimeout, dcReliable, dcOrdered } = REMOTE_CONFIG.webrtc;
 
 // Default STUN-only fallback (used until TURN creds are fetched)
 const DEFAULT_ICE = [
@@ -104,7 +104,6 @@ export class WebRTCManager {
       dc.onOpen(() => {
         const entry = this.peers.get(socketId);
         if (entry) entry.dc = dc;
-        console.log(`[WebRTC] DataChannel open [${socketId.slice(0, 6)}]`);
       });
       dc.onClosed(() => {
         const entry = this.peers.get(socketId);
@@ -155,32 +154,22 @@ export class WebRTCManager {
     }
   }
 
-  /**
-   * Send binary tile buffer via DataChannel if open.
-   * Returns true if sent, false if DC not ready (caller should fallback to WS).
-   */
-  sendTile(socketId, buffer) {
+  sendFrame(socketId, chunks) {
     const entry = this.peers.get(socketId);
     if (!entry?.dc) return false;
-    try {
-      if (buffer.length > dcMaxMessageSize) {
-        console.warn(`[WebRTC] tile too large (${buffer.length}B), skipping DC → WS fallback`);
+    for (const chunk of chunks) {
+      try {
+        if (chunk.length <= dcMaxMessageSize) entry.dc.sendMessageBinary(chunk);
+      } catch (err) {
+        console.error(`[WebRTC] sendFrame error:`, err.message);
         return false;
       }
-      entry.dc.sendMessageBinary(buffer);
-      return true;
-    } catch (err) {
-      console.error(`[WebRTC] sendTile error [${socketId.slice(0, 6)}]:`, err.message);
-      return false;
     }
+    return true;
   }
 
-  /**
-   * Check if DataChannel is open for a client.
-   */
   isReady(socketId) {
-    const entry = this.peers.get(socketId);
-    return Boolean(entry?.dc);
+    return Boolean(this.peers.get(socketId)?.dc);
   }
 
   closePeer(socketId) {

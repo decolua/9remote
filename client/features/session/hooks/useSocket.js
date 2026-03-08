@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useBaseSocket } from "@/shared/hooks/useBaseSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
-import { WORKER_API } from "@/shared/constants/api";
+import { WORKER_API } from "@/shared/constants/API";
 
 // Socket.io connection management hook for Terminal
 export function useSocket() {

@@ -5,7 +5,7 @@ import { X, Send, Copy, Check, Trash2, Sparkles } from "@/shared/components/ui/I
 import Spinner from "@/shared/components/ui/Spinner";
 import { useAITerminalStorage } from "@/features/terminal/hooks/useAITerminalStorage";
 import { AI_TERMINAL_CONFIG } from "@/features/terminal/constants/aiTerminal";
-import { WORKER_API } from "@/shared/constants/api";
+import { WORKER_API } from "@/shared/constants/API";
 import { vibrate } from "@/shared/utils/vibration";
 import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 

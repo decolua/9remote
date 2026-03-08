@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect } from "react";
-import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 export function useCanvas(socketEmitFunctions) {
   const canvasRef = useRef(null);
@@ -556,8 +556,11 @@ export function useCanvas(socketEmitFunctions) {
     // Store server dimensions for recalculation on resize
     serverDimensionsRef.current = { width: dimensions.width, height: dimensions.height };
 
+    // Set once — survives canvas resize (width/height reset clears ctx state)
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+
     if (dimensionsChanged) {
-      const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "#2a2a2a";
       ctx.fillRect(0, 0, canvas.width, canvas.height);

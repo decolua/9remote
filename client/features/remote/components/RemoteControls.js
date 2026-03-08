@@ -64,7 +64,8 @@ export default function RemoteControls({
   onTextInputFocus,
   onTextInputKeyDown,
   onSendText,
-  onClose
+  onClose,
+  onToggleDebug
 }) {
   const btnBase = "px-2 py-1.5 rounded-brand text-xs font-semibold transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed";
   const btnNormal = "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500";
@@ -83,14 +84,23 @@ export default function RemoteControls({
             <ChevronLeft className="text-orange-400" size={14} />
           </button>
           <button
+            onClick={() => v(onToggleDebug)}
+            className={`${btnBase} ${btnNormal} flex items-center justify-center`}
+            title="Debug"
+          >
+            🔍
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-1">
+          <button
             onClick={() => v(onRefresh)}
             disabled={!streaming}
             className={`${btnBase} ${btnNormal} flex items-center justify-center`}
           >
             <RefreshCw size={12} />
           </button>
+          <TransportBadge transport={transport} />
         </div>
-        <TransportBadge transport={transport} />
 
         {/* Zoom & Selection */}
         <div className="grid grid-cols-2 gap-1">
@@ -273,7 +283,7 @@ export default function RemoteControls({
     >
       {/* Main Controls */}
       <div className="flex flex-row items-center justify-center mb-3">
-        <div className="flex-1 grid grid-cols-5 gap-2">
+        <div className="flex-1 grid grid-cols-6 gap-2">
           {/* Back - Return to terminal */}
           <button
             onClick={() => v(onClose)}
@@ -281,6 +291,15 @@ export default function RemoteControls({
             title="Back to Terminal"
           >
             <ChevronLeft className="text-orange-400" size={16} />
+          </button>
+
+          {/* Debug */}
+          <button
+            onClick={() => v(onToggleDebug)}
+            className={`${btnBase} ${btnNormal} flex items-center justify-center`}
+            title="Debug Stats"
+          >
+            🔍
           </button>
 
           {/* Zoom */}

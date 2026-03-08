@@ -1,5 +1,5 @@
 // Keyboard Handler for Remote Desktop
-import { remoteConfig } from "../config.js";
+import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
 
 export class KeyboardHandler {
   constructor(robot, resourceManager) {
@@ -14,7 +14,7 @@ export class KeyboardHandler {
 
     socket.on("key-press", requireAuth((data) => {
       const now = Date.now();
-      if (now - this.lastKeyPress < remoteConfig.throttling.keyThrottle) return;
+      if (now - this.lastKeyPress < REMOTE_CONFIG.throttling.keyThrottle) return;
       this.lastKeyPress = now;
 
       try {
@@ -63,15 +63,15 @@ export class KeyboardHandler {
 
     socket.on("type-text", requireAuth((data) => {
       const now = Date.now();
-      if (now - this.lastTypeText < remoteConfig.throttling.typeTextThrottle) return;
+      if (now - this.lastTypeText < REMOTE_CONFIG.throttling.typeTextThrottle) return;
       this.lastTypeText = now;
 
       try {
         if (!data.text || typeof data.text !== "string") return;
 
         let text = data.text;
-        if (text.length > remoteConfig.throttling.maxTextLength) {
-          text = text.substring(0, remoteConfig.throttling.maxTextLength);
+        if (text.length > REMOTE_CONFIG.throttling.maxTextLength) {
+          text = text.substring(0, REMOTE_CONFIG.throttling.maxTextLength);
         }
 
         const safeText = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");

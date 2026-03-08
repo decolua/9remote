@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useBaseDataChannel } from "@/shared/hooks/useBaseDataChannel";
-import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 /**
  * WebRTC hook — thin wrapper over useBaseDataChannel.

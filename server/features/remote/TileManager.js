@@ -20,9 +20,7 @@ export class TileManager {
     this.totalTiles = 0;
     this.frameCount = 0;
     this.tempDir = path.join(__dirname, "../../temp");
-    this.compressionQuality = 1;
     this.changeThreshold = 1;
-    this.scaleFactor = 1.0;
     this.scaledWidth = 0;
     this.scaledHeight = 0;
     this.isProcessing = false;
@@ -32,7 +30,8 @@ export class TileManager {
     this.dpiScale = 1;
     this.captureWidth = 0;
     this.captureHeight = 0;
-    this.compressionQuality = 85;
+    this.scaleFactor = 1;
+    this.compressionQuality = 50;
 
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
@@ -84,9 +83,17 @@ export class TileManager {
 
   detectDpiScale() {
     if (process.platform === "darwin") {
-      // macOS: Retina screens capture physical pixels — detect scale via 1x1 capture
-      const testCapture = this.robot.screen.capture(0, 0, 1, 1);
-      this.dpiScale = testCapture.byteWidth / testCapture.bytesPerPixel;
+      // macOS: capture full screen to detect actual pixel density
+      const testCapture = this.robot.screen.capture(0, 0, this.screenWidth, this.screenHeight);
+      const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
+      const scale = actualWidth / this.screenWidth;
+
+      // Only accept 1x or 2x (Retina)
+      if (scale >= 1.9 && scale <= 2.1) {
+        this.dpiScale = 2;
+      } else {
+        this.dpiScale = 1;
+      }
     } else if (process.platform === "win32") {
       this.dpiScale = this._detectDpiScaleWin32();
     } else {
@@ -100,7 +107,7 @@ export class TileManager {
 
   _detectDpiScaleWin32() {
     console.log(`🔍 [DPI Detection] screenWidth from robot: ${this.screenWidth}x${this.screenHeight}`);
-    
+
     // Strategy 1: Read AppliedDPI from WindowMetrics registry (Windows 10/11)
     // 96 DPI = 100%, 120 = 125%, 144 = 150%, 192 = 200%
     try {
@@ -162,7 +169,7 @@ export class TileManager {
     const bitmap = this.robot.screen.capture(0, 0, this.captureWidth, this.captureHeight);
     const actualWidth = bitmap.byteWidth / bitmap.bytesPerPixel;
     const actualHeight = bitmap.height;
-    
+
     const imageBuffer = Buffer.from(bitmap.image);
 
     // BGRA -> RGBA optimized using Uint32Array (4x faster than byte loop)
@@ -185,7 +192,7 @@ export class TileManager {
       const scaledBuffer = await sharp(imageBuffer, {
         raw: { width: actualWidth, height: actualHeight, channels: bitmap.bytesPerPixel }
       })
-        .resize(targetWidth, targetHeight, { kernel: sharp.kernel.nearest, fit: "fill" })
+        .resize(targetWidth, targetHeight, { kernel: sharp.kernel.lanczos3, fit: "fill", fastShrinkOnLoad: false })
         .raw()
         .toBuffer();
 

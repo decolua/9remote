@@ -1,10 +1,14 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 // Detect Chromium for createImageBitmap(blob) non-blocking path
 const _isChromium = typeof window !== "undefined" && Boolean(window.chrome);
+
+const makeTileBlob = (buf) => new Blob([buf], { type: "image/jpeg" });
+
+const makeInvalidate = (ref, tileIndex) => () => { ref.current[tileIndex] = null; };
 
 /**
  * Decode image blob to ImageBitmap off main thread (cross-browser).
@@ -36,6 +40,13 @@ export function useTiles(socket, streaming, canvasRef) {
   const lastDataTimeRef = useRef(0);
   const batchTimeoutsRef = useRef(new Set());
   const cleanupTimeoutsRef = useRef(new Set());
+  // Track latest timestamp per tileIndex — drop stale tiles before render
+  const tileTimestampRef = useRef(new Map());
+
+  // Shared rAF render queue — all ready bitmaps flush in ONE paint frame
+  // Map<tileIndex, { bitmap, x, y, width, height, frameTs, invalidateTileHash }>
+  const rafQueueRef = useRef(new Map());
+  const rafIdRef = useRef(null);
 
   const socketRef = useRef(socket);
   const streamingRef = useRef(streaming);
@@ -44,6 +55,41 @@ export function useTiles(socket, streaming, canvasRef) {
     socketRef.current = socket;
     streamingRef.current = streaming;
   }, [socket, streaming]);
+
+  // Flush all pending bitmaps in ONE rAF — prevents N tiles = N paint frames
+  const flushRafQueue = useCallback(() => {
+    rafIdRef.current = null;
+    const canvas = canvasRef?.current;
+    if (!canvas) { rafQueueRef.current.clear(); return; }
+    const ctx = canvas.getContext("2d");
+
+    for (const [tileIndex, entry] of rafQueueRef.current) {
+      const { bitmap, x, y, width, height, frameTs, invalidateTileHash } = entry;
+      // Drop if a newer frame arrived while waiting
+      if ((tileTimestampRef.current.get(tileIndex) ?? frameTs) > frameTs) {
+        bitmap?.close?.();
+        continue;
+      }
+      try {
+        ctx.drawImage(bitmap, x, y, width, height);
+        renderedTilesRef.current.add(tileIndex);
+        bitmap?.close?.();
+      } catch {
+        invalidateTileHash();
+      }
+    }
+    rafQueueRef.current.clear();
+  }, [canvasRef]);
+
+  const scheduleRaf = useCallback((forceReschedule = false) => {
+    // For WebRTC: cancel and reschedule so we accumulate all chunks before flush
+    if (forceReschedule && rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    if (rafIdRef.current) return;
+    rafIdRef.current = requestAnimationFrame(flushRafQueue);
+  }, [flushRafQueue]);
 
   // Handle full screen data
   const handleFullScreenData = useCallback((data) => {
@@ -81,26 +127,65 @@ export function useTiles(socket, streaming, canvasRef) {
     try {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
-      ctx.imageSmoothingEnabled = false;
 
       // Update last data time for throttling
       lastDataTimeRef.current = Date.now();
 
       // Update client hashes from any response
       if (data.currentHashes && Array.isArray(data.currentHashes)) {
-        clientTileHashesRef.current = [...data.currentHashes];
+        clientTileHashesRef.current = data.currentHashes;
         isRequestingRef.current = false;
       }
 
       if (!data.tiles?.length) return;
 
-      // Cancel only tiles that overlap with incoming payload — leaves other tiles intact
+      const frameTs = data.timestamp || Date.now();
+
+      // Cancel loading tiles and update latest timestamp per tileIndex
       for (const tile of data.tiles) {
         const existing = loadingTilesRef.current.get(tile.tileIndex);
-        if (existing?.controller) existing.controller.cancelled = true;
+        // Only update timestamp if this frame is newer — prevents old batches from overwriting
+        const prevTs = tileTimestampRef.current.get(tile.tileIndex) ?? 0;
+        if (frameTs >= prevTs) {
+          if (existing?.controller) existing.controller.cancelled = true;
+          tileTimestampRef.current.set(tile.tileIndex, frameTs);
+        }
       }
 
-      // Batch process tiles
+      // WebRTC path: bitmaps already decoded in Worker → enqueue directly, no delay
+      // forceReschedule=true: cancel pending rAF so newer chunks can accumulate first
+      if (data.hasBitmap !== undefined) {
+        for (const tile of data.tiles) {
+          if (!tile.bitmap && !tile.imageBuffer) continue;
+          if ((tileTimestampRef.current.get(tile.tileIndex) ?? frameTs) > frameTs) {
+            tile.bitmap?.close?.();
+            continue;
+          }
+          const invalidateTileHash = makeInvalidate(clientTileHashesRef, tile.tileIndex);
+          if (tile.bitmap) {
+            rafQueueRef.current.set(tile.tileIndex, {
+              bitmap: tile.bitmap, x: tile.x, y: tile.y,
+              width: tile.width, height: tile.height,
+              frameTs, invalidateTileHash
+            });
+          } else {
+            _decodeTile(makeTileBlob(tile.imageBuffer))
+              .then((bitmap) => {
+                if (!bitmap) return;
+                rafQueueRef.current.set(tile.tileIndex, {
+                  bitmap, x: tile.x, y: tile.y,
+                  width: tile.width, height: tile.height,
+                  frameTs, invalidateTileHash
+                });
+                scheduleRaf(true);
+              }).catch(() => { invalidateTileHash(); });
+          }
+        }
+        scheduleRaf(true);
+        return;
+      }
+
+      // WS path: imageBuffer/imageBase64 → batch decode with staggered delay
       const batches = [];
       for (let i = 0; i < data.tiles.length; i += REMOTE_CONFIG.batchSize) {
         batches.push(data.tiles.slice(i, i + REMOTE_CONFIG.batchSize));
@@ -112,13 +197,15 @@ export function useTiles(socket, streaming, canvasRef) {
           batch.forEach((tile) => {
             if (!tile.imageBuffer && !tile.imageBase64) return;
 
-            const blob = tile.imageBuffer
-              ? new Blob([tile.imageBuffer], { type: "image/jpeg" })
-              : null;
+            // Skip if a newer frame already arrived for this tile
+            if ((tileTimestampRef.current.get(tile.tileIndex) ?? frameTs) > frameTs) {
+              loadingTilesRef.current.delete(tile.tileIndex);
+              return;
+            }
 
             // Track loading for cancellation
             const controller = { cancelled: false };
-            loadingTilesRef.current.set(tile.tileIndex, { controller, img: { src: "" } });
+            loadingTilesRef.current.set(tile.tileIndex, { controller });
 
             const timeoutId = setTimeout(() => {
               controller.cancelled = true;
@@ -126,10 +213,7 @@ export function useTiles(socket, streaming, canvasRef) {
               clientTileHashesRef.current[tile.tileIndex] = null;
             }, REMOTE_CONFIG.tileLoadTimeout);
 
-            // Reset hash so next sync will re-request this tile
-            const invalidateTileHash = () => {
-              clientTileHashesRef.current[tile.tileIndex] = null;
-            };
+            const invalidateTileHash = makeInvalidate(clientTileHashesRef, tile.tileIndex);
 
             const drawBitmap = (bitmap) => {
               if (controller.cancelled || !canvasRef?.current) {
@@ -138,32 +222,22 @@ export function useTiles(socket, streaming, canvasRef) {
               }
               clearTimeout(timeoutId);
               loadingTilesRef.current.delete(tile.tileIndex);
-
-              requestAnimationFrame(() => {
-                if (!canvasRef?.current) { bitmap?.close?.(); return; }
-                try {
-                  ctx.drawImage(bitmap, tile.x, tile.y, tile.width, tile.height);
-                  renderedTilesRef.current.add(tile.tileIndex);
-                  bitmap?.close?.();
-                } catch (e) {
-                  invalidateTileHash();
-                }
+              rafQueueRef.current.set(tile.tileIndex, {
+                bitmap, x: tile.x, y: tile.y,
+                width: tile.width, height: tile.height,
+                frameTs, invalidateTileHash
               });
+              scheduleRaf();
             };
 
-            // Try createImageBitmap (non-blocking), fallback to new Image()
-            if (blob && typeof createImageBitmap !== "undefined") {
-              _decodeTile(blob)
+            if (tile.imageBuffer && typeof createImageBitmap !== "undefined") {
+              _decodeTile(makeTileBlob(tile.imageBuffer))
                 .then(drawBitmap)
                 .catch(() => {
-                  // Fallback: new Image() if createImageBitmap fails
                   if (controller.cancelled) return;
                   const img = new Image();
-                  const url = URL.createObjectURL(blob);
-                  img.onload = () => {
-                    drawBitmap(img);
-                    URL.revokeObjectURL(url);
-                  };
+                  const url = URL.createObjectURL(makeTileBlob(tile.imageBuffer));
+                  img.onload = () => { drawBitmap(img); URL.revokeObjectURL(url); };
                   img.onerror = () => {
                     URL.revokeObjectURL(url);
                     clearTimeout(timeoutId);
@@ -173,17 +247,26 @@ export function useTiles(socket, streaming, canvasRef) {
                   img.src = url;
                 });
             } else {
-              // Legacy fallback: base64 or no createImageBitmap support
               const img = new Image();
-              img.onload = () => drawBitmap(img);
-              img.onerror = () => {
-                clearTimeout(timeoutId);
-                loadingTilesRef.current.delete(tile.tileIndex);
-                invalidateTileHash();
-              };
-              img.src = blob
-                ? URL.createObjectURL(blob)
-                : tile.imageBase64;
+              if (tile.imageBuffer) {
+                const url = URL.createObjectURL(makeTileBlob(tile.imageBuffer));
+                img.onload = () => { drawBitmap(img); URL.revokeObjectURL(url); };
+                img.onerror = () => {
+                  URL.revokeObjectURL(url);
+                  clearTimeout(timeoutId);
+                  loadingTilesRef.current.delete(tile.tileIndex);
+                  invalidateTileHash();
+                };
+                img.src = url;
+              } else {
+                img.onload = () => drawBitmap(img);
+                img.onerror = () => {
+                  clearTimeout(timeoutId);
+                  loadingTilesRef.current.delete(tile.tileIndex);
+                  invalidateTileHash();
+                };
+                img.src = tile.imageBase64;
+              }
             }
           });
         }, batchIndex * REMOTE_CONFIG.batchDelay);
@@ -207,7 +290,7 @@ export function useTiles(socket, streaming, canvasRef) {
   const requestScreenWithHashes = useCallback(() => {
     if (!socketRef.current || !streamingRef.current) return;
     if (isRequestingRef.current) return;
-    
+
     // Skip if recently received data (server is actively pushing)
     const timeSinceLastData = Date.now() - lastDataTimeRef.current;
     if (timeSinceLastData < REMOTE_CONFIG.lastDataThreshold && clientTileHashesRef.current.length > 0) {
@@ -233,7 +316,13 @@ export function useTiles(socket, streaming, canvasRef) {
     loadingTilesRef.current.clear();
     clientTileHashesRef.current = [];
     renderedTilesRef.current.clear();
+    tileTimestampRef.current.clear();
     lastDataTimeRef.current = 0;
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    rafQueueRef.current.clear();
   }, []);
 
   // Cleanup all timeouts on unmount

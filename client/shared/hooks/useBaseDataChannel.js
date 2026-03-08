@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useCallback, useState } from "react";
-import { API_ENDPOINTS } from "@/shared/constants/api";
+import { API_ENDPOINTS } from "@/shared/constants/API";
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 /**
  * Base DataChannel hook — mirrors useBaseSocket interface.
@@ -85,8 +86,11 @@ export function useBaseDataChannel({ socketRef, apiKey, enableTurn, onConnect, o
     const pc = new RTCPeerConnection({ iceServers });
     pcRef.current = pc;
 
-    // DataChannel — unreliable, unordered for low-latency tile streaming
-    const dc = pc.createDataChannel("tiles", { ordered: false, maxRetransmits: 0 });
+    // DataChannel — reliability mode from config
+    const dc = pc.createDataChannel("tiles", { 
+      ordered: REMOTE_CONFIG.dcOrdered, 
+      maxRetransmits: REMOTE_CONFIG.dcReliable ? undefined : 0 
+    });
     dc.binaryType = "arraybuffer";
     dcRef.current = dc;
 
@@ -102,20 +106,21 @@ export function useBaseDataChannel({ socketRef, apiKey, enableTurn, onConnect, o
           }
         });
       } catch {}
-      console.log(`[DataChannel] open — ${via === "dc-turn" ? "TURN relay" : "STUN P2P"}`);
       setConnected(true);
       // Pass dc instance so caller (useWebRTC) can attach it to transport
       onConnect?.(via, dc);
     };
 
     dc.onclose = () => {
-      console.warn("[DataChannel] closed");
       setConnected(false);
       onDisconnect?.("dc-closed");
     };
 
-    dc.onerror = (err) => {
-      console.error("[DataChannel] error:", err.message ?? err);
+    dc.onerror = (e) => {
+      const msg = e.error?.message ?? "unknown";
+      // User-initiated abort is expected on manual disconnect — skip noisy log
+      if (msg.includes("User-Initiated")) return;
+      console.error("[DataChannel] error:", msg);
     };
 
     dc.onmessage = ({ data }) => {
@@ -135,9 +140,7 @@ export function useBaseDataChannel({ socketRef, apiKey, enableTurn, onConnect, o
     // Fallback → trigger onDisconnect when ICE fails
     pc.oniceconnectionstatechange = () => {
       const state = pc.iceConnectionState;
-      console.log("[DataChannel] ICE state:", state);
       if (state === "failed") {
-        console.warn("[DataChannel] ICE failed → fallback");
         cleanup();
         onDisconnect?.("ice-failed");
       }

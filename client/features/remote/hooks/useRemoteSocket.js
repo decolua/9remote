@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useBaseSocket } from "@/shared/hooks/useBaseSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
-import { REMOTE_CONFIG } from "@/features/remote/constants/remote";
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { RemoteTransport } from "@/features/remote/utils/remoteTransport";
 import { useWebRTC } from "./useWebRTC";
 
