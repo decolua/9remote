@@ -64,12 +64,13 @@ export function useAuth() {
         throw new Error("Server not reachable. Please try again.");
       }
 
-      // Save auth data to session storage (include tempKey if provided)
+      // Save auth data to session storage (include tempKey and localIp if provided)
       setAuth({
         apiKey: credentials.apiKey || data.apiKey,
         tunnelUrl: data.tunnelUrl,
         mode: "remote",
-        tempKey: credentials.tempKey || null
+        tempKey: credentials.tempKey || null,
+        localIp: data.localIp || null
       });
 
       // Return success with flag to ask user about saving key

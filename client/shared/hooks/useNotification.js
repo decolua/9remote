@@ -113,15 +113,19 @@ export function useNotification(socketRef, connected) {
       if (!document.hidden) callback("focused");
     };
 
-    // Notify server when visibility changes
+    // Notify server when visibility changes (best effort)
     const handleVisibilityChange = () => {
       currentSocket.emit("visibilityChange", document.hidden);
     };
+
+    // Fetch latest notification state after reconnect
+    const handleReconnect = () => fetchState();
 
     currentSocket.on("notificationState", handleNotificationState);
     currentSocket.on("chatNotification", handleChatNotification);
     currentSocket.on("chatNotificationAck", handleAck);
     currentSocket.on("notificationCleared", handleNotificationCleared);
+    currentSocket.on("connect", handleReconnect);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     // Request badge state after listeners are registered
@@ -132,6 +136,7 @@ export function useNotification(socketRef, connected) {
       currentSocket.off("chatNotification", handleChatNotification);
       currentSocket.off("chatNotificationAck", handleAck);
       currentSocket.off("notificationCleared", handleNotificationCleared);
+      currentSocket.off("connect", handleReconnect);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [socketRef, connected]);

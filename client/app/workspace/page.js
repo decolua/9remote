@@ -54,7 +54,7 @@ export default function WorkspacePage() {
   });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, connected, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socket, socketRef, connected, connectionMode, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
   const fileSocket = useFileSocket(socketRef);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
   const [systemInfo, setSystemInfo] = useState(null);
@@ -318,6 +318,7 @@ export default function WorkspacePage() {
           onOpenFiles={handleOpenFiles}
           tunnelUrl={auth?.tunnelUrl}
           apiKey={auth?.apiKey}
+          connectionMode={connectionMode}
           codespaceInfo={codespaceInfo}
           codespaceDisconnected={codespaceDisconnected}
           onStopCodespace={stopCodespace}
@@ -365,6 +366,7 @@ export default function WorkspacePage() {
               onSelectSite={handleOpenSite}
               tunnelUrl={auth?.tunnelUrl}
               apiKey={auth?.apiKey}
+              connectionMode={connectionMode}
               codespaceInfo={codespaceInfo}
               onStopCodespace={stopCodespace}
               sessions={sessions}
@@ -383,7 +385,7 @@ export default function WorkspacePage() {
       {/* Remote Desktop - conditional render */}
       {currentView.type === "remote" && (
         <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
-          <RemoteDesktop onClose={popView} />
+          <RemoteDesktop onClose={popView} socketRef={socketRef} connected={connected} connectionMode={connectionMode} />
         </div>
       )}
 

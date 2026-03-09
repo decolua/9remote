@@ -57,3 +57,7 @@ client/out/*
 cli/dist/*
 .docs/*
 worker/wrangler.toml
+desktop/src-tauri/target/debug/*
+desktop/src-tauri/target/*
+desktop/dist/*
+worker/wrangler.toml

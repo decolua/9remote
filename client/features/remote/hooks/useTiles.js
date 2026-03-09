@@ -31,7 +31,7 @@ async function _decodeTile(blob) {
   return bitmap;
 }
 
-export function useTiles(socket, streaming, canvasRef) {
+export function useTiles(socketRef, streaming, canvasRef) {
   const [totalTileCount, setTotalTileCount] = useState(126);
   const renderedTilesRef = useRef(new Set());
   const loadingTilesRef = useRef(new Map());
@@ -48,13 +48,11 @@ export function useTiles(socket, streaming, canvasRef) {
   const rafQueueRef = useRef(new Map());
   const rafIdRef = useRef(null);
 
-  const socketRef = useRef(socket);
   const streamingRef = useRef(streaming);
 
   useEffect(() => {
-    socketRef.current = socket;
     streamingRef.current = streaming;
-  }, [socket, streaming]);
+  }, [streaming]);
 
   // Flush all pending bitmaps in ONE rAF — prevents N tiles = N paint frames
   const flushRafQueue = useCallback(() => {
@@ -288,7 +286,7 @@ export function useTiles(socket, streaming, canvasRef) {
   }, []);
 
   const requestScreenWithHashes = useCallback(() => {
-    if (!socketRef.current || !streamingRef.current) return;
+    if (!socketRef?.current || !streamingRef.current) return;
     if (isRequestingRef.current) return;
 
     // Skip if recently received data (server is actively pushing)

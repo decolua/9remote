@@ -24,13 +24,14 @@ export function useSessionStorage() {
     const tunnelUrl = sessionStorage.getItem("tunnelUrl");
     const mode = sessionStorage.getItem("mode");
     const tempKey = sessionStorage.getItem("tempKey");
+    const localIp = sessionStorage.getItem("localIp");
     
     if (!apiKey || !tunnelUrl) return null;
     
     // Ensure cookie is set when reading auth (in case page was refreshed)
     setAuthCookie(apiKey);
     
-    return { apiKey, tunnelUrl, mode, tempKey };
+    return { apiKey, tunnelUrl, mode, tempKey, localIp };
   }, []);
 
   const setAuth = useCallback((data) => {
@@ -42,6 +43,12 @@ export function useSessionStorage() {
     
     if (data.tempKey) {
       sessionStorage.setItem("tempKey", data.tempKey);
+    }
+
+    if (data.localIp) {
+      sessionStorage.setItem("localIp", data.localIp);
+    } else {
+      sessionStorage.removeItem("localIp");
     }
     
     // Set cookie for proxy auth

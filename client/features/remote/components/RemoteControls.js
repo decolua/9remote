@@ -10,17 +10,17 @@ const v = (fn, ...args) => { vibrate(); fn?.(...args); };
 
 // Remote Desktop Controls component
 // Transport status — same style as other buttons, not clickable
-function TransportBadge({ transport }) {
+function TransportBadge({ transport, connectionMode }) {
   const textColor = {
     "dc-stun": "text-green-400",
     "dc-turn": "text-blue-400",
-    "ws":      "text-dark-200"
+    "ws":      connectionMode === "local" ? "text-green-400" : "text-dark-200"
   }[transport] || "text-dark-200";
 
   const label = {
     "dc-stun": "P2P",
     "dc-turn": "RTC",
-    "ws":      "WS"
+    "ws":      connectionMode === "local" ? "LAN" : "WS"
   }[transport] || "WS";
 
   return (
@@ -34,6 +34,7 @@ export default function RemoteControls({
   streaming,
   connected,
   transport,
+  connectionMode,
   canvasZoom,
   selectionMode,
   dragMode,
@@ -43,8 +44,6 @@ export default function RemoteControls({
   textInputRef,
   keyboardVisible,
   isLandscape,
-  onStartStreaming,
-  onStopStreaming,
   onResetZoom,
   onRefresh,
   onToggleSelection,
@@ -99,7 +98,7 @@ export default function RemoteControls({
           >
             <RefreshCw size={12} />
           </button>
-          <TransportBadge transport={transport} />
+          <TransportBadge transport={transport} connectionMode={connectionMode} />
         </div>
 
         {/* Zoom & Selection */}
@@ -330,7 +329,7 @@ export default function RemoteControls({
           </button>
 
           {/* Transport status */}
-          <TransportBadge transport={transport} />
+          <TransportBadge transport={transport} connectionMode={connectionMode} />
         </div>
 
       </div>

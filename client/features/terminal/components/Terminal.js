@@ -26,6 +26,7 @@ function Terminal({
   onOpenFiles,
   tunnelUrl,
   apiKey,
+  connectionMode = "tunnel",
   codespaceInfo,
   onStopCodespace,
   sessions = [],
@@ -79,6 +80,7 @@ function Terminal({
       socketRef: menuSocketRef,
       tunnelUrl,
       apiKey,
+      connectionMode,
       subscribeToPush,
       unsubscribeFromPush
     });
@@ -92,7 +94,7 @@ function Terminal({
       onThemeChange,
       onStopCodespace,
     });
-  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, theme, onThemeChange, tunnelUrl, apiKey, setContext, setCallbacks]);
+  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, theme, onThemeChange, tunnelUrl, apiKey, connectionMode, setContext, setCallbacks]);
 
   const currentTheme = THEMES[theme] || THEMES.default;
 

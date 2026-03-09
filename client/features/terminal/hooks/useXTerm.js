@@ -118,23 +118,29 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
     };
     socket.on("output", handleOutput);
 
-    // Join session - after output handler is ready
-    socket.emit("joinSession", sessionId, (result) => {
-      if (result.success) {
-        // Initialize cwd if available
-        if (result.cwd) {
-          cwdRef.current = result.cwd;
+    // Join session and replay scrollback buffer from daemon
+    const doJoinSession = (isRejoin = false) => {
+      socket.emit("joinSession", sessionId, (result) => {
+        if (result.success) {
+          if (result.cwd) cwdRef.current = result.cwd;
+          setTimeout(() => {
+            loadWebGL();
+            fitAddon.fit();
+          }, 100);
+        } else {
+          term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);
         }
-        
-        // Load WebGL and re-fit after join to ensure proper render
-        setTimeout(() => {
-          loadWebGL();
-          fitAddon.fit();
-        }, 100);
-      } else {
-        term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);
-      }
-    });
+      });
+    };
+    doJoinSession();
+
+    // On reconnect → clear stale content and rejoin to get latest scrollback
+    const handleReconnect = () => {
+      if (!termRef.current) return;
+      termRef.current.reset();
+      doJoinSession(true);
+    };
+    socket.on("connect", handleReconnect);
 
     // Orientation change handler - delegate to doResize via ref
     const handleOrientationChange = () => setTimeout(() => doResizeRef.current?.(), 300);
@@ -152,6 +158,7 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
       window.removeEventListener("orientationchange", handleOrientationChange);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       resizeObserver.disconnect();
+      socket.off("connect", handleReconnect);
       socket.off("output", handleOutput);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);

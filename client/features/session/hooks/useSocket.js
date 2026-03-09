@@ -41,43 +41,30 @@ export function useSocket() {
     setCodespaceStopping(true);
   }, []);
 
-  const { socket, socketRef, connected, error, retryStatus } = useBaseSocket({
-    namespace: "",
-    redirectOnNoAuth: "/",
-    onConnect: handleConnect,
-    onDisconnect: handleDisconnect
-  });
+  const handleSocketReady = useCallback((socket, auth) => {
+    handleConnect(socket, auth);
 
-  // Setup terminal-specific event listeners
-  useEffect(() => {
-    const currentSocket = socketRef.current;
-    if (!currentSocket) return;
-
-    const handleServerInfo = (info) => {
+    socket.on("serverInfo", (info) => {
       setRemoteAvailable(info.remoteAvailable);
       setPlatform(info.platform);
       if (info.isCodespaces) {
-        setCodespaceInfo({
-          isCodespaces: info.isCodespaces,
-          codespaceName: info.codespaceName
-        });
+        setCodespaceInfo({ isCodespaces: info.isCodespaces, codespaceName: info.codespaceName });
       }
-    };
+    });
 
-    const handleSessionClosed = (sessionId) => {
+    socket.on("sessionClosed", (sessionId) => {
       setSessions(prev => prev.filter(s => s.id !== sessionId));
-    };
+    });
 
-    currentSocket.on("serverInfo", handleServerInfo);
-    currentSocket.on("sessionClosed", handleSessionClosed);
-    currentSocket.on("codespace:stopping", handleCodespaceStopping);
+    socket.on("codespace:stopping", handleCodespaceStopping);
+  }, [handleConnect, handleCodespaceStopping]);
 
-    return () => {
-      currentSocket.off("serverInfo", handleServerInfo);
-      currentSocket.off("sessionClosed", handleSessionClosed);
-      currentSocket.off("codespace:stopping", handleCodespaceStopping);
-    };
-  }, [socketRef, connected, handleCodespaceStopping]);
+  const { socket, socketRef, connected, connectionMode, retryStatus } = useBaseSocket({
+    namespace: "",
+    redirectOnNoAuth: "/",
+    onConnect: handleSocketReady,
+    onDisconnect: handleDisconnect
+  });
 
   // Load sessions list
   const loadSessions = useCallback(() => {
@@ -143,7 +130,7 @@ export function useSocket() {
     socket,
     socketRef,
     connected,
-    error,
+    connectionMode,
     retryStatus,
     sessions,
     remoteAvailable,

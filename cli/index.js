@@ -7,12 +7,49 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import os from "os";
+import dns from "dns";
+import https from "https";
+import { promisify } from "util";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, loadState, saveState, clearState } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate } from "./utils/updateChecker.js";
 import { ensureCloudflared, spawnCloudflared, killCloudflared, resetRestartCounter } from "./utils/cloudflared.js";
+
+// DNS resolver using Cloudflare — ensures tunnel domains resolve immediately
+const cfResolver = new dns.Resolver();
+cfResolver.setServers(["1.1.1.1", "1.0.0.1"]);
+const cfResolve4 = promisify(cfResolver.resolve4.bind(cfResolver));
+
+/** Fetch via IP with correct TLS SNI — bypasses system DNS */
+function fetchWithCfDns(url, timeoutMs = 5000) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const parsed = new URL(url);
+      const [ip] = await cfResolve4(parsed.hostname);
+      const req = https.request({
+        hostname: ip,
+        port: 443,
+        path: parsed.pathname + parsed.search,
+        method: "GET",
+        headers: { host: parsed.hostname },
+        servername: parsed.hostname,
+        rejectUnauthorized: true
+      }, (res) => {
+        let body = "";
+        res.on("data", d => { body += d; });
+        res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body }));
+      });
+      req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error("timeout")); });
+      req.on("error", reject);
+      req.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
 
 // Parse --skip-update flag
 const skipUpdate = process.argv.includes("--skip-update");
@@ -285,6 +322,19 @@ function setupExitHandler(serverManager, tunnelProcess, apiKey) {
 }
 
 /**
+ * Get first non-internal LAN IPv4 address
+ */
+function getLanIp() {
+  const interfaces = os.networkInterfaces();
+  for (const iface of Object.values(interfaces)) {
+    for (const addr of iface) {
+      if (addr.family === "IPv4" && !addr.internal) return addr.address;
+    }
+  }
+  return null;
+}
+
+/**
  * Helper: Create Named Tunnel via Worker API
  */
 async function createNamedTunnel(apiKey) {
@@ -450,14 +500,13 @@ async function startServerAndTunnel(selectedKey) {
     serverManager.shutdown();
     return null;
   }
-  
 
-  // Verify tunnel reachable from outside
+  // Verify tunnel reachable via Cloudflare DNS + https.request (bypasses system DNS)
   const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   let tunnelReady = false;
-  for (let i = 0; i < 15; i++) {
+  for (let i = 0; i < 30; i++) {
     try {
-      const res = await fetch(`${tunnelUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
+      const res = await fetchWithCfDns(`${tunnelUrl}/api/health`);
       if (res.ok) { tunnelReady = true; break; }
     } catch { }
     process.stdout.write(`\r   Verifying tunnel ${spinners[i % spinners.length]} (${i * 2}s)`);
@@ -473,7 +522,23 @@ async function startServerAndTunnel(selectedKey) {
   }
 
   console.log(ORANGE(`✅ Tunnel URL: ${tunnelUrl}`));
+  const lanIpLog = getLanIp();
+  if (lanIpLog) console.log(ORANGE(`✅ Local IP: ${lanIpLog}:${SERVER_PORT} (LAN direct available)`));
   console.log(ORANGE(`✅ Connection established`));
+
+  // Update session with tunnelUrl + localIp (worker detects publicIp via CF-Connecting-IP)
+  const lanIp = lanIpLog;
+  try {
+    await fetch(`${WORKER_URL}/api/session/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey: selectedKey,
+        tunnelUrl,
+        localIp: lanIp ? `${lanIp}:${SERVER_PORT}` : null
+      })
+    });
+  } catch { }
 
   // Save state (persist shortId for reuse on restart)
   saveState({

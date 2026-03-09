@@ -1,17 +1,12 @@
-import { WebRTCManager } from "./webrtcManager.js";
-import { WebRTCHandler } from "./handlers/webrtcHandler.js";
+import { ProtocolManager } from "../../transport/ProtocolManager.js";
 import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 
-const { enableWebRTC, enableTurn } = REMOTE_CONFIG.webrtc;
-
-// Singleton WebRTC manager (only used if enableWebRTC is true)
-const webrtcManager = enableWebRTC ? new WebRTCManager() : null;
+const { enableWebRTC, enableTurn, turnApiUrl, turnRefreshInterval, dcMaxMessageSize, dcChunkSize, dcMaxTilesPerFrame, answerTimeout } = REMOTE_CONFIG.webrtc;
 
 // Track remote availability globally
 let remoteAvailable = null;
 
 function isKnownHeadless() {
-  // Known headless environments - skip slow robotjs import
   return (
     process.env.CODESPACES === "true" ||
     process.env.GITPOD_WORKSPACE_ID ||
@@ -19,22 +14,17 @@ function isKnownHeadless() {
   );
 }
 
-// Check if robotjs is available (called once at startup)
 export async function checkRemoteAvailable() {
   if (remoteAvailable !== null) return remoteAvailable;
-  
-  // Quick check for known headless environments
   if (isKnownHeadless()) {
     remoteAvailable = false;
     console.log("✅ Remote desktop not available (headless environment)");
     return remoteAvailable;
   }
-  
-  // Actually test robotjs for unknown environments
   try {
     const robotModule = await import("@hurdlegroup/robotjs");
     const robot = robotModule.default || robotModule;
-    robot.getScreenSize(); // Will throw if no display
+    robot.getScreenSize();
     remoteAvailable = true;
   } catch {
     remoteAvailable = false;
@@ -43,123 +33,103 @@ export async function checkRemoteAvailable() {
   return remoteAvailable;
 }
 
-// Get cached remote availability status
 export function isRemoteAvailable() {
   return remoteAvailable === true;
 }
 
-export async function setupRemoteSocket(io, apiKey) {
-  // Init WebRTC only if enabled; fetch TURN only if enableTurn is true
-  if (enableWebRTC && webrtcManager) {
-    const key = enableTurn ? apiKey : null;
-    webrtcManager.init(key).catch(err =>
-      console.error("[WebRTC] init error:", err.message)
-    );
+let robot = null;
+let TileManager = null;
+let ResourceManager = null;
+let ScreenUpdateHelper = null;
+let MouseHandler = null;
+let KeyboardHandler = null;
+let ScreenHandler = null;
+let resourceManager = null;
+let screenUpdateHelper = null;
+let mouseHandler = null;
+let keyboardHandler = null;
+let screenHandler = null;
+
+async function loadRemoteModules() {
+  if (robot) return true;
+  try {
+    const robotModule = await import("@hurdlegroup/robotjs");
+    robot = robotModule.default || robotModule;
+    const { TileManager: TM } = await import("./TileManager.js");
+    const { ResourceManager: RM } = await import("./ResourceManager.js");
+    const { ScreenUpdateHelper: SUH } = await import("./utils/ScreenUpdateHelper.js");
+    const { MouseHandler: MH } = await import("./handlers/MouseHandler.js");
+    const { KeyboardHandler: KH } = await import("./handlers/KeyboardHandler.js");
+    const { ScreenHandler: SH } = await import("./handlers/ScreenHandler.js");
+    TileManager = TM; ResourceManager = RM; ScreenUpdateHelper = SUH;
+    MouseHandler = MH; KeyboardHandler = KH; ScreenHandler = SH;
+    robot.setMouseDelay(2);
+    robot.setKeyboardDelay(2);
+    return true;
+  } catch (error) {
+    console.error("❌ Failed to load remote modules:", error.message);
+    return false;
   }
-  let robot = null;
-  let TileManager = null;
-  let ResourceManager = null;
-  let ScreenUpdateHelper = null;
-  let MouseHandler = null;
-  let KeyboardHandler = null;
-  let ScreenHandler = null;
+}
 
-  // Lazy load remote modules (they require native dependencies)
-  const loadRemoteModules = async () => {
-    if (robot) return true;
-    
-    try {
-      const robotModule = await import("@hurdlegroup/robotjs");
-      robot = robotModule.default || robotModule;
-      
-      const { TileManager: TM } = await import("./TileManager.js");
-      const { ResourceManager: RM } = await import("./ResourceManager.js");
-      const { ScreenUpdateHelper: SUH } = await import("./utils/ScreenUpdateHelper.js");
-      const { MouseHandler: MH } = await import("./handlers/mouseHandler.js");
-      const { KeyboardHandler: KH } = await import("./handlers/keyboardHandler.js");
-      const { ScreenHandler: SH } = await import("./handlers/screenHandler.js");
-      
-      TileManager = TM;
-      ResourceManager = RM;
-      ScreenUpdateHelper = SUH;
-      MouseHandler = MH;
-      KeyboardHandler = KH;
-      ScreenHandler = SH;
-      
-      robot.setMouseDelay(2);
-      robot.setKeyboardDelay(2);
-      
-      return true;
-    } catch (error) {
-      console.error("❌ Failed to load remote modules:", error.message);
-      return false;
-    }
-  };
+/**
+ * Setup remote desktop handlers on an existing socket.
+ * Called per-connection from terminalSocket when client requests remote.
+ */
+export async function setupRemoteHandlers(socket, apiKey) {
+  if (!remoteAvailable) {
+    socket.emit("remote:unavailable");
+    return;
+  }
 
-  const remoteNs = io.of("/remote");
-  
-  // Initialize handlers when first connection
-  let resourceManager = null;
-  let screenUpdateHelper = null;
-  let mouseHandler = null;
-  let keyboardHandler = null;
-  let screenHandler = null;
-  const webrtcHandler = enableWebRTC && webrtcManager ? new WebRTCHandler(webrtcManager) : null;
+  const loaded = await loadRemoteModules();
+  if (!loaded) {
+    socket.emit("remote:unavailable");
+    return;
+  }
 
-  remoteNs.on("connection", async (socket) => {
-    // Check apiKey from handshake auth
-    const apiKey = socket.handshake.auth?.apiKey;
-    if (!apiKey) {
-      console.log("❌ Remote connection rejected: no apiKey");
-      socket.disconnect();
-      return;
-    }
+  if (!resourceManager) {
+    resourceManager = new ResourceManager();
+    screenUpdateHelper = new ScreenUpdateHelper(resourceManager);
+    mouseHandler = new MouseHandler(robot, resourceManager);
+    keyboardHandler = new KeyboardHandler(robot, resourceManager);
+    screenHandler = new ScreenHandler(resourceManager, screenUpdateHelper);
+    resourceManager.startResourceMonitoring();
+  }
 
-    console.log("🖥️ Remote client connected:", socket.id);
+  const clientApiKey = socket.handshake.auth?.apiKey;
+  const tileManager = new TileManager(robot);
+  resourceManager.addClient(socket.id, { tileManager, screenInterval: null, authenticated: true, apiKey: clientApiKey });
 
-    // Load modules on first connection
-    const loaded = await loadRemoteModules();
-    if (!loaded) {
-      socket.emit("error", { message: "Remote desktop not available" });
-      socket.disconnect();
-      return;
-    }
-
-    // Initialize handlers if not already done
-    if (!resourceManager) {
-      resourceManager = new ResourceManager();
-      screenUpdateHelper = new ScreenUpdateHelper(resourceManager);
-      mouseHandler = new MouseHandler(robot, resourceManager);
-      keyboardHandler = new KeyboardHandler(robot, resourceManager);
-      screenHandler = new ScreenHandler(resourceManager, screenUpdateHelper, webrtcManager);
-      resourceManager.startResourceMonitoring();
-    }
-
-    // Auto-authenticated via apiKey in handshake
-    socket.isAuthenticated = true;
-
-    // Create tile manager for this client
-    const tileManager = new TileManager(robot);
-    resourceManager.addClient(socket.id, {
-      tileManager,
-      screenInterval: null,
-      authenticated: true,
-      apiKey
-    });
-
-    // Simple passthrough - no auth check needed
-    const requireAuth = (handler) => handler;
-
-    // Setup all handlers
-    mouseHandler.setupMouseHandlers(socket, requireAuth);
-    keyboardHandler.setupKeyboardHandlers(socket, requireAuth);
-    screenHandler.setupScreenHandlers(socket, requireAuth);
-    webrtcHandler?.setupWebRTCHandlers(socket);
-
-    socket.on("disconnect", () => {
-      console.log("🖥️ Remote client disconnected:", socket.id);
-      resourceManager.removeClient(socket.id);
-      if (enableWebRTC && webrtcManager) webrtcManager.closePeer(socket.id);
-    });
+  const protocol = new ProtocolManager(socket, {
+    enableWebRTC,
+    apiKey: enableTurn ? apiKey : null,
+    turnApiUrl: enableTurn ? turnApiUrl : null,
+    turnRefreshInterval,
+    dcMaxMessageSize,
+    dcChunkSize,
+    dcMaxTilesPerFrame,
+    answerTimeout
   });
+
+  await protocol.init();
+  protocol.setupSignaling(socket);
+
+  const requireAuth = (handler) => handler;
+  mouseHandler.setupMouseHandlers(socket, requireAuth);
+  keyboardHandler.setupKeyboardHandlers(socket, requireAuth);
+  screenHandler.setupScreenHandlers(socket, requireAuth, protocol);
+
+  socket.on("disconnect", () => {
+    resourceManager.removeClient(socket.id);
+    protocol.close();
+  });
+
+  socket.emit("remote:ready");
+  console.log("🖥️ Remote handlers attached:", socket.id);
+}
+
+export async function setupRemoteSocket(io, apiKey) {
+  // Legacy: kept for compatibility — no longer creates a separate namespace.
+  // Remote handlers are now attached per-socket via setupRemoteHandlers().
 }

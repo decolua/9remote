@@ -32,16 +32,19 @@ export async function handleSessionCreate(request, env, corsHeaders) {
  * Server gọi sau khi có tunnel URL
  */
 export async function handleSessionUpdate(request, env, corsHeaders) {
-  const { apiKey, tunnelUrl } = await request.json();
+  const { apiKey, tunnelUrl, localIp } = await request.json();
 
   if (!(await verifyApiKeyCrc(apiKey))) {
     return jsonError("Invalid API key", 400, corsHeaders);
   }
 
+  // CF-Connecting-IP is the real public IP of the caller (server machine)
+  const publicIp = request.headers.get("CF-Connecting-IP") || null;
+
   await env.DB.prepare(`
-    UPDATE sessions SET tunnelUrl = ?, lastAccessAt = datetime('now')
+    UPDATE sessions SET tunnelUrl = ?, publicIp = ?, localIp = ?, lastAccessAt = datetime('now')
     WHERE apiKey = ?
-  `).bind(tunnelUrl, apiKey).run();
+  `).bind(tunnelUrl, publicIp, localIp || null, apiKey).run();
 
   return jsonResponse({ success: true }, corsHeaders);
 }
@@ -95,7 +98,7 @@ export async function handleConnect(request, env, corsHeaders) {
   }
 
   const session = await env.DB.prepare(`
-    SELECT tunnelUrl, machineId 
+    SELECT tunnelUrl, machineId, publicIp, localIp
     FROM sessions 
     WHERE apiKey = ? AND expiresAt > datetime('now')
   `).bind(apiKey).first();
@@ -112,10 +115,12 @@ export async function handleConnect(request, env, corsHeaders) {
     UPDATE sessions SET lastAccessAt = datetime('now') WHERE apiKey = ?
   `).bind(apiKey).run();
 
+  // Always return localIp — client probes it and falls back to tunnel if unreachable
   return jsonResponse({
     tunnelUrl: session.tunnelUrl,
     apiKey,
-    tempKey
+    tempKey,
+    localIp: session.localIp || null
   }, corsHeaders);
 }
 

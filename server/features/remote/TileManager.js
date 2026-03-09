@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 export class TileManager {
   constructor(robot) {
     this.robot = robot;
-    this.tileSize = 100;
+    this.tileSize = 128;
     this.lastTileChecksums = new Map();
     this.screenWidth = 0;
     this.screenHeight = 0;

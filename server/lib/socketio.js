@@ -41,11 +41,8 @@ export async function setupSocketIO(server) {
   // Check remote availability at startup
   await checkRemoteAvailable();
 
-  // Setup Terminal namespace (default)
-  setupTerminalSocket(io);
-
-  // Setup Remote Desktop namespace (/remote)
-  setupRemoteSocket(io, loadApiKey());
+  // Setup Terminal + Remote on same root namespace
+  setupTerminalSocket(io, loadApiKey());
 
   // Setup File Explorer (uses default namespace)
   setupFileExplorerSocket(io);

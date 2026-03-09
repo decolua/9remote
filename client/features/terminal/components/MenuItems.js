@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Monitor, FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2 } from "@/shared/components/ui/Icon";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
+import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 
 /**
  * Shared menu items for SlideMenu (DRY)
@@ -28,6 +29,7 @@ export default function MenuItems({
   unsubscribeFromPush = null
 }) {
   const [expandedSection, setExpandedSection] = useState(null);
+  const { connectionMode = "tunnel" } = useSlideMenuStore((s) => s.context);
 
   const handleThemeChange = (newTheme) => {
     vibrate();
@@ -306,10 +308,17 @@ export default function MenuItems({
         </button>
       )}
 
-      {/* Version */}
-      <p className="text-right text-dark-100 text-sm mt-4 mr-1">
-        Version {process.env.NEXT_PUBLIC_SERVER_VERSION}
-      </p>
+      {/* Version + connection mode */}
+      <div className="flex items-center justify-end gap-2 mt-4 mr-1">
+        {connectionMode === "local" && (
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">
+            LAN
+          </span>
+        )}
+        <p className="text-dark-100 text-sm">
+          Version {process.env.NEXT_PUBLIC_SERVER_VERSION}
+        </p>
+      </div>
     </div>
   );
 }

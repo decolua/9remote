@@ -11,39 +11,22 @@ import RemoteCanvas from "@/features/remote/components/RemoteCanvas";
 import RemoteControls from "@/features/remote/components/RemoteControls";
 import DebugPanel from "@/features/remote/components/DebugPanel";
 import Spinner from "@/shared/components/ui/Spinner";
-import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 
-export default function RemoteDesktop({ onClose }) {
+export default function RemoteDesktop({ onClose, socketRef, connected, connectionMode = "tunnel" }) {
   const [isLandscape, setIsLandscape] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
 
-  // Detect orientation
   useEffect(() => {
-    const checkOrientation = () => {
-      setIsLandscape(window.innerWidth > window.innerHeight);
-    };
-
+    const checkOrientation = () => setIsLandscape(window.innerWidth > window.innerHeight);
     checkOrientation();
     window.addEventListener("resize", checkOrientation);
     return () => window.removeEventListener("resize", checkOrientation);
   }, []);
-  
-  // Benchmark hook
+
   const { stats, trackTilesReceived, resetStats } = useBenchmark();
 
   const {
-    socket,
-    socketRef,
-    remoteTransportRef,
-    transportVersion,
-    connected,
     streaming,
-    error,
-    authenticated,
-    retryStatus,
-    transport,
-    startStreaming,
-    stopStreaming,
     emitRequestScreenWithHashes,
     emitMousePress,
     emitMouseRelease,
@@ -52,8 +35,9 @@ export default function RemoteDesktop({ onClose }) {
     emitMouseDragSelect,
     emitKeyPress,
     emitTypeText,
-    emitScroll
-  } = useRemoteSocket();
+    emitScroll,
+    emitBoostStream
+  } = useRemoteSocket(socketRef, connected);
 
   const socketEmitFunctions = {
     emitRequestScreenWithHashes,
@@ -64,15 +48,11 @@ export default function RemoteDesktop({ onClose }) {
     emitMouseDragSelect,
     emitKeyPress,
     emitTypeText,
-    emitScroll
+    emitScroll,
+    emitBoostStream
   };
 
-  // Handle close - return to terminal (socket cleanup handled by useEffect)
-  const handleClose = useCallback(() => {
-    if (onClose) {
-      onClose();
-    }
-  }, [onClose]);
+  const handleClose = useCallback(() => onClose?.(), [onClose]);
 
   const {
     canvasRef,
@@ -126,66 +106,61 @@ export default function RemoteDesktop({ onClose }) {
     renderedTilesRef,
     handleFullScreenData,
     handleTilesData,
-    startStreamingWithTiles,
     handleScreenDimensions,
     cleanupTiles,
     requestScreenWithHashes
-  } = useTiles(socket, streaming, canvasRef);
+  } = useTiles(socketRef, streaming, canvasRef);
 
-  // Register all screen events on RemoteTransport (handles both WS + DC tiles uniformly).
-  // Re-runs on transportVersion bump so listeners always bind to the latest transport instance.
+  // Mount: register listeners + start streaming. Unmount: stop streaming + cleanup.
   useEffect(() => {
-    if (!transportVersion) return;
-    const t = remoteTransportRef.current;
-    if (!t) return;
+    const socket = socketRef?.current;
+    if (!socket || !connected) return;
 
     const onScreenDimensions = (dimensions) => {
       handleScreenDimensions(dimensions);
       handleCanvasDimensions(dimensions, renderedTilesRef);
+      // Force full refresh after dimensions received
       setTimeout(() => {
-        if (!streaming && socketRef.current && connected) {
-          startStreamingWithTiles(startStreaming);
-        }
+        socket.emit("request-screen-with-hashes", { tileHashes: [] });
       }, 100);
     };
     const onFullScreenData = (data) => handleFullScreenData(data);
     const onTilesData = (data) => {
-      if (showDebug) {
-        trackTilesReceived(data, data.transport || "ws");
-      }
+      if (showDebug) trackTilesReceived(data, data.transport || "ws");
       handleTilesData(data);
     };
     const onScreenError = (err) => console.error("Screen error:", err);
 
-    t.on("screen-dimensions", onScreenDimensions);
-    t.on("full-screen-data", onFullScreenData);
-    t.on("tiles-data", onTilesData);
-    t.on("screen-error", onScreenError);
+    socket.on("screen-dimensions", onScreenDimensions);
+    socket.on("full-screen-data", onFullScreenData);
+    socket.on("tiles-data", onTilesData);
+    socket.on("screen-error", onScreenError);
+
+    socket.emit("start-streaming");
 
     return () => {
-      t.off("screen-dimensions", onScreenDimensions);
-      t.off("full-screen-data", onFullScreenData);
-      t.off("tiles-data", onTilesData);
-      t.off("screen-error", onScreenError);
+      socket.emit("stop-streaming");
+      socket.off("screen-dimensions", onScreenDimensions);
+      socket.off("full-screen-data", onFullScreenData);
+      socket.off("tiles-data", onTilesData);
+      socket.off("screen-error", onScreenError);
       cleanupTiles();
       if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);
     };
-  }, [transportVersion, streaming, connected, startStreaming, handleScreenDimensions, handleCanvasDimensions, renderedTilesRef, startStreamingWithTiles, handleFullScreenData, handleTilesData, cleanupTiles, zoomGestureTimeoutRef, remoteTransportRef, socketRef, trackTilesReceived, showDebug]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected]);
 
-  // Hash request interval
+  // Hash request interval (backup sync)
   useEffect(() => {
-    if (!streaming || !socket || !connected) return;
-    const hashRequestInterval = setInterval(() => {
-      if (streaming && socket && connected) requestScreenWithHashes();
-    }, REMOTE_CONFIG.hashRequestInterval);
-    return () => clearInterval(hashRequestInterval);
-  }, [streaming, socket, connected, requestScreenWithHashes]);
+    if (!streaming || !connected || !socketRef?.current) return;
+    const id = setInterval(() => requestScreenWithHashes(), REMOTE_CONFIG.hashRequestInterval);
+    return () => clearInterval(id);
+  }, [streaming, connected, socketRef, requestScreenWithHashes]);
 
-  // Create interaction handler
   const createInteractionHandler = (type) => (e) => {
     handleCanvasInteraction(e, type, {
       streaming,
-      socket,
+      socket: socketRef?.current,
       selectionMode,
       selectionStart,
       dragMode,
@@ -203,12 +178,6 @@ export default function RemoteDesktop({ onClose }) {
     });
   };
 
-  // Handle logout - back to login
-  const handleLogout = useCallback(() => {
-    sessionStorage.clear();
-    window.location.href = "/login";
-  }, []);
-
   return (
     <div
       className={`bg-dark-700 text-white flex h-[var(--app-height,100vh)] w-full ${isLandscape ? "flex-row" : "flex-col"}`}
@@ -221,7 +190,7 @@ export default function RemoteDesktop({ onClose }) {
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {!authenticated ? (
+      {!connected ? (
         <div className="flex-1 flex items-center justify-center bg-dark-700">
           <Spinner size="lg" text="Connecting to remote..." />
         </div>
@@ -247,6 +216,7 @@ export default function RemoteDesktop({ onClose }) {
       <RemoteControls
         streaming={streaming}
         connected={connected}
+        transport="ws"
         canvasZoom={canvasZoom}
         selectionMode={selectionMode}
         dragMode={dragMode}
@@ -256,11 +226,9 @@ export default function RemoteDesktop({ onClose }) {
         textInputRef={textInputRef}
         keyboardVisible={keyboardVisible}
         isLandscape={isLandscape}
-        transport={transport}
-        onStartStreaming={() => startStreamingWithTiles(startStreaming)}
-        onStopStreaming={stopStreaming}
+        connectionMode={connectionMode}
         onResetZoom={resetZoom}
-        onRefresh={() => streaming && socket && emitRequestScreenWithHashes([])}
+        onRefresh={() => streaming && emitRequestScreenWithHashes([])}
         onToggleSelection={toggleSelectionMode}
         onToggleDrag={toggleDragMode}
         onToggleModifier={toggleModifierKey}
@@ -282,17 +250,9 @@ export default function RemoteDesktop({ onClose }) {
         onToggleDebug={() => setShowDebug(!showDebug)}
       />
 
-      {/* Debug Panel */}
       {showDebug && (
-        <DebugPanel
-          stats={stats}
-          onReset={resetStats}
-          onClose={() => setShowDebug(false)}
-        />
+        <DebugPanel stats={stats} onReset={resetStats} onClose={() => setShowDebug(false)} />
       )}
-
-      {/* Connection Modal - overlay when retrying/failed */}
-      <ConnectionModal retryStatus={retryStatus} onLogout={handleLogout} />
     </div>
   );
 }
