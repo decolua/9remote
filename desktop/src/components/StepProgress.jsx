@@ -8,7 +8,7 @@ export default function StepProgress({ currentStep, steps }) {
   return (
     <div className="glass-card p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-white/50 font-medium uppercase tracking-wider">Tiến trình</span>
+        <span className="text-xs text-white/50 font-medium uppercase tracking-wider">Progress</span>
         <span className="text-xs text-blue-400 font-semibold">{percent}%</span>
       </div>
 

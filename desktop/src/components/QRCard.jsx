@@ -1,4 +1,5 @@
 import React, { useState } from "react"
+import { QRCodeSVG } from "qrcode.react"
 
 export default function QRCard({ qrUrl, oneTimeKey, tunnelUrl, onCopy }) {
   const [copied, setCopied] = useState(false)
@@ -14,7 +15,7 @@ export default function QRCard({ qrUrl, oneTimeKey, tunnelUrl, onCopy }) {
       {/* QR code */}
       <div className="w-36 h-36 rounded-xl overflow-hidden bg-white p-2 flex items-center justify-center">
         {qrUrl ? (
-          <img src={qrUrl} alt="QR Code" className="w-full h-full object-contain" />
+          <QRCodeSVG value={qrUrl} size={128} bgColor="#ffffff" fgColor="#0f1923" level="M" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <span className="material-symbols-outlined text-gray-400 text-5xl">qr_code_2</span>
@@ -24,17 +25,19 @@ export default function QRCard({ qrUrl, oneTimeKey, tunnelUrl, onCopy }) {
 
       {/* title */}
       <div className="text-center">
-        <p className="text-sm font-semibold text-white">Mã QR Kết nối</p>
-        <p className="text-xs text-white/40 mt-0.5">Quét để kết nối từ thiết bị di động</p>
+        <p className="text-sm font-semibold text-white">QR Connection Code</p>
+        <p className="text-xs text-white/40 mt-0.5">Scan to connect from your mobile device</p>
       </div>
 
       {/* one-time key */}
-      {oneTimeKey && (
-        <div className="w-full glass-card p-3 text-center">
-          <p className="text-xs text-white/40 mb-1">One-Time Key</p>
+      <div className="w-full glass-card p-3 text-center">
+        <p className="text-xs text-white/40 mb-1">One-Time Key</p>
+        {oneTimeKey ? (
           <p className="font-mono text-lg font-bold text-blue-400 tracking-widest">{oneTimeKey}</p>
-        </div>
-      )}
+        ) : (
+          <p className="font-mono text-lg font-bold text-white/20 tracking-widest">• • • • • • • •</p>
+        )}
+      </div>
 
       {/* connection url */}
       {tunnelUrl && (
@@ -49,7 +52,7 @@ export default function QRCard({ qrUrl, oneTimeKey, tunnelUrl, onCopy }) {
             <span className="material-symbols-outlined text-sm">
               {copied ? "check" : "content_copy"}
             </span>
-            {copied ? "Đã sao" : "Sao chép"}
+            {copied ? "Copied" : "Copy"}
           </button>
         </div>
       )}

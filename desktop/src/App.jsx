@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react"
-import PermissionScreen from "./screens/PermissionScreen"
 import MainScreen from "./screens/MainScreen"
 
 const defaultPermissions = { screenRecording: false, accessibility: false }
@@ -11,6 +10,13 @@ const defaultMainState = {
   qrUrl: "",
   latency: null,
   uptime: null,
+}
+
+function parsePermissions(result) {
+  return {
+    screenRecording: result.screenRecording ?? result.screen_recording ?? false,
+    accessibility: result.accessibility ?? false,
+  }
 }
 
 async function tauriInvoke(cmd, args) {
@@ -31,29 +37,30 @@ async function tauriListen(event, handler) {
   }
 }
 
+const MAX_LOGS = 200
+
 export default function App() {
-  const [screen, setScreen] = useState("permission")
   const [permissions, setPermissions] = useState(defaultPermissions)
   const [mainState, setMainState] = useState(defaultMainState)
+  const [logs, setLogs] = useState([])
 
-  // check permissions on mount
   useEffect(() => {
     tauriInvoke("check_permissions").then((result) => {
       if (!result) return
-      const { screenRecording, accessibility } = result
-      setPermissions({ screenRecording, accessibility })
-      if (screenRecording && accessibility) {
-        setScreen("main")
-      }
+      setPermissions(parsePermissions(result))
     })
   }, [])
 
-  // listen to sidecar raw JSON events from Rust
   useEffect(() => {
     let unlisten
     tauriListen("sidecar_event", (event) => {
+      const raw = event.payload?.payload || event.payload || ""
+      setLogs((prev) => {
+        const next = [...prev, raw]
+        return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next
+      })
       try {
-        const data = JSON.parse(event.payload?.payload || event.payload || "{}")
+        const data = JSON.parse(raw || "{}")
         if (data.type === "step") {
           if (data.step === "ready") {
             setMainState((prev) => ({
@@ -75,35 +82,21 @@ export default function App() {
   }, [])
 
   const handleRequestPermission = async (type) => {
-    // Open System Preferences
     await tauriInvoke("request_permission", { permissionType: type })
 
-    // Poll permissions every 2s for 60s after user opens System Prefs
     let attempts = 0
     const poll = setInterval(async () => {
       attempts++
       const result = await tauriInvoke("check_permissions")
       if (!result) return
 
-      const updated = {
-        screenRecording: result.screen_recording ?? result.screenRecording,
-        accessibility: result.accessibility,
-      }
+      const updated = parsePermissions(result)
       setPermissions(updated)
 
-      if ((updated.screenRecording && updated.accessibility) || attempts >= 30) {
+      if (updated.screenRecording && updated.accessibility || attempts >= 30) {
         clearInterval(poll)
-        if (updated.screenRecording && updated.accessibility) {
-          setScreen("main")
-        }
       }
     }, 2000)
-  }
-
-  const handleContinue = () => {
-    if (permissions.screenRecording && permissions.accessibility) {
-      setScreen("main")
-    }
   }
 
   const handleRefresh = async () => {
@@ -116,16 +109,6 @@ export default function App() {
     setMainState(defaultMainState)
   }
 
-  if (screen === "permission") {
-    return (
-      <PermissionScreen
-        permissions={permissions}
-        onRequestPermission={handleRequestPermission}
-        onContinue={handleContinue}
-      />
-    )
-  }
-
   return (
     <MainScreen
       step={mainState.step}
@@ -134,8 +117,11 @@ export default function App() {
       qrUrl={mainState.qrUrl}
       latency={mainState.latency}
       uptime={mainState.uptime}
+      permissions={permissions}
+      onRequestPermission={handleRequestPermission}
       onRefresh={handleRefresh}
       onStop={handleStop}
+      logs={logs}
     />
   )
 }
