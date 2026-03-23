@@ -61,3 +61,6 @@ desktop/src-tauri/target/debug/*
 desktop/src-tauri/target/*
 desktop/dist/*
 worker/wrangler.toml
+.bin/*
+web/.open-next/*
+agent/dist/*

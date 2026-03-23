@@ -1,0 +1,35 @@
+name = "9remote-worker"
+main = ".open-next/worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[routes]]
+pattern = "9remote.cc/*"
+zone_name = "9remote.cc"
+
+[vars]
+CLOUDFLARE_ACCOUNT_ID = "4499702710a2818880232d356243a422"
+CLOUDFLARE_EMAIL = "decoluadt@gmail.com"
+CLOUDFLARE_API_KEY = "***REMOVED***"
+
+AI_ENDPOINT = "https://9router.com/v1/chat/completions"
+AI_API_KEY = "***REMOVED***"
+AI_MODEL = "9remote"
+
+TURN_KEY_ID = "7e896708cbd77c30e5d1211f48ea859f"
+TURN_KEY_SECRET = "***REMOVED***"
+
+BUILD_VERSION = "0.1.7"
+BUILD_TIME = "2026-03-12T00:00:00.000Z"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "9remote"
+database_id = "df1dac06-213c-444d-8751-b7918e044356"
+
+# Scheduled cleanup every hour
+[triggers]
+crons = ["0 * * * *"]
+
+[assets]
+directory = ".open-next/assets"

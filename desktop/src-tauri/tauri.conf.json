@@ -4,9 +4,7 @@
   "identifier": "cc.9remote.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "devUrl": "http://localhost:5173"
   },
   "app": {
     "withGlobalTauri": false,

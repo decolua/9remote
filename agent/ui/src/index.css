@@ -1,0 +1,163 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens — synced with web */
+:root {
+  --brand-500: #FF570A;
+  --brand-600: #e04400;
+  --brand-400: #ff6e33;
+  --dark-400: #404040;
+  --dark-500: #252525;
+  --dark-600: #1a1a1a;
+  --dark-700: #121212;
+  --dark-800: #0d0d0d;
+  --dark-100: #a0a0a0;
+  --radius-brand: 12px;
+  --radius-brand-lg: 16px;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: "Inter", sans-serif;
+    background-color: var(--dark-800);
+    color: #ffffff;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  input, textarea {
+    accent-color: var(--brand-500);
+  }
+
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+@layer components {
+  /* Dot grid background — synced with web */
+  .dot-grid-bg {
+    background-color: var(--dark-800);
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(255, 87, 10, 0.2) 0%, transparent 45%),
+      radial-gradient(circle at 85% 80%, rgba(255, 87, 10, 0.12) 0%, transparent 45%),
+      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+  }
+
+  /* Dark card — synced with web login card */
+  .dark-card {
+    background: var(--dark-600);
+    border: 1px solid var(--dark-400);
+    border-radius: var(--radius-brand);
+  }
+
+  .dark-card-sm {
+    background: var(--dark-700);
+    border: 1px solid var(--dark-400);
+    border-radius: var(--radius-brand);
+  }
+
+  /* Glass card — kept for backward compat */
+  .glass-card {
+    background: var(--dark-600);
+    border: 1px solid var(--dark-400);
+    border-radius: var(--radius-brand);
+  }
+
+  .glass-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    transition: all 0.2s ease;
+  }
+
+  .glass-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+
+  .btn-primary {
+    background: var(--brand-500);
+    border-radius: var(--radius-brand);
+    color: #fff;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 16px rgba(255, 87, 10, 0.2);
+  }
+
+  .btn-primary:hover {
+    background: var(--brand-600);
+    transform: scale(1.02);
+  }
+
+  .btn-primary:disabled {
+    background: rgba(255, 87, 10, 0.3);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .btn-danger {
+    background: rgba(220, 53, 69, 0.12);
+    border: 1px solid rgba(220, 53, 69, 0.25);
+    border-radius: var(--radius-brand);
+    color: #ff6b7a;
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+
+  .btn-danger:hover {
+    background: rgba(220, 53, 69, 0.22);
+    border-color: rgba(220, 53, 69, 0.4);
+  }
+
+  .brand-text {
+    font-family: "Press Start 2P", monospace;
+    color: var(--brand-500);
+    letter-spacing: 0.05em;
+  }
+
+  .material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  }
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.pulse-ring {
+  animation: pulse-ring 1.4s ease-out infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}

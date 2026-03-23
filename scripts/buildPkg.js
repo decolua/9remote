@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Build npm package: CLI bundle + Server bundle (lightweight - no Next.js)
+ * Build npm package: CLI + Server + Daemon + UI
  */
 
 import { execSync } from "child_process";
@@ -12,12 +12,13 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
+const SERVER_DIR = path.join(ROOT, "agent");
+const DIST_DIR = path.join(SERVER_DIR, "dist");
 
-// Read version from cli/package.json
-const cliPackageJson = JSON.parse(
-  fs.readFileSync(path.join(ROOT, "cli/package.json"), "utf-8")
-);
-const VERSION = cliPackageJson.version;
+// Read version from agent/package.json
+const VERSION = JSON.parse(
+  fs.readFileSync(path.join(SERVER_DIR, "package.json"), "utf-8")
+).version;
 
 function run(cmd, cwd = ROOT) {
   console.log(`> ${cmd}`);
@@ -28,7 +29,6 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-// Shared esbuild config for Node.js bundles
 const baseConfig = {
   bundle: true,
   platform: "node",
@@ -36,95 +36,88 @@ const baseConfig = {
   format: "cjs",
   minify: true,
   sourcemap: false,
-  banner: {
-    js: "const __importMetaUrl = require('url').pathToFileURL(__filename).href;"
-  },
+  banner: { js: "const __importMetaUrl = require('url').pathToFileURL(__filename).href;" },
   define: {
     "import.meta.url": "__importMetaUrl",
-    "__CLI_VERSION__": JSON.stringify(VERSION)
-  }
+    "__CLI_VERSION__": JSON.stringify(VERSION),
+  },
 };
 
 async function buildCli() {
   console.log("\n📦 Bundling CLI...");
-  
-  const outfile = path.join(ROOT, "cli/dist/cli.cjs");
+  const outfile = path.join(DIST_DIR, "cli.cjs");
   ensureDir(path.dirname(outfile));
-  
   await esbuild.build({
     ...baseConfig,
-    entryPoints: [path.join(ROOT, "cli/index.js")],
+    entryPoints: [path.join(SERVER_DIR, "cli/index.js")],
     outfile,
-    external: ["node-pty", "sharp", "cloudflared", "@hurdlegroup/robotjs"]
+    external: ["node-pty", "sharp", "cloudflared", "@hurdlegroup/robotjs"],
   });
-  
-  const stats = fs.statSync(outfile);
-  console.log(`✅ CLI → cli/dist/cli.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
+  console.log(`✅ CLI → agent/dist/cli.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
 
 async function buildServer() {
   console.log("\n📦 Bundling Server...");
-  
-  const outfile = path.join(ROOT, "cli/dist/server.cjs");
+  const outfile = path.join(DIST_DIR, "server.cjs");
   ensureDir(path.dirname(outfile));
-  
   await esbuild.build({
     ...baseConfig,
-    entryPoints: [path.join(ROOT, "server/index.js")],
+    entryPoints: [path.join(SERVER_DIR, "index.js")],
     outfile,
-    external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel"]
+    external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel"],
   });
-  
-  const stats = fs.statSync(outfile);
-  console.log(`✅ Server → cli/dist/server.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
+  console.log(`✅ Server → agent/dist/server.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
 
 async function buildDaemon() {
   console.log("\n📦 Bundling PTY Daemon...");
-  
-  const outfile = path.join(ROOT, "cli/dist/ptyDaemon.cjs");
+  const outfile = path.join(DIST_DIR, "ptyDaemon.cjs");
   ensureDir(path.dirname(outfile));
-  
   await esbuild.build({
     ...baseConfig,
-    entryPoints: [path.join(ROOT, "server/features/terminal/ptyDaemon.js")],
+    entryPoints: [path.join(SERVER_DIR, "features/terminal/ptyDaemon.js")],
     outfile,
-    external: ["node-pty"]
+    external: ["node-pty"],
   });
-  
-  const stats = fs.statSync(outfile);
-  console.log(`✅ Daemon → cli/dist/ptyDaemon.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
+  console.log(`✅ Daemon → agent/dist/ptyDaemon.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
+}
+
+function buildUi() {
+  console.log("\n🎨 Building Preact UI...");
+  run("npm run build:ui", SERVER_DIR);
+
+  // Copy agent/ui/dist/ → agent/dist/ui/
+  const uiDist = path.join(SERVER_DIR, "ui/dist");
+  const uiOut = path.join(DIST_DIR, "ui");
+  if (fs.existsSync(uiOut)) fs.rmSync(uiOut, { recursive: true });
+  fs.cpSync(uiDist, uiOut, { recursive: true });
+  console.log("✅ UI → agent/dist/ui/");
 }
 
 async function build() {
-  console.log("🔨 Building npm package (lightweight - no Next.js)...\n");
+  console.log("🔨 Building npm package...\n");
 
-  // Clean old dist
-  const distDir = path.join(ROOT, "cli/dist");
-  if (fs.existsSync(distDir)) {
-    fs.rmSync(distDir, { recursive: true });
-  }
+  if (fs.existsSync(DIST_DIR)) fs.rmSync(DIST_DIR, { recursive: true });
 
-  // Bundle CLI + Server + Daemon into cli/dist/
+  buildUi();
   await buildCli();
   await buildServer();
   await buildDaemon();
 
-  // Create npm pack from cli/
   console.log("\n📦 Creating npm package...");
-  run("npm pack", path.join(ROOT, "cli"));
+  run("npm pack", SERVER_DIR);
 
   // Move .tgz to root
-  const tgzFiles = fs.readdirSync(path.join(ROOT, "cli")).filter(f => f.endsWith(".tgz"));
+  const tgzFiles = fs.readdirSync(SERVER_DIR).filter((f) => f.endsWith(".tgz"));
   for (const tgz of tgzFiles) {
-    fs.renameSync(path.join(ROOT, "cli", tgz), path.join(ROOT, tgz));
+    fs.renameSync(path.join(SERVER_DIR, tgz), path.join(ROOT, tgz));
     console.log(`📦 Package: ${tgz}`);
   }
 
   console.log("\n✅ Package build complete!");
 }
 
-build().catch(err => {
+build().catch((err) => {
   console.error("❌ Build failed:", err);
   process.exit(1);
 });

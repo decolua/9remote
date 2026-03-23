@@ -1,0 +1,47 @@
+{
+  "name": "9remote-web",
+  "version": "0.1.7",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:cf": "opennextjs-cloudflare build",
+    "deploy": "opennextjs-cloudflare deploy",
+    "preview": "opennextjs-cloudflare preview",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv env.d.ts"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.1",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-html": "^6.4.11",
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/language": "^6.12.1",
+    "@codemirror/search": "^6.6.0",
+    "@codemirror/state": "^6.5.4",
+    "@codemirror/theme-one-dark": "^6.1.3",
+    "@codemirror/view": "^6.39.11",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "codemirror": "^6.0.2",
+    "crypto-js": "^4.2.0",
+    "diff2html": "^3.4.55",
+    "hterm-umd": "^1.0.1",
+    "lucide-react": "^0.563.0",
+    "next": "^16.1.5",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "socket.io-client": "^4.8.3",
+    "zustand": "^5.0.10"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "@opennextjs/cloudflare": "latest",
+    "@tailwindcss/postcss": "^4",
+    "tailwindcss": "^4",
+    "wrangler": "^4.65.0"
+  }
+}

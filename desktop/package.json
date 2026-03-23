@@ -2,25 +2,10 @@
   "name": "9remote-desktop",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
     "tauri": "tauri"
   },
-  "dependencies": {
-    "@tauri-apps/api": "^2",
-    "qrcode": "^1.5.4",
-    "qrcode.react": "^4.2.0",
-    "react": "^18",
-    "react-dom": "^18"
-  },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
-    "@vitejs/plugin-react": "^4",
-    "autoprefixer": "^10",
-    "postcss": "^8",
-    "tailwindcss": "^3",
-    "vite": "^5"
+    "@tauri-apps/cli": "^2"
   }
 }

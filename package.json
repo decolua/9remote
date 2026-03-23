@@ -1,30 +1,29 @@
 {
   "name": "9remote-monorepo",
-  "version": "0.1.48",
+  "version": "0.1.49",
   "private": true,
   "type": "module",
   "workspaces": [
-    "cli",
-    "server",
-    "client",
-    "worker",
+    "agent",
+    "web",
     "gitbook",
     "desktop"
   ],
   "scripts": {
-    "dev": "npm-run-all --parallel dev:cli dev:client",
-    "dev:cli": "node cli/index.js --auto",
-    "dev:client": "npm run dev --workspace=client",
-    "dev:docs": "npm run dev --workspace=gitbook",
-    "start": "node cli/index.js",
-    "build:pkg": "node scripts/syncVersion.js && node scripts/buildPkg.js",
-    "build:worker": "npm run build --workspace=client && node scripts/buildWorkerStatic.js",
-    "build:docs": "npm run build --workspace=gitbook",
-    "deploy": "npm run build:worker && cd worker && wrangler deploy",
-    "deploy:docs": "npm run build:docs && cd gitbook && npx wrangler pages deploy out --project-name=9remote-docs",
-    "publish": "npm run build:pkg && cd cli && npm publish",
-    "dev:desktop": "cd desktop && PATH=\"$HOME/.cargo/bin:$PATH\" npm run tauri dev",
-    "build:desktop": "npm run build:pkg && node scripts/buildDesktop.js && cd desktop && PATH=\"$HOME/.cargo/bin:$PATH\" npm run tauri build"
+    "dev": "run-p agent:dev web:dev",
+    "agent:dev": "npm run dev --workspace=agent",
+    "agent:dev:ui": "npm run dev:ui --workspace=agent",
+    "agent:build": "node scripts/syncVersion.js && node scripts/buildPkg.js",
+    "agent:publish": "npm run agent:build && cd agent && npm publish",
+    
+    "web:dev": "npm run dev --workspace=web",
+    "web:deploy": "npm run deploy --workspace=web",
+    
+    "docs:dev": "npm run dev --workspace=gitbook",
+    "docs:deploy": "npm run build --workspace=gitbook && cd gitbook && npx wrangler pages deploy out --project-name=9remote-docs",
+    
+    "desktop:build": "npm run agent:build && npm run tauri build --prefix desktop",
+    "desktop:dev": "NINEREMOTE_ENV=development npm run tauri dev --prefix desktop"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
@@ -32,5 +31,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "npm-run-all": "^4.1.5"
+  },
+  "dependencies": {
+    "wrangler": "^4.73.0"
   }
 }
