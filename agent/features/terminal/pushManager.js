@@ -59,14 +59,20 @@ function savePushSubscriptions() {
   }
 }
 
+// Get unique identifier per subscription type
+function getIdentifier(sub) {
+  return sub.type === "expo" ? sub.token : sub.endpoint;
+}
+
 export function addPushSubscription(subscription, socketId) {
-  pushSubscriptions = pushSubscriptions.filter(s => s.endpoint !== subscription.endpoint);
+  const id = getIdentifier(subscription);
+  pushSubscriptions = pushSubscriptions.filter(s => getIdentifier(s) !== id);
   pushSubscriptions.push({ ...subscription, socketId, lastConnectedAt: Date.now() });
   savePushSubscriptions();
 }
 
-export function removePushSubscription(endpoint) {
-  pushSubscriptions = pushSubscriptions.filter(s => s.endpoint !== endpoint);
+export function removePushSubscription(identifier) {
+  pushSubscriptions = pushSubscriptions.filter(s => getIdentifier(s) !== identifier);
   savePushSubscriptions();
 }
 
@@ -77,9 +83,9 @@ export function markSubscriptionDisconnected(socketId) {
   savePushSubscriptions();
 }
 
-export function markSubscriptionConnected(socketId, endpoint) {
+export function markSubscriptionConnected(socketId, identifier) {
   for (const sub of pushSubscriptions) {
-    if (sub.endpoint === endpoint) {
+    if (getIdentifier(sub) === identifier) {
       sub.socketId = socketId;
       sub.disconnectedAt = null;
       sub.lastConnectedAt = Date.now();
@@ -88,44 +94,62 @@ export function markSubscriptionConnected(socketId, endpoint) {
   savePushSubscriptions();
 }
 
+async function sendExpoPush(sub, toolName, notification) {
+  const message = {
+    to: sub.token,
+    sound: "default",
+    title: notification.type === "stop" ? `${toolName} ✅` : `${toolName} 🔔`,
+    body: notification.type === "stop" ? `${toolName} completed the task` : `${toolName} needs your input`,
+    data: { url: "/workspace", type: notification.type }
+  };
+  const res = await fetch("https://exp.host/--/api/v2/push/send", {
+    method: "POST",
+    headers: { "Accept": "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(message)
+  });
+  const result = await res.json();
+  if (result.data?.status === "error") throw new Error(result.data.message);
+  console.log(`  ✅ Expo push sent to ${sub.token.slice(0, 30)}...`);
+}
+
 export async function sendPushNotification(notification) {
   const toolNames = { claude: "Claude", codex: "Codex", gemini: "Gemini" };
   const toolName = toolNames[notification.tool] || "AI";
 
   console.log(`🔔 Sending push notification: ${notification.type} ${toolName}`);
 
-  const payload = JSON.stringify({
-    title: notification.type === "stop" ? `${toolName} ✅` : `${toolName} 🔔`,
-    body: notification.type === "stop" ? `${toolName} completed the task` : `${toolName} needs your input`,
-    data: { url: "/workspace", type: notification.type }
-  });
-
-  const expiredEndpoints = [];
-
   // Push only to the latest connected subscription
   const latest = pushSubscriptions.reduce((a, b) =>
     (a?.lastConnectedAt ?? 0) >= (b?.lastConnectedAt ?? 0) ? a : b
   , null);
-  const targets = latest ? [latest] : [];
 
-  console.log(`📤 sendPush: total=${pushSubscriptions.length} target=${targets.length > 0 ? latest.endpoint.slice(0, 50) + "..." : "none"}`);
-
-  for (const sub of targets) {
-    try {
-      await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload);
-      console.log(`  ✅ Push sent to ${sub.endpoint.slice(0, 50)}...`);
-    } catch (error) {
-      console.log(`  ❌ Push failed: ${error.statusCode} ${error.message}`);
-      if (error.statusCode === 410 || error.statusCode === 404) {
-        expiredEndpoints.push(sub.endpoint);
-      }
-    }
+  if (!latest) {
+    console.log("📤 sendPush: no subscriptions");
+    return;
   }
 
-  // Cleanup expired
-  if (expiredEndpoints.length > 0) {
-    pushSubscriptions = pushSubscriptions.filter(s => !expiredEndpoints.includes(s.endpoint));
-    savePushSubscriptions();
+  const id = getIdentifier(latest);
+  console.log(`📤 sendPush: total=${pushSubscriptions.length} target=${id.slice(0, 50)}...`);
+
+  try {
+    if (latest.type === "expo") {
+      await sendExpoPush(latest, toolName, notification);
+    } else {
+      const payload = JSON.stringify({
+        title: notification.type === "stop" ? `${toolName} ✅` : `${toolName} 🔔`,
+        body: notification.type === "stop" ? `${toolName} completed the task` : `${toolName} needs your input`,
+        data: { url: "/workspace", type: notification.type }
+      });
+      await webpush.sendNotification({ endpoint: latest.endpoint, keys: latest.keys }, payload);
+      console.log(`  ✅ WebPush sent to ${latest.endpoint.slice(0, 50)}...`);
+    }
+  } catch (error) {
+    console.log(`  ❌ Push failed: ${error.statusCode || error.message}`);
+    const isExpired = error.statusCode === 410 || error.statusCode === 404 || error.message?.includes("DeviceNotRegistered");
+    if (isExpired) {
+      pushSubscriptions = pushSubscriptions.filter(s => getIdentifier(s) !== id);
+      savePushSubscriptions();
+    }
   }
 }
 

@@ -18,13 +18,14 @@ export function setupPushHandlers(socket) {
   socket.on("getVapidKey", (callback) => callback(getVapidPublicKey()));
 
   socket.on("pushSubscribe", (subscription) => {
-    if (!subscription?.endpoint) return;
-    markSubscriptionConnected(socket.id, subscription.endpoint);
+    const identifier = subscription?.type === "expo" ? subscription.token : subscription?.endpoint;
+    if (!identifier) return;
+    markSubscriptionConnected(socket.id, identifier);
     addPushSubscription(subscription, socket.id);
   });
 
-  socket.on("pushUnsubscribe", (endpoint) => {
-    if (endpoint) removePushSubscription(endpoint);
+  socket.on("pushUnsubscribe", (identifier) => {
+    if (identifier) removePushSubscription(identifier);
   });
 
   socket.on("enableHook", async ({ tool }, callback) => {

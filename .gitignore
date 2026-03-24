@@ -65,3 +65,4 @@ worker/wrangler.toml
 web/.open-next/*
 agent/dist/*
 web/.wrangler/*
+expo/ios/*

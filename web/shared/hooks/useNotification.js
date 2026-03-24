@@ -14,32 +14,36 @@ export function useNotification(socketRef, connected) {
   const getSelectedSession = useTerminalStore((state) => state.getSelectedSession);
   const getCurrentView = useTerminalStore((state) => state.getCurrentView);
 
+  const isExpoWebView = typeof window !== "undefined" && !!window.ReactNativeWebView;
+
   // Subscribe to push notifications and send subscription to server
   const subscribeToPush = useCallback(async () => {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-      console.warn("🔕 Push not supported:", { sw: "serviceWorker" in navigator, pm: "PushManager" in window });
-      return;
-    }
-    if (!socketRef?.current) {
-      console.warn("🔕 No socket");
+    if (!socketRef?.current) return;
+
+    // Expo WebView: request token via native bridge
+    if (isExpoWebView) {
+      window.handleExpoPushToken = (token) => {
+        socketRef.current?.emit("pushSubscribe", { type: "expo", token });
+        subscriptionRef.current = { type: "expo", token };
+      };
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "REQUEST_PUSH_TOKEN" }));
       return;
     }
 
+    // PWA: WebPush via Service Worker
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      console.warn("🔕 Push not supported");
+      return;
+    }
     try {
       const permission = await Notification.requestPermission();
-      console.log("🔔 Notification permission:", permission);
       if (permission !== "granted") return;
 
       const registration = await navigator.serviceWorker.ready;
-      if (!registration.pushManager) {
-        console.warn("🔕 No pushManager on registration");
-        return;
-      }
+      if (!registration.pushManager) return;
 
       socketRef.current.emit("getVapidKey", async (vapidKey) => {
-        console.log("🔑 VAPID key received:", vapidKey ? vapidKey.slice(0, 20) + "..." : "null");
         if (!vapidKey) return;
-
         try {
           let subscription = await registration.pushManager.getSubscription();
           if (!subscription) {
@@ -48,7 +52,6 @@ export function useNotification(socketRef, connected) {
               applicationServerKey: vapidKey
             });
           }
-          console.log("✅ Push subscribed, sending to server");
           socketRef.current.emit("pushSubscribe", subscription.toJSON());
           subscriptionRef.current = subscription;
         } catch (error) {
@@ -58,12 +61,23 @@ export function useNotification(socketRef, connected) {
     } catch (error) {
       console.error("Push notification setup failed:", error);
     }
-  }, [socketRef]);
+  }, [socketRef, isExpoWebView]);
 
-  // Auto re-send existing push subscription when socket connects (to update socketId)
+  // Auto re-send existing subscription on reconnect
   useEffect(() => {
     const currentSocket = socketRef?.current;
     if (!currentSocket || !connected) return;
+
+    if (isExpoWebView) {
+      // Re-request token via bridge to update socketId on server
+      window.handleExpoPushToken = (token) => {
+        currentSocket.emit("pushSubscribe", { type: "expo", token });
+        subscriptionRef.current = { type: "expo", token };
+      };
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "REQUEST_PUSH_TOKEN" }));
+      return;
+    }
+
     (async () => {
       try {
         if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
@@ -71,11 +85,9 @@ export function useNotification(socketRef, connected) {
         if (!registration.pushManager) return;
         const subscription = await registration.pushManager.getSubscription();
         if (subscription) currentSocket.emit("pushSubscribe", subscription.toJSON());
-      } catch (e) {
-        // ignore
-      }
+      } catch (e) { /* ignore */ }
     })();
-  }, [socketRef, connected]);
+  }, [socketRef, connected, isExpoWebView]);
 
   // Listen for notification events from server
   useEffect(() => {
@@ -152,6 +164,11 @@ export function useNotification(socketRef, connected) {
 
   const unsubscribeFromPush = useCallback(async () => {
     try {
+      if (subscriptionRef.current?.type === "expo") {
+        socketRef.current?.emit("pushUnsubscribe", subscriptionRef.current.token);
+        subscriptionRef.current = null;
+        return;
+      }
       if (subscriptionRef.current) {
         await subscriptionRef.current.unsubscribe();
         socketRef.current?.emit("pushUnsubscribe", subscriptionRef.current.endpoint);
