@@ -129,6 +129,7 @@ fn find_node_binary() -> String {
     if let Ok(home) = std::env::var("HOME") {
         let cached = format!("{home}/{NODE_CACHE_DIR}/bin/node");
         if std::path::Path::new(&cached).exists() {
+            eprintln!("[Desktop] Using cached node: {}", cached);
             return cached;
         }
     }
@@ -140,6 +141,7 @@ fn find_node_binary() -> String {
     ];
     for path in &candidates {
         if std::path::Path::new(path).exists() {
+            eprintln!("[Desktop] Using system node: {}", path);
             return path.to_string();
         }
     }
@@ -149,6 +151,7 @@ fn find_node_binary() -> String {
         if let Ok(version) = std::fs::read_to_string(&nvm_default) {
             let nvm_node = format!("{home}/.nvm/versions/node/{}/bin/node", version.trim());
             if std::path::Path::new(&nvm_node).exists() {
+                eprintln!("[Desktop] Using nvm default node: {}", nvm_node);
                 return nvm_node;
             }
         }
@@ -159,11 +162,14 @@ fn find_node_binary() -> String {
             if let Some(latest) = versions.last() {
                 let node = latest.join("bin/node");
                 if node.exists() {
-                    return node.to_string_lossy().to_string();
+                    let node_path = node.to_string_lossy().to_string();
+                    eprintln!("[Desktop] Using nvm latest node: {}", node_path);
+                    return node_path;
                 }
             }
         }
     }
+    eprintln!("[Desktop] Falling back to 'node' in PATH");
     "node".to_string()
 }
 
@@ -186,19 +192,23 @@ fn find_npm_binary() -> String {
 fn spawn_9remote_ui(app: AppHandle) {
     tauri::async_runtime::spawn_blocking(move || {
         use std::process::{Command, Stdio};
+        use std::io::{BufRead, BufReader};
 
         let npm = find_npm_binary();
+        
+        eprintln!("[Desktop] Spawning: {} exec -- {} ui", npm, NPM_PACKAGE);
+        let _ = app.emit("setup_progress", "Starting 9Remote server...");
 
         let mut child = match Command::new(&npm)
             .args(["exec", "--", NPM_PACKAGE, "ui"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
         {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Failed to spawn 9remote ui: {e}");
-                let _ = app.emit("setup_progress", format!("Error: {e}"));
+                eprintln!("[Desktop] Failed to spawn 9remote ui: {e}");
+                let _ = app.emit("setup_progress", format!("Error spawning: {e}"));
                 return;
             }
         };
@@ -207,16 +217,54 @@ fn spawn_9remote_ui(app: AppHandle) {
             *pid_lock = Some(child.id());
         }
 
+        // Capture stdout/stderr in background threads
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        
+        if let Some(stdout) = stdout {
+            std::thread::spawn(move || {
+                let reader = BufReader::new(stdout);
+                for line in reader.lines().flatten() {
+                    eprintln!("[9remote stdout] {}", line);
+                }
+            });
+        }
+        
+        if let Some(stderr) = stderr {
+            std::thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines().flatten() {
+                    eprintln!("[9remote stderr] {}", line);
+                }
+            });
+        }
+
         // Poll health until server ready (max 30s)
         let health_url = format!("http://localhost:{SERVER_PORT}/api/health");
-        for _ in 0..30 {
+        let mut attempts = 0;
+        for i in 0..30 {
             std::thread::sleep(std::time::Duration::from_secs(1));
-            if let Ok(resp) = ureq::get(&health_url).call() {
-                if resp.status() == 200 {
-                    let _ = app.emit("setup_ready", ());
-                    break;
+            attempts = i + 1;
+            
+            match ureq::get(&health_url).call() {
+                Ok(resp) => {
+                    if resp.status() == 200 {
+                        eprintln!("[Desktop] Server ready after {} seconds", attempts);
+                        let _ = app.emit("setup_ready", ());
+                        break;
+                    }
+                }
+                Err(e) => {
+                    if i % 5 == 0 {
+                        eprintln!("[Desktop] Health check attempt {}/30: {}", attempts, e);
+                    }
                 }
             }
+        }
+        
+        if attempts >= 30 {
+            eprintln!("[Desktop] Server failed to start after 30s");
+            let _ = app.emit("setup_progress", "Server timeout - check Console.app logs");
         }
 
         let _ = child.wait();
@@ -226,30 +274,63 @@ fn spawn_9remote_ui(app: AppHandle) {
 /// Check if 9remote is already installed globally
 fn is_9remote_installed() -> bool {
     let npm = find_npm_binary();
+    eprintln!("[Desktop] Checking if {} is installed via: {}", NPM_PACKAGE, npm);
     let output = std::process::Command::new(&npm)
         .args(["list", "-g", "--depth=0", NPM_PACKAGE])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .output();
     match output {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).contains(NPM_PACKAGE),
-        Err(_) => false,
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let installed = stdout.contains(NPM_PACKAGE);
+            eprintln!("[Desktop] {} installed: {}", NPM_PACKAGE, installed);
+            installed
+        }
+        Err(e) => {
+            eprintln!("[Desktop] Failed to check installation: {}", e);
+            false
+        }
     }
 }
 
 /// Install 9remote globally if not present
 fn ensure_9remote_installed(app: &AppHandle) {
     if is_9remote_installed() {
+        eprintln!("[Desktop] 9Remote already installed");
         let _ = app.emit("setup_progress", "Starting 9Remote...");
         return;
     }
+    
+    eprintln!("[Desktop] Installing 9Remote globally (first time)...");
     let _ = app.emit("setup_progress", "Installing 9Remote (first time setup)...");
+    
     let npm = find_npm_binary();
-    let _ = std::process::Command::new(&npm)
+    eprintln!("[Desktop] Using npm: {}", npm);
+    
+    match std::process::Command::new(&npm)
         .args(["install", "-g", NPM_PACKAGE])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+    {
+        Ok(output) => {
+            if !output.status.success() {
+                eprintln!("[Desktop] npm install failed:");
+                eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+                eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+                let _ = app.emit("setup_progress", "Installation failed - check logs");
+                return;
+            }
+            eprintln!("[Desktop] 9Remote installed successfully");
+        }
+        Err(e) => {
+            eprintln!("[Desktop] Failed to run npm install: {}", e);
+            let _ = app.emit("setup_progress", format!("Install error: {}", e));
+            return;
+        }
+    }
+    
     let _ = app.emit("setup_progress", "Starting server...");
 }
 

@@ -5,12 +5,13 @@ import { API_ENDPOINTS } from "@/shared/constants/API";
 import { useSessionStorage } from "./useSessionStorage";
 
 // Verify WebSocket connection to server
-function verifyServerConnection(tunnelUrl, timeout = 10000) {
+function verifyServerConnection(tunnelUrl, apiKey, timeout = 10000) {
   return new Promise((resolve) => {
     const socket = io(tunnelUrl, {
       path: "/socket.io",
       transports: ["websocket"],
-      timeout: timeout
+      timeout: timeout,
+      auth: { apiKey }
     });
 
     const timer = setTimeout(() => {
@@ -59,7 +60,8 @@ export function useAuth() {
       const data = await response.json();
 
       // Verify WebSocket connection before saving auth
-      const connected = await verifyServerConnection(data.tunnelUrl);
+      const resolvedApiKey = credentials.apiKey || data.apiKey;
+      const connected = await verifyServerConnection(data.tunnelUrl, resolvedApiKey);
       if (!connected) {
         throw new Error("Server not reachable. Please try again.");
       }

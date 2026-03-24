@@ -64,3 +64,4 @@ worker/wrangler.toml
 .bin/*
 web/.open-next/*
 agent/dist/*
+web/.wrangler/*

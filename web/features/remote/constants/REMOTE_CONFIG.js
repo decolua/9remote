@@ -8,7 +8,7 @@ export const REMOTE_CONFIG = {
   // enableWebRTC: true  → negotiate DataChannel for faster streaming
   // enableTurn: false   → STUN P2P only, no TURN relay (set true for cross-network)
   enableWebRTC: false,
-  enableTurn: false,
+  enableTurn: true,
   // DataChannel chunk size (tiles per message) — synced with server
   dcChunkSize: 8,
   // DataChannel reliability mode

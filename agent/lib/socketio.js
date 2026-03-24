@@ -38,6 +38,18 @@ export async function setupSocketIO(server) {
     pingInterval: 25000
   });
 
+  // Verify apiKey on every Socket.IO connection
+  // io.use((socket, next) => {
+  //   const serverKey = loadApiKey();
+  //   console.log("🚀 ~ setupSocketIO ~ serverKey:", serverKey)
+  //   // If no key configured yet (first run), allow through
+  //   if (!serverKey) return next();
+  //   const clientKey = socket.handshake.auth?.apiKey;
+  //   console.log("🚀 ~ setupSocketIO ~ clientKey:", clientKey)
+  //   if (clientKey === serverKey) return next();
+  //   next(new Error("unauthorized"));
+  // });
+
   // Check remote availability at startup
   await checkRemoteAvailable();
 

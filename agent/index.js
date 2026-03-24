@@ -236,6 +236,16 @@ export async function startServer() {
       const parsedUrl = parse(req.url, true);
       const { pathname, search } = parsedUrl;
 
+      // UI routes: only accessible from localhost (not via tunnel)
+      const isLocalhost = req.socket.remoteAddress === "127.0.0.1" || req.socket.remoteAddress === "::1";
+      const isUiRoute = pathname === "/api/ui/events" || pathname === "/api/ui/state"
+        || (!pathname.startsWith("/api/") && !pathname.startsWith("/proxy/") && !pathname.startsWith("/socket.io"));
+      if (isUiRoute && !isLocalhost) {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: "forbidden" }));
+        return;
+      }
+
       // UI SSE stream
       if (pathname === "/api/ui/events") {
         handleUiEvents(req, res);

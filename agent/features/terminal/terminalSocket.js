@@ -62,8 +62,8 @@ export function setupTerminalSocket(io, apiKey) {
   }
 
   io.on("connection", (socket) => {
-    const mode = socket.handshake.auth?.connectionMode || "tunnel";
-    console.log(`📟 Terminal client connected: ${socket.id} [${mode}]`);
+    // const mode = socket.handshake.auth?.connectionMode || "tunnel";
+    // const timestamp = new Date().toISOString();
     trackConnection();
 
     socket.emit("serverInfo", {
@@ -82,8 +82,9 @@ export function setupTerminalSocket(io, apiKey) {
       console.error("❌ Failed to setup remote handlers:", err.message);
     });
 
-    socket.on("disconnect", () => {
-      console.log(`📟 Terminal client disconnected: ${socket.id}`);
+    socket.on("disconnect", (reason) => {
+      const timestamp = new Date().toISOString();
+      console.log(`[WS-DEBUG] 📟 Terminal client disconnected: ${socket.id}, reason: ${reason} at ${timestamp}`);
       markSubscriptionDisconnected(socket.id);
       trackDisconnection();
     });
