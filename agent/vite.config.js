@@ -1,26 +1,26 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 
-const SERVER_PORT = 2208;
+const AGENT_PORT = 2208;
 
 export default defineConfig({
-  plugins: [preact()],
   root: "ui",
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-    target: ["es2021", "chrome105", "safari15"],
-    minify: "esbuild",
-  },
+  plugins: [preact()],
   server: {
     port: 5173,
-    strictPort: true,
     proxy: {
-      "/api": `http://localhost:${SERVER_PORT}`,
+      "/api": {
+        target: `http://localhost:${AGENT_PORT}`,
+        changeOrigin: true,
+      },
       "/socket.io": {
-        target: `http://localhost:${SERVER_PORT}`,
+        target: `http://localhost:${AGENT_PORT}`,
+        changeOrigin: true,
         ws: true,
       },
     },
+  },
+  build: {
+    outDir: "dist",
   },
 });

@@ -5,6 +5,7 @@ import os from "os";
 const STATE_DIR = path.join(os.homedir(), ".9remote");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
 const KEYS_FILE = path.join(STATE_DIR, "keys.json");
+const CMD_FILE = path.join(STATE_DIR, "cmd.json");
 
 /**
  * Ensure state directory exists
@@ -68,6 +69,28 @@ export function loadKey() {
     return JSON.parse(fs.readFileSync(KEYS_FILE, "utf8"));
   } catch {
     return { machineId: null, key: null, name: "Default", createdAt: null };
+  }
+}
+
+// ==================== IPC CMD ====================
+
+/** Write a command for CLI to pick up */
+export function writeCmd(cmd) {
+  try {
+    ensureDir();
+    fs.writeFileSync(CMD_FILE, JSON.stringify({ cmd, ts: Date.now() }));
+  } catch {}
+}
+
+/** Read and clear pending command (returns null if none) */
+export function readAndClearCmd() {
+  try {
+    if (!fs.existsSync(CMD_FILE)) return null;
+    const data = JSON.parse(fs.readFileSync(CMD_FILE, "utf8"));
+    fs.unlinkSync(CMD_FILE);
+    return data.cmd;
+  } catch {
+    return null;
   }
 }
 

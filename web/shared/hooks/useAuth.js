@@ -1,36 +1,19 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { io } from "socket.io-client";
 import { API_ENDPOINTS } from "@/shared/constants/API";
 import { useSessionStorage } from "./useSessionStorage";
 
-// Verify WebSocket connection to server
-function verifyServerConnection(tunnelUrl, apiKey, timeout = 10000) {
-  return new Promise((resolve) => {
-    const socket = io(tunnelUrl, {
-      path: "/socket.io",
-      transports: ["websocket"],
-      timeout: timeout,
-      auth: { apiKey }
-    });
-
-    const timer = setTimeout(() => {
-      socket.disconnect();
-      resolve(false);
-    }, timeout);
-
-    socket.on("connect", () => {
-      clearTimeout(timer);
-      socket.disconnect();
-      resolve(true);
-    });
-
-    socket.on("connect_error", () => {
-      clearTimeout(timer);
-      socket.disconnect();
-      resolve(false);
-    });
-  });
+// Verify server reachability via HTTP health check (avoids extra WS connection)
+async function verifyServerConnection(tunnelUrl, apiKey, timeout = 10000) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    const res = await fetch(`${tunnelUrl}/api/health`, { signal: controller.signal });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // Centralized auth logic - handles both token and API key auth

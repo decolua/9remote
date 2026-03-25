@@ -1,43 +1,68 @@
-const stepIcons = ["play_arrow", "lan", "verified_user", "check_circle"];
+const STEPS_META = [
+  { icon: "download", label: "Preparing", desc: "Checking tunnel binary" },
+  { icon: "cloud_sync", label: "Connecting", desc: "Creating session" },
+  { icon: "lan", label: "Tunneling", desc: "Starting secure tunnel" },
+  { icon: "check_circle", label: "Ready", desc: "Connected" },
+];
 
-export default function StepProgress({ currentStep, steps }) {
-  const percent = Math.round((currentStep / (steps.length - 1)) * 100);
-
+// currentStep: 1=Preparing, 2=Connecting, 3=Tunneling, (4=Ready handled by parent)
+export default function StepProgress({ currentStep }) {
+  // map step (1-based) to 0-based index
+  const activeIdx = currentStep - 1;
   return (
-    <div className="glass-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-white/50 font-medium uppercase tracking-wider">Progress</span>
-        <span className="text-xs font-semibold" style={{ color: "var(--brand-500)" }}>{percent}%</span>
-      </div>
-
-      <div className="relative flex items-center justify-between">
-        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-px bg-white/10 mx-5" />
-        <div
-          className="absolute left-5 top-1/2 -translate-y-1/2 h-px transition-all duration-700"
-          style={{ background: "var(--brand-500)", width: `calc(${percent}% - 40px)` }}
-        />
-
-        {steps.map((label, i) => {
-          const completed = i < currentStep;
-          const active = i === currentStep;
+    <div className="glass-card p-5 flex flex-col gap-4">
+      <span className="text-xs text-white/50 font-medium uppercase tracking-wider">Setting up connection</span>
+      <div className="flex flex-col gap-3">
+        {STEPS_META.map((meta, i) => {
+          const completed = i < activeIdx;
+          const active = i === activeIdx;
+          const pending = i > currentStep;
 
           return (
-            <div key={i} className="relative flex flex-col items-center gap-1.5 z-10">
-              <div className="relative flex items-center justify-center w-8 h-8 rounded-full">
-                {active && <div className="absolute inset-0 rounded-full pulse-ring" style={{ background: "rgba(255,87,10,0.3)" }} />}
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${completed || active ? "" : "bg-white/10"}`} style={completed || active ? { background: "var(--brand-500)" } : {}}>
-                  {completed ? (
-                    <span className="material-symbols-outlined text-white text-sm">check</span>
-                  ) : active ? (
-                    <span className="material-symbols-outlined text-white text-sm spin">{stepIcons[i]}</span>
-                  ) : (
-                    <span className="material-symbols-outlined text-white/30 text-sm">{stepIcons[i]}</span>
-                  )}
-                </div>
+            <div key={i} className="flex items-center gap-3">
+              {/* step indicator */}
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: completed ? "var(--brand-500)"
+                    : active ? "rgba(255,87,10,0.15)"
+                    : "rgba(255,255,255,0.06)",
+                  border: active ? "1.5px solid var(--brand-500)" : "1.5px solid transparent",
+                }}>
+                {completed ? (
+                  <span className="material-symbols-outlined text-white" style={{ fontSize: 16 }}>check</span>
+                ) : active ? (
+                  /* dots spinner — 3 bouncing dots */
+                  <span className="flex gap-0.5 items-center">
+                    {[0, 1, 2].map((d) => (
+                      <span key={d} className="w-1 h-1 rounded-full bg-orange-400 dot-bounce"
+                        style={{ animationDelay: `${d * 0.18}s` }} />
+                    ))}
+                  </span>
+                ) : (
+                  <span className="material-symbols-outlined text-white/20" style={{ fontSize: 16 }}>{meta.icon}</span>
+                )}
               </div>
-              <span className={`text-xs font-medium whitespace-nowrap ${active ? "text-white" : "text-white/30"}`} style={completed ? { color: "var(--brand-400)" } : {}}>
-                {label}
-              </span>
+
+              {/* text */}
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${completed ? "text-white/60" : active ? "text-white" : "text-white/25"}`}>
+                  {meta.label}
+                </p>
+                <p className={`text-xs mt-0.5 ${active ? "text-white/40" : "text-white/20"}`}>
+                  {meta.desc}
+                </p>
+              </div>
+
+              {/* right badge */}
+              {completed && (
+                <span className="text-xs text-white/30 flex-shrink-0">Done</span>
+              )}
+              {active && (
+                <span className="text-xs flex-shrink-0 px-2 py-0.5 rounded-full"
+                  style={{ background: "rgba(255,87,10,0.15)", color: "var(--brand-400)" }}>
+                  Running
+                </span>
+              )}
             </div>
           );
         })}

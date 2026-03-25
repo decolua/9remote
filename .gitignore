@@ -66,3 +66,6 @@ web/.open-next/*
 agent/dist/*
 web/.wrangler/*
 expo/ios/*
+agent/ui/dist/*
+agent/ui/dist/index.html
+agent/ui/dist/*

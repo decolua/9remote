@@ -4,8 +4,8 @@
 
 import { createServer, request as httpRequest } from "http";
 import { parse } from "url";
-import { exec } from "child_process";
-import { readFileSync, existsSync } from "fs";
+import { exec, execSync } from "child_process";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join, extname } from "path";
 import { fileURLToPath } from "url";
 import { setupSocketIO, getIO } from "./lib/socketio.js";
@@ -16,6 +16,9 @@ import { initializeTerminal } from "./features/terminal/terminalSocket.js";
 import { sendPushNotification } from "./features/terminal/pushManager.js";
 import { addNotification } from "./features/terminal/notificationManager.js";
 import chalk from "chalk";
+import { loadKey, saveKey, writeCmd } from "./cli/utils/state.js";
+import { generateApiKeyWithMachine } from "./cli/utils/apiKey.js";
+import { getConsistentMachineId } from "./cli/utils/machineId.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const IS_DEV = process.env.NODE_ENV === "development";
@@ -81,9 +84,133 @@ async function checkForUpdate(currentVersion) {
 
 // ── UI State (SSE) ──────────────────────────────────────────────────────────
 
+const UI_STATE_FILE = join(
+  process.env.HOME || process.env.USERPROFILE || ".",
+  ".9remote", "ui-state.json"
+);
+
+/** Persist uiState to disk */
+function saveUiState() {
+  try {
+    mkdirSync(join(process.env.HOME || process.env.USERPROFILE || ".", ".9remote"), { recursive: true });
+    writeFileSync(UI_STATE_FILE, JSON.stringify(uiState));
+  } catch {}
+}
+
+/** Load uiState from disk */
+function loadUiState() {
+  try {
+    if (existsSync(UI_STATE_FILE)) {
+      const saved = JSON.parse(readFileSync(UI_STATE_FILE, "utf8"));
+      // Only restore if tunnel was ready — otherwise start fresh
+      if (saved.step === 4 && saved.permanentKey) {
+        uiState = { ...uiState, ...saved };
+      }
+    }
+  } catch {}
+}
+
 // In-memory UI state + SSE clients
-let uiState = { step: 0, tunnelUrl: "", oneTimeKey: "", qrUrl: "", latency: null, uptime: null };
+let uiState = { step: 0, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null, permanentKey: "", qrUrl: "", latency: null, uptime: null };
 const sseClients = new Set();
+
+// Active socket connections for UI display
+const activeConnections = new Map();
+
+// Remote desktop toggle state — loaded from state file on start
+let desktopEnabled = false;
+
+const DESKTOP_STATE_FILE = join(
+  process.env.HOME || process.env.USERPROFILE || ".",
+  ".9remote", "desktop.json"
+);
+
+/** Load desktopEnabled from state file */
+function loadDesktopState() {
+  try {
+    if (existsSync(DESKTOP_STATE_FILE)) {
+      const data = JSON.parse(readFileSync(DESKTOP_STATE_FILE, "utf8"));
+      desktopEnabled = !!data.enabled;
+    }
+  } catch {}
+}
+
+/** Save desktopEnabled to state file */
+function saveDesktopState() {
+  try {
+    mkdirSync(join(process.env.HOME || process.env.USERPROFILE || ".", ".9remote"), { recursive: true });
+    writeFileSync(DESKTOP_STATE_FILE, JSON.stringify({ enabled: desktopEnabled }));
+  } catch {}
+}
+
+// Cached permissions — refreshed async, never blocks request
+let cachedPermissions = { screenRecording: false, accessibility: false };
+
+function refreshPermissionsAsync() {
+  if (process.platform !== "darwin") {
+    cachedPermissions = { screenRecording: true, accessibility: true };
+    return;
+  }
+  // Run checks in background without blocking
+  exec(
+    `osascript -e 'tell application "System Events" to get name of first process'`,
+    { timeout: 3000 },
+    (err) => { cachedPermissions = { ...cachedPermissions, accessibility: !err }; }
+  );
+  exec(
+    `osascript -e 'tell application "System Events" to get count of windows of every process'`,
+    { timeout: 3000 },
+    (err, stdout) => { cachedPermissions = { ...cachedPermissions, screenRecording: !err && stdout.trim().length > 0 }; }
+  );
+}
+
+function getSystemPermissions() {
+  return cachedPermissions;
+}
+
+/** Open System Preferences pane for a permission, then poll until granted */
+function requestSystemPermission(type) {
+  return new Promise((resolve) => {
+    if (process.platform !== "darwin") { resolve(); return; }
+    const urls = {
+      screenRecording: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+      accessibility:   "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    };
+    const url = urls[type];
+    if (url) exec(`open "${url}"`, () => {});
+    resolve(); // resolve immediately — UI stays open
+
+    // Poll every 2s for up to 60s to detect when user grants permission
+    let attempts = 0;
+    const poll = setInterval(() => {
+      attempts++;
+      refreshPermissionsAsync();
+      setTimeout(() => {
+        if (cachedPermissions[type] || attempts >= 30) {
+          clearInterval(poll);
+          pushUiEvent("permissions", { ...cachedPermissions, desktopEnabled });
+        }
+      }, 500); // small delay to let async refresh complete
+    }, 2000);
+  });
+}
+
+/** Track a new socket connection */
+export function trackConnection(socketId, ip, type = "ws") {
+  activeConnections.set(socketId, { ip, type, connectedAt: Date.now() });
+  pushUiEvent("connections", { connections: [...activeConnections.values()] });
+}
+
+/** Remove a socket connection */
+export function untrackConnection(socketId) {
+  activeConnections.delete(socketId);
+  pushUiEvent("connections", { connections: [...activeConnections.values()] });
+}
+
+/** Push a log line to UI */
+export function pushUiLog(message) {
+  pushUiEvent("log", { message: `[${new Date().toLocaleTimeString()}] ${message}` });
+}
 
 /** Push event to all connected UI SSE clients */
 function pushUiEvent(type, data) {
@@ -100,8 +227,10 @@ function handleUiEvents(req, res) {
   res.setHeader("Connection", "keep-alive");
   res.writeHead(200);
 
-  // Send current state immediately on connect
+  // Send current state + connections + permissions immediately on connect
   res.write(`data: ${JSON.stringify({ type: "state", ...uiState })}\n\n`);
+  res.write(`data: ${JSON.stringify({ type: "connections", connections: [...activeConnections.values()] })}\n\n`);
+  res.write(`data: ${JSON.stringify({ type: "permissions", ...getSystemPermissions(), desktopEnabled })}\n\n`);
   sseClients.add(res);
 
   req.on("close", () => sseClients.delete(res));
@@ -113,6 +242,7 @@ function handleUiState(body) {
     const data = JSON.parse(body || "{}");
     uiState = { ...uiState, ...data };
     pushUiEvent("state", uiState);
+    saveUiState();
   } catch { /* ignore malformed */ }
 }
 
@@ -269,7 +399,143 @@ export async function startServer() {
       if (pathname === "/api/ui/state" && req.method === "GET") {
         res.setHeader("Content-Type", "application/json");
         res.writeHead(200);
-        res.end(JSON.stringify(uiState));
+        // Include permissions + desktopEnabled so UI only needs 1 fetch
+        res.end(JSON.stringify({
+          ...uiState,
+          ...getSystemPermissions(),
+          desktopEnabled,
+        }));
+        return;
+      }
+
+      // Stop tunnel (disconnect), keep server alive
+      if (pathname === "/api/ui/stop" && req.method === "POST") {
+        res.setHeader("Content-Type", "application/json");
+        res.writeHead(200);
+        res.end(JSON.stringify({ ok: true }));
+        // Immediately reset state so UI transitions to welcome screen
+        uiState = { ...uiState, step: 0, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null };
+        pushUiEvent("state", uiState);
+        saveUiState();
+        writeCmd("stop-tunnel");
+        return;
+      }
+
+      // Start tunnel (reconnect)
+      if (pathname === "/api/ui/start" && req.method === "POST") {
+        res.setHeader("Content-Type", "application/json");
+        res.writeHead(200);
+        res.end(JSON.stringify({ ok: true }));
+        // Immediately push step:1 so UI transitions to progress screen
+        uiState = { ...uiState, step: 1 };
+        pushUiEvent("state", uiState);
+        saveUiState();
+        writeCmd("start-tunnel");
+        return;
+      }
+
+      // Generate new one-time key
+      if (pathname === "/api/key/one-time" && req.method === "POST") {
+        const workerUrl = uiState.workerUrl || "https://9remote.cc";
+        const permanentKey = uiState.permanentKey;
+        if (!permanentKey) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: "No permanent key set" }));
+          return;
+        }
+        try {
+          const r = await fetch(`${workerUrl}/api/temp-key/create`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ apiKey: permanentKey, expiryMinutes: 30 }),
+          });
+          const data = await r.json();
+          const qrUrl = `${workerUrl}/login?k=${data.tempKey}`;
+          uiState = { ...uiState, oneTimeKey: data.tempKey, oneTimeKeyExpiresAt: data.expiresAt, qrUrl };
+          pushUiEvent("state", uiState);
+          res.setHeader("Content-Type", "application/json");
+          res.writeHead(200);
+          res.end(JSON.stringify({ oneTimeKey: data.tempKey, expiresAt: data.expiresAt, qrUrl }));
+        } catch (err) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+      }
+
+      // Regenerate permanent key
+      if (pathname === "/api/key/regenerate" && req.method === "POST") {
+        res.setHeader("Content-Type", "application/json");
+        try {
+          const machineId = await getConsistentMachineId();
+          const { key } = generateApiKeyWithMachine(machineId);
+          const existing = loadKey();
+          saveKey(machineId, key, existing?.name || "Default");
+          pushUiEvent("state", { ...uiState, permanentKey: key });
+          uiState = { ...uiState, permanentKey: key };
+          res.writeHead(200);
+          res.end(JSON.stringify({ ok: true, permanentKey: key }));
+        } catch (err) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+      }
+
+      // Get system permissions status
+      if (pathname === "/api/permissions" && req.method === "GET") {
+        res.setHeader("Content-Type", "application/json");
+        res.writeHead(200);
+        res.end(JSON.stringify(getSystemPermissions()));
+        return;
+      }
+
+      // Request a system permission
+      if (pathname === "/api/permissions/request" && req.method === "POST") {
+        let body = "";
+        req.on("data", (chunk) => body += chunk);
+        req.on("end", async () => {
+          try {
+            const { type } = JSON.parse(body || "{}");
+            await requestSystemPermission(type);
+            res.setHeader("Content-Type", "application/json");
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true }));
+          } catch (err) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: err.message }));
+          }
+        });
+        return;
+      }
+
+      // Toggle remote desktop
+      if (pathname === "/api/desktop/toggle" && req.method === "POST") {
+        let body = "";
+        req.on("data", (chunk) => body += chunk);
+        req.on("end", () => {
+          try {
+            const { enabled } = JSON.parse(body || "{}");
+            desktopEnabled = !!enabled;
+            saveDesktopState();
+            // Push updated state including desktopEnabled + fresh permissions
+            pushUiEvent("permissions", { ...getSystemPermissions(), desktopEnabled });
+            res.setHeader("Content-Type", "application/json");
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, enabled: desktopEnabled }));
+          } catch (err) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: err.message }));
+          }
+        });
+        return;
+      }
+
+      // Get active connections
+      if (pathname === "/api/connections" && req.method === "GET") {
+        res.setHeader("Content-Type", "application/json");
+        res.writeHead(200);
+        res.end(JSON.stringify({ connections: [...activeConnections.values()] }));
         return;
       }
 
@@ -386,6 +652,11 @@ export async function startServer() {
       res.end("Internal server error");
     }
   });
+
+  // Load persisted states + warm up permission cache
+  loadUiState();
+  loadDesktopState();
+  refreshPermissionsAsync();
 
   await setupSocketIO(server);
 

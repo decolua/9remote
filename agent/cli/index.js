@@ -8,48 +8,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import os from "os";
-import dns from "dns";
-import https from "https";
-import { promisify } from "util";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
-import { loadKey, saveKey, loadState, saveState, clearState } from "./utils/state.js";
+import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate } from "./utils/updateChecker.js";
-import { ensureCloudflared, spawnCloudflared, killCloudflared, resetRestartCounter } from "./utils/cloudflared.js";
-
-// DNS resolver using Cloudflare — ensures tunnel domains resolve immediately
-const cfResolver = new dns.Resolver();
-cfResolver.setServers(["1.1.1.1", "1.0.0.1"]);
-const cfResolve4 = promisify(cfResolver.resolve4.bind(cfResolver));
-
-/** Fetch via IP with correct TLS SNI — bypasses system DNS */
-function fetchWithCfDns(url, timeoutMs = 5000) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const parsed = new URL(url);
-      const [ip] = await cfResolve4(parsed.hostname);
-      const req = https.request({
-        hostname: ip,
-        port: 443,
-        path: parsed.pathname + parsed.search,
-        method: "GET",
-        headers: { host: parsed.hostname },
-        servername: parsed.hostname,
-        rejectUnauthorized: true
-      }, (res) => {
-        let body = "";
-        res.on("data", d => { body += d; });
-        res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body }));
-      });
-      req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error("timeout")); });
-      req.on("error", reject);
-      req.end();
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
+import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
 
 // Parse --skip-update flag
 const skipUpdate = process.argv.includes("--skip-update");
@@ -62,7 +26,6 @@ const STANDALONE_SERVER = path.resolve(__dirname, "../dist/server.cjs");
 const DEV_SERVER = path.resolve(__dirname, "../index.js");
 const WORKER_URL = "https://9remote.cc";
 const SERVER_PORT = 2208;
-const SHORT_ID_CHARS = "abcdefghijklmnpqrstuvwxyz23456789";
 const MAX_RESTART_ATTEMPTS = 10;
 const RESTART_WINDOW_MS = 60000; // 1 minute
 
@@ -126,17 +89,6 @@ function showBanner() {
 }
 
 /**
- * Generate short random ID for tunnel subdomain
- */
-function generateShortId() {
-  let result = "";
-  for (let i = 0; i < 6; i++) {
-    result += SHORT_ID_CHARS.charAt(Math.floor(Math.random() * SHORT_ID_CHARS.length));
-  }
-  return result;
-}
-
-/**
  * Helper: Show QR code for connect URL
  */
 function showQRCode(url, title = "📱 Scan QR to connect:") {
@@ -165,12 +117,15 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
   const width = Math.min(44, process.stdout.columns || 55);
 
-  // Push ready state to UI
+  // Push ready state to UI (include permanentKey, expiresAt, workerUrl for server-side key generation)
   pushUiState({
-    step: 3,
+    step: 4,
     tunnelUrl,
     oneTimeKey: tempKeyData.tempKey,
+    oneTimeKeyExpiresAt: tempKeyData.expiresAt,
+    permanentKey: selectedKey,
     qrUrl: connectUrl,
+    workerUrl: WORKER_URL,
   });
 
   showQRCode(connectUrl);
@@ -237,11 +192,15 @@ function startServerWithRestart(onReady, onServerCrash) {
       process.exit(1);
     }
     
+    // Strip NODE_ENV=development when running standalone server (production build)
+    const spawnEnv = { ...process.env, PORT: String(SERVER_PORT) };
+    if (!useDevServer) delete spawnEnv.NODE_ENV;
+
     currentProcess = spawn("node", [serverPath], {
       cwd: path.dirname(serverPath),
       stdio: ["ignore", "inherit", "inherit"],
       detached: false,
-      env: { ...process.env, PORT: String(SERVER_PORT) }
+      env: spawnEnv,
     });
     
 
@@ -320,7 +279,7 @@ function setupExitHandler(serverManager, tunnelProcess, apiKey) {
     console.log(chalk.yellow("\n\n🛑 Stopping server..."));
     
     serverManager.shutdown();
-    tunnelProcess.kill();
+    if (tunnelProcess) tunnelProcess.kill();
     resetRestartCounter();
     clearState();
     
@@ -342,25 +301,6 @@ function getLanIp() {
   return null;
 }
 
-/**
- * Helper: Create Named Tunnel via Worker API
- */
-async function createNamedTunnel(apiKey) {
-  const response = await fetch(`${WORKER_URL}/api/tunnel/create`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ apiKey })
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to create tunnel");
-  }
-
-  const data = await response.json();
-  return data;
-}
-
 /** Push UI state to server via HTTP */
 async function pushUiState(data) {
   try {
@@ -373,186 +313,10 @@ async function pushUiState(data) {
 }
 
 /**
- * Helper: Start server and tunnel
+ * Update session tunnelUrl on worker + push to UI
  */
-async function startServerAndTunnel(selectedKey) {
-  console.log(ORANGE("\n🚀 Starting server..."));
-  pushUiState({ step: 1 });
-
-  // Kill existing cloudflared process
-  try {
-    killCloudflared();
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  } catch { }
-
-  // Reuse existing shortId or generate new one
-  const existingState = loadState();
-  const shortId = existingState?.shortId || generateShortId();
-
-  // Create session first
-  try {
-    const sessionResponse = await fetch(`${WORKER_URL}/api/session/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: selectedKey, shortId })
-    });
-    
-    if (!sessionResponse.ok) {
-      const text = await sessionResponse.text();
-      console.log(chalk.red(`❌ Failed to create session: ${sessionResponse.status} ${sessionResponse.statusText}`));
-      console.log(chalk.yellow(`Response: ${text.substring(0, 200)}`));
-      return null;
-    }
-    
-    const sessionData = await sessionResponse.json();
-  } catch (error) {
-    console.log(chalk.red(`❌ Failed to create session: ${error.message}`));
-    return null;
-  }
-
-  // tunnelProcess declared here so the serverManager crash callback can reference it
-  let tunnelProcess = null;
-
-  // Skip spawning server if already running (e.g. nodemon in dev mode)
-  const alreadyRunning = await isServerRunning();
-
-  // Start server with auto-restart (skip if already running)
-  const serverManager = alreadyRunning
-    ? { getProcess: () => null, shutdown: () => {} }
-    : startServerWithRestart(null, async () => {
-    // Callback khi server crash - đợi server ready rồi gửi SIGHUP
-    
-    if (!tunnelProcess) {
-      return;
-    }
-    
-    // Wait for server to be ready
-    const maxWait = 60000; // 60s
-    const checkInterval = 1000; // 1s
-    const maxRetries = Math.floor(maxWait / checkInterval);
-    let serverReady = false;
-    
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const response = await fetch(`http://localhost:${SERVER_PORT}/api/health`, {
-          method: "GET",
-          timeout: 2000
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.status === "ok") {
-            serverReady = true;
-            console.log(chalk.green(`✅ Server ready after ${i + 1}s`));
-            break;
-          }
-        }
-      } catch (err) {
-        // Server not ready yet
-      }
-      
-      if (i % 5 === 0) {
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, checkInterval));
-    }
-    
-    if (!serverReady) {
-      console.log(chalk.red("❌ Server not ready after 60s - skipping tunnel reconnect"));
-      return;
-    }
-    
-    // Server ready - send SIGHUP to cloudflared to reconnect
-    try {
-      process.kill(tunnelProcess.pid, "SIGHUP");
-      console.log(chalk.green("✅ SIGHUP sent - cloudflared should reconnect"));
-    } catch (err) {      
-      // Fallback: kill and restart
-      try {
-        tunnelProcess.kill();
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        tunnelProcess = await startTunnel(token);
-        console.log(chalk.green("✅ Tunnel restarted"));
-      } catch (restartErr) {
-        console.log(chalk.red(`❌ Failed to restart tunnel: ${restartErr.message}`));
-      }
-    }
-  });
-
-  // Wait for server to start (skip if already running)
-  if (!alreadyRunning) await new Promise((resolve) => setTimeout(resolve, 2000));
-
-  console.log(ORANGE("✅ Creating tunnel..."));
-  pushUiState({ step: 2 });
-
-  // Ensure cloudflared binary
-  try {
-    await ensureCloudflared();
-  } catch (error) {
-    console.log(chalk.red(`❌ Failed to install cloudflared: ${error.message}`));
-    serverManager.shutdown();
-    return null;
-  }
-
-  // Create Named Tunnel via Worker API
-  let tunnelData;
-  try {
-    tunnelData = await createNamedTunnel(selectedKey);
-    console.log(ORANGE(`✅ Tunnel ID: ${tunnelData.tunnelId}`));
-  } catch (error) {
-    console.log(chalk.red(`❌ Failed to create tunnel: ${error.message}`));
-    serverManager.shutdown();
-    return null;
-  }
-
-  const { token, hostname: tunnelUrl } = tunnelData;
-
-  // Spawn cloudflared with token and auto-restart callback
-  console.log(ORANGE("✅ Starting tunnel..."));
-  
-  const startTunnel = async (tunnelToken) => {
-    try {
-      tunnelProcess = await spawnCloudflared(tunnelToken, startTunnel);
-      return tunnelProcess;
-    } catch (error) {
-      console.log(chalk.red(`❌ Failed to start cloudflared: ${error.message}`));
-      return null;
-    }
-  };
-  
-  tunnelProcess = await startTunnel(token);
-  if (!tunnelProcess) {
-    serverManager.shutdown();
-    return null;
-  }
-
-  // Verify tunnel reachable via Cloudflare DNS + https.request (bypasses system DNS)
-  const spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-  let tunnelReady = false;
-  for (let i = 0; i < 30; i++) {
-    try {
-      const res = await fetchWithCfDns(`${tunnelUrl}/api/health`);
-      if (res.ok) { tunnelReady = true; break; }
-    } catch { }
-    process.stdout.write(`\r   Verifying tunnel ${spinners[i % spinners.length]} (${i * 2}s)`);
-    await new Promise(r => setTimeout(r, 2000));
-  }
-  process.stdout.write("\r" + " ".repeat(40) + "\r");
-
-  if (!tunnelReady) {
-    console.log(chalk.red("❌ Tunnel not reachable from outside"));
-    serverManager.shutdown();
-    tunnelProcess.kill();
-    return null;
-  }
-
-  console.log(ORANGE(`✅ Tunnel URL: ${tunnelUrl}`));
-  const lanIpLog = getLanIp();
-  if (lanIpLog) console.log(ORANGE(`✅ Local IP: ${lanIpLog}:${SERVER_PORT} (LAN direct available)`));
-  console.log(ORANGE(`✅ Connection established`));
-
-  // Update session with tunnelUrl + localIp (worker detects publicIp via CF-Connecting-IP)
-  const lanIp = lanIpLog;
+async function updateTunnelUrl(selectedKey, tunnelUrl) {
+  const lanIp = getLanIp();
   try {
     await fetch(`${WORKER_URL}/api/session/update`, {
       method: "POST",
@@ -564,11 +328,73 @@ async function startServerAndTunnel(selectedKey) {
       })
     });
   } catch { }
+}
 
-  // Save state (persist shortId for reuse on restart)
+/**
+ * Helper: Start server and quick tunnel
+ */
+async function startServerAndTunnel(selectedKey) {
+  console.log(ORANGE("\n🚀 Starting server..."));
+  pushUiState({ step: 1 });
+
+  // Kill existing cloudflared process
+  try {
+    killCloudflared();
+    await new Promise(resolve => setTimeout(resolve, 500));
+  } catch { }
+
+  // Create session on worker
+  try {
+    const sessionResponse = await fetch(`${WORKER_URL}/api/session/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: selectedKey })
+    });
+    if (!sessionResponse.ok) {
+      const text = await sessionResponse.text();
+      console.log(chalk.red(`❌ Failed to create session: ${sessionResponse.status} ${text.substring(0, 200)}`));
+      return null;
+    }
+  } catch (error) {
+    console.log(chalk.red(`❌ Failed to create session: ${error.message}`));
+    return null;
+  }
+
+  // Skip spawning server if already running (e.g. nodemon in dev mode)
+  const alreadyRunning = await isServerRunning();
+  const serverManager = alreadyRunning
+    ? { getProcess: () => null, shutdown: () => {} }
+    : startServerWithRestart(null, null);
+
+  if (!alreadyRunning) await new Promise(resolve => setTimeout(resolve, 2000));
+
+  console.log(ORANGE("✅ Starting tunnel..."));
+  pushUiState({ step: 2 });
+
+  // Spawn quick tunnel — URL comes directly from cloudflared stdout
+  let tunnelProcess, tunnelUrl;
+  try {
+    const result = await spawnQuickTunnel(SERVER_PORT, async (newUrl) => {
+      // URL rotated — update worker + UI
+      console.log(ORANGE(`🔄 Tunnel URL rotated: ${newUrl}`));
+      await updateTunnelUrl(selectedKey, newUrl);
+      pushUiState({ tunnelUrl: newUrl });
+    });
+    tunnelProcess = result.child;
+    tunnelUrl = result.tunnelUrl;
+  } catch (error) {
+    console.log(chalk.red(`❌ Failed to start tunnel: ${error.message}`));
+    serverManager.shutdown();
+    return null;
+  }
+
+
+  // Save tunnelUrl to worker DB
+  await updateTunnelUrl(selectedKey, tunnelUrl);
+
+  // Save local state
   saveState({
     apiKey: selectedKey,
-    shortId,
     tunnelUrl,
     serverPid: serverManager.getProcess()?.pid,
     tunnelPid: tunnelProcess.pid
@@ -756,6 +582,7 @@ async function autoStartDev() {
 
   await showConnectionInfo(keyData.key, tunnelUrl);
   setupExitHandler(serverManager, tunnelProcess, keyData.key);
+  setupKeyRegenListener();
 
   // Push stats to UI every 5s
   const startTime = Date.now();
@@ -769,6 +596,77 @@ async function autoStartDev() {
   await new Promise(() => { });
 }
 
+
+/**
+ * Listen for key regen, stop-tunnel, start-tunnel from server UI
+ */
+function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
+  let busy = false;
+  setInterval(async () => {
+    if (busy) return;
+    const cmd = readAndClearCmd();
+    if (!cmd) return;
+    busy = true;
+    try {
+
+    if (cmd === "stop-tunnel") {
+      const tunnel = getActiveTunnel();
+      if (tunnel) {
+        tunnel.kill();
+        setActiveTunnel(null);
+        console.log(chalk.yellow("🛑 Tunnel stopped"));
+      }
+      await pushUiState({ step: 0, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+    }
+
+    if (cmd === "start-tunnel") {
+      if (getActiveTunnel()) { busy = false; return; } // already running
+      console.log(ORANGE("🚀 Starting tunnel..."));
+      try {
+        // Step 1: Preparing — check/download cloudflared binary
+        await pushUiState({ step: 1 });
+        await ensureCloudflared();
+
+        // Step 2: Connecting — create session on worker
+        await pushUiState({ step: 2 });
+        const sessionResponse = await fetch(`${WORKER_URL}/api/session/create`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey }),
+        });
+        if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
+
+        // Step 3: Tunneling — spawn cloudflared
+        await pushUiState({ step: 3 });
+        const result = await spawnQuickTunnel(SERVER_PORT, async (newUrl) => {
+          await updateTunnelUrl(apiKey, newUrl);
+          await pushUiState({ tunnelUrl: newUrl });
+        });
+        setActiveTunnel(result.child);
+        await updateTunnelUrl(apiKey, result.tunnelUrl);
+
+        // Step 4: Ready
+        await showConnectionInfo(apiKey, result.tunnelUrl);
+      } catch (err) {
+        console.log(chalk.red(`❌ Failed to start tunnel: ${err.message}`));
+        await pushUiState({ step: 0 });
+      }
+    }
+
+    if (cmd === "regenerate-key") {
+      const machineId = await getConsistentMachineId();
+      const { key } = generateApiKeyWithMachine(machineId);
+      const existing = loadKey();
+      saveKey(machineId, key, existing?.name || "Default");
+      await pushUiState({ permanentKey: key });
+      console.log(chalk.green(`✅ Key regenerated: ${key}`));
+    }
+
+    } finally {
+      busy = false;
+    }
+  }, 1000);
+}
 
 /**
  * Check if server is already running on SERVER_PORT
@@ -797,12 +695,13 @@ async function startUiMode() {
     keyData = saveKey(machineId, key, "Default");
   }
 
-  const result = await startServerAndTunnel(keyData.key);
-  if (!result) process.exit(1);
+  // Start server only (no tunnel yet — wait for UI Connect button)
+  const alreadyRunning = await isServerRunning();
+  const serverManager = alreadyRunning
+    ? { getProcess: () => null, shutdown: () => {} }
+    : startServerWithRestart(null, null);
 
-  const { serverManager, tunnelProcess, tunnelUrl } = result;
-
-  await showConnectionInfo(keyData.key, tunnelUrl);
+  if (!alreadyRunning) await new Promise(resolve => setTimeout(resolve, 2000));
 
   // Open browser pointing to UI
   const url = `http://localhost:${SERVER_PORT}`;
@@ -812,15 +711,16 @@ async function startUiMode() {
   spawn(openCmd, [url], { detached: true, stdio: "ignore" }).unref();
   console.log(chalk.green(`\n🌐 UI ready at ${url}`));
 
-  setupExitHandler(serverManager, tunnelProcess, keyData.key);
+  // Mutable ref for active tunnel
+  let activeTunnel = null;
+  const getActiveTunnel = () => activeTunnel;
+  const setActiveTunnel = (t) => { activeTunnel = t; };
 
-  // Push stats to UI every 5s
-  const startTime = Date.now();
-  setInterval(() => {
-    const uptime = Math.floor((Date.now() - startTime) / 1000);
-    const h = Math.floor(uptime / 3600), m = Math.floor((uptime % 3600) / 60), s = uptime % 60;
-    pushUiState({ uptime: `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` });
-  }, 5000);
+  // Push permanentKey to UI so Welcome screen can display it
+  await pushUiState({ permanentKey: keyData.key, step: 0 });
+
+  setupExitHandler(serverManager, null, keyData.key);
+  setupCmdPoller(getActiveTunnel, setActiveTunnel, keyData.key);
 
   await new Promise(() => { });
 }

@@ -6,6 +6,7 @@ import { homedir } from "os";
 import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
 import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
+import { trackConnection, untrackConnection, pushUiLog } from "../index.js";
 
 function loadApiKey() {
   try {
@@ -52,6 +53,17 @@ export async function setupSocketIO(server) {
 
   // Check remote availability at startup
   await checkRemoteAvailable();
+
+  // Track connections for UI display + log
+  io.on("connection", (socket) => {
+    const ip = socket.handshake.headers["x-forwarded-for"] || socket.handshake.address || "unknown";
+    trackConnection(socket.id, ip);
+    pushUiLog(`Client connected: ${ip}`);
+    socket.on("disconnect", (reason) => {
+      untrackConnection(socket.id);
+      pushUiLog(`Client disconnected: ${ip} (${reason})`);
+    });
+  });
 
   // Setup Terminal + Remote on same root namespace
   setupTerminalSocket(io, loadApiKey());

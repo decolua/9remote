@@ -62,8 +62,6 @@ export function setupTerminalSocket(io, apiKey) {
   }
 
   io.on("connection", (socket) => {
-    // const mode = socket.handshake.auth?.connectionMode || "tunnel";
-    // const timestamp = new Date().toISOString();
     trackConnection();
 
     socket.emit("serverInfo", {

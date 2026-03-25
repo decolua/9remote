@@ -2,7 +2,7 @@
   "name": "9Remote Terminal",
   "short_name": "9Remote",
   "description": "Access your terminal from anywhere - secure remote terminal access",
-  "start_url": "/workspace",
+  "start_url": "/login",
   "display": "standalone",
   "background_color": "#0f0f0f",
   "theme_color": "#121212",

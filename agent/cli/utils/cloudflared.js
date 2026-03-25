@@ -164,6 +164,112 @@ const LOG_IGNORE = [
 ];
 
 /**
+ * Parse trycloudflare.com URL from cloudflared log output
+ */
+function parseQuickTunnelUrl(message) {
+  const regex = /https:\/\/([a-z0-9-]+)\.trycloudflare\.com/gi;
+  const candidates = [];
+  for (const match of message.matchAll(regex)) {
+    if (match[1] === "api") continue;
+    candidates.push(`https://${match[1]}.trycloudflare.com`);
+  }
+  return candidates.length ? candidates[candidates.length - 1] : null;
+}
+
+/**
+ * Spawn cloudflared quick tunnel (no account needed)
+ * @param {number} localPort - Local port to tunnel
+ * @param {Function} onUrlUpdate - Called when URL changes after initial connect
+ * @returns {Promise<{child, tunnelUrl}>}
+ */
+export async function spawnQuickTunnel(localPort, onUrlUpdate = null) {
+  const binaryPath = await ensureCloudflared();
+
+  // Use temp config to avoid conflicting with ~/.cloudflared/config.yml
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-quick-"));
+  const configPath = path.join(configDir, "config.yml");
+  fs.writeFileSync(configPath, "# quick-tunnel\n", "utf8");
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    try { fs.rmSync(configDir, { recursive: true, force: true }); } catch { }
+  };
+
+  const child = spawn(
+    binaryPath,
+    ["tunnel", "--url", `http://localhost:${localPort}`, "--config", configPath, "--no-autoupdate"],
+    { detached: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }
+  );
+
+  fs.writeFileSync(PID_FILE, child.pid.toString());
+  isIntentionalShutdown = false;
+
+  return new Promise((resolve, reject) => {
+    let resolved = false;
+    let lastUrl = null;
+
+    const timeout = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      reject(new Error("Quick tunnel timed out after 90s"));
+    }, 90000);
+
+    const handleLog = (data) => {
+      const msg = data.toString();
+      const tunnelUrl = parseQuickTunnelUrl(msg);
+      if (!tunnelUrl) return;
+
+      if (!resolved) {
+        resolved = true;
+        lastUrl = tunnelUrl;
+        clearTimeout(timeout);
+        cleanup();
+        resolve({ child, tunnelUrl });
+        return;
+      }
+
+      // URL rotated after initial connect — notify caller
+      if (tunnelUrl !== lastUrl) {
+        lastUrl = tunnelUrl;
+        onUrlUpdate?.(tunnelUrl);
+      }
+    };
+
+    child.stdout.on("data", handleLog);
+    child.stderr.on("data", handleLog);
+
+    child.on("error", (err) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
+      cleanup();
+      reject(err);
+    });
+
+    child.on("exit", (code) => {
+      cleanup();
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        reject(new Error(`cloudflared exited with code ${code}`));
+        return;
+      }
+      if (!isIntentionalShutdown && restartCallback) {
+        const now = Date.now();
+        restartTimes.push(now);
+        restartTimes = restartTimes.filter(t => t > now - RESTART_WINDOW_MS);
+        if (restartTimes.length <= MAX_RESTART_ATTEMPTS) {
+          setTimeout(() => restartCallback(localPort), 2000);
+        }
+      }
+    });
+  });
+}
+
+/**
  * Spawn cloudflared tunnel
  * @param {string} tunnelToken
  * @param {Function} onRestart - Callback when tunnel needs restart

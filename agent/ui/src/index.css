@@ -38,7 +38,7 @@
 
   body {
     font-family: "Inter", sans-serif;
-    background-color: var(--dark-800);
+    background-color: #333;
     color: #ffffff;
     -webkit-font-smoothing: antialiased;
     user-select: none;
@@ -160,4 +160,13 @@
 
 .spin {
   animation: spin 1s linear infinite;
+}
+
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40%            { transform: scale(1);   opacity: 1; }
+}
+
+.dot-bounce {
+  animation: dot-bounce 1s ease-in-out infinite;
 }
