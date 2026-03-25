@@ -64,7 +64,7 @@ export class TileManager {
         this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
       }
 
-      console.log(`🖥️ [TileManager Init] Logical: ${width}x${height} | DPI Scale: ${this.dpiScale}x | Capture: ${this.captureWidth}x${this.captureHeight} | Scaled: ${this.scaledWidth}x${this.scaledHeight} | Tiles: ${this.totalTiles}`);
+      // console.log(`🖥️ [TileManager Init] Logical: ${width}x${height} | DPI Scale: ${this.dpiScale}x | Capture: ${this.captureWidth}x${this.captureHeight} | Scaled: ${this.scaledWidth}x${this.scaledHeight} | Tiles: ${this.totalTiles}`);
     } catch (error) {
       console.error("Screen dimensions error:", error);
       this.screenWidth = 1920;

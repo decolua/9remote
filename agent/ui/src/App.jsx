@@ -22,8 +22,10 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [updateVersion, setUpdateVersion] = useState(null);
   const [connections, setConnections] = useState([]);
+  const [version, setVersion] = useState("");
 
   useEffect(() => {
+    fetch("/api/version").then((r) => r.json()).then((d) => setVersion(d.version ?? "")).catch(() => {});
     // Single fetch for all initial state (ui + permissions + desktop)
     fetch("/api/ui/state")
       .then((r) => r.json())
@@ -152,6 +154,7 @@ export default function App() {
       onGenerateOneTimeKey={handleGenerateOneTimeKey}
       onRegenerateKey={handleRegenerateKey}
       logs={logs}
+      version={version}
     />
   );
 }

@@ -3,6 +3,8 @@
 import Link from "next/link";
 
 export default function Footer() {
+  const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
+
   return (
     <footer className="relative border-t border-gray-200 bg-gray-50/50 backdrop-blur-sm py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
@@ -20,6 +22,7 @@ export default function Footer() {
             </p>
             <p className="text-gray-500 text-xs">
               © {new Date().getFullYear()} 9Remote. All rights reserved.
+              {version && <span className="ml-2 text-gray-400">v{version}</span>}
             </p>
           </div>
 

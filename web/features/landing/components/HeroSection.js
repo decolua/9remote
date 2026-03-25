@@ -12,7 +12,7 @@ export default function HeroSection() {
         {/* Version badge */}
         <div className="inline-flex items-center gap-2 px-4 py-2 mb-8 rounded-full border border-brand-500/30 bg-brand-500/10 backdrop-blur-sm animate-fade-in">
           <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse" />
-          <span className="text-sm text-brand-500 font-medium">v1.0 Now Available</span>
+          <span className="text-sm text-brand-500 font-medium">v{process.env.NEXT_PUBLIC_SERVER_VERSION} Now Available</span>
         </div>
 
         {/* Main heading */}

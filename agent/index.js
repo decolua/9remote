@@ -17,6 +17,7 @@ import { sendPushNotification } from "./features/terminal/pushManager.js";
 import { addNotification } from "./features/terminal/notificationManager.js";
 import chalk from "chalk";
 import { loadKey, saveKey, writeCmd } from "./cli/utils/state.js";
+import { checkPermissions, openPermissionPane } from "./cli/utils/permissions.js";
 import { generateApiKeyWithMachine } from "./cli/utils/apiKey.js";
 import { getConsistentMachineId } from "./cli/utils/machineId.js";
 
@@ -147,21 +148,7 @@ function saveDesktopState() {
 let cachedPermissions = { screenRecording: false, accessibility: false };
 
 function refreshPermissionsAsync() {
-  if (process.platform !== "darwin") {
-    cachedPermissions = { screenRecording: true, accessibility: true };
-    return;
-  }
-  // Run checks in background without blocking
-  exec(
-    `osascript -e 'tell application "System Events" to get name of first process'`,
-    { timeout: 3000 },
-    (err) => { cachedPermissions = { ...cachedPermissions, accessibility: !err }; }
-  );
-  exec(
-    `osascript -e 'tell application "System Events" to get count of windows of every process'`,
-    { timeout: 3000 },
-    (err, stdout) => { cachedPermissions = { ...cachedPermissions, screenRecording: !err && stdout.trim().length > 0 }; }
-  );
+  checkPermissions().then((p) => { cachedPermissions = p; });
 }
 
 function getSystemPermissions() {
@@ -172,25 +159,20 @@ function getSystemPermissions() {
 function requestSystemPermission(type) {
   return new Promise((resolve) => {
     if (process.platform !== "darwin") { resolve(); return; }
-    const urls = {
-      screenRecording: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-      accessibility:   "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-    };
-    const url = urls[type];
-    if (url) exec(`open "${url}"`, () => {});
+    openPermissionPane(type);
     resolve(); // resolve immediately — UI stays open
 
     // Poll every 2s for up to 60s to detect when user grants permission
     let attempts = 0;
     const poll = setInterval(() => {
       attempts++;
-      refreshPermissionsAsync();
-      setTimeout(() => {
-        if (cachedPermissions[type] || attempts >= 30) {
+      checkPermissions().then((p) => {
+        cachedPermissions = p;
+        if (p[type] || attempts >= 30) {
           clearInterval(poll);
           pushUiEvent("permissions", { ...cachedPermissions, desktopEnabled });
         }
-      }, 500); // small delay to let async refresh complete
+      });
     }, 2000);
   });
 }

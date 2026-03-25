@@ -19,6 +19,7 @@ function LoginContent() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -182,9 +183,10 @@ function LoginContent() {
             <div className="p-2 bg-brand-500/10 rounded-brand">
               <Terminal className="text-brand-500" size={32} />
             </div>
-            <h1 className="text-4xl font-bold text-white">
-              9Remote
-            </h1>
+            <div>
+              <h1 className="text-4xl font-bold text-white">9Remote</h1>
+              {version && <p className="text-xs text-dark-100 mt-0.5">v{version}</p>}
+            </div>
           </div>
 
           <p className="text-dark-100 mb-8">

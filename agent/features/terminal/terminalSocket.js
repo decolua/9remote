@@ -82,7 +82,7 @@ export function setupTerminalSocket(io, apiKey) {
 
     socket.on("disconnect", (reason) => {
       const timestamp = new Date().toISOString();
-      console.log(`[WS-DEBUG] 📟 Terminal client disconnected: ${socket.id}, reason: ${reason} at ${timestamp}`);
+      console.log(`📟 Terminal client disconnected: ${socket.id}`);
       markSubscriptionDisconnected(socket.id);
       trackDisconnection();
     });

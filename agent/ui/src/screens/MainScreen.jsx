@@ -213,7 +213,7 @@ function ConnectionItem({ conn }) {
 
 export default function MainScreen({
   step, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
-  permissions, desktopEnabled, updateVersion, connections = [],
+  permissions, desktopEnabled, updateVersion, connections = [], version = "",
   onRequestPermission, onDesktopToggle, onStop, onStart, onGenerateOneTimeKey, onRegenerateKey, logs = [],
 }) {
   const [activeTab, setActiveTab] = useState("connect");
@@ -236,7 +236,10 @@ export default function MainScreen({
             <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "var(--brand-500)" }}>
               <span className="material-symbols-outlined text-white text-base">terminal</span>
             </div>
-            <span className="brand-text text-xs">9Remote</span>
+            <div className="flex flex-col leading-tight">
+              <span className="brand-text text-xs">9Remote</span>
+              {version && <span className="text-[10px] text-white/30">v{version}</span>}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button

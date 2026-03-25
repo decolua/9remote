@@ -87,6 +87,28 @@ export async function checkForUpdates() {
 }
 
 /**
+ * Check if a newer version exists — returns { current, latest } or null.
+ * Silent fail, no auto-update, no spinner.
+ */
+export async function checkLatestVersion() {
+  try {
+    const currentVersion = getCurrentVersion();
+    if (!currentVersion) return null;
+    const response = await fetch(NPM_REGISTRY_URL, {
+      signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT)
+    });
+    if (!response.ok) return null;
+    const { version: latestVersion } = await response.json();
+    if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+      return { current: currentVersion, latest: latestVersion };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check and auto-update if new version available
  * Returns true if update started (process will exit), false otherwise
  */

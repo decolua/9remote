@@ -12,8 +12,10 @@ import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
-import { checkAndUpdate } from "./utils/updateChecker.js";
+import { checkAndUpdate, checkLatestVersion } from "./utils/updateChecker.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
+import { showBanner, renderProgress, resetProgress, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane } from "./utils/tui.js";
+import { checkPermissions } from "./utils/permissions.js";
 
 // Parse --skip-update flag
 const skipUpdate = process.argv.includes("--skip-update");
@@ -52,54 +54,23 @@ function getVersion() {
   }
 }
 
-/**
- * Show banner
- */
-function showBanner() {
-  const version = getVersion();
-  const width = Math.min(44, process.stdout.columns || 44);
-  
-  console.log("");
-  console.log(ORANGE("╔" + "═".repeat(width - 2) + "╗"));
-  console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
-  
-  const title = `🚀  9Remote v${version}`;
-  const titlePadding = Math.floor((width - 2 - title.length) / 2);
-  console.log(
-    ORANGE("║") + 
-    " ".repeat(titlePadding) + 
-    ORANGE.bold(title) + 
-    " ".repeat(width - 2 - titlePadding - title.length) + 
-    ORANGE("║")
-  );
-  
-  const subtitle = "Remote terminal access from anywhere";
-  const subtitlePadding = Math.floor((width - 2 - subtitle.length) / 2);
-  console.log(
-    ORANGE("║") + 
-    " ".repeat(subtitlePadding) + 
-    chalk.gray(subtitle) + 
-    " ".repeat(width - 2 - subtitlePadding - subtitle.length) + 
-    ORANGE("║")
-  );
-  
-  console.log(ORANGE("║") + " ".repeat(width - 2) + ORANGE("║"));
-  console.log(ORANGE("╚" + "═".repeat(width - 2) + "╝"));
-  console.log("");
-}
 
 /**
  * Helper: Show QR code for connect URL
  */
 function showQRCode(url, title = "📱 Scan QR to connect:") {
   console.log(ORANGE(`\n${title}`));
-  qrcode.generate(url, {
-    small: true,
-    type: 'terminal',
-    margin: 0,
-  }, qr => {
-    const lines = qr.trim().split('\n');
-    console.log(lines.join('\n'));
+  qrcode.generate(url, { small: true, type: "terminal", margin: 0 }, (qr) => {
+    console.log(qr.trim());
+  });
+}
+
+/** Build QR block as string (for use in headerContent) */
+function buildQRString(url) {
+  return new Promise((resolve) => {
+    qrcode.generate(url, { small: true, type: "terminal", margin: 0 }, (qr) => {
+      resolve(ORANGE_DIM("📱 Scan QR to connect:") + "\n" + qr.trim());
+    });
   });
 }
 
@@ -150,6 +121,24 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   console.log(chalk.white(permLabel.padEnd(14)) + chalk.gray(permValue));
   
   console.log(ORANGE("═".repeat(width)));
+}
+
+/**
+ * Build full header string: QR + keys info (for selectMenu headerContent)
+ */
+async function buildMenuHeader(oneTimeKey, permanentKey, connectUrl) {
+  const w = Math.min(44, process.stdout.columns || 44);
+  const qrBlock = await buildQRString(connectUrl);
+  const lines = [
+    qrBlock,
+    chalk.gray("\nQR expires in 30 minutes (one-time use)\n"),
+    ORANGE("═".repeat(w)),
+    chalk.white("App URL".padEnd(14))       + chalk.gray(`${WORKER_URL}/login`),
+    chalk.white("One-Time Key".padEnd(14))  + ORANGE.bold(oneTimeKey),
+    chalk.white("Key".padEnd(14))           + chalk.dim(permanentKey),
+    ORANGE("═".repeat(w)),
+  ];
+  return lines.join("\n");
 }
 
 /**
@@ -405,160 +394,283 @@ async function startServerAndTunnel(selectedKey) {
 
 
 /**
- * Show main menu
+ * TUI mode — main flow for `9remote` (no subcommand)
  */
-async function mainMenu() {
+async function tuiMode() {
   console.clear();
-  showBanner();
 
-  const { action } = await inquirer.prompt([
-    {
-      type: "list",
-      name: "action",
-      message: "Select action:",
-      choices: [
-        { name: "🚀 Start Server", value: "start" },
-        { name: "🔑 Manage Key", value: "key" },
-        { name: "❌ Exit", value: "exit" }
-      ]
-    }
-  ]);
-
-  switch (action) {
-    case "start":
-      await startServer();
-      break;
-    case "key":
-      await manageKey();
-      break;
-    case "exit":
-      console.log(chalk.gray("Goodbye!"));
-      process.exit(0);
-  }
-}
-
-/**
- * Start server with single key
- */
-async function startServer() {
+  // ── 1. Parallel: check latest version + start server ──────────────────────
   const machineId = await getConsistentMachineId();
   let keyData = loadKey();
-
-  // Auto create key if none exists
   if (!keyData.key) {
-    console.log(chalk.yellow("\n⚠️  No key found. Creating default key..."));
     const { key } = generateApiKeyWithMachine(machineId);
     keyData = saveKey(machineId, key, "Default");
-    console.log(chalk.green("✅ Default key created!"));
   }
 
-  const result = await startServerAndTunnel(keyData.key);
-  if (!result) {
-    await inquirer.prompt([{ type: "input", name: "c", message: "Press Enter to go back..." }]);
-    await mainMenu();
-    return;
-  }
-
-  const { serverManager, tunnelProcess, tunnelUrl } = result;
-
-  await showConnectionInfo(keyData.key, tunnelUrl);
-  setupExitHandler(serverManager, tunnelProcess, keyData.key);
-
-  // Keep process alive
-  await new Promise(() => { });
-}
-
-/**
- * Manage single key menu
- */
-async function manageKey() {
-  const machineId = await getConsistentMachineId();
-  let keyData = loadKey();
-
-  // Auto create key if none exists
-  if (!keyData.key) {
-    console.log(chalk.yellow("\n⚠️  No key found. Creating default key..."));
-    const { key } = generateApiKeyWithMachine(machineId);
-    keyData = saveKey(machineId, key, "Default");
-    console.log(chalk.green("✅ Default key created!"));
-  }
-
-  console.log(ORANGE("\n🔑 Manage Key"));
-  console.log(chalk.gray("━".repeat(30)));
-  console.log(chalk.white(`Key: ${keyData.key}`));
-  console.log(chalk.gray(`Created: ${keyData.createdAt}\n`));
-
-  const { action } = await inquirer.prompt([
-    {
-      type: "list",
-      name: "action",
-      message: "Action:",
-      choices: [
-        { name: "🔐 Create One-Time Key", value: "oneTime" },
-        { name: "🔄 Regenerate Key", value: "regenerate" },
-        { name: chalk.gray("← Back"), value: "back" }
-      ]
-    }
-  ]);
-
-  if (action === "oneTime") {
-    console.log(chalk.gray("\nCreating one-time key..."));
-    const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
-    
-    if (tempKeyData) {
-      const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
-      const width = Math.min(50, process.stdout.columns || 50);
-      
-      showQRCode(connectUrl);
-      
-      console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)\n`));
-      
-      console.log(ORANGE("═".repeat(width)));
-      
-      // App URL
-      const appLabel = "App URL";
-      const appValue = `${WORKER_URL}/login`;
-      console.log(chalk.white(appLabel.padEnd(16)) + chalk.gray(appValue));
-      
-      // One-Time Key
-      const keyLabel = "One-Time Key";
-      const keyValue = tempKeyData.tempKey;
-      console.log(chalk.white(keyLabel.padEnd(16)) + ORANGE.bold(keyValue));
-      
-      console.log(ORANGE("═".repeat(width)));
-    } else {
-      console.log(chalk.red("❌ Failed to create one-time key"));
-    }
-    await inquirer.prompt([{ type: "input", name: "continue", message: "Press Enter to continue..." }]);
-  }
-
-  if (action === "regenerate") {
-    const { confirm } = await inquirer.prompt([
-      {
-        type: "confirm",
-        name: "confirm",
-        message: chalk.yellow("⚠️  This will replace your current key. Continue?"),
-        default: false
+  // Run update check & server start in parallel
+  const [updateInfo] = await Promise.all([
+    checkLatestVersion(),
+    (async () => {
+      const alreadyRunning = await isServerRunning();
+      if (!alreadyRunning) {
+        startServerWithRestart(null, null);
+        await new Promise((r) => setTimeout(r, 2000));
       }
-    ]);
+    })(),
+  ]);
 
-    if (confirm) {
-      const { key } = generateApiKeyWithMachine(machineId);
-      keyData = saveKey(machineId, key, keyData.name);
-      
-      console.log(chalk.green(`\n✅ Key regenerated: ${keyData.key}`));
-      await inquirer.prompt([{ type: "input", name: "continue", message: "Press Enter to continue..." }]);
-    }
+  // ── 2. Show banner (with update notice if available) ──────────────────────
+  const version = getVersion();
+  showBanner(version, updateInfo?.latest ?? null);
+
+  // ── 3. Progress: Preparing → Connecting → Tunneling → Ready ──────────────
+  resetProgress();
+  renderProgress(0); // Preparing
+
+  // Kill stale cloudflared
+  try { killCloudflared(); await new Promise((r) => setTimeout(r, 300)); } catch {}
+
+  // Step 1 — Preparing (ensureCloudflared)
+  await ensureCloudflared();
+
+  renderProgress(1, true); // Connecting
+
+  // Step 2 — Connecting (create session)
+  try {
+    const res = await fetch(`${WORKER_URL}/api/session/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: keyData.key }),
+    });
+    if (!res.ok) throw new Error(`Session create failed: ${res.status}`);
+  } catch (err) {
+    console.log(chalk.red(`\n❌ Failed to connect: ${err.message}`));
+    process.exit(1);
   }
 
-  await mainMenu();
+  renderProgress(2, true); // Starting tunnel
+
+  // Step 3 — Tunnel
+  let tunnelProcess, tunnelUrl;
+  try {
+    const result = await spawnQuickTunnel(SERVER_PORT, async (newUrl) => {
+      await updateTunnelUrl(keyData.key, newUrl);
+      await pushUiState({ tunnelUrl: newUrl });
+    });
+    tunnelProcess = result.child;
+    tunnelUrl = result.tunnelUrl;
+  } catch (err) {
+    console.log(chalk.red(`\n❌ Tunnel failed: ${err.message}`));
+    process.exit(1);
+  }
+
+  await updateTunnelUrl(keyData.key, tunnelUrl);
+  saveState({ apiKey: keyData.key, tunnelUrl, tunnelPid: tunnelProcess.pid });
+
+  // ── 4. Create temp key + push ready state ─────────────────────────────────
+  const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
+  const connectUrl = tempKeyData
+    ? `${WORKER_URL}/login?k=${tempKeyData.tempKey}`
+    : `${WORKER_URL}/login`;
+
+  await pushUiState({
+    step: 4,
+    tunnelUrl,
+    oneTimeKey: tempKeyData?.tempKey || "",
+    oneTimeKeyExpiresAt: tempKeyData?.expiresAt || null,
+    permanentKey: keyData.key,
+    qrUrl: connectUrl,
+    workerUrl: WORKER_URL,
+  });
+
+  // ── 5. Load initial state from server ────────────────────────────────────
+  let currentOneTimeKey = tempKeyData?.tempKey || "";
+  let currentConnectUrl = connectUrl;
+
+  // ── 6. Build initial header ───────────────────────────────────────────────
+  let menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl);
+
+  // Mutable ref for menu re-render callback (set by selectMenu)
+  let triggerMenuRedraw = null;
+
+  // ── 7. Subscribe SSE — auto-rebuild header on state changes ──────────────
+  const stopSSE = subscribeSSE(SERVER_PORT, async (type, data) => {
+    if (type === "state") {
+      const newKey = data.permanentKey || keyData.key;
+      const newOtk = data.oneTimeKey || currentOneTimeKey;
+      const newUrl = data.qrUrl || currentConnectUrl;
+      if (newOtk !== currentOneTimeKey || newKey !== keyData.key) {
+        currentOneTimeKey = newOtk;
+        currentConnectUrl = newUrl;
+        if (data.permanentKey) keyData = { ...keyData, key: data.permanentKey };
+        menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl);
+        triggerMenuRedraw?.();
+      }
+    } else if (type === "permissions") {
+      // desktopEnabled changed — trigger redraw so menu label refreshes
+      triggerMenuRedraw?.();
+    }
+  });
+
+  setupExitHandler({ getProcess: () => null, shutdown: () => { stopSSE(); } }, tunnelProcess, keyData.key);
+
+  // ── 8. Interactive menu loop ───────────────────────────────────────────────
+  await tuiMenuLoop(
+    keyData, tunnelUrl,
+    () => menuHeader,
+    (h) => { menuHeader = h; },
+    (cb) => { triggerMenuRedraw = cb; }
+  );
 }
+
+/** Fetch desktopEnabled from server (source of truth) */
+async function fetchDesktopEnabled() {
+  try {
+    const res = await fetch(`http://localhost:${SERVER_PORT}/api/ui/state`);
+    if (res.ok) { const d = await res.json(); return !!d.desktopEnabled; }
+  } catch {}
+  return false;
+}
+
+/**
+ * Main menu loop after Ready.
+ * @param {object} keyData
+ * @param {string} tunnelUrl
+ * @param {() => string} getHeader - live header getter (SSE may update it)
+ * @param {(newHeader: string) => void} setHeader - update header from inside loop
+ * @param {(cb: () => void) => void} onRedrawRegister - register redraw callback
+ */
+async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader = () => {}, onRedrawRegister = () => {}) {
+  while (true) {
+    const desktopOn = await fetchDesktopEnabled();
+    const desktopLabel = `Remote Desktop: ${desktopOn ? chalk.green("ON") : chalk.gray("OFF")}  ▶`;
+    const items = [
+      { label: "Open UI" },
+      { label: "New One-Time Key" },
+      { label: "Regenerate Key" },
+      { label: desktopLabel },
+      { label: chalk.gray("Exit") },
+    ];
+
+    // Register SSE-triggered redraw with selectMenu
+    let redrawMenu = null;
+    onRedrawRegister(() => redrawMenu?.());
+
+    const idx = await selectMenu("Select action", items, 0, getHeader(), (setRedraw) => {
+      redrawMenu = setRedraw;
+    });
+
+    if (idx === 0) {
+      // Open UI
+      const url = `http://localhost:${SERVER_PORT}`;
+      const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+      spawn(cmd, [url], { detached: true, stdio: "ignore" }).unref();
+      console.log(chalk.green(`\n🌐 Opening ${url}\n`));
+
+    } else if (idx === 1) {
+      // New One-Time Key — rebuild header with fresh QR
+      const newTempKey = await createTempKey(keyData.key, WORKER_URL);
+      if (newTempKey) {
+        const newConnectUrl = `${WORKER_URL}/login?k=${newTempKey.tempKey}`;
+        setHeader(await buildMenuHeader(newTempKey.tempKey, keyData.key, newConnectUrl));
+        await pushUiState({ oneTimeKey: newTempKey.tempKey, oneTimeKeyExpiresAt: newTempKey.expiresAt, qrUrl: newConnectUrl });
+      }
+
+    } else if (idx === 2) {
+      // Regenerate Key
+      const confirmed = await tuiConfirm(chalk.yellow("⚠️  Replace current key and disconnect all sessions? Continue?"));
+      if (confirmed) {
+        const machineId = await getConsistentMachineId();
+        const { key } = generateApiKeyWithMachine(machineId);
+        keyData = saveKey(machineId, key, keyData.name || "Default");
+        await pushUiState({ permanentKey: keyData.key });
+        // Rebuild header with new key
+        const newTmp = await createTempKey(keyData.key, WORKER_URL);
+        if (newTmp) {
+          const newUrl = `${WORKER_URL}/login?k=${newTmp.tempKey}`;
+          setHeader(await buildMenuHeader(newTmp.tempKey, keyData.key, newUrl));
+          await pushUiState({ oneTimeKey: newTmp.tempKey, oneTimeKeyExpiresAt: newTmp.expiresAt, qrUrl: newUrl });
+        }
+      }
+
+    } else if (idx === 3) {
+      // Remote Desktop submenu
+      await tuiDesktopMenu();
+
+    } else {
+      // Exit
+      console.log(chalk.gray("\nGoodbye!\n"));
+      process.exit(0);
+    }
+  }
+}
+
+/**
+ * Remote Desktop submenu.
+ * All state (desktopEnabled + permissions) fetched from server — no local tracking.
+ */
+async function tuiDesktopMenu() {
+  while (true) {
+    // Always read from server
+    let desktopOn = false, perms = { screenRecording: false, accessibility: false };
+    try {
+      const res = await fetch(`http://localhost:${SERVER_PORT}/api/ui/state`);
+      if (res.ok) {
+        const d = await res.json();
+        desktopOn = !!d.desktopEnabled;
+        perms = { screenRecording: !!d.screenRecording, accessibility: !!d.accessibility };
+      }
+    } catch {}
+
+    const toggleLabel = `Toggle: ${desktopOn ? chalk.green("ON  → turn OFF") : chalk.gray("OFF → turn ON")}`;
+    const srLabel = `Screen Recording  ${perms.screenRecording ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`;
+    const axLabel = `Accessibility     ${perms.accessibility  ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`;
+
+    const idx = await selectMenu("Remote Desktop", [
+      { label: toggleLabel },
+      { label: srLabel },
+      { label: axLabel },
+      { label: chalk.gray("← Back") },
+    ], 0);
+
+    if (idx === 0) {
+      // Toggle — flip current value via server
+      try {
+        await fetch(`http://localhost:${SERVER_PORT}/api/desktop/toggle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: !desktopOn }),
+        });
+      } catch {}
+
+    } else if (idx === 1 && !perms.screenRecording) {
+      try {
+        await fetch(`http://localhost:${SERVER_PORT}/api/permissions/request`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "screenRecording" }),
+        });
+      } catch { openPermissionPane("screenRecording"); }
+
+    } else if (idx === 2 && !perms.accessibility) {
+      try {
+        await fetch(`http://localhost:${SERVER_PORT}/api/permissions/request`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "accessibility" }),
+        });
+      } catch { openPermissionPane("accessibility"); }
+
+    } else if (idx === 3 || idx === -1) {
+      return; // Back
+    }
+  }
+}
+
 
 /**
  * Auto start dev server (--auto flag)
  */
 async function autoStartDev() {
-  showBanner();
+  showBanner(getVersion());
 
   const machineId = await getConsistentMachineId();
   let keyData = loadKey();
@@ -685,7 +797,7 @@ async function isServerRunning() {
  * Same as "Start Server" in TUI but auto-opens browser
  */
 async function startUiMode() {
-  showBanner();
+  showBanner(getVersion());
 
   const machineId = await getConsistentMachineId();
   let keyData = loadKey();
@@ -740,8 +852,8 @@ async function start() {
     // Direct start: 9remote start
     await autoStartDev();
   } else {
-    // Menu mode: 9remote
-    await mainMenu();
+    // TUI mode: 9remote
+    await tuiMode();
   }
 }
 
