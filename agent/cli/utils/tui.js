@@ -112,7 +112,7 @@ export function resetProgress() {
  * @param {(setRedraw: () => void) => void} onRedrawInit — receive a redraw trigger fn (for SSE updates)
  * @returns {Promise<number>} selected index, -1 on ESC
  */
-export function selectMenu(title, items, defaultIndex = 0, headerContent = "", onRedrawInit = null) {
+export function selectMenu(title, items, defaultIndex = 0, headerContent = "", onRedrawInit = null, onCtrlC = null) {
   return new Promise((resolve) => {
     let selected = defaultIndex;
     let isActive = true;
@@ -121,8 +121,10 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
     const renderMenu = () => {
       if (!isActive) return;
       process.stdout.write("\x1b[2J\x1b[H");
-      if (headerContent) {
-        process.stdout.write(headerContent + "\n");
+      // Support both static string and dynamic getter function
+      const header = typeof headerContent === "function" ? headerContent() : headerContent;
+      if (header) {
+        process.stdout.write(header + "\n");
       }
       process.stdout.write(`${C.dim}${title}${C.reset}\n\n`);
       items.forEach((item, i) => {
@@ -161,6 +163,7 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
         resolve(-1);
       } else if (key.ctrl && key.name === "c") {
         cleanup();
+        if (onCtrlC) onCtrlC();
         process.exit(0);
       }
     };

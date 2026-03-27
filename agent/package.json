@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "0.1.53",
+  "version": "0.1.60",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "index.js",
@@ -20,7 +20,8 @@
   },
   "files": [
     "dist/",
-    "cli/"
+    "cli/",
+    "lib/"
   ],
   "keywords": [
     "remote",

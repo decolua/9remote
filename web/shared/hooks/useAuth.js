@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { API_ENDPOINTS } from "@/shared/constants/API";
 import { useSessionStorage } from "./useSessionStorage";
 
+
 // Verify server reachability via HTTP health check (avoids extra WS connection)
 async function verifyServerConnection(tunnelUrl, apiKey, timeout = 10000) {
   try {
@@ -54,7 +55,7 @@ export function useAuth() {
         apiKey: credentials.apiKey || data.apiKey,
         tunnelUrl: data.tunnelUrl,
         mode: "remote",
-        tempKey: credentials.tempKey || null,
+        tempKey: credentials.tempKey ? credentials.tempKey.toUpperCase() : null,
         localIp: data.localIp || null
       });
 

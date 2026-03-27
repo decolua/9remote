@@ -43,6 +43,8 @@ export function useSessionStorage() {
     
     if (data.tempKey) {
       sessionStorage.setItem("tempKey", data.tempKey);
+    } else {
+      sessionStorage.removeItem("tempKey");
     }
 
     if (data.localIp) {

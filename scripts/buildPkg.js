@@ -84,13 +84,8 @@ async function buildDaemon() {
 
 function buildUi() {
   console.log("\n🎨 Building Preact UI...");
+  // vite outDir is "../dist/ui" (relative to agent/ui/) → outputs directly to agent/dist/ui/
   run("npm run build:ui", SERVER_DIR);
-
-  // Copy agent/ui/dist/ → agent/dist/ui/
-  const uiDist = path.join(SERVER_DIR, "ui/dist");
-  const uiOut = path.join(DIST_DIR, "ui");
-  if (fs.existsSync(uiOut)) fs.rmSync(uiOut, { recursive: true });
-  fs.cpSync(uiDist, uiOut, { recursive: true });
   console.log("✅ UI → agent/dist/ui/");
 }
 

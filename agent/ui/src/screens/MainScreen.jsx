@@ -229,7 +229,7 @@ export default function MainScreen({
 
   return (
     <div className="h-full flex flex-col relative overflow-hidden" style={{ background: "#333" }}>
-      <div className="flex-1 flex flex-col w-full max-w-sm mx-auto min-h-0 dot-grid-bg overflow-hidden">
+      <div className="flex-1 flex flex-col w-full min-h-0 dot-grid-bg overflow-hidden" style={{ maxWidth: "672px", margin: "0 auto" }}>
         {/* header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
           <div className="flex items-center gap-3">

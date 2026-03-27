@@ -10,7 +10,7 @@ import fs from "fs";
 import os from "os";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
-import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd } from "./utils/state.js";
+import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd, writeCmd } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate, checkLatestVersion } from "./utils/updateChecker.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
@@ -128,16 +128,23 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
  */
 async function buildMenuHeader(oneTimeKey, permanentKey, connectUrl) {
   const w = Math.min(44, process.stdout.columns || 44);
-  const qrBlock = await buildQRString(connectUrl);
-  const lines = [
-    qrBlock,
-    chalk.gray("\nQR expires in 30 minutes (one-time use)\n"),
+  const lines = [];
+
+  if (oneTimeKey && connectUrl) {
+    const qrBlock = await buildQRString(connectUrl);
+    lines.push(qrBlock);
+    lines.push(chalk.gray("\nQR expires in 30 minutes (one-time use)\n"));
+  } else {
+    lines.push(chalk.gray("\n(One-time key used — generate a new one from menu)\n"));
+  }
+
+  lines.push(
     ORANGE("═".repeat(w)),
-    chalk.white("App URL".padEnd(14))       + chalk.gray(`${WORKER_URL}/login`),
-    chalk.white("One-Time Key".padEnd(14))  + ORANGE.bold(oneTimeKey),
-    chalk.white("Key".padEnd(14))           + chalk.dim(permanentKey),
+    chalk.white("App URL".padEnd(14))      + chalk.gray(`${WORKER_URL}/login`),
+    chalk.white("One-Time Key".padEnd(14)) + (oneTimeKey ? ORANGE.bold(oneTimeKey) + chalk.dim("  (expires in 30m)") : chalk.gray("—")),
+    chalk.white("Key".padEnd(14))          + chalk.dim(permanentKey),
     ORANGE("═".repeat(w)),
-  ];
+  );
   return lines.join("\n");
 }
 
@@ -269,6 +276,7 @@ function setupExitHandler(serverManager, tunnelProcess, apiKey) {
     
     serverManager.shutdown();
     if (tunnelProcess) tunnelProcess.kill();
+    killProcessOnPort(SERVER_PORT);
     resetRestartCounter();
     clearState();
     
@@ -408,12 +416,13 @@ async function tuiMode() {
   }
 
   // Run update check & server start in parallel
+  let tuiServerMgr = { getProcess: () => null, shutdown: () => {} };
   const [updateInfo] = await Promise.all([
     checkLatestVersion(),
     (async () => {
       const alreadyRunning = await isServerRunning();
       if (!alreadyRunning) {
-        startServerWithRestart(null, null);
+        tuiServerMgr = startServerWithRestart(null, null);
         await new Promise((r) => setTimeout(r, 2000));
       }
     })(),
@@ -497,8 +506,9 @@ async function tuiMode() {
   const stopSSE = subscribeSSE(SERVER_PORT, async (type, data) => {
     if (type === "state") {
       const newKey = data.permanentKey || keyData.key;
-      const newOtk = data.oneTimeKey || currentOneTimeKey;
-      const newUrl = data.qrUrl || currentConnectUrl;
+      // Explicit check: "" means cleared (one-time key consumed), preserve existing if undefined
+      const newOtk = data.oneTimeKey !== undefined ? data.oneTimeKey : currentOneTimeKey;
+      const newUrl = data.qrUrl !== undefined ? data.qrUrl : currentConnectUrl;
       if (newOtk !== currentOneTimeKey || newKey !== keyData.key) {
         currentOneTimeKey = newOtk;
         currentConnectUrl = newUrl;
@@ -512,14 +522,18 @@ async function tuiMode() {
     }
   });
 
-  setupExitHandler({ getProcess: () => null, shutdown: () => { stopSSE(); } }, tunnelProcess, keyData.key);
+  setupExitHandler({
+    getProcess: tuiServerMgr.getProcess,
+    shutdown: () => { tuiServerMgr.shutdown(); stopSSE(); }
+  }, tunnelProcess, keyData.key);
 
   // ── 8. Interactive menu loop ───────────────────────────────────────────────
   await tuiMenuLoop(
     keyData, tunnelUrl,
     () => menuHeader,
     (h) => { menuHeader = h; },
-    (cb) => { triggerMenuRedraw = cb; }
+    (cb) => { triggerMenuRedraw = cb; },
+    () => { tuiServerMgr.shutdown(); killProcessOnPort(SERVER_PORT); stopSSE(); }
   );
 }
 
@@ -540,14 +554,14 @@ async function fetchDesktopEnabled() {
  * @param {(newHeader: string) => void} setHeader - update header from inside loop
  * @param {(cb: () => void) => void} onRedrawRegister - register redraw callback
  */
-async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader = () => {}, onRedrawRegister = () => {}) {
+async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader = () => {}, onRedrawRegister = () => {}, onCtrlC = null) {
   while (true) {
     const desktopOn = await fetchDesktopEnabled();
     const desktopLabel = `Remote Desktop: ${desktopOn ? chalk.green("ON") : chalk.gray("OFF")}  ▶`;
     const items = [
-      { label: "Open UI" },
+      { label: "Open Web UI" },
       { label: "New One-Time Key" },
-      { label: "Regenerate Key" },
+      { label: "Regenerate Permanent Key" },
       { label: desktopLabel },
       { label: chalk.gray("Exit") },
     ];
@@ -556,9 +570,9 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
     let redrawMenu = null;
     onRedrawRegister(() => redrawMenu?.());
 
-    const idx = await selectMenu("Select action", items, 0, getHeader(), (setRedraw) => {
+    const idx = await selectMenu("Select action", items, 0, getHeader, (setRedraw) => {
       redrawMenu = setRedraw;
-    });
+    }, onCtrlC);
 
     if (idx === 0) {
       // Open UI
@@ -598,7 +612,8 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
       await tuiDesktopMenu();
 
     } else {
-      // Exit
+      // Exit — kill server child process before exiting
+      killProcessOnPort(SERVER_PORT);
       console.log(chalk.gray("\nGoodbye!\n"));
       process.exit(0);
     }
@@ -623,8 +638,8 @@ async function tuiDesktopMenu() {
     } catch {}
 
     const toggleLabel = `Toggle: ${desktopOn ? chalk.green("ON  → turn OFF") : chalk.gray("OFF → turn ON")}`;
-    const srLabel = `Screen Recording  ${perms.screenRecording ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`;
-    const axLabel = `Accessibility     ${perms.accessibility  ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`;
+    const srLabel = `Screen Recording          ${perms.screenRecording ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`;
+    const axLabel = `Mouse & Keyboard control  ${perms.accessibility  ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`;
 
     const idx = await selectMenu("Remote Desktop", [
       { label: toggleLabel },
@@ -815,13 +830,7 @@ async function startUiMode() {
 
   if (!alreadyRunning) await new Promise(resolve => setTimeout(resolve, 2000));
 
-  // Open browser pointing to UI
-  const url = `http://localhost:${SERVER_PORT}`;
-  const openCmd = process.platform === "darwin" ? "open"
-    : process.platform === "win32" ? "start"
-    : "xdg-open";
-  spawn(openCmd, [url], { detached: true, stdio: "ignore" }).unref();
-  console.log(chalk.green(`\n🌐 UI ready at ${url}`));
+  console.log(chalk.green(`\n🌐 UI ready at http://localhost:${SERVER_PORT}`));
 
   // Mutable ref for active tunnel
   let activeTunnel = null;
@@ -833,6 +842,11 @@ async function startUiMode() {
 
   setupExitHandler(serverManager, null, keyData.key);
   setupCmdPoller(getActiveTunnel, setActiveTunnel, keyData.key);
+
+  // Auto start tunnel if --start flag is passed
+  if (process.argv.includes("--start")) {
+    writeCmd("start-tunnel");
+  }
 
   await new Promise(() => { });
 }

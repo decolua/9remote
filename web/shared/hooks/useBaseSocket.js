@@ -42,7 +42,9 @@ export function useBaseSocket(config = {}) {
       tunnelUrl: auth.tunnelUrl,
       localIp: auth.localIp || null,
       namespace,
-      socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, ...socketOptions.auth } },
+      socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, tempKey: auth.tempKey ?? null, ...socketOptions.auth } },
+      // Debug: log tempKey being sent
+      ...(console.log("[socket auth] tempKey:", auth.tempKey ?? null) && {}),
       apiKey: auth.apiKey,
       onConnect: (socket, mode) => {
         socketRef.current = socket;

@@ -228,7 +228,7 @@ function LoginContent() {
                 <input
                   type={showPassword ? "text" : "password"}
                   value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
+                  onChange={(e) => setApiKey(e.target.value.toUpperCase())}
                   onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
                   placeholder="sk-xxx... or One-Time Key (ABC123)"
                   className="w-full px-4 py-3 pr-20 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent transition-all duration-200"

@@ -177,6 +177,13 @@ function requestSystemPermission(type) {
   });
 }
 
+/** Clear one-time key from UI state after client uses it */
+export function clearOneTimeKey() {
+  uiState = { ...uiState, oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "" };
+  pushUiEvent("state", uiState);
+  saveUiState();
+}
+
 /** Track a new socket connection */
 export function trackConnection(socketId, ip, type = "ws") {
   activeConnections.set(socketId, { ip, type, connectedAt: Date.now() });

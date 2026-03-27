@@ -6,7 +6,7 @@ import { homedir } from "os";
 import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
 import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
-import { trackConnection, untrackConnection, pushUiLog } from "../index.js";
+import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey } from "../index.js";
 
 function loadApiKey() {
   try {
@@ -59,6 +59,14 @@ export async function setupSocketIO(server) {
     const ip = socket.handshake.headers["x-forwarded-for"] || socket.handshake.address || "unknown";
     trackConnection(socket.id, ip);
     pushUiLog(`Client connected: ${ip}`);
+
+    // If client connected using a one-time key, clear it from UI state
+    pushUiLog(`Auth received: tempKey=${socket.handshake.auth?.tempKey ?? "null"}`);
+    if (socket.handshake.auth?.tempKey) {
+      pushUiLog(`One-time key used — clearing from UI`);
+      clearOneTimeKey();
+    }
+
     socket.on("disconnect", (reason) => {
       untrackConnection(socket.id);
       pushUiLog(`Client disconnected: ${ip} (${reason})`);
