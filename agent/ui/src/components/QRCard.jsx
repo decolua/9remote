@@ -17,8 +17,8 @@ function IconBtn({ icon, onClick, title, danger }) {
     <button
       onClick={onClick}
       title={title}
-      className="glass-btn w-7 h-7 flex items-center justify-center flex-shrink-0 text-white/50 hover:text-white"
-      style={danger ? { color: "rgba(255,100,100,0.7)" } : {}}
+      className="glass-btn w-7 h-7 flex items-center justify-center flex-shrink-0"
+      style={danger ? { color: "rgba(255,100,100,0.7)" } : { color: "var(--text-muted)" }}
     >
       <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{icon}</span>
     </button>
@@ -93,27 +93,27 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
           className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-          <span className="text-xs text-white/60 font-medium">{ENDPOINT}/login</span>
+          <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{ENDPOINT}/login</span>
         </a>
 
-        <div className="w-full h-px bg-white/5" />
+        <div className="w-full h-px" style={{ background: "var(--border)" }} />
 
         {/* One-Time Key row */}
         <div className="w-full flex flex-col gap-1.5">
           <div className="flex items-center justify-between px-0.5">
-            <span className="text-xs font-medium text-white/50">One-Time Key</span>
-            <span className="text-xs text-white/30">Single use · expires</span>
+            <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>One-Time Key</span>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>Single use · expires</span>
           </div>
         <div className="w-full flex items-center gap-2 dark-card px-3 py-2.5">
-          <span className="material-symbols-outlined text-white/30 flex-shrink-0" style={{ fontSize: 16 }}>timer</span>
+          <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 16, color: "var(--text-muted)" }}>timer</span>
           <span
             className="flex-1 font-mono font-bold tracking-[0.18em] text-base truncate"
-            style={{ color: oneTimeKey ? "var(--brand-500)" : "rgba(255,255,255,0.15)" }}
+            style={{ color: oneTimeKey ? "var(--brand-500)" : "var(--border)" }}
           >
             {oneTimeKey || "• • • • • •"}
           </span>
           {countdown !== null && (
-            <span className={`text-xs font-mono flex-shrink-0 ${countdown <= 0 ? "text-red-400" : "text-white/40"}`}>
+            <span className={`text-xs font-mono flex-shrink-0 ${countdown <= 0 ? "text-red-400" : ""}`} style={countdown > 0 ? { color: "var(--text-muted)" } : {}}>
               {formatCountdown(countdown)}
             </span>
           )}
@@ -131,12 +131,12 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
         {/* Permanent Key row */}
         <div className="w-full flex flex-col gap-1.5">
           <div className="flex items-center justify-between px-0.5">
-            <span className="text-xs font-medium text-white/50">Permanent Key</span>
-            <span className="text-xs text-white/30">Reusable · no expiry</span>
+            <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Permanent Key</span>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>Reusable · no expiry</span>
           </div>
         <div className="w-full flex items-center gap-2 dark-card px-3 py-2.5">
-          <span className="material-symbols-outlined text-white/30 flex-shrink-0" style={{ fontSize: 16 }}>key</span>
-          <span className="flex-1 font-mono text-xs text-white/50 truncate">
+          <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 16, color: "var(--text-muted)" }}>key</span>
+          <span className="flex-1 font-mono text-xs truncate" style={{ color: "var(--text-muted)" }}>
             {permanentKey || "— not set —"}
           </span>
           {permanentKey && (

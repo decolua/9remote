@@ -23,10 +23,24 @@ export default function App() {
   const [updateVersion, setUpdateVersion] = useState(null);
   const [connections, setConnections] = useState([]);
   const [version, setVersion] = useState("");
+  const [theme, setTheme] = useState(() => {
+    // Will be overridden by server state if provided
+    const saved = localStorage.getItem("9remote-theme");
+    return saved || "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("9remote-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === "dark" ? "light" : "dark");
+  };
 
   useEffect(() => {
     fetch("/api/version").then((r) => r.json()).then((d) => setVersion(d.version ?? "")).catch(() => {});
-    // Single fetch for all initial state (ui + permissions + desktop)
+    // Single fetch for all initial state (ui + permissions + desktop + theme)
     fetch("/api/ui/state")
       .then((r) => r.json())
       .then((data) => {
@@ -45,6 +59,10 @@ export default function App() {
           accessibility: data.accessibility ?? false,
         });
         if (data.desktopEnabled !== undefined) setDesktopEnabled(data.desktopEnabled);
+        // Override theme if server provides one
+        if (data.theme && (data.theme === "light" || data.theme === "dark")) {
+          setTheme(data.theme);
+        }
       })
       .catch(() => {});
 
@@ -155,6 +173,8 @@ export default function App() {
       onRegenerateKey={handleRegenerateKey}
       logs={logs}
       version={version}
+      theme={theme}
+      onToggleTheme={toggleTheme}
     />
   );
 }

@@ -822,6 +822,10 @@ async function startUiMode() {
     keyData = saveKey(machineId, key, "Default");
   }
 
+  // Parse --theme flag
+  const themeArg = process.argv.find(arg => arg.startsWith("--theme="));
+  const theme = themeArg ? themeArg.split("=")[1] : null;
+
   // Start server only (no tunnel yet — wait for UI Connect button)
   const alreadyRunning = await isServerRunning();
   const serverManager = alreadyRunning
@@ -837,8 +841,8 @@ async function startUiMode() {
   const getActiveTunnel = () => activeTunnel;
   const setActiveTunnel = (t) => { activeTunnel = t; };
 
-  // Push permanentKey to UI so Welcome screen can display it
-  await pushUiState({ permanentKey: keyData.key, step: 0 });
+  // Push permanentKey + theme to UI so Welcome screen can display it
+  await pushUiState({ permanentKey: keyData.key, step: 0, theme });
 
   setupExitHandler(serverManager, null, keyData.key);
   setupCmdPoller(getActiveTunnel, setActiveTunnel, keyData.key);

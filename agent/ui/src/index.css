@@ -11,14 +11,38 @@
   --brand-500: #FF570A;
   --brand-600: #e04400;
   --brand-400: #ff6e33;
-  --dark-400: #404040;
-  --dark-500: #252525;
-  --dark-600: #1a1a1a;
-  --dark-700: #121212;
-  --dark-800: #0d0d0d;
-  --dark-100: #a0a0a0;
   --radius-brand: 12px;
   --radius-brand-lg: 16px;
+}
+
+/* Light theme */
+:root[data-theme="light"] {
+  --bg-main: #FBF9F6;
+  --bg-alt: #F5F1ED;
+  --surface: #FFFFFF;
+  --sidebar: rgba(246, 246, 246, 0.8);
+  --border: rgba(0, 0, 0, 0.1);
+  --text-main: #383733;
+  --text-muted: #75736E;
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-hover: rgba(255, 255, 255, 0.8);
+  --header-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* Dark theme */
+:root[data-theme="dark"] {
+  --bg-main: #191918;
+  --bg-alt: #1F1F1E;
+  --surface: #242423;
+  --sidebar: rgba(30, 30, 30, 0.8);
+  --border: rgba(255, 255, 255, 0.1);
+  --text-main: #ECEBE8;
+  --text-muted: #9E9D99;
+  --glass-bg: rgba(36, 36, 35, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-hover: rgba(36, 36, 35, 0.8);
+  --header-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 @layer base {
@@ -38,10 +62,11 @@
 
   body {
     font-family: "Inter", sans-serif;
-    background-color: #333;
-    color: #ffffff;
+    background-color: var(--bg-main);
+    color: var(--text-main);
     -webkit-font-smoothing: antialiased;
     user-select: none;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
 
   input, textarea {
@@ -55,47 +80,46 @@
 }
 
 @layer components {
-  /* Dot grid background — synced with web */
+  /* Clean background */
   .dot-grid-bg {
-    background-color: var(--dark-800);
-    background-image:
-      radial-gradient(circle at 15% 20%, rgba(255, 87, 10, 0.2) 0%, transparent 45%),
-      radial-gradient(circle at 85% 80%, rgba(255, 87, 10, 0.12) 0%, transparent 45%),
-      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-    background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+    background: var(--bg-main);
+    transition: background-color 0.3s ease;
   }
 
   /* Dark card — synced with web login card */
   .dark-card {
-    background: var(--dark-600);
-    border: 1px solid var(--dark-400);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: var(--radius-brand);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
   }
 
   .dark-card-sm {
-    background: var(--dark-700);
-    border: 1px solid var(--dark-400);
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
     border-radius: var(--radius-brand);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
   }
 
   /* Glass card — kept for backward compat */
   .glass-card {
-    background: var(--dark-600);
-    border: 1px solid var(--dark-400);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-brand);
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
   }
 
   .glass-btn {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: 8px;
     transition: all 0.2s ease;
   }
 
   .glass-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.18);
+    background: var(--glass-hover);
+    border-color: var(--border);
   }
 
   .btn-primary {
@@ -131,6 +155,11 @@
   .btn-danger:hover {
     background: rgba(220, 53, 69, 0.22);
     border-color: rgba(220, 53, 69, 0.4);
+  }
+
+  /* Sidebar for desktop layout */
+  .sidebar {
+    /* No background - transparent */
   }
 
   .brand-text {

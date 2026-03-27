@@ -2,9 +2,9 @@ export default function ConfirmPopup({ message, confirmLabel = "Confirm", confir
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
       <div className="glass-card p-5 flex flex-col gap-4 w-72">
-        <p className="text-sm text-white text-center">{message}</p>
+        <p className="text-sm text-center" style={{ color: "var(--text-main)" }}>{message}</p>
         <div className="flex gap-2">
-          <button onClick={onCancel} className="glass-btn flex-1 py-2 text-sm text-white/60 hover:text-white">
+          <button onClick={onCancel} className="glass-btn flex-1 py-2 text-sm" style={{ color: "var(--text-muted)" }}>
             Cancel
           </button>
           <button

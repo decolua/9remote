@@ -11,7 +11,7 @@ export default function StepProgress({ currentStep }) {
   const activeIdx = currentStep - 1;
   return (
     <div className="glass-card p-5 flex flex-col gap-4">
-      <span className="text-xs text-white/50 font-medium uppercase tracking-wider">Setting up connection</span>
+      <span className="text-xs font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Setting up connection</span>
       <div className="flex flex-col gap-3">
         {STEPS_META.map((meta, i) => {
           const completed = i < activeIdx;
@@ -25,7 +25,7 @@ export default function StepProgress({ currentStep }) {
                 style={{
                   background: completed ? "var(--brand-500)"
                     : active ? "rgba(255,87,10,0.15)"
-                    : "rgba(255,255,255,0.06)",
+                    : "var(--glass-bg)",
                   border: active ? "1.5px solid var(--brand-500)" : "1.5px solid transparent",
                 }}>
                 {completed ? (
@@ -39,23 +39,23 @@ export default function StepProgress({ currentStep }) {
                     ))}
                   </span>
                 ) : (
-                  <span className="material-symbols-outlined text-white/20" style={{ fontSize: 16 }}>{meta.icon}</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--text-muted)", opacity: 0.3 }}>{meta.icon}</span>
                 )}
               </div>
 
               {/* text */}
               <div className="flex-1 min-w-0">
-                <p className={`text-sm font-medium ${completed ? "text-white/60" : active ? "text-white" : "text-white/25"}`}>
+                <p className="text-sm font-medium" style={{ color: completed ? "var(--text-muted)" : active ? "var(--text-main)" : "var(--text-muted)", opacity: completed || active ? 1 : 0.4 }}>
                   {meta.label}
                 </p>
-                <p className={`text-xs mt-0.5 ${active ? "text-white/40" : "text-white/20"}`}>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)", opacity: active ? 0.7 : 0.4 }}>
                   {meta.desc}
                 </p>
               </div>
 
               {/* right badge */}
               {completed && (
-                <span className="text-xs text-white/30 flex-shrink-0">Done</span>
+                <span className="text-xs flex-shrink-0" style={{ color: "var(--text-muted)" }}>Done</span>
               )}
               {active && (
                 <span className="text-xs flex-shrink-0 px-2 py-0.5 rounded-full"
