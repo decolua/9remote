@@ -5,6 +5,7 @@ import Navbar from "./Navbar";
 import HeroSection from "./HeroSection";
 import FeaturesSection from "./FeaturesSection";
 import TerminalDemoSection from "./TerminalDemoSection";
+import ComparisonSection from "./ComparisonSection";
 import GetStartedSection from "./GetStartedSection";
 import CTASection from "./CTASection";
 import Footer from "./Footer";
@@ -16,6 +17,7 @@ export default function LandingPage() {
       <Navbar />
       <main className="relative z-10">
         <HeroSection />
+        <ComparisonSection />
         <FeaturesSection />
         <TerminalDemoSection />
         <GetStartedSection />

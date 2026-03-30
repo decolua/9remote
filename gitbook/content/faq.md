@@ -82,7 +82,7 @@ Yes, but you'll need to use a process manager like `pm2` or run it in a `screen`
 ```bash
 # Using screen
 screen -S 9remote
-9remote start
+9remote
 # Press Ctrl+A then D to detach
 
 # Reattach later

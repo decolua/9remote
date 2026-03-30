@@ -4,9 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3001",
+    "prebuild": "node scripts/generateContent.js",
     "build": "next build",
+    "preview": "npx serve out -p 8787",
     "start": "next start -p 3001",
-    "deploy": "npm run build && npx wrangler pages deploy out --project-name=9remote-docs --commit-dirty=true"
+    "deploy": "npm run build && npx wrangler pages deploy out --project-name=9remote-docs"
   },
   "dependencies": {
     "lucide-react": "^0.563.0",
@@ -19,6 +21,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.18.0",
     "@tailwindcss/postcss": "^4",
     "tailwindcss": "^4"
   }

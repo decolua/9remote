@@ -14,7 +14,7 @@ export default function TerminalDemoSection() {
     { type: "command", text: "npm install -g 9remote" },
     { type: "output", text: "→ Installing 9remote..." },
     { type: "success", text: "✓ Installation complete" },
-    { type: "command", text: "9remote start" },
+    { type: "command", text: "9remote" },
     { type: "output", text: "→ Starting server..." },
     { type: "output", text: "→ Creating tunnel..." },
     { type: "success", text: "✓ Server running on http://localhost:3000" },
@@ -107,8 +107,9 @@ export default function TerminalDemoSection() {
     <section id="terminal-demo" className="relative py-20 px-4 sm:px-6 lg:px-8 bg-gray-50">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-gray-900">
-            How It Works
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4">
+            <span className="text-gray-900">How It </span>
+            <span className="bg-gradient-to-r from-brand-500 to-purple-600 bg-clip-text text-transparent">Works</span>
           </h2>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             Connect your phone to your terminal in seconds

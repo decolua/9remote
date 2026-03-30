@@ -709,7 +709,9 @@ async function autoStartDev() {
 
   await showConnectionInfo(keyData.key, tunnelUrl);
   setupExitHandler(serverManager, tunnelProcess, keyData.key);
-  setupKeyRegenListener();
+  
+  let activeTunnel = tunnelProcess;
+  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
 
   // Push stats to UI every 5s
   const startTime = Date.now();
@@ -857,9 +859,9 @@ async function startUiMode() {
 
 // Start app
 async function start() {
-  // Check and auto-update (exits if update started)
-  const hasUpdate = await checkAndUpdate(skipUpdate);
-  if (hasUpdate) return;
+  // Disable auto-update - TUI already shows update notification
+  // const hasUpdate = await checkAndUpdate(skipUpdate);
+  // if (hasUpdate) return;
   
   const command = process.argv[2];
   

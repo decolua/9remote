@@ -65,7 +65,6 @@ npm install -g 9remote
 |---|---|
 | `9remote` | TUI mode — interactive menu with QR |
 | `9remote ui` | Web UI mode — open browser dashboard |
-| `9remote start` | Auto start server + tunnel (headless) |
 
 ---
 

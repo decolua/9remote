@@ -33,7 +33,7 @@ Create or edit `.devcontainer/devcontainer.json` in your repo:
 
 ```json
 {
-  "postStartCommand": "9remote start"
+  "postStartCommand": "9remote"
 }
 ```
 

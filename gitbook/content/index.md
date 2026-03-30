@@ -20,7 +20,7 @@
 **Simple Setup**
 ```bash
 npm install -g 9remote
-9remote start
+9remote
 ```
 
 That's it! Scan the QR code and you're connected.

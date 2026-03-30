@@ -12,7 +12,7 @@ export default function HowItWorksSection() {
       number: "2",
       title: "Start Server",
       description: "Launch the server and get your QR code",
-      command: "9remote start"
+      command: "9remote"
     },
     {
       number: "3",

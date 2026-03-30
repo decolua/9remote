@@ -16,8 +16,9 @@ export default function GetStartedSection() {
       <div className="max-w-4xl mx-auto">
         <div className="bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-2xl p-8 sm:p-12 shadow-2xl">
           <div className="text-center mb-8">
-            <h2 className="text-3xl sm:text-4xl font-bold mb-4 text-gray-900">
-              Get Started in Seconds
+            <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+              <span className="text-gray-900">Get Started in </span>
+              <span className="bg-gradient-to-r from-brand-500 to-purple-600 bg-clip-text text-transparent">Seconds</span>
             </h2>
             <p className="text-gray-600 text-lg">
               Install 9Remote and start accessing your terminal remotely
@@ -59,7 +60,7 @@ export default function GetStartedSection() {
               <div className="border-t border-gray-200 pt-4 mb-4">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-brand-500">$</span>
-                  <span className="text-gray-900">9remote start</span>
+                  <span className="text-gray-900">9remote</span>
                 </div>
               </div>
 

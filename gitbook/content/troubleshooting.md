@@ -48,7 +48,7 @@ netstat -ano | findstr :2208
 taskkill /PID <PID> /F
 
 # Then restart
-9remote start
+9remote
 ```
 
 **Wait for tunnel:**
@@ -130,7 +130,7 @@ taskkill /PID <PID> /F
 ```bash
 # Check if server terminal is still open
 # If closed, restart:
-9remote start
+9remote
 ```
 
 **Network issue:**
@@ -143,7 +143,7 @@ taskkill /PID <PID> /F
 - Restart server:
 ```bash
 # Ctrl+C to stop
-9remote start
+9remote
 ```
 
 **Browser issue:**
@@ -166,7 +166,7 @@ netstat -ano | findstr :2208  # Windows
 
 ### View Logs
 
-Server logs appear in the terminal where you ran `9remote start`. Look for error messages there.
+Server logs appear in the terminal where you ran `9remote`. Look for error messages there.
 
 ### Reset Everything
 
@@ -181,7 +181,7 @@ Ctrl+C
 # → Manage Key → Regenerate Key
 
 # Restart server
-9remote start
+9remote
 
 # Connect with new key
 ```

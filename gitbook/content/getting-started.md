@@ -24,7 +24,7 @@ npm install -g 9remote
 Start the 9Remote server on your computer:
 
 ```bash
-9remote start
+9remote
 ```
 
 The server will:

@@ -68,8 +68,9 @@ export default function FeaturesSection() {
     <section id="features" className="relative py-20 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-gray-900">
-            Powerful Features
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4">
+            <span className="text-gray-900">Powerful </span>
+            <span className="bg-gradient-to-r from-brand-500 to-purple-600 bg-clip-text text-transparent">Features</span>
           </h2>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             Everything you need for secure remote access

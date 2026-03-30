@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "build:cf": "opennextjs-cloudflare build",
-    "deploy": "opennextjs-cloudflare deploy",
+    "deploy": "npm run build:cf && opennextjs-cloudflare deploy",
     "preview": "opennextjs-cloudflare preview",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv env.d.ts"
   },

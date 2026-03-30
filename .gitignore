@@ -69,3 +69,5 @@ expo/ios/*
 agent/ui/dist/*
 agent/ui/dist/index.html
 agent/ui/dist/*
+.seeding/*
+gitbook/.wrangler/*

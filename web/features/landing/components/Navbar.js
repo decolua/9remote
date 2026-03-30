@@ -47,6 +47,17 @@ export default function Navbar() {
             How it Works
           </a>
           <a
+            href="https://docs.9remote.cc/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-gray-600 hover:text-gray-900 transition-colors flex items-center gap-1"
+          >
+            Documentation
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </a>
+          <a
             href="#get-started"
             className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
           >
@@ -107,6 +118,14 @@ export default function Navbar() {
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
               How it Works
+            </a>
+            <a
+              href="https://docs.9remote.cc/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              Documentation
             </a>
             <a
               href="#get-started"
