@@ -199,7 +199,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null) {
 
   const child = spawn(
     binaryPath,
-    ["tunnel", "--url", `http://localhost:${localPort}`, "--config", configPath, "--no-autoupdate"],
+    ["tunnel", "--url", `http://localhost:${localPort}`, "--config", configPath, "--no-autoupdate", "--protocol", "http2"],
     { detached: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }
   );
 

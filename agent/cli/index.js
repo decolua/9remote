@@ -415,22 +415,23 @@ async function tuiMode() {
     keyData = saveKey(machineId, key, "Default");
   }
 
-  // Run update check & server start in parallel
-  let tuiServerMgr = { getProcess: () => null, shutdown: () => {} };
-  const [updateInfo] = await Promise.all([
-    checkLatestVersion(),
-    (async () => {
-      const alreadyRunning = await isServerRunning();
-      if (!alreadyRunning) {
-        tuiServerMgr = startServerWithRestart(null, null);
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-    })(),
-  ]);
-
-  // ── 2. Show banner (with update notice if available) ──────────────────────
+  // ── 2. Check update first, show banner immediately ───────────────────────
   const version = getVersion();
+  const updateInfo = await checkLatestVersion();
   showBanner(version, updateInfo?.latest ?? null);
+
+  // If new version available — pause and wait for user to press Enter
+  if (updateInfo?.latest) {
+    await selectMenu("Press Enter to start server", [{ label: "Start server" }], 0);
+  }
+
+  // Start server after banner
+  let tuiServerMgr = { getProcess: () => null, shutdown: () => {} };
+  const alreadyRunning = await isServerRunning();
+  if (!alreadyRunning) {
+    tuiServerMgr = startServerWithRestart(null, null);
+    await new Promise((r) => setTimeout(r, 2000));
+  }
 
   // ── 3. Progress: Preparing → Connecting → Tunneling → Ready ──────────────
   resetProgress();
@@ -472,6 +473,11 @@ async function tuiMode() {
     console.log(chalk.red(`\n❌ Tunnel failed: ${err.message}`));
     process.exit(1);
   }
+
+  renderProgress(3, true); // Ready
+
+  // Wait 3s after Ready step before proceeding
+  await new Promise((r) => setTimeout(r, 3000));
 
   await updateTunnelUrl(keyData.key, tunnelUrl);
   saveState({ apiKey: keyData.key, tunnelUrl, tunnelPid: tunnelProcess.pid });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Monitor, FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2 } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2 } from "@/shared/components/ui/Icon";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
@@ -215,23 +215,6 @@ export default function MenuItems({
         )}
       </div>}
 
-      {/* Remote Desktop */}
-      {!hideActions.includes('remote') && remoteAvailable && onRemote && (
-        <button
-          onClick={() => { vibrate(); onRemote(); }}
-          disabled={!connected}
-          className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
-            showTheme ? "menu-item-stagger-3" : "menu-item-stagger-2"
-          } ${
-            connected
-              ? "bg-dark-700 hover:bg-dark-600 text-white"
-              : "bg-dark-700/30 text-dark-200 cursor-not-allowed"
-          }`}
-        >
-          <Monitor className="text-brand-500" size={20} />
-          <span className="font-medium">Remote Desktop</span>
-        </button>
-      )}
 
       {/* Files */}
       {!hideActions.includes('files') && onFiles && (

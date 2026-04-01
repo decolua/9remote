@@ -3,13 +3,12 @@
 import { useEffect, useRef, memo, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
-import AITerminalPanel from "@/features/terminal/components/AITerminal/AITerminalPanel";
 import { detectSelectionType } from "@/features/terminal/components/SelectionActionButton";
 import { parseFilePathWithLine } from "@/features/terminal/utils/linkDetector";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES } from "@/features/terminal/constants/themes";
-import { ChevronLeft, ChevronDown, Settings, Sparkles } from "@/shared/components/ui/Icon";
+import { ChevronLeft, ChevronDown, Settings, Monitor } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 
@@ -43,7 +42,6 @@ function Terminal({
   const menuSocketRef = useRef(null);
   const longPressTimer = useRef(null);
   const pasteInputRef = useRef(null);
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [showPasteInput, setShowPasteInput] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
@@ -255,13 +253,15 @@ function Terminal({
           </div>
         </div>
 
-        <button
-          onClick={() => { vibrate(); setAiPanelOpen(true); }}
-          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
-          title="AI Terminal"
-        >
-          <Sparkles size={20} />
-        </button>
+        {onOpenRemote && (
+          <button
+            onClick={() => { vibrate(); onOpenRemote(); }}
+            className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
+            title="Remote Desktop"
+          >
+            <Monitor size={20} />
+          </button>
+        )}
 
         <button
           onClick={() => { vibrate(); openMenu(); }}
@@ -317,9 +317,6 @@ function Terminal({
 
       {/* Mobile Keyboard */}
       <MobileKeyboard socket={socket} sessionId={sessionId} onExpandChange={doResize} onRefocus={focus} platform={platform} />
-
-      {/* AI Terminal Panel */}
-      <AITerminalPanel isOpen={aiPanelOpen} onClose={() => setAiPanelOpen(false)} platform={platform} />
     </div>
   );
 }
