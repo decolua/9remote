@@ -19,6 +19,7 @@ const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/W
 const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/FileExplorer"), { ssr: false });
 const FileEditor = dynamic(() => import("@/features/fileExplorer/components/FileEditor"), { ssr: false });
 const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPanel"), { ssr: false });
+const OpenClawChat = dynamic(() => import("@/features/openclaw/components/OpenClawChat"), { ssr: false });
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
@@ -198,6 +199,10 @@ export default function WorkspacePage() {
     pushView({ type: "remote" });
   }, [pushView]);
 
+  const handleOpenClaw = useCallback(() => {
+    pushView({ type: "openclaw" });
+  }, [pushView]);
+
   const handleOpenFiles = useCallback(async () => {
     // Fetch system info when opening workspaces view
     if (!systemInfo) {
@@ -316,6 +321,7 @@ export default function WorkspacePage() {
           onLogout={handleLogoutWithConfirm}
           onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
           onOpenFiles={handleOpenFiles}
+          onOpenClaw={handleOpenClaw}
           tunnelUrl={auth?.tunnelUrl}
           apiKey={auth?.apiKey}
           connectionMode={connectionMode}
@@ -329,8 +335,6 @@ export default function WorkspacePage() {
           unsubscribeFromPush={unsubscribeFromPush}
           notifications={notifications}
           clearNotification={clearNotification}
-          isActive={currentView.type === "list"}
-          socketRef={socketRef}
         />
       </div>
 
@@ -386,6 +390,13 @@ export default function WorkspacePage() {
       {currentView.type === "remote" && (
         <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
           <RemoteDesktop onClose={popView} socketRef={socketRef} connected={connected} connectionMode={connectionMode} />
+        </div>
+      )}
+
+      {/* OpenClaw - conditional render */}
+      {currentView.type === "openclaw" && (
+        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
+          <OpenClawChat onClose={popView} socketRef={socketRef} />
         </div>
       )}
 

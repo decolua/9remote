@@ -9,7 +9,7 @@ import SitesList from "@/features/terminal/components/SitesList";
 import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, onOpenClaw, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -138,6 +138,17 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         
         {/* Action Buttons */}
         <div className="flex items-center gap-2">
+          {/* OpenClaw Button */}
+          {onOpenClaw && (
+            <button
+              onClick={() => { vibrate(); onOpenClaw(); }}
+              className="w-9 h-9 flex items-center justify-center rounded-brand transition-all duration-200 border bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500 text-[18px] leading-none"
+              title="OpenClaw AI"
+            >
+              🦞
+            </button>
+          )}
+
           {/* Remote Button */}
           {onOpenRemote && (
             <button

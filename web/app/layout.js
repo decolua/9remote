@@ -1,4 +1,5 @@
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -53,7 +54,6 @@ export default function RootLayout({ children }) {
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  // Register minimal SW for PWA support only
                   navigator.serviceWorker.register('/sw.js').catch(function(err) {
                     console.log('SW registration failed:', err);
                   });
@@ -62,6 +62,11 @@ export default function RootLayout({ children }) {
             `
           }}
         />
+        {/* Live2D CDN scripts — must be in head, beforeInteractive */}
+        <Script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js" strategy="beforeInteractive" />
+        <Script src="https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js" strategy="beforeInteractive" />
+        <Script src="https://cdn.jsdelivr.net/npm/pixi.js@7.x/dist/pixi.min.js" strategy="beforeInteractive" />
+        <Script src="https://cdn.jsdelivr.net/gh/RaSan147/pixi-live2d-display@v0.5.0-ls-8/dist/cubism4.min.js" strategy="beforeInteractive" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}

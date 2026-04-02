@@ -1,7 +1,7 @@
 # Live2D AI Chat — Integration Reference
 
-Source: `.source/live2d_ai/`
-Stack: Next.js 15, React 19, Tailwind CSS 4, JavaScript (no TypeScript)
+Source: `.source/live_ai/`
+Stack: Next.js 15, React 19, Tailwind CSS 4, PIXI.js v8, pixi-live2d-display, JavaScript (no TypeScript)
 
 ---
 
@@ -10,475 +10,272 @@ Stack: Next.js 15, React 19, Tailwind CSS 4, JavaScript (no TypeScript)
 ```
 User message
   → POST /api/chat
-      → OpenRouter (Llama 3.1) → AI response text
-      → OpenRouter (Llama 3.1) → emotion + gesture JSON
-      → Bing TTS → base64 audio
-  → Response: { response, emotion, gesture, audioBase64, mimeType }
+      → OpenRouter (Llama 3.1) → AI response text + emotion + gesture
+      → Bing TTS → base64 audio data URI
+  → Response: { response, emotion, audioData }
 
 Frontend:
-  ChatInterface → receives response
-    → updates chatHistory state
-    → calls onMessageSent({ emotion, gesture, audioBase64 })
-    → plays audio → LipsyncEngine → Live2DViewer mouth params
-  Dashboard → passes emotion + gesture to Live2DViewer
-  Live2DViewer → sets expression + motion on L2Dwidget model
+  SimpleChatPanel → receives response
+    → addMessage(text, emotion)
+    → applyEmotionWithLipSync(emotion, audioData)
+        → currentModel.motion(expressionMapping[emotion])
+        → currentModel.startLipSyncFromBase64Audio(audioData)
+            → Web Audio API → ParamMouthOpenY → 60fps loop
 ```
 
 ---
 
-## 2. Module Breakdown
+## 2. Stack & Dependencies
 
-### 2.1 Avatar — `lib/live2d-manager.js` + `components/ui/Live2DViewer.js`
+```json
+"pixi.js": "^8.11.0",
+"pixi-live2d-display": "^0.4.0",
+"zustand": "^5.0.6"
+```
 
-**SDK:** `live2d-widget@3.x` loaded dynamically from CDN at runtime.
+**CDN scripts cần load trước PIXI:**
+```html
+<!-- Không cần CDN — PIXI load qua npm -->
+```
+
+---
+
+## 3. Module Breakdown
+
+### 3.1 Live2DViewer — `components/live2d/Live2DViewer.js`
+
+**SDK:** `pixi.js` v8 + `pixi-live2d-display` — load qua npm, không cần CDN.
+
+**Model format:** Cubism 3/4 — `.model3.json` (local files trong `public/models/`)
 
 ```js
-// Load SDK (once)
-script.src = "https://cdn.jsdelivr.net/npm/live2d-widget@3.x/lib/L2Dwidget.min.js"
+// Load PIXI (client-side only)
+import * as PIXI from "pixi.js"
+import { Live2DModel } from "pixi-live2d-display"
 
-// Init model
-window.L2Dwidget.init({
-  model: { use: "<CDN_URL>/<path>/model.json" },
-  display: { position: "relative", width: "100%", height: "100%" }
+// Setup canvas
+const app = new PIXI.Application({
+  view: canvasEl,
+  backgroundAlpha: 0,   // transparent background
+  resizeTo: window,
 })
+
+// Load model
+const model = await Live2DModel.from("/models/25meiko_collabo01_t02/25meiko_collabo01_t02.model3.json")
+
+// Scale + position
+model.anchor.set(0.5, 1)
+const widthScale = app.renderer.width / model.width * 0.95
+const heightScale = app.renderer.height / model.height * 0.95
+model.scale.set(widthScale * 1.3, heightScale)
+model.x = app.renderer.width / 2
+model.y = app.renderer.height - 40
+
+app.stage.addChild(model)
 ```
 
-**Model sources (CDN, no local files needed):**
+**Model path convention:**
+```
+public/models/<modelName>/<modelName>.model3.json
+```
 
-| Source key | Base URL |
+**Background:** ảnh tuyệt đối qua `<img>` absolute, canvas relative z-index 10 phía trên.
+
+**Available models (local):**
+| Model | Path |
 |---|---|
-| `EVRSTR` | `https://cdn.jsdelivr.net/gh/evrstr/live2d-widget-models/live2d_evrstr` |
-| `ICHARLESZ` | `https://raw.githubusercontent.com/iCharlesZ/vscode-live2d-models/master/model-library` |
-| `NOVA1751` | `https://nova1751.github.io/live2d-api/model` |
-| `LOCAL` | `/live2d/models` |
+| `25meiko_collabo01_t02` | `/models/25meiko_collabo01_t02/25meiko_collabo01_t02.model3.json` |
+| `01ichika_cloth001_3.1_f_t01` | `/models/01ichika_cloth001_3.1_f_t01/01ichika_cloth001_3.1_f_t01.model3.json` |
 
-**22 models available** — default: `pio`
+---
 
-| Category | Models |
-|---|---|
-| girls-frontline | hk416, ump45, ump9, wa2000 |
-| vocaloid | miku, snow_miku |
-| anime | rem, kurumi, platelet, madoka, mikoto, kuroko |
-| cute | shizuku, chitose, koharu |
-| potion-maker | pio, tia |
-| special | epsilon |
-| bilibili | bilibili_22, bilibili_33 |
-
-**Emotion → Expression mapping:**
+### 3.2 State — `store/live2dStore.js` (Zustand)
 
 ```js
-// L2Dwidget expression IDs
-const expressionMap = {
-  happy:     "f01",
-  sad:       "f02",
-  surprised: "f03",
-  thinking:  "f04",
-  idle:      null   // no expression change
+{
+  currentModel: null,        // PIXI Live2DModel instance
+  selectedModel: "25meiko_collabo01_t02",
+  modelLoading: false,
+  modelError: null,
+  availableMotions: [],
+  availableExpressions: [],
 }
-
-window.L2Dwidget.model.setExpression(expressionId)
 ```
 
-**Gesture → Motion mapping:**
+---
+
+### 3.3 Lip Sync — `lib/lipSync.js`
+
+**Cách hoạt động:** Inject method `startLipSyncFromBase64Audio(dataUrl)` trực tiếp vào model instance.
 
 ```js
-const motionMap = {
-  wave:  "tapBody",
-  nod:   "idle",
-  shake: "shake"
-}
+import { addLipSyncToModel } from "@/lib/lipSync"
 
-window.L2Dwidget.model.startMotion(motionName, 0, 3)
+// Gọi sau khi model load xong
+addLipSyncToModel(model)
+
+// Sau đó dùng:
+await model.startLipSyncFromBase64Audio("data:audio/mpeg;base64,...")
 ```
 
-**Component props:**
+**Bên trong `startLipSyncFromBase64Audio`:**
+```
+base64 data URL
+  → base64AudioToBlob() → Blob
+  → audioContext.decodeAudioData() → AudioBuffer
+  → createBufferSource() → playbackRate: 1.15
+  → AnalyserNode (fftSize: 512)
+  → requestAnimationFrame loop
+      → getByteTimeDomainData()
+      → RMS calculation → volume (0–1)
+      → model.internalModel.coreModel.setParameterValueById("ParamMouthOpenY", volume)
+  → source.onended → reset ParamMouthOpenY = 0
+```
 
+**Reset mouth khi stop:**
+```js
+model.stopLipSync()
+// → cancelAnimationFrame + setParameterValueById("ParamMouthOpenY", 0)
+```
+
+---
+
+### 3.4 Emotion / Motion
+
+**Mapping emotion string → Live2D motion name:**
+```js
+const expressionMapping = {
+  angry:     "Angry",
+  idle:      "Idle",
+  sad:       "Sad",
+  cry:       "Cry",
+  smile:     "Smile",
+  surprise:  "Surprise",
+  baffling:  "Baffling",
+  shakehead: "Shakehead"
+}
+
+// Áp dụng:
+model.motion(expressionMapping[emotion] || "Idle")
+
+// Reset về idle sau 2.5s:
+setTimeout(() => model.motion("Idle"), 2500)
+```
+
+**Blink effect (tự động):**
+```js
+setInterval(() => {
+  model.internalModel.coreModel.setParameterValueById("ParamEyeROpen", 0)
+  model.internalModel.coreModel.setParameterValueById("ParamEyeLOpen", 0)
+  setTimeout(() => {
+    model.internalModel.coreModel.setParameterValueById("ParamEyeROpen", 1)
+    model.internalModel.coreModel.setParameterValueById("ParamEyeLOpen", 1)
+  }, 100)
+}, 3000)
+```
+
+**Head tracking (focus):**
+```js
+setInterval(() => {
+  model.focus(Math.random() * canvasWidth, Math.random() * canvasHeight)
+}, 5000)
+```
+
+**Touch interaction:**
+```js
+model.interactive = true
+model.on("pointerdown", () => model.alpha = 0.9)
+model.on("pointerup", () => { triggerRandomEmotion(model); model.alpha = 1.0 })
+```
+
+---
+
+### 3.5 TTS — `lib/bing-tts.js` + `app/api/tts/route.js`
+
+Giống nhau với mô tả cũ. Server-side route để tránh CORS.
+
+```js
+// API route trả về:
+{ success: true, audioData: "data:audio/mpeg;base64,..." }
+
+// Client dùng:
+model.startLipSyncFromBase64Audio(data.audioData)
+```
+
+---
+
+### 3.6 Chat Panel layout
+
+```
+<div className="h-dvh w-full overflow-hidden">
+  <div className="flex flex-col md:flex-row h-full">
+    {/* Left: Viewer full height */}
+    <div className="flex-1 relative">
+      <Live2DViewer />          {/* canvas + background image */}
+      <SimpleChatPanel />       {/* fixed bottom overlay */}
+    </div>
+  </div>
+</div>
+```
+
+**SimpleChatPanel:** `position: fixed bottom-0 left-0 right-0 z-20`
+- Messages list với gradient fade top
+- Input + Send button + Stop TTS button (khi đang nói)
+
+---
+
+## 4. Cleanup
+
+```js
+// Khi component unmount:
+useEffect(() => {
+  return () => {
+    if (appRef.current) {
+      appRef.current.destroy(true)  // destroy PIXI app + canvas
+    }
+  }
+}, [])
+```
+
+---
+
+## 5. Integration Checklist (9remote)
+
+```
+lib/lipSync.js               → copy sang web/shared/lib/lipSync.js
+public/models/<name>/        → copy model folder vào web/public/models/
+npm install pixi.js pixi-live2d-display
+```
+
+**Live2DViewer props (9remote version):**
 ```js
 <Live2DViewer
-  emotion="happy"          // idle | happy | sad | surprised | thinking
-  gesture="wave"           // nod | shake | wave | null
-  onGestureComplete={fn}   // callback after gesture animation (~2000ms)
-  modelId="pio"            // any model id from LIVE2D_MODELS
+  modelName="25meiko_collabo01_t02"   // folder name in public/models/
+  backgroundUrl="https://..."         // optional background image
+  className=""
 />
 ```
 
-**Helper functions (live2d-manager.js):**
-
+**Lipsync usage (9remote):**
 ```js
-getModelById(id)              // → model object | null
-getModelUrl(model)            // → full CDN URL string
-getModelsByCategory(cat)      // → filtered array
-getRandomModel(excludeId)     // → random model object
-getCategories()               // → sorted category array
-loadLive2DModel(modelId)      // → Promise<{ success, model, data, url }>
-preloadModels([ids])          // → Promise<{ success[], failed[] }>
-```
-
----
-
-### 2.2 Chat — `lib/openrouter.js` + `app/api/chat/route.js`
-
-**Two sequential OpenRouter calls per message:**
-
-1. **Chat call** — generates AI response text
-   - Model: `meta-llama/llama-3.1-8b-instruct:free`
-   - max_tokens: 150, temperature: 0.7
-   - System prompt: friendly AI, Vietnamese/English
-
-2. **Emotion analysis call** — analyzes the AI response
-   - Model: same free model
-   - max_tokens: 100, temperature: 0.3
-   - Returns JSON: `{ "emotion": "happy", "gesture": "wave" }`
-
-```js
-// Usage
-import { getChatResponse } from "@/lib/openrouter.js"
-const result = await getChatResponse(userMessage, process.env.OPENROUTER_API_KEY)
-// result: { response: string, emotion: string, gesture: string|null }
-```
-
-**Emotion analysis prompt template:**
-
-```
-Analyze the emotion and suggest a gesture for this text: "<AI response>"
-Available emotions: idle, happy, sad, surprised, thinking
-Available gestures: nod, shake, wave, null
-Respond ONLY with JSON format: {"emotion": "...", "gesture": "..."}
-```
-
-**API endpoint:** `POST /api/chat`
-
-```js
-// Request
-{ "message": "string" }
-
-// Response
-{
-  "response":    "string",          // AI text
-  "emotion":     "idle|happy|...",  // detected emotion
-  "gesture":     "nod|shake|wave|null",
-  "audioBase64": "string",          // base64 mp3 (without data: prefix)
-  "mimeType":    "audio/mpeg",
-  "error":       null
+// Sau khi nhận TTS audio từ agent:
+const model = live2dModelRef.current
+if (model?.startLipSyncFromBase64Audio) {
+  await model.startLipSyncFromBase64Audio(`data:audio/mpeg;base64,${base64}`)
 }
 ```
 
-**Env required:**
-
-```bash
-OPENROUTER_API_KEY=sk-or-v1-...
-```
-
 ---
 
-### 2.3 Audio / TTS — `lib/bing-tts.js` + `app/api/tts/route.js`
-
-**Bing TTS is completely free — no API key needed.**
-
-**How it works:**
-1. Scrape token from `https://www.bing.com/translator` (HTML parse)
-2. POST SSML to `https://www.bing.com/tfettts` with token
-3. Receive MP3 binary → convert to base64
-
-**Token expires every ~26 minutes** — must re-fetch per request (or cache with TTL).
-
-```js
-import { getToken, getAudio, VIETNAMESE_VOICES } from "@/lib/bing-tts.js"
-
-const token = await getToken()
-// token: { key: string, token: string } | { error: string }
-
-const result = await getAudio(VIETNAMESE_VOICES.FEMALE_1, text, token)
-// result: { data: "data:audio/mpeg;base64,..." } | { error: string }
-```
-
-**Available Vietnamese voices:**
-
-```js
-VIETNAMESE_VOICES = {
-  FEMALE_1: "vi-VN-HoaiMyNeural",   // default
-  FEMALE_2: "vi-VN-NamMinhNeural",  // mislabeled, actually same
-  MALE_1:   "vi-VN-NamMinhNeural"
-}
-```
-
-**SSML template used:**
-
-```xml
-<speak version='1.0' xml:lang='en-US'>
-  <voice xml:lang='vi-VN' xml:gender='Female' name='{voiceId}'>
-    <prosody rate='0.00%'>{text}</prosody>
-  </voice>
-</speak>
-```
-
-**API endpoint:** `POST /api/tts`
-
-```js
-// Request
-{ "text": "string", "voiceId": "vi-VN-HoaiMyNeural" }  // voiceId optional
-
-// Response
-{
-  "audioBase64":   "string",   // base64 only (no data: prefix)
-  "fullAudioData": "string",   // full data URL (for lipsync)
-  "mimeType":      "audio/mpeg",
-  "lipsyncEnabled": true,
-  "error": null
-}
-```
-
-**GET /api/tts** returns available voices list.
-
----
-
-### 2.4 LipSync Engine — `lib/lipsync-engine.js`
-
-**Uses Web Audio API — client-side only.**
-
-```
-Audio element
-  → AudioContext.createMediaElementSource()
-  → AnalyserNode (fftSize: 512, smoothingTimeConstant: 0.3)
-  → requestAnimationFrame loop
-      → getByteFrequencyData() → Uint8Array
-      → filter speech range: 85Hz–2000Hz
-      → RMS calculation → mouthValue (0–1)
-      → smooth: value = lastValue*(1-α) + newValue*α
-  → model.setParameterValueById("ParamMouthOpenY", mouthValue)
-  → model.setParameterValueById("ParamMouthForm", mouthValue * 0.3)
-```
-
-**Live2D mouth parameters written:**
-- `ParamMouthOpenY` — main open/close (0–1)
-- `ParamMouthForm` — shape (value × 0.3)
-- `mouthOpenY` — alternate name fallback
-- `mouthForm` — alternate name fallback
-
-**Default config:**
-
-```js
-sensitivity    = 2.0   // range: 0.5–5.0
-smoothingFactor = 0.3  // range: 0.1–0.9
-threshold      = 10    // range: 0–50 (noise floor)
-```
-
-**Live2DViewer sets on init:**
-
-```js
-configureLipsync({ sensitivity: 2.5, smoothing: 0.4, threshold: 8 })
-```
-
-**Key functions:**
-
-```js
-import {
-  startLipsyncWithAudio,   // (live2dModel, htmlAudioElement) → void
-  startLipsyncWithBase64,  // (live2dModel, base64String) → Promise<HTMLAudioElement>
-  stopLipsync,             // () → void
-  configureLipsync,        // ({ sensitivity, smoothing, threshold }) → void
-  getLipsyncStatus         // () → { isActive, hasModel, lastMouthValue, ... }
-} from "@/lib/lipsync-engine.js"
-```
-
-**Usage in ChatInterface (actual pattern):**
-
-```js
-const audio = new Audio()
-audio.src = URL.createObjectURL(base64ToBlob(audioBase64, "audio/mpeg"))
-
-const live2dModel = window.L2Dwidget?.model || null
-if (live2dModel) {
-  startLipsyncWithAudio(live2dModel, audio)
-}
-audio.play()
-
-audio.onended = () => {
-  stopLipsync()
-  URL.revokeObjectURL(audio.src)
-}
-```
-
-**Performance:**
-- Audio latency: < 20ms
-- CPU: minimal (optimized FFT)
-- Memory: < 2MB additional
-- Frame rate: 60 FPS via requestAnimationFrame
-
----
-
-### 2.5 Expression System — `lib/expressions.js` + `types/index.js`
-
-**Constants:**
-
-```js
-// types/index.js
-EMOTIONS  = { IDLE, HAPPY, SAD, SURPRISED, THINKING }
-GESTURES  = { NOD, SHAKE, WAVE }
-```
-
-**Parameter mappings (used for manual/programmatic control):**
-
-```js
-EXPRESSION_MAPPINGS = {
-  idle:      { eyeOpenLeft: 1.0, eyeOpenRight: 1.0, eyeBrowLeftY: 0, mouthForm: 0, mouthOpenY: 0 },
-  happy:     { eyeOpenLeft: 0.6, eyeOpenRight: 0.6, eyeBrowLeftY: -0.3, mouthForm: 1.0, mouthOpenY: 0.3 },
-  sad:       { eyeOpenLeft: 0.8, eyeOpenRight: 0.8, eyeBrowLeftY: 0.5, mouthForm: -0.8, mouthOpenY: 0 },
-  surprised: { eyeOpenLeft: 1.5, eyeOpenRight: 1.5, eyeBrowLeftY: -0.8, mouthForm: 0, mouthOpenY: 0.8 },
-  thinking:  { eyeOpenLeft: 0.5, eyeOpenRight: 1.0, eyeBrowLeftY: 0.3, mouthForm: -0.3, mouthOpenY: 0 }
-}
-```
-
-**Key functions:**
-
-```js
-applyExpression(model, emotion, intensity=1.0)
-// → sets params on model, calls model.update()
-
-transitionExpression(model, fromEmotion, toEmotion, duration=500)
-// → smooth interpolation with ease-out cubic
-
-playGesture(model, gesture, onComplete)
-// → keyframe animation via requestAnimationFrame
-
-playIdleAnimation(model)
-// → random blink every 3–5s
-```
-
-**Gesture keyframes:**
-
-```js
-NOD:   duration 1000ms — angleY: 0 → 15 → -5 → 0
-SHAKE: duration 1200ms — angleY: 0 → -20 → 20 → -15 → 0
-WAVE:  duration 2000ms — armRightY: 0 → -30 → -10 → -30 → -10 → 0
-```
-
-> ⚠️ Note: these are designed for direct Live2D SDK model instances. L2Dwidget maps differently — emotion uses `setExpression()` and gesture uses `startMotion()` instead (see Section 2.1).
-
----
-
-### 2.6 Dashboard — `components/layout/Dashboard.js`
-
-**State managed at Dashboard level:**
-
-```js
-const [currentEmotion, setCurrentEmotion] = useState("idle")
-const [currentGesture, setCurrentGesture] = useState(null)
-const [isProcessing, setIsProcessing] = useState(false)
-const [currentModelId, setCurrentModelId] = useState("pio")
-```
-
-**handleMessageSent callback (from ChatInterface → Dashboard → Live2DViewer):**
-
-```js
-const handleMessageSent = ({ emotion, gesture }) => {
-  setIsProcessing(true)
-  if (emotion) setCurrentEmotion(emotion)
-  if (gesture) setCurrentGesture(gesture)
-  setTimeout(() => setIsProcessing(false), 2000)
-}
-```
-
-**Layout: 2-column grid**
-- Left: Live2DViewer (emotion, gesture, modelId props)
-- Right: ChatInterface (onMessageSent callback)
-- Floating: ModelGallery (onModelSelect → setCurrentModelId)
-
----
-
-### 2.7 ModelGallery — `components/ui/ModelGallery.js`
-
-- Floating trigger button (bottom-right, fixed)
-- Modal overlay with category filter tabs
-- Grid of model cards (2–5 cols responsive)
-- Props: `onModelSelect(modelId)`, `currentModelId`
-
----
-
-## 3. Data Flow (Full)
-
-```
-[User types message]
-        ↓
-ChatInterface.handleSubmit()
-        ↓
-POST /api/chat  { message }
-        ↓
-  openrouter.getChatResponse()
-    → call 1: AI chat response text
-    → call 2: emotion analysis → { emotion, gesture }
-  bing-tts.getToken() → bing-tts.getAudio()
-        ↓
-  Response: { response, emotion, gesture, audioBase64 }
-        ↓
-ChatInterface receives response:
-  ├─ appends AI message to chatHistory
-  ├─ calls onMessageSent({ emotion, gesture, audioBase64 })
-  │     → Dashboard.handleMessageSent()
-  │         → setCurrentEmotion(emotion)
-  │         → setCurrentGesture(gesture)
-  │         → passed as props to Live2DViewer
-  │             → L2Dwidget.model.setExpression(expressionId)
-  │             → L2Dwidget.model.startMotion(motionName)
-  └─ playAudio(audioBase64)
-        → HTMLAudioElement
-        → LipsyncEngine.connectAudioSource(audioEl)
-        → LipsyncEngine.startLipsync(L2Dwidget.model)
-        → audio.play()
-        → [60fps loop] → setParameterValueById("ParamMouthOpenY", value)
-        → audio.onended → stopLipsync()
-```
-
----
-
-## 4. Integration Checklist
-
-When integrating into your app, you need:
-
-### Required files to copy:
-```
-lib/bing-tts.js          → TTS engine (free, no API key)
-lib/openrouter.js        → AI chat + emotion analysis
-lib/lipsync-engine.js    → real-time lipsync
-lib/live2d-manager.js    → model catalog + loader
-lib/expressions.js       → expression/gesture mappings
-types/index.js           → EMOTIONS, GESTURES constants
-app/api/chat/route.js    → chat endpoint
-app/api/tts/route.js     → TTS endpoint
-components/ui/Live2DViewer.js
-components/ui/ChatInterface.js
-components/ui/ModelGallery.js
-```
-
-### Environment:
-```bash
-OPENROUTER_API_KEY=sk-or-v1-...
-# No TTS key needed
-```
-
-### Dependencies:
-```json
-"next": "15.x",
-"react": "^19",
-"axios": "^1.10.0",
-"tailwindcss": "^4"
-```
-
-### CDN script (auto-loaded by Live2DViewer):
-```
-https://cdn.jsdelivr.net/npm/live2d-widget@3.x/lib/L2Dwidget.min.js
-```
-
----
-
-## 5. Known Limitations & Notes
+## 6. Known Limitations & Notes
 
 | Item | Detail |
 |---|---|
-| Live2D SDK | Uses `L2Dwidget` v3 (not official Cubism SDK). Limited expression control — only `setExpression(id)` and `startMotion()`. |
-| Bing TTS token | Scrapes from `bing.com/translator` HTML — fragile, can break if Bing changes their page. Token expires in ~26 min. |
-| Emotion analysis | Adds a second OpenRouter API call per message (latency ~+500ms). Uses free model — less accurate than paid. |
-| Lipsync | Requires `window.L2Dwidget.model` to be available (set after model loads). 1s delay on init to wait for model ready. |
-| Audio | Uses `base64 → Blob → ObjectURL` pattern. Must call `URL.revokeObjectURL()` after playback to avoid memory leaks. |
-| Model expressions | Not all CDN models support `f01–f04` expressions. Silent fail with `console.log("Expression not supported")`. |
-| CORS | Bing TTS requests must go through server-side API route (not client-side) due to CORS restrictions. |
+| PIXI v8 | Breaking changes từ v7. Dùng đúng v8 API (`new PIXI.Application({...})`, không dùng `PIXI.Application.create()`). |
+| pixi-live2d-display | Cần import trước khi dùng `Live2DModel.from()`. Cubism 4 runtime được bundle sẵn. |
+| Local models | Model files phải nằm trong `public/` để Next.js serve static. |
+| Background | Dùng `<img>` absolute + canvas relative z-10 — không dùng CSS background-image vì canvas cần transparent. |
+| SSR | `"use client"` bắt buộc. PIXI/Live2D không chạy server-side. |
+| Cleanup | Phải gọi `app.destroy(true)` khi unmount để tránh memory leak và WebGL context leak. |
+| Audio | `startLipSyncFromBase64Audio` nhận full data URI (`data:audio/mpeg;base64,...`). |
+| CORS | Bing TTS phải gọi từ server-side route. |

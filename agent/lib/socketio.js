@@ -6,6 +6,7 @@ import { homedir } from "os";
 import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
 import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
+import { setupOpenClawSocket } from "../features/openclaw/openclawSocket.js";
 import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey } from "../index.js";
 
 function loadApiKey() {
@@ -78,6 +79,9 @@ export async function setupSocketIO(server) {
 
   // Setup File Explorer (uses default namespace)
   setupFileExplorerSocket(io);
+
+  // Setup OpenClaw namespace /openclaw
+  setupOpenClawSocket(io);
 
   ioInstance = io;
   return io;
