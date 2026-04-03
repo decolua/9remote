@@ -38,64 +38,36 @@ function toPreview(content) {
   return String(content);
 }
 
-// Company tree component with expand/collapse
 function CompanyTree({ agent, members, allAgents }) {
   const [expanded, setExpanded] = useState(true);
-  
-  if (!members || members.length === 0) return null;
-  
+  if (!members?.length) return null;
+
   return (
     <div className="ml-4 mt-1 mb-2">
-      {/* Header with expand/collapse */}
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setExpanded(!expanded);
-        }}
+        onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
         className="flex items-center gap-2 text-xs text-brand-400 hover:text-brand-300 transition px-2 py-1 rounded hover:bg-dark-600"
       >
-        <svg 
-          width="12" 
-          height="12" 
-          viewBox="0 0 24 24" 
-          fill="none"
-          className={`transition-transform ${expanded ? 'rotate-90' : ''}`}
-        >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className={`transition-transform ${expanded ? "rotate-90" : ""}`}>
           <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
         <span className="font-medium">Company ({members.length})</span>
       </button>
-      
-      {/* Members list */}
+
       {expanded && (
         <div className="ml-6 mt-1 border-l-2 border-brand-500/30 pl-3 space-y-1.5">
           {members.map((memberId) => {
-            const memberAgent = allAgents.find(a => a.id === memberId);
-            if (!memberAgent) return null;
-            
+            const member = allAgents.find((a) => a.id === memberId);
+            if (!member) return null;
             return (
-              <div 
-                key={memberId} 
-                className="flex items-center gap-2 text-xs py-1 px-2 rounded hover:bg-dark-600/50 transition cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Could open member agent config here
-                }}
-              >
+              <div key={memberId} className="flex items-center gap-2 text-xs py-1 px-2 rounded hover:bg-dark-600/50 transition cursor-pointer">
                 <div className="w-7 h-7 rounded-full bg-brand-500/20 border border-brand-500/50 flex items-center justify-center text-base flex-shrink-0">
-                  {memberAgent.identity?.emoji || memberAgent.emoji || "🤖"}
+                  {member.identity?.emoji || member.emoji || "🤖"}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white font-medium truncate">
-                    {memberAgent.identity?.name || memberAgent.name}
-                  </p>
-                  <p className="text-[10px] text-dark-300 truncate">
-                    {memberId}
-                  </p>
+                  <p className="text-white font-medium truncate">{member.identity?.name || member.name}</p>
+                  <p className="text-[10px] text-dark-300 truncate">{memberId}</p>
                 </div>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" className="text-dark-400 flex-shrink-0">
-                  <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
               </div>
             );
           })}
@@ -105,48 +77,37 @@ function CompanyTree({ agent, members, allAgents }) {
   );
 }
 
-export default function AgentView({ onClose }) {
+export default function AgentView({ onClose, socketRef, connected }) {
   const { agents, openChatWithAgent, getSessionKey, getMessages } = useOpenClawStore();
-  const { connected, createAgent, deleteAgent, socketRef } = useOpenClaw();
+  const openclawHook = useOpenClaw(socketRef);
+  const { createAgent, deleteAgent, getAgentFile } = openclawHook;
 
   const [showForm, setShowForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newEmoji, setNewEmoji] = useState("🤖");
   const [creating, setCreating] = useState(false);
-  const [companyMap, setCompanyMap] = useState({}); // agentId -> [memberIds]
+  const [companyMap, setCompanyMap] = useState({});
 
   const allAgents = [MAIN_AGENT, ...agents];
 
-  // Load company members for all agents
+  // Load company members from AGENTS.md for each agent
   useEffect(() => {
-    if (!socketRef?.current || agents.length === 0) return;
-    
-    const loadCompanyMembers = async () => {
-      const map = {};
-      
-      for (const agent of agents) {
-        socketRef.current.emit("agent:files:get", {
-          agentId: agent.id,
-          fileName: "AGENTS.md",
-        }, (res) => {
-          if (res?.success && res.content) {
-            const members = parseCompanyMembers(res.content);
-            if (members.length > 0) {
-              map[agent.id] = members;
-              setCompanyMap({ ...map });
-            }
-          }
-        });
-      }
-    };
-    
-    loadCompanyMembers();
-  }, [agents, socketRef]);
+    if (!connected || agents.length === 0) return;
+
+    agents.forEach((agent) => {
+      getAgentFile(agent.id, "AGENTS.md").then((content) => {
+        if (!content) return;
+        const members = parseCompanyMembers(content);
+        if (members.length > 0) {
+          setCompanyMap((prev) => ({ ...prev, [agent.id]: members }));
+        }
+      }).catch(() => {});
+    });
+  }, [agents, connected]);
 
   const parseCompanyMembers = (agentsMd) => {
-    const lines = agentsMd.split("\n");
     const members = [];
-    for (const line of lines) {
+    for (const line of agentsMd.split("\n")) {
       const match = line.match(/^-\s+([a-zA-Z0-9_-]+):/);
       if (match) members.push(match[1]);
     }
@@ -156,7 +117,6 @@ export default function AgentView({ onClose }) {
   const getLastMessage = (agentId) => {
     const msgs = getMessages(getSessionKey(agentId));
     if (!msgs?.length) return null;
-    // last visible message (user or assistant)
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.role === "user" || m.role === "assistant") return m;
@@ -199,15 +159,12 @@ export default function AgentView({ onClose }) {
             onClick={() => setShowForm((v) => !v)}
             className="w-8 h-8 rounded-brand bg-brand-500/20 hover:bg-brand-500/30 border border-brand-500 flex items-center justify-center text-lg transition"
             title="Tạo agent mới"
-          >
-            +
-          </button>
+          >+</button>
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-brand bg-dark-500 hover:bg-dark-400 border border-dark-400 hover:border-brand-500 flex items-center justify-center transition"
             title="Đóng"
           >
-            {/* X icon */}
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
             </svg>
@@ -219,23 +176,17 @@ export default function AgentView({ onClose }) {
       {showForm && (
         <form onSubmit={handleCreate} className="flex gap-2 px-4 py-3 border-b border-dark-400 bg-dark-700">
           <input
-            value={newEmoji}
-            onChange={(e) => setNewEmoji(e.target.value)}
+            value={newEmoji} onChange={(e) => setNewEmoji(e.target.value)}
             className="w-12 text-center rounded bg-dark-500 border border-dark-400 px-1 py-1.5 text-base focus:outline-none focus:border-brand-500"
-            maxLength={4}
-            placeholder="🤖"
+            maxLength={4} placeholder="🤖"
           />
           <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
+            value={newName} onChange={(e) => setNewName(e.target.value)}
             className="flex-1 rounded bg-dark-500 border border-dark-400 px-3 py-1.5 text-sm focus:outline-none focus:border-brand-500"
-            placeholder="Tên agent..."
-            autoFocus
-            required
+            placeholder="Tên agent..." autoFocus required
           />
           <button
-            type="submit"
-            disabled={creating || !newName.trim()}
+            type="submit" disabled={creating || !newName.trim()}
             className="px-3 py-1.5 rounded bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-sm transition"
           >
             {creating ? "..." : "Tạo"}
@@ -250,12 +201,7 @@ export default function AgentView({ onClose }) {
           const preview = last ? toPreview(last.content).slice(0, 60) : "Chưa có tin nhắn";
           const isUser = last?.role === "user";
           const companyMembers = companyMap[agent.id] || [];
-          
-          // Debug log
-          if (agent.id && companyMembers.length > 0) {
-            console.log(`[AgentView] Rendering agent ${agent.id} with ${companyMembers.length} members:`, companyMembers);
-          }
-          
+
           return (
             <div key={agent.id ?? "__main__"}>
               <div
@@ -269,9 +215,7 @@ export default function AgentView({ onClose }) {
                       {agent.identity?.name || agent.name}
                     </p>
                     {last && (
-                      <span className="text-[11px] text-[#708499] flex-shrink-0">
-                        {formatTime(last.timestamp)}
-                      </span>
+                      <span className="text-[11px] text-[#708499] flex-shrink-0">{formatTime(last.timestamp)}</span>
                     )}
                   </div>
                   <p className="text-xs text-[#708499] truncate mt-0.5">
@@ -279,7 +223,6 @@ export default function AgentView({ onClose }) {
                     {preview}
                   </p>
                 </div>
-                {/* Delete — only non-main */}
                 {agent.id !== null && (
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDelete(agent); }}
@@ -292,8 +235,7 @@ export default function AgentView({ onClose }) {
                   </button>
                 )}
               </div>
-              
-              {/* Company tree */}
+
               {companyMembers.length > 0 && (
                 <div className="px-4 pb-2 border-b border-dark-400">
                   <CompanyTree agent={agent} members={companyMembers} allAgents={allAgents} />

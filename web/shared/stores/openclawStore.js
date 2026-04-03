@@ -50,6 +50,12 @@ export const useOpenClawStore = create((set, get) => ({
   
   // Actions - Data
   setAgents: (agents) => set({ agents }),
+  updateAgent: (agentId, updates) =>
+    set((state) => ({
+      agents: state.agents.map((agent) =>
+        agent.id === agentId ? { ...agent, ...updates } : agent
+      ),
+    })),
   setModelsList: (models) => set({ modelsList: models }),
   setConnected: (bool) => set({ isConnected: bool }),
   

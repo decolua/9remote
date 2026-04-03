@@ -1,7 +1,7 @@
 import { WebSocket } from "ws";
 import { randomUUID, sign as edSign, createPublicKey } from "crypto";
 import { readFileSync } from "fs";
-import { homedir } from "os";
+import { homedir } from "os";a
 
 const OPENCLAW_DIR = `${homedir()}/.openclaw`;
 const IDENTITY_PATH = `${OPENCLAW_DIR}/identity/device.json`;
@@ -141,6 +141,11 @@ function buildWs(url, token) {
       }
 
       if (frame.type === "res") {
+        // Log all errors for debugging
+        if (!frame.ok) {
+          console.error("[openclaw-client] RPC error:", frame.error);
+        }
+        
         const h = pending.get(frame.id);
         if (h) {
           pending.delete(frame.id);
@@ -197,23 +202,33 @@ function scheduleReconnect() {
 
 export async function connectOpenClaw() {
   const url = process.env.OPENCLAW_URL || `ws://127.0.0.1:18789`;
-  // Prefer env token, fallback to ~/.openclaw/openclaw.json gateway.auth.token
   const token = process.env.OPENCLAW_TOKEN || loadGatewayToken();
+  
   if (!url) throw new Error("OPENCLAW_URL is not set");
 
-  if (!_identity) _identity = loadIdentity();
+  if (!_identity) {
+    _identity = loadIdentity();
+  }
 
   _client = await buildWs(url, token);
   _connected = true;
   _reconnectAttempt = 0;
+  console.log("[openclaw] ✅ Connected");
 }
 
 export async function sendChat(sessionKey, message, { idempotencyKey, attachments } = {}) {
+  console.log("[openclaw-client] sendChat called:", { sessionKey, messageLength: message?.length, idempotencyKey });
   const params = { sessionKey, message };
   if (idempotencyKey) params.idempotencyKey = idempotencyKey;
   if (attachments) params.attachments = attachments;
-  const res = await _client.request("chat.send", params);
-  return res.runId;
+  try {
+    const res = await _client.request("chat.send", params);
+    console.log("[openclaw-client] sendChat response:", res);
+    return res.runId;
+  } catch (err) {
+    console.error("[openclaw-client] sendChat error:", err.message);
+    throw err;
+  }
 }
 
 export async function abortChat(sessionKey) {

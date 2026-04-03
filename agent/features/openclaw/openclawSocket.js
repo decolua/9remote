@@ -58,7 +58,7 @@ export function setupOpenClawSocket(io) {
         const res = await getClient().request("agents.create", {
           name,
           emoji,
-          workspace: workspace || defaaultWorkspace,
+          workspace: workspace || defaultWorkspace,
         });
         if (typeof cb === "function") cb({ agent: res });
       } catch (err) {
@@ -79,47 +79,95 @@ export function setupOpenClawSocket(io) {
     // agent:config:get
     socket.on("agent:config:get", async ({ agentId }, cb) => {
       try {
-        const res = await getClient().request("agents.list", {});
+        console.log("[openclaw] agent:config:get called:", agentId);
+        
+        // Read directly from openclaw.json file (not RPC)
+        const configPath = `${process.env.HOME}/.openclaw/openclaw.json`;
+        const fs = await import("fs");
+        
+        const rawConfig = fs.readFileSync(configPath, "utf8");
+        const openclawConfig = JSON.parse(rawConfig);
         
         // Find agent by id
-        const agent = res.agents?.find(a => a.id === agentId);
+        const agent = openclawConfig.agents?.list?.find(a => a.id === agentId);
         if (!agent) {
-          console.error("[openclaw] agent:config:get - agent not found:", agentId);
+          console.warn("[openclaw] Agent not found in config:", agentId);
           if (typeof cb === "function") cb({ error: `Agent ${agentId} not found` });
           return;
         }
         
-        // Also get full config to check tools.agentToAgent
-        const fullConfig = await getClient().request("config.get", {});
-        const cfg = fullConfig.config;
+        console.log("[openclaw] Agent config loaded:", agent);
         
-        // Merge agent config with global tools.agentToAgent
-        const agentConfig = {
-          ...agent,
-          agentToAgent: {
-            enabled: cfg.tools?.agentToAgent?.enabled || false,
-            allow: cfg.tools?.agentToAgent?.allow || []
-          }
-        };
-        
-        console.log("[openclaw] agent:config:get - returning:", JSON.stringify(agentConfig, null, 2));
-        if (typeof cb === "function") cb({ config: agentConfig });
+        if (typeof cb === "function") cb({ config: agent });
       } catch (err) {
-        console.error("[openclaw] agent:config:get - error:", err.message);
+        console.error("[openclaw] agent:config:get error:", err.message);
         if (typeof cb === "function") cb({ error: err.message });
       }
     });
 
-    // agent:config:set — patch agent config
+    // agent:config:set — update agent config via RPC
     socket.on("agent:config:set", async ({ agentId, config }, cb) => {
-      console.log("[openclaw] agent:config:set - agentId:", agentId);
-      console.log("[openclaw] agent:config:set - config:", JSON.stringify(config, null, 2));
       try {
-        const res = await getClient().request("agents.update", { agentId, ...config });
-        console.log("[openclaw] agent:config:set - response:", JSON.stringify(res, null, 2));
-        if (typeof cb === "function") cb({ config: res });
+        console.log("[openclaw] agent:config:set called:", { agentId, config });
+        
+        // Read openclaw.json and update directly
+        const configPath = `${process.env.HOME}/.openclaw/openclaw.json`;
+        const fs = await import("fs");
+        
+        const rawConfig = fs.readFileSync(configPath, "utf8");
+        const openclawConfig = JSON.parse(rawConfig);
+        
+        if (!openclawConfig.agents) openclawConfig.agents = {};
+        if (!openclawConfig.agents.list) openclawConfig.agents.list = [];
+        
+        const agentIndex = openclawConfig.agents.list.findIndex(a => a.id === agentId);
+        
+        if (agentIndex !== -1) {
+          const agent = openclawConfig.agents.list[agentIndex];
+          
+          // Update identity
+          if (config.identity) {
+            if (!agent.identity) agent.identity = {};
+            if (config.identity.name) agent.identity.name = config.identity.name;
+            if (config.identity.emoji !== undefined) agent.identity.emoji = config.identity.emoji;
+            if (config.identity.avatar !== undefined) agent.identity.avatar = config.identity.avatar;
+          }
+          
+          // Update model
+          if (config.model) agent.model = config.model;
+          
+          // Update workspace
+          if (config.workspace) agent.workspace = config.workspace;
+          
+          // Update tools (allow/deny) - merge with existing alsoAllow
+          if (config.tools) {
+            if (!agent.tools) agent.tools = {};
+            
+            // Merge allow with existing alsoAllow to avoid conflict
+            if (config.tools.allow !== undefined) {
+              const existingAlsoAllow = agent.tools.alsoAllow || [];
+              agent.tools.allow = [...new Set([...config.tools.allow, ...existingAlsoAllow])];
+              // Remove alsoAllow to avoid conflict
+              delete agent.tools.alsoAllow;
+            }
+            
+            if (config.tools.deny !== undefined) {
+              agent.tools.deny = config.tools.deny;
+            }
+          }
+          
+          console.log("[openclaw] Updated agent config:", agent);
+          
+          // Write back to file (OpenClaw will auto hot-reload)
+          fs.writeFileSync(configPath, JSON.stringify(openclawConfig, null, 2), "utf8");
+          console.log("[openclaw] Config written to:", configPath);
+        } else {
+          console.warn("[openclaw] Agent not found:", agentId);
+        }
+        
+        if (typeof cb === "function") cb({ success: true });
       } catch (err) {
-        console.error("[openclaw] agent:config:set - error:", err.message);
+        console.error("[openclaw] agent:config:set error:", err.message);
         if (typeof cb === "function") cb({ error: err.message });
       }
     });
@@ -127,14 +175,17 @@ export function setupOpenClawSocket(io) {
     // agent:files:get — read workspace file
     socket.on("agent:files:get", async ({ agentId, fileName }, cb) => {
       try {
+        console.log("[openclaw] agent:files:get called:", { agentId, fileName });
         const res = await getClient().request("agents.files.get", { agentId, name: fileName });
         let content = res.file?.content || res.content || res;
         // Ensure content is string
         if (typeof content !== "string") {
           content = JSON.stringify(content, null, 2);
         }
+        console.log("[openclaw] File loaded:", fileName, "length:", content?.length);
         if (typeof cb === "function") cb({ success: true, content });
       } catch (err) {
+        console.error("[openclaw] agent:files:get error:", err.message);
         if (typeof cb === "function") cb({ success: false, error: err.message });
       }
     });
@@ -142,85 +193,81 @@ export function setupOpenClawSocket(io) {
     // agent:files:set — write workspace file
     socket.on("agent:files:set", async ({ agentId, fileName, content }, cb) => {
       try {
+        console.log("[openclaw] agent:files:set called:", { agentId, fileName, contentLength: content?.length });
         await getClient().request("agents.files.set", { agentId, name: fileName, content });
+        console.log("[openclaw] File saved successfully:", fileName);
         if (typeof cb === "function") cb({ success: true });
       } catch (err) {
+        console.error("[openclaw] agent:files:set error:", err.message);
         if (typeof cb === "function") cb({ success: false, error: err.message });
       }
     });
 
-    // agent:config:patch — patch OpenClaw config (hot-reload)
+    // agent:config:patch — update agent-to-agent config
     socket.on("agent:config:patch", async ({ agentId, config }, cb) => {
-      console.log("[openclaw] agent:config:patch - agentId:", agentId, "config:", JSON.stringify(config, null, 2));
       try {
-        // Get current config
-        const currentConfig = await getClient().request("config.get", {});
-        const baseHash = currentConfig.hash;
-        const cfg = currentConfig.config;
+        console.log("[openclaw] agent:config:patch called:", { agentId, config });
         
-        console.log("[openclaw] Current tools.agentToAgent:", JSON.stringify(cfg.tools?.agentToAgent, null, 2));
+        const configPath = `${process.env.HOME}/.openclaw/openclaw.json`;
+        const fs = await import("fs");
         
-        // Find agent index in agents.list
-        const agentsList = cfg.agents?.list || [];
-        const agentIndex = agentsList.findIndex(a => a.id === agentId);
+        const rawConfig = fs.readFileSync(configPath, "utf8");
+        const openclawConfig = JSON.parse(rawConfig);
         
-        // Build agent config (only valid OpenClaw fields)
-        const agentConfig = {
-          id: agentId,
-          workspace: config.workspace,
-          model: config.model,
-          identity: config.identity,
-          tools: config.tools
-        };
+        if (!openclawConfig.agents) openclawConfig.agents = {};
+        if (!openclawConfig.agents.list) openclawConfig.agents.list = [];
         
-        // Remove empty/undefined fields
-        Object.keys(agentConfig).forEach(key => {
-          if (!agentConfig[key] || (typeof agentConfig[key] === 'string' && !agentConfig[key].trim())) {
-            delete agentConfig[key];
-          }
-        });
+        const agentIndex = openclawConfig.agents.list.findIndex(a => a.id === agentId);
         
-        let newList;
-        if (agentIndex === -1) {
-          // Agent not in config yet, add it
-          newList = [...agentsList, agentConfig];
-        } else {
-          // Agent exists, update it
-          newList = [...agentsList];
-          newList[agentIndex] = { ...agentsList[agentIndex], ...agentConfig };
-        }
-        
-        const patch = {
-          agents: {
-            list: newList
-          }
-        };
-        
-        // Patch global tools.agentToAgent - MUST include ALL agents that can interact
-        if (config.agentToAgent?.enabled) {
-          // Get all agent IDs
-          const allAgentIds = newList.map(a => a.id);
+        if (agentIndex !== -1) {
+          const agent = openclawConfig.agents.list[agentIndex];
           
-          patch.tools = {
-            agentToAgent: {
-              enabled: true,
-              allow: allAgentIds  // Allow all agents to interact
+          // Update agentToAgent config (subagents.allowAgents)
+          if (config.agentToAgent) {
+            if (!agent.subagents) agent.subagents = {};
+            if (config.agentToAgent.allow !== undefined) {
+              agent.subagents.allowAgents = config.agentToAgent.allow;
             }
-          };
+          }
           
-          console.log("[openclaw] Setting tools.agentToAgent.allow:", allAgentIds);
+          // Write back to file (OpenClaw will auto hot-reload)
+          fs.writeFileSync(configPath, JSON.stringify(openclawConfig, null, 2), "utf8");
+          console.log("[openclaw] Config written to:", configPath);
+          
+          // Auto-approve pending backend client devices for agent-to-agent communication
+          try {
+            const pendingPath = `${process.env.HOME}/.openclaw/devices/pending.json`;
+            if (fs.existsSync(pendingPath)) {
+              const pendingDevices = JSON.parse(fs.readFileSync(pendingPath, "utf8"));
+              
+              // Only approve backend gateway-client devices (not user devices)
+              for (const [requestId, device] of Object.entries(pendingDevices)) {
+                if (device.clientId === "gateway-client" && device.clientMode === "backend") {
+                  console.log("[openclaw] Auto-approving backend client device:", requestId);
+                  try {
+                    await getClient().request("devices.approve", { requestId });
+                    console.log("[openclaw] Auto-approved backend device:", requestId);
+                    
+                    // Wait a bit for approval to take effect
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                  } catch (err) {
+                    console.warn("[openclaw] Failed to approve backend device:", requestId, err.message);
+                  }
+                } else {
+                  console.log("[openclaw] Skipping non-backend device:", requestId, device.clientId);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn("[openclaw] Failed to check/approve pending devices:", err.message);
+          }
+        } else {
+          console.warn("[openclaw] Agent not found:", agentId);
         }
         
-        console.log("[openclaw] agent:config:patch - patch:", JSON.stringify(patch, null, 2));
-        const result = await getClient().request("config.patch", {
-          raw: JSON.stringify(patch),
-          baseHash
-        });
-        
-        console.log("[openclaw] agent:config:patch - success");
-        if (typeof cb === "function") cb({ success: true, result });
+        if (typeof cb === "function") cb({ success: true });
       } catch (err) {
-        console.error("[openclaw] agent:config:patch - error:", err.message);
+        console.error("[openclaw] agent:config:patch error:", err.message);
         if (typeof cb === "function") cb({ success: false, error: err.message });
       }
     });
@@ -232,6 +279,19 @@ export function setupOpenClawSocket(io) {
         if (typeof cb === "function") cb({ models: res.models ?? res });
       } catch (err) {
         if (typeof cb === "function") cb({ models: [], error: err.message });
+      }
+    });
+
+    // devices:approve — manual approve pending device
+    socket.on("devices:approve", async ({ requestId }, cb) => {
+      try {
+        console.log("[openclaw] devices:approve called:", requestId);
+        await getClient().request("devices.approve", { requestId });
+        console.log("[openclaw] Device approved:", requestId);
+        if (typeof cb === "function") cb({ success: true });
+      } catch (err) {
+        console.error("[openclaw] devices:approve error:", err.message);
+        if (typeof cb === "function") cb({ success: false, error: err.message });
       }
     });
 
@@ -247,23 +307,30 @@ export function setupOpenClawSocket(io) {
 
     // chat:send — send message, stream response back
     socket.on("chat:send", async ({ sessionKey, message, attachments }) => {
+      console.log("[openclaw] chat:send called:", { sessionKey, messageLength: message?.length, hasAttachments: !!attachments });
+      
       // Wait up to 2s for connection if currently reconnecting
       if (!isConnected()) {
+        console.warn("[openclaw] Not connected, waiting...");
         await new Promise((res) => setTimeout(res, 2000));
         if (!isConnected()) {
+          console.error("[openclaw] Still not connected after 2s");
           socket.emit("chat:error", { runId: null, error: "OpenClaw not connected" });
           return;
         }
       }
       try {
         const idempotencyKey = randomUUID();
+        console.log("[openclaw] Sending chat with idempotencyKey:", idempotencyKey);
         const runId = await sendChat(sessionKey, message, { idempotencyKey, attachments });
+        console.log("[openclaw] Chat accepted, runId:", runId);
         // Notify client that message was accepted
         socket.emit("chat:accepted", { runId, sessionKey });
 
         let fullText = "";
 
         onChatEvent(runId, async ({ state, message: msg, errorMessage }) => {
+          console.log("[openclaw] Chat event:", { runId, state, hasMessage: !!msg, errorMessage });
           if (state === "delta") {
             const text = msg?.content?.[0]?.text ?? msg?.text ?? "";
             const chunk = text.slice(fullText.length);

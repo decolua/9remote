@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSocket } from "@/features/session/hooks/useSocket";
+import { useOpenClawSocket } from "@/features/openclaw/hooks/useOpenClawSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useUIStore } from "@/shared/stores/uiStore";
@@ -56,6 +57,7 @@ export default function WorkspacePage() {
   const router = useRouter();
   const { getAuth } = useSessionStorage();
   const { socket, socketRef, connected, connectionMode, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socketRef: openclawSocketRef, connected: openclawConnected } = useOpenClawSocket();
   const fileSocket = useFileSocket(socketRef);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
   const [systemInfo, setSystemInfo] = useState(null);
@@ -396,7 +398,7 @@ export default function WorkspacePage() {
       {/* OpenClaw - conditional render */}
       {currentView.type === "openclaw" && (
         <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
-          <OpenClawChat onClose={popView} socketRef={socketRef} />
+          <OpenClawChat onClose={popView} socketRef={openclawSocketRef} connected={openclawConnected} />
         </div>
       )}
 

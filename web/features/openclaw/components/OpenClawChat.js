@@ -78,8 +78,9 @@ function detectEmotion(text) {
   return "idle";
 }
 
-function ChatView() {
-  const { connected, socketRef, sendMessage, abortMessage, loadHistory } = useOpenClaw();
+function ChatView({ socketRef, connected }) {
+  const openclawHook = useOpenClaw(socketRef);
+  const { sendMessage, abortMessage, loadHistory } = openclawHook;
   const {
     isOpen, agents, activeAgentId,
     isStreaming, streamingText,
@@ -462,7 +463,7 @@ function ChatView() {
   );
 }
 
-export default function OpenClawChat({ onClose, socketRef }) {
+export default function OpenClawChat({ onClose, socketRef, connected }) {
   const { chatView } = useOpenClawStore();
   
   return (
@@ -470,14 +471,14 @@ export default function OpenClawChat({ onClose, socketRef }) {
       {/* AgentView — conditional render */}
       {chatView === "agents" && (
         <div className="absolute inset-0 z-10 animate-in fade-in duration-300">
-          <AgentView onClose={onClose} />
+          <AgentView onClose={onClose} socketRef={socketRef} connected={connected} />
         </div>
       )}
       
       {/* ChatView — conditional render, slides in from right */}
       {chatView === "chat" && (
         <div className="absolute inset-0 z-20 animate-in slide-in-from-right duration-300">
-          <ChatView socketRef={socketRef} />
+          <ChatView socketRef={socketRef} connected={connected} />
         </div>
       )}
     </div>

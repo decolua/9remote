@@ -1,22 +1,20 @@
 "use client";
 import { useEffect, useRef, useCallback } from "react";
-import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
-import { WsProtocol } from "@/shared/transport/WsProtocol";
 import { useOpenClawStore } from "@/shared/stores/openclawStore";
 
-const NAMESPACE = "/openclaw";
 const HISTORY_LIMIT = 200;
 
-export function useOpenClaw() {
-  const { getAuth } = useSessionStorage();
-  const socketRef = useRef(null);
-
+/**
+ * OpenClaw logic hook - handles OpenClaw API calls
+ * Similar to useFileSocket - receives socketRef from parent
+ */
+export function useOpenClaw(socketRef) {
   const {
     addMessage,
     setMessages,
     setAgents,
+    updateAgent,
     setModelsList,
-    setConnected,
     startStreaming,
     updateStreamingText,
     commitStreaming,
@@ -30,132 +28,142 @@ export function useOpenClaw() {
   const streamingTextRef = useRef(streamingText);
   useEffect(() => { streamingTextRef.current = streamingText; }, [streamingText]);
 
+  // ─── Helpers ───────────────────────────────────────────────────────────────
+
+  // If data is empty object, omit it so servers that expect (cb) still work
+  const emit = useCallback((event, data) =>
+    new Promise((resolve, reject) => {
+      if (!socketRef?.current) return reject(new Error("Not connected"));
+      const cb = (res) => {
+        if (res?.error) reject(new Error(res.error));
+        else resolve(res);
+      };
+      const hasData = data && Object.keys(data).length > 0;
+      if (hasData) socketRef.current.emit(event, data, cb);
+      else socketRef.current.emit(event, cb);
+    }), [socketRef]);
+
+  // ─── Init event listeners ──────────────────────────────────────────────────
+
   const loadAgents = useCallback(() => {
-    if (!socketRef.current) return;
-    socketRef.current.emit("agents:list", ({ agents }) => setAgents(agents || []));
-  }, [setAgents]);
+    if (!socketRef?.current) return;
+    socketRef.current.emit("agents:list", (res) => setAgents(res?.agents || []));
+  }, [socketRef, setAgents]);
 
   const loadModels = useCallback(() => {
-    if (!socketRef.current) return;
-    socketRef.current.emit("models:list", ({ models }) => setModelsList(models || []));
-  }, [setModelsList]);
+    if (!socketRef?.current) return;
+    socketRef.current.emit("models:list", (res) => setModelsList(res?.models || []));
+  }, [socketRef, setModelsList]);
 
   useEffect(() => {
-    const auth = getAuth();
-    if (!auth?.tunnelUrl) return;
+    if (!socketRef?.current) return;
 
-    const protocol = new WsProtocol({
-      tunnelUrl: auth.tunnelUrl,
-      localIp: auth.localIp || null,
-      namespace: NAMESPACE,
-      socketOptions: { auth: { apiKey: auth.apiKey } },
-      onConnect: (socket) => {
-        socketRef.current = socket;
-        setConnected(true);
+    const socket = socketRef.current;
 
-        socket.on("chat:accepted", () => {
-          startStreaming();
-        });
+    socket.on("chat:accepted", () => startStreaming());
+    socket.on("chat:delta", ({ text }) => updateStreamingText(streamingTextRef.current + text));
+    socket.on("chat:done", ({ sessionKey }) => commitStreaming(sessionKey));
+    socket.on("chat:error", ({ error }) => { console.error("[OpenClaw] chat:error:", error); abortStreaming(); });
+    socket.on("chat:audio", ({ audio, format, engine }) => setCurrentAudio({ audio, format, engine }));
+    socket.on("agent:progress", ({ agentId, running, subagents }) => setAgentProgress(agentId, { running, subagents }));
 
-        socket.on("chat:delta", ({ text }) => {
-          updateStreamingText(streamingTextRef.current + text);
-        });
+    loadAgents();
+    loadModels();
 
-        socket.on("chat:done", ({ sessionKey }) => {
-          commitStreaming(sessionKey);
-        });
+    return () => {
+      socket.off("chat:accepted");
+      socket.off("chat:delta");
+      socket.off("chat:done");
+      socket.off("chat:error");
+      socket.off("chat:audio");
+      socket.off("agent:progress");
+    };
+  }, [socketRef, startStreaming, updateStreamingText, commitStreaming, abortStreaming, setCurrentAudio, setAgentProgress, loadAgents, loadModels]);
 
-        socket.on("chat:error", ({ error }) => {
-          console.error("[OpenClaw] chat:error:", error);
-          abortStreaming();
-        });
-
-        socket.on("chat:audio", ({ audio, format, engine }) => {
-          setCurrentAudio({ audio, format, engine });
-        });
-
-        socket.on("agent:progress", ({ agentId, running, subagents }) => {
-          setAgentProgress(agentId, { running, subagents });
-        });
-
-        loadAgents();
-        loadModels();
-      },
-      onDisconnect: () => {
-        socketRef.current = null;
-        setConnected(false);
-      },
-      onRetryStatus: () => {},
-    });
-
-    protocol.connect();
-    return () => { protocol.disconnect(); socketRef.current = null; };
-  }, []);
+  // ─── Chat ──────────────────────────────────────────────────────────────────
 
   const sendMessage = useCallback((agentId, message, attachments) => {
-    if (!socketRef.current) return;
+    if (!socketRef?.current) return;
     const sessionKey = getSessionKey(agentId);
-    const userMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: message,
-      timestamp: new Date().toISOString(),
-    };
-    addMessage(sessionKey, userMessage);
+    addMessage(sessionKey, { id: `user-${Date.now()}`, role: "user", content: message, timestamp: new Date().toISOString() });
     socketRef.current.emit("chat:send", { sessionKey, message, attachments });
-  }, [addMessage, getSessionKey]);
+  }, [socketRef, addMessage, getSessionKey]);
 
   const abortMessage = useCallback((agentId) => {
-    if (!socketRef.current) return;
-    const sessionKey = getSessionKey(agentId);
-    socketRef.current.emit("chat:abort", { sessionKey });
-  }, [getSessionKey]);
+    if (!socketRef?.current) return;
+    socketRef.current.emit("chat:abort", { sessionKey: getSessionKey(agentId) });
+  }, [socketRef, getSessionKey]);
 
   const loadHistory = useCallback((agentId) => {
-    if (!socketRef.current) return;
+    if (!socketRef?.current) return;
     const sessionKey = getSessionKey(agentId);
-    socketRef.current.emit("chat:history", { sessionKey, limit: HISTORY_LIMIT }, ({ messages }) => {
-      setMessages(sessionKey, messages || []);
-    });
-  }, [setMessages, getSessionKey]);
+    socketRef.current.emit("chat:history", { sessionKey, limit: HISTORY_LIMIT }, ({ messages }) => setMessages(sessionKey, messages || []));
+  }, [socketRef, setMessages, getSessionKey]);
 
-  const createAgent = useCallback((name, emoji, workspace) => {
-    if (!socketRef.current) return Promise.reject(new Error("Not connected"));
-    return new Promise((resolve, reject) => {
-      socketRef.current.emit("agents:create", { name, emoji, workspace }, (res) => {
-        if (res?.error) reject(new Error(res.error));
-        else {
-          loadAgents();
-          resolve(res.agent);
-        }
+  // ─── Agents CRUD ───────────────────────────────────────────────────────────
+
+  const createAgent = useCallback(async (name, emoji, workspace) => {
+    const res = await emit("agents:create", { name, emoji, workspace });
+    loadAgents();
+    return res.agent;
+  }, [emit, loadAgents]);
+
+  const deleteAgent = useCallback(async (agentId) => {
+    await emit("agents:delete", { agentId });
+    loadAgents();
+  }, [emit, loadAgents]);
+
+  // ─── Agent config ──────────────────────────────────────────────────────────
+
+  const getAgentConfig = useCallback((agentId) =>
+    emit("agent:config:get", { agentId }).then((r) => r.config), [emit]);
+
+  const saveAgentConfig = useCallback(async (agentId, config) => {
+    await emit("agent:config:set", { agentId, config });
+    // Reload agents from server to ensure sync (wait for completion)
+    await new Promise((resolve) => {
+      if (!socketRef?.current) return resolve();
+      socketRef.current.emit("agents:list", (res) => {
+        setAgents(res?.agents || []);
+        resolve();
       });
     });
-  }, [loadAgents]);
+  }, [emit, socketRef, setAgents]);
 
-  const deleteAgent = useCallback((agentId) => {
-    if (!socketRef.current) return Promise.reject(new Error("Not connected"));
-    return new Promise((resolve, reject) => {
-      socketRef.current.emit("agents:delete", { agentId }, (res) => {
-        if (res?.error) reject(new Error(res.error));
-        else {
-          loadAgents();
-          resolve();
-        }
-      });
-    });
-  }, [loadAgents]);
+  const saveAgentToAgent = useCallback((agentId, agentToAgent) =>
+    emit("agent:config:patch", { agentId, config: { agentToAgent } }), [emit]);
 
-  const connected = useOpenClawStore((s) => s.isConnected);
+  // ─── Agent workspace files ─────────────────────────────────────────────────
+
+  const getAgentFile = useCallback((agentId, fileName) =>
+    emit("agent:files:get", { agentId, fileName }).then((r) => r.content ?? ""), [emit]);
+
+  const saveAgentFile = useCallback((agentId, fileName, content) =>
+    emit("agent:files:set", { agentId, fileName, content }), [emit]);
+
+  const getModels = useCallback(() =>
+    emit("models:list").then((r) => r.models ?? []), [emit]);
+
+  // ─── Return ────────────────────────────────────────────────────────────────
 
   return {
-    connected,
-    socketRef,
+    // Chat
     sendMessage,
     abortMessage,
     loadHistory,
+    // Agents
     loadAgents,
     loadModels,
     createAgent,
     deleteAgent,
+    // Agent config
+    getAgentConfig,
+    saveAgentConfig,
+    saveAgentToAgent,
+    // Agent files
+    getAgentFile,
+    saveAgentFile,
+    // Models
+    getModels,
   };
 }
