@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSocket } from "@/features/session/hooks/useSocket";
-import { useOpenClawSocket } from "@/features/openclaw/hooks/useOpenClawSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useUIStore } from "@/shared/stores/uiStore";
@@ -20,7 +19,6 @@ const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/W
 const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/FileExplorer"), { ssr: false });
 const FileEditor = dynamic(() => import("@/features/fileExplorer/components/FileEditor"), { ssr: false });
 const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPanel"), { ssr: false });
-const OpenClawChat = dynamic(() => import("@/features/openclaw/components/OpenClawChat"), { ssr: false });
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
@@ -56,8 +54,7 @@ export default function WorkspacePage() {
   });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, connected, connectionMode, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, retryStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
-  const { socketRef: openclawSocketRef, connected: openclawConnected } = useOpenClawSocket();
+  const { socket, socketRef, connected, connectionMode, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
   const fileSocket = useFileSocket(socketRef);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
   const [systemInfo, setSystemInfo] = useState(null);
@@ -201,10 +198,6 @@ export default function WorkspacePage() {
     pushView({ type: "remote" });
   }, [pushView]);
 
-  const handleOpenClaw = useCallback(() => {
-    pushView({ type: "openclaw" });
-  }, [pushView]);
-
   const handleOpenFiles = useCallback(async () => {
     // Fetch system info when opening workspaces view
     if (!systemInfo) {
@@ -323,7 +316,6 @@ export default function WorkspacePage() {
           onLogout={handleLogoutWithConfirm}
           onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
           onOpenFiles={handleOpenFiles}
-          onOpenClaw={handleOpenClaw}
           tunnelUrl={auth?.tunnelUrl}
           apiKey={auth?.apiKey}
           connectionMode={connectionMode}
@@ -395,13 +387,6 @@ export default function WorkspacePage() {
         </div>
       )}
 
-      {/* OpenClaw - conditional render */}
-      {currentView.type === "openclaw" && (
-        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
-          <OpenClawChat onClose={popView} socketRef={openclawSocketRef} connected={openclawConnected} />
-        </div>
-      )}
-
       {/* Workspace List */}
       {currentView.type === "workspaces" && (
         <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
@@ -469,7 +454,7 @@ export default function WorkspacePage() {
       )}
 
       {/* Connection Modal - overlay when retrying/failed */}
-      <ConnectionModal retryStatus={retryStatus} onLogout={handleDisconnect} />
+      <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} onLogout={handleDisconnect} />
 
       {/* Global Slide Menu - single instance at page level */}
       <SlideMenu />

@@ -14,16 +14,14 @@ import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd, wr
 import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate, checkLatestVersion } from "./utils/updateChecker.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
-import { showBanner, renderProgress, resetProgress, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane } from "./utils/tui.js";
+import { showBanner, renderProgress, resetProgress, updateProgressDesc, setProgressInfo, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval } from "./utils/tui.js";
 import { checkPermissions } from "./utils/permissions.js";
+import { STEP, browserFetch } from "../lib/constants.js";
 
-// Parse --skip-update flag
 const skipUpdate = process.argv.includes("--skip-update");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
-// When bundled (dist/cli.cjs), server.cjs is in same dist/ folder
-// When dev (server/cli/index.js), use server/index.js directly
 const STANDALONE_SERVER = path.resolve(__dirname, "../dist/server.cjs");
 const DEV_SERVER = path.resolve(__dirname, "../index.js");
 const WORKER_URL = "https://9remote.cc";
@@ -31,20 +29,25 @@ const SERVER_PORT = 2208;
 const MAX_RESTART_ATTEMPTS = 10;
 const RESTART_WINDOW_MS = 60000; // 1 minute
 
-// Orange color from gitbook (#E68A6E)
 const ORANGE = chalk.rgb(230, 138, 110);
 const ORANGE_DIM = chalk.rgb(200, 120, 95);
 
-/**
- * Get current version from package.json
- */
+/** Ensure API key exists, create if missing */
+async function ensureKeyData() {
+  const machineId = await getConsistentMachineId();
+  let keyData = loadKey();
+  if (!keyData.key) {
+    const { key } = generateApiKeyWithMachine(machineId);
+    keyData = saveKey(machineId, key, "Default");
+  }
+  return keyData;
+}
+
 function getVersion() {
-  // When bundled, version is injected at build time
   if (typeof __CLI_VERSION__ !== "undefined") {
     return __CLI_VERSION__;
   }
   
-  // Dev mode: read from package.json
   try {
     const packagePath = path.join(__dirname, "..", "package.json");
     const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
@@ -54,10 +57,6 @@ function getVersion() {
   }
 }
 
-
-/**
- * Helper: Show QR code for connect URL
- */
 function showQRCode(url, title = "📱 Scan QR to connect:") {
   console.log(ORANGE(`\n${title}`));
   qrcode.generate(url, { small: true, type: "terminal", margin: 0 }, (qr) => {
@@ -65,7 +64,6 @@ function showQRCode(url, title = "📱 Scan QR to connect:") {
   });
 }
 
-/** Build QR block as string (for use in headerContent) */
 function buildQRString(url) {
   return new Promise((resolve) => {
     qrcode.generate(url, { small: true, type: "terminal", margin: 0 }, (qr) => {
@@ -74,9 +72,6 @@ function buildQRString(url) {
   });
 }
 
-/**
- * Helper: Show connection info
- */
 async function showConnectionInfo(selectedKey, tunnelUrl) {
   const tempKeyData = await createTempKey(selectedKey, WORKER_URL);
   
@@ -88,9 +83,8 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
   const width = Math.min(44, process.stdout.columns || 55);
 
-  // Push ready state to UI (include permanentKey, expiresAt, workerUrl for server-side key generation)
   pushUiState({
-    step: 4,
+    step: STEP.READY,
     tunnelUrl,
     oneTimeKey: tempKeyData.tempKey,
     oneTimeKeyExpiresAt: tempKeyData.expiresAt,
@@ -105,17 +99,14 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   
   console.log(ORANGE("═".repeat(width)));
   
-  // App URL
   const appLabel = "App URL";
   const appValue = `${WORKER_URL}/login`;
   console.log(chalk.white(appLabel.padEnd(14)) + chalk.gray(appValue));
   
-  // One-Time Key
   const keyLabel = "One-Time Key";
   const keyValue = tempKeyData.tempKey;
   console.log(chalk.white(keyLabel.padEnd(14)) + ORANGE.bold(keyValue));
   
-  // Permanent Key
   const permLabel = "Key";
   const permValue = selectedKey;
   console.log(chalk.white(permLabel.padEnd(14)) + chalk.gray(permValue));
@@ -123,9 +114,6 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   console.log(ORANGE("═".repeat(width)));
 }
 
-/**
- * Build full header string: QR + keys info (for selectMenu headerContent)
- */
 async function buildMenuHeader(oneTimeKey, permanentKey, connectUrl) {
   const w = Math.min(44, process.stdout.columns || 44);
   const lines = [];
@@ -148,13 +136,10 @@ async function buildMenuHeader(oneTimeKey, permanentKey, connectUrl) {
   return lines.join("\n");
 }
 
-/**
- * Kill process on specific port
- */
 function killProcessOnPort(port) {
   try {
     if (process.platform === "win32") {
-      execSync(`for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /F /PID %a`, { stdio: "ignore" });
+      execSync(`for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /F /PID %a`, { stdio: "ignore", windowsHide: true });
     } else {
       const nullDevice = "/dev/null";
       execSync(`lsof -ti:${port} | xargs kill -9 2>${nullDevice} || true`, { stdio: "ignore" });
@@ -162,9 +147,6 @@ function killProcessOnPort(port) {
   } catch { }
 }
 
-/**
- * Start server with auto-restart on crash
- */
 function startServerWithRestart(onReady, onServerCrash) {
   const restartTimes = [];
   let currentProcess = null;
@@ -172,15 +154,12 @@ function startServerWithRestart(onReady, onServerCrash) {
   let isFirstStart = true;
 
   const spawnServer = () => {
-    // Only kill port on first start, not on restart
-    if (isFirstStart) {
+      if (isFirstStart) {
       killProcessOnPort(SERVER_PORT);
       isFirstStart = false;
-    } else {
     }
 
-    // Use dev server if exists (development), otherwise use standalone (npm package)
-    const useDevServer = process.env.NODE_ENV === "development" && fs.existsSync(DEV_SERVER);
+      const useDevServer = process.env.NODE_ENV === "development" && fs.existsSync(DEV_SERVER);
     const serverPath = useDevServer ? DEV_SERVER : STANDALONE_SERVER;
     
     if (!fs.existsSync(serverPath)) {
@@ -188,8 +167,7 @@ function startServerWithRestart(onReady, onServerCrash) {
       process.exit(1);
     }
     
-    // Strip NODE_ENV=development when running standalone server (production build)
-    const spawnEnv = { ...process.env, PORT: String(SERVER_PORT) };
+      const spawnEnv = { ...process.env, PORT: String(SERVER_PORT) };
     if (!useDevServer) delete spawnEnv.NODE_ENV;
 
     currentProcess = spawn("node", [serverPath], {
@@ -213,8 +191,7 @@ function startServerWithRestart(onReady, onServerCrash) {
         const now = Date.now();
         restartTimes.push(now);
         
-        // Remove old restart times outside window
-        while (restartTimes.length > 0 && restartTimes[0] < now - RESTART_WINDOW_MS) {
+              while (restartTimes.length > 0 && restartTimes[0] < now - RESTART_WINDOW_MS) {
           restartTimes.shift();
         }
 
@@ -232,11 +209,9 @@ function startServerWithRestart(onReady, onServerCrash) {
           onServerCrash();
         }
         
-        // Wait a bit before restart
-        setTimeout(() => {
+              setTimeout(() => {
           spawnServer();
         }, 1000);
-      } else {
       }
     });
 
@@ -262,9 +237,6 @@ function startServerWithRestart(onReady, onServerCrash) {
   };
 }
 
-/**
- * Helper: Setup exit handler for server processes
- */
 let exitHandlerRegistered = false;
 
 function setupExitHandler(serverManager, tunnelProcess, apiKey) {
@@ -285,9 +257,6 @@ function setupExitHandler(serverManager, tunnelProcess, apiKey) {
   });
 }
 
-/**
- * Get first non-internal LAN IPv4 address
- */
 function getLanIp() {
   const interfaces = os.networkInterfaces();
   for (const iface of Object.values(interfaces)) {
@@ -298,24 +267,32 @@ function getLanIp() {
   return null;
 }
 
-/** Push UI state to server via HTTP */
-async function pushUiState(data) {
+/** Local API helpers */
+async function apiPost(path, data) {
   try {
-    await fetch(`http://localhost:${SERVER_PORT}/api/ui/state`, {
+    return await fetch(`http://localhost:${SERVER_PORT}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-  } catch { /* server may not be ready yet */ }
+  } catch { return null; }
 }
 
-/**
- * Update session tunnelUrl on worker + push to UI
- */
+async function apiGet(path) {
+  try {
+    const res = await fetch(`http://localhost:${SERVER_PORT}${path}`);
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+
+async function pushUiState(data) {
+  await apiPost("/api/ui/state", data);
+}
+
 async function updateTunnelUrl(selectedKey, tunnelUrl) {
   const lanIp = getLanIp();
   try {
-    await fetch(`${WORKER_URL}/api/session/update`, {
+    await browserFetch(`${WORKER_URL}/api/session/update`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -327,12 +304,9 @@ async function updateTunnelUrl(selectedKey, tunnelUrl) {
   } catch { }
 }
 
-/**
- * Helper: Start server and quick tunnel
- */
 async function startServerAndTunnel(selectedKey) {
   console.log(ORANGE("\n🚀 Starting server..."));
-  pushUiState({ step: 1 });
+  pushUiState({ step: STEP.PREPARING });
 
   // Kill existing cloudflared process
   try {
@@ -342,19 +316,14 @@ async function startServerAndTunnel(selectedKey) {
 
   // Create session on worker
   try {
-    const sessionResponse = await fetch(`${WORKER_URL}/api/session/create`, {
+    const res = await browserFetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: selectedKey })
+      body: JSON.stringify({ apiKey: selectedKey }),
     });
-    if (!sessionResponse.ok) {
-      const text = await sessionResponse.text();
-      console.log(chalk.red(`❌ Failed to create session: ${sessionResponse.status} ${text.substring(0, 200)}`));
-      return null;
-    }
-  } catch (error) {
-    console.log(chalk.red(`❌ Failed to create session: ${error.message}`));
-    return null;
+    if (!res.ok) { console.log(chalk.red(`❌ Session create failed: ${res.status}`)); return null; }
+  } catch (e) {
+    console.log(chalk.red(`❌ Session create failed: ${e.message}`)); return null;
   }
 
   // Skip spawning server if already running (e.g. nodemon in dev mode)
@@ -366,7 +335,7 @@ async function startServerAndTunnel(selectedKey) {
   if (!alreadyRunning) await new Promise(resolve => setTimeout(resolve, 2000));
 
   console.log(ORANGE("✅ Starting tunnel..."));
-  pushUiState({ step: 2 });
+  pushUiState({ step: STEP.CONNECTING });
 
   // Spawn quick tunnel — URL comes directly from cloudflared stdout
   let tunnelProcess, tunnelUrl;
@@ -385,6 +354,11 @@ async function startServerAndTunnel(selectedKey) {
     return null;
   }
 
+  // Health check tunnel from outside before proceeding
+  const tunnelReady = await waitForTunnelReady(tunnelUrl);
+  if (!tunnelReady) {
+    console.log(chalk.yellow("\n⚠️  Tunnel health check timed out, proceeding anyway..."));
+  }
 
   // Save tunnelUrl to worker DB
   await updateTunnelUrl(selectedKey, tunnelUrl);
@@ -400,32 +374,17 @@ async function startServerAndTunnel(selectedKey) {
   return { serverManager, tunnelProcess, tunnelUrl };
 }
 
-
-/**
- * TUI mode — main flow for `9remote` (no subcommand)
- */
 async function tuiMode() {
-  console.clear();
-
-  // ── 1. Parallel: check latest version + start server ──────────────────────
-  const machineId = await getConsistentMachineId();
-  let keyData = loadKey();
-  if (!keyData.key) {
-    const { key } = generateApiKeyWithMachine(machineId);
-    keyData = saveKey(machineId, key, "Default");
-  }
-
-  // ── 2. Check update first, show banner immediately ───────────────────────
+  let keyData = await ensureKeyData();
   const version = getVersion();
   const updateInfo = await checkLatestVersion();
+  console.clear();
   showBanner(version, updateInfo?.latest ?? null);
 
-  // If new version available — pause and wait for user to press Enter
   if (updateInfo?.latest) {
     await selectMenu("Press Enter to start server", [{ label: "Start server" }], 0);
   }
 
-  // Start server after banner
   let tuiServerMgr = { getProcess: () => null, shutdown: () => {} };
   const alreadyRunning = await isServerRunning();
   if (!alreadyRunning) {
@@ -433,21 +392,17 @@ async function tuiMode() {
     await new Promise((r) => setTimeout(r, 2000));
   }
 
-  // ── 3. Progress: Preparing → Connecting → Tunneling → Ready ──────────────
   resetProgress();
-  renderProgress(0); // Preparing
+  renderProgress(STEP.PREPARING - 1); // Preparing
 
-  // Kill stale cloudflared
   try { killCloudflared(); await new Promise((r) => setTimeout(r, 300)); } catch {}
 
-  // Step 1 — Preparing (ensureCloudflared)
   await ensureCloudflared();
 
-  renderProgress(1, true); // Connecting
+  renderProgress(STEP.CONNECTING - 1, true); // Connecting
 
-  // Step 2 — Connecting (create session)
   try {
-    const res = await fetch(`${WORKER_URL}/api/session/create`, {
+    const res = await browserFetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey: keyData.key }),
@@ -458,9 +413,8 @@ async function tuiMode() {
     process.exit(1);
   }
 
-  renderProgress(2, true); // Starting tunnel
+  renderProgress(STEP.TUNNELING - 1, true); // Starting tunnel
 
-  // Step 3 — Tunnel
   let tunnelProcess, tunnelUrl;
   try {
     const result = await spawnQuickTunnel(SERVER_PORT, async (newUrl) => {
@@ -474,22 +428,26 @@ async function tuiMode() {
     process.exit(1);
   }
 
-  renderProgress(3, true); // Ready
+  setProgressInfo(STEP.TUNNELING - 1, tunnelUrl);
+  renderProgress(STEP.VERIFYING - 1, true); // Verifying tunnel
+  const tunnelReady = await waitForTunnelReady(tunnelUrl);
+  if (!tunnelReady) {
+    console.log(chalk.yellow("\n⚠️  Tunnel health check timed out, proceeding anyway..."));
+  }
 
-  // Wait 3s after Ready step before proceeding
+  renderProgress(STEP.READY - 1, true); // Ready
   await new Promise((r) => setTimeout(r, 3000));
 
   await updateTunnelUrl(keyData.key, tunnelUrl);
   saveState({ apiKey: keyData.key, tunnelUrl, tunnelPid: tunnelProcess.pid });
 
-  // ── 4. Create temp key + push ready state ─────────────────────────────────
   const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
   const connectUrl = tempKeyData
     ? `${WORKER_URL}/login?k=${tempKeyData.tempKey}`
     : `${WORKER_URL}/login`;
 
   await pushUiState({
-    step: 4,
+    step: STEP.READY,
     tunnelUrl,
     oneTimeKey: tempKeyData?.tempKey || "",
     oneTimeKeyExpiresAt: tempKeyData?.expiresAt || null,
@@ -498,17 +456,14 @@ async function tuiMode() {
     workerUrl: WORKER_URL,
   });
 
-  // ── 5. Load initial state from server ────────────────────────────────────
   let currentOneTimeKey = tempKeyData?.tempKey || "";
   let currentConnectUrl = connectUrl;
 
-  // ── 6. Build initial header ───────────────────────────────────────────────
   let menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl);
 
-  // Mutable ref for menu re-render callback (set by selectMenu)
   let triggerMenuRedraw = null;
 
-  // ── 7. Subscribe SSE — auto-rebuild header on state changes ──────────────
+  let deviceApprovalBusy = false;
   const stopSSE = subscribeSSE(SERVER_PORT, async (type, data) => {
     if (type === "state") {
       const newKey = data.permanentKey || keyData.key;
@@ -525,6 +480,14 @@ async function tuiMode() {
     } else if (type === "permissions") {
       // desktopEnabled changed — trigger redraw so menu label refreshes
       triggerMenuRedraw?.();
+    } else if (type === "deviceApproval" && data.action === "pending") {
+      if (deviceApprovalBusy) return;
+      deviceApprovalBusy = true;
+      const approved = await showDeviceApproval(data.deviceId, data.ip);
+      const endpoint = approved ? "approve" : "reject";
+      await apiPost(`/api/device/${endpoint}`, { socketId: data.socketId });
+      deviceApprovalBusy = false;
+      triggerMenuRedraw?.();
     }
   });
 
@@ -533,7 +496,6 @@ async function tuiMode() {
     shutdown: () => { tuiServerMgr.shutdown(); stopSSE(); }
   }, tunnelProcess, keyData.key);
 
-  // ── 8. Interactive menu loop ───────────────────────────────────────────────
   await tuiMenuLoop(
     keyData, tunnelUrl,
     () => menuHeader,
@@ -543,13 +505,9 @@ async function tuiMode() {
   );
 }
 
-/** Fetch desktopEnabled from server (source of truth) */
 async function fetchDesktopEnabled() {
-  try {
-    const res = await fetch(`http://localhost:${SERVER_PORT}/api/ui/state`);
-    if (res.ok) { const d = await res.json(); return !!d.desktopEnabled; }
-  } catch {}
-  return false;
+  const d = await apiGet("/api/ui/state");
+  return !!d?.desktopEnabled;
 }
 
 /**
@@ -569,11 +527,11 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
       { label: "New One-Time Key" },
       { label: "Regenerate Permanent Key" },
       { label: desktopLabel },
+      { label: "Manage Devices  \u25b6" },
       { label: chalk.gray("Exit") },
     ];
 
-    // Register SSE-triggered redraw with selectMenu
-    let redrawMenu = null;
+      let redrawMenu = null;
     onRedrawRegister(() => redrawMenu?.());
 
     const idx = await selectMenu("Select action", items, 0, getHeader, (setRedraw) => {
@@ -617,6 +575,10 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
       // Remote Desktop submenu
       await tuiDesktopMenu();
 
+    } else if (idx === 4) {
+      // Manage Devices submenu
+      await tuiDevicesMenu();
+
     } else {
       // Exit — kill server child process before exiting
       killProcessOnPort(SERVER_PORT);
@@ -633,15 +595,9 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
 async function tuiDesktopMenu() {
   while (true) {
     // Always read from server
-    let desktopOn = false, perms = { screenRecording: false, accessibility: false };
-    try {
-      const res = await fetch(`http://localhost:${SERVER_PORT}/api/ui/state`);
-      if (res.ok) {
-        const d = await res.json();
-        desktopOn = !!d.desktopEnabled;
-        perms = { screenRecording: !!d.screenRecording, accessibility: !!d.accessibility };
-      }
-    } catch {}
+    const state = await apiGet("/api/ui/state") || {};
+    const desktopOn = !!state.desktopEnabled;
+    const perms = { screenRecording: !!state.screenRecording, accessibility: !!state.accessibility };
 
     const toggleLabel = `Toggle: ${desktopOn ? chalk.green("ON  → turn OFF") : chalk.gray("OFF → turn ON")}`;
     const srLabel = `Screen Recording          ${perms.screenRecording ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`;
@@ -655,30 +611,11 @@ async function tuiDesktopMenu() {
     ], 0);
 
     if (idx === 0) {
-      // Toggle — flip current value via server
-      try {
-        await fetch(`http://localhost:${SERVER_PORT}/api/desktop/toggle`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: !desktopOn }),
-        });
-      } catch {}
-
+      await apiPost("/api/desktop/toggle", { enabled: !desktopOn });
     } else if (idx === 1 && !perms.screenRecording) {
-      try {
-        await fetch(`http://localhost:${SERVER_PORT}/api/permissions/request`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "screenRecording" }),
-        });
-      } catch { openPermissionPane("screenRecording"); }
-
+      if (!await apiPost("/api/permissions/request", { type: "screenRecording" })) openPermissionPane("screenRecording");
     } else if (idx === 2 && !perms.accessibility) {
-      try {
-        await fetch(`http://localhost:${SERVER_PORT}/api/permissions/request`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "accessibility" }),
-        });
-      } catch { openPermissionPane("accessibility"); }
+      if (!await apiPost("/api/permissions/request", { type: "accessibility" })) openPermissionPane("accessibility");
 
     } else if (idx === 3 || idx === -1) {
       return; // Back
@@ -686,30 +623,39 @@ async function tuiDesktopMenu() {
   }
 }
 
+async function tuiDevicesMenu() {
+  while (true) {
+    const data = await apiGet("/api/device/approved");
+    const devices = data?.devices || [];
 
-/**
- * Auto start dev server (--auto flag)
- */
+    const items = [
+      ...devices.map((d) => {
+        const short = d.deviceId.slice(0, 8);
+        const date = d.approvedAt ? new Date(d.approvedAt).toLocaleString() : "unknown";
+        return { label: `${short}...  ${chalk.dim(date)}` };
+      }),
+      { label: chalk.gray("\u2190 Back") },
+    ];
+
+    const title = `Approved Devices (${devices.length})`;
+    const idx = await selectMenu(title, items, items.length - 1);
+
+    if (idx === -1 || idx === devices.length) return; // Back/ESC
+
+    // Remove selected device
+    const deviceId = devices[idx].deviceId;
+    const confirmed = await tuiConfirm(chalk.yellow(`Remove device ${deviceId.slice(0, 8)}...?`));
+    if (confirmed) await apiPost("/api/device/remove", { deviceId });
+  }
+}
+
 async function autoStartDev() {
   showBanner(getVersion());
-
-  const machineId = await getConsistentMachineId();
-  let keyData = loadKey();
-
-  // Auto create key if none exists
-  if (!keyData.key) {
-    console.log(chalk.yellow("⚠️  No key found. Creating default key..."));
-    const { key } = generateApiKeyWithMachine(machineId);
-    keyData = saveKey(machineId, key, "Default");
-    console.log(chalk.green("✅ Default key created!"));
-  }
-
+  let keyData = await ensureKeyData();
   console.log(chalk.gray(`Using key: ${keyData.key.slice(0, 20)}... (${keyData.name})`));
 
   const result = await startServerAndTunnel(keyData.key);
-  if (!result) {
-    process.exit(1);
-  }
+  if (!result) process.exit(1);
 
   const { serverManager, tunnelProcess, tunnelUrl } = result;
 
@@ -727,14 +673,9 @@ async function autoStartDev() {
     pushUiState({ uptime: `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` });
   }, 5000);
 
-  // Keep process alive
   await new Promise(() => { });
 }
 
-
-/**
- * Listen for key regen, stop-tunnel, start-tunnel from server UI
- */
 function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
   let busy = false;
   setInterval(async () => {
@@ -751,20 +692,19 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
         setActiveTunnel(null);
         console.log(chalk.yellow("🛑 Tunnel stopped"));
       }
-      await pushUiState({ step: 0, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+      await pushUiState({ step: STEP.STOPPED, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
     }
 
     if (cmd === "start-tunnel") {
       if (getActiveTunnel()) { busy = false; return; } // already running
       console.log(ORANGE("🚀 Starting tunnel..."));
       try {
-        // Step 1: Preparing — check/download cloudflared binary
-        await pushUiState({ step: 1 });
+        await pushUiState({ step: STEP.PREPARING });
         await ensureCloudflared();
 
         // Step 2: Connecting — create session on worker
-        await pushUiState({ step: 2 });
-        const sessionResponse = await fetch(`${WORKER_URL}/api/session/create`, {
+        await pushUiState({ step: STEP.CONNECTING });
+        const sessionResponse = await browserFetch(`${WORKER_URL}/api/session/create`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ apiKey }),
@@ -772,19 +712,27 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
         if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
 
         // Step 3: Tunneling — spawn cloudflared
-        await pushUiState({ step: 3 });
+        await pushUiState({ step: STEP.TUNNELING });
         const result = await spawnQuickTunnel(SERVER_PORT, async (newUrl) => {
           await updateTunnelUrl(apiKey, newUrl);
           await pushUiState({ tunnelUrl: newUrl });
         });
         setActiveTunnel(result.child);
+
+        // Step 4: Verifying tunnel
+        await pushUiState({ step: STEP.VERIFYING });
+        const tunnelOk = await waitForTunnelReady(result.tunnelUrl);
+        if (!tunnelOk) {
+          console.log(chalk.yellow("\n\u26a0\ufe0f  Tunnel health check timed out, proceeding anyway..."));
+        }
+
         await updateTunnelUrl(apiKey, result.tunnelUrl);
 
         // Step 4: Ready
         await showConnectionInfo(apiKey, result.tunnelUrl);
       } catch (err) {
         console.log(chalk.red(`❌ Failed to start tunnel: ${err.message}`));
-        await pushUiState({ step: 0 });
+        await pushUiState({ step: STEP.STOPPED });
       }
     }
 
@@ -803,16 +751,28 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
   }, 1000);
 }
 
-/**
- * Check if server is already running on SERVER_PORT
- */
-async function isServerRunning() {
-  try {
-    const res = await fetch(`http://localhost:${SERVER_PORT}/api/health`);
-    return res.ok;
-  } catch {
-    return false;
+async function waitForTunnelReady(tunnelUrl, { intervalMs = 2000, timeoutMs = 120000 } = {}) {
+  const healthUrl = `${tunnelUrl}/api/health`;
+  const start = Date.now();
+  let attempt = 0;
+  while (Date.now() - start < timeoutMs) {
+    attempt++;
+    try {
+      const res = await browserFetch(healthUrl, {
+        signal: AbortSignal.timeout(5000),
+      });
+      updateProgressDesc(`#${attempt} → ${res.status}`);
+      if (res.ok) return true;
+    } catch (err) {
+      updateProgressDesc(`#${attempt} → ${err.cause?.code || err.code || err.message}`);
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
   }
+  return false;
+}
+
+async function isServerRunning() {
+  return !!(await apiGet("/api/health"));
 }
 
 /**
@@ -821,14 +781,7 @@ async function isServerRunning() {
  */
 async function startUiMode() {
   showBanner(getVersion());
-
-  const machineId = await getConsistentMachineId();
-  let keyData = loadKey();
-
-  if (!keyData.key) {
-    const { key } = generateApiKeyWithMachine(machineId);
-    keyData = saveKey(machineId, key, "Default");
-  }
+  let keyData = await ensureKeyData();
 
   // Parse --theme flag
   const themeArg = process.argv.find(arg => arg.startsWith("--theme="));
@@ -844,13 +797,12 @@ async function startUiMode() {
 
   console.log(chalk.green(`\n🌐 UI ready at http://localhost:${SERVER_PORT}`));
 
-  // Mutable ref for active tunnel
   let activeTunnel = null;
   const getActiveTunnel = () => activeTunnel;
   const setActiveTunnel = (t) => { activeTunnel = t; };
 
   // Push permanentKey + theme to UI so Welcome screen can display it
-  await pushUiState({ permanentKey: keyData.key, step: 0, theme });
+  await pushUiState({ permanentKey: keyData.key, step: STEP.STOPPED, theme });
 
   setupExitHandler(serverManager, null, keyData.key);
   setupCmdPoller(getActiveTunnel, setActiveTunnel, keyData.key);

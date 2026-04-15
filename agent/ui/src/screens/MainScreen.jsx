@@ -215,16 +215,21 @@ export default function MainScreen({
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
   onRequestPermission, onDesktopToggle, onStop, onStart, onGenerateOneTimeKey, onRegenerateKey, logs = [],
   theme, onToggleTheme,
+  pendingDevice, onDeviceApprove, onDeviceReject,
+  approvedDevices = [], onDeviceRemove, onFetchDevices,
 }) {
   const [activeTab, setActiveTab] = useState("connect");
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [deviceToRemove, setDeviceToRemove] = useState(null);
   const logEndRef = useRef(null);
-  const isReady = step === 4;
+  // STEP enum: STOPPED=0, PREPARING=1, CONNECTING=2, TUNNELING=3, VERIFYING=4, READY=5
+  const isReady = step === 5;
   const isStopped = step === 0;
-  const isConnecting = step > 0 && step < 4;
+  const isConnecting = step > 0 && step < 5;
 
   useEffect(() => {
     if (activeTab === "log") logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (activeTab === "devices") onFetchDevices?.();
   }, [logs, activeTab]);
 
   return (
@@ -302,6 +307,7 @@ export default function MainScreen({
               <div className="flex px-5 pt-3 gap-3" style={{ borderColor: "var(--border)" }}>
                 {[
                   { id: "connect", label: "Connection" },
+                  { id: "devices", label: "Devices" },
                   { id: "log", label: "Logs" },
                 ].map((tab) => (
                   <button
@@ -357,6 +363,39 @@ export default function MainScreen({
                   </>
                 )}
 
+                {activeTab === "devices" && (
+                  <div className="flex-1 flex flex-col">
+                    {approvedDevices.length === 0 ? (
+                      <p className="text-xs text-center mt-8" style={{ color: "var(--text-muted)" }}>No approved devices</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {approvedDevices.map((d) => (
+                          <div key={d.deviceId} className="glass-card p-3 flex items-center justify-between">
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--text-muted)" }}>devices</span>
+                                <span className="text-xs font-mono" style={{ color: "var(--text-main)" }}>{d.deviceId.slice(0, 8)}...</span>
+                              </div>
+                              {d.approvedAt && (
+                                <span className="text-xs ml-6" style={{ color: "var(--text-muted)" }}>
+                                  Approved: {new Date(d.approvedAt).toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => setDeviceToRemove(d.deviceId)}
+                              className="text-xs px-2 py-1 rounded-lg flex-shrink-0"
+                              style={{ background: "rgba(220,53,69,0.15)", color: "#dc3545" }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {activeTab === "log" && (
                   <div className="flex-1 flex flex-col">
                     {logs.length === 0 ? (
@@ -385,6 +424,43 @@ export default function MainScreen({
           onConfirm={() => { setShowDisconnectConfirm(false); onStop?.(); }}
           onCancel={() => setShowDisconnectConfirm(false)}
         />
+      )}
+
+      {deviceToRemove && (
+        <ConfirmPopup
+          message={`Remove device ${deviceToRemove.slice(0, 8)}...? It will need approval again next time.`}
+          confirmLabel="Remove"
+          confirmDanger
+          onConfirm={() => { onDeviceRemove?.(deviceToRemove); setDeviceToRemove(null); }}
+          onCancel={() => setDeviceToRemove(null)}
+        />
+      )}
+
+      {pendingDevice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+          <div className="glass-card p-5 flex flex-col gap-4 w-80">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined" style={{ color: "var(--brand-500)", fontSize: 24 }}>devices</span>
+              <span className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>New Device Connection</span>
+            </div>
+            <div className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+              <span>Device: <span style={{ color: "var(--text-main)" }}>{pendingDevice.deviceId?.slice(0, 8)}...</span></span>
+              <span>IP: <span style={{ color: "var(--text-main)" }}>{pendingDevice.ip}</span></span>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={onDeviceReject} className="glass-btn flex-1 py-2 text-sm" style={{ color: "var(--text-muted)" }}>
+                Reject
+              </button>
+              <button
+                onClick={onDeviceApprove}
+                className="flex-1 py-2 text-sm font-semibold rounded-xl"
+                style={{ background: "var(--brand-500)", color: "#fff" }}
+              >
+                Approve
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

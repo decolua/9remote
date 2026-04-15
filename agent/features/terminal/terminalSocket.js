@@ -26,7 +26,7 @@ export async function initializeTerminal() {
         sessions.set(s.id, { daemon: true, name: s.name, createdAt: s.createdAt });
       }
       const count = daemonSessions.length;
-      console.log(ORANGE(count > 0 ? `✅ Connected to daemon with ${count} session(s)` : "✅ Connected to PTY daemon"));
+      // Silent connect
       return;
     }
   }

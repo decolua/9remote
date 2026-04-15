@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { spawn } from "child_process";
 import path from "path";
 import os from "os";
+import { browserFetch } from "../../lib/constants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_NAME = "9remote";
@@ -66,7 +67,7 @@ export async function checkForUpdates() {
     const currentVersion = getCurrentVersion();
     if (!currentVersion) return;
 
-    const response = await fetch(NPM_REGISTRY_URL, {
+    const response = await browserFetch(NPM_REGISTRY_URL, {
       signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT)
     });
 
@@ -94,7 +95,7 @@ export async function checkLatestVersion() {
   try {
     const currentVersion = getCurrentVersion();
     if (!currentVersion) return null;
-    const response = await fetch(NPM_REGISTRY_URL, {
+    const response = await browserFetch(NPM_REGISTRY_URL, {
       signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT)
     });
     if (!response.ok) return null;
@@ -158,7 +159,7 @@ export async function checkAndUpdate(skipUpdate = false) {
 
     startSpinner("Checking for updates...");
 
-    fetch(NPM_REGISTRY_URL, { signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT) })
+    browserFetch(NPM_REGISTRY_URL, { signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT) })
       .then((res) => res.json())
       .then((data) => {
         if (resolved) return;

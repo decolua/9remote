@@ -8,7 +8,9 @@ import { exec, execSync } from "child_process";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join, extname } from "path";
 import { fileURLToPath } from "url";
-import { setupSocketIO, getIO } from "./lib/socketio.js";
+import { setupSocketIO, getIO, approveSocketDevice, rejectSocketDevice } from "./lib/socketio.js";
+import { STEP, browserFetch } from "./lib/constants.js";
+import { getAllPendingApprovals, getApprovedDevices, removeDevice } from "./lib/deviceApproval.js";
 import { handleLocalSites } from "./api/localSites.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
@@ -25,7 +27,6 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const IS_DEV = process.env.NODE_ENV === "development";
 const VITE_PORT = 5173;
 
-// UI dist: bundled → cli/dist/ui/, dev → server/ui/dist/
 const UI_DIST = existsSync(join(__dirname, "ui", "dist"))
   ? join(__dirname, "ui", "dist")
   : join(__dirname, "ui");
@@ -44,7 +45,6 @@ const MIME_TYPES = {
 const NPM_PACKAGE_NAME = "9remote";
 const NPM_REGISTRY_URL = `https://registry.npmjs.org/${NPM_PACKAGE_NAME}/latest`;
 
-/** Proxy request to Vite dev server (dev mode only, includes HMR websocket) */
 function proxyToVite(req, res) {
   const proxy = httpRequest(
     { hostname: "localhost", port: VITE_PORT, path: req.url, method: req.method, headers: req.headers },
@@ -60,7 +60,6 @@ function proxyToVite(req, res) {
   req.pipe(proxy);
 }
 
-/** Serve a static file from ui/dist */
 function serveStatic(res, filePath) {
   if (!existsSync(filePath)) return false;
   const ext = extname(filePath);
@@ -71,10 +70,9 @@ function serveStatic(res, filePath) {
   return true;
 }
 
-/** Check npm registry for newer version, push via SSE if found */
 async function checkForUpdate(currentVersion) {
   try {
-    const res = await fetch(NPM_REGISTRY_URL);
+    const res = await browserFetch(NPM_REGISTRY_URL);
     if (!res.ok) return;
     const { version } = await res.json();
     if (version && version !== currentVersion) {
@@ -83,42 +81,35 @@ async function checkForUpdate(currentVersion) {
   } catch { /* non-critical */ }
 }
 
-// ── UI State (SSE) ──────────────────────────────────────────────────────────
-
 const UI_STATE_FILE = join(
   process.env.HOME || process.env.USERPROFILE || ".",
   ".9remote", "ui-state.json"
 );
 
-/** Persist uiState to disk */
 function saveUiState() {
   try {
     mkdirSync(join(process.env.HOME || process.env.USERPROFILE || ".", ".9remote"), { recursive: true });
     writeFileSync(UI_STATE_FILE, JSON.stringify(uiState));
-  } catch {}
+  } catch { }
 }
 
-/** Load uiState from disk */
 function loadUiState() {
   try {
     if (existsSync(UI_STATE_FILE)) {
       const saved = JSON.parse(readFileSync(UI_STATE_FILE, "utf8"));
       // Only restore if tunnel was ready — otherwise start fresh
-      if (saved.step === 4 && saved.permanentKey) {
+      if (saved.step === STEP.READY && saved.permanentKey) {
         uiState = { ...uiState, ...saved };
       }
     }
-  } catch {}
+  } catch { }
 }
 
-// In-memory UI state + SSE clients
-let uiState = { step: 0, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null, permanentKey: "", qrUrl: "", latency: null, uptime: null };
+let uiState = { step: STEP.STOPPED, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null, permanentKey: "", qrUrl: "", latency: null, uptime: null };
 const sseClients = new Set();
 
-// Active socket connections for UI display
 const activeConnections = new Map();
 
-// Remote desktop toggle state — loaded from state file on start
 let desktopEnabled = false;
 
 const DESKTOP_STATE_FILE = join(
@@ -126,25 +117,22 @@ const DESKTOP_STATE_FILE = join(
   ".9remote", "desktop.json"
 );
 
-/** Load desktopEnabled from state file */
 function loadDesktopState() {
   try {
     if (existsSync(DESKTOP_STATE_FILE)) {
       const data = JSON.parse(readFileSync(DESKTOP_STATE_FILE, "utf8"));
       desktopEnabled = !!data.enabled;
     }
-  } catch {}
+  } catch { }
 }
 
-/** Save desktopEnabled to state file */
 function saveDesktopState() {
   try {
     mkdirSync(join(process.env.HOME || process.env.USERPROFILE || ".", ".9remote"), { recursive: true });
     writeFileSync(DESKTOP_STATE_FILE, JSON.stringify({ enabled: desktopEnabled }));
-  } catch {}
+  } catch { }
 }
 
-// Cached permissions — refreshed async, never blocks request
 let cachedPermissions = { screenRecording: false, accessibility: false };
 
 function refreshPermissionsAsync() {
@@ -155,7 +143,6 @@ function getSystemPermissions() {
   return cachedPermissions;
 }
 
-/** Open System Preferences pane for a permission, then poll until granted */
 function requestSystemPermission(type) {
   return new Promise((resolve) => {
     if (process.platform !== "darwin") { resolve(); return; }
@@ -177,39 +164,33 @@ function requestSystemPermission(type) {
   });
 }
 
-/** Clear one-time key from UI state after client uses it */
 export function clearOneTimeKey() {
   uiState = { ...uiState, oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "" };
   pushUiEvent("state", uiState);
   saveUiState();
 }
 
-/** Track a new socket connection */
 export function trackConnection(socketId, ip, type = "ws") {
   activeConnections.set(socketId, { ip, type, connectedAt: Date.now() });
   pushUiEvent("connections", { connections: [...activeConnections.values()] });
 }
 
-/** Remove a socket connection */
 export function untrackConnection(socketId) {
   activeConnections.delete(socketId);
   pushUiEvent("connections", { connections: [...activeConnections.values()] });
 }
 
-/** Push a log line to UI */
 export function pushUiLog(message) {
   pushUiEvent("log", { message: `[${new Date().toLocaleTimeString()}] ${message}` });
 }
 
-/** Push event to all connected UI SSE clients */
-function pushUiEvent(type, data) {
+export function pushUiEvent(type, data) {
   const payload = `data: ${JSON.stringify({ type, ...data })}\n\n`;
   for (const res of sseClients) {
     try { res.write(payload); } catch { sseClients.delete(res); }
   }
 }
 
-/** Handle SSE connection from UI */
 function handleUiEvents(req, res) {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -225,7 +206,6 @@ function handleUiEvents(req, res) {
   req.on("close", () => sseClients.delete(res));
 }
 
-/** Handle UI state update from CLI */
 function handleUiState(body) {
   try {
     const data = JSON.parse(body || "{}");
@@ -237,42 +217,42 @@ function handleUiState(body) {
 
 const ORANGE = chalk.rgb(230, 138, 110);
 
+function readBody(req) {
+  return new Promise((resolve) => {
+    let body = "";
+    req.on("data", (chunk) => body += chunk);
+    req.on("end", () => resolve(body));
+  });
+}
+
+function jsonOk(res, data = { ok: true }) {
+  res.setHeader("Content-Type", "application/json");
+  res.writeHead(200);
+  res.end(JSON.stringify(data));
+}
+
+function jsonErr(res, code, msg) {
+  res.setHeader("Content-Type", "application/json");
+  res.writeHead(code);
+  res.end(JSON.stringify({ error: msg }));
+}
+
 function isCodespaces() {
   return process.env.CODESPACES === "true";
 }
 
 async function handleCodespaceStop(req, res) {
-  if (req.method !== "POST") {
-    res.writeHead(405);
-    res.end(JSON.stringify({ error: "Method not allowed" }));
-    return;
-  }
-
-  if (!isCodespaces()) {
-    res.writeHead(400);
-    res.end(JSON.stringify({ error: "Not running on Codespaces" }));
-    return;
-  }
-
+  if (req.method !== "POST") { jsonErr(res, 405, "Method not allowed"); return; }
+  if (!isCodespaces()) { jsonErr(res, 400, "Not running on Codespaces"); return; }
   const codespaceName = process.env.CODESPACE_NAME;
-  if (!codespaceName) {
-    res.writeHead(400);
-    res.end(JSON.stringify({ error: "Codespace name not found" }));
-    return;
-  }
+  if (!codespaceName) { jsonErr(res, 400, "Codespace name not found"); return; }
 
-  // Emit event to all clients before stopping
   const io = getIO();
-  if (io) {
-    io.emit("codespace:stopping");
-  }
-
-  res.setHeader("Content-Type", "application/json");
-  res.writeHead(200);
-  res.end(JSON.stringify({ success: true, message: "Stopping codespace..." }));
+  if (io) io.emit("codespace:stopping");
+  jsonOk(res, { success: true, message: "Stopping codespace..." });
 
   setTimeout(() => {
-    exec(`gh codespace stop -c ${codespaceName}`, (error) => {
+    exec(`gh codespace stop -c ${codespaceName}`, { windowsHide: true }, (error) => {
       if (error) {
         console.error("Failed to stop codespace:", error);
       }
@@ -283,7 +263,6 @@ async function handleCodespaceStop(req, res) {
 const hostname = "localhost";
 const port = parseInt(process.env.PORT || "2208", 10);
 
-// Rate limiting for PWA push only (not badge)
 const pushLastTime = {};
 const PUSH_RATE_LIMIT_MS = 10000;
 
@@ -303,12 +282,9 @@ function handleNotify(req, res, body, query) {
       sessionId = data.sessionId || "";
       tool = data.tool || "claude";
     } catch {
-      res.writeHead(400);
-      res.end(JSON.stringify({ error: "Invalid JSON" }));
-      return;
+      jsonErr(res, 400, "Invalid JSON"); return;
     }
   }
-
 
   const io = getIO();
   if (io) {
@@ -335,9 +311,7 @@ function handleNotify(req, res, body, query) {
       }
   }
 
-  res.setHeader("Content-Type", "application/json");
-  res.writeHead(200);
-  res.end(JSON.stringify({ success: true }));
+  jsonOk(res, { success: true });
 }
 
 export async function startServer() {
@@ -355,7 +329,6 @@ export async function startServer() {
       const parsedUrl = parse(req.url, true);
       const { pathname, search } = parsedUrl;
 
-      // UI routes: only accessible from localhost (not via tunnel)
       const isLocalhost = req.socket.remoteAddress === "127.0.0.1" || req.socket.remoteAddress === "::1";
       const isUiRoute = pathname === "/api/ui/events" || pathname === "/api/ui/state"
         || (!pathname.startsWith("/api/") && !pathname.startsWith("/proxy/") && !pathname.startsWith("/socket.io"));
@@ -365,187 +338,143 @@ export async function startServer() {
         return;
       }
 
-      // UI SSE stream
       if (pathname === "/api/ui/events") {
         handleUiEvents(req, res);
         return;
       }
 
-      // UI state update from CLI
       if (pathname === "/api/ui/state" && req.method === "POST") {
-        let body = "";
-        req.on("data", chunk => body += chunk);
-        req.on("end", () => {
-          handleUiState(body);
-          res.setHeader("Content-Type", "application/json");
-          res.writeHead(200);
-          res.end(JSON.stringify({ ok: true }));
-        });
+        handleUiState(await readBody(req));
+        jsonOk(res);
         return;
       }
 
-      // UI state snapshot
       if (pathname === "/api/ui/state" && req.method === "GET") {
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(200);
-        // Include permissions + desktopEnabled so UI only needs 1 fetch
-        res.end(JSON.stringify({
-          ...uiState,
-          ...getSystemPermissions(),
-          desktopEnabled,
-        }));
+        jsonOk(res, { ...uiState, ...getSystemPermissions(), desktopEnabled });
         return;
       }
 
-      // Stop tunnel (disconnect), keep server alive
       if (pathname === "/api/ui/stop" && req.method === "POST") {
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(200);
-        res.end(JSON.stringify({ ok: true }));
-        // Immediately reset state so UI transitions to welcome screen
-        uiState = { ...uiState, step: 0, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null };
+        jsonOk(res);
+        uiState = { ...uiState, step: STEP.STOPPED, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null };
         pushUiEvent("state", uiState);
         saveUiState();
         writeCmd("stop-tunnel");
         return;
       }
 
-      // Start tunnel (reconnect)
       if (pathname === "/api/ui/start" && req.method === "POST") {
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(200);
-        res.end(JSON.stringify({ ok: true }));
-        // Immediately push step:1 so UI transitions to progress screen
-        uiState = { ...uiState, step: 1 };
+        jsonOk(res);
+        uiState = { ...uiState, step: STEP.PREPARING };
         pushUiEvent("state", uiState);
         saveUiState();
         writeCmd("start-tunnel");
         return;
       }
 
-      // Generate new one-time key
       if (pathname === "/api/key/one-time" && req.method === "POST") {
         const workerUrl = uiState.workerUrl || "https://9remote.cc";
-        const permanentKey = uiState.permanentKey;
-        if (!permanentKey) {
-          res.writeHead(400);
-          res.end(JSON.stringify({ error: "No permanent key set" }));
-          return;
-        }
+        if (!uiState.permanentKey) { jsonErr(res, 400, "No permanent key set"); return; }
         try {
-          const r = await fetch(`${workerUrl}/api/temp-key/create`, {
+          const r = await browserFetch(`${workerUrl}/api/temp-key/create`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ apiKey: permanentKey, expiryMinutes: 30 }),
+            body: JSON.stringify({ apiKey: uiState.permanentKey, expiryMinutes: 30 }),
           });
           const data = await r.json();
           const qrUrl = `${workerUrl}/login?k=${data.tempKey}`;
           uiState = { ...uiState, oneTimeKey: data.tempKey, oneTimeKeyExpiresAt: data.expiresAt, qrUrl };
           pushUiEvent("state", uiState);
-          res.setHeader("Content-Type", "application/json");
-          res.writeHead(200);
-          res.end(JSON.stringify({ oneTimeKey: data.tempKey, expiresAt: data.expiresAt, qrUrl }));
-        } catch (err) {
-          res.writeHead(500);
-          res.end(JSON.stringify({ error: err.message }));
-        }
+          jsonOk(res, { oneTimeKey: data.tempKey, expiresAt: data.expiresAt, qrUrl });
+        } catch (err) { jsonErr(res, 500, err.message); }
         return;
       }
 
-      // Regenerate permanent key
       if (pathname === "/api/key/regenerate" && req.method === "POST") {
-        res.setHeader("Content-Type", "application/json");
         try {
           const machineId = await getConsistentMachineId();
           const { key } = generateApiKeyWithMachine(machineId);
           const existing = loadKey();
           saveKey(machineId, key, existing?.name || "Default");
-          pushUiEvent("state", { ...uiState, permanentKey: key });
           uiState = { ...uiState, permanentKey: key };
-          res.writeHead(200);
-          res.end(JSON.stringify({ ok: true, permanentKey: key }));
-        } catch (err) {
-          res.writeHead(500);
-          res.end(JSON.stringify({ error: err.message }));
-        }
+          pushUiEvent("state", uiState);
+          jsonOk(res, { ok: true, permanentKey: key });
+        } catch (err) { jsonErr(res, 500, err.message); }
         return;
       }
 
-      // Get system permissions status
       if (pathname === "/api/permissions" && req.method === "GET") {
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(200);
-        res.end(JSON.stringify(getSystemPermissions()));
+        jsonOk(res, getSystemPermissions());
         return;
       }
 
-      // Request a system permission
       if (pathname === "/api/permissions/request" && req.method === "POST") {
-        let body = "";
-        req.on("data", (chunk) => body += chunk);
-        req.on("end", async () => {
-          try {
-            const { type } = JSON.parse(body || "{}");
-            await requestSystemPermission(type);
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(200);
-            res.end(JSON.stringify({ ok: true }));
-          } catch (err) {
-            res.writeHead(500);
-            res.end(JSON.stringify({ error: err.message }));
-          }
-        });
+        try {
+          const { type } = JSON.parse(await readBody(req) || "{}");
+          await requestSystemPermission(type);
+          jsonOk(res);
+        } catch (err) { jsonErr(res, 500, err.message); }
         return;
       }
 
-      // Toggle remote desktop
       if (pathname === "/api/desktop/toggle" && req.method === "POST") {
-        let body = "";
-        req.on("data", (chunk) => body += chunk);
-        req.on("end", () => {
-          try {
-            const { enabled } = JSON.parse(body || "{}");
-            desktopEnabled = !!enabled;
-            saveDesktopState();
-            // Push updated state including desktopEnabled + fresh permissions
-            pushUiEvent("permissions", { ...getSystemPermissions(), desktopEnabled });
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(200);
-            res.end(JSON.stringify({ ok: true, enabled: desktopEnabled }));
-          } catch (err) {
-            res.writeHead(500);
-            res.end(JSON.stringify({ error: err.message }));
-          }
-        });
+        try {
+          const { enabled } = JSON.parse(await readBody(req) || "{}");
+          desktopEnabled = !!enabled;
+          saveDesktopState();
+          pushUiEvent("permissions", { ...getSystemPermissions(), desktopEnabled });
+          jsonOk(res, { ok: true, enabled: desktopEnabled });
+        } catch (err) { jsonErr(res, 500, err.message); }
         return;
       }
 
-      // Get active connections
+      if ((pathname === "/api/device/approve" || pathname === "/api/device/reject") && req.method === "POST") {
+        try {
+          const { socketId } = JSON.parse(await readBody(req) || "{}");
+          const handler = pathname.endsWith("approve") ? approveSocketDevice : rejectSocketDevice;
+          const ok = handler(socketId);
+          res.setHeader("Content-Type", "application/json");
+          res.writeHead(ok ? 200 : 404);
+          res.end(JSON.stringify({ ok }));
+        } catch (err) { jsonErr(res, 500, err.message); }
+        return;
+      }
+
+      if (pathname === "/api/device/pending" && req.method === "GET") {
+        jsonOk(res, { pending: getAllPendingApprovals() });
+        return;
+      }
+
+      if (pathname === "/api/device/approved" && req.method === "GET") {
+        jsonOk(res, { devices: getApprovedDevices() });
+        return;
+      }
+
+      if (pathname === "/api/device/remove" && req.method === "POST") {
+        try {
+          const { deviceId } = JSON.parse(await readBody(req) || "{}");
+          removeDevice(deviceId);
+          jsonOk(res);
+        } catch (err) { jsonErr(res, 500, err.message); }
+        return;
+      }
+
       if (pathname === "/api/connections" && req.method === "GET") {
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(200);
-        res.end(JSON.stringify({ connections: [...activeConnections.values()] }));
+        jsonOk(res, { connections: [...activeConnections.values()] });
         return;
       }
 
-      // Health check endpoint
       if (pathname === "/api/health") {
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(200);
-        res.end(JSON.stringify({ status: "ok", timestamp: Date.now() }));
+        jsonOk(res, { status: "ok", timestamp: Date.now() });
         return;
       }
 
-      // Version endpoint
       if (pathname === "/api/version") {
         const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(200);
-        res.end(JSON.stringify({ version: pkg.version }));
+        jsonOk(res, { version: pkg.version });
         return;
       }
 
-      // Serve UI: proxy to Vite (dev) or serve static (production)
       if (!pathname.startsWith("/api/") && !pathname.startsWith("/proxy/") && !pathname.startsWith("/socket.io")) {
         if (IS_DEV) {
           proxyToVite(req, res);
@@ -555,29 +484,21 @@ export async function startServer() {
           ? join(UI_DIST, "index.html")
           : join(UI_DIST, pathname);
         if (serveStatic(res, filePath)) return;
-        // SPA fallback
         if (serveStatic(res, join(UI_DIST, "index.html"))) return;
       }
 
-      // API routes
       if (pathname === "/api/local-sites") {
         await handleLocalSites(req, res);
         return;
       }
 
-      // Codespace stop endpoint
       if (pathname === "/api/codespace/stop") {
         await handleCodespaceStop(req, res);
         return;
       }
 
-      // Notification endpoint (called by AI tool hooks)
       if (pathname === "/api/notify" && req.method === "POST") {
-        let body = "";
-        req.on("data", chunk => body += chunk);
-        req.on("end", () => {
-          handleNotify(req, res, body);
-        });
+        handleNotify(req, res, await readBody(req));
         return;
       }
 
@@ -586,44 +507,14 @@ export async function startServer() {
         return;
       }
 
-      // Proxy session management
-      if (pathname === "/api/proxy/start" && req.method === "POST") {
-        let body = "";
-        req.on("data", chunk => body += chunk);
-        req.on("end", () => {
-          const { port } = JSON.parse(body || "{}");
-          if (port) {
-            startProxySession(port);
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(200);
-            res.end(JSON.stringify({ success: true }));
-          } else {
-            res.writeHead(400);
-            res.end(JSON.stringify({ error: "Port required" }));
-          }
-        });
+      if ((pathname === "/api/proxy/start" || pathname === "/api/proxy/end") && req.method === "POST") {
+        const { port: p } = JSON.parse(await readBody(req) || "{}");
+        if (!p) { jsonErr(res, 400, "Port required"); return; }
+        pathname.endsWith("start") ? startProxySession(p) : endProxySession(p);
+        jsonOk(res, { success: true });
         return;
       }
 
-      if (pathname === "/api/proxy/end" && req.method === "POST") {
-        let body = "";
-        req.on("data", chunk => body += chunk);
-        req.on("end", () => {
-          const { port } = JSON.parse(body || "{}");
-          if (port) {
-            endProxySession(port);
-            res.setHeader("Content-Type", "application/json");
-            res.writeHead(200);
-            res.end(JSON.stringify({ success: true }));
-          } else {
-            res.writeHead(400);
-            res.end(JSON.stringify({ error: "Port required" }));
-          }
-        });
-        return;
-      }
-
-      // Proxy routes
       if (pathname.startsWith("/proxy/")) {
         const match = pathname.match(/^\/proxy\/(\d+)(\/.*)?$/);
         if (match) {
@@ -632,7 +523,6 @@ export async function startServer() {
         }
       }
 
-      // 404 for unknown routes
       res.writeHead(404);
       res.end(JSON.stringify({ error: "Not found" }));
     } catch (err) {
@@ -651,7 +541,7 @@ export async function startServer() {
 
   server.listen(port, (err) => {
     if (err) throw err;
-    console.log(ORANGE(`✅ Server ready on http://${hostname}:${port}`));
+    // Server started silently
 
     // Check for updates in background (non-blocking)
     const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
@@ -660,25 +550,25 @@ export async function startServer() {
 
   // Graceful shutdown handler
   let isShuttingDown = false;
-  
+
   const gracefulShutdown = async (signal) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
-    
+
     console.log(chalk.yellow(`\n🛑 Received ${signal}, shutting down gracefully...`));
-    
+
     // Set timeout to force exit if cleanup takes too long
     const forceExitTimeout = setTimeout(() => {
       console.log(chalk.red("⚠️  Forced exit after 5s timeout"));
       process.exit(1);
     }, 5000);
-    
+
     try {
       // 1. Stop accepting new connections
       server.close(() => {
         console.log(chalk.gray("✓ HTTP server closed"));
       });
-      
+
       // 2. Close all Socket.IO connections
       const io = getIO();
       if (io) {
@@ -687,10 +577,10 @@ export async function startServer() {
           console.log(chalk.gray("✓ Socket.IO closed"));
         });
       }
-      
+
       // 3. Wait a bit for cleanup
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       clearTimeout(forceExitTimeout);
       console.log(chalk.green("✅ Server stopped cleanly"));
       process.exit(0);
@@ -700,18 +590,15 @@ export async function startServer() {
       process.exit(1);
     }
   };
-  
-  // Register signal handlers
+
   process.on("SIGINT", () => gracefulShutdown("SIGINT"));
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-  
-  // Windows-specific signal
+
   if (process.platform === "win32") {
     process.on("SIGBREAK", () => gracefulShutdown("SIGBREAK"));
   }
-  
+
   return server;
 }
 
-// Auto start if run directly
 startServer();

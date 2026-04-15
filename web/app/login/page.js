@@ -74,12 +74,12 @@ function LoginContent() {
 
   // Handle API key submit (supports both API key and one-time key)
   const handleConnect = async () => {
-    const trimmedKey = apiKey.trim().toUpperCase();
+    const trimmedKey = apiKey.trim();
     if (!trimmedKey) return;
 
-    // Detect one-time key vs API key
+    // Detect one-time key vs API key (one-time key is case-insensitive, uppercase it)
     if (isOneTimeKey(trimmedKey)) {
-      const result = await authenticateWithToken(trimmedKey, true);
+      const result = await authenticateWithToken(trimmedKey.toUpperCase(), true);
       if (result.success) {
         if (rememberKey && result.apiKey) {
           saveKey(result.apiKey);
@@ -228,7 +228,7 @@ function LoginContent() {
                 <input
                   type={showPassword ? "text" : "password"}
                   value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value.toUpperCase())}
+                  onChange={(e) => setApiKey(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
                   placeholder="sk-xxx... or One-Time Key (ABC123)"
                   className="w-full px-4 py-3 pr-20 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent transition-all duration-200"

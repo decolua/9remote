@@ -31,7 +31,7 @@ export async function getAudio(voiceId, text) {
       return audio;
     }
   } else {
-    execSync(`espeak "${safeText}" -w "${tmpFile}"`);
+    execSync(`espeak "${safeText}" -w "${tmpFile}"`, { windowsHide: true });
     const audio = readFileSync(tmpFile).toString("base64");
     unlinkSync(tmpFile);
     return audio;

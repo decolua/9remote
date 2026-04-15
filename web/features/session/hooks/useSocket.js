@@ -10,10 +10,12 @@ export function useSocket() {
   const [codespaceInfo, setCodespaceInfo] = useState(null);
   const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
   const [platform, setPlatform] = useState(null);
+  const [approvalStatus, setApprovalStatus] = useState(null); // null | "pending" | "approved" | "rejected"
   const { getAuth } = useSessionStorage();
 
-  // Handle connect - remove temp key if exists
-  const handleConnect = useCallback(async (socket, auth) => {
+  // Remove one-time key from worker after device is approved
+  const removeTempKey = useCallback(async () => {
+    const auth = getAuth();
     if (auth?.tempKey) {
       try {
         await fetch(`${WORKER_API}/api/temp-key/remove`, {
@@ -26,7 +28,7 @@ export function useSocket() {
         console.error("Failed to remove temp key:", error);
       }
     }
-  }, []);
+  }, [getAuth]);
 
   // Handle disconnect - mark codespace as disconnected
   const handleDisconnect = useCallback((reason) => {
@@ -42,7 +44,22 @@ export function useSocket() {
   }, []);
 
   const handleSocketReady = useCallback((socket, auth) => {
-    handleConnect(socket, auth);
+    // Reset approval status on new connection
+    setApprovalStatus(null);
+
+    // Listen for device approval flow
+    socket.on("device:pendingApproval", () => {
+      setApprovalStatus("pending");
+    });
+
+    socket.on("device:approved", () => {
+      setApprovalStatus("approved");
+      removeTempKey();
+    });
+
+    socket.on("device:rejected", () => {
+      setApprovalStatus("rejected");
+    });
 
     socket.on("serverInfo", (info) => {
       setRemoteAvailable(info.remoteAvailable);
@@ -57,7 +74,10 @@ export function useSocket() {
     });
 
     socket.on("codespace:stopping", handleCodespaceStopping);
-  }, [handleConnect, handleCodespaceStopping]);
+
+    // Signal server that client listeners are ready
+    socket.emit("device:clientReady");
+  }, [removeTempKey, handleCodespaceStopping]);
 
   const { socket, socketRef, connected, connectionMode, retryStatus } = useBaseSocket({
     namespace: "",
@@ -132,6 +152,7 @@ export function useSocket() {
     connected,
     connectionMode,
     retryStatus,
+    approvalStatus,
     sessions,
     remoteAvailable,
     codespaceInfo,

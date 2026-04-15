@@ -58,7 +58,7 @@ function injectScript(html, script) {
 /**
  * Create and configure proxy server
  */
-export function createProxyServer() {
+export function createProxyServer() {''
   const proxy = httpProxy.createProxyServer({ selfHandleResponse: true });
   
   proxy.on("proxyRes", (proxyRes, req, res) => {

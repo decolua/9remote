@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2 } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2, FileText } from "@/shared/components/ui/Icon";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
@@ -14,6 +14,7 @@ export default function MenuItems({
   onRemote,
   onFiles,
   onSites,
+  onCommandNotes,
   onInstallApp,
   onCodespace,
   onLogout,
@@ -222,7 +223,7 @@ export default function MenuItems({
           onClick={() => { vibrate(); onFiles(); }}
           disabled={!connected}
           className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
-            showTheme ? "menu-item-stagger-4" : "menu-item-stagger-3"
+            showTheme ? "menu-item-stagger-3" : "menu-item-stagger-2"
           } ${
             connected
               ? "bg-dark-700 hover:bg-dark-600 text-white"
@@ -240,7 +241,7 @@ export default function MenuItems({
           onClick={() => { vibrate(); onSites(); }}
           disabled={!connected}
           className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
-            showTheme ? "menu-item-stagger-5" : "menu-item-stagger-4"
+            showTheme ? "menu-item-stagger-4" : "menu-item-stagger-3"
           } ${
             connected
               ? "bg-dark-700 hover:bg-dark-600 text-white"
@@ -249,6 +250,19 @@ export default function MenuItems({
         >
           <Globe className="text-brand-500" size={20} />
           <span className="font-medium">Sites</span>
+        </button>
+      )}
+
+      {/* Command Notes */}
+      {onCommandNotes && (
+        <button
+          onClick={() => { vibrate(); onCommandNotes(); }}
+          className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 bg-dark-700 hover:bg-dark-600 text-white ${
+            showTheme ? "menu-item-stagger-5" : "menu-item-stagger-4"
+          }`}
+        >
+          <FileText className="text-brand-500" size={20} />
+          <span className="font-medium">Command Notes</span>
         </button>
       )}
 
@@ -270,7 +284,7 @@ export default function MenuItems({
         <button
           onClick={() => { vibrate(); onCodespace(); }}
           className={`w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
-            showTheme ? "menu-item-stagger-7" : "menu-item-stagger-6"
+            showTheme ? "menu-item-stagger-8" : "menu-item-stagger-7"
           }`}
         >
           <Sparkles className="text-brand-500" size={20} />

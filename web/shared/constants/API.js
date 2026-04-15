@@ -8,6 +8,5 @@ export const API_ENDPOINTS = {
   tempKeyVerify: `${WORKER_API}/api/temp-key/verify`,
   tempKeyRemove: `${WORKER_API}/api/temp-key/remove`,
   localSites: "/api/local-sites",
-  aiTerminal: `${WORKER_API}/api/ai-terminal`,
   turnCredentials: `${WORKER_API}/api/webrtc/turn-credentials`
 };

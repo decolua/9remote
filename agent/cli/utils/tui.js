@@ -64,26 +64,39 @@ export function showBanner(currentVersion, latestVersion = null) {
 
 // ── Progress ──────────────────────────────────────────────────────────────────
 
+const SPINNER_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+
 const STEPS = [
-  { label: "Preparing",       desc: "Checking dependencies" },
-  { label: "Connecting",      desc: "Creating session"      },
-  { label: "Starting tunnel", desc: "Spawning cloudflared"  },
-  { label: "Ready",           desc: "Tunnel is live"        },
+  { label: "Preparing",         desc: "Checking dependencies" },
+  { label: "Connecting",        desc: "Creating session"      },
+  { label: "Starting tunnel",   desc: "Spawning tunnel"  },
+  { label: "Verifying tunnel",  desc: "Health check"          },
+  { label: "Ready",             desc: "Tunnel is live"        },
 ];
 
 let _progressLines = 0;
+let _spinnerInterval = null;
+let _spinnerFrame = 0;
+let _activeIdx = -1;
+let _activeDesc = null;
+let _infoLine = null;
 
-export function renderProgress(activeIdx, redraw = false) {
-  if (redraw && _progressLines > 0) {
+function _renderLines() {
+  if (_progressLines > 0) {
     process.stdout.write(`\x1b[${_progressLines}A\x1b[0J`);
   }
 
   const lines = [];
   STEPS.forEach((step, i) => {
-    if (i < activeIdx) {
+    const desc = (i === _activeIdx && _activeDesc) ? _activeDesc : step.desc;
+    if (i < _activeIdx) {
       lines.push(`  ${C.green}✓${C.reset} ${C.dim}${step.label}${C.reset}`);
-    } else if (i === activeIdx) {
-      lines.push(`  ${C.orange}●${C.reset} ${C.bold}${step.label}${C.reset}  ${C.dim}${step.desc}${C.reset}`);
+      if (_infoLine && i === _infoLine.afterIdx) {
+        lines.push(`  ${C.green}✓${C.reset} ${C.cyan}${_infoLine.text}${C.reset}`);
+      }
+    } else if (i === _activeIdx) {
+      const frame = SPINNER_FRAMES[_spinnerFrame % SPINNER_FRAMES.length];
+      lines.push(`  ${C.orange}${frame}${C.reset} ${C.bold}${step.label}${C.reset}  ${C.dim}${desc}${C.reset}`);
     } else {
       lines.push(`  ${C.dim}○ ${step.label}${C.reset}`);
     }
@@ -93,8 +106,50 @@ export function renderProgress(activeIdx, redraw = false) {
   _progressLines = lines.length;
 }
 
+export function renderProgress(activeIdx, redraw = false, desc = null) {
+  // Stop previous spinner
+  if (_spinnerInterval) {
+    clearInterval(_spinnerInterval);
+    _spinnerInterval = null;
+  }
+
+  _activeIdx = activeIdx;
+  _activeDesc = desc;
+  _spinnerFrame = 0;
+
+  if (!redraw) _progressLines = 0;
+  _renderLines();
+
+  // Start spinner for non-final steps
+  if (activeIdx < STEPS.length - 1) {
+    _spinnerInterval = setInterval(() => {
+      _spinnerFrame++;
+      _renderLines();
+    }, 80);
+  }
+}
+
+/** Show an extra info line after a completed step */
+export function setProgressInfo(afterIdx, text) {
+  _infoLine = text ? { afterIdx, text } : null;
+}
+
+/** Update desc of current active step without changing step index */
+export function updateProgressDesc(desc) {
+  _activeDesc = desc;
+  if (_progressLines > 0) _renderLines();
+}
+
 export function resetProgress() {
+  if (_spinnerInterval) {
+    clearInterval(_spinnerInterval);
+    _spinnerInterval = null;
+  }
   _progressLines = 0;
+  _activeIdx = -1;
+  _activeDesc = null;
+  _infoLine = null;
+  _spinnerFrame = 0;
 }
 
 // ── selectMenu ────────────────────────────────────────────────────────────────
@@ -191,15 +246,83 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
  */
 export function confirm(message) {
   return new Promise((resolve) => {
-    // Ensure clean state
+    // Ensure clean state: exit raw mode + remove all keypress listeners
     if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
     process.stdin.removeAllListeners("keypress");
+    process.stdin.removeAllListeners("data");
+    process.stdin.pause();
 
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(`${message} (y/N): `, (answer) => {
-      rl.close();
-      resolve(answer.trim().toLowerCase() === "y");
-    });
+    // Drain any buffered keystrokes before creating readline
+    const drain = () => {
+      while (process.stdin.read() !== null) { /* discard */ }
+    };
+    drain();
+
+    // Small delay to let any in-flight keypress events settle
+    setTimeout(() => {
+      drain();
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      rl.question(`${message} (y/N): `, (answer) => {
+        rl.close();
+        resolve(answer.trim().toLowerCase() === "y");
+      });
+    }, 50);
+  });
+}
+
+// ── Device Approval Prompt ────────────────────────────────────────────────────
+
+/**
+ * Show device approval prompt with raw-mode single-key capture.
+ * Fully takes over stdin from selectMenu, resolves with true/false.
+ */
+export function showDeviceApproval(deviceId, ip) {
+  return new Promise((resolve) => {
+    const shortId = deviceId ? deviceId.slice(0, 8) : "unknown";
+    const w = W();
+
+    // Fully take over stdin from selectMenu
+    process.stdin.removeAllListeners("keypress");
+    if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+    process.stdin.pause();
+
+    // Clear screen for clean approval UI
+    process.stdout.write("\x1b[2J\x1b[H");
+    console.log("");
+    console.log(`${C.orange}${'═'.repeat(w)}${C.reset}`);
+  console.log(`${C.orange}${C.bold} 🔔 New Device Connection${C.reset}`);
+  console.log(`${C.orange}${'═'.repeat(w)}${C.reset}`);
+  console.log(`  Device:  ${C.cyan}${shortId}...${C.reset}`);
+  console.log(`  IP:      ${C.cyan}${ip}${C.reset}`);
+  console.log(`${C.orange}${'═'.repeat(w)}${C.reset}`);
+  console.log("");
+
+  process.stdout.write(`  Allow this device? ${C.dim}(y/n)${C.reset} `);
+
+    // Use keypress events (same pattern as selectMenu)
+    readline.emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
+    process.stdin.resume();
+
+    const onKeypress = (str, key) => {
+      if (!key) return;
+      const ch = (key.name || "").toLowerCase();
+      if (ch === "y" || ch === "n" || key.name === "return" || (key.ctrl && key.name === "c")) {
+        process.stdin.removeListener("keypress", onKeypress);
+        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+        process.stdin.pause();
+        if (key.ctrl && key.name === "c") process.exit(0);
+
+        const approved = ch === "y";
+        console.log(approved ? `${C.green}y${C.reset}` : `${C.red}n${C.reset}`);
+        console.log(approved
+          ? `\n  ${C.green}\u2713 Device approved${C.reset}`
+          : `\n  ${C.red}\u2717 Device rejected${C.reset}`);
+        setTimeout(() => resolve(approved), 500);
+      }
+    };
+
+    process.stdin.on("keypress", onKeypress);
   });
 }
 

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Smartphone, Monitor, Download, Share, Menu, MoreVertical, Check } from "@/shared/components/ui/Icon";
+import { Smartphone, Monitor, Download, Share, Menu, MoreVertical, Check, Copy } from "@/shared/components/ui/Icon";
+import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { maskApiKey } from "@/shared/utils/formatters";
 
 /**
  * PWA Installation Guide Component
@@ -10,6 +12,8 @@ import { Smartphone, Monitor, Download, Share, Menu, MoreVertical, Check } from 
 export default function PwaInstallGuide() {
   const [platform, setPlatform] = useState("unknown");
   const [isInstalled, setIsInstalled] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const apiKey = useSlideMenuStore((s) => s.context.apiKey);
 
   useEffect(() => {
     // Detect platform
@@ -37,11 +41,53 @@ export default function PwaInstallGuide() {
     }
   }, []);
 
-  const renderIOSInstructions = () => (
-    <div className="space-y-4">
-      <div className="flex items-start gap-3">
+  const handleCopyKey = async () => {
+    if (!apiKey) return;
+    try {
+      await navigator.clipboard.writeText(apiKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
+  // Step number offset: 1 if has apiKey (copy key is step 1), 0 otherwise
+  const stepOffset = apiKey ? 1 : 0;
+
+  const renderCopyKeyStep = () => {
+    if (!apiKey) return null;
+    return (
+      <div className="flex items-start gap-3 mb-4">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
           1
+        </div>
+        <div className="flex-1">
+          <p className="text-white font-medium mb-2">Copy Your Key</p>
+          <p className="text-dark-100 text-sm mb-2">Save this key first — you'll need it to login after installing</p>
+          <button
+            onClick={handleCopyKey}
+            className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-brand border transition-colors ${
+              copied
+                ? "bg-green-500/10 border-green-500/30"
+                : "bg-dark-700 border-dark-400 hover:border-brand-500/50"
+            }`}
+          >
+            <code className="text-sm text-dark-50 font-mono truncate">{maskApiKey(apiKey)}</code>
+            <span className={`flex items-center gap-1 text-sm flex-shrink-0 ${copied ? "text-green-400" : "text-brand-500"}`}>
+              {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy</>}
+            </span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderIOSInstructions = () => (
+    <div className="space-y-4">
+      {renderCopyKeyStep()}
+
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+          {1 + stepOffset}
         </div>
         <div className="flex-1">
           <p className="text-white font-medium mb-1">Tap Share Button</p>
@@ -51,7 +97,7 @@ export default function PwaInstallGuide() {
 
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          2
+          {2 + stepOffset}
         </div>
         <div className="flex-1">
           <p className="text-white font-medium mb-1">Add to Home Screen</p>
@@ -61,28 +107,23 @@ export default function PwaInstallGuide() {
 
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          3
+          {3 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Confirm</p>
-          <p className="text-dark-100 text-sm">Tap "Add" to install the app on your home screen</p>
+          <p className="text-white font-medium mb-1">Open App & Paste Key</p>
+          <p className="text-dark-100 text-sm">Open the installed app and paste your key to login</p>
         </div>
       </div>
-
-      {/* <div className="mt-6 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-brand">
-        <p className="text-yellow-200 text-sm flex items-start gap-2">
-          <span>⚠️</span>
-          <span>Note: PWA installation only works in Safari browser on iOS</span>
-        </p>
-      </div> */}
     </div>
   );
 
   const renderAndroidInstructions = () => (
     <div className="space-y-4">
+      {renderCopyKeyStep()}
+
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          1
+          {1 + stepOffset}
         </div>
         <div className="flex-1">
           <p className="text-white font-medium mb-1">Open Menu</p>
@@ -92,7 +133,7 @@ export default function PwaInstallGuide() {
 
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          2
+          {2 + stepOffset}
         </div>
         <div className="flex-1">
           <p className="text-white font-medium mb-1">Install App</p>
@@ -102,11 +143,11 @@ export default function PwaInstallGuide() {
 
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          3
+          {3 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Confirm Installation</p>
-          <p className="text-dark-100 text-sm">Tap "Install" to add the app to your home screen</p>
+          <p className="text-white font-medium mb-1">Open App & Paste Key</p>
+          <p className="text-dark-100 text-sm">Open the installed app and paste your key to login</p>
         </div>
       </div>
     </div>
@@ -114,9 +155,11 @@ export default function PwaInstallGuide() {
 
   const renderDesktopInstructions = () => (
     <div className="space-y-4">
+      {renderCopyKeyStep()}
+
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          1
+          {1 + stepOffset}
         </div>
         <div className="flex-1">
           <p className="text-white font-medium mb-1">Look for Install Icon</p>
@@ -126,11 +169,11 @@ export default function PwaInstallGuide() {
 
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          2
+          {2 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Click Install</p>
-          <p className="text-dark-100 text-sm">Click the install button and confirm</p>
+          <p className="text-white font-medium mb-1">Click Install & Paste Key</p>
+          <p className="text-dark-100 text-sm">Click install, open the app, and paste your key to login</p>
         </div>
       </div>
 

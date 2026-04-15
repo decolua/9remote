@@ -34,7 +34,7 @@ function Terminal({
   subscribeToPush,
   unsubscribeFromPush,
   notifications = {},
-  clearNotification
+  clearNotification,
 }) {
   const containerRef = useRef(null);
   const tabsContainerRef = useRef(null);
@@ -80,7 +80,7 @@ function Terminal({
       apiKey,
       connectionMode,
       subscribeToPush,
-      unsubscribeFromPush
+      unsubscribeFromPush,
     });
 
     setCallbacks({

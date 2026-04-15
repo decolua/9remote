@@ -22,6 +22,8 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [updateVersion, setUpdateVersion] = useState(null);
   const [connections, setConnections] = useState([]);
+  const [pendingDevice, setPendingDevice] = useState(null);
+  const [approvedDevices, setApprovedDevices] = useState([]);
   const [version, setVersion] = useState("");
   const [theme, setTheme] = useState(() => {
     // Will be overridden by server state if provided
@@ -94,6 +96,8 @@ export default function App() {
           if (data.desktopEnabled !== undefined) setDesktopEnabled(data.desktopEnabled);
         } else if (data.type === "connections") {
           setConnections(data.connections ?? []);
+        } else if (data.type === "deviceApproval" && data.action === "pending") {
+          setPendingDevice({ socketId: data.socketId, deviceId: data.deviceId, ip: data.ip });
         }
       } catch { /* ignore parse errors */ }
     };
@@ -144,6 +148,43 @@ export default function App() {
     }).catch(() => {});
   };
 
+  const fetchApprovedDevices = async () => {
+    try {
+      const res = await fetch("/api/device/approved");
+      if (res.ok) { const d = await res.json(); setApprovedDevices(d.devices || []); }
+    } catch {}
+  };
+
+  const handleDeviceRemove = async (deviceId) => {
+    await fetch("/api/device/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId }),
+    }).catch(() => {});
+    fetchApprovedDevices();
+  };
+
+  const handleDeviceApprove = async () => {
+    if (!pendingDevice) return;
+    await fetch("/api/device/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ socketId: pendingDevice.socketId }),
+    }).catch(() => {});
+    setPendingDevice(null);
+    fetchApprovedDevices();
+  };
+
+  const handleDeviceReject = async () => {
+    if (!pendingDevice) return;
+    await fetch("/api/device/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ socketId: pendingDevice.socketId }),
+    }).catch(() => {});
+    setPendingDevice(null);
+  };
+
   const handleRegenerateKey = async () => {
     const res = await fetch("/api/key/regenerate", { method: "POST" }).catch(() => null);
     if (!res?.ok) return;
@@ -175,6 +216,12 @@ export default function App() {
       version={version}
       theme={theme}
       onToggleTheme={toggleTheme}
+      pendingDevice={pendingDevice}
+      onDeviceApprove={handleDeviceApprove}
+      onDeviceReject={handleDeviceReject}
+      approvedDevices={approvedDevices}
+      onDeviceRemove={handleDeviceRemove}
+      onFetchDevices={fetchApprovedDevices}
     />
   );
 }

@@ -3,7 +3,7 @@ import { TunnelAdapter } from "./adapters/TunnelAdapter";
 import { LocalFirstAdapter } from "./adapters/LocalFirstAdapter";
 import { API_ENDPOINTS } from "@/shared/constants/API";
 
-const RETRY = { interval: 3000, maxAttempts: 20 };
+const RETRY = { interval: 2000, maxAttempts: 15 };
 
 /**
  * WsProtocol — Socket.IO transport adapter.

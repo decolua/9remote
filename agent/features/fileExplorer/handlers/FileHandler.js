@@ -41,7 +41,7 @@ function searchFilesRecursive(dir, query, results, maxResults = 50) {
 function getWindowsDrives() {
   if (process.platform !== "win32") return [];
   try {
-    const result = execSync("wmic logicaldisk get name", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    const result = execSync("wmic logicaldisk get name", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     return result.split(/\r?\n/).map(l => l.trim()).filter(l => /^[A-Z]:$/.test(l)).map(d => ({ letter: d[0], path: d + "\\" }));
   } catch {
     return "CDEFGHIJ".split("").map(l => `${l}:\\`).filter(p => fs.existsSync(p)).map(p => ({ letter: p[0], path: p }));

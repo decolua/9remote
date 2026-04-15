@@ -25,8 +25,8 @@ export function checkPermissions() {
     let sr = false, ax = false, done = 0;
     const finish = () => { if (++done === 2) resolve({ screenRecording: sr, accessibility: ax }); };
 
-    // Accessibility: attempt a real keystroke action — fails without permission
-    exec(`osascript -e 'tell application "System Events" to key code 0 using {}'`,
+    // Accessibility: check process list (requires accessibility, no side-effect)
+    exec(`osascript -e 'tell application "System Events" to get name of first process'`,
       { timeout: 3000 }, (err) => { ax = !err; finish(); });
 
     // Screen Recording: capture 1px — fails silently without permission

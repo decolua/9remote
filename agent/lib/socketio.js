@@ -6,8 +6,16 @@ import { homedir } from "os";
 import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
 import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
-import { setupOpenClawSocket } from "../features/openclaw/openclawSocket.js";
-import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey } from "../index.js";
+import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey, pushUiEvent } from "../index.js";
+import {
+  loadApprovedDevices,
+  isDeviceApproved,
+  isDevicePending,
+  approveDevice,
+  addPendingApproval,
+  removePendingApproval,
+  getPendingApproval
+} from "./deviceApproval.js";
 
 function loadApiKey() {
   try {
@@ -25,7 +33,63 @@ export function getIO() {
   return ioInstance;
 }
 
+/** Setup features on an approved socket */
+function setupSocketFeatures(socket) {
+  // Clear one-time key if used
+  if (socket.handshake.auth?.tempKey) {
+    pushUiLog("One-time key used \u2014 clearing from UI");
+    clearOneTimeKey();
+  }
+}
+
+/** Approve a pending socket by socketId */
+export function approveSocketDevice(socketId) {
+  const io = ioInstance;
+  if (!io) return false;
+
+  const socket = io.sockets.sockets.get(socketId);
+  const pending = getPendingApproval(socketId);
+  console.log(`[DEBUG-APPROVE] socketId=${socketId}, socketExists=${!!socket}, pendingExists=${!!pending}`);
+  if (!socket || !pending) return false;
+
+  // Save device as approved
+  approveDevice(pending.deviceId);
+  removePendingApproval(socketId);
+
+  // Unlock socket + notify client
+  socket.data.approved = true;
+  console.log(`[DEBUG-APPROVE] Emitting device:approved to ${socketId}`);
+  socket.emit("device:approved");
+
+  // Setup features
+  setupSocketFeatures(socket);
+  pushUiLog(`Device approved: ${pending.deviceId.slice(0, 8)}...`);
+
+  return true;
+}
+
+/** Reject a pending socket by socketId */
+export function rejectSocketDevice(socketId) {
+  const io = ioInstance;
+  if (!io) return false;
+
+  const pending = getPendingApproval(socketId);
+  const socket = io.sockets.sockets.get(socketId);
+  removePendingApproval(socketId);
+
+  if (socket) {
+    socket.emit("device:rejected");
+    socket.disconnect(true);
+  }
+
+  pushUiLog(`Device rejected: ${pending?.deviceId?.slice(0, 8) || "unknown"}...`);
+  return true;
+}
+
 export async function setupSocketIO(server) {
+  // Load approved devices from disk
+  loadApprovedDevices();
+
   const io = new Server(server, {
     cors: {
       origin: "*",
@@ -40,38 +104,63 @@ export async function setupSocketIO(server) {
     pingInterval: 25000
   });
 
-  // Verify apiKey on every Socket.IO connection
-  // io.use((socket, next) => {
-  //   const serverKey = loadApiKey();
-  //   console.log("🚀 ~ setupSocketIO ~ serverKey:", serverKey)
-  //   // If no key configured yet (first run), allow through
-  //   if (!serverKey) return next();
-  //   const clientKey = socket.handshake.auth?.apiKey;
-  //   console.log("🚀 ~ setupSocketIO ~ clientKey:", clientKey)
-  //   if (clientKey === serverKey) return next();
-  //   next(new Error("unauthorized"));
-  // });
-
   // Check remote availability at startup
   await checkRemoteAvailable();
 
-  // Track connections for UI display + log
+  // Track connections + device approval
   io.on("connection", (socket) => {
     const ip = socket.handshake.headers["x-forwarded-for"] || socket.handshake.address || "unknown";
-    trackConnection(socket.id, ip);
-    pushUiLog(`Client connected: ${ip}`);
+    const deviceId = socket.handshake.auth?.deviceId || null;
 
-    // If client connected using a one-time key, clear it from UI state
-    pushUiLog(`Auth received: tempKey=${socket.handshake.auth?.tempKey ?? "null"}`);
-    if (socket.handshake.auth?.tempKey) {
-      pushUiLog(`One-time key used — clearing from UI`);
-      clearOneTimeKey();
-    }
+    // Block all events from unapproved sockets (except device:clientReady)
+    socket.data.approved = false;
+    socket.use((packet, next) => {
+      if (socket.data.approved) return next();
+      const event = packet[0];
+      if (event === "device:clientReady" || event === "disconnect") return next();
+      return next(new Error("Device not approved"));
+    });
+
+    trackConnection(socket.id, ip);
+    pushUiLog(`Client connected: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);
 
     socket.on("disconnect", (reason) => {
       untrackConnection(socket.id);
+      removePendingApproval(socket.id);
       pushUiLog(`Client disconnected: ${ip} (${reason})`);
     });
+
+    // Check device approval
+    console.log(`[DEBUG-SOCKET] connection: socketId=${socket.id}, deviceId=${deviceId?.slice(0,8)}, approved=${isDeviceApproved(deviceId)}, pending=${isDevicePending(deviceId)}`);
+    if (deviceId && isDeviceApproved(deviceId)) {
+      // Known device — allow immediately
+      pushUiLog(`Device recognized: ${deviceId.slice(0, 8)}...`);
+      socket.data.approved = true;
+      setupSocketFeatures(socket);
+    } else {
+      // Unknown device — hold and request approval
+      pushUiLog(`Unknown device: ${deviceId?.slice(0, 8) || "no-id"} — waiting for approval`);
+      // Skip if same deviceId already pending (client reconnected)
+      if (isDevicePending(deviceId)) {
+        pushUiLog(`Device ${deviceId?.slice(0, 8)} already pending, ignoring duplicate`);
+        socket.disconnect(true);
+        return;
+      }
+
+      addPendingApproval(socket.id, { deviceId, ip });
+
+      // Wait for client to signal ready before emitting approval request
+      socket.once("device:clientReady", () => {
+        console.log(`[DEBUG-SOCKET] clientReady received: socketId=${socket.id}, deviceId=${deviceId?.slice(0,8)}`);
+        socket.emit("device:pendingApproval");
+        pushUiEvent("deviceApproval", {
+          socketId: socket.id,
+          deviceId,
+          ip,
+          action: "pending"
+        });
+      });
+    }
   });
 
   // Setup Terminal + Remote on same root namespace
@@ -79,9 +168,6 @@ export async function setupSocketIO(server) {
 
   // Setup File Explorer (uses default namespace)
   setupFileExplorerSocket(io);
-
-  // Setup OpenClaw namespace /openclaw
-  setupOpenClawSocket(io);
 
   ioInstance = io;
   return io;

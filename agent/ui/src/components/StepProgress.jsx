@@ -2,10 +2,11 @@ const STEPS_META = [
   { icon: "download", label: "Preparing", desc: "Checking tunnel binary" },
   { icon: "cloud_sync", label: "Connecting", desc: "Creating session" },
   { icon: "lan", label: "Tunneling", desc: "Starting secure tunnel" },
+  { icon: "verified", label: "Verifying", desc: "Health check" },
   { icon: "check_circle", label: "Ready", desc: "Connected" },
 ];
 
-// currentStep: 1=Preparing, 2=Connecting, 3=Tunneling, (4=Ready handled by parent)
+// currentStep: 1=Preparing, 2=Connecting, 3=Tunneling, 4=Verifying, (5=Ready handled by parent)
 export default function StepProgress({ currentStep }) {
   // map step (1-based) to 0-based index
   const activeIdx = currentStep - 1;

@@ -1,3 +1,5 @@
+import { browserFetch } from "../../lib/constants.js";
+
 const TEMP_KEY_EXPIRY_MINUTES = 30;
 
 /**
@@ -8,7 +10,7 @@ const TEMP_KEY_EXPIRY_MINUTES = 30;
  */
 export async function createTempKey(apiKey, workerUrl) {
   try {
-    const response = await fetch(`${workerUrl}/api/temp-key/create`, {
+    const response = await browserFetch(`${workerUrl}/api/temp-key/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 

@@ -131,7 +131,7 @@ export async function ensureCloudflared() {
     
     if (isArchive) {
       console.log("✅ Extracting...");
-      execSync(`tar -xzf "${downloadDest}" -C "${BIN_DIR}"`, { stdio: "pipe" });
+      execSync(`tar -xzf "${downloadDest}" -C "${BIN_DIR}"`, { stdio: "pipe", windowsHide: true });
       fs.unlinkSync(downloadDest);
     }
     

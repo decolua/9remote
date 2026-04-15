@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSessionStorage } from "./useSessionStorage";
+import { useDeviceId } from "./useDeviceId";
 import { WsProtocol } from "@/shared/transport/WsProtocol";
 
 /**
@@ -21,6 +22,7 @@ export function useBaseSocket(config = {}) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
+  const deviceId = useDeviceId();
 
   const socketRef = useRef(null);
   const protocolRef = useRef(null);
@@ -42,7 +44,7 @@ export function useBaseSocket(config = {}) {
       tunnelUrl: auth.tunnelUrl,
       localIp: auth.localIp || null,
       namespace,
-      socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, tempKey: auth.tempKey ?? null, ...socketOptions.auth } },
+      socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, tempKey: auth.tempKey ?? null, deviceId, ...socketOptions.auth } },
       // Debug: log tempKey being sent
       ...(console.log("[socket auth] tempKey:", auth.tempKey ?? null) && {}),
       apiKey: auth.apiKey,

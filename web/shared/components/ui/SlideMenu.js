@@ -6,6 +6,7 @@ import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import MenuItems from "@/features/terminal/components/MenuItems";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 import SitesList from "@/features/terminal/components/SitesList";
+import CommandNotesPanel from "@/features/terminal/components/CommandNotes/CommandNotesPanel";
 import { vibrate } from "@/shared/utils/vibration";
 
 /**
@@ -24,6 +25,7 @@ export default function SlideMenu() {
   } = useSlideMenuStore();
 
   const [sitesModalOpen, setSitesModalOpen] = useState(false);
+  const [commandNotesOpen, setCommandNotesOpen] = useState(false);
 
   // Prevent body scroll when menu is open
   useEffect(() => {
@@ -105,15 +107,27 @@ export default function SlideMenu() {
     setSitesModalOpen(false);
   }, []);
 
+  const handleCommandNotes = useCallback(() => {
+    close();
+    setCommandNotesOpen(true);
+  }, [close]);
+
+  const handleCloseCommandNotes = useCallback(() => {
+    setCommandNotesOpen(false);
+  }, []);
+
   if (!isOpen) {
     return (
       <>
-        {/* Sites Modal - Always rendered even when menu is closed */}
         <SitesList
           tunnelUrl={context.tunnelUrl}
           apiKey={context.apiKey}
           isOpen={sitesModalOpen}
           onClose={handleCloseSitesModal}
+        />
+        <CommandNotesPanel
+          isOpen={commandNotesOpen}
+          onClose={handleCloseCommandNotes}
         />
       </>
     );
@@ -177,6 +191,7 @@ export default function SlideMenu() {
               onRemote={context.remoteAvailable ? handleRemote : null}
               onFiles={handleFiles}
               onSites={handleSites}
+              onCommandNotes={handleCommandNotes}
               onInstallApp={handleInstallApp}
               onCodespace={context.codespaceInfo?.isCodespaces ? handleCodespace : null}
               onLogout={handleLogout}
@@ -205,12 +220,15 @@ export default function SlideMenu() {
         </div>
       </div>
 
-      {/* Sites Modal - Shared across all contexts */}
       <SitesList
         tunnelUrl={context.tunnelUrl}
         apiKey={context.apiKey}
         isOpen={sitesModalOpen}
         onClose={handleCloseSitesModal}
+      />
+      <CommandNotesPanel
+        isOpen={commandNotesOpen}
+        onClose={handleCloseCommandNotes}
       />
     </div>
   );

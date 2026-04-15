@@ -11,14 +11,14 @@ export function setupGitHandlers(socket) {
   socket.on("gitStatus", ({ repoPath }, callback) => {
     try {
       const result = execSync("git status --porcelain", {
-        cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"]
+        cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true
       });
 
       // Get diff stats for tracked files
       let diffStats = {};
       try {
         const statResult = execSync("git diff HEAD --numstat", {
-          cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"]
+          cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true
         });
         statResult.trim().split("\n").filter(Boolean).forEach(line => {
           const parts = line.split("\t");
@@ -72,7 +72,7 @@ export function setupGitHandlers(socket) {
     try {
       const relativePath = path.relative(repoPath, filePath);
       const result = execSync(`git status --porcelain -- "${relativePath}"`, {
-        cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"]
+        cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true
       });
 
       const line = result.trim();
@@ -108,11 +108,11 @@ export function setupGitHandlers(socket) {
           diff = `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${lines.length} @@\n${lines.map(l => `+${l}`).join("\n")}`;
         }
       } else if (file) {
-        diff = execSync(`git diff HEAD -- "${file}"`, { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+        diff = execSync(`git diff HEAD -- "${file}"`, { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       } else {
-        diff = execSync("git diff HEAD", { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+        diff = execSync("git diff HEAD", { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
 
-        const statusResult = execSync("git status --porcelain", { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+        const statusResult = execSync("git status --porcelain", { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
         const untrackedFiles = statusResult.trim().split("\n")
           .filter(line => line.startsWith("??"))
           .map(line => line.substring(3));
@@ -149,10 +149,10 @@ export function setupGitHandlers(socket) {
           stat.isDirectory() ? fs.rmSync(filePath, { recursive: true }) : fs.unlinkSync(filePath);
         }
       } else if (status === "A") {
-        execSync(`git reset HEAD -- "${file}"`, { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+        execSync(`git reset HEAD -- "${file}"`, { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       } else {
-        execSync(`git checkout HEAD -- "${file}"`, { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+        execSync(`git checkout HEAD -- "${file}"`, { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       }
 
       callback({ success: true });
