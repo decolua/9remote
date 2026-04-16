@@ -11,8 +11,8 @@
   ],
   "scripts": {
     "dev": "run-p agent:dev web:dev",
-    "agent:dev": "npm run dev --workspace=agent",
-    "agent:dev:ui": "npm run dev:ui --workspace=agent",
+    "agent:dev": "NODE_ENV=development node agent/cli/index.js",
+    "agent:dev:ui": "NODE_ENV=development node agent/cli/index.js ui",
     "agent:build": "node scripts/syncVersion.js && node scripts/buildPkg.js",
     "agent:publish": "npm run agent:build && cd agent && npm publish",
     "web:dev": "npm run dev --workspace=web",
@@ -24,11 +24,16 @@
     "desktop:tauri": "NINEREMOTE_ENV=development npm run tauri dev --prefix desktop"
   },
   "devDependencies": {
+    "@julusian/jpeg-turbo": "^3.0.1",
+    "@napi-rs/image": "^1.12.0",
     "@tauri-apps/cli": "^2.5.0",
     "esbuild": "^0.27.2",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
-    "npm-run-all": "^4.1.5"
+    "node-screenshots": "^0.2.8",
+    "npm-run-all": "^4.1.5",
+    "screenshot-desktop": "^1.15.3",
+    "xxhash-addon": "^2.1.0"
   },
   "dependencies": {
     "wrangler": "^4.73.0"

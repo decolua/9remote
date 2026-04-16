@@ -197,15 +197,94 @@ function WelcomeScreen({ onStart }) {
   );
 }
 
-function ConnectionItem({ conn }) {
+/** Merge approved + rejected devices with active connections into 1 client = 1 device list.
+ *  Same device may open multiple sockets — use earliest connectedAt. */
+function mergeClients(approvedDevices, connections, rejectedDevices = []) {
+  const connByDevice = new Map();
+  for (const c of connections) {
+    if (!c.deviceId) continue;
+    const existing = connByDevice.get(c.deviceId);
+    if (!existing || (c.connectedAt && c.connectedAt < existing.connectedAt)) {
+      connByDevice.set(c.deviceId, c);
+    }
+  }
+
+  const approved = approvedDevices.map((d) => {
+    const conn = connByDevice.get(d.deviceId);
+    return {
+      deviceId: d.deviceId,
+      status: conn ? "online" : "offline",
+      ip: conn?.ip || null,
+      connectedAt: conn?.connectedAt || null,
+      approvedAt: d.approvedAt || null,
+    };
+  });
+
+  const pending = rejectedDevices.map((r) => ({
+    deviceId: r.deviceId,
+    status: "pending",
+    ip: r.ip || null,
+    connectedAt: null,
+    approvedAt: null,
+    rejectedAt: r.rejectedAt || null,
+  }));
+
+  const rank = { online: 0, pending: 1, offline: 2 };
+  return [...approved, ...pending].sort((a, b) => rank[a.status] - rank[b.status]);
+}
+
+const STATUS_META = {
+  online:  { color: "#4ade80", icon: "wifi",          title: "Online" },
+  offline: { color: "var(--text-muted)", icon: "wifi_off",      title: "Offline" },
+  pending: { color: "#f59e0b", icon: "hourglass_top", title: "Pending approval" },
+};
+
+function ClientItem({ client, onRemove, onApprove }) {
+  const shortId = `${client.deviceId.slice(0, 8)}...`;
+  const meta = STATUS_META[client.status] || STATUS_META.offline;
+  const timeLabel =
+    client.status === "online"
+      ? `Connected · ${client.connectedAt ? new Date(client.connectedAt).toLocaleTimeString() : ""}`
+      : client.status === "pending"
+        ? `Pending · waiting for approval`
+        : client.approvedAt
+          ? `Offline · approved ${new Date(client.approvedAt).toLocaleDateString()}`
+          : "Offline";
+  const actionLabel = client.status === "online" ? "Disconnect" : "Remove";
+
   return (
     <div className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor: "var(--border)" }}>
-      <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+      <span
+        className="material-symbols-outlined flex-shrink-0"
+        style={{ fontSize: 18, color: meta.color }}
+        title={meta.title}
+      >
+        {meta.icon}
+      </span>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium truncate" style={{ color: "var(--text-main)" }}>{conn.ip || "Unknown"}</p>
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>{conn.connectedAt ? new Date(conn.connectedAt).toLocaleTimeString() : ""}</p>
+        <p className="text-xs font-medium font-mono truncate" style={{ color: "var(--text-main)" }}>
+          {shortId}{client.ip ? ` · ${client.ip}` : ""}
+        </p>
+        <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{timeLabel}</p>
       </div>
-      <span className="text-xs" style={{ color: "var(--text-muted)" }}>{conn.type || "ws"}</span>
+      {client.status === "pending" && (
+        <button
+          onClick={() => onApprove?.(client)}
+          className="flex-shrink-0 text-xs px-2 py-1 rounded-lg font-medium"
+          style={{ background: "rgba(74,222,128,0.15)", color: "#4ade80" }}
+          title="Approve this device"
+        >
+          Approve
+        </button>
+      )}
+      <button
+        onClick={() => onRemove(client)}
+        className="flex-shrink-0 text-xs px-2 py-1 rounded-lg font-medium"
+        style={{ background: "rgba(220,53,69,0.15)", color: "#dc3545" }}
+        title="Disconnect and remove this device"
+      >
+        {actionLabel}
+      </button>
     </div>
   );
 }
@@ -216,7 +295,7 @@ export default function MainScreen({
   onRequestPermission, onDesktopToggle, onStop, onStart, onGenerateOneTimeKey, onRegenerateKey, logs = [],
   theme, onToggleTheme,
   pendingDevice, onDeviceApprove, onDeviceReject,
-  approvedDevices = [], onDeviceRemove, onFetchDevices,
+  approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected,
 }) {
   const [activeTab, setActiveTab] = useState("connect");
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -227,14 +306,18 @@ export default function MainScreen({
   const isStopped = step === 0;
   const isConnecting = step > 0 && step < 5;
 
+  // Refresh devices list whenever tab active or state updates (so offline/online stays in sync)
   useEffect(() => {
     if (activeTab === "log") logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    if (activeTab === "devices") onFetchDevices?.();
-  }, [logs, activeTab]);
+    if (activeTab === "connect") onFetchDevices?.();
+  }, [logs, activeTab, connections.length]);
+
+  const clients = mergeClients(approvedDevices, connections, rejectedDevices);
+  const onlineCount = clients.filter((c) => c.status === "online").length;
 
   return (
-    <div className="h-full flex flex-col relative overflow-hidden" style={{ background: "var(--bg-main)" }}>
-      <div className="flex-1 flex flex-col w-full min-h-0 dot-grid-bg overflow-hidden md:max-w-6xl" style={{ margin: "0 auto" }}>
+    <div className="h-full flex flex-col relative overflow-hidden" style={{ background: "var(--bg-body)" }}>
+      <div className="flex-1 flex flex-col w-full min-h-0 dot-grid-bg overflow-hidden md:max-w-5xl p-3" style={{ margin: "0 auto" }}>
         {/* header */}
         <div className="flex items-center justify-between px-5 py-4" style={{ boxShadow: "var(--header-shadow)", backdropFilter: "blur(10px)" }}>
           <div className="flex items-center gap-3">
@@ -307,7 +390,6 @@ export default function MainScreen({
               <div className="flex px-5 pt-3 gap-3" style={{ borderColor: "var(--border)" }}>
                 {[
                   { id: "connect", label: "Connection" },
-                  { id: "devices", label: "Devices" },
                   { id: "log", label: "Logs" },
                 ].map((tab) => (
                   <button
@@ -349,51 +431,25 @@ export default function MainScreen({
                       onRequestPermission={onRequestPermission}
                     />
 
-                    {/* Clients inline */}
+                    {/* Clients (merged devices + live connections) */}
                     <div className="glass-card p-4 flex flex-col gap-1">
                       <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
-                        Clients{connections.length > 0 ? ` (${connections.length})` : ""}
+                        Clients{clients.length > 0 ? ` (${onlineCount}/${clients.length} online)` : ""}
                       </p>
-                      {connections.length === 0 ? (
-                        <p className="text-xs text-center py-3" style={{ color: "var(--text-muted)" }}>No active connections</p>
+                      {clients.length === 0 ? (
+                        <p className="text-xs text-center py-3" style={{ color: "var(--text-muted)" }}>No clients yet</p>
                       ) : (
-                        connections.map((conn, i) => <ConnectionItem key={i} conn={conn} />)
+                        clients.map((c) => (
+                          <ClientItem
+                            key={c.deviceId}
+                            client={c}
+                            onRemove={setDeviceToRemove}
+                            onApprove={(cl) => onDeviceApproveRejected?.(cl.deviceId)}
+                          />
+                        ))
                       )}
                     </div>
                   </>
-                )}
-
-                {activeTab === "devices" && (
-                  <div className="flex-1 flex flex-col">
-                    {approvedDevices.length === 0 ? (
-                      <p className="text-xs text-center mt-8" style={{ color: "var(--text-muted)" }}>No approved devices</p>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {approvedDevices.map((d) => (
-                          <div key={d.deviceId} className="glass-card p-3 flex items-center justify-between">
-                            <div className="flex flex-col gap-0.5">
-                              <div className="flex items-center gap-2">
-                                <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--text-muted)" }}>devices</span>
-                                <span className="text-xs font-mono" style={{ color: "var(--text-main)" }}>{d.deviceId.slice(0, 8)}...</span>
-                              </div>
-                              {d.approvedAt && (
-                                <span className="text-xs ml-6" style={{ color: "var(--text-muted)" }}>
-                                  Approved: {new Date(d.approvedAt).toLocaleString()}
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => setDeviceToRemove(d.deviceId)}
-                              className="text-xs px-2 py-1 rounded-lg flex-shrink-0"
-                              style={{ background: "rgba(220,53,69,0.15)", color: "#dc3545" }}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 )}
 
                 {activeTab === "log" && (
@@ -428,8 +484,12 @@ export default function MainScreen({
 
       {deviceToRemove && (
         <ConfirmPopup
-          message={`Remove device ${deviceToRemove.slice(0, 8)}...? It will need approval again next time.`}
-          confirmLabel="Remove"
+          message={deviceToRemove.status === "online"
+            ? `Disconnect and remove device ${deviceToRemove.deviceId.slice(0, 8)}...? The client will be disconnected and need approval again next time.`
+            : deviceToRemove.status === "pending"
+              ? `Remove pending device ${deviceToRemove.deviceId.slice(0, 8)}...? It will need a fresh approval request to connect again.`
+              : `Remove device ${deviceToRemove.deviceId.slice(0, 8)}...? It will need approval again next time.`}
+          confirmLabel={deviceToRemove.status === "online" ? "Disconnect & Remove" : "Remove"}
           confirmDanger
           onConfirm={() => { onDeviceRemove?.(deviceToRemove); setDeviceToRemove(null); }}
           onCancel={() => setDeviceToRemove(null)}

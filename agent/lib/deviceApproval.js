@@ -15,6 +15,9 @@ let approvedDevices = new Map();
 // Pending approval requests: socketId -> { deviceId, ip }
 const pendingApprovals = new Map();
 
+// Rejected devices (RAM only, cleared on restart): deviceId -> { ip, rejectedAt, socketId }
+const rejectedDevices = new Map();
+
 function ensureDir() {
   if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
 }
@@ -86,4 +89,28 @@ export function isDevicePending(deviceId) {
 
 export function getAllPendingApprovals() {
   return [...pendingApprovals.entries()].map(([socketId, data]) => ({ socketId, ...data }));
+}
+
+// Rejected devices (pending re-approval from Clients list)
+export function markDeviceRejected(deviceId, data) {
+  if (!deviceId) return;
+  rejectedDevices.set(deviceId, { ...data, rejectedAt: new Date().toISOString() });
+}
+
+export function isDeviceRejected(deviceId) {
+  if (!deviceId) return false;
+  return rejectedDevices.has(deviceId);
+}
+
+export function updateRejectedSocket(deviceId, socketId, ip) {
+  const entry = rejectedDevices.get(deviceId);
+  if (entry) rejectedDevices.set(deviceId, { ...entry, socketId, ip });
+}
+
+export function getRejectedDevices() {
+  return [...rejectedDevices.entries()].map(([deviceId, meta]) => ({ deviceId, ...meta }));
+}
+
+export function clearRejectedDevice(deviceId) {
+  rejectedDevices.delete(deviceId);
 }

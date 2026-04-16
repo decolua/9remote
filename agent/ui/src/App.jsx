@@ -24,6 +24,7 @@ export default function App() {
   const [connections, setConnections] = useState([]);
   const [pendingDevice, setPendingDevice] = useState(null);
   const [approvedDevices, setApprovedDevices] = useState([]);
+  const [rejectedDevices, setRejectedDevices] = useState([]);
   const [version, setVersion] = useState("");
   const [theme, setTheme] = useState(() => {
     // Will be overridden by server state if provided
@@ -98,6 +99,8 @@ export default function App() {
           setConnections(data.connections ?? []);
         } else if (data.type === "deviceApproval" && data.action === "pending") {
           setPendingDevice({ socketId: data.socketId, deviceId: data.deviceId, ip: data.ip });
+        } else if (data.type === "deviceApproval" && data.action === "refresh") {
+          fetchDevices();
         }
       } catch { /* ignore parse errors */ }
     };
@@ -148,20 +151,26 @@ export default function App() {
     }).catch(() => {});
   };
 
-  const fetchApprovedDevices = async () => {
+  const fetchDevices = async () => {
     try {
-      const res = await fetch("/api/device/approved");
-      if (res.ok) { const d = await res.json(); setApprovedDevices(d.devices || []); }
+      const [aRes, rRes] = await Promise.all([
+        fetch("/api/device/approved"),
+        fetch("/api/device/rejected"),
+      ]);
+      if (aRes.ok) { const d = await aRes.json(); setApprovedDevices(d.devices || []); }
+      if (rRes.ok) { const d = await rRes.json(); setRejectedDevices(d.rejected || []); }
     } catch {}
   };
 
-  const handleDeviceRemove = async (deviceId) => {
-    await fetch("/api/device/remove", {
+  const handleDeviceRemove = async (client) => {
+    // Pending (rejected) devices → clear from rejected map; approved → remove from disk
+    const endpoint = client.status === "pending" ? "/api/device/clear-rejected" : "/api/device/remove";
+    await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId }),
+      body: JSON.stringify({ deviceId: client.deviceId }),
     }).catch(() => {});
-    fetchApprovedDevices();
+    fetchDevices();
   };
 
   const handleDeviceApprove = async () => {
@@ -172,7 +181,7 @@ export default function App() {
       body: JSON.stringify({ socketId: pendingDevice.socketId }),
     }).catch(() => {});
     setPendingDevice(null);
-    fetchApprovedDevices();
+    fetchDevices();
   };
 
   const handleDeviceReject = async () => {
@@ -183,6 +192,16 @@ export default function App() {
       body: JSON.stringify({ socketId: pendingDevice.socketId }),
     }).catch(() => {});
     setPendingDevice(null);
+    fetchDevices();
+  };
+
+  const handleDeviceApproveRejected = async (deviceId) => {
+    await fetch("/api/device/approve-rejected", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId }),
+    }).catch(() => {});
+    fetchDevices();
   };
 
   const handleRegenerateKey = async () => {
@@ -220,8 +239,10 @@ export default function App() {
       onDeviceApprove={handleDeviceApprove}
       onDeviceReject={handleDeviceReject}
       approvedDevices={approvedDevices}
+      rejectedDevices={rejectedDevices}
       onDeviceRemove={handleDeviceRemove}
-      onFetchDevices={fetchApprovedDevices}
+      onFetchDevices={fetchDevices}
+      onDeviceApproveRejected={handleDeviceApproveRejected}
     />
   );
 }

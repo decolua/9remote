@@ -54,7 +54,7 @@ export default function WorkspacePage() {
   });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, connected, connectionMode, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socket, socketRef, connected, connectionMode, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
   const fileSocket = useFileSocket(socketRef);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
   const [systemInfo, setSystemInfo] = useState(null);
@@ -329,6 +329,7 @@ export default function WorkspacePage() {
           unsubscribeFromPush={unsubscribeFromPush}
           notifications={notifications}
           clearNotification={clearNotification}
+          agentVersion={agentVersion}
         />
       </div>
 
@@ -375,6 +376,7 @@ export default function WorkspacePage() {
               unsubscribeFromPush={unsubscribeFromPush}
               notifications={notifications}
               clearNotification={clearNotification}
+              agentVersion={agentVersion}
             />
           </div>
         );

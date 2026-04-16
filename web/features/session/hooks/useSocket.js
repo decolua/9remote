@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useBaseSocket } from "@/shared/hooks/useBaseSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { WORKER_API } from "@/shared/constants/API";
@@ -10,6 +10,7 @@ export function useSocket() {
   const [codespaceInfo, setCodespaceInfo] = useState(null);
   const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
   const [platform, setPlatform] = useState(null);
+  const [agentVersion, setAgentVersion] = useState(null);
   const [approvalStatus, setApprovalStatus] = useState(null); // null | "pending" | "approved" | "rejected"
   const { getAuth } = useSessionStorage();
 
@@ -43,6 +44,10 @@ export function useSocket() {
     setCodespaceStopping(true);
   }, []);
 
+  // Ref to the disconnect function from useBaseSocket (set below).
+  // Needed here because socket.on("device:rejected") must call it, but it's defined after.
+  const disconnectRef = useRef(null);
+
   const handleSocketReady = useCallback((socket, auth) => {
     // Reset approval status on new connection
     setApprovalStatus(null);
@@ -59,11 +64,14 @@ export function useSocket() {
 
     socket.on("device:rejected", () => {
       setApprovalStatus("rejected");
+      // Stop auto-reconnect — user must re-submit key to try again
+      disconnectRef.current?.();
     });
 
     socket.on("serverInfo", (info) => {
       setRemoteAvailable(info.remoteAvailable);
       setPlatform(info.platform);
+      setAgentVersion(info.version || null);
       if (info.isCodespaces) {
         setCodespaceInfo({ isCodespaces: info.isCodespaces, codespaceName: info.codespaceName });
       }
@@ -79,12 +87,15 @@ export function useSocket() {
     socket.emit("device:clientReady");
   }, [removeTempKey, handleCodespaceStopping]);
 
-  const { socket, socketRef, connected, connectionMode, retryStatus } = useBaseSocket({
+  const { socket, socketRef, connected, connectionMode, retryStatus, disconnect } = useBaseSocket({
     namespace: "",
     redirectOnNoAuth: "/",
     onConnect: handleSocketReady,
     onDisconnect: handleDisconnect
   });
+
+  // Keep ref in sync so event handlers registered above can call disconnect
+  disconnectRef.current = disconnect;
 
   // Load sessions list
   const loadSessions = useCallback(() => {
@@ -159,6 +170,7 @@ export function useSocket() {
     codespaceDisconnected,
     codespaceStopping,
     platform,
+    agentVersion,
     loadSessions,
     createSession,
     deleteSession,

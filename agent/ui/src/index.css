@@ -17,6 +17,7 @@
 
 /* Light theme */
 :root[data-theme="light"] {
+  --bg-body: #EBE9E6;
   --bg-main: #FBF9F6;
   --bg-alt: #F5F1ED;
   --surface: #FFFFFF;
@@ -32,6 +33,7 @@
 
 /* Dark theme */
 :root[data-theme="dark"] {
+  --bg-body: #292928;
   --bg-main: #191918;
   --bg-alt: #1F1F1E;
   --surface: #242423;

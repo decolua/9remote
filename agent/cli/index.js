@@ -14,8 +14,9 @@ import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd, wr
 import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate, checkLatestVersion } from "./utils/updateChecker.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
-import { showBanner, renderProgress, resetProgress, updateProgressDesc, setProgressInfo, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval } from "./utils/tui.js";
+import { showBanner, getBannerText, renderProgress, resetProgress, updateProgressDesc, setProgressInfo, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval } from "./utils/tui.js";
 import { checkPermissions } from "./utils/permissions.js";
+import { initTray, killTray, openBrowser } from "./utils/tray.js";
 import { STEP, browserFetch } from "../lib/constants.js";
 
 const skipUpdate = process.argv.includes("--skip-update");
@@ -172,7 +173,7 @@ function startServerWithRestart(onReady, onServerCrash) {
 
     currentProcess = spawn("node", [serverPath], {
       cwd: path.dirname(serverPath),
-      stdio: ["ignore", "inherit", "inherit"],
+      stdio: "ignore",
       detached: false,
       env: spawnEnv,
     });
@@ -375,25 +376,22 @@ async function startServerAndTunnel(selectedKey) {
 }
 
 async function tuiMode() {
-  let keyData = await ensureKeyData();
-  const version = getVersion();
-  const updateInfo = await checkLatestVersion();
   console.clear();
-  showBanner(version, updateInfo?.latest ?? null);
+  resetProgress();
+  renderProgress(STEP.PREPARING - 1); // Preparing
 
-  if (updateInfo?.latest) {
-    await selectMenu("Press Enter to start server", [{ label: "Start server" }], 0);
-  }
+  let keyData = await ensureKeyData();
 
   let tuiServerMgr = { getProcess: () => null, shutdown: () => {} };
   const alreadyRunning = await isServerRunning();
   if (!alreadyRunning) {
     tuiServerMgr = startServerWithRestart(null, null);
-    await new Promise((r) => setTimeout(r, 2000));
+    // Poll until server ready instead of fixed sleep
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !(await isServerRunning())) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
   }
-
-  resetProgress();
-  renderProgress(STEP.PREPARING - 1); // Preparing
 
   try { killCloudflared(); await new Promise((r) => setTimeout(r, 300)); } catch {}
 
@@ -428,7 +426,6 @@ async function tuiMode() {
     process.exit(1);
   }
 
-  setProgressInfo(STEP.TUNNELING - 1, tunnelUrl);
   renderProgress(STEP.VERIFYING - 1, true); // Verifying tunnel
   const tunnelReady = await waitForTunnelReady(tunnelUrl);
   if (!tunnelReady) {
@@ -462,10 +459,15 @@ async function tuiMode() {
   let menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl);
 
   let triggerMenuRedraw = null;
+  const logBuffer = [];
+  const MAX_LOG_LINES = 200;
 
   let deviceApprovalBusy = false;
   const stopSSE = subscribeSSE(SERVER_PORT, async (type, data) => {
-    if (type === "state") {
+    if (type === "log" && data.message) {
+      logBuffer.push(data.message);
+      if (logBuffer.length > MAX_LOG_LINES) logBuffer.shift();
+    } else if (type === "state") {
       const newKey = data.permanentKey || keyData.key;
       // Explicit check: "" means cleared (one-time key consumed), preserve existing if undefined
       const newOtk = data.oneTimeKey !== undefined ? data.oneTimeKey : currentOneTimeKey;
@@ -501,13 +503,14 @@ async function tuiMode() {
     () => menuHeader,
     (h) => { menuHeader = h; },
     (cb) => { triggerMenuRedraw = cb; },
-    () => { tuiServerMgr.shutdown(); killProcessOnPort(SERVER_PORT); stopSSE(); }
+    () => { tuiServerMgr.shutdown(); killProcessOnPort(SERVER_PORT); stopSSE(); },
+    logBuffer
   );
 }
 
-async function fetchDesktopEnabled() {
+async function fetchServerState() {
   const d = await apiGet("/api/ui/state");
-  return !!d?.desktopEnabled;
+  return { desktopEnabled: !!d?.desktopEnabled, remoteAvailable: !!d?.remoteAvailable };
 }
 
 /**
@@ -518,35 +521,41 @@ async function fetchDesktopEnabled() {
  * @param {(newHeader: string) => void} setHeader - update header from inside loop
  * @param {(cb: () => void) => void} onRedrawRegister - register redraw callback
  */
-async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader = () => {}, onRedrawRegister = () => {}, onCtrlC = null) {
+async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader = () => {}, onRedrawRegister = () => {}, onCtrlC = null, logBuffer = []) {
   while (true) {
-    const desktopOn = await fetchDesktopEnabled();
-    const desktopLabel = `Remote Desktop: ${desktopOn ? chalk.green("ON") : chalk.gray("OFF")}  ▶`;
-    const items = [
-      { label: "Open Web UI" },
-      { label: "New One-Time Key" },
-      { label: "Regenerate Permanent Key" },
-      { label: desktopLabel },
-      { label: "Manage Devices  \u25b6" },
-      { label: chalk.gray("Exit") },
-    ];
+    const { desktopEnabled: desktopOn, remoteAvailable } = await fetchServerState();
 
-      let redrawMenu = null;
+    const items = [
+      { label: "Open Web UI", action: "webui" },
+      { label: "New One-Time Key", action: "otk" },
+      { label: "Regenerate Permanent Key", action: "regen" },
+    ];
+    if (remoteAvailable) {
+      const desktopLabel = `Remote Desktop: ${desktopOn ? chalk.green("ON") : chalk.gray("OFF")}  ▶`;
+      items.push({ label: desktopLabel, action: "desktop" });
+    }
+    items.push(
+      { label: "Manage Devices  \u25b6", action: "devices" },
+      { label: `View Logs (${logBuffer.length})`, action: "logs" },
+      { label: chalk.gray("Exit"), action: "exit" },
+    );
+
+    let redrawMenu = null;
     onRedrawRegister(() => redrawMenu?.());
 
-    const idx = await selectMenu("Select action", items, 0, getHeader, (setRedraw) => {
+    const idx = await selectMenu("", items, 0, getHeader, (setRedraw) => {
       redrawMenu = setRedraw;
     }, onCtrlC);
 
-    if (idx === 0) {
-      // Open UI
+    const action = idx >= 0 ? items[idx].action : "exit";
+
+    if (action === "webui") {
       const url = `http://localhost:${SERVER_PORT}`;
       const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
       spawn(cmd, [url], { detached: true, stdio: "ignore" }).unref();
       console.log(chalk.green(`\n🌐 Opening ${url}\n`));
 
-    } else if (idx === 1) {
-      // New One-Time Key — rebuild header with fresh QR
+    } else if (action === "otk") {
       const newTempKey = await createTempKey(keyData.key, WORKER_URL);
       if (newTempKey) {
         const newConnectUrl = `${WORKER_URL}/login?k=${newTempKey.tempKey}`;
@@ -554,15 +563,13 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
         await pushUiState({ oneTimeKey: newTempKey.tempKey, oneTimeKeyExpiresAt: newTempKey.expiresAt, qrUrl: newConnectUrl });
       }
 
-    } else if (idx === 2) {
-      // Regenerate Key
+    } else if (action === "regen") {
       const confirmed = await tuiConfirm(chalk.yellow("⚠️  Replace current key and disconnect all sessions? Continue?"));
       if (confirmed) {
         const machineId = await getConsistentMachineId();
         const { key } = generateApiKeyWithMachine(machineId);
         keyData = saveKey(machineId, key, keyData.name || "Default");
         await pushUiState({ permanentKey: keyData.key });
-        // Rebuild header with new key
         const newTmp = await createTempKey(keyData.key, WORKER_URL);
         if (newTmp) {
           const newUrl = `${WORKER_URL}/login?k=${newTmp.tempKey}`;
@@ -571,21 +578,29 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
         }
       }
 
-    } else if (idx === 3) {
-      // Remote Desktop submenu
+    } else if (action === "desktop") {
       await tuiDesktopMenu();
 
-    } else if (idx === 4) {
-      // Manage Devices submenu
+    } else if (action === "devices") {
       await tuiDevicesMenu();
 
+    } else if (action === "logs") {
+      await tuiLogsView(logBuffer);
+
     } else {
-      // Exit — kill server child process before exiting
       killProcessOnPort(SERVER_PORT);
       console.log(chalk.gray("\nGoodbye!\n"));
       process.exit(0);
     }
   }
+}
+
+/** View logs screen — scrollable, ESC to go back */
+async function tuiLogsView(logBuffer) {
+  const header = logBuffer.length
+    ? logBuffer.join("\n")
+    : chalk.gray("  No logs yet");
+  await selectMenu("Logs", [{ label: chalk.gray("← Back") }], 0, header);
 }
 
 /**
@@ -723,12 +738,13 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
         await pushUiState({ step: STEP.VERIFYING });
         const tunnelOk = await waitForTunnelReady(result.tunnelUrl);
         if (!tunnelOk) {
-          console.log(chalk.yellow("\n\u26a0\ufe0f  Tunnel health check timed out, proceeding anyway..."));
+          console.log(chalk.yellow("\n⚠️  Tunnel health check timed out, proceeding anyway..."));
         }
 
         await updateTunnelUrl(apiKey, result.tunnelUrl);
 
-        // Step 4: Ready
+        // Step 5: Ready — hold for 3s so UI sees all steps complete
+        await new Promise(r => setTimeout(r, 3000));
         await showConnectionInfo(apiKey, result.tunnelUrl);
       } catch (err) {
         console.log(chalk.red(`❌ Failed to start tunnel: ${err.message}`));
@@ -762,7 +778,10 @@ async function waitForTunnelReady(tunnelUrl, { intervalMs = 2000, timeoutMs = 12
         signal: AbortSignal.timeout(5000),
       });
       updateProgressDesc(`#${attempt} → ${res.status}`);
-      if (res.ok) return true;
+      if (res.ok) {
+        await new Promise(r => setTimeout(r, 2000));
+        return true;
+      }
     } catch (err) {
       updateProgressDesc(`#${attempt} → ${err.cause?.code || err.code || err.message}`);
     }
@@ -775,63 +794,172 @@ async function isServerRunning() {
   return !!(await apiGet("/api/health"));
 }
 
-/**
- * UI mode: start server (if not running) + tunnel + open browser
- * Same as "Start Server" in TUI but auto-opens browser
- */
-async function startUiMode() {
-  showBanner(getVersion());
+/** Spawn background process with --tray flag, open browser, exit current process */
+async function launchBackground() {
+  const uiUrl = `http://localhost:${SERVER_PORT}`;
+
+  // If server already running, just open browser and exit
+  if (await isServerRunning()) {
+    openBrowser(uiUrl);
+    console.log(chalk.green(`\n🌐 9Remote already running at ${uiUrl}`));
+    console.log(chalk.gray("💡 Tray icon already active. Right-click tray to manage.\n"));
+    process.exit(0);
+  }
+
+  const scriptPath = path.resolve(__dirname, "index.js");
+  const bgArgs = [scriptPath, "--tray"];
+
+  const themeArg = process.argv.find(a => a.startsWith("--theme="));
+  if (themeArg) bgArgs.push(themeArg);
+
+  // Redirect child stdout/stderr to log file for debugging crashes
+  const logDir = path.join(os.homedir(), ".9remote");
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+  const logPath = path.join(logDir, "bg.log");
+  const logFd = fs.openSync(logPath, "a");
+  fs.writeSync(logFd, `\n\n=== ${new Date().toISOString()} spawn bg ===\n`);
+
+  const bg = spawn(process.execPath, bgArgs, {
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+    env: { ...process.env },
+  });
+  bg.unref();
+
+  // Wait briefly and verify server came up; surface error if not
+  const deadline = Date.now() + 5000;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (await isServerRunning()) { ready = true; break; }
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  if (!ready) {
+    console.log(chalk.red(`\n❌ Background server failed to start.`));
+    console.log(chalk.gray(`   Check log: ${logPath}\n`));
+    process.exit(1);
+  }
+
+  openBrowser(uiUrl);
+  console.log(chalk.green(`\n🌐 9Remote running at ${uiUrl} (PID: ${bg.pid})`));
+  console.log(chalk.gray(`💡 Log: ${logPath}\n`));
+  process.exit(0);
+}
+
+/** Tray mode: start server + system tray, no terminal UI */
+async function startTrayMode() {
   let keyData = await ensureKeyData();
 
-  // Parse --theme flag
-  const themeArg = process.argv.find(arg => arg.startsWith("--theme="));
+  const themeArg = process.argv.find(a => a.startsWith("--theme="));
   const theme = themeArg ? themeArg.split("=")[1] : null;
 
-  // Start server only (no tunnel yet — wait for UI Connect button)
   const alreadyRunning = await isServerRunning();
   const serverManager = alreadyRunning
     ? { getProcess: () => null, shutdown: () => {} }
     : startServerWithRestart(null, null);
 
-  if (!alreadyRunning) await new Promise(resolve => setTimeout(resolve, 2000));
+  if (!alreadyRunning) await new Promise(r => setTimeout(r, 2000));
 
-  console.log(chalk.green(`\n🌐 UI ready at http://localhost:${SERVER_PORT}`));
+  const uiUrl = `http://localhost:${SERVER_PORT}`;
 
   let activeTunnel = null;
-  const getActiveTunnel = () => activeTunnel;
-  const setActiveTunnel = (t) => { activeTunnel = t; };
+  await pushUiState({ permanentKey: keyData.key, step: STEP.STOPPED, theme });
 
-  // Push permanentKey + theme to UI so Welcome screen can display it
+  const cleanup = () => {
+    serverManager.shutdown();
+    killProcessOnPort(SERVER_PORT);
+    killTray();
+  };
+
+  setupExitHandler(serverManager, null, keyData.key);
+  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
+
+  if (process.argv.includes("--start")) writeCmd("start-tunnel");
+
+  await initTray({
+    port: SERVER_PORT,
+    onQuit: cleanup,
+    onOpenUI: () => openBrowser(uiUrl),
+  });
+
+  await new Promise(() => {});
+}
+
+/** UI mode (9remote ui): start server + open browser, no tray */
+async function startUiMode() {
+  showBanner(getVersion());
+  let keyData = await ensureKeyData();
+
+  const themeArg = process.argv.find(a => a.startsWith("--theme="));
+  const theme = themeArg ? themeArg.split("=")[1] : null;
+
+  const alreadyRunning = await isServerRunning();
+  const serverManager = alreadyRunning
+    ? { getProcess: () => null, shutdown: () => {} }
+    : startServerWithRestart(null, null);
+
+  if (!alreadyRunning) await new Promise(r => setTimeout(r, 2000));
+
+  const uiUrl = `http://localhost:${SERVER_PORT}`;
+  console.log(chalk.green(`\n🌐 UI ready at ${uiUrl}`));
+
+  let activeTunnel = null;
   await pushUiState({ permanentKey: keyData.key, step: STEP.STOPPED, theme });
 
   setupExitHandler(serverManager, null, keyData.key);
-  setupCmdPoller(getActiveTunnel, setActiveTunnel, keyData.key);
+  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
 
-  // Auto start tunnel if --start flag is passed
-  if (process.argv.includes("--start")) {
-    writeCmd("start-tunnel");
-  }
+  if (process.argv.includes("--start")) writeCmd("start-tunnel");
 
-  await new Promise(() => { });
+  await new Promise(() => {});
 }
 
 // Start app
 async function start() {
-  // Disable auto-update - TUI already shows update notification
-  // const hasUpdate = await checkAndUpdate(skipUpdate);
-  // if (hasUpdate) return;
-  
   const command = process.argv[2];
   
   if (command === "ui") {
-    // UI mode: 9remote ui
     await startUiMode();
   } else if (command === "start" || process.argv.includes("--auto")) {
-    // Direct start: 9remote start
     await autoStartDev();
+  } else if (process.argv.includes("--tray")) {
+    await startTrayMode();
   } else {
-    // TUI mode: 9remote
+    await startupMenu();
+  }
+}
+
+async function startupMenu() {
+  const version = getVersion();
+  const updateInfo = await checkLatestVersion();
+  const banner = getBannerText(version, updateInfo?.latest ?? null);
+
+  const items = [];
+  if (updateInfo?.latest) {
+    items.push({ label: chalk.yellow(`Update to v${updateInfo.latest}`), action: "update" });
+  }
+  items.push(
+    { label: "Open Web UI (background)", action: "ui" },
+    { label: "Terminal UI", action: "tui" },
+    { label: chalk.gray("Exit"), action: "exit" },
+  );
+
+  const idx = await selectMenu("", items, 0, banner);
+  const action = idx >= 0 ? items[idx].action : "exit";
+
+  if (action === "update") {
+    const w = Math.min(44, process.stdout.columns || 44);
+    console.log(ORANGE("\n" + "═".repeat(w)));
+    console.log(chalk.yellow("  ⬆  Run this command to update:\n"));
+    console.log(chalk.white.bold(`     npm i -g 9remote@latest\n`));
+    console.log(ORANGE("═".repeat(w)) + "\n");
+    process.exit(0);
+  } else if (action === "ui") {
+    await launchBackground();
+  } else if (action === "tui") {
     await tuiMode();
+  } else {
+    process.exit(0);
   }
 }
 

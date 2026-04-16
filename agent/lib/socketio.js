@@ -6,7 +6,7 @@ import { homedir } from "os";
 import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
 import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
-import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey, pushUiEvent } from "../index.js";
+import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey, pushUiEvent, setRemoteAvailable } from "../api/ui.js";
 import {
   loadApprovedDevices,
   isDeviceApproved,
@@ -14,7 +14,11 @@ import {
   approveDevice,
   addPendingApproval,
   removePendingApproval,
-  getPendingApproval
+  getPendingApproval,
+  markDeviceRejected,
+  isDeviceRejected,
+  updateRejectedSocket,
+  clearRejectedDevice
 } from "./deviceApproval.js";
 
 function loadApiKey() {
@@ -52,9 +56,10 @@ export function approveSocketDevice(socketId) {
   console.log(`[DEBUG-APPROVE] socketId=${socketId}, socketExists=${!!socket}, pendingExists=${!!pending}`);
   if (!socket || !pending) return false;
 
-  // Save device as approved
+  // Save device as approved; clear any prior rejection
   approveDevice(pending.deviceId);
   removePendingApproval(socketId);
+  clearRejectedDevice(pending.deviceId);
 
   // Unlock socket + notify client
   socket.data.approved = true;
@@ -68,7 +73,42 @@ export function approveSocketDevice(socketId) {
   return true;
 }
 
-/** Reject a pending socket by socketId */
+/** Approve a previously-rejected device by deviceId (from Clients list) */
+export function approveRejectedDevice(deviceId) {
+  const io = ioInstance;
+  if (!io || !deviceId) return false;
+
+  approveDevice(deviceId);
+  clearRejectedDevice(deviceId);
+
+  // Notify any active socket for this device
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket.handshake.auth?.deviceId === deviceId) {
+      socket.data.approved = true;
+      socket.emit("device:approved");
+      setupSocketFeatures(socket);
+    }
+  }
+  pushUiLog(`Device approved from pending: ${deviceId.slice(0, 8)}...`);
+  return true;
+}
+
+/** Disconnect all active sockets belonging to a deviceId (device stays approved) */
+export function disconnectDeviceSockets(deviceId) {
+  const io = ioInstance;
+  if (!io || !deviceId) return 0;
+  let count = 0;
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket.handshake.auth?.deviceId === deviceId) {
+      socket.disconnect(true);
+      count++;
+    }
+  }
+  if (count) pushUiLog(`Disconnected ${count} socket(s) for device ${deviceId.slice(0, 8)}...`);
+  return count;
+}
+
+/** Reject a pending socket by socketId (remember deviceId in RAM as pending) */
 export function rejectSocketDevice(socketId) {
   const io = ioInstance;
   if (!io) return false;
@@ -77,11 +117,18 @@ export function rejectSocketDevice(socketId) {
   const socket = io.sockets.sockets.get(socketId);
   removePendingApproval(socketId);
 
+  // Remember rejection in RAM so it shows up in Clients list as pending
+  if (pending?.deviceId) {
+    markDeviceRejected(pending.deviceId, { ip: pending.ip, socketId });
+  }
+
   if (socket) {
     socket.emit("device:rejected");
     socket.disconnect(true);
   }
 
+  // Notify UI to refresh pending/approved list
+  pushUiEvent("deviceApproval", { action: "refresh" });
   pushUiLog(`Device rejected: ${pending?.deviceId?.slice(0, 8) || "unknown"}...`);
   return true;
 }
@@ -105,7 +152,8 @@ export async function setupSocketIO(server) {
   });
 
   // Check remote availability at startup
-  await checkRemoteAvailable();
+  const hasRemote = await checkRemoteAvailable();
+  setRemoteAvailable(hasRemote);
 
   // Track connections + device approval
   io.on("connection", (socket) => {
@@ -121,7 +169,7 @@ export async function setupSocketIO(server) {
       return next(new Error("Device not approved"));
     });
 
-    trackConnection(socket.id, ip);
+    trackConnection(socket.id, ip, deviceId);
     pushUiLog(`Client connected: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);
 
     socket.on("disconnect", (reason) => {
@@ -131,12 +179,18 @@ export async function setupSocketIO(server) {
     });
 
     // Check device approval
-    console.log(`[DEBUG-SOCKET] connection: socketId=${socket.id}, deviceId=${deviceId?.slice(0,8)}, approved=${isDeviceApproved(deviceId)}, pending=${isDevicePending(deviceId)}`);
+    console.log(`[DEBUG-SOCKET] connection: socketId=${socket.id}, deviceId=${deviceId?.slice(0,8)}, approved=${isDeviceApproved(deviceId)}, pending=${isDevicePending(deviceId)}, rejected=${isDeviceRejected(deviceId)}`);
     if (deviceId && isDeviceApproved(deviceId)) {
       // Known device — allow immediately
       pushUiLog(`Device recognized: ${deviceId.slice(0, 8)}...`);
       socket.data.approved = true;
       setupSocketFeatures(socket);
+    } else if (deviceId && isDeviceRejected(deviceId)) {
+      // Previously rejected — keep socket unapproved, no modal, update socketId for later approve
+      updateRejectedSocket(deviceId, socket.id, ip);
+      pushUiLog(`Rejected device reconnected: ${deviceId.slice(0, 8)} — waiting in Clients list`);
+      socket.emit("device:rejected");
+      pushUiEvent("deviceApproval", { action: "refresh" });
     } else {
       // Unknown device — hold and request approval
       pushUiLog(`Unknown device: ${deviceId?.slice(0, 8) || "no-id"} — waiting for approval`);

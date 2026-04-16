@@ -73,5 +73,13 @@ export function useBaseSocket(config = {}) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { socket: socketRef.current, socketRef, connected, connectionMode, retryStatus };
+  // Expose manual disconnect (used e.g. on device:rejected to stop auto-reconnect)
+  const disconnect = () => {
+    protocolRef.current?.disconnect();
+    protocolRef.current = null;
+    socketRef.current = null;
+    setConnected(false);
+  };
+
+  return { socket: socketRef.current, socketRef, connected, connectionMode, retryStatus, disconnect };
 }

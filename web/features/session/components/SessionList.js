@@ -9,7 +9,7 @@ import SitesList from "@/features/terminal/components/SitesList";
 import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion }) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -39,6 +39,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       unsubscribeFromPush,
       notifications,
       clearNotification,
+      agentVersion,
     });
 
     setCallbacks({
@@ -65,7 +66,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     socketRef,
     connectionMode,
     subscribeToPush,
-    unsubscribeFromPush
+    unsubscribeFromPush,
+    agentVersion
   ]);
 
   const handleCreate = async () => {

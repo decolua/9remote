@@ -16,7 +16,8 @@ export const useSlideMenuStore = create((set) => ({
     tunnelUrl: null,
     apiKey: null,
     hideActions: [],
-    connectionMode: "tunnel"
+    connectionMode: "tunnel",
+    agentVersion: null
   },
 
   callbacks: {
@@ -49,6 +50,7 @@ export const useSlideMenuStore = create((set) => ({
       apiKey: null,
       hideActions: [],
       connectionMode: "tunnel",
+      agentVersion: null,
       ...context
     }
   }),

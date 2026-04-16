@@ -74,3 +74,6 @@ gitbook/.wrangler/*
 .source/*
 web/public/models/25meiko_collabo01_t02/motion/s-common-blushed01.motion3.json
 .release/CheckList.md
+source/*
+benchmark/output/*
+benchmark/results/*

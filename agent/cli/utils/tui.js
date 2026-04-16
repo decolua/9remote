@@ -26,7 +26,7 @@ const W = () => Math.min(44, process.stdout.columns || 44);
 
 // ── Banner ────────────────────────────────────────────────────────────────────
 
-export function showBanner(currentVersion, latestVersion = null) {
+export function getBannerText(currentVersion, latestVersion = null) {
   const w = W();
   const inner = w - 2;
 
@@ -43,23 +43,28 @@ export function showBanner(currentVersion, latestVersion = null) {
     return C.orange + "║" + C.reset + " ".repeat(lp) + colorFn(text) + " ".repeat(rp) + C.orange + "║" + C.reset;
   };
 
-  console.log("");
-  console.log(C.orange + "╔" + "═".repeat(inner) + "╗" + C.reset);
-  console.log(line());
-  console.log(center(`🚀  9Remote v${currentVersion}`, (s) => C.bold + C.orange + s + C.reset));
-  console.log(center("Remote terminal access from anywhere", (s) => C.dim + s + C.reset));
-  console.log(line());
+  const lines = [
+    "",
+    C.orange + "╔" + "═".repeat(inner) + "╗" + C.reset,
+    line(),
+    center(`🚀  9Remote v${currentVersion}`, (s) => C.bold + C.orange + s + C.reset),
+    center("Remote terminal access from anywhere", (s) => C.dim + s + C.reset),
+    line(),
+  ];
 
   if (latestVersion) {
-    const notice = `⬆  New version v${latestVersion} available!`;
-    console.log(center(notice, (s) => C.yellow + C.bold + s + C.reset));
-    const hint = `Run: npm i -g 9remote@latest`;
-    console.log(center(hint, (s) => C.dim + s + C.reset));
-    console.log(line());
+    lines.push(center(`⬆  New version v${latestVersion} available!`, (s) => C.yellow + C.bold + s + C.reset));
+    lines.push(center(`Run: npm i -g 9remote@latest`, (s) => C.dim + s + C.reset));
+    lines.push(line());
   }
 
-  console.log(C.orange + "╚" + "═".repeat(inner) + "╝" + C.reset);
-  console.log("");
+  lines.push(C.orange + "╚" + "═".repeat(inner) + "╝" + C.reset);
+  lines.push("");
+  return lines.join("\n");
+}
+
+export function showBanner(currentVersion, latestVersion = null) {
+  console.log(getBannerText(currentVersion, latestVersion));
 }
 
 // ── Progress ──────────────────────────────────────────────────────────────────
@@ -87,9 +92,10 @@ function _renderLines() {
   }
 
   const lines = [];
+  const isFinal = _activeIdx === STEPS.length - 1;
   STEPS.forEach((step, i) => {
     const desc = (i === _activeIdx && _activeDesc) ? _activeDesc : step.desc;
-    if (i < _activeIdx) {
+    if (i < _activeIdx || (isFinal && i === _activeIdx)) {
       lines.push(`  ${C.green}✓${C.reset} ${C.dim}${step.label}${C.reset}`);
       if (_infoLine && i === _infoLine.afterIdx) {
         lines.push(`  ${C.green}✓${C.reset} ${C.cyan}${_infoLine.text}${C.reset}`);
@@ -181,7 +187,7 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
       if (header) {
         process.stdout.write(header + "\n");
       }
-      process.stdout.write(`${C.dim}${title}${C.reset}\n\n`);
+      if (title) process.stdout.write(`${C.dim}${title}${C.reset}\n\n`);
       items.forEach((item, i) => {
         const icon = i === selected ? (isWin ? ">" : "★") : (isWin ? " " : "☆");
         if (i === selected) {
@@ -246,27 +252,31 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
  */
 export function confirm(message) {
   return new Promise((resolve) => {
-    // Ensure clean state: exit raw mode + remove all keypress listeners
-    if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+    // Clean state
     process.stdin.removeAllListeners("keypress");
-    process.stdin.removeAllListeners("data");
+    if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
     process.stdin.pause();
 
-    // Drain any buffered keystrokes before creating readline
-    const drain = () => {
-      while (process.stdin.read() !== null) { /* discard */ }
-    };
-    drain();
+    process.stdout.write(`${message} (y/N): `);
 
-    // Small delay to let any in-flight keypress events settle
-    setTimeout(() => {
-      drain();
-      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      rl.question(`${message} (y/N): `, (answer) => {
-        rl.close();
-        resolve(answer.trim().toLowerCase() === "y");
-      });
-    }, 50);
+    // Use raw keypress (same pattern as selectMenu)
+    readline.emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
+    process.stdin.resume();
+
+    const onKeypress = (str, key) => {
+      if (!key) return;
+      process.stdin.removeListener("keypress", onKeypress);
+      if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+      process.stdin.pause();
+
+      if (key.ctrl && key.name === "c") { process.stdout.write("\n"); process.exit(0); }
+      const approved = (key.name || "").toLowerCase() === "y";
+      console.log(approved ? "y" : "n");
+      resolve(approved);
+    };
+
+    process.stdin.on("keypress", onKeypress);
   });
 }
 

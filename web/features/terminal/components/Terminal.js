@@ -35,6 +35,7 @@ function Terminal({
   unsubscribeFromPush,
   notifications = {},
   clearNotification,
+  agentVersion,
 }) {
   const containerRef = useRef(null);
   const tabsContainerRef = useRef(null);
@@ -81,6 +82,7 @@ function Terminal({
       connectionMode,
       subscribeToPush,
       unsubscribeFromPush,
+      agentVersion,
     });
 
     setCallbacks({
@@ -92,7 +94,7 @@ function Terminal({
       onThemeChange,
       onStopCodespace,
     });
-  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, theme, onThemeChange, tunnelUrl, apiKey, connectionMode, setContext, setCallbacks]);
+  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, theme, onThemeChange, tunnelUrl, apiKey, connectionMode, agentVersion, setContext, setCallbacks]);
 
   const currentTheme = THEMES[theme] || THEMES.default;
 

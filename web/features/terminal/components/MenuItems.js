@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2, FileText } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2, FileText, AlertCircle } from "@/shared/components/ui/Icon";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
@@ -30,7 +30,9 @@ export default function MenuItems({
   unsubscribeFromPush = null
 }) {
   const [expandedSection, setExpandedSection] = useState(null);
-  const { connectionMode = "tunnel" } = useSlideMenuStore((s) => s.context);
+  const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
+  const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
+  const isOutdated = !agentVersion || (webVersion && agentVersion !== webVersion);
 
   const handleThemeChange = (newTheme) => {
     vibrate();
@@ -305,6 +307,26 @@ export default function MenuItems({
         </button>
       )}
 
+      {/* Version mismatch warning */}
+      {isOutdated && (
+        <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-brand-lg">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="text-yellow-400 flex-shrink-0 mt-0.5" size={16} />
+            <div className="text-xs space-y-1">
+              <p className="text-yellow-300 font-medium">
+                Agent {agentVersion ? `v${agentVersion}` : "version unknown"} is outdated
+              </p>
+              <p className="text-dark-100">
+                Some features may not work. Run:
+              </p>
+              <code className="block bg-dark-700 text-brand-400 px-2 py-1 rounded text-xs select-all">
+                npm i -g 9remote@latest
+              </code>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Version + connection mode */}
       <div className="flex items-center justify-end gap-2 mt-4 mr-1">
         {connectionMode === "local" && (
@@ -313,7 +335,7 @@ export default function MenuItems({
           </span>
         )}
         <p className="text-dark-100 text-sm">
-          Version {process.env.NEXT_PUBLIC_SERVER_VERSION}
+          Version {webVersion}{agentVersion ? ` / Agent ${agentVersion}` : ""}
         </p>
       </div>
     </div>

@@ -1,5 +1,8 @@
 // Terminal Socket.IO namespace
 import chalk from "chalk";
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import * as daemonClient from "./ptyDaemonClient.js";
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
@@ -9,8 +12,10 @@ import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const ORANGE = chalk.rgb(230, 138, 110);
 const PERSISTENCE_MODE = "daemon";
+const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "package.json"), "utf8")).version;
 
 // Store sessions: sessionId -> { pty, name, createdAt, buffer, daemon }
 const sessions = new Map();
@@ -65,6 +70,7 @@ export function setupTerminalSocket(io, apiKey) {
     trackConnection();
 
     socket.emit("serverInfo", {
+      version: PKG_VERSION,
       remoteAvailable: isRemoteAvailable(),
       daemonMode: PERSISTENCE_MODE === "daemon" && daemonClient.isConnected(),
       platform: process.platform,
