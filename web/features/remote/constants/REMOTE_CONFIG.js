@@ -41,7 +41,16 @@ export const REMOTE_CONFIG = {
   edgeScrollThreshold: 15,     // px overflow to trigger scroll
   edgeScrollMultiplier: 1.5,   // convert overflow to scroll amount (higher = faster)
   momentumFriction: 0.94,      // velocity decay per frame (higher = longer momentum)
-  momentumMinVelocity: 0.3     // stop when velocity below this
+  momentumMinVelocity: 0.3,    // stop when velocity below this
+
+  // Virtual trackpad (Jump Desktop style)
+  pointerMode: "direct",         // "direct" | "trackpad" (default)
+  trackpadSensitivity: 1.3,      // base speed multiplier
+  trackpadAcceleration: 1.5,     // extra multiplier when swipe fast
+  trackpadTapMaxMove: 8,         // px — finger movement below this is treated as tap
+  trackpadTapMaxDuration: 220,   // ms — touch duration below this is a tap
+  trackpadCursorSize: 20,        // px — virtual cursor overlay size
+  trackpadEdgeMarginRatio: 0.25  // keep virtual cursor inside viewport by this ratio of container size
 };
 
 export const MODIFIER_MAP = {

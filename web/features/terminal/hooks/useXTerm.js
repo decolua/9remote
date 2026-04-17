@@ -8,7 +8,9 @@ import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
 
 // XTerm instance management hook
-export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
+// isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
+// isFocused: pane receives keyboard input (only one pane focused at a time)
+export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, containerRef }) {
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const inputHandlerRef = useRef(null);
@@ -180,19 +182,19 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
       inputHandlerRef.current = null;
     }
 
-    if (isActive) {
+    if (isFocused) {
       inputHandlerRef.current = termRef.current.onData((data) => {
         socket.emit("input", { sessionId, data });
       });
     }
-  }, [isActive, socket, sessionId]);
+  }, [isFocused, socket, sessionId]);
 
-  // Re-fit when becoming visible
+  // Re-fit when becoming visible (desktop: all opened panes; mobile: active pane)
   useEffect(() => {
-    if (!isActive || !fitAddonRef.current || !termRef.current) return;
+    if (!isVisible || !fitAddonRef.current || !termRef.current) return;
     const timer = setTimeout(doResize, 100);
     return () => clearTimeout(timer);
-  }, [isActive, doResize]);
+  }, [isVisible, doResize]);
 
   // Update theme
   useEffect(() => {
@@ -289,7 +291,7 @@ export function useXTerm({ socket, sessionId, theme, isActive, containerRef }) {
       xtermScreen.removeEventListener("touchmove", handleTouchMove);
       xtermScreen.removeEventListener("touchend", handleTouchEnd);
     };
-  }, [termReady, isActive]);
+  }, [termReady, isVisible]);
 
   return {
     termRef,

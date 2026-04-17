@@ -39,6 +39,8 @@ export default function RemoteControls({
   selectionMode,
   dragMode,
   isDragging,
+  pointerMode,
+  onTogglePointerMode,
   modifierKeys,
   textInputValue,
   textInputRef,
@@ -153,32 +155,6 @@ export default function RemoteControls({
           </button>
         </div>
 
-        {/* Scroll */}
-        <div className="grid grid-cols-2 gap-1">
-          <button
-            onMouseDown={(e) => { e.preventDefault(); v(onScrollUp, streaming); }}
-            onMouseUp={onStopScrolling}
-            onMouseLeave={onStopScrolling}
-            onTouchStart={(e) => { e.preventDefault(); v(onScrollUp, streaming); }}
-            onTouchEnd={onStopScrolling}
-            disabled={!streaming}
-            className={`${btnBase} ${btnNormal} select-none`}
-          >
-            ⇈
-          </button>
-          <button
-            onMouseDown={(e) => { e.preventDefault(); v(onScrollDown, streaming); }}
-            onMouseUp={onStopScrolling}
-            onMouseLeave={onStopScrolling}
-            onTouchStart={(e) => { e.preventDefault(); v(onScrollDown, streaming); }}
-            onTouchEnd={onStopScrolling}
-            disabled={!streaming}
-            className={`${btnBase} ${btnNormal} select-none`}
-          >
-            ⇊
-          </button>
-        </div>
-
         {/* Special keys */}
         <div className="grid grid-cols-2 gap-1">
           <button
@@ -197,8 +173,16 @@ export default function RemoteControls({
           </button>
         </div>
 
-        {/* Drag & Backspace */}
-        <div className="grid grid-cols-2 gap-1">
+        {/* Pointer mode toggle, Drag & Backspace */}
+        <div className="grid grid-cols-3 gap-1">
+          <button
+            onClick={() => v(onTogglePointerMode)}
+            disabled={!streaming}
+            className={`${btnBase} ${pointerMode === "trackpad" ? "bg-brand-500 text-white" : btnNormal}`}
+            title={pointerMode === "trackpad" ? "Trackpad mode" : "Direct mode"}
+          >
+            🖱️
+          </button>
           <button
             onClick={() => v(onToggleDrag)}
             disabled={!streaming}
@@ -359,26 +343,12 @@ export default function RemoteControls({
             ↓
           </button>
           <button
-            onMouseDown={(e) => { e.preventDefault(); v(onScrollUp, streaming); }}
-            onMouseUp={onStopScrolling}
-            onMouseLeave={onStopScrolling}
-            onTouchStart={(e) => { e.preventDefault(); v(onScrollUp, streaming); }}
-            onTouchEnd={onStopScrolling}
+            onClick={() => v(onTogglePointerMode)}
             disabled={!streaming}
-            className={`${btnBase} ${btnNormal} select-none`}
+            className={`${btnBase} ${pointerMode === "trackpad" ? "bg-brand-500 text-white" : btnNormal}`}
+            title={pointerMode === "trackpad" ? "Trackpad mode" : "Direct mode"}
           >
-            ⇈
-          </button>
-          <button
-            onMouseDown={(e) => { e.preventDefault(); v(onScrollDown, streaming); }}
-            onMouseUp={onStopScrolling}
-            onMouseLeave={onStopScrolling}
-            onTouchStart={(e) => { e.preventDefault(); v(onScrollDown, streaming); }}
-            onTouchEnd={onStopScrolling}
-            disabled={!streaming}
-            className={`${btnBase} ${btnNormal} select-none`}
-          >
-            ⇊
+            🖱️
           </button>
           <button
             onClick={() => v(onToggleDrag)}
@@ -393,6 +363,7 @@ export default function RemoteControls({
           >
             ✋
           </button>
+          <div />
         </div>
 
         <div className="grid grid-cols-6 gap-1">

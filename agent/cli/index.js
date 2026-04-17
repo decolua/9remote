@@ -173,7 +173,7 @@ function startServerWithRestart(onReady, onServerCrash) {
 
     currentProcess = spawn("node", [serverPath], {
       cwd: path.dirname(serverPath),
-      stdio: "ignore",
+      stdio: "inherit",
       detached: false,
       env: spawnEnv,
     });
@@ -433,7 +433,7 @@ async function tuiMode() {
   }
 
   renderProgress(STEP.READY - 1, true); // Ready
-  await new Promise((r) => setTimeout(r, 3000));
+  await new Promise((r) => setTimeout(r, 1000));
 
   await updateTunnelUrl(keyData.key, tunnelUrl);
   saveState({ apiKey: keyData.key, tunnelUrl, tunnelPid: tunnelProcess.pid });

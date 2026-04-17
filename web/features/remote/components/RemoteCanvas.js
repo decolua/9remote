@@ -1,5 +1,7 @@
 "use client";
 
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
+
 // Remote Desktop Canvas component - handles screen rendering
 export default function RemoteCanvas({
   canvasRef,
@@ -10,6 +12,8 @@ export default function RemoteCanvas({
   streaming,
   selectionRect,
   clickIndicator,
+  pointerMode,
+  virtualCursor,
   onMouseDown,
   onMouseMove,
   onTouchStart,
@@ -26,6 +30,10 @@ export default function RemoteCanvas({
     <div
       className="w-full h-full overflow-hidden relative flex-1"
       ref={canvasContainerRef}
+      style={{ touchAction: "none" }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
       <canvas
         ref={canvasRef}
@@ -43,9 +51,6 @@ export default function RemoteCanvas({
         }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
         tabIndex={0}
         onKeyDown={onKeyDown}
         onContextMenu={(e) => e.preventDefault()}
@@ -62,6 +67,30 @@ export default function RemoteCanvas({
             height: `${selectionRect.height}px`
           }}
         />
+      )}
+
+      {/* Virtual Cursor (trackpad mode) */}
+      {pointerMode === "trackpad" && virtualCursor && (
+        <div
+          className="absolute pointer-events-none z-30"
+          style={{
+            left: `${virtualCursor.x * totalScale + canvasPan.x}px`,
+            top: `${virtualCursor.y * totalScale + canvasPan.y}px`,
+            width: `${REMOTE_CONFIG.trackpadCursorSize}px`,
+            height: `${REMOTE_CONFIG.trackpadCursorSize}px`,
+            transform: "translate(-2px, -2px)"
+          }}
+        >
+          <svg viewBox="0 0 24 24" className="w-full h-full drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+            <path
+              d="M4 2 L4 18 L8.5 14 L11 20 L14 18.5 L11.5 13 L18 12.5 Z"
+              fill="#ffffff"
+              stroke="#000000"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
       )}
 
       {/* Click Indicator */}

@@ -15,6 +15,10 @@ import Spinner from "@/shared/components/ui/Spinner";
 export default function RemoteDesktop({ onClose, socketRef, connected, connectionMode = "tunnel" }) {
   const [isLandscape, setIsLandscape] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [pointerMode, setPointerMode] = useState(REMOTE_CONFIG.pointerMode);
+  const togglePointerMode = useCallback(() => {
+    setPointerMode(prev => prev === "trackpad" ? "direct" : "trackpad");
+  }, []);
 
   useEffect(() => {
     const checkOrientation = () => setIsLandscape(window.innerWidth > window.innerHeight);
@@ -63,6 +67,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
     baseCanvasSize,
     zoomGestureTimeoutRef,
     clickIndicator,
+    virtualCursor,
     getCanvasCoordinates,
     resetZoom,
     handleCanvasInteraction,
@@ -168,6 +173,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
       setIsDragging,
       setDragMode,
       isMobile: type.includes("touch"),
+      pointerMode,
       handleSelection: (clientX, clientY, selType) => handleSelection(clientX, clientY, selType, {
         streaming,
         getCanvasCoordinates,
@@ -204,6 +210,8 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
           streaming={streaming}
           selectionRect={selectionRect}
           clickIndicator={clickIndicator}
+          pointerMode={pointerMode}
+          virtualCursor={virtualCursor}
           onMouseDown={createInteractionHandler("click")}
           onMouseMove={createInteractionHandler("move")}
           onTouchStart={createInteractionHandler("touch")}
@@ -221,6 +229,8 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
         selectionMode={selectionMode}
         dragMode={dragMode}
         isDragging={isDragging}
+        pointerMode={pointerMode}
+        onTogglePointerMode={togglePointerMode}
         modifierKeys={modifierKeys}
         textInputValue={textInputValue}
         textInputRef={textInputRef}

@@ -11,7 +11,10 @@ export function useDeviceId() {
     if (typeof window === "undefined") return null;
     let id = localStorage.getItem(DEVICE_ID_KEY);
     if (!id) {
-      id = crypto.randomUUID();
+      // Fallback for non-secure contexts (e.g. http over LAN IP) where crypto.randomUUID is unavailable
+      id =
+        globalThis.crypto?.randomUUID?.() ??
+        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
       localStorage.setItem(DEVICE_ID_KEY, id);
     }
     return id;

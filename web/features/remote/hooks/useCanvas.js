@@ -37,6 +37,11 @@ export function useCanvas(socketEmitFunctions) {
   const lastTouchTimeRef = useRef(0);
   const momentumFrameRef = useRef(null);
 
+  // Virtual cursor (trackpad mode) — position in server canvas pixels
+  const [virtualCursor, setVirtualCursor] = useState({ x: 0, y: 0 });
+  const touchStartTimeRef = useRef(0);
+  const touchTotalMoveRef = useRef(0);
+
   // Get percentage-based coordinates
   // Canvas is rendered at server resolution, scaled by fitScale * canvasZoom via CSS transform.
   // We reverse the full CSS transform to map screen coords → canvas logical coords.
@@ -227,16 +232,132 @@ export function useCanvas(socketEmitFunctions) {
     };
   }, [recalculateDisplaySize]);
 
+  // Emit virtual cursor position as server percentage
+  const emitVirtualCursor = useCallback((cursor) => {
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width === 0) return;
+    const percentX = Math.max(0, Math.min(100, (cursor.x / canvas.width) * 100));
+    const percentY = Math.max(0, Math.min(100, (cursor.y / canvas.height) * 100));
+    socketEmitFunctions?.emitMouseMove?.(percentX, percentY);
+  }, [socketEmitFunctions]);
+
   // Handle canvas interaction
   const handleCanvasInteraction = useCallback((event, type, options) => {
     const {
       streaming, socket, selectionMode, selectionStart,
       dragMode, isDragging, setIsDragging, setDragMode,
-      isMobile, handleSelection
+      isMobile, handleSelection, pointerMode = "direct"
     } = options;
 
     if (!streaming || !socketEmitFunctions) return;
     event.preventDefault();
+
+    // ── Virtual trackpad branch (Jump Desktop style) ─────────────────────
+    // Only active on touch events in trackpad mode; mouse/desktop still direct.
+    if (pointerMode === "trackpad" && event.type.startsWith("touch")) {
+      const canvas = canvasRef.current;
+      if (!canvas || canvas.width === 0) return;
+
+      // Two-finger gestures: tap = right-click, otherwise fall through to
+      // existing pinch-zoom/pan handling below by not returning here.
+      if (event.touches?.length >= 2) {
+        // Let existing multi-touch block handle zoom; don't inject trackpad logic.
+      } else if (event.touches?.length === 1 || type === "touchend") {
+        const touch = event.touches?.[0] || event.changedTouches?.[0];
+        if (!touch) return;
+
+        if (type === "touch") {
+          touchStartTimeRef.current = Date.now();
+          touchTotalMoveRef.current = 0;
+          setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+          lastTouchTimeRef.current = Date.now();
+          return;
+        }
+
+        if (type === "touchmove") {
+          const deltaX = touch.clientX - lastTouchCenter.x;
+          const deltaY = touch.clientY - lastTouchCenter.y;
+          touchTotalMoveRef.current += Math.abs(deltaX) + Math.abs(deltaY);
+
+          // Acceleration based on pointer speed (px/ms)
+          const now = Date.now();
+          const dt = Math.max(1, now - lastTouchTimeRef.current);
+          const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY) / dt;
+          const accel = 1 + Math.min(REMOTE_CONFIG.trackpadAcceleration, speed * REMOTE_CONFIG.trackpadAcceleration);
+          const mult = REMOTE_CONFIG.trackpadSensitivity * accel;
+
+          // Convert screen-space delta back to canvas-space (inverse of CSS scale)
+          const totalScale = Math.max(0.0001, fitScale * canvasZoom);
+          const canvasDeltaX = (deltaX * mult) / totalScale;
+          const canvasDeltaY = (deltaY * mult) / totalScale;
+
+          setVirtualCursor(prev => {
+            const nx = Math.max(0, Math.min(canvas.width - 1, prev.x + canvasDeltaX));
+            const ny = Math.max(0, Math.min(canvas.height - 1, prev.y + canvasDeltaY));
+            const next = { x: nx, y: ny };
+            emitVirtualCursor(next);
+
+            // Auto-follow pan: keep cursor inside viewport with margin.
+            // Only active when canvas is zoomed (pan has room to move).
+            const container = canvasContainerRef.current;
+            if (container && canvasZoom > 1) {
+              const cw = container.clientWidth;
+              const ch = container.clientHeight;
+              const marginX = cw * REMOTE_CONFIG.trackpadEdgeMarginRatio;
+              const marginY = ch * REMOTE_CONFIG.trackpadEdgeMarginRatio;
+              const displayW = canvas.width * totalScale;
+              const displayH = canvas.height * totalScale;
+              const maxPanX = Math.min(0, cw - displayW);
+              const maxPanY = Math.min(0, ch - displayH);
+
+              setCanvasPan(p => {
+                const screenX = nx * totalScale + p.x;
+                const screenY = ny * totalScale + p.y;
+                let newPanX = p.x;
+                let newPanY = p.y;
+                if (screenX < marginX) newPanX = p.x + (marginX - screenX);
+                else if (screenX > cw - marginX) newPanX = p.x - (screenX - (cw - marginX));
+                if (screenY < marginY) newPanY = p.y + (marginY - screenY);
+                else if (screenY > ch - marginY) newPanY = p.y - (screenY - (ch - marginY));
+                return {
+                  x: Math.max(maxPanX, Math.min(0, newPanX)),
+                  y: Math.max(maxPanY, Math.min(0, newPanY))
+                };
+              });
+            }
+            return next;
+          });
+
+          setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+          lastTouchTimeRef.current = now;
+          return;
+        }
+
+        if (type === "touchend") {
+          const duration = Date.now() - touchStartTimeRef.current;
+          const isTap = touchTotalMoveRef.current <= REMOTE_CONFIG.trackpadTapMaxMove &&
+                        duration <= REMOTE_CONFIG.trackpadTapMaxDuration;
+          if (isTap) {
+            const percentX = (virtualCursor.x / canvas.width) * 100;
+            const percentY = (virtualCursor.y / canvas.height) * 100;
+            const isDoubleClick = checkDoubleClick(virtualCursor.x, virtualCursor.y);
+            if (dragMode) {
+              if (!isDragging) {
+                setIsDragging(true);
+                socketEmitFunctions.emitMousePress(percentX, percentY, "left");
+              } else {
+                setIsDragging(false);
+                setDragMode(false);
+                socketEmitFunctions.emitMouseRelease(percentX, percentY, "left");
+              }
+            } else {
+              socketEmitFunctions.emitMouseClick(percentX, percentY, "left", isDoubleClick);
+            }
+          }
+          return;
+        }
+      }
+    }
 
     // Multi-touch zoom/pan
     if (event.type.startsWith("touch") && event.touches?.length >= 2 && !selectionMode) {
@@ -537,9 +658,9 @@ export function useCanvas(socketEmitFunctions) {
     }
   }, [
     isZooming, isPanning, isEdgeScrolling, canvasZoom, lastTouchDistance, lastTouchCenter,
-    baseCanvasSize, recentZoomGesture, getCanvasCoordinates, showClickIndicator,
+    baseCanvasSize, recentZoomGesture, fitScale, virtualCursor, getCanvasCoordinates, showClickIndicator,
     getTouchDistance, getTouchCenter, socketEmitFunctions, cancelLongPress,
-    startLongPress, checkDoubleClick, stopMomentum, startMomentumScroll
+    startLongPress, checkDoubleClick, stopMomentum, startMomentumScroll, emitVirtualCursor
   ]);
 
   // Handle canvas dimensions from server
@@ -575,6 +696,18 @@ export function useCanvas(socketEmitFunctions) {
     return dimensionsChanged;
   }, [recalculateDisplaySize]);
 
+  // Center virtual cursor whenever canvas dimensions change
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width === 0) return;
+    setVirtualCursor(prev => {
+      if (prev.x === 0 && prev.y === 0) {
+        return { x: canvas.width / 2, y: canvas.height / 2 };
+      }
+      return prev;
+    });
+  }, [baseCanvasSize]);
+
   return {
     canvasRef,
     canvasContainerRef,
@@ -584,6 +717,7 @@ export function useCanvas(socketEmitFunctions) {
     baseCanvasSize,
     zoomGestureTimeoutRef,
     clickIndicator,
+    virtualCursor,
     getCanvasCoordinates,
     resetZoom,
     handleCanvasInteraction,

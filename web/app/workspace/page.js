@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSocket } from "@/features/session/hooks/useSocket";
@@ -11,8 +11,11 @@ import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 import MobileBackgroundImage from "@/shared/components/ui/MobileBackground";
 import { useNotification } from "@/shared/hooks/useNotification";
+import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "@/features/terminal/constants/terminalConfig";
+import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 
-const Terminal = dynamic(() => import("@/features/terminal/components/Terminal"), { ssr: false });
+const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
+const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
 const SessionList = dynamic(() => import("@/features/session/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
 const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/WorkspaceList"), { ssr: false });
@@ -35,9 +38,8 @@ export default function WorkspacePage() {
     pushView, 
     popView: storePopView, 
     setViewStack,
-    addOpenedSession, 
+    addOpenedSession,
     removeOpenedSession,
-    clearOpenedSessions,
     reset: resetStore
   } = useTerminalStore();
   
@@ -61,6 +63,30 @@ export default function WorkspacePage() {
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen); // Selector - only subscribe to function
 
+  // Desktop split-view detection
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false
+  );
+  useEffect(() => {
+    const check = () => setIsDesktop(window.innerWidth >= DESKTOP_BREAKPOINT);
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // Registry of per-pane APIs (focus, doResize) for MobileKeyboard callbacks
+  const paneApisRef = useRef({});
+  const registerPaneApi = useCallback((sessionId, api) => {
+    if (api) paneApisRef.current[sessionId] = api;
+    else delete paneApisRef.current[sessionId];
+  }, []);
+
+  // Registry of pane DOM elements for auto-scroll into view
+  const paneElementsRef = useRef({});
+  const registerPaneElement = useCallback((sessionId, el) => {
+    if (el) paneElementsRef.current[sessionId] = el;
+    else delete paneElementsRef.current[sessionId];
+  }, []);
+
   // Save theme to localStorage when changed
   const handleThemeChange = useCallback((newTheme) => {
     setTheme(newTheme);
@@ -72,15 +98,11 @@ export default function WorkspacePage() {
   // Current view is top of stack
   const currentView = viewStack[viewStack.length - 1];
 
-  // Pop view and reload sessions
+  // Pop view and reload sessions - keep terminals alive across back/forth
   const popView = useCallback(() => {
-    // Clear all opened sessions when going back from terminal to list (unmount terminals)
-    if (currentView.type === "terminal") {
-      clearOpenedSessions();
-    }
     storePopView();
     loadSessions();
-  }, [currentView, clearOpenedSessions, storePopView, loadSessions]);
+  }, [storePopView, loadSessions]);
 
   // Load sessions when socket connects
   useEffect(() => {
@@ -90,16 +112,17 @@ export default function WorkspacePage() {
   }, [socket, loadSessions]);
 
   // Cleanup openedSessions - remove sessions that no longer exist
+  // Delay to avoid race with newly-created sessions (server create → loadSessions is async)
   useEffect(() => {
-    if (sessions.length > 0 && openedSessions.length > 0) {
+    if (sessions.length === 0 || openedSessions.length === 0) return;
+    const timer = setTimeout(() => {
       const validSessionIds = sessions.map(s => s.id);
       const invalidSessions = openedSessions.filter(sid => !validSessionIds.includes(sid));
-      
       if (invalidSessions.length > 0) {
-        console.log("Cleaning up invalid sessions:", invalidSessions);
         invalidSessions.forEach(sid => removeOpenedSession(sid));
       }
-    }
+    }, 500);
+    return () => clearTimeout(timer);
   }, [sessions, openedSessions, removeOpenedSession]);
 
   // VisualViewport height - handle mobile keyboard
@@ -160,25 +183,51 @@ export default function WorkspacePage() {
       if (!result.success) {
         alert("Failed to create session: " + result.error);
       } else if (result.sessionId) {
-        // Add newly created session to openedSessions
         addOpenedSession(result.sessionId);
       }
     });
   }, [createSession, addOpenedSession]);
 
+  // Smooth-scroll focused pane to center of viewport (desktop split-view only)
+  useEffect(() => {
+    if (!isDesktop || currentView.type !== "terminal") return;
+    const el = paneElementsRef.current[currentView.sessionId];
+    if (!el) return;
+    // Defer to next frame so layout is stable (e.g. after mount)
+    const id = requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isDesktop, currentView, openedSessions]);
+
+  // Entering terminal view: auto-open ALL sessions, set active = selected one
   const handleSelectSession = useCallback((sessionId) => {
+    sessions.forEach(s => addOpenedSession(s.id));
     addOpenedSession(sessionId);
-    // Check if we're already in a terminal view
+
     if (currentView.type === "terminal") {
-      // Replace current terminal view instead of pushing (no stack)
       const newStack = [...viewStack];
       newStack[newStack.length - 1] = { type: "terminal", sessionId };
       setViewStack(newStack);
     } else {
-      // Push new terminal view (from SessionList)
       pushView({ type: "terminal", sessionId });
     }
-  }, [addOpenedSession, currentView, viewStack, setViewStack, pushView]);
+  }, [sessions, addOpenedSession, currentView, viewStack, setViewStack, pushView]);
+
+  // Quick-create from terminal header "+" button - auto-switch focus to new session
+  const handleQuickCreateSession = useCallback(() => {
+    const name = `Terminal ${sessions.length + 1}`;
+    createSession(name, (result) => {
+      if (!result.success) {
+        alert("Failed to create session: " + result.error);
+        return;
+      }
+      if (result.sessionId) {
+        // Reuse handleSelectSession: adds to openedSessions + switches active tab
+        handleSelectSession(result.sessionId);
+      }
+    });
+  }, [sessions, createSession, handleSelectSession]);
 
   const handleDeleteSession = useCallback((sessionId) => {
     deleteSession(sessionId, () => {
@@ -333,54 +382,87 @@ export default function WorkspacePage() {
         />
       </div>
 
-      {/* Terminals - keep alive for caching */}
-      {openedSessions.map((sessionId) => {
-        const isActive = currentView.type === "terminal" && currentView.sessionId === sessionId;
-        // Check if we're in terminal view (for slide animation from list)
+      {/* Terminal view: shared header + multi-pane layout */}
+      {openedSessions.length > 0 && (() => {
         const isTerminalView = currentView.type === "terminal";
+        const activeSessionId = isTerminalView ? currentView.sessionId : null;
         return (
-          <div 
-            key={sessionId}
-            className={`absolute inset-0 transition-all duration-300 ease-out ${
-              isTerminalView
-                ? "translate-x-0"
-                : "translate-x-full"
-            } ${
-              isActive 
-                ? "opacity-100 z-10" 
-                : "opacity-0 z-0 pointer-events-none"
+          <div
+            className={`absolute inset-0 transition-all duration-300 ease-out flex flex-col ${
+              isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
             }`}
           >
-            <Terminal 
-              socket={socket}
+            <TerminalHeader
+              sessions={sessions}
+              activeSessionId={activeSessionId}
               connected={connected}
-              sessionId={sessionId}
-              isActive={isActive}
-              theme={theme}
-              onThemeChange={handleThemeChange}
+              notifications={notifications}
+              onSwitchSession={handleSelectSession}
+              onCreateSession={handleQuickCreateSession}
               onBack={popView}
-              onLogout={handleLogoutWithConfirm}
               onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
               onOpenFiles={handleOpenFiles}
-              onSelectSite={handleOpenSite}
+              onLogout={handleLogoutWithConfirm}
+              onStopCodespace={stopCodespace}
+              onThemeChange={handleThemeChange}
+              theme={theme}
+              codespaceInfo={codespaceInfo}
               tunnelUrl={auth?.tunnelUrl}
               apiKey={auth?.apiKey}
               connectionMode={connectionMode}
-              codespaceInfo={codespaceInfo}
-              onStopCodespace={stopCodespace}
-              sessions={sessions}
-              openedSessions={openedSessions}
-              onSwitchSession={handleSelectSession}
-              platform={platform}
               subscribeToPush={subscribeToPush}
               unsubscribeFromPush={unsubscribeFromPush}
-              notifications={notifications}
-              clearNotification={clearNotification}
               agentVersion={agentVersion}
+              socketRef={socketRef}
             />
+
+            {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
+            <div className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-dark-400" : "relative"}`}>
+              {openedSessions.map((sessionId) => {
+                const isFocused = sessionId === activeSessionId;
+                const isVisible = isDesktop || isFocused;
+                return (
+                  <div
+                    key={sessionId}
+                    ref={(el) => registerPaneElement(sessionId, el)}
+                    className={
+                      isDesktop
+                        ? "flex-1 h-full"
+                        : `absolute inset-0 ${isFocused ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`
+                    }
+                    style={isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
+                  >
+                    <TerminalPane
+                      socket={socket}
+                      connected={connected}
+                      sessionId={sessionId}
+                      isVisible={isVisible}
+                      isFocused={isFocused}
+                      theme={theme}
+                      onActivate={handleSelectSession}
+                      onRegisterApi={registerPaneApi}
+                      showFocusBorder={isDesktop && openedSessions.length > 1}
+                      notifications={notifications}
+                      clearNotification={clearNotification}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Shared MobileKeyboard - routes to focused pane */}
+            {activeSessionId && (
+              <MobileKeyboard
+                socket={socket}
+                sessionId={activeSessionId}
+                onExpandChange={() => paneApisRef.current[activeSessionId]?.doResize?.()}
+                onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
+                platform={platform}
+              />
+            )}
           </div>
         );
-      })}
+      })()}
 
       {/* Remote Desktop - conditional render */}
       {currentView.type === "remote" && (
