@@ -64,7 +64,7 @@ async function buildServer() {
     ...baseConfig,
     entryPoints: [path.join(SERVER_DIR, "index.js")],
     outfile,
-    external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel"],
+    external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel", "node-screenshots"],
   });
   console.log(`✅ Server → agent/dist/server.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }

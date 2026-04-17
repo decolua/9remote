@@ -1,5 +1,6 @@
 import { WsProtocol } from "./WsProtocol.js";
 import { WebRtcProtocol } from "./WebRtcProtocol.js";
+import { encodeTilesBatch } from "../features/remote/handlers/ScreenHandler.js";
 
 /**
  * ProtocolManager — unified server transport per client connection.
@@ -30,6 +31,7 @@ export class ProtocolManager {
   constructor(socket, config) {
     this._ws = new WsProtocol(socket);
     this._rtc = null;
+    this._wsChunkSize = config.wsChunkSize;
 
     if (config.enableWebRTC) {
       this._rtc = new WebRtcProtocol({
@@ -88,7 +90,39 @@ export class ProtocolManager {
       return;
     }
 
-    this._ws.emit("tiles-data", payload);
+    this._emitTilesChunked(payload);
+  }
+
+  /**
+   * Split tiles into smaller batches before WS emit.
+   * Socket.IO binary packet grows with number of Buffer placeholders;
+   * too many tiles in one emit causes client-side parse error.
+   */
+  /**
+   * Binary pack path — encode tiles to single Buffer per chunk and emit as
+   * "tiles-data-binary". Each WS packet carries exactly 1 binary attachment,
+   * avoiding the multi-attachment parser issue with socket.io-client.
+   * Metadata (hashes, changedIndices) travels in a separate "tiles-meta" event.
+   */
+  _emitTilesChunked(payload) {
+    const { tiles, timestamp, currentHashes, changedIndices } = payload;
+    const list = tiles || [];
+    const size = this._wsChunkSize;
+    const frameTs = timestamp ?? Date.now();
+
+    if (list.length === 0) {
+      this._ws.emit("tiles-meta", { timestamp: frameTs, currentHashes, changedIndices });
+      return;
+    }
+
+    for (let i = 0; i < list.length; i += size) {
+      const chunk = list.slice(i, i + size);
+      this._ws.emit("tiles-data-binary", encodeTilesBatch(chunk, frameTs));
+    }
+
+    if (currentHashes || changedIndices) {
+      this._ws.emit("tiles-meta", { timestamp: frameTs, currentHashes, changedIndices });
+    }
   }
 
   /** Tear down WebRTC peer */

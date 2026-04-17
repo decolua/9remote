@@ -111,6 +111,8 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
     renderedTilesRef,
     handleFullScreenData,
     handleTilesData,
+    handleTilesBinary,
+    handleTilesMeta,
     handleScreenDimensions,
     cleanupTiles,
     requestScreenWithHashes
@@ -136,9 +138,14 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
     };
     const onScreenError = (err) => console.error("Screen error:", err);
 
+    const onTilesBinary = (buffer) => handleTilesBinary(buffer);
+    const onTilesMeta = (meta) => handleTilesMeta(meta);
+
     socket.on("screen-dimensions", onScreenDimensions);
     socket.on("full-screen-data", onFullScreenData);
     socket.on("tiles-data", onTilesData);
+    socket.on("tiles-data-binary", onTilesBinary);
+    socket.on("tiles-meta", onTilesMeta);
     socket.on("screen-error", onScreenError);
 
     socket.emit("start-streaming");
@@ -148,6 +155,8 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
       socket.off("screen-dimensions", onScreenDimensions);
       socket.off("full-screen-data", onFullScreenData);
       socket.off("tiles-data", onTilesData);
+      socket.off("tiles-data-binary", onTilesBinary);
+      socket.off("tiles-meta", onTilesMeta);
       socket.off("screen-error", onScreenError);
       cleanupTiles();
       if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);

@@ -10,6 +10,31 @@ const makeTileBlob = (buf) => new Blob([buf], { type: "image/jpeg" });
 
 const makeInvalidate = (ref, tileIndex) => () => { ref.current[tileIndex] = null; };
 
+// Shared worker for WS-binary tile decoding (off main thread)
+let _binWorker = null;
+let _binMsgId = 0;
+const _binPending = new Map();
+
+function getBinWorker() {
+  if (_binWorker === false) return null; // previously failed
+  if (_binWorker) return _binWorker;
+  try {
+    _binWorker = new Worker(
+      new URL("../workers/tileDecoder.worker.js", import.meta.url)
+    );
+    _binWorker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
+      const resolve = _binPending.get(id);
+      if (!resolve) return;
+      _binPending.delete(id);
+      resolve(error ? null : { tiles, timestamp, hasBitmap });
+    };
+    return _binWorker;
+  } catch {
+    _binWorker = false;
+    return null;
+  }
+}
+
 /**
  * Decode image blob to ImageBitmap off main thread (cross-browser).
  * Chrome: createImageBitmap(blob) is non-blocking.
@@ -263,7 +288,7 @@ export function useTiles(socketRef, streaming, canvasRef) {
                   loadingTilesRef.current.delete(tile.tileIndex);
                   invalidateTileHash();
                 };
-                img.src = tile.imageBase64;
+                img.src = `data:image/jpeg;base64,${tile.imageBase64}`;
               }
             }
           });
@@ -274,6 +299,39 @@ export function useTiles(socketRef, streaming, canvasRef) {
       console.error("Tiles data error:", error);
     }
   }, [canvasRef]);
+
+  // Handle binary tile batch from WS fallback — decode in worker, reuse tiles-data flow
+  const handleTilesBinary = useCallback((buffer) => {
+    if (!buffer) return;
+    // socket.io-client delivers binary as ArrayBuffer by default
+    const ab = buffer instanceof ArrayBuffer ? buffer : buffer?.buffer;
+    if (!ab) return;
+    const worker = getBinWorker();
+    if (!worker) return; // Worker unavailable — skip this batch gracefully
+    const id = ++_binMsgId;
+    new Promise((resolve) => {
+      _binPending.set(id, resolve);
+      worker.postMessage({ buffer: ab, id }, [ab]);
+    }).then((result) => {
+      if (!result) return;
+      handleTilesData({
+        tiles: result.tiles,
+        timestamp: result.timestamp,
+        hasBitmap: result.hasBitmap,
+        transport: "ws"
+      });
+    });
+  }, [handleTilesData]);
+
+  // Handle metadata packet (hashes + changedIndices) — separated from binary tiles
+  const handleTilesMeta = useCallback((meta) => {
+    if (!meta) return;
+    lastDataTimeRef.current = Date.now();
+    if (meta.currentHashes && Array.isArray(meta.currentHashes)) {
+      clientTileHashesRef.current = meta.currentHashes;
+      isRequestingRef.current = false;
+    }
+  }, []);
 
   const startStreamingWithTiles = useCallback((startStreaming) => {
     startStreaming();
@@ -340,6 +398,8 @@ export function useTiles(socketRef, streaming, canvasRef) {
     totalTileCount,
     handleFullScreenData,
     handleTilesData,
+    handleTilesBinary,
+    handleTilesMeta,
     startStreamingWithTiles,
     handleScreenDimensions,
     cleanupTiles,

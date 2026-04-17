@@ -109,7 +109,8 @@ export async function setupRemoteHandlers(socket, apiKey) {
     dcMaxMessageSize,
     dcChunkSize,
     dcMaxTilesPerFrame,
-    answerTimeout
+    answerTimeout,
+    wsChunkSize: REMOTE_CONFIG.streaming.chunkSize
   });
 
   await protocol.init();

@@ -148,7 +148,8 @@ export async function setupSocketIO(server) {
     allowEIO3: true,
     allowUpgrades: true,
     pingTimeout: 60000,
-    pingInterval: 25000
+    pingInterval: 25000,
+    maxHttpBufferSize: 1e8
   });
 
   // Check remote availability at startup
@@ -173,6 +174,7 @@ export async function setupSocketIO(server) {
     pushUiLog(`Client connected: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);
 
     socket.on("disconnect", (reason) => {
+      console.log(`[DEBUG-DC] disconnect: socketId=${socket.id}, deviceId=${deviceId?.slice(0,8)}, reason="${reason}", approved=${socket.data.approved}`);
       untrackConnection(socket.id);
       removePendingApproval(socket.id);
       pushUiLog(`Client disconnected: ${ip} (${reason})`);

@@ -17,7 +17,7 @@ function encodeTileBinary(tile) {
  * Encode batch of tiles to binary.
  * Format: [4-byte tileCount] + [8-byte timestamp Float64BE] + tile binaries
  */
-function encodeTilesBatch(tiles, timestamp) {
+export function encodeTilesBatch(tiles, timestamp) {
   const batchHeader = Buffer.alloc(12);
   batchHeader.writeUInt32LE(tiles.length, 0);
   batchHeader.writeDoubleBE(timestamp, 4);
