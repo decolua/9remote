@@ -1,9 +1,12 @@
 // TileManager for Remote Desktop Screen Capture
-import sharp from "sharp";
 import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
+import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
+import * as capture from "./adapters/captureAdapter.js";
+import { encodeJpeg } from "./adapters/encoderAdapter.js";
+import { FrameMetrics } from "./metrics.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,7 +14,8 @@ const __dirname = path.dirname(__filename);
 export class TileManager {
   constructor(robot) {
     this.robot = robot;
-    this.tileSize = 128;
+    this.metrics = new FrameMetrics();
+    this.tileSize = REMOTE_CONFIG.pipeline.tileSize;
     this.lastTileChecksums = new Map();
     this.screenWidth = 0;
     this.screenHeight = 0;
@@ -31,12 +35,13 @@ export class TileManager {
     this.captureWidth = 0;
     this.captureHeight = 0;
     this.scaleFactor = 1;
-    this.compressionQuality = 50;
+    this.compressionQuality = REMOTE_CONFIG.pipeline.jpegQuality;
 
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
     }
 
+    capture.initCapture(robot);
     this.initializeScreenDimensions();
   }
 
@@ -165,43 +170,16 @@ export class TileManager {
   }
 
   async captureFullScreen() {
-    // Use cached DPI scale - no need to detect every capture
-    const bitmap = this.robot.screen.capture(0, 0, this.captureWidth, this.captureHeight);
-    const actualWidth = bitmap.byteWidth / bitmap.bytesPerPixel;
-    const actualHeight = bitmap.height;
-
-    const imageBuffer = Buffer.from(bitmap.image);
-
-    // BGRA -> RGBA optimized using Uint32Array (4x faster than byte loop)
-    const uint32View = new Uint32Array(imageBuffer.buffer, imageBuffer.byteOffset, imageBuffer.length >> 2);
-    for (let i = 0; i < uint32View.length; i++) {
-      const pixel = uint32View[i];
-      // Swap R and B: BGRA (0xAARRGGBB in LE) -> RGBA (0xAABBGGRR in LE)
-      uint32View[i] = (pixel & 0xFF00FF00) | ((pixel & 0x00FF0000) >> 16) | ((pixel & 0x000000FF) << 16);
-    }
-
-    let finalBuffer = imageBuffer;
-    let finalWidth = actualWidth;
-    let finalHeight = actualHeight;
-
-    // Resize to logical size for performance (skip if already at logical size)
-    if (this.dpiScale > 1 || this.scaleFactor < 1.0) {
-      const targetWidth = Math.floor(this.screenWidth * this.scaleFactor);
-      const targetHeight = Math.floor(this.screenHeight * this.scaleFactor);
-
-      const scaledBuffer = await sharp(imageBuffer, {
-        raw: { width: actualWidth, height: actualHeight, channels: bitmap.bytesPerPixel }
-      })
-        .resize(targetWidth, targetHeight, { kernel: sharp.kernel.lanczos3, fit: "fill", fastShrinkOnLoad: false })
-        .raw()
-        .toBuffer();
-
-      finalBuffer = scaledBuffer;
-      finalWidth = targetWidth;
-      finalHeight = targetHeight;
-    }
-
-    return { buffer: finalBuffer, width: finalWidth, height: finalHeight, channels: bitmap.bytesPerPixel };
+    // Capture via adapter — returns native format (BGRA or RGBA).
+    // No pixel swap, no resize: encoder handles format; tile-based change detection
+    // replaces the need for downscale.
+    const result = await capture.captureFull();
+    return {
+      buffer: result.buffer,
+      width: result.width,
+      height: result.height,
+      channels: result.channels
+    };
   }
 
   async getSharedScreenCapture() {
@@ -227,8 +205,14 @@ export class TileManager {
     if (this.isProcessing) return { tiles: [], currentHashes: Array.from(this.lastTileChecksums.values()) };
     this.isProcessing = true;
 
+    // Metrics: stage timers (performance.now() returns 0 when disabled)
+    const tStart = this.metrics.now();
+    let tCaptureEnd = tStart, tChecksumEnd = tStart;
+
     try {
       const screenData = await this.getSharedScreenCapture();
+      tCaptureEnd = this.metrics.now();
+
       const changedTiles = [];
       const changedTileIndices = [];
       const currentTileHashes = new Map();
@@ -239,6 +223,7 @@ export class TileManager {
         const checksum = this.calculateTileChecksumDirect(screenData, i);
         currentTileHashes.set(i, checksum);
       }
+      tChecksumEnd = this.metrics.now();
 
       const currentHashes = Array.from(currentTileHashes.values());
 
@@ -251,6 +236,7 @@ export class TileManager {
         }
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);
+        this._recordFrame(tStart, tCaptureEnd, tChecksumEnd, changedTiles, screenData);
         return { tiles: changedTiles, currentHashes };
       }
 
@@ -282,6 +268,8 @@ export class TileManager {
         const results = await Promise.all(tilePromises);
         changedTiles.push(...results);
       }
+
+      this._recordFrame(tStart, tCaptureEnd, tChecksumEnd, changedTiles, screenData);
 
       // if (changedTiles.length > 0) {
       //   const sizes = changedTiles.map(t => t.imageBuffer.length);
@@ -376,10 +364,25 @@ export class TileManager {
   }
 
   async compressTileImage(buffer, width, height) {
-    // Return raw Buffer for binary transfer (no base64 overhead)
-    return sharp(buffer, { raw: { width, height, channels: 4 } })
-      .jpeg({ quality: this.compressionQuality })
-      .toBuffer();
+    // Delegated to encoderAdapter (sharp | jpeg-turbo) based on REMOTE_CONFIG.pipeline
+    return encodeJpeg(buffer, width, height, 4);
+  }
+
+  _recordFrame(tStart, tCaptureEnd, tChecksumEnd, tiles, screenData) {
+    if (!this.metrics.cfg.enabled) return;
+    const tEnd = this.metrics.now();
+    const tileBytes = tiles.map(t => t.imageBuffer?.length || 0);
+    const rawBytes = screenData ? (screenData.width * screenData.height * screenData.channels) : 0;
+    this.metrics.record({
+      capture: tCaptureEnd - tStart,
+      checksum: tChecksumEnd - tCaptureEnd,
+      encode: tEnd - tChecksumEnd,
+      total: tEnd - tStart,
+      changedTiles: tiles.length,
+      totalTiles: this.totalTiles,
+      tileBytes,
+      rawBytes
+    });
   }
 
   async getScreenDimensions() {

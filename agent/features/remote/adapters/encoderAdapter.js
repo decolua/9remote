@@ -1,0 +1,45 @@
+// Encoder adapter — sharp (RGBA) | jpeg-turbo (BGRA/RGBA native)
+// No BGRA→RGBA conversion needed: jpeg-turbo accepts BGRA via FORMAT_BGRA;
+// sharp requires RGBA so convert only when sharp is paired with a BGRA source.
+import sharp from "sharp";
+import jpegTurboModule from "@julusian/jpeg-turbo";
+import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
+
+const jpegTurbo = jpegTurboModule.default || jpegTurboModule;
+
+function turboFormat(format) {
+  return format === "bgra" ? jpegTurbo.FORMAT_BGRA : jpegTurbo.FORMAT_RGBA;
+}
+
+// Swap R↔B in-place for BGRA→RGBA (4x faster than byte loop via Uint32)
+function bgraToRgbaInPlace(buf) {
+  const u32 = new Uint32Array(buf.buffer, buf.byteOffset, buf.length >> 2);
+  for (let i = 0; i < u32.length; i++) {
+    const p = u32[i];
+    u32[i] = (p & 0xff00ff00) | ((p & 0x00ff0000) >> 16) | ((p & 0x000000ff) << 16);
+  }
+}
+
+export async function encodeJpeg(buffer, width, height, channels = 4) {
+  const { encoder, inputFormat, jpegQuality } = REMOTE_CONFIG.pipeline;
+
+  if (encoder === "jpegTurbo") {
+    return jpegTurbo.compressSync(buffer, {
+      width,
+      height,
+      format: turboFormat(inputFormat),
+      quality: jpegQuality
+    });
+  }
+
+  // sharp path — needs RGBA
+  let input = buffer;
+  if (inputFormat === "bgra") {
+    // Copy so we don't mutate shared screen buffer
+    input = Buffer.from(buffer);
+    bgraToRgbaInPlace(input);
+  }
+  return sharp(input, { raw: { width, height, channels } })
+    .jpeg({ quality: jpegQuality })
+    .toBuffer();
+}

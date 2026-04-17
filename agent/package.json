@@ -31,6 +31,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@julusian/jpeg-turbo": "^2.3.0",
     "bufferutil": "^4.1.0",
     "chalk": "^5.4.1",
     "edge-tts-node": "^1.5.7",
@@ -39,6 +40,7 @@
     "msedge-tts": "^2.0.4",
     "node-datachannel": "^0.32.1",
     "node-machine-id": "^1.1.12",
+    "node-screenshots": "^0.2.8",
     "ora": "^8.1.1",
     "preact": "^10.26.2",
     "qrcode": "^1.5.4",

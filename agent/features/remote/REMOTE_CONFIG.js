@@ -1,6 +1,33 @@
 // Remote Desktop Server Configuration
 
+// Per-OS optimal libs based on benchmark (see benchmark/RESULT.md)
+// darwin: robotjs + jpeg-turbo (BGRA native, SIMD NEON, 3x faster than sharp)
+// win32:  node-screenshots DXGI GPU + sharp (RGBA, AVX2 prebuilt optimal)
+const PLATFORM_DEFAULTS = {
+  darwin: { capture: "robotjs", encoder: "sharp", tileSize: 128, inputFormat: "bgra" },
+  win32: { capture: "nodeScreenshots", encoder: "sharp", tileSize: 256, inputFormat: "rgba" },
+  linux: { capture: "nodeScreenshots", encoder: "sharp", tileSize: 256, inputFormat: "rgba" }
+};
+
+const platformCfg = PLATFORM_DEFAULTS[process.platform] || PLATFORM_DEFAULTS.linux;
+
 export const REMOTE_CONFIG = {
+  // Capture & encoding pipeline (platform-driven)
+  pipeline: {
+    captureLib: platformCfg.capture,      // "robotjs" | "nodeScreenshots"
+    encoder: platformCfg.encoder,         // "sharp" | "jpegTurbo"
+    inputFormat: platformCfg.inputFormat, // "bgra" | "rgba" — source color order
+    tileSize: platformCfg.tileSize,
+    jpegQuality: 50
+  },
+
+  // Metrics — log pipeline timings per N frames (capture/encode/total/fps)
+  metrics: {
+    enabled: true,
+    logEveryFrames: 30
+  },
+
+
   // WebRTC transport config
   // enableWebRTC: true  → init WebRTC manager, handle offer/answer signaling
   // enableTurn: false   → STUN P2P only, skip TURN credential fetch

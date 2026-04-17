@@ -1,0 +1,22 @@
+{
+  "name": "9remote-benchmark",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Screen capture & encoding benchmark for 9remote",
+  "scripts": {
+    "bench": "node screenCapture.js",
+    "bench:win": "node screenCapture.win.js",
+    "bench:mac": "node screenCapture.mac.js"
+  },
+  "dependencies": {
+    "@julusian/jpeg-turbo": "^2.2.0",
+    "@napi-rs/image": "^1.11.0",
+    "node-screenshots": "^0.2.1",
+    "screenshot-desktop": "^1.15.2",
+    "sharp": "^0.33.5"
+  },
+  "optionalDependencies": {
+    "@hurdlegroup/robotjs": "^0.12.1"
+  }
+}
