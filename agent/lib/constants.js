@@ -1,9 +1,14 @@
 import dns from "dns";
 
-// Bypass broken macOS system DNS resolver for long hostnames (e.g. trycloudflare)
+// Bypass broken macOS system DNS resolver for long hostnames (e.g. trycloudflare).
+// Skip localhost/IP to avoid slow/hanging DNS resolve on Windows.
 const _originalLookup = dns.lookup;
+const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$|^::1$|^[0-9a-f:]+$/i;
 dns.lookup = (hostname, options, cb) => {
   if (typeof options === "function") { cb = options; options = {}; }
+  if (hostname === "localhost" || IP_REGEX.test(hostname)) {
+    return _originalLookup(hostname, options, cb);
+  }
   dns.resolve4(hostname, (err, addrs) => {
     if (err) return _originalLookup(hostname, options, cb);
     if (options.all) {

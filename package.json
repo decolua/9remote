@@ -1,6 +1,6 @@
 {
   "name": "9remote-monorepo",
-  "version": "0.1.64",
+  "version": "0.1.69",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -36,6 +36,7 @@
     "xxhash-addon": "^2.1.0"
   },
   "dependencies": {
+    "9remote": "^0.1.66",
     "wrangler": "^4.73.0"
   }
 }

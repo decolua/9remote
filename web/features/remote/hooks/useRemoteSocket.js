@@ -58,6 +58,10 @@ export function useRemoteSocket(socketRef, connected) {
     if (streaming) emit("boost-stream");
   }, [emit, streaming]);
 
+  const emitSetFocus = useCallback((rect) => {
+    if (streaming) emit("set-focus", { rect });
+  }, [emit, streaming]);
+
   const emitRequestScreenWithHashes = useCallback((tileHashes) => {
     if (streaming) emit("request-screen-with-hashes", { tileHashes });
   }, [emit, streaming]);
@@ -73,6 +77,7 @@ export function useRemoteSocket(socketRef, connected) {
     emitKeyPress,
     emitTypeText,
     emitScroll,
-    emitBoostStream
+    emitBoostStream,
+    emitSetFocus
   };
 }

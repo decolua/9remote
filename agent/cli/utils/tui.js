@@ -79,18 +79,23 @@ const STEPS = [
   { label: "Ready",             desc: "Tunnel is live"        },
 ];
 
+const IS_WIN = process.platform === "win32";
+const SPINNER_INTERVAL_MS = IS_WIN ? 120 : 80;
+
+// Ensure cursor is restored on any unexpected exit
+process.on("exit", () => process.stdout.write("\x1b[?25h"));
+process.on("SIGINT", () => { process.stdout.write("\x1b[?25h"); });
+process.on("SIGTERM", () => { process.stdout.write("\x1b[?25h"); });
+
 let _progressLines = 0;
 let _spinnerInterval = null;
 let _spinnerFrame = 0;
 let _activeIdx = -1;
 let _activeDesc = null;
 let _infoLine = null;
+let _cursorHidden = false;
 
-function _renderLines() {
-  if (_progressLines > 0) {
-    process.stdout.write(`\x1b[${_progressLines}A\x1b[0J`);
-  }
-
+function _buildLines() {
   const lines = [];
   const isFinal = _activeIdx === STEPS.length - 1;
   STEPS.forEach((step, i) => {
@@ -107,13 +112,47 @@ function _renderLines() {
       lines.push(`  ${C.dim}○ ${step.label}${C.reset}`);
     }
   });
+  return lines;
+}
 
-  lines.forEach((l) => console.log(l));
+function _fullRedraw() {
+  const lines = _buildLines();
+  if (_progressLines > 0) {
+    process.stdout.write(`\x1b[${_progressLines}A\x1b[0J`);
+  }
+  process.stdout.write(lines.join("\n") + "\n");
   _progressLines = lines.length;
 }
 
+// Only repaint the active spinner line to avoid flicker on Windows conhost
+function _tickSpinner() {
+  if (_progressLines === 0 || _activeIdx < 0) return;
+  const lines = _buildLines();
+  if (lines.length !== _progressLines) {
+    _fullRedraw();
+    return;
+  }
+  const activeLineOffset = _activeIdx + (_infoLine && _infoLine.afterIdx < _activeIdx ? 1 : 0);
+  const up = _progressLines - activeLineOffset;
+  // Move up, clear line, write, move back down — single write = no flicker
+  process.stdout.write(`\x1b[${up}A\r\x1b[2K${lines[activeLineOffset]}\x1b[${up}B\r`);
+}
+
+function _hideCursor() {
+  if (!_cursorHidden) {
+    process.stdout.write("\x1b[?25l");
+    _cursorHidden = true;
+  }
+}
+
+function _showCursor() {
+  if (_cursorHidden) {
+    process.stdout.write("\x1b[?25h");
+    _cursorHidden = false;
+  }
+}
+
 export function renderProgress(activeIdx, redraw = false, desc = null) {
-  // Stop previous spinner
   if (_spinnerInterval) {
     clearInterval(_spinnerInterval);
     _spinnerInterval = null;
@@ -124,14 +163,16 @@ export function renderProgress(activeIdx, redraw = false, desc = null) {
   _spinnerFrame = 0;
 
   if (!redraw) _progressLines = 0;
-  _renderLines();
+  _fullRedraw();
 
-  // Start spinner for non-final steps
   if (activeIdx < STEPS.length - 1) {
+    _hideCursor();
     _spinnerInterval = setInterval(() => {
       _spinnerFrame++;
-      _renderLines();
-    }, 80);
+      _tickSpinner();
+    }, SPINNER_INTERVAL_MS);
+  } else {
+    _showCursor();
   }
 }
 
@@ -143,7 +184,7 @@ export function setProgressInfo(afterIdx, text) {
 /** Update desc of current active step without changing step index */
 export function updateProgressDesc(desc) {
   _activeDesc = desc;
-  if (_progressLines > 0) _renderLines();
+  if (_progressLines > 0) _tickSpinner();
 }
 
 export function resetProgress() {
@@ -151,6 +192,7 @@ export function resetProgress() {
     clearInterval(_spinnerInterval);
     _spinnerInterval = null;
   }
+  _showCursor();
   _progressLines = 0;
   _activeIdx = -1;
   _activeDesc = null;

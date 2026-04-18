@@ -30,6 +30,9 @@ export const REMOTE_CONFIG = {
   tileLoadTimeout: 600,
   batchSize: 16,
   batchDelay: 3,
+
+  // Focus-based streaming — emit focus rect to server to save bandwidth/CPU
+  focusDebounce: 50,         // ms debounce on pan/zoom before emitting focus rect
   
   // Click detection
   longPressDelay: 1000,      // ms to trigger right-click

@@ -10,3 +10,7 @@ export const API_ENDPOINTS = {
   localSites: "/api/local-sites",
   turnCredentials: `${WORKER_API}/api/webrtc/turn-credentials`
 };
+
+// Retry config when tunnel not reachable yet after /api/connect succeeds
+export const TUNNEL_VERIFY_RETRY_MAX = 5;
+export const TUNNEL_VERIFY_RETRY_INTERVAL_MS = 2000;

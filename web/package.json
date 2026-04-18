@@ -3,7 +3,7 @@
   "version": "0.1.7",
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 0.0.0.0",
     "build": "next build",
     "build:cf": "opennextjs-cloudflare build",
     "deploy": "npm run build:cf && opennextjs-cloudflare deploy",

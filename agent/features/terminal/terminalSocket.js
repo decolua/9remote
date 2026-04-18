@@ -15,7 +15,9 @@ import { markSubscriptionDisconnected } from "./pushManager.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ORANGE = chalk.rgb(230, 138, 110);
 const PERSISTENCE_MODE = "daemon";
-const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "package.json"), "utf8")).version;
+const PKG_VERSION = typeof __CLI_VERSION__ !== "undefined"
+  ? __CLI_VERSION__
+  : JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "package.json"), "utf8")).version;
 
 // Store sessions: sessionId -> { pty, name, createdAt, buffer, daemon }
 const sessions = new Map();

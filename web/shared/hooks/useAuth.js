@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { API_ENDPOINTS } from "@/shared/constants/API";
+import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS } from "@/shared/constants/API";
 import { useSessionStorage } from "./useSessionStorage";
 
 
@@ -43,9 +43,16 @@ export function useAuth() {
 
       const data = await response.json();
 
-      // Verify WebSocket connection before saving auth
+      // Verify tunnel reachability, retry if not ready (agent may still be starting)
       const resolvedApiKey = credentials.apiKey || data.apiKey;
-      const connected = await verifyServerConnection(data.tunnelUrl, resolvedApiKey);
+      let connected = false;
+      for (let i = 0; i < TUNNEL_VERIFY_RETRY_MAX; i++) {
+        connected = await verifyServerConnection(data.tunnelUrl, resolvedApiKey);
+        if (connected) break;
+        if (i < TUNNEL_VERIFY_RETRY_MAX - 1) {
+          await new Promise((r) => setTimeout(r, TUNNEL_VERIFY_RETRY_INTERVAL_MS));
+        }
+      }
       if (!connected) {
         throw new Error("Server not reachable. Please try again.");
       }

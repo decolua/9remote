@@ -2,8 +2,9 @@ import { BaseProtocol } from "./BaseProtocol";
 import { TunnelAdapter } from "./adapters/TunnelAdapter";
 import { LocalFirstAdapter } from "./adapters/LocalFirstAdapter";
 import { API_ENDPOINTS } from "@/shared/constants/API";
+import { FEATURES, BEHAVIOR } from "@/shared/constants/features";
 
-const RETRY = { interval: 2000, maxAttempts: 15 };
+const RETRY = BEHAVIOR.retry;
 
 /**
  * WsProtocol — Socket.IO transport adapter.
@@ -54,7 +55,7 @@ export class WsProtocol extends BaseProtocol {
 
     // Skip local probe if last connection was tunnel (different network)
     // Reset to LocalFirst when _scheduleRetry fetches fresh URLs
-    const adapter = (this._localIp && this._connectionMode !== "tunnel")
+    const adapter = (FEATURES.localFirstConnection && this._localIp && this._connectionMode !== "tunnel")
       ? new LocalFirstAdapter({ ...adapterConfig, localIp: this._localIp })
       : new TunnelAdapter(adapterConfig);
 
@@ -124,7 +125,7 @@ export class WsProtocol extends BaseProtocol {
     if (this._destroyed || this._retryScheduled) return;
     this._retryAttempt++;
 
-    if (this._retryAttempt > 3) {
+    if (this._retryAttempt > BEHAVIOR.reconnect.fastFailThreshold) {
       this._retryAttempt = 0;
       this._scheduleRetry();
       return;

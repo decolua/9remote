@@ -3,14 +3,33 @@
  */
 
 import { exec } from "child_process";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 let trayInstance = null;
 
-// 64x64 PNG base64 — generated from agent/ui/public/favicon.svg
-const TRAY_ICON = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAAsTAAALEwEAmpwYAAAD0ElEQVR4nO2bS0hUURjH70rnHCejJ4pBEFpttNy1qEU727i794yPlF4LiRSjiIIWTmEQQpFkORq1iEKrpYQtekjNRAWVLgpcZFqEMwWVGTOa/ePMHYvBe8frzL1zZs70wbe7M3z/33l95/EpikVD3cpCqK4aMNIDRp+BkSA0OgNGIdSjMZBgLCYfNJcH1auWWdW1qIHlbQQjV8DotHCx1n0aGulFTV5Z8sJVhYCRDjA6mwGCku8dGjmLRsW1NPE1eWVgZES4APs8gDpabE28h1bGxpTooO3uDRPwFFRYafmg8GCdhKDSImPxjYoLjLwSHqTz/oLPbwsBsOiEJzq4NPUE0maw1NHsne2X7lNxQwH6Oi86qDT3Atr1L8PLriTHLgA/ohmjnt5mQEBC3MWUWG6fAcEI6QXdir6JsPiDvcXArdPA0A2gc494Aal7QIFGQpY+ri0E3r1GnN29mOU9gEzyHhCx9LG3CobW5xUvJHkPK5Y/NgPArbdZtJCkXbH8sdEQmLe5X8C5eskBMAo0lQLBMWMIsxGgvVpyAIwCLeXA10ljCOFp4OROyQEwChzfDvycMobw/TNwuFJyACw2Kc6EjSF8+QAc3Cw5AEaBDqZPgEb2aRQ4sF5yAIwCPYdgaqPPgca1kgNgVE+GzGzkAVC/QnIAjAIDF8whPOkHPG7JAXgKgIfXzSEMdksOgPFscTnwctAcQgbuGxTb/7RhNfDWbw7h2lHJAbDYucHYsDGA33PA+d2SA2B831AGhMaNIfAE6tg2yQEwCrRuAb6FjCHc8wkXj/8A6P8hoDjyx/vXARNvcnQSbFhkGbx6RLhogYlQm3DBzgHw5HoqPNBpLv5xn+Sbof5T5uKH70u+He5tzuEDkY4ER2J8GdxXIlygcwC8uxY5FN0kXJxzAE7sSHws3rpVuDDnALRU5PDFSFMpEHpv/9UYf2swdBMI3Ene/bf1twv8LCKrLkf7EpwoJ2M8Rh6r7QC8Dl2Pm22XUzEe6xIARFICkOpBp1gAYfFPZEQOAU1/IiP+kZS4STDAn8n5bBOSfX5ZidbYiA9EkBOVl8a4o89GhQeTZueaVcWtvxfmBUa51/q++EqRTCiBS59HUJu/Ib5mgFdXiQ8sPa6RMyYlMzQgPDjn3Y8qJd+4bkilRdDouLwtTz9CJSWJK8c8BRXR6ir5xI9DLShPKH7eoLrXgNFHwoO2z/2m5XJmxscJr67K8hwhAkbaTce8FYvNC11ZBYLHqtHuBUtdKgaeMTIX4/kzNPqU76Qsb6WdbmUeC4+J0UtQXdrfDM+C/QFrX3GhHKhdvQAAAABJRU5ErkJggg==";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// PNG 64x64 base64 for macOS/Linux (generated from agent/ui/public/favicon.svg)
+const TRAY_ICON_PNG = "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";
+
+// Windows requires ICO format; resolve ICO path across dev + bundled layouts
+const ICO_CANDIDATES = [
+  path.join(__dirname, "assets", "trayIcon.ico"),           // dev: agent/cli/utils/assets/
+  path.join(__dirname, "..", "assets", "trayIcon.ico"),      // bundled: agent/dist/assets/
+];
 
 function getIconBase64() {
-  return TRAY_ICON;
+  if (process.platform === "win32") {
+    for (const p of ICO_CANDIDATES) {
+      try {
+        if (fs.existsSync(p)) return fs.readFileSync(p).toString("base64");
+      } catch {}
+    }
+    return TRAY_ICON_PNG;
+  }
+  return TRAY_ICON_PNG;
 }
 
 function isTraySupported() {
@@ -74,8 +93,11 @@ export function killTray() {
 
 export function openBrowser(url) {
   const platform = process.platform;
-  const cmd = platform === "darwin" ? `open "${url}"`
-    : platform === "win32" ? `start "" "${url}"`
-    : `xdg-open "${url}"`;
+  // Windows: `start` is a cmd.exe builtin, must run via shell
+  if (platform === "win32") {
+    exec(`start "" "${url}"`, { shell: "cmd.exe" }, () => {});
+    return;
+  }
+  const cmd = platform === "darwin" ? `open "${url}"` : `xdg-open "${url}"`;
   exec(cmd, () => {});
 }

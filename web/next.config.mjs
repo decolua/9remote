@@ -9,7 +9,10 @@ const nextConfig = {
     unoptimized: true
   },
   allowedDevOrigins: [
-    "*.trycloudflare.com"
+    "*.trycloudflare.com",
+    "192.168.*.*",
+    "10.*.*.*",
+    "172.16.*.*"
   ],
   env: {
     NEXT_PUBLIC_WORKER_URL: "https://9remote.cc",

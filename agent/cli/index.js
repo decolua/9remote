@@ -84,8 +84,7 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
   const width = Math.min(44, process.stdout.columns || 55);
 
-  pushUiState({
-    step: STEP.READY,
+  await setStep(STEP.READY, {
     tunnelUrl,
     oneTimeKey: tempKeyData.tempKey,
     oneTimeKeyExpiresAt: tempKeyData.expiresAt,
@@ -175,6 +174,7 @@ function startServerWithRestart(onReady, onServerCrash) {
       cwd: path.dirname(serverPath),
       stdio: "inherit",
       detached: false,
+      windowsHide: true,
       env: spawnEnv,
     });
     
@@ -290,6 +290,14 @@ async function pushUiState(data) {
   await apiPost("/api/ui/state", data);
 }
 
+// DRY: single source for step progression — updates both terminal progress + web UI state.
+// Terminal rendering only active in TUI mode (guarded by isTuiActive flag).
+let isTuiActive = false;
+async function setStep(step, extra = {}) {
+  if (isTuiActive) renderProgress(step - 1, step > STEP.PREPARING);
+  await pushUiState({ step, ...extra });
+}
+
 async function updateTunnelUrl(selectedKey, tunnelUrl) {
   const lanIp = getLanIp();
   try {
@@ -307,7 +315,7 @@ async function updateTunnelUrl(selectedKey, tunnelUrl) {
 
 async function startServerAndTunnel(selectedKey) {
   console.log(ORANGE("\n🚀 Starting server..."));
-  pushUiState({ step: STEP.PREPARING });
+  await setStep(STEP.PREPARING);
 
   // Kill existing cloudflared process
   try {
@@ -336,7 +344,7 @@ async function startServerAndTunnel(selectedKey) {
   if (!alreadyRunning) await new Promise(resolve => setTimeout(resolve, 2000));
 
   console.log(ORANGE("✅ Starting tunnel..."));
-  pushUiState({ step: STEP.CONNECTING });
+  await setStep(STEP.CONNECTING);
 
   // Spawn quick tunnel — URL comes directly from cloudflared stdout
   let tunnelProcess, tunnelUrl;
@@ -378,7 +386,8 @@ async function startServerAndTunnel(selectedKey) {
 async function tuiMode() {
   console.clear();
   resetProgress();
-  renderProgress(STEP.PREPARING - 1); // Preparing
+  isTuiActive = true;
+  await setStep(STEP.PREPARING);
 
   let keyData = await ensureKeyData();
 
@@ -397,7 +406,7 @@ async function tuiMode() {
 
   await ensureCloudflared();
 
-  renderProgress(STEP.CONNECTING - 1, true); // Connecting
+  await setStep(STEP.CONNECTING);
 
   try {
     const res = await browserFetch(`${WORKER_URL}/api/session/create`, {
@@ -411,7 +420,7 @@ async function tuiMode() {
     process.exit(1);
   }
 
-  renderProgress(STEP.TUNNELING - 1, true); // Starting tunnel
+  await setStep(STEP.TUNNELING);
 
   let tunnelProcess, tunnelUrl;
   try {
@@ -426,14 +435,11 @@ async function tuiMode() {
     process.exit(1);
   }
 
-  renderProgress(STEP.VERIFYING - 1, true); // Verifying tunnel
+  await setStep(STEP.VERIFYING);
   const tunnelReady = await waitForTunnelReady(tunnelUrl);
   if (!tunnelReady) {
     console.log(chalk.yellow("\n⚠️  Tunnel health check timed out, proceeding anyway..."));
   }
-
-  renderProgress(STEP.READY - 1, true); // Ready
-  await new Promise((r) => setTimeout(r, 1000));
 
   await updateTunnelUrl(keyData.key, tunnelUrl);
   saveState({ apiKey: keyData.key, tunnelUrl, tunnelPid: tunnelProcess.pid });
@@ -443,8 +449,7 @@ async function tuiMode() {
     ? `${WORKER_URL}/login?k=${tempKeyData.tempKey}`
     : `${WORKER_URL}/login`;
 
-  await pushUiState({
-    step: STEP.READY,
+  await setStep(STEP.READY, {
     tunnelUrl,
     oneTimeKey: tempKeyData?.tempKey || "",
     oneTimeKeyExpiresAt: tempKeyData?.expiresAt || null,
@@ -452,6 +457,7 @@ async function tuiMode() {
     qrUrl: connectUrl,
     workerUrl: WORKER_URL,
   });
+  await new Promise((r) => setTimeout(r, 1000));
 
   let currentOneTimeKey = tempKeyData?.tempKey || "";
   let currentConnectUrl = connectUrl;
@@ -497,6 +503,10 @@ async function tuiMode() {
     getProcess: tuiServerMgr.getProcess,
     shutdown: () => { tuiServerMgr.shutdown(); stopSSE(); }
   }, tunnelProcess, keyData.key);
+
+  // Handle web UI Start/Stop commands while TUI is running
+  let activeTunnel = tunnelProcess;
+  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
 
   await tuiMenuLoop(
     keyData, tunnelUrl,
@@ -551,8 +561,7 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
 
     if (action === "webui") {
       const url = `http://localhost:${SERVER_PORT}`;
-      const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-      spawn(cmd, [url], { detached: true, stdio: "ignore" }).unref();
+      openBrowser(url);
       console.log(chalk.green(`\n🌐 Opening ${url}\n`));
 
     } else if (action === "otk") {
@@ -707,18 +716,17 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
         setActiveTunnel(null);
         console.log(chalk.yellow("🛑 Tunnel stopped"));
       }
-      await pushUiState({ step: STEP.STOPPED, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+      await setStep(STEP.STOPPED, { tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
     }
 
     if (cmd === "start-tunnel") {
       if (getActiveTunnel()) { busy = false; return; } // already running
       console.log(ORANGE("🚀 Starting tunnel..."));
       try {
-        await pushUiState({ step: STEP.PREPARING });
+        await setStep(STEP.PREPARING);
         await ensureCloudflared();
 
-        // Step 2: Connecting — create session on worker
-        await pushUiState({ step: STEP.CONNECTING });
+        await setStep(STEP.CONNECTING);
         const sessionResponse = await browserFetch(`${WORKER_URL}/api/session/create`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -726,16 +734,14 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
         });
         if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
 
-        // Step 3: Tunneling — spawn cloudflared
-        await pushUiState({ step: STEP.TUNNELING });
+        await setStep(STEP.TUNNELING);
         const result = await spawnQuickTunnel(SERVER_PORT, async (newUrl) => {
           await updateTunnelUrl(apiKey, newUrl);
           await pushUiState({ tunnelUrl: newUrl });
         });
         setActiveTunnel(result.child);
 
-        // Step 4: Verifying tunnel
-        await pushUiState({ step: STEP.VERIFYING });
+        await setStep(STEP.VERIFYING);
         const tunnelOk = await waitForTunnelReady(result.tunnelUrl);
         if (!tunnelOk) {
           console.log(chalk.yellow("\n⚠️  Tunnel health check timed out, proceeding anyway..."));
@@ -743,12 +749,12 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
 
         await updateTunnelUrl(apiKey, result.tunnelUrl);
 
-        // Step 5: Ready — hold for 3s so UI sees all steps complete
+        // Hold for 3s so UI sees all steps complete before showing Ready screen
         await new Promise(r => setTimeout(r, 3000));
         await showConnectionInfo(apiKey, result.tunnelUrl);
       } catch (err) {
         console.log(chalk.red(`❌ Failed to start tunnel: ${err.message}`));
-        await pushUiState({ step: STEP.STOPPED });
+        await setStep(STEP.STOPPED);
       }
     }
 
@@ -806,7 +812,12 @@ async function launchBackground() {
     process.exit(0);
   }
 
-  const scriptPath = path.resolve(__dirname, "index.js");
+  // Spawn CLI itself with --tray — tray logic lives in CLI, not server
+  // Bundle: __dirname = dist/,      entry = dist/cli.cjs
+  // Dev:    __dirname = agent/cli/, entry = agent/cli/index.js
+  const scriptPath = typeof __CLI_VERSION__ !== "undefined"
+    ? path.resolve(__dirname, "cli.cjs")
+    : path.resolve(__dirname, "index.js");
   const bgArgs = [scriptPath, "--tray"];
 
   const themeArg = process.argv.find(a => a.startsWith("--theme="));
@@ -821,6 +832,7 @@ async function launchBackground() {
 
   const bg = spawn(process.execPath, bgArgs, {
     detached: true,
+    windowsHide: true,
     stdio: ["ignore", logFd, logFd],
     env: { ...process.env },
   });

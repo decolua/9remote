@@ -51,7 +51,7 @@ async function buildCli() {
     ...baseConfig,
     entryPoints: [path.join(SERVER_DIR, "cli/index.js")],
     outfile,
-    external: ["node-pty", "sharp", "cloudflared", "@hurdlegroup/robotjs"],
+    external: ["node-pty", "sharp", "cloudflared", "@hurdlegroup/robotjs", "@julusian/jpeg-turbo", "node-datachannel", "node-screenshots"],
   });
   console.log(`✅ CLI → agent/dist/cli.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
@@ -64,7 +64,7 @@ async function buildServer() {
     ...baseConfig,
     entryPoints: [path.join(SERVER_DIR, "index.js")],
     outfile,
-    external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel", "node-screenshots"],
+    external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel", "node-screenshots", "@julusian/jpeg-turbo"],
   });
   console.log(`✅ Server → agent/dist/server.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
@@ -89,6 +89,18 @@ function buildUi() {
   console.log("✅ UI → agent/dist/ui/");
 }
 
+function copyAssets() {
+  console.log("\n🖼️  Copying assets...");
+  const srcDir = path.join(SERVER_DIR, "cli/utils/assets");
+  const destDir = path.join(DIST_DIR, "assets");
+  if (!fs.existsSync(srcDir)) return;
+  ensureDir(destDir);
+  for (const file of fs.readdirSync(srcDir)) {
+    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+  }
+  console.log(`✅ Assets → agent/dist/assets/`);
+}
+
 async function build() {
   console.log("🔨 Building npm package...\n");
 
@@ -98,6 +110,7 @@ async function build() {
   await buildCli();
   await buildServer();
   await buildDaemon();
+  copyAssets();
 
   console.log("\n📦 Creating npm package...");
   run("npm pack", SERVER_DIR);

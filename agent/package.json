@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "0.1.64",
+  "version": "0.1.69",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "index.js",
@@ -37,7 +37,6 @@
     "edge-tts-node": "^1.5.7",
     "http-proxy": "^1.18.1",
     "inquirer": "^9.3.8",
-    "msedge-tts": "^2.0.4",
     "node-datachannel": "^0.32.1",
     "node-machine-id": "^1.1.12",
     "node-screenshots": "^0.2.8",

@@ -83,5 +83,19 @@ export const REMOTE_CONFIG = {
     actionCaptureDelay: 50,   // Delay after user action to capture
     chunkSize: 32,
     chunkDelay: 5
+  },
+
+  // Focus-based streaming — only process tiles inside client viewport + padding
+  focus: {
+    paddingTiles: 4           // Buffer tiles around focus region
+  },
+
+  // Logging — config-driven flags per log group. Toggle off in production.
+  logging: {
+    lifecycle: false,          // start/stop streaming, handlers attached, client cleanup
+    errors: true,             // all error/warn logs
+    dpiDetection: false,      // DPI detection strategies (noisy on Windows)
+    focus: false,              // focus region updates + per-frame saving stats
+    focusLogEveryFrames: 60   // how often to log focus effectiveness
   }
 };

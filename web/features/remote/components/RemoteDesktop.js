@@ -40,7 +40,8 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
     emitKeyPress,
     emitTypeText,
     emitScroll,
-    emitBoostStream
+    emitBoostStream,
+    emitSetFocus
   } = useRemoteSocket(socketRef, connected);
 
   const socketEmitFunctions = {
@@ -170,6 +171,28 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
     const id = setInterval(() => requestScreenWithHashes(), REMOTE_CONFIG.hashRequestInterval);
     return () => clearInterval(id);
   }, [streaming, connected, socketRef, requestScreenWithHashes]);
+
+  // Focus-based streaming: emit visible canvas rect to server when pan/zoom changes.
+  // zoom=1 → emit null (full screen). Debounced to avoid flooding during gesture.
+  useEffect(() => {
+    if (!streaming) return;
+    const timer = setTimeout(() => {
+      const canvas = canvasRef.current;
+      const container = canvasContainerRef.current;
+      if (!canvas || !container || canvas.width === 0) return;
+      if (canvasZoom <= 1) { emitSetFocus(null); return; }
+
+      const totalScale = fitScale * canvasZoom;
+      if (totalScale <= 0) return;
+      // Viewport rect in canvas-space: reverse pan then reverse scale
+      const x = Math.max(0, -canvasPan.x / totalScale);
+      const y = Math.max(0, -canvasPan.y / totalScale);
+      const w = Math.min(canvas.width - x, container.clientWidth / totalScale);
+      const h = Math.min(canvas.height - y, container.clientHeight / totalScale);
+      emitSetFocus({ x: Math.floor(x), y: Math.floor(y), w: Math.ceil(w), h: Math.ceil(h) });
+    }, REMOTE_CONFIG.focusDebounce);
+    return () => clearTimeout(timer);
+  }, [streaming, canvasZoom, canvasPan, fitScale, canvasRef, canvasContainerRef, emitSetFocus]);
 
   const createInteractionHandler = (type) => (e) => {
     handleCanvasInteraction(e, type, {

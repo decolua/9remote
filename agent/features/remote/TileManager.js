@@ -7,6 +7,7 @@ import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 import * as capture from "./adapters/captureAdapter.js";
 import { encodeJpeg } from "./adapters/encoderAdapter.js";
 import { FrameMetrics } from "./metrics.js";
+import { remoteLog } from "./utils/remoteLog.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +37,10 @@ export class TileManager {
     this.captureHeight = 0;
     this.scaleFactor = 1;
     this.compressionQuality = REMOTE_CONFIG.pipeline.jpegQuality;
+    // Focus region: Set<tileIndex> of active tiles, null = all tiles (full screen)
+    this.activeTileSet = null;
+    // Focus effectiveness stats — aggregated per N frames
+    this.focusStats = { frames: 0, scanned: 0, changed: 0, bytes: 0 };
 
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
@@ -71,7 +76,7 @@ export class TileManager {
 
       // console.log(`🖥️ [TileManager Init] Logical: ${width}x${height} | DPI Scale: ${this.dpiScale}x | Capture: ${this.captureWidth}x${this.captureHeight} | Scaled: ${this.scaledWidth}x${this.scaledHeight} | Tiles: ${this.totalTiles}`);
     } catch (error) {
-      console.error("Screen dimensions error:", error);
+      remoteLog.error("Screen dimensions error:", error);
       this.screenWidth = 1920;
       this.screenHeight = 1080;
       this.dpiScale = 1;
@@ -111,7 +116,7 @@ export class TileManager {
   }
 
   _detectDpiScaleWin32() {
-    console.log(`🔍 [DPI Detection] screenWidth from robot: ${this.screenWidth}x${this.screenHeight}`);
+    remoteLog.dpi(`🔍 [DPI Detection] screenWidth from robot: ${this.screenWidth}x${this.screenHeight}`);
 
     // Strategy 1: Read AppliedDPI from WindowMetrics registry (Windows 10/11)
     // 96 DPI = 100%, 120 = 125%, 144 = 150%, 192 = 200%
@@ -121,14 +126,14 @@ export class TileManager {
         { encoding: "utf8", windowsHide: true }
       ).trim();
       const dpi = Number(out);
-      console.log(`🔍 [DPI Detection] Strategy 1 (Registry AppliedDPI): ${dpi} DPI`);
+      remoteLog.dpi(`🔍 [DPI Detection] Strategy 1 (Registry AppliedDPI): ${dpi} DPI`);
       if (dpi >= 96) {
         const scale = dpi / 96;
-        console.log(`✅ [DPI Detection] Using registry scale: ${scale}x (${dpi}/96)`);
+        remoteLog.dpi(`✅ [DPI Detection] Using registry scale: ${scale}x (${dpi}/96)`);
         return scale;
       }
     } catch (err) {
-      console.log(`❌ [DPI Detection] Strategy 1 failed:`, err.message);
+      remoteLog.dpi(`❌ [DPI Detection] Strategy 1 failed: ${err.message}`);
     }
 
     // Strategy 2: Query physical resolution via WMI and compare with logical
@@ -138,14 +143,14 @@ export class TileManager {
         { encoding: "utf8", windowsHide: true }
       ).trim();
       const physW = Number(out);
-      console.log(`🔍 [DPI Detection] Strategy 2 (WMI): physical width = ${physW}px`);
+      remoteLog.dpi(`🔍 [DPI Detection] Strategy 2 (WMI): physical width = ${physW}px`);
       if (physW > 0 && physW > this.screenWidth) {
         const scale = physW / this.screenWidth;
-        console.log(`✅ [DPI Detection] Using WMI scale: ${scale}x (${physW}/${this.screenWidth})`);
+        remoteLog.dpi(`✅ [DPI Detection] Using WMI scale: ${scale}x (${physW}/${this.screenWidth})`);
         return scale;
       }
     } catch (err) {
-      console.log(`❌ [DPI Detection] Strategy 2 failed:`, err.message);
+      remoteLog.dpi(`❌ [DPI Detection] Strategy 2 failed: ${err.message}`);
     }
 
     // Strategy 3: Query physical resolution via EnumDisplaySettings and compare with logical
@@ -155,17 +160,17 @@ export class TileManager {
         { encoding: "utf8", windowsHide: true }
       ).trim();
       const physW = Number(out);
-      console.log(`🔍 [DPI Detection] Strategy 3 (EnumDisplaySettings): physical width = ${physW}px`);
+      remoteLog.dpi(`🔍 [DPI Detection] Strategy 3 (EnumDisplaySettings): physical width = ${physW}px`);
       if (physW > 0 && physW > this.screenWidth) {
         const scale = physW / this.screenWidth;
-        console.log(`✅ [DPI Detection] Using EnumDisplaySettings scale: ${scale}x (${physW}/${this.screenWidth})`);
+        remoteLog.dpi(`✅ [DPI Detection] Using EnumDisplaySettings scale: ${scale}x (${physW}/${this.screenWidth})`);
         return scale;
       }
     } catch (err) {
-      console.log(`❌ [DPI Detection] Strategy 3 failed:`, err.message);
+      remoteLog.dpi(`❌ [DPI Detection] Strategy 3 failed: ${err.message}`);
     }
 
-    console.log(`⚠️ [DPI Detection] All strategies failed, fallback to 1x`);
+    remoteLog.dpi(`⚠️ [DPI Detection] All strategies failed, fallback to 1x`);
     return 1;
   }
 
@@ -218,8 +223,12 @@ export class TileManager {
       const currentTileHashes = new Map();
       this.frameCount++;
 
+      // Focus-based streaming: skip tiles outside client viewport+padding
+      const activeSet = this.activeTileSet;
+
       // Calculate hashes directly without extracting tiles (lazy extraction)
       for (let i = 0; i < this.totalTiles; i++) {
+        if (activeSet && !activeSet.has(i)) continue;
         const checksum = this.calculateTileChecksumDirect(screenData, i);
         currentTileHashes.set(i, checksum);
       }
@@ -227,10 +236,11 @@ export class TileManager {
 
       const currentHashes = Array.from(currentTileHashes.values());
 
-      // First frame - extract and send all tiles
+      // First frame - extract and send all tiles (within focus set)
       if (this.lastTileChecksums.size === 0) {
         const tilePromises = [];
         for (let i = 0; i < this.totalTiles; i++) {
+          if (activeSet && !activeSet.has(i)) continue;
           this.lastTileChecksums.set(i, currentTileHashes.get(i));
           tilePromises.push(this.processTileAsync(screenData, i));
         }
@@ -242,6 +252,7 @@ export class TileManager {
 
       // Find changed tiles by comparing hashes
       for (let i = 0; i < this.totalTiles; i++) {
+        if (activeSet && !activeSet.has(i)) continue;
         const checksum = currentTileHashes.get(i);
         const lastChecksum = this.lastTileChecksums.get(i);
         if (checksum !== lastChecksum) {
@@ -253,9 +264,10 @@ export class TileManager {
       const changePercentage = changedTileIndices.length / this.totalTiles;
 
       if (changePercentage > this.changeThreshold) {
-        // Full refresh - extract all tiles
+        // Full refresh - extract all tiles (within focus set)
         const tilePromises = [];
         for (let i = 0; i < this.totalTiles; i++) {
+          if (activeSet && !activeSet.has(i)) continue;
           tilePromises.push(this.processTileAsync(screenData, i));
         }
         const results = await Promise.all(tilePromises);
@@ -333,6 +345,36 @@ export class TileManager {
     return sum >>> 0;
   }
 
+  // Set focus region from client viewport (canvas-space pixels).
+  // rect={x,y,w,h} → active tile set with configured padding. null → full screen.
+  // Newly exposed tiles have their checksum cleared so they re-send on next frame.
+  setFocusRect(rect) {
+    if (!rect) {
+      this.activeTileSet = null;
+      return;
+    }
+    const pad = REMOTE_CONFIG.focus.paddingTiles;
+    const col0 = Math.max(0, Math.floor(rect.x / this.tileSize) - pad);
+    const row0 = Math.max(0, Math.floor(rect.y / this.tileSize) - pad);
+    const col1 = Math.min(this.tilesPerRow - 1, Math.floor((rect.x + rect.w) / this.tileSize) + pad);
+    const row1 = Math.min(this.tilesPerColumn - 1, Math.floor((rect.y + rect.h) / this.tileSize) + pad);
+
+    const nextSet = new Set();
+    for (let r = row0; r <= row1; r++) {
+      for (let c = col0; c <= col1; c++) {
+        nextSet.add(r * this.tilesPerRow + c);
+      }
+    }
+    // Force re-send for tiles newly entering focus (pan to new area)
+    const prevSet = this.activeTileSet;
+    if (prevSet) {
+      for (const idx of nextSet) {
+        if (!prevSet.has(idx)) this.lastTileChecksums.delete(idx);
+      }
+    }
+    this.activeTileSet = nextSet;
+  }
+
   getTilePosition(tileIndex) {
     return {
       row: Math.floor(tileIndex / this.tilesPerRow),
@@ -369,6 +411,7 @@ export class TileManager {
   }
 
   _recordFrame(tStart, tCaptureEnd, tChecksumEnd, tiles, screenData) {
+    this._recordFocusFrame(tiles);
     if (!this.metrics.cfg.enabled) return;
     const tEnd = this.metrics.now();
     const tileBytes = tiles.map(t => t.imageBuffer?.length || 0);
@@ -385,6 +428,24 @@ export class TileManager {
     });
   }
 
+  // Aggregate focus effectiveness and log every N frames
+  _recordFocusFrame(tiles) {
+    const s = this.focusStats;
+    s.frames++;
+    s.scanned += this.activeTileSet ? this.activeTileSet.size : this.totalTiles;
+    s.changed += tiles.length;
+    for (const t of tiles) s.bytes += t.imageBuffer?.length || 0;
+
+    if (s.frames < REMOTE_CONFIG.logging.focusLogEveryFrames) return;
+    const avgScanned = (s.scanned / s.frames).toFixed(0);
+    const avgChanged = (s.changed / s.frames).toFixed(1);
+    const avgKB = (s.bytes / s.frames / 1024).toFixed(1);
+    const savedPct = this.totalTiles ? ((1 - avgScanned / this.totalTiles) * 100).toFixed(0) : 0;
+    const mode = this.activeTileSet ? "focus" : "full";
+    remoteLog.focus(`🎯 [Focus/${mode}] ${s.frames}f | scan ${avgScanned}/${this.totalTiles} tiles (saved ${savedPct}%) | changed ${avgChanged}/f | data ${avgKB}KB/f`);
+    this.focusStats = { frames: 0, scanned: 0, changed: 0, bytes: 0 };
+  }
+
   async getScreenDimensions() {
     try {
       const screenData = await this.captureFullScreen();
@@ -394,7 +455,7 @@ export class TileManager {
       this.tilesPerColumn = Math.ceil(screenData.height / this.tileSize);
       this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
     } catch (error) {
-      console.error("Error getting dimensions:", error);
+      remoteLog.error("Error getting dimensions:", error);
     }
 
     return {
@@ -419,18 +480,23 @@ export class TileManager {
       const changedTileIndices = [];
       this.frameCount++;
 
+      // Focus-based streaming: skip tiles outside client viewport+padding
+      const activeSet = this.activeTileSet;
+
       // Calculate hashes directly without extracting tiles (lazy extraction)
       const currentTileHashes = new Map();
       for (let i = 0; i < this.totalTiles; i++) {
+        if (activeSet && !activeSet.has(i)) continue;
         const checksum = this.calculateTileChecksumDirect(screenData, i);
         currentTileHashes.set(i, checksum);
         this.lastTileChecksums.set(i, checksum);
       }
 
       if (!clientTileHashes || clientTileHashes.length === 0) {
-        // First request - extract all tiles
+        // First request - extract all tiles (within focus set)
         const tilePromises = [];
         for (let i = 0; i < this.totalTiles; i++) {
+          if (activeSet && !activeSet.has(i)) continue;
           tilePromises.push(this.processTileAsync(screenData, i));
         }
         const results = await Promise.all(tilePromises);
@@ -440,6 +506,7 @@ export class TileManager {
 
       // Find changed tiles by comparing hashes
       for (let i = 0; i < this.totalTiles; i++) {
+        if (activeSet && !activeSet.has(i)) continue;
         if (clientTileHashes[i] !== currentTileHashes.get(i)) {
           changedTileIndices.push(i);
         }
@@ -448,9 +515,10 @@ export class TileManager {
       const changePercentage = changedTileIndices.length / this.totalTiles;
 
       if (changePercentage > this.changeThreshold) {
-        // Full refresh - extract all tiles
+        // Full refresh - extract all tiles (within focus set)
         const tilePromises = [];
         for (let i = 0; i < this.totalTiles; i++) {
+          if (activeSet && !activeSet.has(i)) continue;
           tilePromises.push(this.processTileAsync(screenData, i));
         }
         const results = await Promise.all(tilePromises);
@@ -464,6 +532,7 @@ export class TileManager {
         changedTiles.push(...results);
       }
 
+      this._recordFocusFrame(changedTiles);
       return { tiles: changedTiles, currentHashes: Array.from(currentTileHashes.values()), changedIndices: changedTileIndices };
     } finally {
       this.isProcessing = false;
@@ -488,7 +557,7 @@ export class TileManager {
         files.forEach(file => fs.unlinkSync(path.join(this.tempDir, file)));
       }
     } catch (error) {
-      console.warn("Cleanup error:", error);
+      remoteLog.warn(`Cleanup error: ${error.message}`);
     }
   }
 }

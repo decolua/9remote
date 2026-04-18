@@ -115,8 +115,10 @@ const ROUTES = [
   // Public routes (accessible via tunnel)
   { path: "/api/health",           method: "GET",  public: true, handler: (req, res) => jsonOk(res, { status: "ok", timestamp: Date.now() }) },
   { path: "/api/version",          method: "GET",  public: true, handler: (req, res) => {
-    const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
-    jsonOk(res, { version: pkg.version });
+    const version = typeof __CLI_VERSION__ !== "undefined"
+      ? __CLI_VERSION__
+      : JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
+    jsonOk(res, { version });
   }},
   { path: "/api/notify",           method: "POST", public: true, handler: handleNotifyPost },
   { path: "/api/notify",           method: "GET",  public: true, handler: handleNotifyGet },
@@ -219,8 +221,10 @@ export async function startServer() {
 
   server.listen(port, (err) => {
     if (err) throw err;
-    const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
-    checkForUpdate(pkg.version);
+    const version = typeof __CLI_VERSION__ !== "undefined"
+      ? __CLI_VERSION__
+      : JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
+    checkForUpdate(version);
   });
 
   // Graceful shutdown
