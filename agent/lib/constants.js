@@ -35,8 +35,14 @@ export const STEP = {
 
 // Debug flags — toggle diagnostic displays without touching logic
 export const DEBUG = {
-  showTunnelUrlInMenu: true,
+  showTunnelUrlInMenu: false,
 };
+
+// macOS permission poll — TCC has no change event, so we poll periodically.
+// Fast cadence kicks in right after user clicks "Grant" so UI reflects the toggle quickly.
+export const PERMISSION_POLL_MS = 5000;
+export const PERMISSION_POLL_FAST_MS = 1000;
+export const PERMISSION_POLL_FAST_DURATION = 60000;
 
 // Browser-like headers to avoid CDN/firewall blocks
 const BROWSER_HEADERS = {

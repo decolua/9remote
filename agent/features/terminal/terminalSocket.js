@@ -5,6 +5,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import * as daemonClient from "./ptyDaemonClient.js";
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
+import { isRemoteReady, setRemoteReadyChangeHandler } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
 import { listSavedBufferSessions, loadSessionMetadata } from "./ptyHelper.js";
 import { setupSessionHandlers } from "./handlers/SessionHandler.js";
@@ -68,22 +69,33 @@ export function setupTerminalSocket(io, apiKey) {
     });
   }
 
+  // Build serverInfo payload (reusable for initial emit + live broadcast)
+  const buildServerInfo = () => ({
+    version: PKG_VERSION,
+    remoteAvailable: isRemoteReady(),
+    daemonMode: PERSISTENCE_MODE === "daemon" && daemonClient.isConnected(),
+    platform: process.platform,
+    ...getCodespaceInfo()
+  });
+
+  // Broadcast fresh serverInfo to all approved clients when remote readiness changes
+  setRemoteReadyChangeHandler(() => {
+    const info = buildServerInfo();
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data?.approved) socket.emit("serverInfo", info);
+    }
+  });
+
   io.on("connection", (socket) => {
     trackConnection();
 
-    socket.emit("serverInfo", {
-      version: PKG_VERSION,
-      remoteAvailable: isRemoteAvailable(),
-      daemonMode: PERSISTENCE_MODE === "daemon" && daemonClient.isConnected(),
-      platform: process.platform,
-      ...getCodespaceInfo()
-    });
+    socket.emit("serverInfo", buildServerInfo());
 
     setupSessionHandlers(socket, io, sessions);
     setupInputHandlers(socket, sessions);
     setupPushHandlers(socket);
 
-    // Attach remote desktop handlers on same socket if available
+    // Attach remote desktop handlers on same socket if capable (permissions checked at invoke time)
     if (isRemoteAvailable()) setupRemoteHandlers(socket, apiKey).catch((err) => {
       console.error("❌ Failed to setup remote handlers:", err.message);
     });

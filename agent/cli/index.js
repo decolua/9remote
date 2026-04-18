@@ -33,6 +33,9 @@ const RESTART_WINDOW_MS = 60000; // 1 minute
 const ORANGE = chalk.rgb(230, 138, 110);
 const ORANGE_DIM = chalk.rgb(200, 120, 95);
 
+// Submenus set this to receive SSE-driven refreshes (permissions, state, ...) while open
+let activeSubmenuRefresh = null;
+
 /** Ensure API key exists, create if missing */
 async function ensureKeyData() {
   const machineId = await getConsistentMachineId();
@@ -504,7 +507,8 @@ async function tuiMode() {
         triggerMenuRedraw?.();
       }
     } else if (type === "permissions") {
-      // desktopEnabled changed — trigger redraw so menu label refreshes
+      // desktopEnabled or permission values changed — refresh both main menu and active submenu
+      activeSubmenuRefresh?.();
       triggerMenuRedraw?.();
     } else if (type === "deviceApproval" && data.action === "pending") {
       if (deviceApprovalBusy) return;
@@ -636,21 +640,40 @@ async function tuiLogsView(logBuffer) {
  */
 async function tuiDesktopMenu() {
   while (true) {
-    // Always read from server
-    const state = await apiGet("/api/ui/state") || {};
-    const desktopOn = !!state.desktopEnabled;
-    const perms = { screenRecording: !!state.screenRecording, accessibility: !!state.accessibility };
+    // State captured in closure — SSE may mutate items in-place while menu is open
+    let desktopOn = false;
+    let perms = { screenRecording: false, accessibility: false };
 
-    const toggleLabel = `Toggle: ${desktopOn ? chalk.green("ON  → turn OFF") : chalk.gray("OFF → turn ON")}`;
-    const srLabel = `Screen Recording          ${perms.screenRecording ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`;
-    const axLabel = `Mouse & Keyboard control  ${perms.accessibility  ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`;
+    const buildLabels = () => ({
+      toggle: `Toggle: ${desktopOn ? chalk.green("ON  → turn OFF") : chalk.gray("OFF → turn ON")}`,
+      sr: `Screen Recording          ${perms.screenRecording ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`,
+      ax: `Mouse & Keyboard control  ${perms.accessibility  ? chalk.green("✓") : chalk.red("✗ (click to grant)")}`,
+    });
 
-    const idx = await selectMenu("Remote Desktop", [
-      { label: toggleLabel },
-      { label: srLabel },
-      { label: axLabel },
+    const items = [
+      { label: "" },
+      { label: "" },
+      { label: "" },
       { label: chalk.gray("← Back") },
-    ], 0);
+    ];
+
+    let redrawMenu = null;
+    const syncFromServer = async () => {
+      const s = await apiGet("/api/ui/state") || {};
+      desktopOn = !!s.desktopEnabled;
+      perms = { screenRecording: !!s.screenRecording, accessibility: !!s.accessibility };
+      const L = buildLabels();
+      items[0].label = L.toggle;
+      items[1].label = L.sr;
+      items[2].label = L.ax;
+      redrawMenu?.();
+    };
+
+    await syncFromServer();
+    // Register SSE-driven refresh while this submenu is active
+    activeSubmenuRefresh = syncFromServer;
+    const idx = await selectMenu("Remote Desktop", items, 0, "", (setRedraw) => { redrawMenu = setRedraw; });
+    activeSubmenuRefresh = null;
 
     if (idx === 0) {
       await apiPost("/api/desktop/toggle", { enabled: !desktopOn });

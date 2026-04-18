@@ -383,7 +383,7 @@ export default function WorkspacePage() {
           onDelete={handleDeleteSession}
           onRename={handleRenameSession}
           onLogout={handleLogoutWithConfirm}
-          onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
+          onOpenRemote={connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
           onOpenFiles={handleOpenFiles}
           tunnelUrl={auth?.tunnelUrl}
           apiKey={auth?.apiKey}
@@ -421,7 +421,7 @@ export default function WorkspacePage() {
               onSwitchSession={handleSelectSession}
               onCreateSession={handleQuickCreateSession}
               onBack={popView}
-              onOpenRemote={remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
+              onOpenRemote={connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
               onOpenFiles={handleOpenFiles}
               onLogout={handleLogoutWithConfirm}
               onStopCodespace={stopCodespace}

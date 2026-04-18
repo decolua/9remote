@@ -10,13 +10,14 @@ import { fileURLToPath } from "url";
 import chalk from "chalk";
 
 import { createRouter, jsonOk, jsonErr } from "./lib/router.js";
-import { STEP, browserFetch } from "./lib/constants.js";
+import { STEP, browserFetch, PERMISSION_POLL_MS } from "./lib/constants.js";
 import { setupSocketIO, getIO } from "./lib/socketio.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
 import { initializeTerminal } from "./features/terminal/terminalSocket.js";
 import { handleLocalSites } from "./api/localSites.js";
 import { verifyApiKeyCrc } from "./cli/utils/apiKey.js";
+import { isNewerVersion } from "./cli/utils/updateChecker.js";
 
 import {
   loadUiState, loadDesktopState, refreshPermissionsAsync, pushUiEvent, setRemoteAvailable,
@@ -69,7 +70,7 @@ async function checkForUpdate(currentVersion) {
     const res = await browserFetch(NPM_REGISTRY_URL);
     if (!res.ok) return;
     const { version } = await res.json();
-    if (version && version !== currentVersion) pushUiEvent("updateAvailable", { version });
+    if (version && isNewerVersion(currentVersion, version)) pushUiEvent("updateAvailable", { version });
   } catch { /* non-critical */ }
 }
 
@@ -223,6 +224,10 @@ export async function startServer() {
   loadUiState();
   loadDesktopState();
   refreshPermissionsAsync();
+  // macOS TCC has no change event — poll to detect permission revoke/grant
+  if (process.platform === "darwin") {
+    setInterval(refreshPermissionsAsync, PERMISSION_POLL_MS);
+  }
 
   await setupSocketIO(server);
 

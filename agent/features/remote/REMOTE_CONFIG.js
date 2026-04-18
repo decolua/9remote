@@ -21,13 +21,6 @@ export const REMOTE_CONFIG = {
     jpegQuality: 50
   },
 
-  // Metrics — log pipeline timings per N frames (capture/encode/total/fps)
-  metrics: {
-    enabled: true,
-    logEveryFrames: 30
-  },
-
-
   // WebRTC transport config
   // enableWebRTC: true  → init WebRTC manager, handle offer/answer signaling
   // enableTurn: false   → STUN P2P only, skip TURN credential fetch
@@ -92,10 +85,21 @@ export const REMOTE_CONFIG = {
 
   // Logging — config-driven flags per log group. Toggle off in production.
   logging: {
-    lifecycle: false,          // start/stop streaming, handlers attached, client cleanup
-    errors: true,             // all error/warn logs
-    dpiDetection: false,      // DPI detection strategies (noisy on Windows)
-    focus: false,              // focus region updates + per-frame saving stats
-    focusLogEveryFrames: 60   // how often to log focus effectiveness
+    // Lifecycle — start/stop streaming, handlers attached, client cleanup
+    lifecycle: false,
+
+    // Errors — all error/warn logs
+    errors: true,
+
+    // DPI detection strategies (noisy on Windows)
+    dpiDetection: false,
+
+    // Focus region updates + per-frame saving stats
+    focus: false,
+    focusEveryFrames: 60,
+
+    // Pipeline metrics — capture/encode/total/fps/tiles/compression
+    metrics: false,
+    metricsEveryFrames: 30
   }
 };

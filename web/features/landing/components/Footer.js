@@ -32,7 +32,7 @@ export default function Footer() {
             <ul className="space-y-2">
               <li>
                 <Link href="/login" className="text-gray-600 hover:text-orange-400 text-sm transition-colors">
-                  Login
+                  Remote
                 </Link>
               </li>
               <li>
@@ -82,6 +82,16 @@ export default function Footer() {
                   Documentation
                 </a>
               </li>
+              <li>
+                <a 
+                  href="https://www.facebook.com/groups/9teamvn" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-gray-600 hover:text-orange-400 text-sm transition-colors"
+                >
+                  Facebook
+                </a>
+              </li>
             </ul>
           </div>
         </div>
@@ -107,6 +117,14 @@ export default function Footer() {
               className="text-gray-500 hover:text-orange-400 text-xs transition-colors"
             >
               NPM
+            </a>
+            <a 
+              href="https://www.facebook.com/groups/9teamvn" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-gray-500 hover:text-orange-400 text-xs transition-colors"
+            >
+              Facebook
             </a>
           </div>
         </div>

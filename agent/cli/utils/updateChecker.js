@@ -61,7 +61,7 @@ function getCurrentVersion() {
  * Compare semver versions
  * Returns true if latest > current
  */
-function isNewerVersion(current, latest) {
+export function isNewerVersion(current, latest) {
   const currentParts = current.split(".").map(Number);
   const latestParts = latest.split(".").map(Number);
 

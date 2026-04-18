@@ -2,7 +2,7 @@
  * UI state & SSE event handlers (localhost-only)
  */
 
-import { STEP } from "../lib/constants.js";
+import { STEP, PERMISSION_POLL_FAST_MS, PERMISSION_POLL_FAST_DURATION } from "../lib/constants.js";
 import { writeCmd } from "../cli/utils/state.js";
 import { checkPermissions, openPermissionPane } from "../cli/utils/permissions.js";
 import { jsonOk } from "../lib/router.js";
@@ -107,8 +107,39 @@ export function getRemoteAvailable() { return remoteAvailable; }
 
 export function getPermissions() { return cachedPermissions; }
 
-export function refreshPermissionsAsync() {
-  checkPermissions().then((p) => { cachedPermissions = p; });
+// Remote desktop fully usable only when capable + toggled ON + both permissions granted
+export function isRemoteReady() {
+  return !!remoteAvailable
+    && !!desktopEnabled
+    && !!cachedPermissions.screenRecording
+    && !!cachedPermissions.accessibility;
+}
+
+// Broadcast hook — registered by socket layer to notify clients on state change
+let onRemoteReadyChange = null;
+export function setRemoteReadyChangeHandler(fn) { onRemoteReadyChange = fn; }
+
+export async function refreshPermissionsAsync() {
+  const p = await checkPermissions();
+  const prev = cachedPermissions;
+  const prevReady = isRemoteReady();
+  cachedPermissions = p;
+  // Auto-disable desktop when a required permission was revoked
+  if (desktopEnabled && (!p.screenRecording || !p.accessibility)) {
+    desktopEnabled = false;
+    saveDesktopState();
+  }
+  // Auto-enable desktop when both permissions transition to granted
+  const bothBefore = prev.screenRecording && prev.accessibility;
+  const bothNow = p.screenRecording && p.accessibility;
+  if (!desktopEnabled && !bothBefore && bothNow) {
+    desktopEnabled = true;
+    saveDesktopState();
+  }
+  const changed = prev.screenRecording !== p.screenRecording || prev.accessibility !== p.accessibility;
+  if (changed) pushUiEvent("permissions", { ...cachedPermissions, desktopEnabled });
+  if (isRemoteReady() !== prevReady) onRemoteReadyChange?.();
+  return p;
 }
 
 export function trackConnection(socketId, ip, deviceId = null, type = "ws") {
@@ -168,9 +199,17 @@ export async function handleDesktopToggle(req, res) {
   const { parseJsonBody } = await import("../lib/router.js");
   const data = await parseJsonBody(req, res);
   if (!data) return;
-  desktopEnabled = !!data.enabled;
+  const next = !!data.enabled;
+  // Block enabling when required permissions are not granted
+  if (next && (!cachedPermissions.screenRecording || !cachedPermissions.accessibility)) {
+    jsonOk(res, { ok: false, enabled: desktopEnabled, reason: "permissions_required" });
+    return;
+  }
+  const prevReady = isRemoteReady();
+  desktopEnabled = next;
   saveDesktopState();
   pushUiEvent("permissions", { ...cachedPermissions, desktopEnabled });
+  if (isRemoteReady() !== prevReady) onRemoteReadyChange?.();
   jsonOk(res, { ok: true, enabled: desktopEnabled });
 }
 
@@ -185,18 +224,12 @@ export async function handlePermissionsRequest(req, res) {
   const { type } = data;
   if (process.platform === "darwin") {
     openPermissionPane(type);
-    // Poll for permission grant
-    let attempts = 0;
-    const poll = setInterval(() => {
-      attempts++;
-      checkPermissions().then((p) => {
-        cachedPermissions = p;
-        if (p[type] || attempts >= 30) {
-          clearInterval(poll);
-          pushUiEvent("permissions", { ...cachedPermissions, desktopEnabled });
-        }
-      });
-    }, 2000);
+    // Fast-poll while user is in System Settings — reuses refreshPermissionsAsync to stay DRY
+    const started = Date.now();
+    const poll = setInterval(async () => {
+      const p = await refreshPermissionsAsync();
+      if (p[type] || Date.now() - started > PERMISSION_POLL_FAST_DURATION) clearInterval(poll);
+    }, PERMISSION_POLL_FAST_MS);
   }
   jsonOk(res);
 }

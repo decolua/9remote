@@ -25,13 +25,13 @@ export function checkPermissions() {
     let sr = false, ax = false, done = 0;
     const finish = () => { if (++done === 2) resolve({ screenRecording: sr, accessibility: ax }); };
 
-    // Accessibility: check process list (requires accessibility, no side-effect)
-    exec(`osascript -e 'tell application "System Events" to get name of first process'`,
+    // Accessibility: reading UI elements truly requires AX permission (reflects revoke instantly)
+    exec(`osascript -e 'tell application "System Events" to tell process "Finder" to get name of every window'`,
       { timeout: 3000 }, (err) => { ax = !err; finish(); });
 
-    // Screen Recording: capture 1px — fails silently without permission
-    exec(`screencapture -x -R 0,0,1,1 /tmp/9remote_perm_check.png && rm -f /tmp/9remote_perm_check.png`,
-      { timeout: 5000 }, (err) => { sr = !err; finish(); });
+    // Screen Recording: CGPreflightScreenCaptureAccess via CoreGraphics — reflects TCC state in realtime
+    exec(`osascript -e 'use framework "CoreGraphics"' -e "return (current application's CGPreflightScreenCaptureAccess()) as boolean"`,
+      { timeout: 3000 }, (err, stdout) => { sr = !err && stdout.trim() === "true"; finish(); });
   });
 }
 

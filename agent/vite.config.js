@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
-import { obfuscator } from "vite-plugin-javascript-obfuscator";
+import obfuscator from "vite-plugin-javascript-obfuscator";
 import { browserPreset } from "../scripts/obfuscatorConfig.js";
 
 const AGENT_PORT = 2208;

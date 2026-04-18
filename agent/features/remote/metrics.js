@@ -4,19 +4,19 @@ import { pushUiLog } from "../../api/ui.js";
 
 export class FrameMetrics {
   constructor() {
-    this.cfg = REMOTE_CONFIG.metrics;
+    this.cfg = REMOTE_CONFIG.logging;
     this.samples = [];
     this.lastLogTime = Date.now();
   }
 
   now() {
-    return this.cfg.enabled ? performance.now() : 0;
+    return this.cfg.metrics ? performance.now() : 0;
   }
 
   record({ capture, checksum, encode, total, changedTiles, totalTiles, tileBytes, rawBytes }) {
-    if (!this.cfg.enabled) return;
+    if (!this.cfg.metrics) return;
     this.samples.push({ capture, checksum, encode, total, changedTiles, totalTiles, tileBytes, rawBytes });
-    if (this.samples.length >= this.cfg.logEveryFrames) this._flush();
+    if (this.samples.length >= this.cfg.metricsEveryFrames) this._flush();
   }
 
   _flush() {

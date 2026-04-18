@@ -439,7 +439,7 @@ export class TileManager {
     s.changed += tiles.length;
     for (const t of tiles) s.bytes += t.imageBuffer?.length || 0;
 
-    if (s.frames < REMOTE_CONFIG.logging.focusLogEveryFrames) return;
+    if (s.frames < REMOTE_CONFIG.logging.focusEveryFrames) return;
     const avgScanned = (s.scanned / s.frames).toFixed(0);
     const avgChanged = (s.changed / s.frames).toFixed(1);
     const avgKB = (s.bytes / s.frames / 1024).toFixed(1);
