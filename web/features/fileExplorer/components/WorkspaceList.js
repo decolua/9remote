@@ -19,9 +19,21 @@ export function getRecentWorkspaces() {
 
 export function addRecentWorkspace(workspacePath) {
   if (typeof window === "undefined") return;
-  const recent = getRecentWorkspaces().filter(w => w.path !== workspacePath);
-  recent.unshift({ path: workspacePath, lastOpened: Date.now() });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)));
+  const all = getRecentWorkspaces();
+  const existing = all.find(w => w.path === workspacePath);
+  const rest = all.filter(w => w.path !== workspacePath);
+  // Preserve lastPath when re-adding existing workspace
+  rest.unshift({ path: workspacePath, lastOpened: Date.now(), lastPath: existing?.lastPath });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(rest.slice(0, MAX_RECENT)));
+}
+
+export function updateRecentWorkspacePath(workspacePath, lastPath) {
+  if (typeof window === "undefined") return;
+  const recent = getRecentWorkspaces();
+  const idx = recent.findIndex(w => w.path === workspacePath);
+  if (idx === -1) return;
+  recent[idx] = { ...recent[idx], lastPath };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
 }
 
 export function removeRecentWorkspace(workspacePath) {

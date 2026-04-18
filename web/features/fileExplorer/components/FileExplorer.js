@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import FileTree from "./FileTree";
 import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package } from "@/shared/components/ui/Icon";
+import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
 export default function FileExplorer({ 
@@ -15,6 +15,8 @@ export default function FileExplorer({
   onOpenFile, 
   onOpenGit,
   onSetWorkspace,
+  onSwitchWorkspace,
+  onPathChange,
   isBrowsing = false
 }) {
   const [currentPath, setCurrentPath] = useState(initialPath || workspace);
@@ -157,6 +159,13 @@ export default function FileExplorer({
     };
   }, []);
 
+  // Notify parent when currentPath changes (workspace mode only)
+  useEffect(() => {
+    if (!isBrowsing && onPathChange) {
+      onPathChange(currentPath);
+    }
+  }, [currentPath, isBrowsing, onPathChange]);
+
   const handleFolderClick = (folder) => {
     loadFiles(folder.path);
   };
@@ -276,6 +285,17 @@ export default function FileExplorer({
             title="Set as workspace"
           >
             Set Workspace
+          </button>
+        )}
+
+        {/* Workspace mode: Switch workspace button */}
+        {!isBrowsing && onSwitchWorkspace && (
+          <button
+            onClick={() => { vibrate(); onSwitchWorkspace(); }}
+            className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
+            title="Switch workspace"
+          >
+            <FolderOpen className="text-brand-500" size={20} />
           </button>
         )}
 

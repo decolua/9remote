@@ -8,7 +8,7 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
-import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
+import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath } from "@/features/fileExplorer/components/WorkspaceList";
 import MobileBackgroundImage from "@/shared/components/ui/MobileBackground";
 import { useNotification } from "@/shared/hooks/useNotification";
 import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "@/features/terminal/constants/terminalConfig";
@@ -247,7 +247,7 @@ export default function WorkspacePage() {
     pushView({ type: "remote" });
   }, [pushView]);
 
-  const handleOpenFiles = useCallback(async () => {
+  const handleOpenWorkspaceList = useCallback(async () => {
     // Fetch system info when opening workspaces view
     if (!systemInfo) {
       const info = await fileSocket.getSystemInfo();
@@ -258,14 +258,33 @@ export default function WorkspacePage() {
     pushView({ type: "workspaces" });
   }, [pushView, fileSocket, systemInfo]);
 
+  const handleOpenFiles = useCallback(async () => {
+    // Auto-open most recent workspace (restore last visited folder); else show list
+    const recent = getRecentWorkspaces();
+    if (recent.length > 0) {
+      const last = recent[0];
+      pushView({ type: "files", workspace: last.path, currentPath: last.lastPath || last.path });
+      return;
+    }
+    handleOpenWorkspaceList();
+  }, [pushView, handleOpenWorkspaceList]);
+
   const handleSelectWorkspace = useCallback((workspacePath) => {
     addRecentWorkspace(workspacePath);
-    pushView({ type: "files", workspace: workspacePath });
-  }, [pushView]);
+    // Replace any existing workspaces/files views in stack with fresh files view
+    // so Back doesn't revisit old workspace or the selector
+    const cleaned = viewStack.filter(v => v.type !== "workspaces" && v.type !== "files");
+    setViewStack([...cleaned, { type: "files", workspace: workspacePath }]);
+  }, [viewStack, setViewStack]);
 
   const handleBrowseFolder = useCallback((startPath) => {
     pushView({ type: "browse", path: startPath });
   }, [pushView]);
+
+  const handlePathChange = useCallback((workspacePath, currentPath) => {
+    // Persist last visited folder per workspace so next open restores it
+    updateRecentWorkspacePath(workspacePath, currentPath);
+  }, []);
 
   const handleOpenFile = useCallback((filePath, folderPath) => {
     // Save current folder path so we can restore it when back from editor
@@ -289,11 +308,12 @@ export default function WorkspacePage() {
   }, [pushView, viewStack]);
 
   const handleSetWorkspace = useCallback((workspacePath) => {
-    // Replace browse view with files view (workspace mode)
+    // Replace browse/workspaces/files views with fresh files view
+    // so Back doesn't revisit browse selector or old workspace
     addRecentWorkspace(workspacePath);
-    storePopView(); // Remove browse view
-    pushView({ type: "files", workspace: workspacePath });
-  }, [storePopView, pushView]);
+    const cleaned = viewStack.filter(v => v.type !== "browse" && v.type !== "workspaces" && v.type !== "files");
+    setViewStack([...cleaned, { type: "files", workspace: workspacePath }]);
+  }, [viewStack, setViewStack]);
 
   const handleOpenSite = useCallback((site) => {
     // Open local site in new tab via proxy
@@ -508,6 +528,8 @@ export default function WorkspacePage() {
             onBack={popView}
             onOpenFile={handleOpenFile}
             onOpenGit={handleOpenGit}
+            onSwitchWorkspace={handleOpenWorkspaceList}
+            onPathChange={(p) => handlePathChange(currentView.workspace, p)}
           />
         </div>
       )}
