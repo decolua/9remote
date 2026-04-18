@@ -2,7 +2,7 @@
 
 Tauri app — khi mở, tự spawn Agent local rồi load UI từ localhost.
 
-```
+``` 
 User opens Desktop (Tauri)
  ├─ [first run] npm install -g 9remote
  ├─ spawn: npm exec -- 9remote ui   → Agent server :2208
