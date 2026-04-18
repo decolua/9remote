@@ -174,14 +174,12 @@ export async function setupSocketIO(server) {
     pushUiLog(`Client connected: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);
 
     socket.on("disconnect", (reason) => {
-      console.log(`[DEBUG-DC] disconnect: socketId=${socket.id}, deviceId=${deviceId?.slice(0,8)}, reason="${reason}", approved=${socket.data.approved}`);
       untrackConnection(socket.id);
       removePendingApproval(socket.id);
       pushUiLog(`Client disconnected: ${ip} (${reason})`);
     });
 
     // Check device approval
-    console.log(`[DEBUG-SOCKET] connection: socketId=${socket.id}, deviceId=${deviceId?.slice(0,8)}, approved=${isDeviceApproved(deviceId)}, pending=${isDevicePending(deviceId)}, rejected=${isDeviceRejected(deviceId)}`);
     if (deviceId && isDeviceApproved(deviceId)) {
       // Known device — allow immediately
       pushUiLog(`Device recognized: ${deviceId.slice(0, 8)}...`);
@@ -207,7 +205,6 @@ export async function setupSocketIO(server) {
 
       // Wait for client to signal ready before emitting approval request
       socket.once("device:clientReady", () => {
-        console.log(`[DEBUG-SOCKET] clientReady received: socketId=${socket.id}, deviceId=${deviceId?.slice(0,8)}`);
         socket.emit("device:pendingApproval");
         pushUiEvent("deviceApproval", {
           socketId: socket.id,

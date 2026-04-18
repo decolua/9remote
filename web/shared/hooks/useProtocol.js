@@ -6,6 +6,17 @@ import { useSessionStorage } from "./useSessionStorage";
 import { ProtocolManager } from "@/shared/transport/ProtocolManager";
 
 /**
+ * Persist rotated tunnelUrl/localIp back to sessionStorage
+ * so other consumers (fetch /api/local-sites, proxy) use fresh URL.
+ */
+function persistAuthUpdate({ tunnelUrl, localIp }) {
+  if (typeof window === "undefined") return;
+  if (tunnelUrl) sessionStorage.setItem("tunnelUrl", tunnelUrl);
+  if (localIp) sessionStorage.setItem("localIp", localIp);
+  else if (localIp === null) sessionStorage.removeItem("localIp");
+}
+
+/**
  * useProtocol — universal transport hook.
  *
  * Wraps ProtocolManager (WS primary + WebRTC upgrade/fallback).
@@ -66,7 +77,8 @@ export function useProtocol({
         setTransport("ws");
         onDisconnect?.(reason);
       },
-      onRetryStatus: setRetryStatus
+      onRetryStatus: setRetryStatus,
+      onUrlUpdate: persistAuthUpdate
     };
 
     const rtcConfig = enableWebRTC ? {

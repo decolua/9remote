@@ -7,7 +7,7 @@ const STEPS_META = [
 ];
 
 // currentStep: 1=Preparing, 2=Connecting, 3=Tunneling, 4=Verifying, (5=Ready handled by parent)
-export default function StepProgress({ currentStep }) {
+export default function StepProgress({ currentStep, activeDesc = "" }) {
   // map step (1-based) to 0-based index
   const activeIdx = currentStep - 1;
   return (
@@ -50,7 +50,7 @@ export default function StepProgress({ currentStep }) {
                   {meta.label}
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)", opacity: active ? 0.7 : 0.4 }}>
-                  {meta.desc}
+                  {active && activeDesc ? activeDesc : meta.desc}
                 </p>
               </div>
 

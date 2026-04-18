@@ -86,15 +86,19 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
         </div>
 
         {/* Endpoint row */}
-        <a
-          href={`https://${ENDPOINT}/login`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-          <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{ENDPOINT}/login</span>
-        </a>
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>Scan QR or open link to sign in</span>
+          <a
+            href={`https://${ENDPOINT}/login`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 hover:underline transition-opacity"
+          >
+            <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+            <span className="text-sm font-bold" style={{ color: "var(--brand-500)" }}>{ENDPOINT}/login</span>
+            <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 14, color: "var(--brand-500)" }}>open_in_new</span>
+          </a>
+        </div>
 
         <div className="w-full h-px" style={{ background: "var(--border)" }} />
 

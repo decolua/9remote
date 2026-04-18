@@ -290,7 +290,7 @@ function ClientItem({ client, onRemove, onApprove }) {
 }
 
 export default function MainScreen({
-  step, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
+  step, stepDesc = "", tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
   onRequestPermission, onDesktopToggle, onStop, onStart, onGenerateOneTimeKey, onRegenerateKey, logs = [],
   theme, onToggleTheme,
@@ -367,7 +367,7 @@ export default function MainScreen({
           <WelcomeScreen onStart={onStart} connecting={false} />
         ) : isConnecting ? (
           <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4 max-w-2xl mx-auto w-full">
-            <StepProgress currentStep={step} />
+            <StepProgress currentStep={step} activeDesc={stepDesc} />
           </div>
         ) : (
           <div className="flex-1 flex flex-col md:flex-row min-h-0">

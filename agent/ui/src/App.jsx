@@ -3,6 +3,7 @@ import MainScreen from "./screens/MainScreen";
 
 const defaultState = {
   step: 0,
+  stepDesc: "",
   tunnelUrl: "",
   oneTimeKey: "",
   oneTimeKeyExpiresAt: null,
@@ -49,6 +50,7 @@ export default function App() {
       .then((data) => {
         setMainState({
           step: data.step ?? 0,
+          stepDesc: data.stepDesc ?? "",
           tunnelUrl: data.tunnelUrl ?? "",
           oneTimeKey: data.oneTimeKey ?? "",
           oneTimeKeyExpiresAt: data.oneTimeKeyExpiresAt ?? null,
@@ -77,6 +79,7 @@ export default function App() {
         if (data.type === "state") {
           setMainState({
             step: data.step ?? 0,
+            stepDesc: data.stepDesc ?? "",
             tunnelUrl: data.tunnelUrl ?? "",
             oneTimeKey: data.oneTimeKey ?? "",
             oneTimeKeyExpiresAt: data.oneTimeKeyExpiresAt ?? null,
@@ -216,6 +219,7 @@ export default function App() {
   return (
     <MainScreen
       step={mainState.step}
+      stepDesc={mainState.stepDesc}
       tunnelUrl={mainState.tunnelUrl}
       oneTimeKey={mainState.oneTimeKey}
       oneTimeKeyExpiresAt={mainState.oneTimeKeyExpiresAt}

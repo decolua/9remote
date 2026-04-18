@@ -22,6 +22,7 @@ function ensureDir() {
 
 let uiState = {
   step: STEP.STOPPED,
+  stepDesc: "",
   tunnelUrl: "",
   oneTimeKey: "",
   oneTimeKeyExpiresAt: null,
@@ -149,13 +150,13 @@ export async function handleStatePost(req, res) {
 
 export function handleStop(req, res) {
   jsonOk(res);
-  updateUiState({ step: STEP.STOPPED, tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+  updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
   writeCmd("stop-tunnel");
 }
 
 export function handleStart(req, res) {
   jsonOk(res);
-  updateUiState({ step: STEP.PREPARING });
+  updateUiState({ step: STEP.PREPARING, stepDesc: "" });
   writeCmd("start-tunnel");
 }
 

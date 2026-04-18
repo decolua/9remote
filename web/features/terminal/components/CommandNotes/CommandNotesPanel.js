@@ -16,6 +16,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
   const [command, setCommand] = useState("");
   const textareaRef = useRef(null);
   const { isIosPwa } = useDeviceInfo();
+  const [viewportHeight, setViewportHeight] = useState(null);
 
   // Focus textarea when panel opens or edit starts
   useEffect(() => {
@@ -23,6 +24,20 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
       setTimeout(() => textareaRef.current?.focus(), 100);
     }
   }, [isOpen, editingId]);
+
+  // Track visual viewport to prevent keyboard covering textarea on mobile
+  useEffect(() => {
+    if (!isOpen || typeof window === "undefined" || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const update = () => setViewportHeight(vv.height);
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, [isOpen]);
 
   // Close on Escape
   useEffect(() => {
@@ -87,7 +102,8 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
 
       {/* Panel */}
       <div
-        className="absolute top-0 right-0 bottom-0 w-[85vw] sm:w-96 max-w-md bg-dark-600 border-l border-dark-400 shadow-2xl flex flex-col slide-in-right"
+        className="absolute top-0 right-0 w-[85vw] sm:w-96 max-w-md bg-dark-600 border-l border-dark-400 shadow-2xl flex flex-col slide-in-right"
+        style={{ height: viewportHeight ? `${viewportHeight}px` : "100%" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -120,8 +136,15 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
               className="px-4 py-3 border-b border-dark-500/50 hover:bg-dark-500/30 transition-colors group"
             >
               <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
+                <div
+                  className="flex-1 min-w-0 cursor-pointer"
+                  onClick={() => handleCopy(note.id, note.command)}
+                  title="Click to copy"
+                >
                   <p className="text-sm text-white font-mono break-all">{note.command}</p>
+                  {copiedId === note.id && (
+                    <span className="text-xs text-green-400 mt-1 inline-block">Copied!</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-0.5 flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
                   <button

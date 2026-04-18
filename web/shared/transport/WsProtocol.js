@@ -16,7 +16,7 @@ const RETRY = BEHAVIOR.retry;
  * Owns: retry logic, socket lifecycle, visibility reconnect.
  */
 export class WsProtocol extends BaseProtocol {
-  constructor({ tunnelUrl, localIp, namespace = "", socketOptions = {}, apiKey, onConnect, onDisconnect, onRetryStatus }) {
+  constructor({ tunnelUrl, localIp, namespace = "", socketOptions = {}, apiKey, onConnect, onDisconnect, onRetryStatus, onUrlUpdate }) {
     super();
     this._tunnelUrl = tunnelUrl;
     this._localIp = localIp || null;
@@ -26,6 +26,7 @@ export class WsProtocol extends BaseProtocol {
     this._onConnect = onConnect;
     this._onDisconnect = onDisconnect;
     this._onRetryStatus = onRetryStatus;
+    this._onUrlUpdate = onUrlUpdate;
 
     this._socket = null;
     this._connected = false;
@@ -178,6 +179,7 @@ export class WsProtocol extends BaseProtocol {
       this._tunnelUrl = tunnelUrl;
       this._localIp = localIp || null;
       this._connectionMode = "local"; // Reset so next connect probes local again
+      this._onUrlUpdate?.({ tunnelUrl, localIp });
       this._socket?.disconnect();
       this._retryScheduled = false;
       this.connect();

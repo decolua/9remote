@@ -236,6 +236,7 @@ function LoginContent() {
                 {apiKey && (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                     <button
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => setShowPassword(!showPassword)}
                       className="text-dark-100 hover:text-white transition-colors"
                       type="button"
@@ -243,6 +244,7 @@ function LoginContent() {
                       {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                     <button
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={handleClearInput}
                       className="text-dark-100 hover:text-white transition-colors"
                       type="button"

@@ -16,6 +16,7 @@ import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
 import { initializeTerminal } from "./features/terminal/terminalSocket.js";
 import { handleLocalSites } from "./api/localSites.js";
+import { verifyApiKeyCrc } from "./cli/utils/apiKey.js";
 
 import {
   loadUiState, loadDesktopState, refreshPermissionsAsync, pushUiEvent, setRemoteAvailable,
@@ -89,6 +90,12 @@ function handleCodespaceStop(req, res) {
 let proxyServer;
 
 async function handleProxyStartEnd(req, res, { pathname }) {
+  // Verify API key (required for tunnel access)
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ") || !verifyApiKeyCrc(authHeader.slice(7))) {
+    jsonErr(res, 401, "Unauthorized");
+    return;
+  }
   const { parseJsonBody } = await import("./lib/router.js");
   const data = await parseJsonBody(req, res);
   if (!data) return;
@@ -151,12 +158,12 @@ const ROUTES = [
   { path: "/api/permissions",      method: "GET",  handler: handlePermissionsGet },
   { path: "/api/permissions/request", method: "POST", handler: handlePermissionsRequest },
   { path: "/api/desktop/toggle",   method: "POST", handler: handleDesktopToggle },
-  { path: "/api/local-sites",      method: "*",    handler: handleLocalSites },
+  { path: "/api/local-sites",      method: "*",    public: true, handler: handleLocalSites },
   { path: "/api/codespace/stop",   method: "POST", handler: handleCodespaceStop },
 
-  // Proxy session management (localhost-only)
-  { path: "/api/proxy/start",      method: "POST", handler: handleProxyStartEnd },
-  { path: "/api/proxy/end",        method: "POST", handler: handleProxyStartEnd },
+  // Proxy session management (tunnel-accessible, requires API key)
+  { path: "/api/proxy/start",      method: "POST", public: true, handler: handleProxyStartEnd },
+  { path: "/api/proxy/end",        method: "POST", public: true, handler: handleProxyStartEnd },
 ];
 
 // ── Server bootstrap ───────────────────────────────────────────────────────

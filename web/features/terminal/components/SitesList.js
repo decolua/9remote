@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { Globe, X, Trash2, RefreshCw, Loader2 } from "@/shared/components/ui/Icon";
+import { Globe, X, Trash2, RefreshCw, Loader2, Pencil, Check, ChevronRight } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 
 const CUSTOM_PORTS_KEY = "custom_ports";
+const SITE_LABELS_KEY = "site_labels";
 
 // Load custom ports from localStorage
 function getCustomPorts() {
@@ -24,12 +25,32 @@ function saveCustomPorts(ports) {
   localStorage.setItem(CUSTOM_PORTS_KEY, JSON.stringify(ports));
 }
 
+// Load site labels map from localStorage
+function getSiteLabels() {
+  if (typeof window === "undefined") return {};
+  try {
+    const stored = localStorage.getItem(SITE_LABELS_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+// Save site labels map to localStorage
+function saveSiteLabels(labels) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SITE_LABELS_KEY, JSON.stringify(labels));
+}
+
 export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
   const [customPorts, setCustomPorts] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [openedWindows, setOpenedWindows] = useState({});
   const [newPort, setNewPort] = useState("");
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false });
+  const [siteLabels, setSiteLabels] = useState({});
+  const [editingPort, setEditingPort] = useState(null);
+  const [editingValue, setEditingValue] = useState("");
   const checkIntervalsRef = useRef({});
 
   // Get sites state from store (shared across all instances)
@@ -62,9 +83,35 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
     }
   };
 
+  // End all active proxy sessions and close popups
+  const endAllActiveSessions = async () => {
+    const ports = Object.keys(openedWindows);
+    // Clear intervals + close popups
+    ports.forEach((port) => {
+      const interval = checkIntervalsRef.current[port];
+      if (interval) {
+        clearInterval(interval);
+        delete checkIntervalsRef.current[port];
+      }
+      const win = openedWindows[port];
+      if (win && !win.closed) win.close();
+    });
+    if (ports.length === 0) return;
+    setOpenedWindows({});
+    // End sessions on agent in parallel
+    await Promise.all(ports.map((port) =>
+      fetch(`${tunnelUrl}/api/proxy/end`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({ port: Number(port) })
+      }).catch(() => {})
+    ));
+  };
+
   useEffect(() => {
     if (isModalOpen) {
       setCustomPorts(getCustomPorts());
+      setSiteLabels(getSiteLabels());
       // Show cached sites immediately if we don't have current sites
       if ((!currentSites || currentSites.length === 0) && cachedSites && cachedSites.length > 0) {
         setCurrentSites(cachedSites);
@@ -72,6 +119,9 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
       }
       // Then load fresh data in background
       loadSites();
+    } else {
+      // Modal closed → revoke all proxy access
+      endAllActiveSessions();
     }
   }, [isModalOpen]);
 
@@ -184,6 +234,34 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
     handleSelectSite({ port, name: `Port ${port}`, protocol: "http", isCustom: true });
   };
 
+  // Start editing label for a port
+  const handleStartEdit = (port, currentLabel) => {
+    setEditingPort(port);
+    setEditingValue(currentLabel || "");
+  };
+
+  // Save label edit
+  const handleSaveEdit = () => {
+    if (editingPort == null) return;
+    const trimmed = editingValue.trim();
+    const updated = { ...siteLabels };
+    if (trimmed) {
+      updated[editingPort] = trimmed;
+    } else {
+      delete updated[editingPort];
+    }
+    setSiteLabels(updated);
+    saveSiteLabels(updated);
+    setEditingPort(null);
+    setEditingValue("");
+  };
+
+  // Cancel editing
+  const handleCancelEdit = () => {
+    setEditingPort(null);
+    setEditingValue("");
+  };
+
   // Remove custom port
   const handleRemovePort = (port) => {
     setConfirmDialog({
@@ -294,59 +372,119 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                   {/* Custom ports - displayed first */}
                   {customPorts
                     .filter(port => !currentSites.some(s => s.port === port))
-                    .map((port) => (
-                      <div
-                        key={`custom-${port}`}
-                        className="w-full px-4 py-3 bg-dark-700/50 hover:bg-dark-600 border border-dark-400 hover:border-brand-500 rounded-brand-lg transition-all duration-200 group flex items-center justify-between"
-                      >
-                        <button
-                          onClick={() => handleSelectSite({ port, name: `Port ${port}`, protocol: "http", isCustom: true })}
-                          className="flex-1 flex items-center gap-3 text-left"
+                    .map((port) => {
+                      const isEditing = editingPort === port;
+                      const displayName = siteLabels[port] || "Custom";
+                      return (
+                        <div
+                          key={`custom-${port}`}
+                          className="w-full px-4 py-3 bg-dark-700/50 hover:bg-dark-600 border border-dark-400 hover:border-brand-500 rounded-brand-lg transition-all duration-200 group flex items-center justify-between gap-2"
                         >
-                          <div className="w-2.5 h-2.5 rounded-full bg-dark-200" />
-                          <div>
-                            <div className="text-white font-medium group-hover:text-brand-500 transition-colors">
-                              Custom
+                          <button
+                            onClick={() => !isEditing && handleSelectSite({ port, name: displayName, protocol: "http", isCustom: true })}
+                            className="flex-1 flex items-center gap-3 text-left min-w-0"
+                          >
+                            <div className="w-2.5 h-2.5 rounded-full bg-dark-200 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editingValue}
+                                  onChange={(e) => setEditingValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleSaveEdit();
+                                    if (e.key === "Escape") handleCancelEdit();
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  autoFocus
+                                  placeholder="Site name"
+                                  className="w-full px-2 py-1 bg-dark-700 border border-brand-500 rounded-brand text-white text-sm focus:outline-none"
+                                />
+                              ) : (
+                                <div className="text-white font-medium group-hover:text-brand-500 transition-colors truncate">
+                                  {displayName}
+                                </div>
+                              )}
+                              <div className="text-xs text-dark-100 mt-0.5 flex items-center gap-2">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-dark-500 text-dark-100">
+                                  http
+                                </span>
+                                <span>Port {port}</span>
+                              </div>
                             </div>
-                            <div className="text-xs text-dark-100 mt-0.5 flex items-center gap-2">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-dark-500 text-dark-100">
-                                http
-                              </span>
-                              <span>Port {port}</span>
-                            </div>
-                          </div>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemovePort(port);
-                          }}
-                          className="p-2 text-dark-100 hover:text-red-400 hover:bg-dark-500 rounded-brand transition-colors"
-                          title="Remove"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ))}
+                          </button>
+                          {isEditing ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleSaveEdit(); }}
+                              className="p-2 text-brand-500 hover:text-white hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                              title="Save"
+                            >
+                              <Check size={16} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleStartEdit(port, siteLabels[port]); }}
+                              className="p-2 text-dark-100 hover:text-brand-500 hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                              title="Edit name"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemovePort(port);
+                            }}
+                            className="p-2 text-dark-100 hover:text-red-400 hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                            title="Remove"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                          {!isEditing && (
+                            <ChevronRight className="text-dark-100 group-hover:text-brand-500 transition-colors shrink-0" size={20} />
+                          )}
+                        </div>
+                      );
+                    })}
 
                   {/* Auto-detected sites */}
-                  {currentSites.map((site) => (
-                    <button
-                      key={`auto-${site.port}`}
-                      onClick={() => handleSelectSite(site)}
-                      className="w-full px-4 py-3 text-left bg-dark-700/50 hover:bg-dark-600 border border-dark-400 hover:border-brand-500 rounded-brand-lg transition-all duration-200 group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
-                          <div>
-                            <div className="text-white font-medium group-hover:text-brand-500 transition-colors">
-                              {site.name}
-                            </div>
+                  {currentSites.map((site) => {
+                    const isEditing = editingPort === site.port;
+                    const displayName = siteLabels[site.port] || site.name;
+                    return (
+                      <div
+                        key={`auto-${site.port}`}
+                        className="w-full px-4 py-3 bg-dark-700/50 hover:bg-dark-600 border border-dark-400 hover:border-brand-500 rounded-brand-lg transition-all duration-200 group flex items-center justify-between gap-2"
+                      >
+                        <button
+                          onClick={() => !isEditing && handleSelectSite({ ...site, name: displayName })}
+                          className="flex-1 flex items-center gap-3 text-left min-w-0"
+                        >
+                          <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editingValue}
+                                onChange={(e) => setEditingValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleSaveEdit();
+                                  if (e.key === "Escape") handleCancelEdit();
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                autoFocus
+                                placeholder={site.name}
+                                className="w-full px-2 py-1 bg-dark-700 border border-brand-500 rounded-brand text-white text-sm focus:outline-none"
+                              />
+                            ) : (
+                              <div className="text-white font-medium group-hover:text-brand-500 transition-colors truncate">
+                                {displayName}
+                              </div>
+                            )}
                             <div className="text-xs text-dark-100 mt-0.5 flex items-center gap-2">
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium uppercase ${
-                                site.protocol === "https" 
-                                  ? "bg-green-500/20 text-green-400" 
+                                site.protocol === "https"
+                                  ? "bg-green-500/20 text-green-400"
                                   : "bg-blue-500/20 text-blue-400"
                               }`}>
                                 {site.protocol}
@@ -354,13 +492,30 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                               <span>Port {site.port}</span>
                             </div>
                           </div>
-                        </div>
-                        <svg className="w-5 h-5 text-dark-100 group-hover:text-brand-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
+                        </button>
+                        {isEditing ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleSaveEdit(); }}
+                            className="p-2 text-brand-500 hover:text-white hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                            title="Save"
+                          >
+                            <Check size={16} />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleStartEdit(site.port, siteLabels[site.port]); }}
+                            className="p-2 text-dark-100 hover:text-brand-500 hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                            title="Edit name"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                        )}
+                        {!isEditing && (
+                          <ChevronRight className="text-dark-100 group-hover:text-brand-500 transition-colors shrink-0" size={20} />
+                        )}
                       </div>
-                    </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

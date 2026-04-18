@@ -56,7 +56,7 @@ export function createRouter(routes, { fallback } = {}) {
     const methods = route.method === "*" ? ["GET", "POST", "PUT", "DELETE"] : [route.method];
     for (const m of methods) {
       if (route.path.endsWith("/*")) {
-        prefixRoutes.push({ prefix: route.path.slice(0, -2), method: m, ...route });
+        prefixRoutes.push({ ...route, prefix: route.path.slice(0, -2), method: m });
       } else {
         exactMap.set(`${m}:${route.path}`, route);
       }
@@ -97,7 +97,7 @@ export function createRouter(routes, { fallback } = {}) {
     const route = exactMap.get(key);
     if (route) {
       try {
-        await route.handler(req, res, { query: parsedUrl.query, search });
+        await route.handler(req, res, { pathname, query: parsedUrl.query, search });
       } catch (err) {
         console.error("Error:", req.url, err);
         jsonErr(res, 500, err.message);

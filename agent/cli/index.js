@@ -202,7 +202,6 @@ function startServerWithRestart(onReady, onServerCrash) {
         }
 
         console.log(chalk.yellow(`🔄 Restarting server... (attempt ${restartTimes.length}/${MAX_RESTART_ATTEMPTS})`));
-        console.log(ORANGE_DIM("⚠️  [DEBUG] NOTE: Tunnel connection may be stale - will restart tunnel"));
         
         // ✅ Callback để restart cloudflared
         if (onServerCrash) {
@@ -295,7 +294,16 @@ async function pushUiState(data) {
 let isTuiActive = false;
 async function setStep(step, extra = {}) {
   if (isTuiActive) renderProgress(step - 1, step > STEP.PREPARING);
-  await pushUiState({ step, ...extra });
+  await pushUiState({ step, stepDesc: "", ...extra });
+}
+
+// DRY: single handler for cloudflared binary progress → updates both TUI + web UI.
+function onBinaryProgress({ phase, percent }) {
+  const text = phase === "download"
+    ? `Downloading tunnel binary ${percent ?? 0}%`
+    : "Extracting tunnel binary";
+  if (isTuiActive) updateProgressDesc(text);
+  pushUiState({ stepDesc: text });
 }
 
 async function updateTunnelUrl(selectedKey, tunnelUrl) {
@@ -404,7 +412,7 @@ async function tuiMode() {
 
   try { killCloudflared(); await new Promise((r) => setTimeout(r, 300)); } catch {}
 
-  await ensureCloudflared();
+  await ensureCloudflared(onBinaryProgress);
 
   await setStep(STEP.CONNECTING);
 
@@ -724,7 +732,7 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
       console.log(ORANGE("🚀 Starting tunnel..."));
       try {
         await setStep(STEP.PREPARING);
-        await ensureCloudflared();
+        await ensureCloudflared(onBinaryProgress);
 
         await setStep(STEP.CONNECTING);
         const sessionResponse = await browserFetch(`${WORKER_URL}/api/session/create`, {

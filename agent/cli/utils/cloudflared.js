@@ -64,34 +64,58 @@ function getDownloadUrl() {
   return `${GITHUB_BASE_URL}/${binaryName}`;
 }
 
+// Emit progress at most every N ms to avoid render thrash
+const PROGRESS_THROTTLE_MS = 150;
+
 /**
- * Download file from URL
+ * Download file from URL with progress tracking
+ * @param {string} url
+ * @param {string} dest
+ * @param {(percent: number) => void} [onProgress]
  */
-async function downloadFile(url, dest) {
+async function downloadFile(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
-    
+
     https.get(url, (response) => {
       if ([301, 302].includes(response.statusCode)) {
         file.close();
         fs.unlinkSync(dest);
-        downloadFile(response.headers.location, dest).then(resolve).catch(reject);
+        downloadFile(response.headers.location, dest, onProgress).then(resolve).catch(reject);
         return;
       }
-      
+
       if (response.statusCode !== 200) {
         file.close();
         fs.unlinkSync(dest);
         reject(new Error(`Download failed with status ${response.statusCode}`));
         return;
       }
-      
+
+      const total = parseInt(response.headers["content-length"] || "0", 10);
+      let received = 0;
+      let lastEmit = 0;
+      let lastPercent = -1;
+
+      response.on("data", (chunk) => {
+        received += chunk.length;
+        if (!onProgress || !total) return;
+        const now = Date.now();
+        const percent = Math.min(100, Math.floor((received / total) * 100));
+        if (percent !== lastPercent && now - lastEmit >= PROGRESS_THROTTLE_MS) {
+          lastEmit = now;
+          lastPercent = percent;
+          onProgress(percent);
+        }
+      });
+
       response.pipe(file);
-      
+
       file.on("finish", () => {
+        if (onProgress && total) onProgress(100);
         file.close(() => resolve(dest));
       });
-      
+
       file.on("error", (err) => {
         file.close();
         fs.unlinkSync(dest);
@@ -107,39 +131,40 @@ async function downloadFile(url, dest) {
 
 /**
  * Ensure cloudflared binary exists
+ * @param {(progress: { phase: "download" | "extract", percent?: number }) => void} [onProgress]
  */
-export async function ensureCloudflared() {
+export async function ensureCloudflared(onProgress) {
   if (!fs.existsSync(BIN_DIR)) {
     fs.mkdirSync(BIN_DIR, { recursive: true });
   }
-  
+
   if (fs.existsSync(BIN_PATH)) {
     if (!IS_WINDOWS) {
       fs.chmodSync(BIN_PATH, "755");
     }
     return BIN_PATH;
   }
-  
-  console.log("📥 Downloading tunnel binary...");
-  
+
   const url = getDownloadUrl();
   const isArchive = url.endsWith(".tgz");
   const downloadDest = isArchive ? path.join(BIN_DIR, "cloudflared.tgz") : BIN_PATH;
-  
+
   try {
-    await downloadFile(url, downloadDest);
-    
+    onProgress?.({ phase: "download", percent: 0 });
+    await downloadFile(url, downloadDest, (percent) => {
+      onProgress?.({ phase: "download", percent });
+    });
+
     if (isArchive) {
-      console.log("✅ Extracting...");
+      onProgress?.({ phase: "extract" });
       execSync(`tar -xzf "${downloadDest}" -C "${BIN_DIR}"`, { stdio: "pipe", windowsHide: true });
       fs.unlinkSync(downloadDest);
     }
-    
+
     if (!IS_WINDOWS) {
       fs.chmodSync(BIN_PATH, "755");
     }
-    
-    console.log("✅ cloudflared ready");
+
     return BIN_PATH;
   } catch (error) {
     console.error("❌ Failed to download cloudflared:", error.message);

@@ -127,7 +127,6 @@ export async function setupRemoteHandlers(socket, apiKey) {
   });
 
   socket.emit("remote:ready");
-  console.log("🖥️ Remote handlers attached:", socket.id);
 }
 
 export async function setupRemoteSocket(io, apiKey) {

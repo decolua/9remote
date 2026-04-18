@@ -107,7 +107,7 @@ export default function TerminalHeader({
             <button
               onClick={() => { vibrate(); onCreateSession(); }}
               disabled={!connected}
-              className="sticky right-0 ml-1 p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand border border-dark-400 hover:border-brand-500 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 shadow-[-8px_0_8px_-6px_rgba(20,20,20,0.7)]"
+              className="sticky right-0 ml-1 p-1 bg-dark-500 text-dark-50 hover:text-white transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 rounded-md"
               title="New terminal"
             >
               <Plus size={20} />
