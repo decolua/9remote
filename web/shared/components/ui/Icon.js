@@ -77,4 +77,9 @@ export const {
   ChevronDown,
   Bell,
   Zap,
+  Keyboard,
+  HelpCircle,
+  ClipboardPaste,
+  Undo2,
+  MousePointer2,
 } = LucideIcons;

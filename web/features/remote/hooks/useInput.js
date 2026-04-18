@@ -151,55 +151,57 @@ export function useInput(socketEmitFunctions) {
     setTextInputValue("");
   }, [textInputValue, socketEmitFunctions]);
 
-  const sendBackspace = useCallback((streaming) => {
-    if (!streaming || !socketEmitFunctions?.emitKeyPress) return;
-    socketEmitFunctions.emitKeyPress("backspace", []);
-    if (isMobile && textInputRef.current && keyboardVisible) {
-      textInputRef.current.focus();
-    }
-  }, [isMobile, keyboardVisible, socketEmitFunctions]);
-
-  const sendArrowKey = useCallback((direction, streaming) => {
-    if (!streaming || !socketEmitFunctions?.emitKeyPress) return;
-
-    const activeModifiers = Object.keys(modifierKeys).filter(key => modifierKeys[key]);
-    const modifiers = activeModifiers.map(key => MODIFIER_MAP[key]);
-
-    socketEmitFunctions.emitKeyPress(direction, modifiers);
-
+  // Emit a key with currently active sticky modifiers applied, then clear them.
+  const emitKeyWithActiveModifiers = useCallback((key) => {
+    if (!socketEmitFunctions?.emitKeyPress) return;
+    const activeModifiers = Object.keys(modifierKeys).filter(k => modifierKeys[k]);
+    const modifiers = activeModifiers.map(k => MODIFIER_MAP[k]);
+    socketEmitFunctions.emitKeyPress(key, modifiers);
     if (activeModifiers.length > 0) {
       setModifierKeys({ ctrl: false, cmd: false, alt: false, shift: false });
     }
+  }, [modifierKeys, socketEmitFunctions]);
 
+  const sendBackspace = useCallback((streaming) => {
+    if (!streaming) return;
+    emitKeyWithActiveModifiers("backspace");
     if (isMobile && textInputRef.current && keyboardVisible) {
       textInputRef.current.focus();
     }
-  }, [modifierKeys, isMobile, keyboardVisible, socketEmitFunctions]);
+  }, [isMobile, keyboardVisible, emitKeyWithActiveModifiers]);
+
+  const sendArrowKey = useCallback((direction, streaming) => {
+    if (!streaming) return;
+    emitKeyWithActiveModifiers(direction);
+    if (isMobile && textInputRef.current && keyboardVisible) {
+      textInputRef.current.focus();
+    }
+  }, [isMobile, keyboardVisible, emitKeyWithActiveModifiers]);
 
   const sendEscKey = useCallback((streaming) => {
-    if (!streaming || !socketEmitFunctions?.emitKeyPress) return;
-    socketEmitFunctions.emitKeyPress("escape", []);
+    if (!streaming) return;
+    emitKeyWithActiveModifiers("escape");
     if (isMobile && textInputRef.current && keyboardVisible) {
       textInputRef.current.focus();
     }
-  }, [isMobile, keyboardVisible, socketEmitFunctions]);
+  }, [isMobile, keyboardVisible, emitKeyWithActiveModifiers]);
 
   const sendTabKey = useCallback((streaming) => {
-    if (!streaming || !socketEmitFunctions?.emitKeyPress) return;
-    socketEmitFunctions.emitKeyPress("tab", []);
+    if (!streaming) return;
+    emitKeyWithActiveModifiers("tab");
     if (isMobile && textInputRef.current && keyboardVisible) {
       textInputRef.current.focus();
     }
-  }, [isMobile, keyboardVisible, socketEmitFunctions]);
+  }, [isMobile, keyboardVisible, emitKeyWithActiveModifiers]);
 
   const sendEnterKey = useCallback((event, streaming) => {
-    if (!streaming || !socketEmitFunctions?.emitKeyPress) return;
-    socketEmitFunctions.emitKeyPress("enter", []);
+    if (!streaming) return;
+    emitKeyWithActiveModifiers("enter");
     if (event) event.preventDefault();
     if (isMobile && textInputRef.current && keyboardVisible) {
       textInputRef.current.focus();
     }
-  }, [isMobile, keyboardVisible, socketEmitFunctions]);
+  }, [isMobile, keyboardVisible, emitKeyWithActiveModifiers]);
 
   const handleSelection = useCallback((clientX, clientY, type, options) => {
     const { streaming, getCanvasCoordinates, baseCanvasSize, canvasZoom, canvasPan } = options;
@@ -230,9 +232,41 @@ export function useInput(socketEmitFunctions) {
     }
   }, [selectionMode, selectionStart, socketEmitFunctions]);
 
-  const handleModifiedTextInput = useCallback((event, streaming) => {
+  // Handle keydown from native keyboard input field.
+  // - directMode=true (keyboardOn + no text panel): send every key directly to agent, don't buffer.
+  // - directMode=false (Aa text panel): buffer plain text, only emit on Enter or modifier combos.
+  const handleModifiedTextInput = useCallback((event, streaming, directMode = false) => {
     if (!streaming || !socketEmitFunctions?.emitTypeText || !socketEmitFunctions?.emitKeyPress) return;
 
+    let keyToSend = event.key.toLowerCase();
+    const isPureModifierKey = ["shift", "control", "meta", "alt"].includes(keyToSend);
+    if (isPureModifierKey) return;
+
+    const activeModifiers = Object.keys(modifierKeys).filter(key => modifierKeys[key]);
+    const hasUIModifiers = activeModifiers.length > 0;
+    const hasKeyboardModifiers = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
+
+    // Direct mode: every key goes to agent immediately, input value stays empty.
+    if (directMode) {
+      event.preventDefault();
+
+      let modifiers = activeModifiers.map(k => MODIFIER_MAP[k]);
+      if (event.ctrlKey && !modifiers.includes("control")) modifiers.push("control");
+      if (event.metaKey && !modifiers.includes("command")) modifiers.push("command");
+      if (event.altKey && !modifiers.includes("alt")) modifiers.push("alt");
+      if (event.shiftKey && !modifiers.includes("shift")) modifiers.push("shift");
+
+      if (SPECIAL_KEYS[keyToSend]) keyToSend = SPECIAL_KEYS[keyToSend];
+      else if (keyToSend === " ") keyToSend = "space";
+      else if (event.key.length === 1) keyToSend = event.key; // preserve case
+
+      socketEmitFunctions.emitKeyPress(keyToSend, modifiers);
+      if (hasUIModifiers) setModifierKeys({ ctrl: false, cmd: false, alt: false, shift: false });
+      setTextInputValue("");
+      return;
+    }
+
+    // Text panel mode: Enter flushes buffered text
     if (event.key === "Enter") {
       event.preventDefault();
       if (textInputValue.trim()) {
@@ -242,13 +276,6 @@ export function useInput(socketEmitFunctions) {
       return;
     }
 
-    let keyToSend = event.key.toLowerCase();
-    const isPureModifierKey = ["shift", "control", "meta", "alt"].includes(keyToSend);
-    if (isPureModifierKey) return;
-
-    const activeModifiers = Object.keys(modifierKeys).filter(key => modifierKeys[key]);
-    const hasUIModifiers = activeModifiers.length > 0;
-    const hasKeyboardModifiers = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
     const isAlphaNumeric = /^[a-z0-9]$/i.test(event.key);
     const shouldSendAsCombination = (hasUIModifiers || hasKeyboardModifiers) && (!isAlphaNumeric || hasUIModifiers);
 

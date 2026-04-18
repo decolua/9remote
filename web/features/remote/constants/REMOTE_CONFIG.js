@@ -53,7 +53,13 @@ export const REMOTE_CONFIG = {
   trackpadTapMaxMove: 8,         // px — finger movement below this is treated as tap
   trackpadTapMaxDuration: 220,   // ms — touch duration below this is a tap
   trackpadCursorSize: 20,        // px — virtual cursor overlay size
-  trackpadEdgeMarginRatio: 0.25  // keep virtual cursor inside viewport by this ratio of container size
+  trackpadEdgeMarginRatio: 0.25, // keep virtual cursor inside viewport by this ratio of container size
+
+  // Two-finger gesture lock (scroll vs zoom)
+  gestureLockDelay: 80,          // ms — wait before locking gesture intent
+  gestureDistanceThreshold: 15,  // px — Δdistance to consider zoom
+  gestureCentroidThreshold: 10,  // px — Δcentroid to consider scroll
+  gestureDominanceRatio: 2       // ratio |Δdistance|/|Δcentroid| → prefer zoom
 };
 
 export const MODIFIER_MAP = {

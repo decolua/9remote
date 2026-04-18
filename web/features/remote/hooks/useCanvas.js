@@ -42,6 +42,14 @@ export function useCanvas(socketEmitFunctions) {
   const touchStartTimeRef = useRef(0);
   const touchTotalMoveRef = useRef(0);
 
+  // Two-finger gesture lock: detect intent in first ~80ms then lock to zoom or scroll.
+  // Prevents jitter between pinch-zoom and scroll.
+  const gestureLockRef = useRef(null); // null | "zoom" | "scroll"
+  const gestureStartRef = useRef({ time: 0, distance: 0, centerX: 0, centerY: 0 });
+  // Latch: true once 2+ fingers touched, reset only when all fingers up.
+  // Prevents trackpad cursor from moving when user lifts one finger during 2-finger gesture.
+  const multiTouchLatchRef = useRef(false);
+
   // Get percentage-based coordinates
   // Canvas is rendered at server resolution, scaled by fitScale * canvasZoom via CSS transform.
   // We reverse the full CSS transform to map screen coords → canvas logical coords.
@@ -232,6 +240,22 @@ export function useCanvas(socketEmitFunctions) {
     };
   }, [recalculateDisplaySize]);
 
+  // Accumulate vertical scroll delta and emit to server when threshold reached.
+  // Shared by 1-finger direct-mode scroll and 2-finger trackpad-mode scroll.
+  const emitScrollFromDelta = useCallback((deltaY) => {
+    edgeScrollAccumRef.current.y += deltaY;
+    const { edgeScrollThreshold, edgeScrollMultiplier } = REMOTE_CONFIG;
+    if (Math.abs(edgeScrollAccumRef.current.y) >= edgeScrollThreshold) {
+      const scrollAmount = Math.round(Math.abs(edgeScrollAccumRef.current.y) * edgeScrollMultiplier);
+      socketEmitFunctions?.emitScroll(
+        edgeScrollAccumRef.current.y > 0 ? "up" : "down",
+        Math.max(1, scrollAmount),
+        false
+      );
+      edgeScrollAccumRef.current.y = 0;
+    }
+  }, [socketEmitFunctions]);
+
   // Emit virtual cursor position as server percentage
   const emitVirtualCursor = useCallback((cursor) => {
     const canvas = canvasRef.current;
@@ -252,9 +276,16 @@ export function useCanvas(socketEmitFunctions) {
     if (!streaming || !socketEmitFunctions) return;
     event.preventDefault();
 
+    // Latch multi-touch state — once 2+ fingers touched, stays latched until all fingers up.
+    // Prevents virtual cursor from jumping when user lifts one of two fingers mid-gesture.
+    if (event.type.startsWith("touch") && event.touches?.length >= 2) {
+      multiTouchLatchRef.current = true;
+    }
+
     // ── Virtual trackpad branch (Jump Desktop style) ─────────────────────
     // Only active on touch events in trackpad mode; mouse/desktop still direct.
-    if (pointerMode === "trackpad" && event.type.startsWith("touch")) {
+    // When selectionMode is on, bypass trackpad so user can draw selection rectangle.
+    if (pointerMode === "trackpad" && !selectionMode && event.type.startsWith("touch")) {
       const canvas = canvasRef.current;
       if (!canvas || canvas.width === 0) return;
 
@@ -262,7 +293,7 @@ export function useCanvas(socketEmitFunctions) {
       // existing pinch-zoom/pan handling below by not returning here.
       if (event.touches?.length >= 2) {
         // Let existing multi-touch block handle zoom; don't inject trackpad logic.
-      } else if (event.touches?.length === 1 || type === "touchend") {
+      } else if (!multiTouchLatchRef.current && (event.touches?.length === 1 || type === "touchend")) {
         const touch = event.touches?.[0] || event.changedTouches?.[0];
         if (!touch) return;
 
@@ -359,7 +390,7 @@ export function useCanvas(socketEmitFunctions) {
       }
     }
 
-    // Multi-touch zoom/pan
+    // Multi-touch zoom/scroll — with gesture intent locking
     if (event.type.startsWith("touch") && event.touches?.length >= 2 && !selectionMode) {
       const distance = getTouchDistance(event.touches);
       const center = getTouchCenter(event.touches);
@@ -368,42 +399,104 @@ export function useCanvas(socketEmitFunctions) {
         setIsZooming(true);
         setLastTouchDistance(distance);
         setLastTouchCenter(center);
+        // Initialize gesture lock
+        gestureLockRef.current = null;
+        gestureStartRef.current = {
+          time: Date.now(),
+          distance,
+          centerX: center.x,
+          centerY: center.y
+        };
         return;
       } else if (type === "touchmove" && isZooming) {
         const container = canvasContainerRef.current;
         if (!container) return;
-        
-        const containerRect = container.getBoundingClientRect();
-        const containerWidth = container.clientWidth;
-        const containerHeight = container.clientHeight;
-        
-        // Focal point relative to container
-        const focalX = center.x - containerRect.left;
-        const focalY = center.y - containerRect.top;
-        
-        if (lastTouchDistance > 0) {
-          const scale = distance / lastTouchDistance;
-          const oldZoom = canvasZoom;
-          const newZoom = Math.max(1, Math.min(4, oldZoom * scale));
 
-          // Canvas display size = serverSize * fitScale * canvasZoom
-          const zoomRatio = newZoom / oldZoom;
-          const canvasDisplayWidth = baseCanvasSize.width * newZoom;
-          const canvasDisplayHeight = baseCanvasSize.height * newZoom;
-          const maxPanX = Math.min(0, containerWidth - canvasDisplayWidth);
-          const maxPanY = Math.min(0, containerHeight - canvasDisplayHeight);
+        // Determine gesture intent if not locked yet
+        if (gestureLockRef.current === null) {
+          const elapsed = Date.now() - gestureStartRef.current.time;
+          const deltaDistance = Math.abs(distance - gestureStartRef.current.distance);
+          const deltaCentroid = Math.sqrt(
+            (center.x - gestureStartRef.current.centerX) ** 2 +
+            (center.y - gestureStartRef.current.centerY) ** 2
+          );
+          const {
+            gestureLockDelay,
+            gestureDistanceThreshold,
+            gestureCentroidThreshold,
+            gestureDominanceRatio
+          } = REMOTE_CONFIG;
 
-          setCanvasPan(prev => {
-            const newPanX = focalX - (focalX - prev.x) * zoomRatio;
-            const newPanY = focalY - (focalY - prev.y) * zoomRatio;
-            return {
-              x: Math.max(maxPanX, Math.min(0, newPanX)),
-              y: Math.max(maxPanY, Math.min(0, newPanY))
-            };
-          });
+          // Wait for clear intent (either enough time passed OR threshold clearly crossed)
+          const hasZoomSignal = deltaDistance >= gestureDistanceThreshold;
+          const hasScrollSignal = deltaCentroid >= gestureCentroidThreshold;
 
-          setCanvasZoom(newZoom);
+          if (hasZoomSignal || hasScrollSignal || elapsed >= gestureLockDelay) {
+            const ratio = deltaCentroid > 0.5 ? deltaDistance / deltaCentroid : Infinity;
+            if (ratio >= gestureDominanceRatio && hasZoomSignal) {
+              gestureLockRef.current = "zoom";
+            } else if (ratio <= 1 / gestureDominanceRatio && hasScrollSignal) {
+              gestureLockRef.current = "scroll";
+            } else if (hasZoomSignal && !hasScrollSignal) {
+              gestureLockRef.current = "zoom";
+            } else if (hasScrollSignal && !hasZoomSignal) {
+              gestureLockRef.current = "scroll";
+            }
+            // Still ambiguous → keep waiting (null)
+          }
+        }
+
+        // Scroll mode: reuse the same scroll logic as 1-finger direct mode.
+        // Move cursor to centroid so scroll happens at the user's fingers position,
+        // then emit scroll based on vertical centroid delta.
+        if (gestureLockRef.current === "scroll") {
+          const deltaY = center.y - lastTouchCenter.y;
+          // Emit mouse move to centroid on first scroll frame so wheel event targets correct location
+          if (!isEdgeScrolling) {
+            const { percentX, percentY } = getCanvasCoordinates(center.x, center.y);
+            socketEmitFunctions?.emitBoostStream?.();
+            socketEmitFunctions?.emitMouseMove?.(percentX, percentY);
+            setIsEdgeScrolling(true);
+          }
+          emitScrollFromDelta(deltaY);
           setLastTouchDistance(distance);
+          setLastTouchCenter(center);
+          return;
+        }
+
+        // Zoom mode (or still ambiguous): pinch-zoom canvas
+        if (gestureLockRef.current === "zoom" || gestureLockRef.current === null) {
+          const containerRect = container.getBoundingClientRect();
+          const containerWidth = container.clientWidth;
+          const containerHeight = container.clientHeight;
+
+          // Focal point relative to container
+          const focalX = center.x - containerRect.left;
+          const focalY = center.y - containerRect.top;
+
+          if (lastTouchDistance > 0 && gestureLockRef.current === "zoom") {
+            const scale = distance / lastTouchDistance;
+            const oldZoom = canvasZoom;
+            const newZoom = Math.max(1, Math.min(4, oldZoom * scale));
+
+            const zoomRatio = newZoom / oldZoom;
+            const canvasDisplayWidth = baseCanvasSize.width * newZoom;
+            const canvasDisplayHeight = baseCanvasSize.height * newZoom;
+            const maxPanX = Math.min(0, containerWidth - canvasDisplayWidth);
+            const maxPanY = Math.min(0, containerHeight - canvasDisplayHeight);
+
+            setCanvasPan(prev => {
+              const newPanX = focalX - (focalX - prev.x) * zoomRatio;
+              const newPanY = focalY - (focalY - prev.y) * zoomRatio;
+              return {
+                x: Math.max(maxPanX, Math.min(0, newPanX)),
+                y: Math.max(maxPanY, Math.min(0, newPanY))
+              };
+            });
+
+            setCanvasZoom(newZoom);
+            setLastTouchDistance(distance);
+          }
         }
 
         setLastTouchCenter(center);
@@ -467,35 +560,21 @@ export function useCanvas(socketEmitFunctions) {
           if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
             cancelLongPress();
             const touchCoords = getCanvasCoordinates(touch.clientX, touch.clientY);
-            
+
             // Only scroll vertically when swipe is predominantly vertical
             const isVerticalSwipe = Math.abs(deltaY) > Math.abs(deltaX) * 1.5;
-            
-            // Helper: process accumulated vertical scroll only
+
+            // Helper: init scroll state (emit mouseMove once) then accumulate delta
             const processScroll = (overflowY) => {
-              if (!isVerticalSwipe) return; // Skip if not vertical swipe
-              
-              edgeScrollAccumRef.current.y += overflowY;
-              
+              if (!isVerticalSwipe) return;
               if (!isEdgeScrolling) {
                 socketEmitFunctions?.emitBoostStream?.();
                 socketEmitFunctions?.emitMouseMove?.(touchCoords.percentX, touchCoords.percentY);
                 setIsEdgeScrolling(true);
               }
-              
-              const { edgeScrollThreshold, edgeScrollMultiplier } = REMOTE_CONFIG;
-              
-              if (Math.abs(edgeScrollAccumRef.current.y) >= edgeScrollThreshold) {
-                const scrollAmount = Math.round(Math.abs(edgeScrollAccumRef.current.y) * edgeScrollMultiplier);
-                socketEmitFunctions?.emitScroll(
-                  edgeScrollAccumRef.current.y > 0 ? "up" : "down",
-                  Math.max(1, scrollAmount),
-                  false
-                );
-                edgeScrollAccumRef.current.y = 0;
-              }
+              emitScrollFromDelta(overflowY);
             };
-            
+
             // When zoom = 1: direct vertical scroll (like 2-finger on macbook)
             if (canvasZoom === 1) {
               if (isVerticalSwipe) {
@@ -543,6 +622,11 @@ export function useCanvas(socketEmitFunctions) {
     // Touch end
     if (type === "touchend") {
       cancelLongPress();
+      gestureLockRef.current = null;
+      // Release multi-touch latch only when ALL fingers are lifted
+      if ((event.touches?.length || 0) === 0) {
+        multiTouchLatchRef.current = false;
+      }
       const wasZooming = isZooming;
       const wasPanning = isPanning;
       const wasEdgeScrolling = isEdgeScrolling;
@@ -660,7 +744,8 @@ export function useCanvas(socketEmitFunctions) {
     isZooming, isPanning, isEdgeScrolling, canvasZoom, lastTouchDistance, lastTouchCenter,
     baseCanvasSize, recentZoomGesture, fitScale, virtualCursor, getCanvasCoordinates, showClickIndicator,
     getTouchDistance, getTouchCenter, socketEmitFunctions, cancelLongPress,
-    startLongPress, checkDoubleClick, stopMomentum, startMomentumScroll, emitVirtualCursor
+    startLongPress, checkDoubleClick, stopMomentum, startMomentumScroll, emitVirtualCursor,
+    emitScrollFromDelta
   ]);
 
   // Handle canvas dimensions from server
@@ -708,6 +793,23 @@ export function useCanvas(socketEmitFunctions) {
     });
   }, [baseCanvasSize]);
 
+  // Move virtual cursor to the center of the VISIBLE viewport (not full canvas).
+  // When zoomed, only part of canvas is visible — cursor should appear where user is looking.
+  const centerVirtualCursor = useCallback(() => {
+    const canvas = canvasRef.current;
+    const container = canvasContainerRef.current;
+    if (!canvas || !container || canvas.width === 0) return;
+    const totalScale = fitScale * canvasZoom;
+    if (totalScale <= 0) return;
+    // Reverse pan + scale: center of container (in screen) → canvas pixel coord
+    const cx = (container.clientWidth / 2 - canvasPan.x) / totalScale;
+    const cy = (container.clientHeight / 2 - canvasPan.y) / totalScale;
+    setVirtualCursor({
+      x: Math.max(0, Math.min(canvas.width - 1, cx)),
+      y: Math.max(0, Math.min(canvas.height - 1, cy))
+    });
+  }, [fitScale, canvasZoom, canvasPan]);
+
   return {
     canvasRef,
     canvasContainerRef,
@@ -720,6 +822,7 @@ export function useCanvas(socketEmitFunctions) {
     virtualCursor,
     getCanvasCoordinates,
     resetZoom,
+    centerVirtualCursor,
     handleCanvasInteraction,
     handleCanvasDimensions
   };

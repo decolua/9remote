@@ -1,33 +1,35 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { useRemoteSocket } from "@/features/remote/hooks/useRemoteSocket";
 import { useCanvas } from "@/features/remote/hooks/useCanvas";
 import { useInput } from "@/features/remote/hooks/useInput";
 import { useTiles } from "@/features/remote/hooks/useTiles";
 import { useBenchmark } from "@/features/remote/hooks/useBenchmark";
+import { usePersistedState } from "@/shared/hooks/usePersistedState";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import RemoteCanvas from "@/features/remote/components/RemoteCanvas";
 import RemoteControls from "@/features/remote/components/RemoteControls";
-import DebugPanel from "@/features/remote/components/DebugPanel";
+import RemoteHelpModal from "@/features/remote/components/RemoteHelpModal";
 import Spinner from "@/shared/components/ui/Spinner";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-export default function RemoteDesktop({ onClose, socketRef, connected, connectionMode = "tunnel" }) {
-  const [isLandscape, setIsLandscape] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
-  const [pointerMode, setPointerMode] = useState(REMOTE_CONFIG.pointerMode);
-  const togglePointerMode = useCallback(() => {
-    setPointerMode(prev => prev === "trackpad" ? "direct" : "trackpad");
-  }, []);
+// localStorage keys — grouped prefix for clarity
+const STORAGE_KEYS = {
+  keyboardOn: "remoteDesktop.keyboardOn",
+  pointerMode: "remoteDesktop.pointerMode",
+  showTextPanel: "remoteDesktop.showTextPanel"
+};
 
-  useEffect(() => {
-    const checkOrientation = () => setIsLandscape(window.innerWidth > window.innerHeight);
-    checkOrientation();
-    window.addEventListener("resize", checkOrientation);
-    return () => window.removeEventListener("resize", checkOrientation);
-  }, []);
+export default function RemoteDesktop({ onClose, socketRef, connected }) {
+  const [showHelp, setShowHelp] = useState(false);
+  const [showConfirmExit, setShowConfirmExit] = useState(false);
+  // Persisted user preferences
+  const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, false);
+  const [keyboardOn, setKeyboardOn] = usePersistedState(STORAGE_KEYS.keyboardOn, false);
+  const [pointerMode, setPointerMode] = usePersistedState(STORAGE_KEYS.pointerMode, REMOTE_CONFIG.pointerMode);
 
-  const { stats, trackTilesReceived, resetStats } = useBenchmark();
+  const { trackTilesReceived } = useBenchmark();
 
   const {
     streaming,
@@ -57,7 +59,35 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
     emitBoostStream
   };
 
-  const handleClose = useCallback(() => onClose?.(), [onClose]);
+  const handleClose = useCallback(() => {
+    // Open app-wide ConfirmDialog instead of window.confirm for consistent UX
+    setShowConfirmExit(true);
+  }, []);
+
+  // Toggle native keyboard by focus/blur the hidden text input.
+  // Must call focus() SYNCHRONOUSLY inside user gesture — iOS/Android block
+  // focus-driven keyboard if wrapped in setTimeout/Promise.
+  const toggleKeyboard = useCallback(() => {
+    const next = !keyboardOn;
+    if (next) textInputRef.current?.focus();
+    else textInputRef.current?.blur();
+    setKeyboardOn(next);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyboardOn]);
+
+  // Toggle batch input panel. If native keyboard is already on, re-focus the hidden input
+  // synchronously so the keyboard stays visible across the re-render.
+  const toggleTextPanel = useCallback(() => {
+    if (keyboardOn) textInputRef.current?.focus();
+    setShowTextPanel(prev => !prev);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyboardOn]);
+
+  // Single-tap Undo shortcut (Ctrl+Z)
+  const sendUndo = useCallback(() => {
+    if (!streaming) return;
+    emitKeyPress("z", ["control"]);
+  }, [streaming, emitKeyPress]);
 
   const {
     canvasRef,
@@ -71,9 +101,31 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
     virtualCursor,
     getCanvasCoordinates,
     resetZoom,
+    centerVirtualCursor,
     handleCanvasInteraction,
     handleCanvasDimensions
   } = useCanvas(socketEmitFunctions);
+
+  // Auto-focus hidden input when remote starts with keyboardOn persisted = true.
+  // Browsers (iOS/Android) may still block native keyboard without a user gesture;
+  // this at least restores focus state consistently.
+  const didAutoFocusRef = useRef(false);
+  useEffect(() => {
+    if (keyboardOn && streaming && !didAutoFocusRef.current) {
+      didAutoFocusRef.current = true;
+      textInputRef?.current?.focus();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyboardOn, streaming]);
+
+  // When switching to trackpad mode, center the virtual cursor on canvas
+  const togglePointerMode = useCallback(() => {
+    setPointerMode(prev => {
+      const next = prev === "trackpad" ? "direct" : "trackpad";
+      if (next === "trackpad") centerVirtualCursor();
+      return next;
+    });
+  }, [centerVirtualCursor]);
 
   const {
     textInputValue,
@@ -134,7 +186,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
     };
     const onFullScreenData = (data) => handleFullScreenData(data);
     const onTilesData = (data) => {
-      if (showDebug) trackTilesReceived(data, data.transport || "ws");
+      trackTilesReceived(data, data.transport || "ws");
       handleTilesData(data);
     };
     const onScreenError = (err) => console.error("Screen error:", err);
@@ -218,13 +270,12 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
 
   return (
     <div
-      className={`bg-dark-700 text-white flex h-[var(--app-height,100vh)] w-full ${isLandscape ? "flex-row" : "flex-col"}`}
+      className="bg-dark-700 text-white flex flex-col h-[var(--app-height,100vh)] w-full"
       style={{
         userSelect: "none",
         WebkitUserSelect: "none",
         WebkitTouchCallout: "none",
-        WebkitTapHighlightColor: "transparent",
-        touchAction: "manipulation"
+        WebkitTapHighlightColor: "transparent"
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -243,6 +294,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
           selectionRect={selectionRect}
           clickIndicator={clickIndicator}
           pointerMode={pointerMode}
+          selectionMode={selectionMode}
           virtualCursor={virtualCursor}
           onMouseDown={createInteractionHandler("click")}
           onMouseMove={createInteractionHandler("move")}
@@ -255,46 +307,58 @@ export default function RemoteDesktop({ onClose, socketRef, connected, connectio
 
       <RemoteControls
         streaming={streaming}
-        connected={connected}
-        transport="ws"
         canvasZoom={canvasZoom}
         selectionMode={selectionMode}
-        dragMode={dragMode}
-        isDragging={isDragging}
         pointerMode={pointerMode}
         onTogglePointerMode={togglePointerMode}
         modifierKeys={modifierKeys}
         textInputValue={textInputValue}
         textInputRef={textInputRef}
-        keyboardVisible={keyboardVisible}
-        isLandscape={isLandscape}
-        connectionMode={connectionMode}
+        keyboardOn={keyboardOn}
+        showTextPanel={showTextPanel}
         onResetZoom={resetZoom}
         onRefresh={() => streaming && emitRequestScreenWithHashes([])}
         onToggleSelection={toggleSelectionMode}
-        onToggleDrag={toggleDragMode}
         onToggleModifier={toggleModifierKey}
-        onScrollUp={startScrollUp}
-        onScrollDown={startScrollDown}
-        onScrollLeft={startScrollLeft}
-        onScrollRight={startScrollRight}
-        onStopScrolling={stopScrolling}
-        onArrowKey={sendArrowKey}
+        onToggleKeyboard={toggleKeyboard}
+        onToggleTextPanel={toggleTextPanel}
+        onToggleHelp={() => setShowHelp(true)}
         onEscKey={sendEscKey}
         onTabKey={sendTabKey}
         onEnterKey={sendEnterKey}
         onBackspace={sendBackspace}
+        onUndo={sendUndo}
         onTextInputChange={setTextInputValue}
         onTextInputFocus={handleTextInputFocus}
-        onTextInputKeyDown={(e) => handleModifiedTextInput(e, streaming)}
+        onTextInputBlur={() => {
+          // Keep native keyboard visible when keyboardOn=true
+          if (keyboardOn) setTimeout(() => textInputRef.current?.focus(), 0);
+        }}
+        onTextInputKeyDown={(e) => handleModifiedTextInput(e, streaming, keyboardOn && !showTextPanel)}
         onSendText={sendTextInput}
         onClose={handleClose}
-        onToggleDebug={() => setShowDebug(!showDebug)}
       />
 
-      {showDebug && (
-        <DebugPanel stats={stats} onReset={resetStats} onClose={() => setShowDebug(false)} />
+      {showHelp && (
+        <RemoteHelpModal onClose={() => {
+          setShowHelp(false);
+          // Re-focus hidden input synchronously to preserve native keyboard when it was on
+          if (keyboardOn) textInputRef.current?.focus();
+        }} />
       )}
+
+      <ConfirmDialog
+        isOpen={showConfirmExit}
+        onClose={() => {
+          setShowConfirmExit(false);
+          if (keyboardOn) textInputRef.current?.focus();
+        }}
+        onConfirm={() => onClose?.()}
+        title="Exit remote desktop"
+        message="Are you sure you want to exit the current remote desktop session?"
+        confirmText="Exit"
+        cancelText="Cancel"
+      />
     </div>
   );
 }

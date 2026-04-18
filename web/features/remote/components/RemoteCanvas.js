@@ -13,6 +13,7 @@ export default function RemoteCanvas({
   selectionRect,
   clickIndicator,
   pointerMode,
+  selectionMode,
   virtualCursor,
   onMouseDown,
   onMouseMove,
@@ -25,6 +26,12 @@ export default function RemoteCanvas({
   // CSS transform: scale(fitScale * canvasZoom) to fit into container then apply user zoom.
   // translate is applied before scale (via separate transform step) to pan in screen space.
   const totalScale = fitScale * canvasZoom;
+  // Cursor hint: crosshair for selection; grab in trackpad (draggable surface); default otherwise.
+  const cursorClass = selectionMode
+    ? "cursor-crosshair"
+    : pointerMode === "trackpad"
+      ? "cursor-grab active:cursor-grabbing"
+      : "cursor-default";
 
   return (
     <div
@@ -37,7 +44,7 @@ export default function RemoteCanvas({
     >
       <canvas
         ref={canvasRef}
-        className="block cursor-crosshair bg-black"
+        className={`block ${cursorClass} bg-black`}
         style={{
           touchAction: "none",
           transformOrigin: "top left",
