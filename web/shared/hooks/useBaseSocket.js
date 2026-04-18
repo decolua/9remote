@@ -48,6 +48,7 @@ export function useBaseSocket(config = {}) {
       // Debug: log tempKey being sent
       ...(console.log("[socket auth] tempKey:", auth.tempKey ?? null) && {}),
       apiKey: auth.apiKey,
+      tempKey: auth.tempKey ?? null,
       onConnect: (socket, mode) => {
         socketRef.current = socket;
         setConnected(true);

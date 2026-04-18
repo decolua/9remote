@@ -83,4 +83,7 @@ export const {
   Undo2,
   MousePointer2,
   Hand,
+  Users,
+  Facebook,
+  Github,
 } = LucideIcons;

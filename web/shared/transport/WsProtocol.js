@@ -16,13 +16,15 @@ const RETRY = BEHAVIOR.retry;
  * Owns: retry logic, socket lifecycle, visibility reconnect.
  */
 export class WsProtocol extends BaseProtocol {
-  constructor({ tunnelUrl, localIp, namespace = "", socketOptions = {}, apiKey, onConnect, onDisconnect, onRetryStatus, onUrlUpdate }) {
+  constructor({ tunnelUrl, localIp, namespace = "", socketOptions = {}, apiKey, tempKey = null, onConnect, onDisconnect, onRetryStatus, onUrlUpdate }) {
     super();
     this._tunnelUrl = tunnelUrl;
     this._localIp = localIp || null;
     this._namespace = namespace;
     this._socketOptions = socketOptions;
     this._apiKey = apiKey;
+    // Saved Keys retry fewer times than onetime key (tempKey)
+    this._maxAttempts = tempKey ? RETRY.maxAttempts : RETRY.savedKeyMaxAttempts;
     this._onConnect = onConnect;
     this._onDisconnect = onDisconnect;
     this._onRetryStatus = onRetryStatus;
@@ -160,13 +162,13 @@ export class WsProtocol extends BaseProtocol {
     this._retryAttempt++;
     const attempt = this._retryAttempt;
 
-    if (attempt > RETRY.maxAttempts) {
+    if (attempt > this._maxAttempts) {
       this._retryScheduled = false;
-      this._onRetryStatus?.({ isRetrying: false, attempt, maxAttempts: RETRY.maxAttempts, failed: true });
+      this._onRetryStatus?.({ isRetrying: false, attempt, maxAttempts: this._maxAttempts, failed: true });
       return;
     }
 
-    this._onRetryStatus?.({ isRetrying: true, attempt, maxAttempts: RETRY.maxAttempts, failed: false });
+    this._onRetryStatus?.({ isRetrying: true, attempt, maxAttempts: this._maxAttempts, failed: false });
 
     try {
       const resp = await fetch(API_ENDPOINTS.connect, {
@@ -194,6 +196,6 @@ export class WsProtocol extends BaseProtocol {
     this._retryTimer = null;
     this._retryAttempt = 0;
     this._retryScheduled = false;
-    this._onRetryStatus?.({ isRetrying: false, attempt: 0, maxAttempts: RETRY.maxAttempts, failed: false });
+    this._onRetryStatus?.({ isRetrying: false, attempt: 0, maxAttempts: this._maxAttempts, failed: false });
   }
 }

@@ -33,6 +33,11 @@ export const STEP = {
   READY: 5,
 };
 
+// Debug flags — toggle diagnostic displays without touching logic
+export const DEBUG = {
+  showTunnelUrlInMenu: true,
+};
+
 // Browser-like headers to avoid CDN/firewall blocks
 const BROWSER_HEADERS = {
   "Accept": "application/json, text/plain, */*",

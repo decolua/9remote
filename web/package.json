@@ -32,8 +32,6 @@
     "hterm-umd": "^1.0.1",
     "lucide-react": "^0.563.0",
     "next": "^16.1.5",
-    "pixi-live2d-display": "^0.4.0",
-    "pixi.js": "^8.17.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",

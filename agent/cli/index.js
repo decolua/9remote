@@ -12,12 +12,12 @@ import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd, writeCmd } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
-import { checkAndUpdate, checkLatestVersion } from "./utils/updateChecker.js";
+import { checkAndUpdate, checkLatestVersion, stopRunningInstances } from "./utils/updateChecker.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
 import { showBanner, getBannerText, renderProgress, resetProgress, updateProgressDesc, setProgressInfo, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval } from "./utils/tui.js";
 import { checkPermissions } from "./utils/permissions.js";
 import { initTray, killTray, openBrowser } from "./utils/tray.js";
-import { STEP, browserFetch } from "../lib/constants.js";
+import { STEP, DEBUG, browserFetch } from "../lib/constants.js";
 
 const skipUpdate = process.argv.includes("--skip-update");
 
@@ -114,7 +114,7 @@ async function showConnectionInfo(selectedKey, tunnelUrl) {
   console.log(ORANGE("═".repeat(width)));
 }
 
-async function buildMenuHeader(oneTimeKey, permanentKey, connectUrl) {
+async function buildMenuHeader(oneTimeKey, permanentKey, connectUrl, tunnelUrl = "") {
   const w = Math.min(44, process.stdout.columns || 44);
   const lines = [];
 
@@ -129,6 +129,13 @@ async function buildMenuHeader(oneTimeKey, permanentKey, connectUrl) {
   lines.push(
     ORANGE("═".repeat(w)),
     chalk.white("App URL".padEnd(14))      + chalk.gray(`${WORKER_URL}/login`),
+  );
+
+  if (DEBUG.showTunnelUrlInMenu) {
+    lines.push(chalk.white("Tunnel".padEnd(14)) + (tunnelUrl ? chalk.cyan(tunnelUrl) : chalk.gray("—")));
+  }
+
+  lines.push(
     chalk.white("One-Time Key".padEnd(14)) + (oneTimeKey ? ORANGE.bold(oneTimeKey) + chalk.dim("  (expires in 30m)") : chalk.gray("—")),
     chalk.white("Key".padEnd(14))          + chalk.dim(permanentKey),
     ORANGE("═".repeat(w)),
@@ -469,8 +476,9 @@ async function tuiMode() {
 
   let currentOneTimeKey = tempKeyData?.tempKey || "";
   let currentConnectUrl = connectUrl;
+  let currentTunnelUrl = tunnelUrl;
 
-  let menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl);
+  let menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
 
   let triggerMenuRedraw = null;
   const logBuffer = [];
@@ -486,11 +494,13 @@ async function tuiMode() {
       // Explicit check: "" means cleared (one-time key consumed), preserve existing if undefined
       const newOtk = data.oneTimeKey !== undefined ? data.oneTimeKey : currentOneTimeKey;
       const newUrl = data.qrUrl !== undefined ? data.qrUrl : currentConnectUrl;
-      if (newOtk !== currentOneTimeKey || newKey !== keyData.key) {
+      const newTunnel = data.tunnelUrl !== undefined ? data.tunnelUrl : currentTunnelUrl;
+      if (newOtk !== currentOneTimeKey || newKey !== keyData.key || newTunnel !== currentTunnelUrl) {
         currentOneTimeKey = newOtk;
         currentConnectUrl = newUrl;
+        currentTunnelUrl = newTunnel;
         if (data.permanentKey) keyData = { ...keyData, key: data.permanentKey };
-        menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl);
+        menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
         triggerMenuRedraw?.();
       }
     } else if (type === "permissions") {
@@ -576,7 +586,7 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
       const newTempKey = await createTempKey(keyData.key, WORKER_URL);
       if (newTempKey) {
         const newConnectUrl = `${WORKER_URL}/login?k=${newTempKey.tempKey}`;
-        setHeader(await buildMenuHeader(newTempKey.tempKey, keyData.key, newConnectUrl));
+        setHeader(await buildMenuHeader(newTempKey.tempKey, keyData.key, newConnectUrl, tunnelUrl));
         await pushUiState({ oneTimeKey: newTempKey.tempKey, oneTimeKeyExpiresAt: newTempKey.expiresAt, qrUrl: newConnectUrl });
       }
 
@@ -590,7 +600,7 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
         const newTmp = await createTempKey(keyData.key, WORKER_URL);
         if (newTmp) {
           const newUrl = `${WORKER_URL}/login?k=${newTmp.tempKey}`;
-          setHeader(await buildMenuHeader(newTmp.tempKey, keyData.key, newUrl));
+          setHeader(await buildMenuHeader(newTmp.tempKey, keyData.key, newUrl, tunnelUrl));
           await pushUiState({ oneTimeKey: newTmp.tempKey, oneTimeKeyExpiresAt: newTmp.expiresAt, qrUrl: newUrl });
         }
       }
@@ -969,7 +979,10 @@ async function startupMenu() {
 
   if (action === "update") {
     const w = Math.min(44, process.stdout.columns || 44);
+    // Stop running background instances so npm install can overwrite locked files
+    stopRunningInstances();
     console.log(ORANGE("\n" + "═".repeat(w)));
+    console.log(chalk.gray("  ✓ Stopped running instances\n"));
     console.log(chalk.yellow("  ⬆  Run this command to update:\n"));
     console.log(chalk.white.bold(`     npm i -g 9remote@latest\n`));
     console.log(ORANGE("═".repeat(w)) + "\n");

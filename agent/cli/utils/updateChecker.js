@@ -1,7 +1,7 @@
 import chalk from "chalk";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { fileURLToPath } from "url";
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import path from "path";
 import os from "os";
 import { browserFetch } from "../../lib/constants.js";
@@ -11,6 +11,32 @@ const PACKAGE_NAME = "9remote";
 const NPM_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const UPDATE_CHECK_TIMEOUT = 3000;
 const SAFETY_TIMEOUT = 8000;
+const SERVER_PORT = 2208;
+const CLOUDFLARED_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
+
+/**
+ * Kill all 9remote-related child processes to release file locks before npm install.
+ * Critical on Windows where running node.exe locks files in node_modules.
+ */
+function cleanupBeforeUpdate() {
+  // Kill cloudflared via PID file
+  try {
+    if (existsSync(CLOUDFLARED_PID_FILE)) {
+      const pid = parseInt(readFileSync(CLOUDFLARED_PID_FILE, "utf8"));
+      try { process.kill(pid); } catch {}
+      try { unlinkSync(CLOUDFLARED_PID_FILE); } catch {}
+    }
+  } catch {}
+
+  // Kill process holding SERVER_PORT (child server node.exe)
+  try {
+    if (process.platform === "win32") {
+      execSync(`for /f "tokens=5" %a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %a`, { stdio: "ignore", windowsHide: true });
+    } else {
+      execSync(`lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true`, { stdio: "ignore" });
+    }
+  } catch {}
+}
 
 /**
  * Get current version
@@ -62,6 +88,14 @@ function isRestrictedEnvironment() {
 /**
  * Check for npm updates (non-blocking, notification only)
  */
+/**
+ * Kill running 9remote processes so user can safely run `npm i -g 9remote@latest`.
+ * Called when user chooses manual update from startup menu.
+ */
+export function stopRunningInstances() {
+  cleanupBeforeUpdate();
+}
+
 export async function checkForUpdates() {
   try {
     const currentVersion = getCurrentVersion();
@@ -195,8 +229,10 @@ export async function checkAndUpdate(skipUpdate = false) {
         if (platform === "win32") {
           const script = `@echo off
 echo 📥 Downloading update...
-echo ⏳ Waiting for process to exit...
-timeout /t 2 /nobreak >nul
+echo ⏳ Stopping running processes...
+taskkill /F /IM cloudflared.exe >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %%a >nul 2>&1
+timeout /t 3 /nobreak >nul
 
 echo 🔄 Installing new version...
 call npm cache clean --force >nul 2>&1
@@ -219,11 +255,12 @@ if %ERRORLEVEL% EQU 0 (
         } else {
           const script = `#!/bin/bash
 echo "📥 Downloading update..."
-echo "⏳ Waiting for process to exit..."
+echo "⏳ Stopping running processes..."
+pkill -f "cloudflared" 2>/dev/null || true
+lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true
 sleep 1
-
 pkill -f "${PACKAGE_NAME}" 2>/dev/null || true
-sleep 1
+sleep 2
 
 echo "🔄 Installing new version..."
 npm cache clean --force 2>/dev/null
@@ -247,6 +284,9 @@ fi
           writeFileSync(scriptPath, script, { mode: 0o755 });
           shellCmd = ["sh", [scriptPath]];
         }
+
+        // Cleanup child processes to release file locks before npm install
+        cleanupBeforeUpdate();
 
         // Execute update script in background
         const child = spawn(shellCmd[0], shellCmd[1], {

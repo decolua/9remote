@@ -7,6 +7,7 @@ import MenuItems from "@/features/terminal/components/MenuItems";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 import SitesList from "@/features/terminal/components/SitesList";
 import CommandNotesPanel from "@/features/terminal/components/CommandNotes/CommandNotesPanel";
+import CommunityModal from "@/features/terminal/components/CommunityModal";
 import { vibrate } from "@/shared/utils/vibration";
 
 /**
@@ -26,6 +27,7 @@ export default function SlideMenu() {
 
   const [sitesModalOpen, setSitesModalOpen] = useState(false);
   const [commandNotesOpen, setCommandNotesOpen] = useState(false);
+  const [communityOpen, setCommunityOpen] = useState(false);
 
   // Prevent body scroll when menu is open
   useEffect(() => {
@@ -116,6 +118,15 @@ export default function SlideMenu() {
     setCommandNotesOpen(false);
   }, []);
 
+  const handleCommunity = useCallback(() => {
+    close();
+    setCommunityOpen(true);
+  }, [close]);
+
+  const handleCloseCommunity = useCallback(() => {
+    setCommunityOpen(false);
+  }, []);
+
   if (!isOpen) {
     return (
       <>
@@ -128,6 +139,10 @@ export default function SlideMenu() {
         <CommandNotesPanel
           isOpen={commandNotesOpen}
           onClose={handleCloseCommandNotes}
+        />
+        <CommunityModal
+          isOpen={communityOpen}
+          onClose={handleCloseCommunity}
         />
       </>
     );
@@ -192,6 +207,7 @@ export default function SlideMenu() {
               onFiles={handleFiles}
               onSites={handleSites}
               onCommandNotes={handleCommandNotes}
+              onCommunity={handleCommunity}
               onInstallApp={handleInstallApp}
               onCodespace={context.codespaceInfo?.isCodespaces ? handleCodespace : null}
               onLogout={handleLogout}
@@ -229,6 +245,10 @@ export default function SlideMenu() {
       <CommandNotesPanel
         isOpen={commandNotesOpen}
         onClose={handleCloseCommandNotes}
+      />
+      <CommunityModal
+        isOpen={communityOpen}
+        onClose={handleCloseCommunity}
       />
     </div>
   );

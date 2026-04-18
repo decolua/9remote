@@ -14,7 +14,7 @@ async function fileToBase64(file) {
   });
 }
 
-// Compact inline button — dùng trong input bar
+// Compact inline button — used in input bar
 export function FileUploadButton({ onFilesReady, disabled, pendingCount = 0 }) {
   const inputRef = useRef(null);
 
@@ -60,7 +60,7 @@ export function FileUploadButton({ onFilesReady, disabled, pendingCount = 0 }) {
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={disabled}
-        title="Đính kèm file (ảnh, PDF)"
+        title="Attach file (image, PDF)"
         className="relative flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -140,8 +140,8 @@ export default function FileUpload({ onFilesReady, disabled }) {
           isDragging ? "border-brand-500 bg-brand-500/10" : "border-dark-400 hover:border-dark-300"
         } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
       >
-        <div className="text-dark-100 text-sm">📎 Kéo thả file, paste (Ctrl+V), hoặc click để chọn</div>
-        <div className="text-dark-300 text-xs mt-1">Hỗ trợ: ảnh (jpg, png, webp, gif, heic), PDF • Max {MAX_SIZE_MB}MB</div>
+        <div className="text-dark-100 text-sm">📎 Drag & drop, paste (Ctrl+V), or click to select</div>
+        <div className="text-dark-300 text-xs mt-1">Supported: images (jpg, png, webp, gif, heic), PDF • Max {MAX_SIZE_MB}MB</div>
       </div>
       <input ref={inputRef} type="file" multiple accept={ALLOWED_MIME.join(",")} onChange={handleFileSelect} className="hidden" />
       {files.length > 0 && (

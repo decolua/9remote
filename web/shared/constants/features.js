@@ -5,6 +5,6 @@ export const FEATURES = {
 
 // Behavior config — tunable parameters
 export const BEHAVIOR = {
-  retry: { interval: 2000, maxAttempts: 15 },
+  retry: { interval: 2000, maxAttempts: 15, savedKeyMaxAttempts: 3 },
   reconnect: { fastFailThreshold: 3 },
 };

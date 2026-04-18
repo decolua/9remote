@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2, FileText, AlertCircle } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2, FileText, AlertCircle, Users } from "@/shared/components/ui/Icon";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
@@ -15,6 +15,7 @@ export default function MenuItems({
   onFiles,
   onSites,
   onCommandNotes,
+  onCommunity,
   onInstallApp,
   onCodespace,
   onLogout,
@@ -265,6 +266,19 @@ export default function MenuItems({
         >
           <FileText className="text-brand-500" size={20} />
           <span className="font-medium">Command Notes</span>
+        </button>
+      )}
+
+      {/* Community */}
+      {onCommunity && (
+        <button
+          onClick={() => { vibrate(); onCommunity(); }}
+          className={`w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
+            showTheme ? "menu-item-stagger-6" : "menu-item-stagger-5"
+          }`}
+        >
+          <Users className="text-brand-500" size={20} />
+          <span className="font-medium">Community</span>
         </button>
       )}
 
