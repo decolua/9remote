@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "next dev -H 0.0.0.0",
-    "build": "next build --webpack",
-    "build:cf": "opennextjs-cloudflare build",
+    "build": "next build && node ../scripts/obfuscateNextBuild.js",
+    "build:cf": "npm run build && opennextjs-cloudflare build",
     "deploy": "npm run build:cf && opennextjs-cloudflare deploy",
     "preview": "opennextjs-cloudflare preview",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv env.d.ts"
@@ -47,7 +47,6 @@
     "@tailwindcss/postcss": "^4",
     "javascript-obfuscator": "^5.4.1",
     "tailwindcss": "^4",
-    "webpack-obfuscator": "^3.6.1",
     "wrangler": "^4.65.0"
   }
 }

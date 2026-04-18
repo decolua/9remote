@@ -18,7 +18,8 @@ import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 const STORAGE_KEYS = {
   keyboardOn: "remoteDesktop.keyboardOn",
   pointerMode: "remoteDesktop.pointerMode",
-  showTextPanel: "remoteDesktop.showTextPanel"
+  showTextPanel: "remoteDesktop.showTextPanel",
+  handMode: "remoteDesktop.handMode"
 };
 
 export default function RemoteDesktop({ onClose, socketRef, connected }) {
@@ -28,6 +29,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
   const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, false);
   const [keyboardOn, setKeyboardOn] = usePersistedState(STORAGE_KEYS.keyboardOn, false);
   const [pointerMode, setPointerMode] = usePersistedState(STORAGE_KEYS.pointerMode, REMOTE_CONFIG.pointerMode);
+  const [handMode, setHandMode] = usePersistedState(STORAGE_KEYS.handMode, false);
 
   const { trackTilesReceived } = useBenchmark();
 
@@ -99,6 +101,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     zoomGestureTimeoutRef,
     clickIndicator,
     virtualCursor,
+    handHolding,
     getCanvasCoordinates,
     resetZoom,
     centerVirtualCursor,
@@ -125,7 +128,8 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
       if (next === "trackpad") centerVirtualCursor();
       return next;
     });
-  }, [centerVirtualCursor]);
+  }, [centerVirtualCursor, setPointerMode]);
+
 
   const {
     textInputValue,
@@ -159,6 +163,16 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     handleSelection,
     handleModifiedTextInput
   } = useInput(socketEmitFunctions);
+
+  // Toggle hand (hold-drag) mode — mutually exclusive with selection rectangle.
+  // Keep cursor at current position; only swap the icon.
+  const toggleHandMode = useCallback(() => {
+    setHandMode(prev => {
+      const next = !prev;
+      if (next && selectionMode) toggleSelectionMode();
+      return next;
+    });
+  }, [setHandMode, selectionMode, toggleSelectionMode]);
 
   const {
     renderedTilesRef,
@@ -246,6 +260,9 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     return () => clearTimeout(timer);
   }, [streaming, canvasZoom, canvasPan, fitScale, canvasRef, canvasContainerRef, emitSetFocus]);
 
+  // Auto-turn-off hand mode when cursor release fires from useCanvas.
+  const onHandRelease = useCallback(() => setHandMode(false), [setHandMode]);
+
   const createInteractionHandler = (type) => (e) => {
     handleCanvasInteraction(e, type, {
       streaming,
@@ -258,6 +275,8 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
       setDragMode,
       isMobile: type.includes("touch"),
       pointerMode,
+      handMode,
+      onHandRelease,
       handleSelection: (clientX, clientY, selType) => handleSelection(clientX, clientY, selType, {
         streaming,
         getCanvasCoordinates,
@@ -295,6 +314,8 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
           clickIndicator={clickIndicator}
           pointerMode={pointerMode}
           selectionMode={selectionMode}
+          handMode={handMode}
+          handHolding={handHolding}
           virtualCursor={virtualCursor}
           onMouseDown={createInteractionHandler("click")}
           onMouseMove={createInteractionHandler("move")}
@@ -310,6 +331,8 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
         canvasZoom={canvasZoom}
         selectionMode={selectionMode}
         pointerMode={pointerMode}
+        handMode={handMode}
+        onToggleHandMode={toggleHandMode}
         onTogglePointerMode={togglePointerMode}
         modifierKeys={modifierKeys}
         textInputValue={textInputValue}
@@ -318,7 +341,10 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
         showTextPanel={showTextPanel}
         onResetZoom={resetZoom}
         onRefresh={() => streaming && emitRequestScreenWithHashes([])}
-        onToggleSelection={toggleSelectionMode}
+        onToggleSelection={() => {
+          if (handMode) setHandMode(false);
+          toggleSelectionMode();
+        }}
         onToggleModifier={toggleModifierKey}
         onToggleKeyboard={toggleKeyboard}
         onToggleTextPanel={toggleTextPanel}

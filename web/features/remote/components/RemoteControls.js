@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import Button from "@/shared/components/ui/Button";
-import { ChevronLeft, RefreshCw, Keyboard, HelpCircle, Undo2, MousePointer2 } from "@/shared/components/ui/Icon";
+import { ChevronLeft, RefreshCw, Keyboard, HelpCircle, Undo2, MousePointer2, Hand } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
 // Wrapper to add vibration to any callback
@@ -34,6 +34,8 @@ export default function RemoteControls({
   canvasZoom,
   selectionMode,
   pointerMode,
+  handMode,
+  onToggleHandMode,
   onTogglePointerMode,
   modifierKeys,
   textInputValue,
@@ -149,6 +151,16 @@ export default function RemoteControls({
         >
           <MousePointer2 size={14} />
         </Btn>
+        {pointerMode === "trackpad" && (
+          <Btn
+            onClick={() => v(onToggleHandMode)}
+            disabled={!streaming}
+            active={handMode}
+            title="Hand mode — long-press to hold mouse, drag to move, release to drop"
+          >
+            <Hand size={14} />
+          </Btn>
+        )}
         <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title="Toggle native keyboard">
           <Keyboard size={14} />
         </Btn>

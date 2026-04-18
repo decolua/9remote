@@ -82,4 +82,5 @@ export const {
   ClipboardPaste,
   Undo2,
   MousePointer2,
+  Hand,
 } = LucideIcons;

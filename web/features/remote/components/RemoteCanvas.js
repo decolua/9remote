@@ -14,6 +14,8 @@ export default function RemoteCanvas({
   clickIndicator,
   pointerMode,
   selectionMode,
+  handMode,
+  handHolding,
   virtualCursor,
   onMouseDown,
   onMouseMove,
@@ -26,16 +28,18 @@ export default function RemoteCanvas({
   // CSS transform: scale(fitScale * canvasZoom) to fit into container then apply user zoom.
   // translate is applied before scale (via separate transform step) to pan in screen space.
   const totalScale = fitScale * canvasZoom;
-  // Cursor hint: crosshair for selection; grab in trackpad (draggable surface); default otherwise.
+  // Cursor hint: crosshair for selection; grab when hand mode or trackpad; default otherwise.
   const cursorClass = selectionMode
     ? "cursor-crosshair"
-    : pointerMode === "trackpad"
-      ? "cursor-grab active:cursor-grabbing"
-      : "cursor-default";
+    : handMode
+      ? (handHolding ? "cursor-grabbing" : "cursor-grab")
+      : pointerMode === "trackpad"
+        ? "cursor-grab active:cursor-grabbing"
+        : "cursor-default";
 
   return (
     <div
-      className="w-full h-full overflow-hidden relative flex-1"
+      className="w-full h-full overflow-hidden relative flex-1 mt-4"
       ref={canvasContainerRef}
       style={{ touchAction: "none" }}
       onTouchStart={onTouchStart}
@@ -85,18 +89,27 @@ export default function RemoteCanvas({
             top: `${virtualCursor.y * totalScale + canvasPan.y}px`,
             width: `${REMOTE_CONFIG.trackpadCursorSize}px`,
             height: `${REMOTE_CONFIG.trackpadCursorSize}px`,
-            transform: "translate(-2px, -2px)"
+            transform: handMode ? "translate(-50%, -50%)" : "translate(-2px, -2px)"
           }}
         >
-          <svg viewBox="0 0 24 24" className="w-full h-full drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-            <path
-              d="M4 2 L4 18 L8.5 14 L11 20 L14 18.5 L11.5 13 L18 12.5 Z"
-              fill="#ffffff"
-              stroke="#000000"
-              strokeWidth="1.2"
-              strokeLinejoin="round"
-            />
-          </svg>
+          {handMode ? (
+            <div
+              className="w-full h-full flex items-center justify-center drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
+              style={{ fontSize: `${REMOTE_CONFIG.trackpadCursorSize}px`, lineHeight: 1 }}
+            >
+              {handHolding ? "✊" : "✋"}
+            </div>
+          ) : (
+            <svg viewBox="0 0 24 24" className="w-full h-full drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+              <path
+                d="M4 2 L4 18 L8.5 14 L11 20 L14 18.5 L11.5 13 L18 12.5 Z"
+                fill="#ffffff"
+                stroke="#000000"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
         </div>
       )}
 

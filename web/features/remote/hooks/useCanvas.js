@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
+import { vibrate } from "@/shared/utils/vibration";
 
 export function useCanvas(socketEmitFunctions) {
   const canvasRef = useRef(null);
@@ -49,6 +50,11 @@ export function useCanvas(socketEmitFunctions) {
   // Latch: true once 2+ fingers touched, reset only when all fingers up.
   // Prevents trackpad cursor from moving when user lifts one finger during 2-finger gesture.
   const multiTouchLatchRef = useRef(false);
+
+  // Hand mode long-press hold: tracks whether a hand-hold is armed/active.
+  const handLongPressTimerRef = useRef(null);
+  const handHoldingRef = useRef(false);
+  const [handHolding, setHandHolding] = useState(false);
 
   // Get percentage-based coordinates
   // Canvas is rendered at server resolution, scaled by fitScale * canvasZoom via CSS transform.
@@ -270,7 +276,8 @@ export function useCanvas(socketEmitFunctions) {
     const {
       streaming, socket, selectionMode, selectionStart,
       dragMode, isDragging, setIsDragging, setDragMode,
-      isMobile, handleSelection, pointerMode = "direct"
+      isMobile, handleSelection, pointerMode = "direct",
+      handMode = false, onHandRelease
     } = options;
 
     if (!streaming || !socketEmitFunctions) return;
@@ -302,6 +309,21 @@ export function useCanvas(socketEmitFunctions) {
           touchTotalMoveRef.current = 0;
           setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
           lastTouchTimeRef.current = Date.now();
+          // Hand mode: arm long-press timer to start hold-drag at current cursor.
+          if (handMode) {
+            if (handLongPressTimerRef.current) clearTimeout(handLongPressTimerRef.current);
+            handLongPressTimerRef.current = setTimeout(() => {
+              handLongPressTimerRef.current = null;
+              const canvasNow = canvasRef.current;
+              if (!canvasNow || canvasNow.width === 0) return;
+              const px = (virtualCursor.x / canvasNow.width) * 100;
+              const py = (virtualCursor.y / canvasNow.height) * 100;
+              handHoldingRef.current = true;
+              setHandHolding(true);
+              vibrate(15);
+              socketEmitFunctions.emitMousePress?.(px, py, "left");
+            }, REMOTE_CONFIG.longPressDelay);
+          }
           return;
         }
 
@@ -322,11 +344,24 @@ export function useCanvas(socketEmitFunctions) {
           const canvasDeltaX = (deltaX * mult) / totalScale;
           const canvasDeltaY = (deltaY * mult) / totalScale;
 
+          // Hand mode: if user started moving before long-press fired, cancel it
+          // (treat as drag-without-hold). If already holding, emit mouse-move.
+          if (handMode && !handHoldingRef.current && handLongPressTimerRef.current &&
+              touchTotalMoveRef.current > REMOTE_CONFIG.trackpadTapMaxMove) {
+            clearTimeout(handLongPressTimerRef.current);
+            handLongPressTimerRef.current = null;
+          }
+
           setVirtualCursor(prev => {
             const nx = Math.max(0, Math.min(canvas.width - 1, prev.x + canvasDeltaX));
             const ny = Math.max(0, Math.min(canvas.height - 1, prev.y + canvasDeltaY));
             const next = { x: nx, y: ny };
             emitVirtualCursor(next);
+            if (handHoldingRef.current) {
+              const px = (nx / canvas.width) * 100;
+              const py = (ny / canvas.height) * 100;
+              socketEmitFunctions.emitMouseMove?.(px, py);
+            }
 
             // Auto-follow pan: keep cursor inside viewport with margin.
             // Only active when canvas is zoomed (pan has room to move).
@@ -365,6 +400,22 @@ export function useCanvas(socketEmitFunctions) {
         }
 
         if (type === "touchend") {
+          // Hand mode: cancel pending long-press, release if holding, then exit hand mode.
+          if (handMode) {
+            if (handLongPressTimerRef.current) {
+              clearTimeout(handLongPressTimerRef.current);
+              handLongPressTimerRef.current = null;
+            }
+            if (handHoldingRef.current) {
+              const px = (virtualCursor.x / canvas.width) * 100;
+              const py = (virtualCursor.y / canvas.height) * 100;
+              socketEmitFunctions.emitMouseRelease?.(px, py, "left");
+              handHoldingRef.current = false;
+              setHandHolding(false);
+              onHandRelease?.();
+            }
+            return;
+          }
           const duration = Date.now() - touchStartTimeRef.current;
           const isTap = touchTotalMoveRef.current <= REMOTE_CONFIG.trackpadTapMaxMove &&
                         duration <= REMOTE_CONFIG.trackpadTapMaxDuration;
@@ -820,6 +871,7 @@ export function useCanvas(socketEmitFunctions) {
     zoomGestureTimeoutRef,
     clickIndicator,
     virtualCursor,
+    handHolding,
     getCanvasCoordinates,
     resetZoom,
     centerVirtualCursor,

@@ -331,15 +331,18 @@ export class TileManager {
 
     let sum = 0;
     const sampleStep = 16; // Sample every 16 pixels for speed
+    // Hexagonal pattern: even rows start at 0, odd rows start at 8.
+    // Covers pixels missed by a square grid while keeping checksum stable.
 
     for (let y = 0; y < tileHeight; y += 4) {
+      const offsetX = ((y >> 2) & 1) * 8;
       const rowOffset = (startY + y) * screenRowBytes + startX * channels;
-      for (let x = 0; x < tileWidth; x += sampleStep) {
+      for (let x = offsetX; x < tileWidth; x += sampleStep) {
         const offset = rowOffset + x * channels;
-        sum += screenData.buffer[offset] || 0;
-        sum ^= screenData.buffer[offset + 1] || 0;
-        sum += (screenData.buffer[offset + 2] || 0) << 1;
-        sum ^= (screenData.buffer[offset + 3] || 0) << 2;
+        sum += screenData.buffer[offset];
+        sum ^= screenData.buffer[offset + 1];
+        sum += screenData.buffer[offset + 2] << 1;
+        sum ^= screenData.buffer[offset + 3] << 2;
       }
     }
     return sum >>> 0;
