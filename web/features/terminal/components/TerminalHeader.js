@@ -29,6 +29,7 @@ export default function TerminalHeader({
   unsubscribeFromPush,
   agentVersion,
   socketRef,
+  isActive = true,
 }) {
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
@@ -43,6 +44,7 @@ export default function TerminalHeader({
 
   // Set up SlideMenu context at page level (once)
   useEffect(() => {
+    if (!isActive) return;
     setContext({
       connected,
       remoteAvailable: !!onOpenRemote,
@@ -67,7 +69,7 @@ export default function TerminalHeader({
       onThemeChange,
       onStopCodespace,
     });
-  }, [connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, theme, onThemeChange, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
+  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, theme, onThemeChange, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
     <div className="bg-dark-600 border-b border-dark-400 px-2 sm:px-4 py-2 flex items-center gap-2 flex-shrink-0">

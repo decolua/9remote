@@ -172,7 +172,7 @@ function TerminalPane({
 
   // Use ring-inset so focus ring draws inside bounds (symmetric, not clipped by neighbors)
   const borderClass = showFocusBorder && isFocused
-    ? "ring-2 ring-inset ring-brand-500/60"
+    ? "ring-1 ring-inset ring-brand-500/60"
     : "";
 
   return (

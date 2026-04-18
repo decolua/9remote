@@ -2,7 +2,7 @@
 
 // Layout breakpoints and sizing
 export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
-export const PANE_MIN_WIDTH = 450; // px, min width per terminal pane on desktop
+export const PANE_MIN_WIDTH = 500; // px, min width per terminal pane on desktop
 
 // XTerm.js default options
 export const TERMINAL_OPTIONS = {

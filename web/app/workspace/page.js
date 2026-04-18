@@ -395,6 +395,7 @@ export default function WorkspacePage() {
             <TerminalHeader
               sessions={sessions}
               activeSessionId={activeSessionId}
+              isActive={isTerminalView}
               connected={connected}
               notifications={notifications}
               onSwitchSession={handleSelectSession}
