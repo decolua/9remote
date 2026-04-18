@@ -11,7 +11,7 @@
   [![Downloads](https://img.shields.io/npm/dm/9remote.svg)](https://www.npmjs.com/package/9remote)
   [![License](https://img.shields.io/badge/license-Proprietary-orange.svg)](#-giấy-phép)
 
-  [🚀 Bắt đầu nhanh](#-bắt-đầu-nhanh) • [📊 So sánh](#-9remote-vs-các-giải-pháp-remote-khác) • [💡 Tính năng](#-tính-năng-chính) • [🌐 Website](https://9remote.cc) • [📖 Tài liệu](https://docs.9remote.cc)
+  [🚀 Bắt đầu nhanh](#-bắt-đầu-nhanh) • [📊 So sánh](#-9remote-vs-các-giải-pháp-remote-khác) • [💡 Tính năng](#-tính-năng-chính) • [🌐 Website](https://9remote.cc) • [📖 Tài liệu](https://docs.9remote.cc) • [💬 Facebook](https://www.facebook.com/groups/9teamvn)
 
   [🇺🇸 English](../README.md) • [🇻🇳 Tiếng Việt](./README.vi.md)
 </div>
@@ -420,6 +420,7 @@ Chạy chúng trên máy host, truy cập từ điện thoại. Kết hợp vớ
 
 - ⭐ **Star repo này** — mỗi sao đưa chúng tôi gần hơn đến việc open-source
 - 🐦 **Chia sẻ trên Twitter / X** — giới thiệu 9Remote cho dev khác
+- 💬 **Tham gia cộng đồng Facebook** — [facebook.com/groups/9teamvn](https://www.facebook.com/groups/9teamvn)
 - 🐛 **Báo lỗi** — phát hiện bug? Hãy cho chúng tôi biết!
 - 💡 **Đề xuất tính năng** — điều gì sẽ giúp workflow remote của bạn tốt hơn?
 
@@ -432,6 +433,7 @@ Chạy chúng trên máy host, truy cập từ điện thoại. Kết hợp vớ
 - **NPM Package:** [npmjs.com/package/9remote](https://www.npmjs.com/package/9remote)
 - **GitHub:** [github.com/decolua/9remote](https://github.com/decolua/9remote)
 - **Issues:** [github.com/decolua/9remote/issues](https://github.com/decolua/9remote/issues)
+- **Cộng đồng Facebook:** [facebook.com/groups/9teamvn](https://www.facebook.com/groups/9teamvn)
 
 ---
 

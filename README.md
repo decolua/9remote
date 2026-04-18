@@ -11,7 +11,7 @@
   [![Downloads](https://img.shields.io/npm/dm/9remote.svg)](https://www.npmjs.com/package/9remote)
   [![License](https://img.shields.io/badge/license-Proprietary-orange.svg)](#-license)
 
-  [🚀 Quick Start](#-quick-start) • [📊 Comparison](#-9remote-vs-other-remote-solutions) • [💡 Features](#-key-features) • [🌐 Website](https://9remote.cc) • [📖 Docs](https://docs.9remote.cc)
+  [🚀 Quick Start](#-quick-start) • [📊 Comparison](#-9remote-vs-other-remote-solutions) • [💡 Features](#-key-features) • [🌐 Website](https://9remote.cc) • [📖 Docs](https://docs.9remote.cc) • [💬 Facebook](https://www.facebook.com/groups/9teamvn)
 
   [🇺🇸 English](./README.md) • [🇻🇳 Tiếng Việt](./i18n/README.vi.md)
 </div>
@@ -420,6 +420,7 @@ Run them on your host machine, access them from your phone. Combined with [9Rout
 
 - ⭐ **Star this repo** — every star brings us closer to going open-source
 - 🐦 **Share on Twitter / X** — tell other devs about 9Remote
+- 💬 **Join our Facebook community** — [facebook.com/groups/9teamvn](https://www.facebook.com/groups/9teamvn)
 - 🐛 **Report issues** — found a bug? Let us know!
 - 💡 **Request features** — what would make your remote workflow better?
 
@@ -432,6 +433,7 @@ Run them on your host machine, access them from your phone. Combined with [9Rout
 - **NPM Package:** [npmjs.com/package/9remote](https://www.npmjs.com/package/9remote)
 - **GitHub:** [github.com/decolua/9remote](https://github.com/decolua/9remote)
 - **Issues:** [github.com/decolua/9remote/issues](https://github.com/decolua/9remote/issues)
+- **Facebook Community:** [facebook.com/groups/9teamvn](https://www.facebook.com/groups/9teamvn)
 
 ---
 
