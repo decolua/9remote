@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState, useRef } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useRemoteSocket } from "@/features/remote/hooks/useRemoteSocket";
 import { useCanvas } from "@/features/remote/hooks/useCanvas";
 import { useInput } from "@/features/remote/hooks/useInput";
@@ -114,21 +114,17 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     getCanvasCoordinates,
     resetZoom,
     centerVirtualCursor,
+    startHandHold,
+    releaseHandHold,
     handleCanvasInteraction,
     handleCanvasDimensions
   } = useCanvas(socketEmitFunctions);
 
-  // Auto-focus hidden input when remote starts with keyboardOn persisted = true.
-  // Browsers (iOS/Android) may still block native keyboard without a user gesture;
-  // this at least restores focus state consistently.
-  const didAutoFocusRef = useRef(false);
-  useEffect(() => {
-    if (keyboardOn && streaming && !didAutoFocusRef.current) {
-      didAutoFocusRef.current = true;
-      textInputRef?.current?.focus();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyboardOn, streaming]);
+  // NOTE: Auto-focus on mount was intentionally removed.
+  // iOS Safari blocks focus-driven keyboard without a user gesture anyway, and
+  // programmatically focusing a bottom-anchored hidden input causes iOS to scroll
+  // the visual viewport (offsetTop > 0) → top of the app gets clipped. User must
+  // tap the ⌨️ button (a real gesture) to restore the native keyboard.
 
   // When switching to trackpad mode, center the virtual cursor on canvas
   const togglePointerMode = useCallback(() => {
@@ -174,14 +170,20 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
   } = useInput(socketEmitFunctions);
 
   // Toggle hand (hold-drag) mode — mutually exclusive with selection rectangle.
-  // Keep cursor at current position; only swap the icon.
+  // Instant-hold: turning ON immediately presses mouse-left at the virtual cursor
+  // (+ boost stream). Turning OFF while still holding releases the press.
   const toggleHandMode = useCallback(() => {
     setHandMode(prev => {
       const next = !prev;
-      if (next && selectionMode) toggleSelectionMode();
+      if (next) {
+        if (selectionMode) toggleSelectionMode();
+        startHandHold();
+      } else {
+        releaseHandHold();
+      }
       return next;
     });
-  }, [setHandMode, selectionMode, toggleSelectionMode]);
+  }, [setHandMode, selectionMode, toggleSelectionMode, startHandHold, releaseHandHold]);
 
   const {
     renderedTilesRef,
@@ -315,7 +317,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
 
   return (
     <div
-      className="bg-dark-700 text-white flex flex-col h-[var(--app-height,100vh)] w-full"
+      className="bg-dark-700 text-white flex flex-col landscape:flex-row h-[var(--app-height,100vh)] w-full"
       style={{
         userSelect: "none",
         WebkitUserSelect: "none",
@@ -398,11 +400,15 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
       />
 
       {showHelp && (
-        <RemoteHelpModal onClose={() => {
-          setShowHelp(false);
-          // Re-focus hidden input synchronously to preserve native keyboard when it was on
-          if (keyboardOn) textInputRef.current?.focus();
-        }} />
+        <RemoteHelpModal
+          inputMode={inputMode}
+          pointerMode={pointerMode}
+          onClose={() => {
+            setShowHelp(false);
+            // Re-focus hidden input synchronously to preserve native keyboard when it was on
+            if (keyboardOn) textInputRef.current?.focus();
+          }}
+        />
       )}
 
       <ConfirmDialog

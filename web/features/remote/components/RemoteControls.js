@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import Button from "@/shared/components/ui/Button";
-import { ChevronLeft, RefreshCw, Keyboard, HelpCircle, Undo2, MousePointer2, Hand } from "@/shared/components/ui/Icon";
+import { ChevronLeft, RefreshCw, Keyboard, HelpCircle, Undo2, Hand } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
@@ -65,7 +65,7 @@ export default function RemoteControls({
 }) {
   // Horizontal scroll on mobile: mirror terminal's MobileKeyboard (simple overflow-auto).
   // Hide scrollbar cross-browser.
-  const rowClass = "flex gap-1.5 overflow-auto px-2 py-1.5";
+  const rowClass = "flex gap-1.5 overflow-auto px-2 py-1.5 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:content-center landscape:justify-center";
   const rowStyle = { scrollbarWidth: "none", msOverflowStyle: "none" };
   // Separate ref for the visible batch-input panel — keeps the hidden native-keyboard input
   // always mounted so toggling "Aa" never unmounts the focused element (which would dismiss the keyboard).
@@ -77,7 +77,7 @@ export default function RemoteControls({
   const show = (k) => inputMode !== "mouse" || pcCfg[k];
 
   return (
-    <div className="bg-dark-600 border-t border-dark-400 select-none relative">
+    <div className="bg-dark-600 border-t border-dark-400 select-none relative landscape:border-t-0 landscape:border-l landscape:h-full landscape:flex landscape:flex-col landscape:w-72 landscape:shrink-0">
       {/* Hidden input ALWAYS mounted — drives native keyboard when ⌨️ is on.
           Toggling Aa/panel must not unmount this element or the keyboard will dismiss. */}
       <input
@@ -104,24 +104,29 @@ export default function RemoteControls({
           border: 0,
           padding: 0,
           left: 0,
-          bottom: 0,
+          // Anchor at top: iOS Safari scrolls the visual viewport to bring the
+          // focused input into view, so a bottom-anchored input causes offsetTop
+          // to become non-zero (clipping the app top). Top anchor keeps offsetTop = 0.
+          top: 0,
+          // font-size: 16px prevents iOS auto-zoom on focus (which triggers
+          // viewport resize and layout shift).
+          fontSize: 16,
           pointerEvents: "none",
           zIndex: -1
         }}
       />
 
-      {/* Text input panel (toggled by Aa) — visible batch input, mounted alongside hidden input */}
-      {showTextPanel && (
-        <div className="px-2 py-2 border-b border-dark-400 flex gap-2">
-          <input
+      {/* Text input panel — Aa toggles it on portrait; always visible in landscape.
+          <textarea> so Enter inserts newline; Send button flushes buffered text. */}
+      <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} px-2 py-2 border-b border-dark-400 gap-2 landscape:border-b-0 landscape:border-t landscape:order-last`}>
+          <textarea
             ref={panelInputRef}
-            type="text"
+            rows={2}
             value={textInputValue}
             onChange={(e) => onTextInputChange(e.target.value)}
-            onKeyDown={onTextInputKeyDown}
             onFocus={onTextInputFocus}
             placeholder="Type text to send..."
-            className="flex-1 px-3 py-2 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 text-sm"
+            className="flex-1 min-w-0 px-3 py-2 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 text-sm resize-none landscape:h-32"
             disabled={!streaming}
           />
           <Button
@@ -133,11 +138,10 @@ export default function RemoteControls({
           >
             Send
           </Button>
-        </div>
-      )}
+      </div>
 
       {/* Row 1 — utility bar */}
-      <div className={rowClass} style={rowStyle}>
+      <div className={`${rowClass} landscape:border-b landscape:border-dark-400`} style={rowStyle}>
         <Btn onClick={() => v(onClose)} title="Back">
           <ChevronLeft className="text-orange-400" size={16} />
         </Btn>
@@ -159,7 +163,7 @@ export default function RemoteControls({
             active={pointerMode === "trackpad"}
             title={pointerMode === "trackpad" ? "Trackpad mode" : "Direct mode"}
           >
-            <MousePointer2 size={14} />
+            <span className="text-base leading-none">🖱️</span>
           </Btn>
         )}
         {show("handMode") && pointerMode === "trackpad" && (
@@ -178,7 +182,7 @@ export default function RemoteControls({
           </Btn>
         )}
         {show("textPanel") && (
-          <Btn onClick={() => v(onToggleTextPanel)} disabled={!streaming} active={showTextPanel} title="Text batch input">
+          <Btn onClick={() => v(onToggleTextPanel)} disabled={!streaming} active={showTextPanel} title="Text batch input" className="landscape:hidden">
             Aa
           </Btn>
         )}

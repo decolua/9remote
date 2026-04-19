@@ -8,6 +8,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import os from "os";
+import dns from "dns";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd, writeCmd } from "./utils/state.js";
@@ -941,8 +942,32 @@ function flushWinDns() {
   execFile("ipconfig", ["/flushdns"], { windowsHide: true }, () => {});
 }
 
+// Resolve DNS trực tiếp qua Cloudflare 1.1.1.1 (bypass resolver hệ thống / ISP cache)
+// → biết ngay subdomain đã propagate chưa mà không tốn 5s chờ fetch timeout.
+const dnsResolver = new dns.promises.Resolver();
+dnsResolver.setServers(["1.1.1.1", "1.0.0.1", "8.8.8.8"]);
+
+async function resolveTunnelDns(hostname, timeoutMs = 2000) {
+  const t0 = Date.now();
+  try {
+    const addrs = await Promise.race([
+      dnsResolver.resolve4(hostname),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(Object.assign(new Error("DNS timeout"), { code: "ETIMEOUT" })), timeoutMs)
+      ),
+    ]);
+    return { ok: true, addrs, elapsedMs: Date.now() - t0 };
+  } catch (err) {
+    const code = err.code || err.message;
+    return { ok: false, code, elapsedMs: Date.now() - t0 };
+  }
+}
+
 async function waitForTunnelReady(tunnelUrl, { intervalMs = 2000, timeoutMs = 180000 } = {}) {
   const healthUrl = `${tunnelUrl}/api/health`;
+  const hostname = (() => {
+    try { return new URL(tunnelUrl).hostname; } catch { return null; }
+  })();
   const start = Date.now();
   let attempt = 0;
   const logs = [];
@@ -964,6 +989,23 @@ async function waitForTunnelReady(tunnelUrl, { intervalMs = 2000, timeoutMs = 18
   while (Date.now() - start < timeoutMs) {
     attempt++;
     flushWinDns();
+
+    // Bước 1: DNS probe qua 1.1.1.1 (timeout 2s) — biết sớm subdomain đã publish chưa
+    // Chỉ áp dụng khi có hostname hợp lệ (tunnel URL thực tế).
+    if (hostname) {
+      const dnsRes = await resolveTunnelDns(hostname, 2000);
+      if (!dnsRes.ok) {
+        const isWaiting = dnsRes.code === "ENOTFOUND" || dnsRes.code === "ETIMEOUT" || dnsRes.code === "ESERVFAIL";
+        const status = isWaiting ? "connecting..." : dnsRes.code;
+        updateProgressDesc(`#${attempt} → ${status}`);
+        pushLog({ attempt, status, elapsedMs: dnsRes.elapsedMs, ok: false, waiting: isWaiting, time: Date.now() });
+        // Subdomain chưa propagate → skip fetch 5s, chờ interval rồi thử lại.
+        await new Promise((r) => setTimeout(r, intervalMs));
+        continue;
+      }
+    }
+
+    // Bước 2: DNS OK (hoặc không có hostname) → fetch health endpoint
     const t0 = Date.now();
     try {
       const res = await browserFetch(healthUrl, {

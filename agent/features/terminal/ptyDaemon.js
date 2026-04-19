@@ -17,6 +17,10 @@ const SOCKET_PATH = process.platform === "win32"
   ? "\\\\.\\pipe\\9remote-pty"
   : path.join(SOCKET_DIR, "pty-daemon.sock");
 
+// PID file so the updater + app can find & kill us on demand. Kept in the
+// same layout as agent/cloudflared PIDs (see agent/cli/utils/pids.js).
+const PID_FILE = path.join(SOCKET_DIR, "pids", "ptyDaemon.pid");
+
 // Sessions: sessionId -> { pty, buffer, name, createdAt }
 const sessions = new Map();
 
@@ -376,23 +380,30 @@ function startDaemon() {
 
   server.listen(SOCKET_PATH);
 
-  // Graceful shutdown
-  process.on("SIGTERM", () => {
+  // Write own PID so the updater / app can kill us by PID only. Kill-by-image
+  // (taskkill /IM node.exe) would nuke unrelated node processes on the machine.
+  try {
+    fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
+    fs.writeFileSync(PID_FILE, String(process.pid));
+  } catch {}
+
+  const cleanupAndExit = () => {
     for (const [, session] of sessions) {
       if (session.pty) {
-        session.pty.kill();
+        try { session.pty.kill(); } catch {}
       }
     }
-    server.close();
+    try { server.close(); } catch {}
     if (process.platform !== "win32" && fs.existsSync(SOCKET_PATH)) {
-      fs.unlinkSync(SOCKET_PATH);
+      try { fs.unlinkSync(SOCKET_PATH); } catch {}
     }
+    try { fs.unlinkSync(PID_FILE); } catch {}
     process.exit(0);
-  });
+  };
 
-  process.on("SIGINT", () => {
-    process.emit("SIGTERM");
-  });
+  // Graceful shutdown
+  process.on("SIGTERM", cleanupAndExit);
+  process.on("SIGINT", cleanupAndExit);
 }
 
 // Run daemon

@@ -1,6 +1,7 @@
 // TileManager for Remote Desktop Screen Capture
 import fs from "fs";
 import path from "path";
+import sharp from "sharp";
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
@@ -35,7 +36,8 @@ export class TileManager {
     this.dpiScale = 1;
     this.captureWidth = 0;
     this.captureHeight = 0;
-    this.scaleFactor = 1;
+    // Output scale applied post-capture (downscale before tiling). 1 = native.
+    this.scaleFactor = REMOTE_CONFIG.pipeline.outputScale || 1;
     this.compressionQuality = REMOTE_CONFIG.pipeline.jpegQuality;
     // Focus region: Set<tileIndex> of active tiles, null = all tiles (full screen)
     this.activeTileSet = null;
@@ -59,8 +61,10 @@ export class TileManager {
       // Detect DPI scale once at initialization
       this.detectDpiScale();
 
-      this.scaledWidth = Math.floor(width * this.scaleFactor);
-      this.scaledHeight = Math.floor(height * this.scaleFactor);
+      // Final buffer size after capture + outputScale downscale.
+      // captureWidth/Height = physical pixels; scaleFactor = outputScale.
+      this.scaledWidth = Math.max(1, Math.floor(this.captureWidth * this.scaleFactor));
+      this.scaledHeight = Math.max(1, Math.floor(this.captureHeight * this.scaleFactor));
       this.tilesPerRow = Math.ceil(this.scaledWidth / this.tileSize);
       this.tilesPerColumn = Math.ceil(this.scaledHeight / this.tileSize);
       this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
@@ -176,9 +180,24 @@ export class TileManager {
 
   async captureFullScreen() {
     // Capture via adapter — returns native format (BGRA or RGBA).
-    // No pixel swap, no resize: encoder handles format; tile-based change detection
-    // replaces the need for downscale.
     const result = await capture.captureFull();
+
+    // Optional downscale — sharp resize on raw buffer, preserves channel order
+    // (no BGRA↔RGBA swap since sharp operates per-channel). Done once per frame
+    // so all downstream tiles/checksums/focus operate in scaled space.
+    const scale = REMOTE_CONFIG.pipeline.outputScale;
+    if (scale && scale > 0 && scale < 1) {
+      const targetW = Math.max(1, Math.floor(result.width * scale));
+      const targetH = Math.max(1, Math.floor(result.height * scale));
+      const scaled = await sharp(result.buffer, {
+        raw: { width: result.width, height: result.height, channels: result.channels }
+      })
+        .resize(targetW, targetH, { kernel: "lanczos3", fastShrinkOnLoad: false })
+        .raw()
+        .toBuffer();
+      return { buffer: scaled, width: targetW, height: targetH, channels: result.channels };
+    }
+
     return {
       buffer: result.buffer,
       width: result.width,
@@ -415,7 +434,7 @@ export class TileManager {
 
   _recordFrame(tStart, tCaptureEnd, tChecksumEnd, tiles, screenData) {
     this._recordFocusFrame(tiles);
-    if (!this.metrics.cfg.enabled) return;
+    if (!this.metrics.cfg.metrics) return;
     const tEnd = this.metrics.now();
     const tileBytes = tiles.map(t => t.imageBuffer?.length || 0);
     const rawBytes = screenData ? (screenData.width * screenData.height * screenData.channels) : 0;

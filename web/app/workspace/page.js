@@ -130,16 +130,30 @@ export default function WorkspacePage() {
     let lastKeyboardState = false; // Track keyboard state to prevent unnecessary updates
     
     const updateAppHeight = () => {
-      const vh = window.visualViewport?.height || window.innerHeight;
-      const isKeyboardOpen = vh < window.innerHeight - 100;
-      
+      const vv = window.visualViewport;
+      const vvHeight = vv?.height || window.innerHeight;
+      const offsetTop = vv?.offsetTop || 0;
+      const isKeyboardOpen = vvHeight < window.innerHeight - 100;
+
       // Only update if keyboard state actually changed
       if (lastKeyboardState !== isKeyboardOpen) {
         lastKeyboardState = isKeyboardOpen;
         setKeyboardOpen(isKeyboardOpen);
       }
-      
+
+      // Use innerHeight when keyboard closed (visualViewport may stay short on iOS).
+      const vh = isKeyboardOpen ? vvHeight : window.innerHeight;
       document.documentElement.style.setProperty("--app-height", `${vh}px`);
+
+      // iOS 26 Safari bug (FB20191055): after dismissing the keyboard,
+      // visualViewport.offsetTop can stay > 0 (~24px), pushing position:fixed
+      // elements down so the top of the app is clipped. Compensate by translating
+      // the <html> element up by offsetTop when keyboard is closed.
+      if (!isKeyboardOpen && offsetTop > 0) {
+        document.documentElement.style.transform = `translateY(${-offsetTop}px)`;
+      } else {
+        document.documentElement.style.transform = "";
+      }
       window.scrollTo(0, 0);
     };
 
@@ -169,6 +183,7 @@ export default function WorkspacePage() {
 
     return () => {
       document.documentElement.classList.remove("terminal-page");
+      document.documentElement.style.transform = "";
       document.removeEventListener("touchmove", preventScroll);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener("resize", updateAppHeight);

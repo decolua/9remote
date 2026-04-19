@@ -102,7 +102,7 @@ export default function RemoteCanvas({
 
   return (
     <div
-      className="w-full h-full overflow-hidden relative flex-1 mt-4"
+      className="w-full h-full overflow-hidden relative flex-1"
       ref={canvasContainerRef}
       style={{ touchAction: "none" }}
       onTouchStart={onTouchStart}

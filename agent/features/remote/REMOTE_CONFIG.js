@@ -18,7 +18,12 @@ export const REMOTE_CONFIG = {
     encoder: platformCfg.encoder,         // "sharp" | "jpegTurbo"
     inputFormat: platformCfg.inputFormat, // "bgra" | "rgba" — source color order
     tileSize: platformCfg.tileSize,
-    jpegQuality: 50
+    jpegQuality: 50,
+    // Output scale — downscale captured buffer before tiling/encoding.
+    // 1.0 = native (no scale), 0.75 = 75%, 0.5 = 50%. Saves bandwidth + CPU.
+    // Applied via sharp resize once per frame on the full screen buffer.
+    // Mouse coords are percentage-based so this does NOT affect input mapping.
+    outputScale: 1
   },
 
   // WebRTC transport config
@@ -99,7 +104,7 @@ export const REMOTE_CONFIG = {
     focusEveryFrames: 60,
 
     // Pipeline metrics — capture/encode/total/fps/tiles/compression
-    metrics: false,
+    metrics: true,
     metricsEveryFrames: 30
   }
 };

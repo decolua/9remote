@@ -56,6 +56,11 @@ export function useCanvas(socketEmitFunctions) {
   const handHoldingRef = useRef(false);
   const [handHolding, setHandHolding] = useState(false);
 
+  // 2-finger tap detection (trackpad mode → right-click). Tracks max centroid/distance
+  // movement during the 2-finger gesture; if gesture never locked + within tap thresholds
+  // on touchend, emit right-click at the virtual cursor.
+  const twoFingerMaxMovedRef = useRef(0);
+
   // PC mode: track pressed mouse button to emit drag (move while held) and catch
   // pointerup even when the cursor leaves canvas.
   const mouseDownButtonRef = useRef(null);
@@ -492,7 +497,8 @@ export function useCanvas(socketEmitFunctions) {
           setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
           lastTouchTimeRef.current = Date.now();
           // Hand mode: arm long-press timer to start hold-drag at current cursor.
-          if (handMode) {
+          // Skip if already holding (instant-hold via toolbar toggle).
+          if (handMode && !handHoldingRef.current) {
             if (handLongPressTimerRef.current) clearTimeout(handLongPressTimerRef.current);
             handLongPressTimerRef.current = setTimeout(() => {
               handLongPressTimerRef.current = null;
@@ -640,6 +646,7 @@ export function useCanvas(socketEmitFunctions) {
           centerX: center.x,
           centerY: center.y
         };
+        twoFingerMaxMovedRef.current = 0;
         return;
       } else if (type === "touchmove" && isZooming) {
         const container = canvasContainerRef.current;
@@ -652,6 +659,12 @@ export function useCanvas(socketEmitFunctions) {
           const deltaCentroid = Math.sqrt(
             (center.x - gestureStartRef.current.centerX) ** 2 +
             (center.y - gestureStartRef.current.centerY) ** 2
+          );
+          // Track max movement for 2-finger tap detection on touchend.
+          twoFingerMaxMovedRef.current = Math.max(
+            twoFingerMaxMovedRef.current,
+            deltaDistance,
+            deltaCentroid
           );
           const {
             gestureLockDelay,
@@ -680,15 +693,23 @@ export function useCanvas(socketEmitFunctions) {
         }
 
         // Scroll mode: reuse the same scroll logic as 1-finger direct mode.
-        // Move cursor to centroid so scroll happens at the user's fingers position,
-        // then emit scroll based on vertical centroid delta.
+        // Anchor scroll position so the wheel event targets the correct spot:
+        //   • Trackpad mode: virtual cursor (where the ✋ icon is).
+        //   • Direct mode:   2-finger centroid (where the user's fingers actually are).
+        // Then emit scroll based on vertical centroid delta.
         if (gestureLockRef.current === "scroll") {
           const deltaY = center.y - lastTouchCenter.y;
-          // Emit mouse move to centroid on first scroll frame so wheel event targets correct location
+          // Emit mouse move to anchor on first scroll frame so wheel event targets correct location
           if (!isEdgeScrolling) {
-            const { percentX, percentY } = getCanvasCoordinates(center.x, center.y);
+            const canvasNow = canvasRef.current;
+            const coords = (pointerMode === "trackpad" && canvasNow && canvasNow.width > 0)
+              ? {
+                  percentX: (virtualCursor.x / canvasNow.width) * 100,
+                  percentY: (virtualCursor.y / canvasNow.height) * 100
+                }
+              : getCanvasCoordinates(center.x, center.y);
             socketEmitFunctions?.emitBoostStream?.();
-            socketEmitFunctions?.emitMouseMove?.(percentX, percentY);
+            socketEmitFunctions?.emitMouseMove?.(coords.percentX, coords.percentY);
             setIsEdgeScrolling(true);
           }
           emitScrollFromDelta(deltaY);
@@ -855,6 +876,24 @@ export function useCanvas(socketEmitFunctions) {
     // Touch end
     if (type === "touchend") {
       cancelLongPress();
+
+      // 2-finger tap → right-click at virtual cursor (trackpad mode only).
+      // Must run BEFORE resetting gestureLockRef. Fire only when the gesture never
+      // committed to zoom/scroll AND movement+duration stay within tap thresholds.
+      if (pointerMode === "trackpad" && isZooming &&
+          (event.touches?.length || 0) === 0 &&
+          gestureLockRef.current === null &&
+          Date.now() - gestureStartRef.current.time <= REMOTE_CONFIG.trackpadTapMaxDuration &&
+          twoFingerMaxMovedRef.current <= REMOTE_CONFIG.trackpadTapMaxMove) {
+        const canvasNow = canvasRef.current;
+        if (canvasNow && canvasNow.width > 0 && socketEmitFunctions?.emitMouseClick) {
+          const px = (virtualCursor.x / canvasNow.width) * 100;
+          const py = (virtualCursor.y / canvasNow.height) * 100;
+          socketEmitFunctions.emitMouseClick(px, py, "right");
+          vibrate(15);
+        }
+      }
+
       gestureLockRef.current = null;
       // Release multi-touch latch only when ALL fingers are lifted
       if ((event.touches?.length || 0) === 0) {
@@ -1043,6 +1082,36 @@ export function useCanvas(socketEmitFunctions) {
     });
   }, [fitScale, canvasZoom, canvasPan]);
 
+  // Start hand-hold immediately at current virtual cursor (instant-hold, no long-press).
+  // Emits boost-stream + mouse press "left" and flips holding state.
+  const startHandHold = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width === 0) return;
+    if (handHoldingRef.current) return;
+    if (handLongPressTimerRef.current) {
+      clearTimeout(handLongPressTimerRef.current);
+      handLongPressTimerRef.current = null;
+    }
+    const px = (virtualCursor.x / canvas.width) * 100;
+    const py = (virtualCursor.y / canvas.height) * 100;
+    handHoldingRef.current = true;
+    setHandHolding(true);
+    vibrate(15);
+    socketEmitFunctions?.emitBoostStream?.();
+    socketEmitFunctions?.emitMousePress?.(px, py, "left");
+  }, [virtualCursor, socketEmitFunctions]);
+
+  // Manual release (when user toggles hand mode OFF while still holding, without touchend).
+  const releaseHandHold = useCallback(() => {
+    if (!handHoldingRef.current) return;
+    const canvas = canvasRef.current;
+    const px = canvas && canvas.width > 0 ? (virtualCursor.x / canvas.width) * 100 : 0;
+    const py = canvas && canvas.height > 0 ? (virtualCursor.y / canvas.height) * 100 : 0;
+    socketEmitFunctions?.emitMouseRelease?.(px, py, "left");
+    handHoldingRef.current = false;
+    setHandHolding(false);
+  }, [virtualCursor, socketEmitFunctions]);
+
   return {
     canvasRef,
     canvasContainerRef,
@@ -1057,6 +1126,8 @@ export function useCanvas(socketEmitFunctions) {
     getCanvasCoordinates,
     resetZoom,
     centerVirtualCursor,
+    startHandHold,
+    releaseHandHold,
     handleCanvasInteraction,
     handleCanvasDimensions
   };

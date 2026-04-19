@@ -24,6 +24,93 @@ const SOCKET_PATH = process.platform === "win32"
 const DAEMON_SCRIPT_SOURCE = path.join(__dirname, "ptyDaemon.js");
 const DAEMON_SCRIPT_DIST = path.join(__dirname, "ptyDaemon.cjs");
 
+// Runtime copy location — daemon runs from here so it never locks files
+// inside node_modules/9remote. That lock is what makes `npm i -g 9remote@latest`
+// fail with EBUSY on Windows when the daemon is still alive.
+const DAEMON_RUNTIME_DIR = path.join(SOCKET_DIR, "daemon");
+
+function getCliVersion() {
+  if (typeof __CLI_VERSION__ !== "undefined") return __CLI_VERSION__;
+  try {
+    // Walk up from agent/features/terminal → agent/ → find package.json
+    const pkgPath = path.resolve(__dirname, "..", "..", "package.json");
+    return JSON.parse(fs.readFileSync(pkgPath, "utf8")).version;
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Copy a directory tree recursively. Node 16+ supports fs.cpSync but we use
+ * a hand-rolled version to stay compatible with the 14.x envs we still see
+ * in the wild (some GitHub Codespaces images).
+ */
+function copyDirSync(src, dest) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dest, entry.name);
+    if (entry.isDirectory()) copyDirSync(s, d);
+    else if (entry.isFile()) fs.copyFileSync(s, d);
+  }
+}
+
+/**
+ * Find the node-pty package folder by walking up from the daemon script.
+ * Returns null if not found (caller falls back to running from original path).
+ */
+function findNodePtyDir(startDir) {
+  let dir = startDir;
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, "node_modules", "node-pty");
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+/**
+ * Prepare a self-contained daemon folder at ~/.9remote/daemon/v<version>/.
+ * Layout:
+ *   v<version>/
+ *     ptyDaemon.cjs            ← copied from source/dist
+ *     node_modules/node-pty/   ← full package (lib + prebuild for this platform)
+ *
+ * Returns { script, cwd } pointing at the copy, or null if copy failed
+ * (caller falls back to running from original path).
+ */
+function prepareDaemonCopy(sourceScript) {
+  const version = getCliVersion();
+  const runtimeDir = path.join(DAEMON_RUNTIME_DIR, `v${version}`);
+  const copiedScript = path.join(runtimeDir, path.basename(sourceScript));
+  const copiedPtyDir = path.join(runtimeDir, "node_modules", "node-pty");
+
+  // Already prepared — skip work
+  if (fs.existsSync(copiedScript) && fs.existsSync(copiedPtyDir)) {
+    return { script: copiedScript, cwd: runtimeDir };
+  }
+
+  try {
+    fs.mkdirSync(runtimeDir, { recursive: true });
+
+    // Copy daemon script
+    fs.copyFileSync(sourceScript, copiedScript);
+
+    // Locate node-pty relative to the source script so this works in both dev
+    // (agent/features/terminal/) and bundled (dist/) layouts.
+    const ptyDir = findNodePtyDir(path.dirname(sourceScript));
+    if (!ptyDir) return null;
+    copyDirSync(ptyDir, copiedPtyDir);
+
+    return { script: copiedScript, cwd: runtimeDir };
+  } catch {
+    return null;
+  }
+}
+
 // Client state
 let client = null;
 let connected = false;
@@ -192,27 +279,38 @@ function isDaemonRunning() {
 }
 
 /**
- * Get daemon script path - run from original location (not copy)
- * because node-pty is a native module that needs node_modules
+ * Get daemon script path.
+ *
+ * Strategy: copy the daemon + its node-pty dependency to ~/.9remote/daemon/
+ * so node.exe only ever locks files under the user's home directory. This
+ * lets `npm i -g 9remote@latest` rename node_modules\9remote on Windows even
+ * while the daemon is still running.
+ *
+ * Falls back to the original location if the copy fails (e.g. readonly home).
  */
 function getDaemonScript() {
   // Ensure socket directory exists
   if (!fs.existsSync(SOCKET_DIR)) {
     fs.mkdirSync(SOCKET_DIR, { recursive: true });
   }
-  
-  // Check source first (dev mode)
-  if (fs.existsSync(DAEMON_SCRIPT_SOURCE)) {
-    return { script: DAEMON_SCRIPT_SOURCE, cwd: __dirname };
-  }
-  
-  // Check dist (package mode)
-  if (fs.existsSync(DAEMON_SCRIPT_DIST)) {
-    return { script: DAEMON_SCRIPT_DIST, cwd: __dirname };
+
+  // Pick source: dev (source) preferred over dist (bundled).
+  const sourceScript = fs.existsSync(DAEMON_SCRIPT_SOURCE)
+    ? DAEMON_SCRIPT_SOURCE
+    : (fs.existsSync(DAEMON_SCRIPT_DIST) ? DAEMON_SCRIPT_DIST : null);
+
+  if (!sourceScript) {
+    console.error("[DaemonClient] ❌ Daemon script not found");
+    return null;
   }
 
-  console.error("[DaemonClient] ❌ Daemon script not found");
-  return null;
+  // Try runtime copy first — this is what unblocks `npm i -g 9remote@latest`.
+  const copy = prepareDaemonCopy(sourceScript);
+  if (copy) return copy;
+
+  // Fallback: run from original location (old behaviour). Update will still
+  // EBUSY on Windows in this case, but the daemon at least works.
+  return { script: sourceScript, cwd: __dirname };
 }
 
 /**
