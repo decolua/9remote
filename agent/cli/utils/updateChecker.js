@@ -259,10 +259,10 @@ echo 📥 Downloading update...
 echo ⏳ Stopping 9remote processes...
 
 REM Kill cloudflared first so it stops reconnecting, then kill the agent
-REM tree (/T also terminates its server child + tray helper), then the
-REM detached ptyDaemon which lives outside the agent tree. PID-based so
+REM tree (/T also terminates its server child + tray helper). PID-based so
 REM we never touch unrelated node.exe / cloudflared.exe on this machine.
-for %%N in (cloudflared agent ptyDaemon) do (
+REM ptyDaemon is intentionally NOT killed — keep terminal sessions alive.
+for %%N in (cloudflared agent) do (
   if exist "${pidsDir}\\%%N.pid" (
     for /f %%P in ('type "${pidsDir}\\%%N.pid"') do taskkill /F /T /PID %%P >nul 2>&1
     del /f /q "${pidsDir}\\%%N.pid" >nul 2>&1
@@ -300,9 +300,9 @@ echo "⏳ Stopping 9remote processes..."
 
 # Kill cloudflared first, then the agent (children die with the agent on
 # POSIX once the parent process exits and systemd/init reaps them, or here
-# because we SIGKILL them via kill -9), then the detached ptyDaemon which
-# lives outside the agent tree. PID-based so unrelated apps are safe.
-for name in cloudflared agent ptyDaemon; do
+# because we SIGKILL them via kill -9). PID-based so unrelated apps are safe.
+# ptyDaemon is intentionally NOT killed — keep terminal sessions alive.
+for name in cloudflared agent; do
   f="${pidsDir}/\${name}.pid"
   if [ -f "$f" ]; then
     pid=$(cat "$f" 2>/dev/null)

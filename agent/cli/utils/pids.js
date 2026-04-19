@@ -94,8 +94,10 @@ export function killByName(name) {
   return true;
 }
 
-/** Names of every tracked PID. Shared with update shell scripts. */
-export const TRACKED_NAMES = ["cloudflared", "agent", "ptyDaemon"];
+/** Names of every tracked PID. Shared with update shell scripts.
+ *  NOTE: ptyDaemon is intentionally excluded — we never kill it to keep
+ *  terminal sessions alive across agent restarts / updates. */
+export const TRACKED_NAMES = ["cloudflared", "agent"];
 
 /** Kill every tracked 9remote process. Safe to call repeatedly. */
 export function killAll() {

@@ -1226,7 +1226,17 @@ async function startUiMode() {
 // Start app
 async function start() {
   const command = process.argv[2];
-  
+
+  // Kill any existing 9remote instance (agent + cloudflared) before starting
+  // a new one. ptyDaemon is preserved to keep terminal sessions alive.
+  // Skip when re-entering via --tray / --auto (child spawned by launchBackground),
+  // otherwise the detached child would read its own PID from agent.pid and
+  // kill itself right after spawn.
+  const isChildRespawn = process.argv.includes("--tray") || process.argv.includes("--auto");
+  if (!isChildRespawn) {
+    stopRunningInstances();
+  }
+
   if (command === "ui") {
     await startUiMode();
   } else if (command === "start" || process.argv.includes("--auto")) {

@@ -104,7 +104,7 @@ export const REMOTE_CONFIG = {
     focusEveryFrames: 60,
 
     // Pipeline metrics — capture/encode/total/fps/tiles/compression
-    metrics: true,
+    metrics: false,
     metricsEveryFrames: 30
   }
 };
