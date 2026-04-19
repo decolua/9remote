@@ -59,7 +59,27 @@ export const REMOTE_CONFIG = {
   gestureLockDelay: 80,          // ms — wait before locking gesture intent
   gestureDistanceThreshold: 15,  // px — Δdistance to consider zoom
   gestureCentroidThreshold: 10,  // px — Δcentroid to consider scroll
-  gestureDominanceRatio: 2       // ratio |Δdistance|/|Δcentroid| → prefer zoom
+  gestureDominanceRatio: 2,      // ratio |Δdistance|/|Δcentroid| → prefer zoom
+
+  // ── PC mode (physical mouse + keyboard) ────────────────────────────────────
+  // Wheel event tuning. deltaMode: 0=pixel, 1=line, 2=page.
+  wheelScrollMultiplier: 1,
+  wheelLineHeight: 40,
+  wheelPageHeight: 400,
+  wheelZoomStep: 0.1,            // Ctrl+wheel: ±step per notch
+  // Native button index → robotjs button name.
+  mouseButtonMap: { 0: "left", 1: "middle", 2: "right" },
+
+  // UI visibility when inputMode === "mouse". Keys map to Btn toggles in RemoteControls.
+  pcModeControls: {
+    rectangleSelect: false,
+    pointerModeToggle: false,
+    handMode: false,
+    keyboardToggle: false,
+    textPanel: true,   // Aa — for paste / IME fallback
+    modifierRow: true, // Row 2: Esc Tab Ctrl Alt Shift ⌘ ⌫ ↵ Undo
+    help: true
+  }
 };
 
 export const MODIFIER_MAP = {
@@ -69,11 +89,47 @@ export const MODIFIER_MAP = {
   shift: "shift"
 };
 
+// SPECIAL_KEYS: map from raw `event.key` (case-sensitive) → robotjs key name.
+// Single-character keys (letters/digits/punctuation) are NOT listed — they pass through
+// as-is to preserve Shift-modified characters (e.g. "!", "A", "?").
 export const SPECIAL_KEYS = {
+  // Core (legacy lowercase aliases kept for manual emit sites)
   enter: "enter",
   return: "enter",
   space: " ",
   backspace: "backspace",
   tab: "tab",
-  escape: "escape"
+  escape: "escape",
+
+  // Physical keyboard `event.key` values
+  Enter: "enter",
+  " ": "space",
+  Backspace: "backspace",
+  Tab: "tab",
+  Escape: "escape",
+
+  // Arrows
+  ArrowUp: "up",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+
+  // Navigation
+  Home: "home",
+  End: "end",
+  PageUp: "pageup",
+  PageDown: "pagedown",
+  Delete: "delete",
+  Insert: "insert",
+
+  // Function keys
+  F1: "f1", F2: "f2", F3: "f3", F4: "f4", F5: "f5", F6: "f6",
+  F7: "f7", F8: "f8", F9: "f9", F10: "f10", F11: "f11", F12: "f12",
+
+  // Locks / misc
+  CapsLock: "capslock",
+  NumLock: "numlock",
+  ScrollLock: "scrolllock",
+  PrintScreen: "printscreen",
+  ContextMenu: "menu"
 };

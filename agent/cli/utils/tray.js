@@ -140,20 +140,44 @@ export function showTrayNotification({ title = "9Remote", message }) {
   if (!message) return;
 
   if (platform === "win32") {
-    // PowerShell one-liner using System.Windows.Forms.NotifyIcon balloon tip.
-    // Works on every modern Windows without extra modules.
-    // Escape single quotes for PowerShell single-quoted strings by doubling them.
-    const esc = (s) => String(s).replace(/'/g, "''");
+    // Prefer Windows 10/11 Toast Notification (WinRT) so the popup actually
+    // appears on modern Windows (ShowBalloonTip is effectively deprecated and
+    // only lands silently in Action Center on Win10+). Falls back to the
+    // classic NotifyIcon balloon tip if WinRT is unavailable (older Windows,
+    // Server Core, constrained PowerShell).
+    const esc = (s) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/'/g, "&apos;")
+        .replace(/"/g, "&quot;");
+    const escPs = (s) => String(s).replace(/'/g, "''");
+    const appId = "9Remote";
+    const toastXml =
+      `<toast><visual><binding template="ToastText02">` +
+      `<text id="1">${esc(title)}</text>` +
+      `<text id="2">${esc(message)}</text>` +
+      `</binding></visual></toast>`;
     const ps = [
+      `try {`,
+      `[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null;`,
+      `[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType=WindowsRuntime] > $null;`,
+      `$xml = New-Object Windows.Data.Xml.Dom.XmlDocument;`,
+      `$xml.LoadXml('${escPs(toastXml)}');`,
+      `$toast = [Windows.UI.Notifications.ToastNotification]::new($xml);`,
+      `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('${escPs(appId)}').Show($toast);`,
+      `} catch {`,
       `Add-Type -AssemblyName System.Windows.Forms;`,
       `$n = New-Object System.Windows.Forms.NotifyIcon;`,
       `$n.Icon = [System.Drawing.SystemIcons]::Information;`,
-      `$n.BalloonTipTitle = '${esc(title)}';`,
-      `$n.BalloonTipText = '${esc(message)}';`,
+      `$n.BalloonTipTitle = '${escPs(title)}';`,
+      `$n.BalloonTipText = '${escPs(message)}';`,
       `$n.Visible = $true;`,
       `$n.ShowBalloonTip(5000);`,
       `Start-Sleep -Seconds 6;`,
       `$n.Dispose();`,
+      `}`,
     ].join(" ");
     try {
       const child = spawn(

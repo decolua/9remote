@@ -95,22 +95,43 @@ export function useInput(socketEmitFunctions) {
     }
   }, [isMobile]);
 
+  // Canvas keydown handler — used by physical keyboard when canvas has focus (PC mode).
+  // Preserves case (for Shift-modified chars like "!", "A"), maps special keys via
+  // SPECIAL_KEYS, merges UI sticky modifiers with live event modifiers, and prevents
+  // the browser from swallowing keys (Tab, F-keys, Backspace, Space, etc.).
   const handleCanvasKeyPress = useCallback((event, streaming) => {
     if (!streaming || !socketEmitFunctions?.emitKeyPress) return;
 
-    if (event.ctrlKey || event.metaKey || event.altKey) {
-      event.preventDefault();
+    const raw = event.key;
+    // Skip pure-modifier keys — they only matter as modifiers on the next key.
+    if (raw === "Shift" || raw === "Control" || raw === "Meta" || raw === "Alt") return;
+
+    // Always preventDefault so the browser doesn't eat Tab/F5/Space/Backspace/arrows.
+    // Leave F12 for DevTools access.
+    if (raw !== "F12") event.preventDefault();
+
+    // Merge live event modifiers with sticky UI modifiers (from on-screen Ctrl/Alt/... buttons).
+    const modifiers = [];
+    if (event.ctrlKey) modifiers.push("control");
+    if (event.metaKey) modifiers.push("command");
+    if (event.altKey) modifiers.push("alt");
+    if (event.shiftKey) modifiers.push("shift");
+    const stickyActive = Object.keys(modifierKeys).filter(k => modifierKeys[k]);
+    for (const k of stickyActive) {
+      const m = MODIFIER_MAP[k];
+      if (m && !modifiers.includes(m)) modifiers.push(m);
     }
 
-    const key = event.key.toLowerCase();
-    const modifier = [];
-    if (event.ctrlKey) modifier.push("control");
-    if (event.metaKey) modifier.push("command");
-    if (event.altKey) modifier.push("alt");
-    if (event.shiftKey) modifier.push("shift");
+    // Map special keys; single-char keys pass through as-is to preserve case.
+    const key = SPECIAL_KEYS[raw] ?? (raw.length === 1 ? raw : raw.toLowerCase());
 
-    socketEmitFunctions.emitKeyPress(key, modifier);
-  }, [socketEmitFunctions]);
+    socketEmitFunctions.emitKeyPress(key, modifiers);
+
+    // Clear sticky modifiers after emit (matches emitKeyWithActiveModifiers semantics).
+    if (stickyActive.length > 0) {
+      setModifierKeys({ ctrl: false, cmd: false, alt: false, shift: false });
+    }
+  }, [modifierKeys, socketEmitFunctions]);
 
   // Scroll functions
   const startScroll = useCallback((direction, streaming, horizontal = false) => {

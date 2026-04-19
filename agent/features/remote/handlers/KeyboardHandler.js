@@ -23,32 +23,18 @@ export class KeyboardHandler {
         const clientData = this.resourceManager.getClient(socket.id);
 
         let key = data.key;
+        const modifier = data.modifier || [];
         if (key.length === 1) {
-          robot.keyTap(key, data.modifier || []);
-          for (const modifier of (data.modifier || [])) {
-            robot.keyToggle(modifier, "up");
+          robot.keyTap(key, modifier);
+          for (const m of modifier) {
+            robot.keyToggle(m, "up");
           }
         } else {
-          switch (key.toLowerCase()) {
-            case "enter":
-            case "return":
-              robot.keyTap("enter");
-              break;
-            case "space":
-              robot.keyTap(" ");
-              break;
-            case "backspace":
-              robot.keyTap("backspace");
-              break;
-            case "tab":
-              robot.keyTap("tab");
-              break;
-            case "escape":
-              robot.keyTap("escape");
-              break;
-            default:
-              robot.keyTap(key, data.modifier || []);
-          }
+          // Normalize common aliases → robotjs key names. All branches MUST pass
+          // `modifier` so combos like Shift+Tab, Ctrl+Enter, Alt+F4 work.
+          const alias = { return: "enter" };
+          const normalized = alias[key.toLowerCase()] ?? key.toLowerCase();
+          robot.keyTap(normalized, modifier);
         }
 
         // Reset idle counter to speed up streaming after keypress

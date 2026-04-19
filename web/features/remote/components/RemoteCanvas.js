@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 // Remote Desktop Canvas component - handles screen rendering
@@ -17,8 +18,13 @@ export default function RemoteCanvas({
   handMode,
   handHolding,
   virtualCursor,
-  onMouseDown,
-  onMouseMove,
+  inputMode,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onWheel,
+  onContextMenu,
+  onDoubleClick,
   onTouchStart,
   onTouchMove,
   onTouchEnd,
@@ -28,14 +34,71 @@ export default function RemoteCanvas({
   // CSS transform: scale(fitScale * canvasZoom) to fit into container then apply user zoom.
   // translate is applied before scale (via separate transform step) to pan in screen space.
   const totalScale = fitScale * canvasZoom;
-  // Cursor hint: crosshair for selection; grab when hand mode or trackpad; default otherwise.
+  const isMouseInput = inputMode === "mouse";
+  // Track physical-mouse drag state so the local cursor reflects "grabbing" while
+  // a button is held down. CSS :active won't fire on <canvas> during drag.
+  const [isDraggingMouse, setIsDraggingMouse] = useState(false);
+  // Cursor hint:
+  // - selection → crosshair
+  // - hand mode → grab/grabbing
+  // - PC mode + holding button → grabbing
+  // - trackpad touch → grab
+  // - otherwise → default (show local cursor so user can aim, matching RDP/VNC)
   const cursorClass = selectionMode
     ? "cursor-crosshair"
     : handMode
       ? (handHolding ? "cursor-grabbing" : "cursor-grab")
-      : pointerMode === "trackpad"
-        ? "cursor-grab active:cursor-grabbing"
-        : "cursor-default";
+      : isMouseInput && isDraggingMouse
+        ? "cursor-grabbing"
+        : pointerMode === "trackpad"
+          ? "cursor-grab active:cursor-grabbing"
+          : "cursor-default";
+
+  // Wheel event: attach via useEffect with { passive: false } so we can call
+  // preventDefault() (React's onWheel is always passive and cannot preventDefault).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !onWheel) return;
+    const handler = (e) => onWheel(e);
+    canvas.addEventListener("wheel", handler, { passive: false });
+    return () => canvas.removeEventListener("wheel", handler);
+  }, [canvasRef, onWheel]);
+
+  // Auto-focus canvas on PC mode so physical keyboard keys are received immediately
+  // without the user having to click the canvas first.
+  useEffect(() => {
+    if (!isMouseInput || !streaming) return;
+    canvasRef.current?.focus();
+  }, [canvasRef, isMouseInput, streaming]);
+
+  // Re-focus canvas on every pointerdown so clicks never "steal" focus away.
+  const handlePointerDown = (e) => {
+    if (isMouseInput) {
+      canvasRef.current?.focus();
+      if (e.pointerType === "mouse") setIsDraggingMouse(true);
+    }
+    onPointerDown?.(e);
+  };
+
+  const handlePointerUp = (e) => {
+    if (isMouseInput && e.pointerType === "mouse") setIsDraggingMouse(false);
+    onPointerUp?.(e);
+  };
+
+  // Clear drag state if cursor leaves canvas or window (global pointerup listener
+  // in useCanvas already handles the emit; we just sync the cursor style).
+  useEffect(() => {
+    if (!isDraggingMouse) return;
+    const clear = () => setIsDraggingMouse(false);
+    window.addEventListener("pointerup", clear);
+    window.addEventListener("pointercancel", clear);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("pointerup", clear);
+      window.removeEventListener("pointercancel", clear);
+      window.removeEventListener("blur", clear);
+    };
+  }, [isDraggingMouse]);
 
   return (
     <div
@@ -48,7 +111,7 @@ export default function RemoteCanvas({
     >
       <canvas
         ref={canvasRef}
-        className={`block ${cursorClass} bg-black`}
+        className={`block ${cursorClass} bg-black outline-none`}
         style={{
           touchAction: "none",
           transformOrigin: "top left",
@@ -60,11 +123,13 @@ export default function RemoteCanvas({
           imageRendering: "auto",
           willChange: "transform"
         }}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
+        onPointerDown={handlePointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={handlePointerUp}
+        onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
         tabIndex={0}
         onKeyDown={onKeyDown}
-        onContextMenu={(e) => e.preventDefault()}
       />
 
       {/* Selection Rectangle */}

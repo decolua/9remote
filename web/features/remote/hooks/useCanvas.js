@@ -56,6 +56,17 @@ export function useCanvas(socketEmitFunctions) {
   const handHoldingRef = useRef(false);
   const [handHolding, setHandHolding] = useState(false);
 
+  // PC mode: track pressed mouse button to emit drag (move while held) and catch
+  // pointerup even when the cursor leaves canvas.
+  const mouseDownButtonRef = useRef(null);
+  // Wheel delta accumulator (horizontal only; vertical reuses emitScrollFromDelta).
+  const wheelAccumRef = useRef({ x: 0, y: 0 });
+  // Wheel burst state: emit boostStream + mouseMove only ONCE per scroll burst
+  // (mirrors touch `isEdgeScrolling` gating — avoids spamming mouseMove which is
+  // throttled 8ms server-side and would otherwise starve scroll events).
+  const wheelActiveRef = useRef(false);
+  const wheelEndTimerRef = useRef(null);
+
   // Get percentage-based coordinates
   // Canvas is rendered at server resolution, scaled by fitScale * canvasZoom via CSS transform.
   // We reverse the full CSS transform to map screen coords → canvas logical coords.
@@ -271,6 +282,164 @@ export function useCanvas(socketEmitFunctions) {
     socketEmitFunctions?.emitMouseMove?.(percentX, percentY);
   }, [socketEmitFunctions]);
 
+  // ── PC mode: physical mouse handling ──────────────────────────────────────
+  // Delegates to existing emitters (emitMousePress/Release/Click/Move, emitScroll)
+  // and helpers (getCanvasCoordinates, showClickIndicator, handleSelection).
+  // Absolute pointing: canvas coords ARE the remote screen coords — no virtual cursor.
+  const handleMouseInteraction = useCallback((event, type, options) => {
+    const { streaming, selectionMode, handleSelection } = options;
+    if (!streaming || !socketEmitFunctions) return;
+
+    const button = REMOTE_CONFIG.mouseButtonMap[event.button] || "left";
+
+    // ── Wheel: scroll at cursor position, Ctrl+wheel to zoom canvas ─────────
+    if (type === "wheel") {
+      // scroll-at-cursor: move remote cursor to the wheel position FIRST so the
+      // OS applies wheel events to the correct window/widget under the cursor.
+      const { percentX, percentY } = getCanvasCoordinates(event.clientX, event.clientY);
+
+      // Normalize delta across deltaMode (0=pixel, 1=line, 2=page).
+      const modeMult = event.deltaMode === 1
+        ? REMOTE_CONFIG.wheelLineHeight
+        : event.deltaMode === 2 ? REMOTE_CONFIG.wheelPageHeight : 1;
+      const dy = event.deltaY * modeMult;
+      const dx = event.deltaX * modeMult;
+
+      // Ctrl+wheel → zoom canvas locally (like browsers/Figma).
+      if (event.ctrlKey || event.metaKey) {
+        const container = canvasContainerRef.current;
+        const canvas = canvasRef.current;
+        if (!container || !canvas) return;
+        const containerRect = container.getBoundingClientRect();
+        const focalX = event.clientX - containerRect.left;
+        const focalY = event.clientY - containerRect.top;
+        setCanvasZoom(prevZoom => {
+          const dir = dy > 0 ? -1 : 1;
+          const newZoom = Math.max(1, Math.min(4, prevZoom + dir * REMOTE_CONFIG.wheelZoomStep));
+          if (newZoom === prevZoom) return prevZoom;
+          const zoomRatio = newZoom / prevZoom;
+          const canvasDisplayW = baseCanvasSize.width * newZoom;
+          const canvasDisplayH = baseCanvasSize.height * newZoom;
+          const maxPanX = Math.min(0, container.clientWidth - canvasDisplayW);
+          const maxPanY = Math.min(0, container.clientHeight - canvasDisplayH);
+          setCanvasPan(prev => ({
+            x: Math.max(maxPanX, Math.min(0, focalX - (focalX - prev.x) * zoomRatio)),
+            y: Math.max(maxPanY, Math.min(0, focalY - (focalY - prev.y) * zoomRatio))
+          }));
+          return newZoom;
+        });
+        return;
+      }
+
+      // Normal scroll — mirror touch scroll pipeline exactly (DRY + same perf):
+      //   • 1st frame of burst: boostStream + mouseMove ONCE (position wheel target)
+      //   • subsequent frames: only emitScrollFromDelta — no mouseMove spam
+      //   • end of burst detected by 150ms gap → reset so next scroll re-positions
+      if (!wheelActiveRef.current) {
+        socketEmitFunctions.emitBoostStream?.();
+        socketEmitFunctions.emitMouseMove?.(percentX, percentY);
+        wheelActiveRef.current = true;
+      }
+      if (wheelEndTimerRef.current) clearTimeout(wheelEndTimerRef.current);
+      wheelEndTimerRef.current = setTimeout(() => {
+        wheelActiveRef.current = false;
+        wheelAccumRef.current.x = 0;
+      }, 150);
+
+      const mult = REMOTE_CONFIG.wheelScrollMultiplier;
+      // Vertical: native wheel `deltaY > 0 = scroll down`; emitScrollFromDelta
+      // treats positive as "up" (matches touch finger-drag-up = page up). Flip sign.
+      if (dy) emitScrollFromDelta(-dy * mult);
+      if (dx) {
+        const { edgeScrollThreshold, edgeScrollMultiplier } = REMOTE_CONFIG;
+        wheelAccumRef.current.x += dx * mult;
+        if (Math.abs(wheelAccumRef.current.x) >= edgeScrollThreshold) {
+          const amount = Math.max(1, Math.round(Math.abs(wheelAccumRef.current.x) * edgeScrollMultiplier));
+          socketEmitFunctions.emitScroll?.(wheelAccumRef.current.x > 0 ? "right" : "left", amount, true);
+          wheelAccumRef.current.x = 0;
+        }
+      }
+      return;
+    }
+
+    // ── Context menu: native right-click ────────────────────────────────────
+    if (type === "contextmenu") {
+      const { percentX, percentY } = getCanvasCoordinates(event.clientX, event.clientY);
+      showClickIndicator(event.clientX, event.clientY);
+      socketEmitFunctions.emitMouseClick?.(percentX, percentY, "right");
+      return;
+    }
+
+    // ── Double-click: DO NOT emit here. press+release (pointerdown/up) already
+    // produce two native mouse events at the OS level — the remote OS detects
+    // double-click by timing. Emitting dblclick would add a third click.
+    if (type === "dblclick") return;
+
+    // ── Selection mode: reuse existing handleSelection logic ────────────────
+    if (selectionMode) {
+      if (type === "pointerdown") {
+        handleSelection?.(event.clientX, event.clientY, "start");
+      } else if (type === "pointermove" && mouseDownButtonRef.current != null) {
+        handleSelection?.(event.clientX, event.clientY, "move");
+      } else if (type === "pointerup") {
+        handleSelection?.(event.clientX, event.clientY, "end");
+        mouseDownButtonRef.current = null;
+      }
+      if (type === "pointerdown") mouseDownButtonRef.current = button;
+      return;
+    }
+
+    // ── Normal drag: press → move (while held) → release ────────────────────
+    const { percentX, percentY } = getCanvasCoordinates(event.clientX, event.clientY);
+
+    if (type === "pointerdown") {
+      mouseDownButtonRef.current = button;
+      showClickIndicator(event.clientX, event.clientY);
+      // Use press (not click) so dragging works naturally; a release without move
+      // between press and release is a normal click on any OS.
+      socketEmitFunctions.emitMousePress?.(percentX, percentY, button);
+      return;
+    }
+
+    if (type === "pointermove") {
+      // Only forward movement while a button is held (drag); plain hover is skipped
+      // to avoid flooding, matching desktop OS where hover-only movement is rare.
+      if (mouseDownButtonRef.current != null) {
+        socketEmitFunctions.emitMouseMove?.(percentX, percentY);
+      }
+      return;
+    }
+
+    if (type === "pointerup") {
+      const btn = mouseDownButtonRef.current || button;
+      mouseDownButtonRef.current = null;
+      socketEmitFunctions.emitMouseRelease?.(percentX, percentY, btn);
+      return;
+    }
+  }, [socketEmitFunctions, getCanvasCoordinates, showClickIndicator, baseCanvasSize, emitScrollFromDelta]);
+
+  // Global pointerup listener — catches release outside the canvas so the remote
+  // mouse doesn't get "stuck" in pressed state when the user drags out of bounds.
+  useEffect(() => {
+    const handleGlobalPointerUp = (e) => {
+      if (mouseDownButtonRef.current == null) return;
+      if (e.pointerType && e.pointerType !== "mouse") return;
+      const canvas = canvasRef.current;
+      const container = canvasContainerRef.current;
+      if (!canvas || !container) return;
+      const { percentX, percentY } = getCanvasCoordinates(e.clientX, e.clientY);
+      const btn = mouseDownButtonRef.current;
+      mouseDownButtonRef.current = null;
+      socketEmitFunctions?.emitMouseRelease?.(percentX, percentY, btn);
+    };
+    window.addEventListener("pointerup", handleGlobalPointerUp);
+    window.addEventListener("pointercancel", handleGlobalPointerUp);
+    return () => {
+      window.removeEventListener("pointerup", handleGlobalPointerUp);
+      window.removeEventListener("pointercancel", handleGlobalPointerUp);
+    };
+  }, [getCanvasCoordinates, socketEmitFunctions]);
+
   // Handle canvas interaction
   const handleCanvasInteraction = useCallback((event, type, options) => {
     const {
@@ -281,6 +450,19 @@ export function useCanvas(socketEmitFunctions) {
     } = options;
 
     if (!streaming || !socketEmitFunctions) return;
+
+    // ── PC mode branch: physical mouse / wheel / contextmenu / dblclick ─────
+    // Delegated to handleMouseInteraction. Touch flow below is untouched.
+    const isMouseEvent = event.nativeEvent?.pointerType === "mouse"
+      || event.type === "wheel"
+      || event.type === "contextmenu"
+      || event.type === "dblclick";
+    if (isMouseEvent) {
+      // preventDefault selectively: wheel+contextmenu must not bubble to browser.
+      if (event.type === "wheel" || event.type === "contextmenu") event.preventDefault();
+      return handleMouseInteraction(event, type, options);
+    }
+
     event.preventDefault();
 
     // Latch multi-touch state — once 2+ fingers touched, stays latched until all fingers up.
@@ -796,7 +978,7 @@ export function useCanvas(socketEmitFunctions) {
     baseCanvasSize, recentZoomGesture, fitScale, virtualCursor, getCanvasCoordinates, showClickIndicator,
     getTouchDistance, getTouchCenter, socketEmitFunctions, cancelLongPress,
     startLongPress, checkDoubleClick, stopMomentum, startMomentumScroll, emitVirtualCursor,
-    emitScrollFromDelta
+    emitScrollFromDelta, handleMouseInteraction
   ]);
 
   // Handle canvas dimensions from server

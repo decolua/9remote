@@ -7,6 +7,7 @@ import { useInput } from "@/features/remote/hooks/useInput";
 import { useTiles } from "@/features/remote/hooks/useTiles";
 import { useBenchmark } from "@/features/remote/hooks/useBenchmark";
 import { usePersistedState } from "@/shared/hooks/usePersistedState";
+import { useInputMode } from "@/shared/hooks/useInputMode";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import RemoteCanvas from "@/features/remote/components/RemoteCanvas";
 import RemoteControls from "@/features/remote/components/RemoteControls";
@@ -30,6 +31,14 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
   const [keyboardOn, setKeyboardOn] = usePersistedState(STORAGE_KEYS.keyboardOn, false);
   const [pointerMode, setPointerMode] = usePersistedState(STORAGE_KEYS.pointerMode, REMOTE_CONFIG.pointerMode);
   const [handMode, setHandMode] = usePersistedState(STORAGE_KEYS.handMode, false);
+
+  // Detect whether the client has a physical mouse+keyboard (PC) or is touch-driven.
+  // Drives UI simplification and canvas event routing in a DRY way.
+  const inputMode = useInputMode();
+  // PC mode is always direct absolute pointing — force it without touching touch prefs.
+  useEffect(() => {
+    if (inputMode === "mouse" && pointerMode !== "direct") setPointerMode("direct");
+  }, [inputMode, pointerMode, setPointerMode]);
 
   const { trackTilesReceived } = useBenchmark();
 
@@ -334,8 +343,13 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
           handMode={handMode}
           handHolding={handHolding}
           virtualCursor={virtualCursor}
-          onMouseDown={createInteractionHandler("click")}
-          onMouseMove={createInteractionHandler("move")}
+          inputMode={inputMode}
+          onPointerDown={createInteractionHandler("pointerdown")}
+          onPointerMove={createInteractionHandler("pointermove")}
+          onPointerUp={createInteractionHandler("pointerup")}
+          onWheel={createInteractionHandler("wheel")}
+          onContextMenu={createInteractionHandler("contextmenu")}
+          onDoubleClick={createInteractionHandler("dblclick")}
           onTouchStart={createInteractionHandler("touch")}
           onTouchMove={createInteractionHandler("touchmove")}
           onTouchEnd={createInteractionHandler("touchend")}
@@ -349,6 +363,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
         selectionMode={selectionMode}
         pointerMode={pointerMode}
         handMode={handMode}
+        inputMode={inputMode}
         onToggleHandMode={toggleHandMode}
         onTogglePointerMode={togglePointerMode}
         modifierKeys={modifierKeys}

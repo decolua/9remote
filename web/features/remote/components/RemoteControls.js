@@ -4,6 +4,7 @@ import { useRef } from "react";
 import Button from "@/shared/components/ui/Button";
 import { ChevronLeft, RefreshCw, Keyboard, HelpCircle, Undo2, MousePointer2, Hand } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 // Wrapper to add vibration to any callback
 const v = (fn, ...args) => { vibrate(); fn?.(...args); };
@@ -35,6 +36,7 @@ export default function RemoteControls({
   selectionMode,
   pointerMode,
   handMode,
+  inputMode,
   onToggleHandMode,
   onTogglePointerMode,
   modifierKeys,
@@ -68,6 +70,11 @@ export default function RemoteControls({
   // Separate ref for the visible batch-input panel — keeps the hidden native-keyboard input
   // always mounted so toggling "Aa" never unmounts the focused element (which would dismiss the keyboard).
   const panelInputRef = useRef(null);
+
+  // PC mode visibility filter. `show(k)` returns true on touch (keep everything) OR
+  // when the PC-mode config explicitly enables that control. DRY — no JSX duplication.
+  const pcCfg = REMOTE_CONFIG.pcModeControls;
+  const show = (k) => inputMode !== "mouse" || pcCfg[k];
 
   return (
     <div className="bg-dark-600 border-t border-dark-400 select-none relative">
@@ -140,18 +147,22 @@ export default function RemoteControls({
         <Btn onClick={() => v(onRefresh)} disabled={!streaming} title="Refresh">
           <RefreshCw size={14} />
         </Btn>
-        <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title="Rectangle selection">
-          □
-        </Btn>
-        <Btn
-          onClick={() => v(onTogglePointerMode)}
-          disabled={!streaming}
-          active={pointerMode === "trackpad"}
-          title={pointerMode === "trackpad" ? "Trackpad mode" : "Direct mode"}
-        >
-          <MousePointer2 size={14} />
-        </Btn>
-        {pointerMode === "trackpad" && (
+        {show("rectangleSelect") && (
+          <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title="Rectangle selection">
+            □
+          </Btn>
+        )}
+        {show("pointerModeToggle") && (
+          <Btn
+            onClick={() => v(onTogglePointerMode)}
+            disabled={!streaming}
+            active={pointerMode === "trackpad"}
+            title={pointerMode === "trackpad" ? "Trackpad mode" : "Direct mode"}
+          >
+            <MousePointer2 size={14} />
+          </Btn>
+        )}
+        {show("handMode") && pointerMode === "trackpad" && (
           <Btn
             onClick={() => v(onToggleHandMode)}
             disabled={!streaming}
@@ -161,32 +172,42 @@ export default function RemoteControls({
             <Hand size={14} />
           </Btn>
         )}
-        <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title="Toggle native keyboard">
-          <Keyboard size={14} />
-        </Btn>
-        <Btn onClick={() => v(onToggleTextPanel)} disabled={!streaming} active={showTextPanel} title="Text batch input">
-          Aa
-        </Btn>
-        <Btn onClick={() => v(onToggleHelp)} title="Help">
-          <HelpCircle size={14} />
-        </Btn>
+        {show("keyboardToggle") && (
+          <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title="Toggle native keyboard">
+            <Keyboard size={14} />
+          </Btn>
+        )}
+        {show("textPanel") && (
+          <Btn onClick={() => v(onToggleTextPanel)} disabled={!streaming} active={showTextPanel} title="Text batch input">
+            Aa
+          </Btn>
+        )}
+        {show("help") && (
+          <Btn onClick={() => v(onToggleHelp)} title="Help">
+            <HelpCircle size={14} />
+          </Btn>
+        )}
       </div>
 
-      {/* Row 2 — keys bar */}
-      <div className={rowClass} style={rowStyle}>
-        <Btn onClick={() => v(onEscKey, streaming)} disabled={!streaming}>Esc</Btn>
-        <Btn onClick={() => v(onUndo)} disabled={!streaming} className="gap-1" title="Ctrl+Z">
-          <Undo2 size={12} /> Undo
-        </Btn>
-        <Btn onClick={() => v(onTabKey, streaming)} disabled={!streaming}>Tab</Btn>
-        {["ctrl", "alt", "shift", "cmd"].map((key) => (
-          <Btn key={key} onClick={() => v(onToggleModifier, key)} disabled={!streaming} active={modifierKeys[key]}>
-            {key === "cmd" ? "⌘" : key.charAt(0).toUpperCase() + key.slice(1)}
+      {/* Row 2 — keys bar (virtual keys / sticky modifiers). On PC mode these
+          act as fallbacks for shortcuts the browser normally eats (Tab, etc.)
+          and as sticky modifier combos. Toggled via pcModeControls.modifierRow. */}
+      {show("modifierRow") && (
+        <div className={rowClass} style={rowStyle}>
+          <Btn onClick={() => v(onEscKey, streaming)} disabled={!streaming}>Esc</Btn>
+          <Btn onClick={() => v(onUndo)} disabled={!streaming} className="gap-1" title="Ctrl+Z">
+            <Undo2 size={12} /> Undo
           </Btn>
-        ))}
-        <Btn onClick={() => v(onBackspace, streaming)} disabled={!streaming}>⌫</Btn>
-        <Btn onClick={(e) => v(onEnterKey, e, streaming)} disabled={!streaming} primary>↵</Btn>
-      </div>
+          <Btn onClick={() => v(onTabKey, streaming)} disabled={!streaming}>Tab</Btn>
+          {["ctrl", "alt", "shift", "cmd"].map((key) => (
+            <Btn key={key} onClick={() => v(onToggleModifier, key)} disabled={!streaming} active={modifierKeys[key]}>
+              {key === "cmd" ? "⌘" : key.charAt(0).toUpperCase() + key.slice(1)}
+            </Btn>
+          ))}
+          <Btn onClick={() => v(onBackspace, streaming)} disabled={!streaming}>⌫</Btn>
+          <Btn onClick={(e) => v(onEnterKey, e, streaming)} disabled={!streaming} primary>↵</Btn>
+        </div>
+      )}
     </div>
   );
 }

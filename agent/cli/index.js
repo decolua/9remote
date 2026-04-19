@@ -3,7 +3,7 @@
 import inquirer from "inquirer";
 import chalk from "chalk";
 import qrcode from "qrcode-terminal";
-import { spawn, execSync } from "child_process";
+import { spawn, execSync, execFile } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -13,7 +13,7 @@ import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd, writeCmd } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate, checkLatestVersion, stopRunningInstances } from "./utils/updateChecker.js";
-import { writePid, clearPid, readPid } from "./utils/pids.js";
+import { writePid, clearPid } from "./utils/pids.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
 import { showBanner, getBannerText, renderProgress, resetProgress, updateProgressDesc, setProgressInfo, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval } from "./utils/tui.js";
 import { checkPermissions } from "./utils/permissions.js";
@@ -247,7 +247,10 @@ function startServerWithRestart(onReady, onServerCrash) {
     shutdown: () => {
       isShuttingDown = true;
       if (currentProcess) {
-        currentProcess.kill();
+        // SIGKILL so Windows TerminateProcess fires immediately — SIGTERM
+        // on Windows is best-effort and leaves server node.exe orphaned
+        // when agent exits right after.
+        try { currentProcess.kill("SIGKILL"); } catch {}
       }
     }
   };
@@ -273,21 +276,93 @@ function shutdownAll({ serverManager, tunnelProcess, exit = true, code = 0 } = {
   try { clearPid("agent"); } catch {}
   try { clearPid("cloudflared"); } catch {}
   if (exit) {
-    // Small delay so tray / HTTP replies flush before the process dies.
-    setTimeout(() => process.exit(code), 200);
+    // Delay so tray / HTTP replies flush AND Windows `taskkill /F` on port
+    // finishes killing orphan server node.exe before we exit. 200ms was
+    // too short on Windows and left 1 node.exe alive.
+    setTimeout(() => process.exit(code), 500);
   }
 }
 
 let exitHandlerRegistered = false;
 
+/**
+ * Register cleanup for every "shutdown path" we can observe.
+ *
+ * Why so many signals:
+ *   - SIGINT           : Ctrl+C in terminal
+ *   - SIGTERM          : `kill <pid>`, service manager stop, Docker stop
+ *   - SIGHUP           : terminal closed on POSIX (parent shell died)
+ *   - SIGBREAK         : Ctrl+Break on Windows (Node's Windows-only signal)
+ *   - Windows X button : Node emits SIGHUP on CTRL_CLOSE_EVENT when stdin is
+ *                        in raw mode OR when a readline interface is open.
+ *                        We force-enable it by creating a readline iface on
+ *                        Windows so closing the console window triggers
+ *                        cleanup instead of orphaning tray + cloudflared.
+ *   - beforeExit       : natural event-loop drain (last-resort cleanup)
+ *   - uncaughtException/unhandledRejection: don't leak processes on crash
+ *
+ * Without this, closing the terminal with the X button on Windows (or
+ * kill -TERM) leaves tray_windows_release.exe + cloudflared.exe alive,
+ * which hold file handles inside node_modules\9remote\dist and cause
+ * `npm i -g 9remote@latest` to fail with EBUSY rename errors.
+ */
 function setupExitHandler(serverManager, tunnelProcess, apiKey) {
   if (exitHandlerRegistered) return;
   exitHandlerRegistered = true;
 
-  process.on("SIGINT", () => {
-    console.log(chalk.yellow("\n\n🛑 Stopping 9Remote..."));
+  let shuttingDown = false;
+  const onSignal = (sig) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // Only log when attached to a TTY — if the console was closed (SIGHUP
+    // on window-close), stdout may already be gone and writes throw.
+    try {
+      if (process.stdout.isTTY) {
+        console.log(chalk.yellow(`\n\n🛑 Stopping 9Remote (${sig})...`));
+      }
+    } catch {}
     shutdownAll({ serverManager, tunnelProcess });
-    console.log(chalk.green("✅ Server stopped"));
+    try {
+      if (process.stdout.isTTY) {
+        console.log(chalk.green("✅ Server stopped"));
+      }
+    } catch {}
+  };
+
+  // POSIX + Windows common signals
+  process.on("SIGINT", () => onSignal("SIGINT"));
+  process.on("SIGTERM", () => onSignal("SIGTERM"));
+  process.on("SIGHUP", () => onSignal("SIGHUP"));
+  // SIGBREAK only exists on Windows; registering it elsewhere is harmless
+  // but Node warns — guard it.
+  if (process.platform === "win32") {
+    process.on("SIGBREAK", () => onSignal("SIGBREAK"));
+
+    // Windows "X button" on the console window fires CTRL_CLOSE_EVENT. Node
+    // only translates this into SIGHUP if it has a readline interface open
+    // (see Node docs: "Signal Events" → Windows). Open a minimal one so the
+    // signal actually fires and our cleanup runs.
+    try {
+      // Lazy import so non-Windows platforms don't pay for it
+      import("readline").then(({ createInterface }) => {
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        rl.on("SIGINT", () => onSignal("SIGINT"));
+        // Detach from event loop — don't keep the process alive just for this
+        if (process.stdin.isTTY) process.stdin.unref?.();
+      }).catch(() => {});
+    } catch {}
+  }
+
+  // Last-resort cleanup on crash — don't leak tray/cloudflared if we throw.
+  process.on("uncaughtException", (err) => {
+    try { console.error(chalk.red("Uncaught exception:"), err?.message || err); } catch {}
+    onSignal("uncaughtException");
+    setTimeout(() => process.exit(1), 300);
+  });
+  process.on("unhandledRejection", (err) => {
+    try { console.error(chalk.red("Unhandled rejection:"), err?.message || err); } catch {}
+    onSignal("unhandledRejection");
+    setTimeout(() => process.exit(1), 300);
   });
 }
 
@@ -858,6 +933,14 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
   }, 1000);
 }
 
+// Win DNS negative cache giữ ENOTFOUND lâu hơn thời điểm Cloudflare publish subdomain.
+// Flush trước mỗi attempt để query đi thẳng upstream, tránh chờ TTL âm hết hạn.
+// Async fire-and-forget + windowsHide → không block, không popup cmd window.
+function flushWinDns() {
+  if (process.platform !== "win32") return;
+  execFile("ipconfig", ["/flushdns"], { windowsHide: true }, () => {});
+}
+
 async function waitForTunnelReady(tunnelUrl, { intervalMs = 2000, timeoutMs = 180000 } = {}) {
   const healthUrl = `${tunnelUrl}/api/health`;
   const start = Date.now();
@@ -880,6 +963,7 @@ async function waitForTunnelReady(tunnelUrl, { intervalMs = 2000, timeoutMs = 18
 
   while (Date.now() - start < timeoutMs) {
     attempt++;
+    flushWinDns();
     const t0 = Date.now();
     try {
       const res = await browserFetch(healthUrl, {
@@ -922,13 +1006,13 @@ async function isServerRunning() {
 async function launchBackground() {
   const uiUrl = `http://localhost:${SERVER_PORT}`;
 
-  // If server already running, just open browser and exit
+  // If an orphan server from a previous run is holding the port, kill it
+  // so our fresh agent spawns a fresh server it actually owns. Skipping
+  // this leaves alreadyRunning=true in startTrayMode → serverManager
+  // becomes a no-op → Shutdown can't kill the orphan node.exe.
   if (await isServerRunning()) {
-    openBrowser(uiUrl);
-    console.log(chalk.green(`\n🌐 9Remote already running at ${uiUrl}`));
-    console.log(chalk.gray("💡 Tray icon already active. Right-click tray to manage.\n"));
-    await new Promise(r => setTimeout(r, 400));
-    process.exit(0);
+    killProcessOnPort(SERVER_PORT);
+    await new Promise(r => setTimeout(r, 500));
   }
 
   // Spawn CLI itself with --tray — tray logic lives in CLI, not server
@@ -954,44 +1038,22 @@ async function launchBackground() {
 
   let bgPid = null;
 
-  if (process.platform === "win32") {
-    // Windows: spawn node.exe via wscript.exe + .vbs wrapper so Windows does NOT
-    // allocate a new console window for the detached child (node.exe is a console
-    // subsystem binary — `detached + windowsHide` is not enough, it still pops up
-    // a black cmd window). wscript is GUI subsystem → truly silent launch.
-    //
-    // The child (startTrayMode) writes its own PID to ~/.9remote/pids/agent.pid,
-    // so we don't need to track wscript's short-lived PID here.
-    const vbsPath = path.join(os.tmpdir(), `9remote-launch-${Date.now()}.vbs`);
-    // Wrap each token in "" quotes for cmd.exe; then escape each literal "
-    // as "" for the enclosing VBS string literal. Windows paths don't contain
-    // real " characters, so the double-escape only matters theoretically.
-    const vbsQuote = (s) => `""${String(s).replace(/"/g, '""""')}""`;
-    const cmdTokens = [vbsQuote(process.execPath), ...bgArgs.map(vbsQuote)].join(" ");
-    const cmdLine = `cmd /c ${cmdTokens} >> ${vbsQuote(logPath)} 2>&1`;
-    // WshShell.Run with windowStyle=0 + bWaitOnReturn=False → fully hidden, non-blocking
-    const vbsContent = [
-      `Set WshShell = CreateObject("WScript.Shell")`,
-      `WshShell.Run "${cmdLine}", 0, False`,
-    ].join("\r\n") + "\r\n";
-
-    try {
-      fs.writeFileSync(vbsPath, vbsContent, "utf8");
-      const launcher = spawn("wscript.exe", [vbsPath], {
-        detached: true,
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      launcher.unref();
-    } catch (err) {
-      console.log(chalk.red(`\n❌ Failed to launch background: ${err.message}`));
-      process.exit(1);
-    }
-
-    // Cleanup the .vbs after a short delay (wscript has already read it)
-    setTimeout(() => { try { fs.unlinkSync(vbsPath); } catch {} }, 5000);
-  } else {
-    // macOS/Linux: plain detached spawn with log fd redirect — no console issue here
+  // Unified detached spawn for all platforms.
+  //
+  // Windows specifics:
+  //   - node.exe is a console-subsystem binary. With plain `detached: true` Windows
+  //     would allocate a new console for the child and flash a black cmd window.
+  //   - `windowsHide: true` adds CREATE_NO_WINDOW, which combined with DETACHED_PROCESS
+  //     (from `detached: true`) + non-inherit stdio makes the launch fully silent —
+  //     no VBS/wscript wrapper needed.
+  //   - stdio MUST be either "ignore" or a file fd (not "inherit") or Windows will
+  //     still surface a console window tied to the parent.
+  //
+  // PID tracking:
+  //   - We write `agent.pid` here in the PARENT before the child even boots, so the
+  //     updater can always find it — even if the child crashes before `startTrayMode`
+  //     gets to call writePid() itself.
+  try {
     const logFd = fs.openSync(logPath, "a");
     const bg = spawn(process.execPath, bgArgs, {
       detached: true,
@@ -1000,14 +1062,20 @@ async function launchBackground() {
       env: { ...process.env },
     });
     bg.unref();
+    // Close our copy of the fd — the child has its own handle now.
+    try { fs.closeSync(logFd); } catch {}
     bgPid = bg.pid;
     // Track background agent PID so the updater can release dist/cli.cjs lock
     // without touching other node.exe processes on the machine.
-    writePid("agent", bg.pid);
+    if (bg.pid) writePid("agent", bg.pid);
+  } catch (err) {
+    console.log(chalk.red(`\n❌ Failed to launch background: ${err.message}`));
+    process.exit(1);
   }
 
-  // Wait briefly and verify server came up; surface error if not
-  const deadline = Date.now() + 8000;
+  // Wait and verify server came up; Windows + first-run cloudflared download can
+  // be slow, so give it up to 15s before giving up.
+  const deadline = Date.now() + 15000;
   let ready = false;
   while (Date.now() < deadline) {
     if (await isServerRunning()) { ready = true; break; }
@@ -1018,12 +1086,6 @@ async function launchBackground() {
     console.log(chalk.red(`\n❌ Background server failed to start.`));
     console.log(chalk.gray(`   Check log: ${logPath}\n`));
     process.exit(1);
-  }
-
-  // On Windows the real PID is written by the child (startTrayMode) itself;
-  // read it back so we can display it to the user.
-  if (process.platform === "win32") {
-    try { bgPid = readPid("agent"); } catch {}
   }
 
   openBrowser(uiUrl);
