@@ -1,6 +1,8 @@
 import { useState, useEffect } from "preact/hooks";
 import MainScreen from "./screens/MainScreen";
 
+const defaultHealthCheck = { running: false, timeoutMs: 0, startedAt: null, logs: [] };
+
 const defaultState = {
   step: 0,
   stepDesc: "",
@@ -11,6 +13,7 @@ const defaultState = {
   qrUrl: "",
   latency: null,
   uptime: null,
+  healthCheck: defaultHealthCheck,
 };
 
 const defaultPermissions = { screenRecording: false, accessibility: false };
@@ -58,6 +61,7 @@ export default function App() {
           qrUrl: data.qrUrl ?? "",
           latency: data.latency ?? null,
           uptime: data.uptime ?? null,
+          healthCheck: data.healthCheck ?? defaultHealthCheck,
         });
         setPermissions({
           screenRecording: data.screenRecording ?? false,
@@ -87,6 +91,7 @@ export default function App() {
             qrUrl: data.qrUrl ?? "",
             latency: data.latency ?? null,
             uptime: data.uptime ?? null,
+            healthCheck: data.healthCheck ?? defaultHealthCheck,
           });
         } else if (data.type === "log") {
           setLogs((prev) => {
@@ -128,6 +133,11 @@ export default function App() {
 
   const handleStart = () => {
     fetch("/api/ui/start", { method: "POST" }).catch(() => {});
+  };
+
+  const handleShutdown = () => {
+    fetch("/api/ui/shutdown", { method: "POST" }).catch(() => {});
+    setMainState(defaultState);
   };
 
   const handleGenerateOneTimeKey = async () => {
@@ -220,6 +230,7 @@ export default function App() {
     <MainScreen
       step={mainState.step}
       stepDesc={mainState.stepDesc}
+      healthCheck={mainState.healthCheck}
       tunnelUrl={mainState.tunnelUrl}
       oneTimeKey={mainState.oneTimeKey}
       oneTimeKeyExpiresAt={mainState.oneTimeKeyExpiresAt}
@@ -233,6 +244,7 @@ export default function App() {
       onDesktopToggle={handleDesktopToggle}
       onStop={handleStop}
       onStart={handleStart}
+      onShutdown={handleShutdown}
       onGenerateOneTimeKey={handleGenerateOneTimeKey}
       onRegenerateKey={handleRegenerateKey}
       logs={logs}

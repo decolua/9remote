@@ -238,6 +238,23 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     return () => clearInterval(id);
   }, [streaming, connected, socketRef, requestScreenWithHashes]);
 
+  // Pause stream when browser tab is hidden (switch tab, minimize, lock screen)
+  // to save agent CPU + bandwidth. Resume + request full refresh on return.
+  useEffect(() => {
+    const socket = socketRef?.current;
+    if (!socket || !connected) return;
+    const onVisibility = () => {
+      if (document.hidden) {
+        socket.emit("stop-streaming");
+      } else {
+        socket.emit("start-streaming");
+        socket.emit("request-screen-with-hashes", { tileHashes: [] });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [connected, socketRef]);
+
   // Focus-based streaming: emit visible canvas rect to server when pan/zoom changes.
   // zoom=1 → emit null (full screen). Debounced to avoid flooding during gesture.
   useEffect(() => {

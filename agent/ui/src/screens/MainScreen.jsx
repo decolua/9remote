@@ -295,15 +295,16 @@ function ClientItem({ client, onRemove, onApprove }) {
 }
 
 export default function MainScreen({
-  step, stepDesc = "", tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
+  step, stepDesc = "", healthCheck, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
-  onRequestPermission, onDesktopToggle, onStop, onStart, onGenerateOneTimeKey, onRegenerateKey, logs = [],
+  onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [],
   theme, onToggleTheme,
   pendingDevice, onDeviceApprove, onDeviceReject,
   approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected,
 }) {
   const [activeTab, setActiveTab] = useState("connect");
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const logEndRef = useRef(null);
   // STEP enum: STOPPED=0, PREPARING=1, CONNECTING=2, TUNNELING=3, VERIFYING=4, READY=5
@@ -361,6 +362,14 @@ export default function MainScreen({
                 Disconnect
               </button>
             )}
+            <button
+              onClick={() => setShowShutdownConfirm(true)}
+              className="glass-btn w-7 h-7 flex items-center justify-center"
+              style={{ color: "var(--text-muted)" }}
+              title="Shutdown 9Remote (stop server, tunnel and quit)"
+            >
+              <span className="material-symbols-outlined text-sm">power_settings_new</span>
+            </button>
           </div>
         </div>
 
@@ -372,7 +381,7 @@ export default function MainScreen({
           <WelcomeScreen onStart={onStart} connecting={false} />
         ) : isConnecting ? (
           <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4 max-w-2xl mx-auto w-full">
-            <StepProgress currentStep={step} activeDesc={stepDesc} />
+            <StepProgress currentStep={step} activeDesc={stepDesc} healthCheck={healthCheck} />
           </div>
         ) : (
           <div className="flex-1 flex flex-col md:flex-row min-h-0">
@@ -484,6 +493,16 @@ export default function MainScreen({
           confirmDanger
           onConfirm={() => { setShowDisconnectConfirm(false); onStop?.(); }}
           onCancel={() => setShowDisconnectConfirm(false)}
+        />
+      )}
+
+      {showShutdownConfirm && (
+        <ConfirmPopup
+          message="Shutdown 9Remote completely? This will stop the server, close the tunnel and quit the app."
+          confirmLabel="Shutdown"
+          confirmDanger
+          onConfirm={() => { setShowShutdownConfirm(false); onShutdown?.(); }}
+          onCancel={() => setShowShutdownConfirm(false)}
         />
       )}
 

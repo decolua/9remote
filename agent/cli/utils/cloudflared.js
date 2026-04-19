@@ -3,6 +3,7 @@ import path from "path";
 import https from "https";
 import os from "os";
 import { execSync, spawn } from "child_process";
+import { writePid, readPid, clearPid } from "./pids.js";
 
 // Network change detection
 let networkMonitorInterval = null;
@@ -14,7 +15,8 @@ const BINARY_NAME = "cloudflared";
 const IS_WINDOWS = os.platform() === "win32";
 const BIN_NAME = IS_WINDOWS ? `${BINARY_NAME}.exe` : BINARY_NAME;
 const BIN_PATH = path.join(BIN_DIR, BIN_NAME);
-const PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
+// Legacy PID file — kept for one-time cleanup of installs from older versions
+const LEGACY_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 
 // Track intentional shutdown to suppress exit logs
 let isIntentionalShutdown = false;
@@ -228,7 +230,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null) {
     { detached: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }
   );
 
-  fs.writeFileSync(PID_FILE, child.pid.toString());
+  writePid("cloudflared", child.pid);
   isIntentionalShutdown = false;
 
   return new Promise((resolve, reject) => {
@@ -386,8 +388,8 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
   });
   
   // Save PID
-  fs.writeFileSync(PID_FILE, child.pid.toString());
-  
+  writePid("cloudflared", child.pid);
+
   // Start network monitor
   startNetworkMonitor();
   
@@ -398,18 +400,26 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
  * Kill cloudflared process
  */
 export function killCloudflared() {
+  // Clean up legacy PID file from older installs (one-time migration)
   try {
-    if (fs.existsSync(PID_FILE)) {
-      isIntentionalShutdown = true;
-      const pid = parseInt(fs.readFileSync(PID_FILE, "utf8"));
-      // console.log(`🔄 Killing cloudflared process PID: ${pid}`);
-      process.kill(pid);
-      fs.unlinkSync(PID_FILE);
-      console.log(`✅ Cloudflared killed`);
+    if (fs.existsSync(LEGACY_PID_FILE)) {
+      const legacyPid = parseInt(fs.readFileSync(LEGACY_PID_FILE, "utf8"));
+      if (Number.isFinite(legacyPid)) {
+        isIntentionalShutdown = true;
+        try { process.kill(legacyPid); } catch {}
+      }
+      fs.unlinkSync(LEGACY_PID_FILE);
     }
-  } catch (error) {
-    // console.log(`⚠️  Error killing cloudflared: ${error.message}`);
-  }
+  } catch {}
+
+  const pid = readPid("cloudflared");
+  if (!pid) return;
+  isIntentionalShutdown = true;
+  try {
+    process.kill(pid);
+    console.log(`✅ Cloudflared killed`);
+  } catch {}
+  clearPid("cloudflared");
 }
 
 /**

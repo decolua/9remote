@@ -6,10 +6,18 @@ const STEPS_META = [
   { icon: "check_circle", label: "Ready", desc: "Connected" },
 ];
 
+const VERIFYING_IDX = 3;
+
 // currentStep: 1=Preparing, 2=Connecting, 3=Tunneling, 4=Verifying, (5=Ready handled by parent)
-export default function StepProgress({ currentStep, activeDesc = "" }) {
+export default function StepProgress({ currentStep, activeDesc = "", healthCheck }) {
   // map step (1-based) to 0-based index
   const activeIdx = currentStep - 1;
+
+  // For Verifying step, show the latest health-check attempt inline as the desc
+  const last = healthCheck?.logs?.length
+    ? healthCheck.logs[healthCheck.logs.length - 1]
+    : null;
+
   return (
     <div className="glass-card p-5 flex flex-col gap-4">
       <span className="text-xs font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Setting up connection</span>
@@ -17,7 +25,19 @@ export default function StepProgress({ currentStep, activeDesc = "" }) {
         {STEPS_META.map((meta, i) => {
           const completed = i < activeIdx;
           const active = i === activeIdx;
-          const pending = i > currentStep;
+          const isVerifying = active && i === VERIFYING_IDX;
+
+          // Desc for the active step. For Verifying: show terminal-style "#N → status"
+          let desc = active && activeDesc ? activeDesc : meta.desc;
+          let descColor = "var(--text-muted)";
+          if (isVerifying && last) {
+            const isHttp = /^\d{3}$/.test(String(last.status));
+            desc = `#${last.attempt} → ${last.status}`;
+            // green on ok/waiting, amber on HTTP non-ok, red on network errors
+            descColor = (last.ok || last.waiting) ? "#22c55e"
+              : isHttp ? "#eab308"
+              : "#ef4444";
+          }
 
           return (
             <div key={i} className="flex items-center gap-3">
@@ -49,8 +69,17 @@ export default function StepProgress({ currentStep, activeDesc = "" }) {
                 <p className="text-sm font-medium" style={{ color: completed ? "var(--text-muted)" : active ? "var(--text-main)" : "var(--text-muted)", opacity: completed || active ? 1 : 0.4 }}>
                   {meta.label}
                 </p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)", opacity: active ? 0.7 : 0.4 }}>
-                  {active && activeDesc ? activeDesc : meta.desc}
+                <p
+                  className="text-xs mt-0.5 truncate"
+                  style={{
+                    color: descColor,
+                    opacity: active ? (isVerifying && last ? 0.95 : 0.7) : 0.4,
+                    fontFamily: isVerifying && last
+                      ? "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+                      : undefined,
+                  }}
+                >
+                  {desc}
                 </p>
               </div>
 

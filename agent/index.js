@@ -22,7 +22,7 @@ import { isNewerVersion } from "./cli/utils/updateChecker.js";
 import {
   loadUiState, loadDesktopState, refreshPermissionsAsync, pushUiEvent, setRemoteAvailable,
   handleSseEvents, handleStateGet, handleStatePost,
-  handleStop, handleStart,
+  handleStop, handleStart, handleShutdown,
   handleConnections, handleDesktopToggle,
   handlePermissionsGet, handlePermissionsRequest,
 } from "./api/ui.js";
@@ -138,6 +138,7 @@ const ROUTES = [
   { path: "/api/ui/state",         method: "POST", handler: handleStatePost },
   { path: "/api/ui/stop",          method: "POST", handler: handleStop },
   { path: "/api/ui/start",         method: "POST", handler: handleStart },
+  { path: "/api/ui/shutdown",      method: "POST", handler: handleShutdown },
 
   // Key management (localhost-only)
   { path: "/api/key/one-time",     method: "POST", handler: handleOneTimeKey },

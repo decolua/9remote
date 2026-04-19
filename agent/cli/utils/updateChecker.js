@@ -5,6 +5,7 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 import os from "os";
 import { browserFetch } from "../../lib/constants.js";
+import { killAll as killAllPids, getPidsDir } from "./pids.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_NAME = "9remote";
@@ -12,23 +13,37 @@ const NPM_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const UPDATE_CHECK_TIMEOUT = 3000;
 const SAFETY_TIMEOUT = 8000;
 const SERVER_PORT = 2208;
-const CLOUDFLARED_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
+// Legacy path from pre-pids.js installs — clean up once so old instances
+// can still be killed during upgrade from older versions.
+const LEGACY_CLOUDFLARED_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 
 /**
  * Kill all 9remote-related child processes to release file locks before npm install.
- * Critical on Windows where running node.exe locks files in node_modules.
+ *
+ * Critical on Windows: node.exe / tray helper / cloudflared.exe lock files inside
+ * node_modules\9remote\dist, so `npm i -g` fails with EBUSY when trying to rename
+ * the old dist folder.
+ *
+ * We kill ONLY by PID (from ~/.9remote/pids/) — never by image name (taskkill /IM)
+ * or by commandline match, because those would also kill unrelated apps on the
+ * machine that happen to use cloudflared.exe, tray_windows_release.exe, or node.exe.
  */
 function cleanupBeforeUpdate() {
-  // Kill cloudflared via PID file
+  // 1. Kill tracked processes (cloudflared + agent tree) via pids.js.
+  //    Agent kill with taskkill /F /T sweeps its server child + tray helper.
+  try { killAllPids(); } catch {}
+
+  // 2. Legacy: older versions stored cloudflared PID at a different path.
   try {
-    if (existsSync(CLOUDFLARED_PID_FILE)) {
-      const pid = parseInt(readFileSync(CLOUDFLARED_PID_FILE, "utf8"));
-      try { process.kill(pid); } catch {}
-      try { unlinkSync(CLOUDFLARED_PID_FILE); } catch {}
+    if (existsSync(LEGACY_CLOUDFLARED_PID_FILE)) {
+      const pid = parseInt(readFileSync(LEGACY_CLOUDFLARED_PID_FILE, "utf8"));
+      if (Number.isFinite(pid)) { try { process.kill(pid); } catch {} }
+      try { unlinkSync(LEGACY_CLOUDFLARED_PID_FILE); } catch {}
     }
   } catch {}
 
-  // Kill process holding SERVER_PORT (child server node.exe)
+  // 3. Safety net for stale server on SERVER_PORT (e.g. crashed without clearing PID).
+  //    Scoped to one specific port, so we only touch 9remote's own server.
   try {
     if (process.platform === "win32") {
       execSync(`for /f "tokens=5" %a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %a`, { stdio: "ignore", windowsHide: true });
@@ -36,6 +51,12 @@ function cleanupBeforeUpdate() {
       execSync(`lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true`, { stdio: "ignore" });
     }
   } catch {}
+
+  // 4. Give Windows a moment to release file handles before npm tries to rename.
+  if (process.platform === "win32") {
+    const end = Date.now() + 1500;
+    while (Date.now() < end) { /* spin-wait; Atomics.wait not worth importing */ }
+  }
 }
 
 /**
@@ -226,12 +247,31 @@ export async function checkAndUpdate(skipUpdate = false) {
 
         let scriptPath, shellCmd;
 
+        // The update script must kill our tracked processes by PID ONLY.
+        // Never use `taskkill /IM <image>` or `pkill -f <name>` — those match
+        // by binary name / commandline and would nuke unrelated apps on the
+        // machine (other cloudflared tunnels, other tray apps, any node.exe).
+        const pidsDir = getPidsDir();
+
         if (platform === "win32") {
           const script = `@echo off
 echo 📥 Downloading update...
-echo ⏳ Stopping running processes...
-taskkill /F /IM cloudflared.exe >nul 2>&1
+echo ⏳ Stopping 9remote processes...
+
+REM Kill cloudflared first so it stops reconnecting, then kill the agent
+REM tree (/T also terminates its server child + tray helper). PID-based so
+REM we never touch unrelated node.exe / cloudflared.exe on this machine.
+for %%N in (cloudflared agent) do (
+  if exist "${pidsDir}\\%%N.pid" (
+    for /f %%P in ('type "${pidsDir}\\%%N.pid"') do taskkill /F /T /PID %%P >nul 2>&1
+    del /f /q "${pidsDir}\\%%N.pid" >nul 2>&1
+  )
+)
+
+REM Safety net: kill anything still bound to our server port.
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %%a >nul 2>&1
+
+REM Let Windows flush file handles before npm renames node_modules\\9remote.
 timeout /t 3 /nobreak >nul
 
 echo 🔄 Installing new version...
@@ -255,11 +295,22 @@ if %ERRORLEVEL% EQU 0 (
         } else {
           const script = `#!/bin/bash
 echo "📥 Downloading update..."
-echo "⏳ Stopping running processes..."
-pkill -f "cloudflared" 2>/dev/null || true
+echo "⏳ Stopping 9remote processes..."
+
+# Kill cloudflared first, then the agent (children die with the agent on
+# POSIX once the parent process exits and systemd/init reaps them, or here
+# because we SIGKILL them via kill -9). PID-based so unrelated apps are safe.
+for name in cloudflared agent; do
+  f="${pidsDir}/\${name}.pid"
+  if [ -f "$f" ]; then
+    pid=$(cat "$f" 2>/dev/null)
+    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+    rm -f "$f"
+  fi
+done
+
+# Safety net: kill anything still bound to our server port.
 lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true
-sleep 1
-pkill -f "${PACKAGE_NAME}" 2>/dev/null || true
 sleep 2
 
 echo "🔄 Installing new version..."

@@ -13,10 +13,11 @@ import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd, writeCmd } from "./utils/state.js";
 import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate, checkLatestVersion, stopRunningInstances } from "./utils/updateChecker.js";
+import { writePid, clearPid, readPid } from "./utils/pids.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
 import { showBanner, getBannerText, renderProgress, resetProgress, updateProgressDesc, setProgressInfo, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval } from "./utils/tui.js";
 import { checkPermissions } from "./utils/permissions.js";
-import { initTray, killTray, openBrowser } from "./utils/tray.js";
+import { initTray, killTray, openBrowser, updateTrayTooltip, showTrayNotification } from "./utils/tray.js";
 import { STEP, DEBUG, browserFetch } from "../lib/constants.js";
 
 const skipUpdate = process.argv.includes("--skip-update");
@@ -187,7 +188,8 @@ function startServerWithRestart(onReady, onServerCrash) {
       windowsHide: true,
       env: spawnEnv,
     });
-    
+    // No separate PID file: server is a direct child of agent. When the
+    // updater kills agent with `taskkill /F /T`, this child dies too.
 
     currentProcess.on("exit", (code, signal) => {
       if (isShuttingDown) {
@@ -208,7 +210,11 @@ function startServerWithRestart(onReady, onServerCrash) {
 
         if (restartTimes.length > MAX_RESTART_ATTEMPTS) {
           console.log(chalk.red(`❌ Too many restarts (${MAX_RESTART_ATTEMPTS} in ${RESTART_WINDOW_MS / 1000}s). Giving up.`));
-          process.exit(1);
+          // Don't bare-exit: cloudflared + tray would orphan and PID files
+          // would go stale. shutdownAll handles all of that.
+          isShuttingDown = true;
+          shutdownAll({ code: 1 });
+          return;
         }
 
         console.log(chalk.yellow(`🔄 Restarting server... (attempt ${restartTimes.length}/${MAX_RESTART_ATTEMPTS})`));
@@ -247,23 +253,41 @@ function startServerWithRestart(onReady, onServerCrash) {
   };
 }
 
+/**
+ * Tear down every 9remote resource and exit. Single source of truth for
+ * shutdown so Ctrl+C, menu Exit, tray "Shutdown" and IPC all behave the same:
+ *   - stop server (in-memory manager + port safety net)
+ *   - kill cloudflared (PID file + in-memory tunnel reference)
+ *   - kill tray helper
+ *   - clear PID files so next update doesn't hit stale entries
+ *   - clear local state/IPC files
+ */
+function shutdownAll({ serverManager, tunnelProcess, exit = true, code = 0 } = {}) {
+  try { serverManager?.shutdown?.(); } catch {}
+  try { tunnelProcess?.kill?.(); } catch {}
+  try { killCloudflared(); } catch {}
+  try { killTray(); } catch {}
+  try { killProcessOnPort(SERVER_PORT); } catch {}
+  try { resetRestartCounter(); } catch {}
+  try { clearState(); } catch {}
+  try { clearPid("agent"); } catch {}
+  try { clearPid("cloudflared"); } catch {}
+  if (exit) {
+    // Small delay so tray / HTTP replies flush before the process dies.
+    setTimeout(() => process.exit(code), 200);
+  }
+}
+
 let exitHandlerRegistered = false;
 
 function setupExitHandler(serverManager, tunnelProcess, apiKey) {
   if (exitHandlerRegistered) return;
   exitHandlerRegistered = true;
-  
-  process.on("SIGINT", async () => {
-    console.log(chalk.yellow("\n\n🛑 Stopping server..."));
-    
-    serverManager.shutdown();
-    if (tunnelProcess) tunnelProcess.kill();
-    killProcessOnPort(SERVER_PORT);
-    resetRestartCounter();
-    clearState();
-    
+
+  process.on("SIGINT", () => {
+    console.log(chalk.yellow("\n\n🛑 Stopping 9Remote..."));
+    shutdownAll({ serverManager, tunnelProcess });
     console.log(chalk.green("✅ Server stopped"));
-    process.exit(0);
   });
 }
 
@@ -530,12 +554,21 @@ async function tuiMode() {
   let activeTunnel = tunnelProcess;
   setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
 
+  const onShutdown = () => {
+    try { stopSSE(); } catch {}
+    shutdownAll({
+      serverManager: tuiServerMgr,
+      tunnelProcess,
+      exit: false, // let the menu loop print Goodbye and exit itself
+    });
+  };
+
   await tuiMenuLoop(
     keyData, tunnelUrl,
     () => menuHeader,
     (h) => { menuHeader = h; },
     (cb) => { triggerMenuRedraw = cb; },
-    () => { tuiServerMgr.shutdown(); killProcessOnPort(SERVER_PORT); stopSSE(); },
+    onShutdown,
     logBuffer
   );
 }
@@ -619,7 +652,8 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
       await tuiLogsView(logBuffer);
 
     } else {
-      killProcessOnPort(SERVER_PORT);
+      // Exit path — onCtrlC contains the full shutdownAll sequence
+      try { onCtrlC?.(); } catch {}
       console.log(chalk.gray("\nGoodbye!\n"));
       process.exit(0);
     }
@@ -758,6 +792,7 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
         console.log(chalk.yellow("🛑 Tunnel stopped"));
       }
       await setStep(STEP.STOPPED, { tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+      updateTrayTooltip({ tunnelUrl: "", running: true });
     }
 
     if (cmd === "start-tunnel") {
@@ -789,9 +824,10 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
         }
 
         await updateTunnelUrl(apiKey, result.tunnelUrl);
+        updateTrayTooltip({ tunnelUrl: result.tunnelUrl, running: true });
 
         // Hold for 3s so UI sees all steps complete before showing Ready screen
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 2000));
         await showConnectionInfo(apiKey, result.tunnelUrl);
       } catch (err) {
         console.log(chalk.red(`❌ Failed to start tunnel: ${err.message}`));
@@ -808,32 +844,73 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
       console.log(chalk.green(`✅ Key regenerated: ${key}`));
     }
 
+    if (cmd === "shutdown") {
+      console.log(chalk.yellow("\n🛑 Shutting down 9Remote completely..."));
+      const tunnel = getActiveTunnel();
+      setActiveTunnel(null);
+      shutdownAll({ tunnelProcess: tunnel });
+      console.log(chalk.green("✅ 9Remote stopped"));
+    }
+
     } finally {
       busy = false;
     }
   }, 1000);
 }
 
-async function waitForTunnelReady(tunnelUrl, { intervalMs = 2000, timeoutMs = 120000 } = {}) {
+async function waitForTunnelReady(tunnelUrl, { intervalMs = 2000, timeoutMs = 180000 } = {}) {
   const healthUrl = `${tunnelUrl}/api/health`;
   const start = Date.now();
   let attempt = 0;
+  const logs = [];
+
+  // Init terminal-like panel in web UI
+  await pushUiState({
+    healthCheck: { running: true, timeoutMs, startedAt: start, logs: [] },
+  });
+
+  const pushLog = (entry) => {
+    logs.push(entry);
+    // Keep last 80 entries to stay snappy
+    const trimmed = logs.length > 80 ? logs.slice(-80) : logs;
+    pushUiState({
+      healthCheck: { running: true, timeoutMs, startedAt: start, logs: trimmed },
+    });
+  };
+
   while (Date.now() - start < timeoutMs) {
     attempt++;
+    const t0 = Date.now();
     try {
       const res = await browserFetch(healthUrl, {
         signal: AbortSignal.timeout(5000),
       });
+      const elapsedMs = Date.now() - t0;
       updateProgressDesc(`#${attempt} → ${res.status}`);
+      pushLog({ attempt, status: String(res.status), elapsedMs, ok: res.ok, time: Date.now() });
       if (res.ok) {
+        // Clear logs immediately — UI jumps straight to Ready, no lingering log
+        await pushUiState({
+          healthCheck: { running: false, timeoutMs: 0, startedAt: null, logs: [] },
+        });
         await new Promise(r => setTimeout(r, 2000));
         return true;
       }
     } catch (err) {
-      updateProgressDesc(`#${attempt} → ${err.cause?.code || err.code || err.message}`);
+      const elapsedMs = Date.now() - t0;
+      const code = err.cause?.code || err.code || err.message;
+      // ENOTFOUND = tunnel DNS chưa propagate → đây là trạng thái "đang chờ", không phải lỗi
+      const isWaiting = code === "ENOTFOUND";
+      const status = isWaiting ? "connecting..." : code;
+      updateProgressDesc(`#${attempt} → ${status}`);
+      pushLog({ attempt, status, elapsedMs, ok: false, waiting: isWaiting, time: Date.now() });
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
+
+  await pushUiState({
+    healthCheck: { running: false, timeoutMs, startedAt: start, logs },
+  });
   return false;
 }
 
@@ -850,6 +927,7 @@ async function launchBackground() {
     openBrowser(uiUrl);
     console.log(chalk.green(`\n🌐 9Remote already running at ${uiUrl}`));
     console.log(chalk.gray("💡 Tray icon already active. Right-click tray to manage.\n"));
+    await new Promise(r => setTimeout(r, 400));
     process.exit(0);
   }
 
@@ -868,19 +946,68 @@ async function launchBackground() {
   const logDir = path.join(os.homedir(), ".9remote");
   if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
   const logPath = path.join(logDir, "bg.log");
-  const logFd = fs.openSync(logPath, "a");
-  fs.writeSync(logFd, `\n\n=== ${new Date().toISOString()} spawn bg ===\n`);
 
-  const bg = spawn(process.execPath, bgArgs, {
-    detached: true,
-    windowsHide: true,
-    stdio: ["ignore", logFd, logFd],
-    env: { ...process.env },
-  });
-  bg.unref();
+  // Log startup marker
+  try {
+    fs.appendFileSync(logPath, `\n\n=== ${new Date().toISOString()} spawn bg ===\n`);
+  } catch {}
+
+  let bgPid = null;
+
+  if (process.platform === "win32") {
+    // Windows: spawn node.exe via wscript.exe + .vbs wrapper so Windows does NOT
+    // allocate a new console window for the detached child (node.exe is a console
+    // subsystem binary — `detached + windowsHide` is not enough, it still pops up
+    // a black cmd window). wscript is GUI subsystem → truly silent launch.
+    //
+    // The child (startTrayMode) writes its own PID to ~/.9remote/pids/agent.pid,
+    // so we don't need to track wscript's short-lived PID here.
+    const vbsPath = path.join(os.tmpdir(), `9remote-launch-${Date.now()}.vbs`);
+    // Wrap each token in "" quotes for cmd.exe; then escape each literal "
+    // as "" for the enclosing VBS string literal. Windows paths don't contain
+    // real " characters, so the double-escape only matters theoretically.
+    const vbsQuote = (s) => `""${String(s).replace(/"/g, '""""')}""`;
+    const cmdTokens = [vbsQuote(process.execPath), ...bgArgs.map(vbsQuote)].join(" ");
+    const cmdLine = `cmd /c ${cmdTokens} >> ${vbsQuote(logPath)} 2>&1`;
+    // WshShell.Run with windowStyle=0 + bWaitOnReturn=False → fully hidden, non-blocking
+    const vbsContent = [
+      `Set WshShell = CreateObject("WScript.Shell")`,
+      `WshShell.Run "${cmdLine}", 0, False`,
+    ].join("\r\n") + "\r\n";
+
+    try {
+      fs.writeFileSync(vbsPath, vbsContent, "utf8");
+      const launcher = spawn("wscript.exe", [vbsPath], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      launcher.unref();
+    } catch (err) {
+      console.log(chalk.red(`\n❌ Failed to launch background: ${err.message}`));
+      process.exit(1);
+    }
+
+    // Cleanup the .vbs after a short delay (wscript has already read it)
+    setTimeout(() => { try { fs.unlinkSync(vbsPath); } catch {} }, 5000);
+  } else {
+    // macOS/Linux: plain detached spawn with log fd redirect — no console issue here
+    const logFd = fs.openSync(logPath, "a");
+    const bg = spawn(process.execPath, bgArgs, {
+      detached: true,
+      windowsHide: true,
+      stdio: ["ignore", logFd, logFd],
+      env: { ...process.env },
+    });
+    bg.unref();
+    bgPid = bg.pid;
+    // Track background agent PID so the updater can release dist/cli.cjs lock
+    // without touching other node.exe processes on the machine.
+    writePid("agent", bg.pid);
+  }
 
   // Wait briefly and verify server came up; surface error if not
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 8000;
   let ready = false;
   while (Date.now() < deadline) {
     if (await isServerRunning()) { ready = true; break; }
@@ -893,14 +1020,28 @@ async function launchBackground() {
     process.exit(1);
   }
 
+  // On Windows the real PID is written by the child (startTrayMode) itself;
+  // read it back so we can display it to the user.
+  if (process.platform === "win32") {
+    try { bgPid = readPid("agent"); } catch {}
+  }
+
   openBrowser(uiUrl);
-  console.log(chalk.green(`\n🌐 9Remote running at ${uiUrl} (PID: ${bg.pid})`));
+  const pidStr = bgPid ? ` (PID: ${bgPid})` : "";
+  console.log(chalk.green(`\n🌐 9Remote running at ${uiUrl}${pidStr}`));
   console.log(chalk.gray(`💡 Log: ${logPath}\n`));
+  // Give the detached browser-launcher child a brief moment to actually spawn
+  // before this parent exits — especially on Windows where cmd/start needs a tick.
+  await new Promise(r => setTimeout(r, 400));
   process.exit(0);
 }
 
 /** Tray mode: start server + system tray, no terminal UI */
 async function startTrayMode() {
+  // Record own PID — this process holds dist/cli.cjs open in memory.
+  // Needed so `npm i -g 9remote@latest` can kill us and rename node_modules\9remote.
+  writePid("agent", process.pid);
+
   let keyData = await ensureKeyData();
 
   const themeArg = process.argv.find(a => a.startsWith("--theme="));
@@ -919,9 +1060,11 @@ async function startTrayMode() {
   await pushUiState({ permanentKey: keyData.key, step: STEP.STOPPED, theme });
 
   const cleanup = () => {
-    serverManager.shutdown();
-    killProcessOnPort(SERVER_PORT);
-    killTray();
+    const tunnel = activeTunnel;
+    activeTunnel = null;
+    // Tray's own onClick handler calls process.exit after this returns,
+    // so don't double-exit here.
+    shutdownAll({ serverManager, tunnelProcess: tunnel, exit: false });
   };
 
   setupExitHandler(serverManager, null, keyData.key);
@@ -929,11 +1072,20 @@ async function startTrayMode() {
 
   if (process.argv.includes("--start")) writeCmd("start-tunnel");
 
-  await initTray({
+  const tray = await initTray({
     port: SERVER_PORT,
     onQuit: cleanup,
     onOpenUI: () => openBrowser(uiUrl),
   });
+
+  // Show a one-shot balloon tip so the user knows the agent is running
+  // in the background and where to find it (tray area + local URL).
+  if (tray) {
+    showTrayNotification({
+      title: "9Remote is running",
+      message: `Open ${uiUrl} or use the tray icon to manage.`,
+    });
+  }
 
   await new Promise(() => {});
 }

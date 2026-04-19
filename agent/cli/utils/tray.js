@@ -2,12 +2,13 @@
  * System tray module — optional, silent fail if not supported
  */
 
-import { exec } from "child_process";
+import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
 let trayInstance = null;
+let trayState = { port: 0, tunnelUrl: "", running: false };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,6 +40,34 @@ function isTraySupported() {
   return true;
 }
 
+function buildTooltip() {
+  const { port, tunnelUrl, running } = trayState;
+  const status = running
+    ? (tunnelUrl ? "Tunnel ON" : "Local only")
+    : "Idle";
+  const url = `http://localhost:${port}`;
+  // Windows tray tooltip limit is ~127 chars; keep it compact but informative
+  return `9Remote • ${status}\nLocal: ${url}\nRight-click to open / quit`;
+}
+
+function buildMenu() {
+  const { port, tunnelUrl } = trayState;
+  const isWin = process.platform === "win32";
+  const statusLine = tunnelUrl
+    ? `9Remote (Port ${port}) • Tunnel ON`
+    : `9Remote (Port ${port}) • Local only`;
+  return {
+    icon: getIconBase64(),
+    title: isWin ? `9Remote - Port ${port}` : "",
+    tooltip: buildTooltip(),
+    items: [
+      { title: statusLine, tooltip: tunnelUrl || `http://localhost:${port}`, checked: false, enabled: false },
+      { title: "Open Web UI", tooltip: `Open http://localhost:${port} in your browser`, checked: false, enabled: true },
+      { title: "Shutdown", tooltip: "Stop 9Remote server, tunnel and quit", checked: false, enabled: true },
+    ],
+  };
+}
+
 /**
  * Initialize system tray
  * @param {{ port: number, onQuit: () => void, onOpenUI: () => void }} options
@@ -50,24 +79,17 @@ export async function initTray({ port, onQuit, onOpenUI }) {
     const mod = await import("systray");
     const SysTray = mod.default?.default || mod.default;
 
-    const isWin = process.platform === "win32";
-    const menu = {
-      icon: getIconBase64(),
-      title: isWin ? `9Remote - Port ${port}` : "",
-      tooltip: `9Remote - Port ${port}`,
-      items: [
-        { title: `9Remote (Port ${port})`, tooltip: "Server is running", enabled: false },
-        { title: "Open Web UI", tooltip: "Open in browser", enabled: true },
-        { title: "Quit", tooltip: "Stop server and exit", enabled: true },
-      ],
-    };
+    trayState = { port, tunnelUrl: "", running: true };
 
-    trayInstance = new SysTray({ menu, debug: false, copyDir: true });
+    trayInstance = new SysTray({ menu: buildMenu(), debug: false, copyDir: true });
+    // Tray helper is a direct child of agent; no separate PID file needed.
+    // `taskkill /F /T /PID <agent>` at update time terminates it along with
+    // the agent tree — safer than matching by image name.
 
     trayInstance.onClick((action) => {
       if (action.item.title === "Open Web UI") {
         onOpenUI?.();
-      } else if (action.item.title === "Quit") {
+      } else if (action.item.title === "Shutdown") {
         onQuit?.();
         killTray();
         setTimeout(() => process.exit(0), 500);
@@ -83,6 +105,23 @@ export async function initTray({ port, onQuit, onOpenUI }) {
   }
 }
 
+/**
+ * Update tray tooltip / status so the user knows current tunnel state.
+ * Safe to call before tray is ready — values are captured for next refresh.
+ */
+export function updateTrayTooltip({ tunnelUrl, running } = {}) {
+  if (tunnelUrl !== undefined) trayState.tunnelUrl = tunnelUrl;
+  if (running !== undefined) trayState.running = running;
+  if (!trayInstance) return;
+  try {
+    trayInstance.sendAction({
+      type: "update-menu",
+      menu: buildMenu(),
+      seq_id: -1,
+    });
+  } catch {}
+}
+
 export function killTray() {
   const instance = trayInstance;
   trayInstance = null;
@@ -91,13 +130,98 @@ export function killTray() {
   }
 }
 
-export function openBrowser(url) {
+/**
+ * Show a native OS notification (balloon tip on Windows, toast on macOS/Linux).
+ * Silent fail if the platform tool isn't available.
+ * @param {{ title?: string, message: string }} opts
+ */
+export function showTrayNotification({ title = "9Remote", message }) {
   const platform = process.platform;
-  // Windows: `start` is a cmd.exe builtin, must run via shell
+  if (!message) return;
+
   if (platform === "win32") {
-    exec(`start "" "${url}"`, { shell: "cmd.exe" }, () => {});
+    // PowerShell one-liner using System.Windows.Forms.NotifyIcon balloon tip.
+    // Works on every modern Windows without extra modules.
+    // Escape single quotes for PowerShell single-quoted strings by doubling them.
+    const esc = (s) => String(s).replace(/'/g, "''");
+    const ps = [
+      `Add-Type -AssemblyName System.Windows.Forms;`,
+      `$n = New-Object System.Windows.Forms.NotifyIcon;`,
+      `$n.Icon = [System.Drawing.SystemIcons]::Information;`,
+      `$n.BalloonTipTitle = '${esc(title)}';`,
+      `$n.BalloonTipText = '${esc(message)}';`,
+      `$n.Visible = $true;`,
+      `$n.ShowBalloonTip(5000);`,
+      `Start-Sleep -Seconds 6;`,
+      `$n.Dispose();`,
+    ].join(" ");
+    try {
+      const child = spawn(
+        "powershell.exe",
+        ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+        { detached: true, stdio: "ignore", windowsHide: true }
+      );
+      child.unref();
+    } catch {}
     return;
   }
-  const cmd = platform === "darwin" ? `open "${url}"` : `xdg-open "${url}"`;
-  exec(cmd, () => {});
+
+  if (platform === "darwin") {
+    try {
+      const esc = (s) => String(s).replace(/"/g, '\\"');
+      const script = `display notification "${esc(message)}" with title "${esc(title)}"`;
+      const child = spawn("osascript", ["-e", script], { detached: true, stdio: "ignore" });
+      child.unref();
+    } catch {}
+    return;
+  }
+
+  // Linux / other POSIX
+  try {
+    const child = spawn("notify-send", [title, message], { detached: true, stdio: "ignore" });
+    child.unref();
+  } catch {}
+}
+
+export function openBrowser(url) {
+  const platform = process.platform;
+
+  // Windows: prefer `rundll32.exe` (GUI subsystem — no cmd window flash) over
+  // `cmd /c start` which briefly flashes a black console window even with
+  // `windowsHide: true`. Fallback to cmd/start if rundll32 ever fails.
+  if (platform === "win32") {
+    try {
+      const child = spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.unref();
+      return;
+    } catch {}
+    // Fallback: cmd /c start "" "url"
+    try {
+      const child = spawn("cmd.exe", ["/d", "/s", "/c", "start", "", url], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.unref();
+    } catch {}
+    return;
+  }
+
+  if (platform === "darwin") {
+    try {
+      const child = spawn("open", [url], { detached: true, stdio: "ignore" });
+      child.unref();
+    } catch {}
+    return;
+  }
+
+  // Linux / other POSIX
+  try {
+    const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
+    child.unref();
+  } catch {}
 }

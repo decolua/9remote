@@ -30,6 +30,13 @@ let uiState = {
   qrUrl: "",
   latency: null,
   uptime: null,
+  // Health check telemetry for the Verifying step (shown as a mini terminal in UI)
+  healthCheck: {
+    running: false,
+    timeoutMs: 0,
+    startedAt: null,
+    logs: [], // [{ attempt, status, elapsedMs, ok, time }]
+  },
 };
 
 let desktopEnabled = false;
@@ -189,6 +196,12 @@ export function handleStart(req, res) {
   jsonOk(res);
   updateUiState({ step: STEP.PREPARING, stepDesc: "" });
   writeCmd("start-tunnel");
+}
+
+export function handleShutdown(req, res) {
+  jsonOk(res);
+  updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+  writeCmd("shutdown");
 }
 
 export function handleConnections(req, res) {
