@@ -29,9 +29,9 @@ export const REMOTE_CONFIG = {
     // Higher zoom → higher quality + less downscale (sharper pixels when zoomed in).
     // Full view (zoom=1) → aggressive downscale + lower quality (save bandwidth).
     qualityProfiles: [
-      { minZoom: 3.0, outputScale: 1.00, jpegQuality: 75 },
-      { minZoom: 2.0, outputScale: 1.00, jpegQuality: 65 },
-      { minZoom: 1.3, outputScale: 0.90, jpegQuality: 55 },
+      { minZoom: 3.0, outputScale: 1.00, jpegQuality: 60 },
+      { minZoom: 2.0, outputScale: 1.00, jpegQuality: 55 },
+      { minZoom: 1.3, outputScale: 0.90, jpegQuality: 50 },
       { minZoom: 1.0, outputScale: 0.70, jpegQuality: 45 }
     ]
   },
