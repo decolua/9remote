@@ -414,7 +414,7 @@ Run them on your host machine, access them from your phone. Combined with [9Rout
 
 ---
 
-## ⭐ Show Your Support
+## ⭐ Show Your Support   
 
 **9Remote is in active development and we need your support to reach the open-source milestone!**
 
