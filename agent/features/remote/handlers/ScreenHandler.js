@@ -158,6 +158,10 @@ export class ScreenHandler {
       const clientData = this.resourceManager.getClient(socket.id);
       if (!clientData) return;
       const rect = data?.rect || null;
+      // Adaptive quality — pick profile from client zoom (default 1 = full)
+      const zoom = typeof data?.zoom === "number" ? data.zoom : 1;
+      const profile = clientData.tileManager.pickProfile(zoom);
+      clientData.tileManager.setProfile(profile);
       clientData.tileManager.setFocusRect(rect);
       if (rect) {
         const active = clientData.tileManager.activeTileSet?.size || 0;

@@ -55,7 +55,12 @@ function TerminalPane({
   const currentTheme = THEMES[theme] || THEMES.default;
 
   // Try clipboard API first, fallback to input popup
+  // navigator.clipboard only available in secure contexts (HTTPS / localhost).
+  // On plain HTTP over LAN it is undefined — silently fall back to the paste input.
   const tryPasteFromClipboard = async () => {
+    if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+      return false;
+    }
     try {
       const text = await navigator.clipboard.readText();
       if (text && socket) {
@@ -63,8 +68,8 @@ function TerminalPane({
         vibrate();
         return true;
       }
-    } catch (err) {
-      console.error("Clipboard API failed, showing input fallback:", err);
+    } catch {
+      // Permission denied or not allowed — fall back to manual paste input
     }
     return false;
   };

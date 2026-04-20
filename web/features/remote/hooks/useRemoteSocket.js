@@ -58,8 +58,9 @@ export function useRemoteSocket(socketRef, connected) {
     if (streaming) emit("boost-stream");
   }, [emit, streaming]);
 
-  const emitSetFocus = useCallback((rect) => {
-    if (streaming) emit("set-focus", { rect });
+  // rect=null + zoom=1 tells server to apply the "full view" quality profile.
+  const emitSetFocus = useCallback((rect, zoom = 1) => {
+    if (streaming) emit("set-focus", { rect, zoom });
   }, [emit, streaming]);
 
   const emitRequestScreenWithHashes = useCallback((tileHashes) => {

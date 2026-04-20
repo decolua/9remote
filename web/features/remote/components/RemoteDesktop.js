@@ -274,7 +274,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
       const canvas = canvasRef.current;
       const container = canvasContainerRef.current;
       if (!canvas || !container || canvas.width === 0) return;
-      if (canvasZoom <= 1) { emitSetFocus(null); return; }
+      if (canvasZoom <= 1) { emitSetFocus(null, 1); return; }
 
       const totalScale = fitScale * canvasZoom;
       if (totalScale <= 0) return;
@@ -283,7 +283,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
       const y = Math.max(0, -canvasPan.y / totalScale);
       const w = Math.min(canvas.width - x, container.clientWidth / totalScale);
       const h = Math.min(canvas.height - y, container.clientHeight / totalScale);
-      emitSetFocus({ x: Math.floor(x), y: Math.floor(y), w: Math.ceil(w), h: Math.ceil(h) });
+      emitSetFocus({ x: Math.floor(x), y: Math.floor(y), w: Math.ceil(w), h: Math.ceil(h) }, canvasZoom);
     }, REMOTE_CONFIG.focusDebounce);
     return () => clearTimeout(timer);
   }, [streaming, canvasZoom, canvasPan, fitScale, canvasRef, canvasContainerRef, emitSetFocus]);

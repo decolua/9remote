@@ -12,7 +12,7 @@ function turboFormat(format) {
 }
 
 // Swap R↔B in-place for BGRA→RGBA (4x faster than byte loop via Uint32)
-function bgraToRgbaInPlace(buf) {
+export function bgraToRgbaInPlace(buf) {
   const u32 = new Uint32Array(buf.buffer, buf.byteOffset, buf.length >> 2);
   for (let i = 0; i < u32.length; i++) {
     const p = u32[i];
@@ -20,26 +20,30 @@ function bgraToRgbaInPlace(buf) {
   }
 }
 
-export async function encodeJpeg(buffer, width, height, channels = 4) {
+export async function encodeJpeg(buffer, width, height, channels = 4, quality, formatOverride) {
   const { encoder, inputFormat, jpegQuality } = REMOTE_CONFIG.pipeline;
+  // Caller-supplied quality overrides config default (adaptive profile)
+  const q = quality ?? jpegQuality;
+  // formatOverride lets caller pass pre-swapped RGBA buffer (e.g. per-tile resize)
+  const fmt = formatOverride ?? inputFormat;
 
   if (encoder === "jpegTurbo") {
     return jpegTurbo.compressSync(buffer, {
       width,
       height,
-      format: turboFormat(inputFormat),
-      quality: jpegQuality
+      format: turboFormat(fmt),
+      quality: q
     });
   }
 
   // sharp path — needs RGBA
   let input = buffer;
-  if (inputFormat === "bgra") {
+  if (fmt === "bgra") {
     // Copy so we don't mutate shared screen buffer
     input = Buffer.from(buffer);
     bgraToRgbaInPlace(input);
   }
   return sharp(input, { raw: { width, height, channels } })
-    .jpeg({ quality: jpegQuality })
+    .jpeg({ quality: q })
     .toBuffer();
 }

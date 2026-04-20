@@ -63,10 +63,11 @@ export const REMOTE_CONFIG = {
 
   // ── PC mode (physical mouse + keyboard) ────────────────────────────────────
   // Wheel event tuning. deltaMode: 0=pixel, 1=line, 2=page.
-  wheelScrollMultiplier: 1,
+  wheelScrollMultiplier: 2.5,    // amplify small trackpad deltas so threshold is hit on 1st event (no lag before 1st scroll emit)
   wheelLineHeight: 40,
   wheelPageHeight: 400,
   wheelZoomStep: 0.1,            // Ctrl+wheel: ±step per notch
+  wheelBoostInterval: 250,       // ms — re-emit boostStream during long wheel bursts to keep stream full-speed
   // Native button index → robotjs button name.
   mouseButtonMap: { 0: "left", 1: "middle", 2: "right" },
 

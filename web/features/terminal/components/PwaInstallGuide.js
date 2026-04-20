@@ -41,13 +41,41 @@ export default function PwaInstallGuide() {
     }
   }, []);
 
+  const copyToClipboard = async (text) => {
+    // Try modern clipboard API first
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {}
+    // Fallback for iOS / non-secure / older browsers
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "0";
+      ta.style.left = "0";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
   const handleCopyKey = async () => {
     if (!apiKey) return;
-    try {
-      await navigator.clipboard.writeText(apiKey);
+    const ok = await copyToClipboard(apiKey);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {}
+    }
   };
 
   // Step number offset: 1 if has apiKey (copy key is step 1), 0 otherwise
@@ -60,22 +88,34 @@ export default function PwaInstallGuide() {
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
           1
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <p className="text-white font-medium mb-2">Copy Your Key</p>
-          <p className="text-dark-100 text-sm mb-2">Save this key first — you'll need it to login after installing</p>
-          <button
-            onClick={handleCopyKey}
+          <p className="text-dark-100 text-sm mb-2">Tap the key below to copy — you'll need it to login after installing</p>
+          <div
             className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-brand border transition-colors ${
               copied
                 ? "bg-green-500/10 border-green-500/30"
-                : "bg-dark-700 border-dark-400 hover:border-brand-500/50"
+                : "bg-dark-700 border-dark-400 hover:border-brand-500/50 focus-within:border-brand-500/50"
             }`}
           >
-            <code className="text-sm text-dark-50 font-mono truncate">{maskApiKey(apiKey)}</code>
-            <span className={`flex items-center gap-1 text-sm flex-shrink-0 ${copied ? "text-green-400" : "text-brand-500"}`}>
+            <button
+              type="button"
+              onClick={handleCopyKey}
+              className="flex-1 min-w-0 text-left bg-transparent outline-none border-0 p-0 cursor-pointer"
+              aria-label="Tap to copy API key"
+            >
+              <code className="block text-sm text-dark-50 font-mono truncate">
+                {maskApiKey(apiKey)}
+              </code>
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyKey}
+              className={`flex items-center gap-1 text-sm flex-shrink-0 ${copied ? "text-green-400" : "text-brand-500"}`}
+            >
               {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy</>}
-            </span>
-          </button>
+            </button>
+          </div>
         </div>
       </div>
     );

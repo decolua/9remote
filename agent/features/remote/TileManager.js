@@ -6,7 +6,7 @@ import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 import * as capture from "./adapters/captureAdapter.js";
-import { encodeJpeg } from "./adapters/encoderAdapter.js";
+import { encodeJpeg, bgraToRgbaInPlace } from "./adapters/encoderAdapter.js";
 import { FrameMetrics } from "./metrics.js";
 import { remoteLog } from "./utils/remoteLog.js";
 
@@ -61,10 +61,11 @@ export class TileManager {
       // Detect DPI scale once at initialization
       this.detectDpiScale();
 
-      // Final buffer size after capture + outputScale downscale.
-      // captureWidth/Height = physical pixels; scaleFactor = outputScale.
-      this.scaledWidth = Math.max(1, Math.floor(this.captureWidth * this.scaleFactor));
-      this.scaledHeight = Math.max(1, Math.floor(this.captureHeight * this.scaleFactor));
+      // Canvas dimensions == capture dimensions. scaleFactor is applied per-tile
+      // inside compressTileImage (not here) so adaptive profile changes don't
+      // resize the canvas — client keeps a stable coordinate system.
+      this.scaledWidth = this.captureWidth;
+      this.scaledHeight = this.captureHeight;
       this.tilesPerRow = Math.ceil(this.scaledWidth / this.tileSize);
       this.tilesPerColumn = Math.ceil(this.scaledHeight / this.tileSize);
       this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
@@ -180,24 +181,10 @@ export class TileManager {
 
   async captureFullScreen() {
     // Capture via adapter — returns native format (BGRA or RGBA).
+    // NOTE: downscale is NOT applied here anymore. scaleFactor is applied
+    // per-tile in compressTileImage so canvas dimensions stay stable across
+    // adaptive profile switches (client doesn't need to resync size).
     const result = await capture.captureFull();
-
-    // Optional downscale — sharp resize on raw buffer, preserves channel order
-    // (no BGRA↔RGBA swap since sharp operates per-channel). Done once per frame
-    // so all downstream tiles/checksums/focus operate in scaled space.
-    const scale = REMOTE_CONFIG.pipeline.outputScale;
-    if (scale && scale > 0 && scale < 1) {
-      const targetW = Math.max(1, Math.floor(result.width * scale));
-      const targetH = Math.max(1, Math.floor(result.height * scale));
-      const scaled = await sharp(result.buffer, {
-        raw: { width: result.width, height: result.height, channels: result.channels }
-      })
-        .resize(targetW, targetH, { kernel: "lanczos3", fastShrinkOnLoad: false })
-        .raw()
-        .toBuffer();
-      return { buffer: scaled, width: targetW, height: targetH, channels: result.channels };
-    }
-
     return {
       buffer: result.buffer,
       width: result.width,
@@ -428,8 +415,59 @@ export class TileManager {
   }
 
   async compressTileImage(buffer, width, height) {
-    // Delegated to encoderAdapter (sharp | jpeg-turbo) based on REMOTE_CONFIG.pipeline
-    return encodeJpeg(buffer, width, height, 4);
+    // Adaptive per-tile downscale: when scaleFactor < 1, resize raw RGBA/BGRA
+    // tile buffer before JPEG encode. Tile header still reports original
+    // width/height (canvas-space), so client drawImage() stretches the smaller
+    // JPEG into the original rect — no client-side changes needed.
+    const scale = this.scaleFactor;
+    if (scale && scale > 0 && scale < 1) {
+      const targetW = Math.max(1, Math.floor(width * scale));
+      const targetH = Math.max(1, Math.floor(height * scale));
+      // sharp requires RGBA; BGRA is swapped inside encoderAdapter. Here we
+      // must feed sharp raw, so swap BGRA→RGBA in a copy first if needed.
+      const { inputFormat } = REMOTE_CONFIG.pipeline;
+      let raw = buffer;
+      let channels = 4;
+      if (inputFormat === "bgra") {
+        raw = Buffer.from(buffer);
+        bgraToRgbaInPlace(raw);
+      }
+      const resized = await sharp(raw, { raw: { width, height, channels } })
+        .resize(targetW, targetH, { kernel: "lanczos3", fastShrinkOnLoad: false })
+        .raw()
+        .toBuffer();
+      // Buffer is now RGBA regardless of source — tell encoder via override.
+      return encodeJpeg(resized, targetW, targetH, 4, this.compressionQuality, "rgba");
+    }
+    return encodeJpeg(buffer, width, height, 4, this.compressionQuality);
+  }
+
+  // Pick adaptive profile matching given zoom level (1 = full view).
+  // Profiles iterated top-down; first with zoom >= minZoom wins.
+  pickProfile(zoom) {
+    const profiles = REMOTE_CONFIG.pipeline.qualityProfiles || [];
+    const z = typeof zoom === "number" && zoom > 0 ? zoom : 1;
+    for (const p of profiles) {
+      if (z >= p.minZoom) return p;
+    }
+    return profiles[profiles.length - 1] || null;
+  }
+
+  // Apply a quality profile — mutates scaleFactor/compressionQuality only.
+  // scaleFactor is applied PER-TILE inside compressTileImage (downscale before
+  // JPEG encode), so server canvas dimensions + tile grid stay STABLE.
+  // Tile headers still carry original canvas-space width/height; client draws
+  // the smaller JPEG bitmap into the original rect → browser upsamples for free.
+  setProfile(profile) {
+    if (!profile) return;
+    const nextScale = profile.outputScale ?? this.scaleFactor;
+    const nextQuality = profile.jpegQuality ?? this.compressionQuality;
+    if (nextScale === this.scaleFactor && nextQuality === this.compressionQuality) return;
+
+    this.scaleFactor = nextScale;
+    this.compressionQuality = nextQuality;
+    // Resend all tiles with new encoding (checksums valid, bitmaps stale)
+    this.lastTileChecksums.clear();
   }
 
   _recordFrame(tStart, tCaptureEnd, tChecksumEnd, tiles, screenData) {

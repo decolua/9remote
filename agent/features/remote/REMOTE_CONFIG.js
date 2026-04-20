@@ -23,7 +23,17 @@ export const REMOTE_CONFIG = {
     // 1.0 = native (no scale), 0.75 = 75%, 0.5 = 50%. Saves bandwidth + CPU.
     // Applied via sharp resize once per frame on the full screen buffer.
     // Mouse coords are percentage-based so this does NOT affect input mapping.
-    outputScale: 1
+    outputScale: 1,
+    // Adaptive quality profiles — chosen by client zoom level.
+    // Iterate top-down, pick first profile where zoom >= minZoom.
+    // Higher zoom → higher quality + less downscale (sharper pixels when zoomed in).
+    // Full view (zoom=1) → aggressive downscale + lower quality (save bandwidth).
+    qualityProfiles: [
+      { minZoom: 3.0, outputScale: 1.00, jpegQuality: 75 },
+      { minZoom: 2.0, outputScale: 1.00, jpegQuality: 65 },
+      { minZoom: 1.3, outputScale: 0.90, jpegQuality: 55 },
+      { minZoom: 1.0, outputScale: 0.70, jpegQuality: 45 }
+    ]
   },
 
   // WebRTC transport config

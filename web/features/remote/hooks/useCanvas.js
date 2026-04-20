@@ -71,6 +71,10 @@ export function useCanvas(socketEmitFunctions) {
   // throttled 8ms server-side and would otherwise starve scroll events).
   const wheelActiveRef = useRef(false);
   const wheelEndTimerRef = useRef(null);
+  // Timestamp of last boostStream emit during wheel burst — throttled re-boost
+  // keeps agent's idleFrameCount reset so stream stays full-speed for long bursts
+  // (mirrors touch scroll which naturally re-boosts on each touchstart).
+  const wheelLastBoostRef = useRef(0);
 
   // Get percentage-based coordinates
   // Canvas is rendered at server resolution, scaled by fitScale * canvasZoom via CSS transform.
@@ -344,6 +348,14 @@ export function useCanvas(socketEmitFunctions) {
         socketEmitFunctions.emitBoostStream?.();
         socketEmitFunctions.emitMouseMove?.(percentX, percentY);
         wheelActiveRef.current = true;
+        wheelLastBoostRef.current = Date.now();
+      } else {
+        // Re-boost periodically so long bursts (trackpad inertia) stay smooth.
+        const now = Date.now();
+        if (now - wheelLastBoostRef.current >= REMOTE_CONFIG.wheelBoostInterval) {
+          socketEmitFunctions.emitBoostStream?.();
+          wheelLastBoostRef.current = now;
+        }
       }
       if (wheelEndTimerRef.current) clearTimeout(wheelEndTimerRef.current);
       wheelEndTimerRef.current = setTimeout(() => {
