@@ -30,6 +30,8 @@ function TerminalPane({
   const longPressTimer = useRef(null);
   const pasteInputRef = useRef(null);
   const [showPasteInput, setShowPasteInput] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [clipboardText, setClipboardText] = useState("");
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   const { pushView } = useTerminalStore();
@@ -54,35 +56,32 @@ function TerminalPane({
 
   const currentTheme = THEMES[theme] || THEMES.default;
 
-  // Try clipboard API first, fallback to input popup
-  // navigator.clipboard only available in secure contexts (HTTPS / localhost).
-  // On plain HTTP over LAN it is undefined — silently fall back to the paste input.
-  const tryPasteFromClipboard = async () => {
+  // Read clipboard if available (secure context + permission granted).
+  // Returns empty string on failure so popup still opens with empty input.
+  const readClipboardText = async () => {
     if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
-      return false;
+      return "";
     }
     try {
-      const text = await navigator.clipboard.readText();
-      if (text && socket) {
-        socket.emit("input", { sessionId, data: text });
-        vibrate();
-        return true;
-      }
+      return (await navigator.clipboard.readText()) || "";
     } catch {
-      // Permission denied or not allowed — fall back to manual paste input
+      return "";
     }
-    return false;
+  };
+
+  const openPastePopup = async () => {
+    setPasteText("");
+    setShowPasteInput(true);
+    setTimeout(() => pasteInputRef.current?.focus(), 100);
+    const text = await readClipboardText();
+    setClipboardText(text);
   };
 
   // Long press handlers for paste
   const handleTouchStart = () => {
-    longPressTimer.current = setTimeout(async () => {
+    longPressTimer.current = setTimeout(() => {
       vibrate();
-      const success = await tryPasteFromClipboard();
-      if (!success) {
-        setShowPasteInput(true);
-        setTimeout(() => pasteInputRef.current?.focus(), 100);
-      }
+      openPastePopup();
     }, 500);
   };
 
@@ -93,14 +92,23 @@ function TerminalPane({
     }
   };
 
-  const handlePasteInput = (e) => {
-    e.preventDefault();
-    const text = e.clipboardData?.getData("text");
-    if (text && socket) {
-      socket.emit("input", { sessionId, data: text });
+  const closePastePopup = () => {
+    setShowPasteInput(false);
+    setPasteText("");
+    setClipboardText("");
+  };
+
+  const handlePasteButton = () => {
+    setPasteText(clipboardText);
+    pasteInputRef.current?.focus();
+  };
+
+  const sendPasteText = () => {
+    if (pasteText && socket) {
+      socket.emit("input", { sessionId, data: pasteText });
       vibrate();
     }
-    setShowPasteInput(false);
+    closePastePopup();
   };
 
   // Track scroll position to show/hide scroll-to-bottom button
@@ -213,16 +221,50 @@ function TerminalPane({
 
       {showPasteInput && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          onClick={() => setShowPasteInput(false)}
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={closePastePopup}
+          onTouchStart={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          <input
-            ref={pasteInputRef}
-            placeholder="Paste here (Cmd+V)"
-            onPaste={handlePasteInput}
+          <div
+            className="bg-dark-500 rounded-brand border border-dark-400 p-4 w-full max-w-md flex flex-col gap-3"
             onClick={(e) => e.stopPropagation()}
-            className="px-6 py-3 bg-dark-500 text-white rounded-brand border border-dark-400 focus:border-brand-500 font-medium transition-all duration-200 outline-none text-center w-64"
-          />
+          >
+            <input
+              ref={pasteInputRef}
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") sendPasteText();
+                if (e.key === "Escape") closePastePopup();
+              }}
+              placeholder="Paste or type here"
+              className="px-4 py-3 bg-dark-600 text-white rounded-brand border border-dark-400 focus:border-brand-500 outline-none w-full"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={closePastePopup}
+                className="px-4 py-2 bg-dark-600 hover:bg-dark-400 text-white rounded-brand border border-dark-400 transition-colors"
+              >
+                Close
+              </button>
+              {clipboardText && (
+                <button
+                  onClick={handlePasteButton}
+                  className="px-4 py-2 bg-dark-600 hover:bg-dark-400 text-white rounded-brand border border-dark-400 transition-colors"
+                >
+                  Paste
+                </button>
+              )}
+              <button
+                onClick={sendPasteText}
+                disabled={!pasteText}
+                className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-brand font-medium transition-colors"
+              >
+                Send
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

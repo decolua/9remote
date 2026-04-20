@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { useRemoteSocket } from "@/features/remote/hooks/useRemoteSocket";
 import { useCanvas } from "@/features/remote/hooks/useCanvas";
 import { useInput } from "@/features/remote/hooks/useInput";
@@ -15,9 +15,7 @@ import RemoteHelpModal from "@/features/remote/components/RemoteHelpModal";
 import Spinner from "@/shared/components/ui/Spinner";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-// localStorage keys — grouped prefix for clarity
 const STORAGE_KEYS = {
-  keyboardOn: "remoteDesktop.keyboardOn",
   pointerMode: "remoteDesktop.pointerMode",
   showTextPanel: "remoteDesktop.showTextPanel",
   handMode: "remoteDesktop.handMode"
@@ -26,16 +24,13 @@ const STORAGE_KEYS = {
 export default function RemoteDesktop({ onClose, socketRef, connected }) {
   const [showHelp, setShowHelp] = useState(false);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
-  // Persisted user preferences
   const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, false);
-  const [keyboardOn, setKeyboardOn] = usePersistedState(STORAGE_KEYS.keyboardOn, false);
+  const [keyboardOn, setKeyboardOn] = useState(false);
   const [pointerMode, setPointerMode] = usePersistedState(STORAGE_KEYS.pointerMode, REMOTE_CONFIG.pointerMode);
   const [handMode, setHandMode] = usePersistedState(STORAGE_KEYS.handMode, false);
 
-  // Detect whether the client has a physical mouse+keyboard (PC) or is touch-driven.
-  // Drives UI simplification and canvas event routing in a DRY way.
   const inputMode = useInputMode();
-  // PC mode is always direct absolute pointing — force it without touching touch prefs.
+  // PC mode forces direct absolute pointing
   useEffect(() => {
     if (inputMode === "mouse" && pointerMode !== "direct") setPointerMode("direct");
   }, [inputMode, pointerMode, setPointerMode]);
@@ -71,30 +66,37 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
   };
 
   const handleClose = useCallback(() => {
-    // Open app-wide ConfirmDialog instead of window.confirm for consistent UX
     setShowConfirmExit(true);
   }, []);
+
+  // Mirror keyboardOn into a ref so onBlur handler reads the latest value
+  // synchronously (React state update from toggleKeyboard hasn't committed yet
+  // when blur fires → without ref, the blur handler re-focuses and keyboard
+  // can't be turned off on Android).
+  const keyboardOnRef = useRef(keyboardOn);
+  useEffect(() => { keyboardOnRef.current = keyboardOn; }, [keyboardOn]);
 
   // Toggle native keyboard by focus/blur the hidden text input.
   // Must call focus() SYNCHRONOUSLY inside user gesture — iOS/Android block
   // focus-driven keyboard if wrapped in setTimeout/Promise.
   const toggleKeyboard = useCallback(() => {
     const next = !keyboardOn;
+    keyboardOnRef.current = next; // sync before blur() so onBlur sees new value
+    setKeyboardOn(next);
     if (next) textInputRef.current?.focus();
     else textInputRef.current?.blur();
-    setKeyboardOn(next);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keyboardOn]);
 
-  // Toggle batch input panel. If native keyboard is already on, re-focus the hidden input
-  // synchronously so the keyboard stays visible across the re-render.
+  // When closing panel, sync-focus hidden sink to keep native keyboard visible (iOS gesture rule).
+  // When opening, let RemoteControls' useEffect focus the panel textarea after slide-in.
   const toggleTextPanel = useCallback(() => {
-    if (keyboardOn) textInputRef.current?.focus();
-    setShowTextPanel(prev => !prev);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyboardOn]);
+    const next = !showTextPanel;
+    if (!next && keyboardOn) textInputRef.current?.focus();
+    setShowTextPanel(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTextPanel, keyboardOn]);
 
-  // Single-tap Undo shortcut (Ctrl+Z)
   const sendUndo = useCallback(() => {
     if (!streaming) return;
     emitKeyPress("z", ["control"]);
@@ -120,13 +122,6 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     handleCanvasDimensions
   } = useCanvas(socketEmitFunctions);
 
-  // NOTE: Auto-focus on mount was intentionally removed.
-  // iOS Safari blocks focus-driven keyboard without a user gesture anyway, and
-  // programmatically focusing a bottom-anchored hidden input causes iOS to scroll
-  // the visual viewport (offsetTop > 0) → top of the app gets clipped. User must
-  // tap the ⌨️ button (a real gesture) to restore the native keyboard.
-
-  // When switching to trackpad mode, center the virtual cursor on canvas
   const togglePointerMode = useCallback(() => {
     setPointerMode(prev => {
       const next = prev === "trackpad" ? "direct" : "trackpad";
@@ -166,12 +161,11 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     sendTabKey,
     sendEnterKey,
     handleSelection,
-    handleModifiedTextInput
+    handleModifiedTextInput,
+    handleDirectInputChange
   } = useInput(socketEmitFunctions);
 
-  // Toggle hand (hold-drag) mode — mutually exclusive with selection rectangle.
-  // Instant-hold: turning ON immediately presses mouse-left at the virtual cursor
-  // (+ boost stream). Turning OFF while still holding releases the press.
+  // Hand mode: ON presses mouse-left at virtual cursor; OFF releases it.
   const toggleHandMode = useCallback(() => {
     setHandMode(prev => {
       const next = !prev;
@@ -196,7 +190,6 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     requestScreenWithHashes
   } = useTiles(socketRef, streaming, canvasRef);
 
-  // Mount: register listeners + start streaming. Unmount: stop streaming + cleanup.
   useEffect(() => {
     const socket = socketRef?.current;
     if (!socket || !connected) return;
@@ -204,7 +197,6 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     const onScreenDimensions = (dimensions) => {
       handleScreenDimensions(dimensions);
       handleCanvasDimensions(dimensions, renderedTilesRef);
-      // Force full refresh after dimensions received
       setTimeout(() => {
         socket.emit("request-screen-with-hashes", { tileHashes: [] });
       }, 100);
@@ -239,18 +231,16 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
       cleanupTiles();
       if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
 
-  // Hash request interval (backup sync)
   useEffect(() => {
     if (!streaming || !connected || !socketRef?.current) return;
     const id = setInterval(() => requestScreenWithHashes(), REMOTE_CONFIG.hashRequestInterval);
     return () => clearInterval(id);
   }, [streaming, connected, socketRef, requestScreenWithHashes]);
 
-  // Pause stream when browser tab is hidden (switch tab, minimize, lock screen)
-  // to save agent CPU + bandwidth. Resume + request full refresh on return.
+  // Pause stream when tab hidden to save CPU + bandwidth
   useEffect(() => {
     const socket = socketRef?.current;
     if (!socket || !connected) return;
@@ -266,8 +256,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [connected, socketRef]);
 
-  // Focus-based streaming: emit visible canvas rect to server when pan/zoom changes.
-  // zoom=1 → emit null (full screen). Debounced to avoid flooding during gesture.
+  // Focus-based streaming: emit visible canvas rect on pan/zoom; zoom=1 → null (full screen)
   useEffect(() => {
     if (!streaming) return;
     const timer = setTimeout(() => {
@@ -278,7 +267,6 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
 
       const totalScale = fitScale * canvasZoom;
       if (totalScale <= 0) return;
-      // Viewport rect in canvas-space: reverse pan then reverse scale
       const x = Math.max(0, -canvasPan.x / totalScale);
       const y = Math.max(0, -canvasPan.y / totalScale);
       const w = Math.min(canvas.width - x, container.clientWidth / totalScale);
@@ -288,7 +276,6 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     return () => clearTimeout(timer);
   }, [streaming, canvasZoom, canvasPan, fitScale, canvasRef, canvasContainerRef, emitSetFocus]);
 
-  // Auto-turn-off hand mode when cursor release fires from useCanvas.
   const onHandRelease = useCallback(() => setHandMode(false), [setHandMode]);
 
   const createInteractionHandler = (type) => (e) => {
@@ -391,10 +378,11 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
         onTextInputChange={setTextInputValue}
         onTextInputFocus={handleTextInputFocus}
         onTextInputBlur={() => {
-          // Keep native keyboard visible when keyboardOn=true
-          if (keyboardOn) setTimeout(() => textInputRef.current?.focus(), 0);
+          // Re-focus to keep native keyboard visible. Use ref (not state) so toggleKeyboard's blur can close it.
+          if (keyboardOnRef.current && !showTextPanel) setTimeout(() => textInputRef.current?.focus(), 0);
         }}
         onTextInputKeyDown={(e) => handleModifiedTextInput(e, streaming, keyboardOn && !showTextPanel)}
+        onDirectInputChange={(value) => handleDirectInputChange(value, streaming)}
         onSendText={sendTextInput}
         onClose={handleClose}
       />
@@ -405,7 +393,6 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
           pointerMode={pointerMode}
           onClose={() => {
             setShowHelp(false);
-            // Re-focus hidden input synchronously to preserve native keyboard when it was on
             if (keyboardOn) textInputRef.current?.focus();
           }}
         />

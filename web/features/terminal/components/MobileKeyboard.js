@@ -6,10 +6,11 @@ import { BASIC_KEYS, EXTENDED_KEYS, MAC_KEY, BUTTON_STYLES } from "@/features/te
 import { vibrate } from "@/shared/utils/vibration";
 import { Paperclip } from "@/shared/components/ui/Icon";
 import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
+import { usePersistedState } from "@/shared/hooks/usePersistedState";
 
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showTextInput, setShowTextInput] = useState(false);
+  const [showTextInput, setShowTextInput] = usePersistedState("terminal.showTextInput", false);
   const [textInput, setTextInput] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [showPasteInput, setShowPasteInput] = useState(false);
@@ -118,6 +119,12 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Sync layout when showTextInput is restored from persisted state on mount
+  useEffect(() => {
+    if (showTextInput && onExpandChange) onExpandChange(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Try clipboard API, fallback to input popup
@@ -304,14 +311,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     if (!textInput.trim() || !socket || !sessionId) return;
     socket.emit("input", { sessionId, data: textInput });
     setTextInput("");
-    setShowTextInput(false);
-    if (onExpandChange) {
-      setTimeout(() => onExpandChange(false), 320);
-    }
-    // Refocus terminal after sending
-    if (onRefocus) {
-      setTimeout(() => onRefocus(), 350);
-    }
+    // Keep input open and focused so user can send more messages
+    textInputRef.current?.focus();
   };
 
   // Handle file upload

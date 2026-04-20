@@ -79,3 +79,5 @@ benchmark/output/*
 benchmark/results/*
 .win/*
 .win/fix.txt
+web/wrangler.old.toml
+web/wrangler.toml

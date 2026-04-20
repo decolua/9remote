@@ -1,16 +1,14 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import Button from "@/shared/components/ui/Button";
 import { ChevronLeft, RefreshCw, Keyboard, HelpCircle, Undo2, Hand } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
-// Wrapper to add vibration to any callback
 const v = (fn, ...args) => { vibrate(); fn?.(...args); };
 
-// Local button — prevents focus-steal so native keyboard stays visible when ⌨️ is on.
-// onMouseDown.preventDefault() stops the button from grabbing focus away from textInputRef.
+// onMouseDown.preventDefault() — prevents focus-steal so native keyboard stays on.
 function Btn({ active, primary, children, className = "", onClick, ...rest }) {
   const base = "shrink-0 px-3 py-2 rounded-brand text-xs font-semibold transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] flex items-center justify-center";
   const normal = "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500";
@@ -60,33 +58,36 @@ export default function RemoteControls({
   onTextInputFocus,
   onTextInputBlur,
   onTextInputKeyDown,
+  onDirectInputChange,
   onSendText,
   onClose
 }) {
-  // Horizontal scroll on mobile: mirror terminal's MobileKeyboard (simple overflow-auto).
-  // Hide scrollbar cross-browser.
   const rowClass = "flex gap-1.5 overflow-auto px-2 py-1.5 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:content-center landscape:justify-center";
   const rowStyle = { scrollbarWidth: "none", msOverflowStyle: "none" };
-  // Separate ref for the visible batch-input panel — keeps the hidden native-keyboard input
-  // always mounted so toggling "Aa" never unmounts the focused element (which would dismiss the keyboard).
   const panelInputRef = useRef(null);
 
-  // PC mode visibility filter. `show(k)` returns true on touch (keep everything) OR
-  // when the PC-mode config explicitly enables that control. DRY — no JSX duplication.
+  // Auto-focus panel textarea after slide-in (350ms matches panel animation).
+  useEffect(() => {
+    if (!showTextPanel) return;
+    const t = setTimeout(() => panelInputRef.current?.focus(), 350);
+    return () => clearTimeout(t);
+  }, [showTextPanel]);
+
   const pcCfg = REMOTE_CONFIG.pcModeControls;
   const show = (k) => inputMode !== "mouse" || pcCfg[k];
 
   return (
     <div className="bg-dark-600 border-t border-dark-400 select-none relative landscape:border-t-0 landscape:border-l landscape:h-full landscape:flex landscape:flex-col landscape:w-72 landscape:shrink-0">
-      {/* Hidden input ALWAYS mounted — drives native keyboard when ⌨️ is on.
-          Toggling Aa/panel must not unmount this element or the keyboard will dismiss. */}
-      <input
+      {/* Hidden sink drives native keyboard. Use <textarea> (not <input>) to skip
+          iOS/Android AutoFill bar + top:0 anchor to keep offsetTop=0 on iOS. */}
+      <textarea
         ref={textInputRef}
-        type="text"
-        value={keyboardOn && !showTextPanel ? "" : textInputValue}
+        rows={1}
+        value={textInputValue}
         onChange={(e) => {
-          // In direct keyboard mode, ignore value changes (keys go straight to agent via onKeyDown).
-          if (!(keyboardOn && !showTextPanel)) onTextInputChange(e.target.value);
+          // Android IME sends chars via onChange (keyDown.key="Unidentified").
+          if (keyboardOn && !showTextPanel) onDirectInputChange?.(e.target.value);
+          else onTextInputChange(e.target.value);
         }}
         onKeyDown={onTextInputKeyDown}
         onFocus={onTextInputFocus}
@@ -96,6 +97,10 @@ export default function RemoteControls({
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
+        data-lpignore="true"
+        data-1p-ignore="true"
+        data-form-type="other"
+        name="remote-keyboard-sink"
         style={{
           position: "absolute",
           opacity: 0.01,
@@ -104,29 +109,31 @@ export default function RemoteControls({
           border: 0,
           padding: 0,
           left: 0,
-          // Anchor at top: iOS Safari scrolls the visual viewport to bring the
-          // focused input into view, so a bottom-anchored input causes offsetTop
-          // to become non-zero (clipping the app top). Top anchor keeps offsetTop = 0.
           top: 0,
-          // font-size: 16px prevents iOS auto-zoom on focus (which triggers
-          // viewport resize and layout shift).
-          fontSize: 16,
+          fontSize: 16, // 16px prevents iOS auto-zoom on focus
+          resize: "none",
           pointerEvents: "none",
           zIndex: -1
         }}
       />
 
-      {/* Text input panel — Aa toggles it on portrait; always visible in landscape.
-          <textarea> so Enter inserts newline; Send button flushes buffered text. */}
       <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} px-2 py-2 border-b border-dark-400 gap-2 landscape:border-b-0 landscape:border-t landscape:order-last`}>
           <textarea
             ref={panelInputRef}
-            rows={2}
+            rows={Math.min(2, (textInputValue.match(/\n/g) || []).length + 1)}
             value={textInputValue}
             onChange={(e) => onTextInputChange(e.target.value)}
             onFocus={onTextInputFocus}
             placeholder="Type text to send..."
-            className="flex-1 min-w-0 px-3 py-2 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 text-sm resize-none landscape:h-32"
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-form-type="other"
+            name="remote-batch-input"
+            className="w-full px-3 py-2 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none landscape:h-32"
             disabled={!streaming}
           />
           <Button
@@ -140,7 +147,6 @@ export default function RemoteControls({
           </Button>
       </div>
 
-      {/* Row 1 — utility bar */}
       <div className={`${rowClass} landscape:border-b landscape:border-dark-400`} style={rowStyle}>
         <Btn onClick={() => v(onClose)} title="Back">
           <ChevronLeft className="text-orange-400" size={16} />
@@ -193,9 +199,6 @@ export default function RemoteControls({
         )}
       </div>
 
-      {/* Row 2 — keys bar (virtual keys / sticky modifiers). On PC mode these
-          act as fallbacks for shortcuts the browser normally eats (Tab, etc.)
-          and as sticky modifier combos. Toggled via pcModeControls.modifierRow. */}
       {show("modifierRow") && (
         <div className={rowClass} style={rowStyle}>
           <Btn onClick={() => v(onEscKey, streaming)} disabled={!streaming}>Esc</Btn>

@@ -88,12 +88,14 @@ export function useInput(socketEmitFunctions) {
   }, [isDragging]);
 
   const handleTextInputFocus = useCallback(() => {
-    if (isMobile && textInputRef.current) {
-      setTimeout(() => {
-        textInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 300);
-    }
-  }, [isMobile]);
+    // NOTE: Deliberately NO scrollIntoView here.
+    // The hidden textarea is anchored at top:0 with 1px size. Calling
+    // scrollIntoView({ block: "center" }) pushes the document down so the
+    // invisible textarea is centered in the visual viewport — which on Android
+    // Chrome creates a visible gap between the bottom RemoteControls bar and
+    // the native keyboard. Terminal's MobileKeyboard doesn't do this and sits
+    // flush against the keyboard, so we match that behavior.
+  }, []);
 
   // Canvas keydown handler — used by physical keyboard when canvas has focus (PC mode).
   // Preserves case (for Shift-modified chars like "!", "A"), maps special keys via
@@ -171,6 +173,15 @@ export function useInput(socketEmitFunctions) {
     socketEmitFunctions.emitTypeText(textInputValue);
     setTextInputValue("");
   }, [textInputValue, socketEmitFunctions]);
+
+  // Android IME fallback for direct mode. Android keyboards insert characters
+  // via input events instead of keydown (event.key="Unidentified"). When the
+  // hidden input value grows, emit the new characters as typed text and clear.
+  const handleDirectInputChange = useCallback((value, streaming) => {
+    if (!streaming || !value || !socketEmitFunctions?.emitTypeText) return;
+    socketEmitFunctions.emitTypeText(value);
+    setTextInputValue("");
+  }, [socketEmitFunctions]);
 
   // Emit a key with currently active sticky modifiers applied, then clear them.
   const emitKeyWithActiveModifiers = useCallback((key) => {
@@ -263,6 +274,10 @@ export function useInput(socketEmitFunctions) {
     const isPureModifierKey = ["shift", "control", "meta", "alt"].includes(keyToSend);
     if (isPureModifierKey) return;
 
+    // Android IME fallback: GBoard/Samsung keyboard send event.key="Unidentified"
+    // (keyCode=229) for regular character keys. Let onChange handler capture those.
+    if (event.key === "Unidentified" || event.keyCode === 229) return;
+
     const activeModifiers = Object.keys(modifierKeys).filter(key => modifierKeys[key]);
     const hasUIModifiers = activeModifiers.length > 0;
     const hasKeyboardModifiers = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
@@ -351,6 +366,7 @@ export function useInput(socketEmitFunctions) {
     sendTabKey,
     sendEnterKey,
     handleSelection,
-    handleModifiedTextInput
+    handleModifiedTextInput,
+    handleDirectInputChange
   };
 }

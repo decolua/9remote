@@ -1,10 +1,22 @@
 /** @type {import('next').NextConfig} */
 import { readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const monorepoRoot = path.resolve(__dirname, "..");
 const rootPkg = JSON.parse(readFileSync("../package.json", "utf-8"));
 
 const nextConfig = {
   reactStrictMode: false,
+  // Monorepo root — fixes Turbopack standalone build (used by opennextjs-cloudflare)
+  // failing to resolve hoisted deps (zustand/middleware, highlight.js/*, styled-jsx/style).
+  // See vercel/next.js#88844. Requires post-build step to flatten
+  // .next/standalone/web/* → .next/standalone/* for opennextjs-cloudflare.
+  turbopack: {
+    root: monorepoRoot,
+  },
+  outputFileTracingRoot: monorepoRoot,
   images: {
     unoptimized: true
   },

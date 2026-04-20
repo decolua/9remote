@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * Post-build obfuscator for Next.js (Turbopack) client chunks.
- * Scans .next/static/chunks/**\/*.js and obfuscates in-place using browserPreset.
+ * Post-build for Next.js (Turbopack) client chunks:
+ * 1. Obfuscate .next/static/chunks/**\/*.js using browserPreset.
+ * 2. Flatten standalone output for monorepo — move .next/standalone/web/*
+ *    up to .next/standalone/* so opennextjs-cloudflare (which expects flat
+ *    layout) can find .next/server/pages-manifest.json. Needed because
+ *    outputFileTracingRoot=monorepoRoot nests by workspace name.
  */
 
 import fs from "fs";
@@ -14,6 +18,8 @@ import { browserPreset } from "./obfuscatorConfig.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const TARGET_DIR = path.join(ROOT, "web/.next/static/chunks");
+const STANDALONE_DIR = path.join(ROOT, "web/.next/standalone");
+const STANDALONE_WEB_DIR = path.join(STANDALONE_DIR, "web");
 
 function walk(dir, files = []) {
   if (!fs.existsSync(dir)) return files;
@@ -48,4 +54,20 @@ function run() {
   console.log(`✅ Obfuscated ${files.length} file(s): ${mb(totalBefore)}MB → ${mb(totalAfter)}MB`);
 }
 
+// Flatten .next/standalone/web/* → .next/standalone/* (monorepo workaround).
+// Skip if standalone wasn't produced (plain `next build` without NEXT_PRIVATE_STANDALONE).
+function flattenStandalone() {
+  if (!fs.existsSync(STANDALONE_WEB_DIR)) return;
+  console.log("📦 Flattening standalone output for monorepo...");
+  for (const entry of fs.readdirSync(STANDALONE_WEB_DIR, { withFileTypes: true })) {
+    const src = path.join(STANDALONE_WEB_DIR, entry.name);
+    const dest = path.join(STANDALONE_DIR, entry.name);
+    if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+    fs.renameSync(src, dest);
+  }
+  fs.rmdirSync(STANDALONE_WEB_DIR);
+  console.log("✅ Standalone flattened.");
+}
+
 run();
+flattenStandalone();

@@ -30,24 +30,24 @@ import SlideMenu from "@/shared/components/ui/SlideMenu";
 export default function WorkspacePage() {
   // Hydration state for Zustand
   const [hydrated, setHydrated] = useState(false);
-  
+
   // UI state from Zustand store (persisted to sessionStorage)
-  const { 
-    viewStack, 
-    openedSessions, 
-    pushView, 
-    popView: storePopView, 
+  const {
+    viewStack,
+    openedSessions,
+    pushView,
+    popView: storePopView,
     setViewStack,
     addOpenedSession,
     removeOpenedSession,
     reset: resetStore
   } = useTerminalStore();
-  
+
   // Hydrate Zustand on mount
   useEffect(() => {
     setHydrated(true);
   }, []);
-  
+
   const [theme, setTheme] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("terminal_theme") || "default";
@@ -128,7 +128,7 @@ export default function WorkspacePage() {
   // VisualViewport height - handle mobile keyboard
   useEffect(() => {
     let lastKeyboardState = false; // Track keyboard state to prevent unnecessary updates
-    
+
     const updateAppHeight = () => {
       const vv = window.visualViewport;
       const vvHeight = vv?.height || window.innerHeight;
@@ -162,7 +162,7 @@ export default function WorkspacePage() {
     const preventScroll = (e) => {
       // Allow scroll in xterm, codemirror, file explorer, git panel, modals
       if (
-        e.target.closest(".xterm-viewport") || 
+        e.target.closest(".xterm-viewport") ||
         e.target.closest(".xterm-screen") ||
         e.target.closest(".cm-scroller") ||
         e.target.closest(".cm-content") ||
@@ -369,7 +369,7 @@ export default function WorkspacePage() {
   // Only show loading on initial mount or hydration
   const auth = getAuth();
   const isInitializing = !hydrated || (!socket && !auth?.tunnelUrl);
-  
+
   if (isInitializing) {
     return (
       <div className="min-h-screen bg-dark-700 flex items-center justify-center">
@@ -382,213 +382,211 @@ export default function WorkspacePage() {
     <>
       {/* <MobileBackgroundImage /> */}
       <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
-      {/* Session List */}
-      <div 
-        className={`absolute inset-0 transition-all duration-300 ease-out ${
-          currentView.type === "list" 
-            ? "translate-x-0 opacity-100 z-10" 
-            : "-translate-x-full opacity-0 z-0 pointer-events-none"
-        }`}
-      >
-        <SessionList
-          sessions={sessions}
-          connected={connected}
-          onSelect={handleSelectSession}
-          onCreate={handleCreateSession}
-          onDelete={handleDeleteSession}
-          onRename={handleRenameSession}
-          onLogout={handleLogoutWithConfirm}
-          onOpenRemote={connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
-          onOpenFiles={handleOpenFiles}
-          tunnelUrl={auth?.tunnelUrl}
-          apiKey={auth?.apiKey}
-          connectionMode={connectionMode}
-          codespaceInfo={codespaceInfo}
-          codespaceDisconnected={codespaceDisconnected}
-          onStopCodespace={stopCodespace}
-          retryStatus={retryStatus}
-          isActive={currentView.type === "list"}
-          socketRef={socketRef}
-          subscribeToPush={subscribeToPush}
-          unsubscribeFromPush={unsubscribeFromPush}
-          notifications={notifications}
-          clearNotification={clearNotification}
-          agentVersion={agentVersion}
-        />
-      </div>
-
-      {/* Terminal view: shared header + multi-pane layout */}
-      {openedSessions.length > 0 && (() => {
-        const isTerminalView = currentView.type === "terminal";
-        const activeSessionId = isTerminalView ? currentView.sessionId : null;
-        return (
-          <div
-            className={`absolute inset-0 transition-all duration-300 ease-out flex flex-col ${
-              isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
+        {/* Session List */}
+        <div
+          className={`absolute inset-0 transition-all duration-300 ease-out ${currentView.type === "list"
+              ? "translate-x-0 opacity-100 z-10"
+              : "-translate-x-full opacity-0 z-0 pointer-events-none"
             }`}
-          >
-            <TerminalHeader
-              sessions={sessions}
-              activeSessionId={activeSessionId}
-              isActive={isTerminalView}
-              connected={connected}
-              notifications={notifications}
-              onSwitchSession={handleSelectSession}
-              onCreateSession={handleQuickCreateSession}
-              onBack={popView}
-              onOpenRemote={connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
-              onOpenFiles={handleOpenFiles}
-              onLogout={handleLogoutWithConfirm}
-              onStopCodespace={stopCodespace}
-              onThemeChange={handleThemeChange}
-              theme={theme}
-              codespaceInfo={codespaceInfo}
-              tunnelUrl={auth?.tunnelUrl}
-              apiKey={auth?.apiKey}
-              connectionMode={connectionMode}
-              subscribeToPush={subscribeToPush}
-              unsubscribeFromPush={unsubscribeFromPush}
-              agentVersion={agentVersion}
-              socketRef={socketRef}
-            />
+        >
+          <SessionList
+            sessions={sessions}
+            connected={connected}
+            onSelect={handleSelectSession}
+            onCreate={handleCreateSession}
+            onDelete={handleDeleteSession}
+            onRename={handleRenameSession}
+            onLogout={handleLogoutWithConfirm}
+            onOpenRemote={connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
+            onOpenFiles={handleOpenFiles}
+            tunnelUrl={auth?.tunnelUrl}
+            apiKey={auth?.apiKey}
+            connectionMode={connectionMode}
+            codespaceInfo={codespaceInfo}
+            codespaceDisconnected={codespaceDisconnected}
+            onStopCodespace={stopCodespace}
+            retryStatus={retryStatus}
+            isActive={currentView.type === "list"}
+            socketRef={socketRef}
+            subscribeToPush={subscribeToPush}
+            unsubscribeFromPush={unsubscribeFromPush}
+            notifications={notifications}
+            clearNotification={clearNotification}
+            agentVersion={agentVersion}
+          />
+        </div>
 
-            {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
-            <div className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-dark-400" : "relative"}`}>
-              {openedSessions.map((sessionId) => {
-                const isFocused = sessionId === activeSessionId;
-                const isVisible = isDesktop || isFocused;
-                return (
-                  <div
-                    key={sessionId}
-                    ref={(el) => registerPaneElement(sessionId, el)}
-                    className={
-                      isDesktop
-                        ? "flex-1 h-full"
-                        : `absolute inset-0 ${isFocused ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`
-                    }
-                    style={isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
-                  >
-                    <TerminalPane
-                      socket={socket}
-                      connected={connected}
-                      sessionId={sessionId}
-                      isVisible={isVisible}
-                      isFocused={isFocused}
-                      theme={theme}
-                      onActivate={handleSelectSession}
-                      onRegisterApi={registerPaneApi}
-                      showFocusBorder={isDesktop && openedSessions.length > 1}
-                      notifications={notifications}
-                      clearNotification={clearNotification}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Shared MobileKeyboard - routes to focused pane */}
-            {activeSessionId && (
-              <MobileKeyboard
-                socket={socket}
-                sessionId={activeSessionId}
-                onExpandChange={() => paneApisRef.current[activeSessionId]?.doResize?.()}
-                onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
-                platform={platform}
+        {/* Terminal view: shared header + multi-pane layout */}
+        {openedSessions.length > 0 && (() => {
+          const isTerminalView = currentView.type === "terminal";
+          const activeSessionId = isTerminalView ? currentView.sessionId : null;
+          return (
+            <div
+              className={`absolute inset-0 transition-all duration-300 ease-out flex flex-col ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
+                }`}
+            >
+              <TerminalHeader
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                isActive={isTerminalView}
+                connected={connected}
+                notifications={notifications}
+                onSwitchSession={handleSelectSession}
+                onCreateSession={handleQuickCreateSession}
+                onBack={popView}
+                onOpenRemote={connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
+                onOpenFiles={handleOpenFiles}
+                onLogout={handleLogoutWithConfirm}
+                onStopCodespace={stopCodespace}
+                onThemeChange={handleThemeChange}
+                theme={theme}
+                codespaceInfo={codespaceInfo}
+                tunnelUrl={auth?.tunnelUrl}
+                apiKey={auth?.apiKey}
+                connectionMode={connectionMode}
+                subscribeToPush={subscribeToPush}
+                unsubscribeFromPush={unsubscribeFromPush}
+                agentVersion={agentVersion}
+                socketRef={socketRef}
               />
-            )}
+
+              {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
+              <div className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-dark-400" : "relative"}`}>
+                {openedSessions.map((sessionId) => {
+                  const isFocused = sessionId === activeSessionId;
+                  const isVisible = isDesktop || isFocused;
+                  return (
+                    <div
+                      key={sessionId}
+                      ref={(el) => registerPaneElement(sessionId, el)}
+                      className={
+                        isDesktop
+                          ? "flex-1 h-full"
+                          : `absolute inset-0 ${isFocused ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`
+                      }
+                      style={isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
+                    >
+                      <TerminalPane
+                        socket={socket}
+                        connected={connected}
+                        sessionId={sessionId}
+                        isVisible={isVisible}
+                        isFocused={isFocused}
+                        theme={theme}
+                        onActivate={handleSelectSession}
+                        onRegisterApi={registerPaneApi}
+                        showFocusBorder={isDesktop && openedSessions.length > 1}
+                        notifications={notifications}
+                        clearNotification={clearNotification}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Shared MobileKeyboard - routes to focused pane */}
+              {activeSessionId && (
+                <MobileKeyboard
+                  socket={socket}
+                  sessionId={activeSessionId}
+                  onExpandChange={() => paneApisRef.current[activeSessionId]?.doResize?.()}
+                  onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
+                  platform={platform}
+                />
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Remote Desktop - conditional render */}
+        {currentView.type === "remote" && (
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
+            <RemoteDesktop onClose={popView} socketRef={socketRef} connected={connected} connectionMode={connectionMode} />
           </div>
-        );
-      })()}
+        )}
 
-      {/* Remote Desktop - conditional render */}
-      {currentView.type === "remote" && (
-        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
-          <RemoteDesktop onClose={popView} socketRef={socketRef} connected={connected} connectionMode={connectionMode} />
-        </div>
-      )}
+        {/* Workspace List */}
+        {currentView.type === "workspaces" && (
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+            <WorkspaceList
+              onSelect={handleSelectWorkspace}
+              onBrowse={handleBrowseFolder}
+              onBack={popView}
+              isCodespaces={codespaceInfo?.isCodespaces}
+              systemInfo={systemInfo}
+            />
+          </div>
+        )}
 
-      {/* Workspace List */}
-      {currentView.type === "workspaces" && (
-        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
-          <WorkspaceList
-            onSelect={handleSelectWorkspace}
-            onBrowse={handleBrowseFolder}
-            onBack={popView}
-            isCodespaces={codespaceInfo?.isCodespaces}
-            systemInfo={systemInfo}
-          />
-        </div>
-      )}
+        {/* Browse Folder (selecting workspace) */}
+        {currentView.type === "browse" && (
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+            <FileExplorer
+              workspace={currentView.path}
+              fileSocket={fileSocket}
+              onBack={popView}
+              onSetWorkspace={handleSetWorkspace}
+              isBrowsing={true}
+            />
+          </div>
+        )}
 
-      {/* Browse Folder (selecting workspace) */}
-      {currentView.type === "browse" && (
-        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
-          <FileExplorer
-            workspace={currentView.path}
-            fileSocket={fileSocket}
-            onBack={popView}
-            onSetWorkspace={handleSetWorkspace}
-            isBrowsing={true}
-          />
-        </div>
-      )}
+        {/* File Explorer (workspace mode) */}
+        {currentView.type === "files" && (
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+            <FileExplorer
+              workspace={currentView.workspace}
+              initialPath={currentView.currentPath}
+              fileSocket={fileSocket}
+              onBack={popView}
+              onOpenFile={handleOpenFile}
+              onOpenGit={handleOpenGit}
+              onSwitchWorkspace={handleOpenWorkspaceList}
+              onPathChange={(p) => handlePathChange(currentView.workspace, p)}
+            />
+          </div>
+        )}
 
-      {/* File Explorer (workspace mode) */}
-      {currentView.type === "files" && (
-        <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
-          <FileExplorer
-            workspace={currentView.workspace}
-            initialPath={currentView.currentPath}
-            fileSocket={fileSocket}
-            onBack={popView}
-            onOpenFile={handleOpenFile}
-            onOpenGit={handleOpenGit}
-            onSwitchWorkspace={handleOpenWorkspaceList}
-            onPathChange={(p) => handlePathChange(currentView.workspace, p)}
-          />
-        </div>
-      )}
+        {/* File Editor */}
+        {currentView.type === "editor" && (
+          <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
+            <FileEditor
+              filePath={currentView.path}
+              line={currentView.line}
+              column={currentView.column}
+              fileSocket={fileSocket}
+              onBack={popView}
+              workspace={viewStack.find(v => v.type === "files")?.workspace}
+            />
+          </div>
+        )}
 
-      {/* File Editor */}
-      {currentView.type === "editor" && (
-        <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
-          <FileEditor
-            filePath={currentView.path}
-            line={currentView.line}
-            column={currentView.column}
-            fileSocket={fileSocket}
-            onBack={popView}
-            workspace={viewStack.find(v => v.type === "files")?.workspace}
-          />
-        </div>
-      )}
+        {/* Git Panel */}
+        {currentView.type === "git" && (
+          <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
+            <GitPanel
+              workspace={currentView.workspace}
+              fileSocket={fileSocket}
+              onBack={popView}
+              onOpenFile={handleOpenFile}
+            />
+          </div>
+        )}
 
-      {/* Git Panel */}
-      {currentView.type === "git" && (
-        <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
-          <GitPanel
-            workspace={currentView.workspace}
-            fileSocket={fileSocket}
-            onBack={popView}
-            onOpenFile={handleOpenFile}
-          />
-        </div>
-      )}
+        {/* Connection Modal - overlay when retrying/failed */}
+        <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} onLogout={handleDisconnect} />
 
-      {/* Connection Modal - overlay when retrying/failed */}
-      <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} onLogout={handleDisconnect} />
+        {/* Global Slide Menu - single instance at page level */}
+        <SlideMenu />
 
-      {/* Global Slide Menu - single instance at page level */}
-      <SlideMenu />
-
-      {/* Confirm Dialog - page level for logout confirmation */}
-      <ConfirmDialog
-        isOpen={confirmDialog.isOpen}
-        onClose={closeConfirmDialog}
-        onConfirm={confirmDialog.onConfirm}
-        title={confirmDialog.title}
-        message={confirmDialog.message}
-      />
+        {/* Confirm Dialog - page level for logout confirmation */}
+        <ConfirmDialog
+          isOpen={confirmDialog.isOpen}
+          onClose={closeConfirmDialog}
+          onConfirm={confirmDialog.onConfirm}
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+        />
       </div>
     </>
   );

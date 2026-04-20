@@ -12,10 +12,6 @@ CLOUDFLARE_ACCOUNT_ID = "4499702710a2818880232d356243a422"
 CLOUDFLARE_EMAIL = "decoluadt@gmail.com"
 CLOUDFLARE_API_KEY = "***REMOVED***"
 
-AI_ENDPOINT = "https://9router.com/v1/chat/completions"
-AI_API_KEY = "***REMOVED***"
-AI_MODEL = "9remote"
-
 TURN_KEY_ID = "7e896708cbd77c30e5d1211f48ea859f"
 TURN_KEY_SECRET = "***REMOVED***"
 
