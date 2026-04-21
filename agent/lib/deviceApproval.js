@@ -8,9 +8,13 @@ import { homedir } from "os";
 
 const STATE_DIR = join(homedir(), ".9remote");
 const DEVICES_FILE = join(STATE_DIR, "approvedDevices.json");
+const CONFIG_FILE = join(STATE_DIR, "config.json");
 
 // deviceId -> { approvedAt }
 let approvedDevices = new Map();
+
+// Auto-approve new device connections (default false). Persisted to config.json.
+let autoApprove = false;
 
 // Pending approval requests: socketId -> { deviceId, ip }
 const pendingApprovals = new Map();
@@ -113,4 +117,36 @@ export function getRejectedDevices() {
 
 export function clearRejectedDevice(deviceId) {
   rejectedDevices.delete(deviceId);
+}
+
+// ── Auto-approve setting (persisted) ────────────────────────────────
+function readConfig() {
+  try {
+    if (existsSync(CONFIG_FILE)) return JSON.parse(readFileSync(CONFIG_FILE, "utf8")) || {};
+  } catch {}
+  return {};
+}
+
+function writeConfig(cfg) {
+  try {
+    ensureDir();
+    writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+  } catch {}
+}
+
+export function loadAutoApprove() {
+  autoApprove = !!readConfig().autoApprove;
+  return autoApprove;
+}
+
+export function isAutoApprove() {
+  return autoApprove;
+}
+
+export function setAutoApprove(enabled) {
+  autoApprove = !!enabled;
+  const cfg = readConfig();
+  cfg.autoApprove = autoApprove;
+  writeConfig(cfg);
+  return autoApprove;
 }

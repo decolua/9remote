@@ -1,5 +1,7 @@
-import { useState, useEffect } from "preact/hooks";
+import { useState, useEffect, useRef } from "preact/hooks";
 import MainScreen from "./screens/MainScreen";
+
+const PENDING_POLL_MS = 3000;
 
 const defaultHealthCheck = { running: false, timeoutMs: 0, startedAt: null, logs: [] };
 
@@ -29,6 +31,7 @@ export default function App() {
   const [pendingDevice, setPendingDevice] = useState(null);
   const [approvedDevices, setApprovedDevices] = useState([]);
   const [rejectedDevices, setRejectedDevices] = useState([]);
+  const [autoApprove, setAutoApproveState] = useState(false);
   const [version, setVersion] = useState("");
   const [theme, setTheme] = useState(() => {
     // Will be overridden by server state if provided
@@ -115,8 +118,32 @@ export default function App() {
 
     es.onerror = () => {};
 
-    return () => es.close();
+    // Load initial auto-approve state
+    fetch("/api/device/auto-approve").then(r => r.json()).then(d => {
+      setAutoApproveState(!!d?.enabled);
+    }).catch(() => {});
+
+    // Fallback poll: recover pending approvals if SSE event was missed
+    // (UI mounted after event fired, SSE reconnect, etc.)
+    const pollId = setInterval(async () => {
+      if (pendingDeviceRef.current) return; // modal already showing
+      try {
+        const r = await fetch("/api/device/pending");
+        if (!r.ok) return;
+        const d = await r.json();
+        const first = d?.pending?.[0];
+        if (first && !pendingDeviceRef.current) {
+          setPendingDevice({ socketId: first.socketId, deviceId: first.deviceId, ip: first.ip });
+        }
+      } catch {}
+    }, PENDING_POLL_MS);
+
+    return () => { es.close(); clearInterval(pollId); };
   }, []);
+
+  // Keep ref in sync so interval closure sees latest value without re-subscribing
+  const pendingDeviceRef = useRef(null);
+  useEffect(() => { pendingDeviceRef.current = pendingDevice; }, [pendingDevice]);
 
   const handleRequestPermission = async (type) => {
     await fetch("/api/permissions/request", {
@@ -208,6 +235,22 @@ export default function App() {
     fetchDevices();
   };
 
+  const handleAutoApproveToggle = async () => {
+    const next = !autoApprove;
+    setAutoApproveState(next); // optimistic
+    try {
+      const r = await fetch("/api/device/auto-approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const d = await r.json().catch(() => null);
+      if (d && typeof d.enabled === "boolean") setAutoApproveState(d.enabled);
+    } catch {
+      setAutoApproveState(!next); // revert on error
+    }
+  };
+
   const handleDeviceApproveRejected = async (deviceId) => {
     await fetch("/api/device/approve-rejected", {
       method: "POST",
@@ -259,6 +302,8 @@ export default function App() {
       onDeviceRemove={handleDeviceRemove}
       onFetchDevices={fetchDevices}
       onDeviceApproveRejected={handleDeviceApproveRejected}
+      autoApprove={autoApprove}
+      onAutoApproveToggle={handleAutoApproveToggle}
     />
   );
 }

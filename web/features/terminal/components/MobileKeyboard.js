@@ -6,11 +6,10 @@ import { BASIC_KEYS, EXTENDED_KEYS, MAC_KEY, BUTTON_STYLES } from "@/features/te
 import { vibrate } from "@/shared/utils/vibration";
 import { Paperclip } from "@/shared/components/ui/Icon";
 import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
-import { usePersistedState } from "@/shared/hooks/usePersistedState";
+import { useInputMode } from "@/shared/hooks/useInputMode";
 
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showTextInput, setShowTextInput] = usePersistedState("terminal.showTextInput", false);
   const [textInput, setTextInput] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [showPasteInput, setShowPasteInput] = useState(false);
@@ -18,6 +17,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
   const pasteInputRef = useRef(null);
 
   const { isIosPwa, osType: os } = useDeviceInfo();
+  const inputMode = useInputMode();
+  // PC/laptop with physical keyboard → hide virtual key toolbar.
+  // No physical keyboard → show virtual keys + always show text input panel.
+  const hasPhysicalKeyboard = inputMode === "mouse";
 
   const [ctrlPressed, setCtrlPressed] = useState(false);
   const [metaPressed, setMetaPressed] = useState(false);
@@ -121,11 +124,11 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  // Sync layout when showTextInput is restored from persisted state on mount
+  // Text input panel is always shown → notify parent to resize once on mount / mode change.
   useEffect(() => {
-    if (showTextInput && onExpandChange) onExpandChange(true);
+    if (onExpandChange) onExpandChange(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasPhysicalKeyboard]);
 
   // Try clipboard API, fallback to input popup
   const tryPasteFromClipboard = useCallback(async () => {
@@ -211,7 +214,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     };
   }, [isMobile, socket, sessionId, ctrlPressed, metaPressed, altPressed, shiftPressed, generateCombination, tryPasteFromClipboard]);
 
-  if (!isMobile || !socket || !sessionId) return null;
+  // Render when mobile (virtual keys needed) OR when physical keyboard is present
+  // (text input panel is still useful for paste / long input).
+  if ((!isMobile && !hasPhysicalKeyboard) || !socket || !sessionId) return null;
 
   const handleModifierToggle = (modifier) => {
     vibrate();
@@ -275,7 +280,6 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
 
     const newState = !isExpanded;
     setIsExpanded(newState);
-    setShowTextInput(false); // Close text input when toggling extended
 
     // Hide mobile keyboard when expanding
     if (newState) {
@@ -285,23 +289,6 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     // Call callback after animation completes (300ms)
     if (onExpandChange) {
       setTimeout(() => onExpandChange(newState), 320);
-    }
-  };
-
-  const toggleTextInput = () => {
-    vibrate();
-
-    const newState = !showTextInput;
-    setShowTextInput(newState);
-    setIsExpanded(false); // Close extended when opening text input
-    if (onExpandChange) {
-      setTimeout(() => onExpandChange(newState), 320);
-    }
-    // Focus input when opening, refocus terminal when closing
-    if (newState) {
-      setTimeout(() => textInputRef.current?.focus(), 350);
-    } else if (onRefocus) {
-      setTimeout(() => onRefocus(), 350);
     }
   };
 
@@ -401,9 +388,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
         </div>
       )}
 
-      {/* Expanded keyboard panel */}
+      {/* Expanded keyboard panel — hidden when physical keyboard is present */}
       <div
-        className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${isExpanded ? "max-h-32 opacity-100" : "max-h-0 opacity-0"
+        className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${isExpanded && !hasPhysicalKeyboard ? "max-h-32 opacity-100" : "max-h-0 opacity-0"
           }`}
       >
         <div className="p-2 overflow-y-auto max-h-32">
@@ -423,10 +410,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
         </div>
       </div>
 
-      {/* Text Input Panel */}
+      {/* Text Input Panel — always visible (both with/without physical keyboard) */}
       <div
-        className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${showTextInput ? "max-h-24 opacity-100" : "max-h-0 opacity-0"
-          }`}
+        className="bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 max-h-24 opacity-100 overflow-hidden"
       >
         <div className="p-2 flex gap-2 items-center">
           {/* File upload button */}
@@ -472,7 +458,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
         </div>
       </div>
 
-      {/* Bottom keyboard bar */}
+      {/* Bottom keyboard bar — hidden when physical keyboard is available */}
+      {!hasPhysicalKeyboard && (
       <div className={`overflow-auto bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
         <div className="flex items-center justify-between gap-2 max-w-4xl mx-auto">
           {/* Esc button - separate group */}
@@ -543,18 +530,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
             })}
           </div>
 
-          {/* Text input button */}
+          {/* Expand button */}
           <div className="flex gap-0.5 justify-center">
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={toggleTextInput}
-              className={`${showTextInput ? `${buttonBaseClass} ${BUTTON_STYLES.modifierActive}` : normalButtonClass} flex-shrink-0`}
-              style={BUTTON_STYLES.size}
-            >
-              Aa
-            </button>
-
-            {/* Expand button */}
             <button
               onMouseDown={(e) => e.preventDefault()}
               onClick={toggleExpanded}
@@ -568,6 +545,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };

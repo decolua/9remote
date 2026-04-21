@@ -18,7 +18,9 @@ import {
   markDeviceRejected,
   isDeviceRejected,
   updateRejectedSocket,
-  clearRejectedDevice
+  clearRejectedDevice,
+  loadAutoApprove,
+  isAutoApprove
 } from "./deviceApproval.js";
 
 function loadApiKey() {
@@ -134,8 +136,9 @@ export function rejectSocketDevice(socketId) {
 }
 
 export async function setupSocketIO(server) {
-  // Load approved devices from disk
+  // Load approved devices + auto-approve setting from disk
   loadApprovedDevices();
+  loadAutoApprove();
 
   const io = new Server(server, {
     cors: {
@@ -190,6 +193,16 @@ export async function setupSocketIO(server) {
       updateRejectedSocket(deviceId, socket.id, ip);
       pushUiLog(`Rejected device reconnected: ${deviceId.slice(0, 8)} — waiting in Clients list`);
       socket.emit("device:rejected");
+      pushUiEvent("deviceApproval", { action: "refresh" });
+    } else if (deviceId && isAutoApprove()) {
+      // Auto-approve enabled — skip pending flow, approve immediately
+      approveDevice(deviceId);
+      clearRejectedDevice(deviceId);
+      socket.data.approved = true;
+      pushUiLog(`Auto-approved device: ${deviceId.slice(0, 8)}...`);
+      setupSocketFeatures(socket);
+      // Notify client after it signals ready so listeners are attached
+      socket.once("device:clientReady", () => socket.emit("device:approved"));
       pushUiEvent("deviceApproval", { action: "refresh" });
     } else {
       // Unknown device — hold and request approval

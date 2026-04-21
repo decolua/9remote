@@ -301,6 +301,7 @@ export default function MainScreen({
   theme, onToggleTheme,
   pendingDevice, onDeviceApprove, onDeviceReject,
   approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected,
+  autoApprove = false, onAutoApproveToggle,
 }) {
   const [activeTab, setActiveTab] = useState("connect");
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -450,6 +451,29 @@ export default function MainScreen({
                       <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
                         Clients{clients.length > 0 ? ` (${onlineCount}/${clients.length} online)` : ""}
                       </p>
+
+                      {/* Auto-approve toggle */}
+                      <div className="flex items-center gap-3 py-2 border-b" style={{ borderColor: "var(--border)" }}>
+                        <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 18, color: autoApprove ? "var(--brand-400)" : "var(--text-muted)" }}>
+                          {autoApprove ? "lock_open" : "lock"}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium" style={{ color: "var(--text-main)" }}>Auto-approve new devices</p>
+                          <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>
+                            {autoApprove ? "Any new device connects without approval" : "Require manual approval for new devices"}
+                          </p>
+                        </div>
+                        <button
+                          onClick={onAutoApproveToggle}
+                          title={autoApprove ? "Disable auto-approve" : "Enable auto-approve"}
+                          className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
+                          style={{ background: autoApprove ? "var(--brand-500)" : "var(--border)", cursor: "pointer" }}
+                        >
+                          <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
+                            style={{ left: autoApprove ? "calc(100% - 22px)" : "2px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        </button>
+                      </div>
+
                       {clients.length === 0 ? (
                         <p className="text-xs text-center py-3" style={{ color: "var(--text-muted)" }}>No clients yet</p>
                       ) : (

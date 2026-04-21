@@ -9,6 +9,7 @@ import { THEMES } from "@/features/terminal/constants/themes";
 import { ChevronDown } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useInputMode } from "@/shared/hooks/useInputMode";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
@@ -35,6 +36,7 @@ function TerminalPane({
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   const { pushView } = useTerminalStore();
+  const inputMode = useInputMode();
 
   const { termRef, cwdRef, doResize, focus, stopMomentum } = useXTerm({
     socket, sessionId, theme, isVisible, isFocused, containerRef
@@ -93,6 +95,8 @@ function TerminalPane({
   };
 
   const closePastePopup = () => {
+    // Refocus terminal synchronously to keep mobile virtual keyboard open
+    termRef.current?.focus();
     setShowPasteInput(false);
     setPasteText("");
     setClipboardText("");
@@ -141,8 +145,11 @@ function TerminalPane({
   };
 
   // Terminal selection - auto open file/URL on selection
+  // Only on touch devices (mobile/tablet) where "tap to select" is the natural UX.
+  // On desktop/PC, selecting text = copy intent → must NOT auto-open (annoying bug).
   useEffect(() => {
     if (!termRef.current || !isVisible || !socket) return;
+    if (inputMode !== "touch") return;
 
     const term = termRef.current;
 
@@ -176,7 +183,7 @@ function TerminalPane({
 
     const disposable = term.onSelectionChange(handleSelectionChange);
     return () => disposable.dispose();
-  }, [termRef, isVisible, socket, sessionId, pushView, cwdRef]);
+  }, [termRef, isVisible, socket, sessionId, pushView, cwdRef, inputMode]);
 
   // Click pane → request activation from parent
   const handlePaneClick = () => {
@@ -205,8 +212,8 @@ function TerminalPane({
 
         {showScrollButton && (
           <button
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchStart={(e) => e.preventDefault()}
+            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
             onClick={(e) => {
               e.stopPropagation();
               handleScrollToBottom();

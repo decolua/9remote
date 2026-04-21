@@ -4,7 +4,7 @@
 
 import { jsonOk, jsonErr, parseJsonBody } from "../lib/router.js";
 import { approveSocketDevice, rejectSocketDevice, disconnectDeviceSockets, approveRejectedDevice } from "../lib/socketio.js";
-import { getAllPendingApprovals, getApprovedDevices, removeDevice, getRejectedDevices, clearRejectedDevice } from "../lib/deviceApproval.js";
+import { getAllPendingApprovals, getApprovedDevices, removeDevice, getRejectedDevices, clearRejectedDevice, isAutoApprove, setAutoApprove } from "../lib/deviceApproval.js";
 
 export async function handleApprove(req, res) {
   const data = await parseJsonBody(req, res);
@@ -60,4 +60,15 @@ export async function handleDisconnect(req, res) {
   if (!data) return;
   const count = disconnectDeviceSockets(data.deviceId);
   jsonOk(res, { disconnected: count });
+}
+
+export function handleGetAutoApprove(req, res) {
+  jsonOk(res, { enabled: isAutoApprove() });
+}
+
+export async function handleSetAutoApprove(req, res) {
+  const data = await parseJsonBody(req, res);
+  if (!data) return;
+  const enabled = setAutoApprove(!!data.enabled);
+  jsonOk(res, { enabled });
 }

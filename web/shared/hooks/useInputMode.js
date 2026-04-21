@@ -14,9 +14,7 @@ export function useInputMode() {
     const mm = window.matchMedia("(pointer: fine) and (hover: hover)");
     const compute = () => {
       const hasFinePointer = mm.matches;
-      const hasTouch = (navigator.maxTouchPoints || 0) > 0;
-      // Treat as mouse only when fine pointer AND no touch (hybrid laptops → prefer touch UX).
-      setMode(hasFinePointer && !hasTouch ? "mouse" : "touch");
+      setMode(hasFinePointer ? "mouse" : "touch");
     };
 
     compute();

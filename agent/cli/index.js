@@ -588,6 +588,19 @@ async function tuiMode() {
   const MAX_LOG_LINES = 200;
 
   let deviceApprovalBusy = false;
+
+  // Handle pending approval — shared by SSE event and fallback poll.
+  // Fallback recovers from missed SSE events (reconnect, TUI in submenu, etc.)
+  const handlePendingApproval = async (socketId, deviceId, ip) => {
+    if (deviceApprovalBusy) return;
+    deviceApprovalBusy = true;
+    const approved = await showDeviceApproval(deviceId, ip);
+    const endpoint = approved ? "approve" : "reject";
+    await apiPost(`/api/device/${endpoint}`, { socketId });
+    deviceApprovalBusy = false;
+    triggerMenuRedraw?.();
+  };
+
   const stopSSE = subscribeSSE(SERVER_PORT, async (type, data) => {
     if (type === "log" && data.message) {
       logBuffer.push(data.message);
@@ -611,19 +624,21 @@ async function tuiMode() {
       activeSubmenuRefresh?.();
       triggerMenuRedraw?.();
     } else if (type === "deviceApproval" && data.action === "pending") {
-      if (deviceApprovalBusy) return;
-      deviceApprovalBusy = true;
-      const approved = await showDeviceApproval(data.deviceId, data.ip);
-      const endpoint = approved ? "approve" : "reject";
-      await apiPost(`/api/device/${endpoint}`, { socketId: data.socketId });
-      deviceApprovalBusy = false;
-      triggerMenuRedraw?.();
+      await handlePendingApproval(data.socketId, data.deviceId, data.ip);
     }
   });
 
+  // Fallback poll: recover from missed SSE pending events
+  const pendingPoll = setInterval(async () => {
+    if (deviceApprovalBusy) return;
+    const d = await apiGet("/api/device/pending");
+    const first = d?.pending?.[0];
+    if (first) await handlePendingApproval(first.socketId, first.deviceId, first.ip);
+  }, 3000);
+
   setupExitHandler({
     getProcess: tuiServerMgr.getProcess,
-    shutdown: () => { tuiServerMgr.shutdown(); stopSSE(); }
+    shutdown: () => { tuiServerMgr.shutdown(); stopSSE(); clearInterval(pendingPoll); }
   }, tunnelProcess, keyData.key);
 
   // Handle web UI Start/Stop commands while TUI is running
@@ -632,6 +647,7 @@ async function tuiMode() {
 
   const onShutdown = () => {
     try { stopSSE(); } catch {}
+    try { clearInterval(pendingPoll); } catch {}
     shutdownAll({
       serverManager: tuiServerMgr,
       tunnelProcess,
@@ -800,27 +816,40 @@ async function tuiDesktopMenu() {
 
 async function tuiDevicesMenu() {
   while (true) {
-    const data = await apiGet("/api/device/approved");
-    const devices = data?.devices || [];
+    const [approvedData, autoData] = await Promise.all([
+      apiGet("/api/device/approved"),
+      apiGet("/api/device/auto-approve"),
+    ]);
+    const devices = approvedData?.devices || [];
+    const autoOn = !!autoData?.enabled;
 
+    const toggleLabel = `Auto-approve new devices: ${autoOn ? chalk.green("ON") : chalk.gray("OFF")}`;
     const items = [
+      { label: toggleLabel, action: "toggle" },
       ...devices.map((d) => {
         const short = d.deviceId.slice(0, 8);
         const date = d.approvedAt ? new Date(d.approvedAt).toLocaleString() : "unknown";
-        return { label: `${short}...  ${chalk.dim(date)}` };
+        return { label: `${short}...  ${chalk.dim(date)}`, action: "remove", deviceId: d.deviceId };
       }),
-      { label: chalk.gray("\u2190 Back") },
+      { label: chalk.gray("\u2190 Back"), action: "back" },
     ];
 
     const title = `Approved Devices (${devices.length})`;
-    const idx = await selectMenu(title, items, items.length - 1);
+    const idx = await selectMenu(title, items, 0);
 
-    if (idx === -1 || idx === devices.length) return; // Back/ESC
+    if (idx === -1) return; // ESC
+    const sel = items[idx];
+    if (sel.action === "back") return;
 
-    // Remove selected device
-    const deviceId = devices[idx].deviceId;
-    const confirmed = await tuiConfirm(chalk.yellow(`Remove device ${deviceId.slice(0, 8)}...?`));
-    if (confirmed) await apiPost("/api/device/remove", { deviceId });
+    if (sel.action === "toggle") {
+      await apiPost("/api/device/auto-approve", { enabled: !autoOn });
+      continue;
+    }
+
+    if (sel.action === "remove") {
+      const confirmed = await tuiConfirm(chalk.yellow(`Remove device ${sel.deviceId.slice(0, 8)}...?`));
+      if (confirmed) await apiPost("/api/device/remove", { deviceId: sel.deviceId });
+    }
   }
 }
 

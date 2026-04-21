@@ -27,7 +27,7 @@ import {
   handlePermissionsGet, handlePermissionsRequest,
 } from "./api/ui.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
-import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected } from "./api/device.js";
+import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -154,6 +154,8 @@ const ROUTES = [
   { path: "/api/device/clear-rejected", method: "POST", handler: handleClearRejected },
   { path: "/api/device/remove",         method: "POST", handler: handleRemove },
   { path: "/api/device/disconnect",     method: "POST", handler: handleDisconnect },
+  { path: "/api/device/auto-approve",   method: "GET",  handler: handleGetAutoApprove },
+  { path: "/api/device/auto-approve",   method: "POST", handler: handleSetAutoApprove },
 
   // System (localhost-only)
   { path: "/api/connections",      method: "GET",  handler: handleConnections },

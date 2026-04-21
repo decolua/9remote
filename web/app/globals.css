@@ -178,7 +178,8 @@ button {
 }
 
 body.keyboard-open .safe-area-bottom {
-  padding-bottom: 10px;
+  /* padding-bottom: 10px; */
+  padding-bottom: 0;
 }
 
 /* Dot Grid Background Pattern */
