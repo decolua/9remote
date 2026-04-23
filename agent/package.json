@@ -1,9 +1,9 @@
 {
   "name": "9remote",
-  "version": "2.0.1",
+  "version": "2.0.3",
   "type": "module",
   "description": "Remote terminal access from anywhere",
-  "main": "index.js",
+  "main": "dist/server.cjs",
   "bin": {
     "9remote": "./dist/cli.cjs"
   },
@@ -16,12 +16,10 @@
     "dev:vite:wait": "wait-on http://localhost:2208/api/health && vite",
     "dev:ui:run": "NODE_ENV=development node cli/index.js ui",
     "build:ui": "vite build",
-    "postinstall": "node cli/scripts/install.js || true"
+    "postinstall": "node dist/install.cjs || true"
   },
   "files": [
-    "dist/",
-    "cli/",
-    "lib/"
+    "dist/"
   ],
   "keywords": [
     "remote",

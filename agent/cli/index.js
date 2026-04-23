@@ -16,6 +16,7 @@ import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate, checkLatestVersion, stopRunningInstances } from "./utils/updateChecker.js";
 import { writePid, clearPid } from "./utils/pids.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
+import { startTunnelHealthWatchdog, stopTunnelHealthWatchdog } from "./utils/tunnelHealth.js";
 import { showBanner, getBannerText, renderProgress, resetProgress, updateProgressDesc, setProgressInfo, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval } from "./utils/tui.js";
 import { checkPermissions } from "./utils/permissions.js";
 import { initTray, killTray, openBrowser, updateTrayTooltip, showTrayNotification } from "./utils/tray.js";
@@ -37,6 +38,25 @@ const ORANGE_DIM = chalk.rgb(200, 120, 95);
 
 // Submenus set this to receive SSE-driven refreshes (permissions, state, ...) while open
 let activeSubmenuRefresh = null;
+
+/**
+ * Build a restart handler for quick tunnel. The first spawn registers this
+ * callback in cloudflared.js; subsequent restarts reuse it, so inner calls
+ * don't need to pass onRestart again.
+ */
+function makeTunnelRestartHandler({ apiKey, onUrlUpdate, setTunnel }) {
+  return async (port) => {
+    try {
+      const r = await spawnQuickTunnel(port, onUrlUpdate);
+      setTunnel(r.child);
+      await updateTunnelUrl(apiKey, r.tunnelUrl);
+      await onUrlUpdate(r.tunnelUrl);
+      console.log(ORANGE(`✅ Tunnel restarted: ${r.tunnelUrl}`));
+    } catch (err) {
+      console.log(chalk.red(`❌ Tunnel restart failed: ${err.message}`));
+    }
+  };
+}
 
 /** Ensure API key exists, create if missing */
 async function ensureKeyData() {
@@ -267,6 +287,7 @@ function startServerWithRestart(onReady, onServerCrash) {
  *   - clear local state/IPC files
  */
 function shutdownAll({ serverManager, tunnelProcess, exit = true, code = 0 } = {}) {
+  try { stopTunnelHealthWatchdog(); } catch {}
   try { serverManager?.shutdown?.(); } catch {}
   try { tunnelProcess?.kill?.(); } catch {}
   try { killCloudflared(); } catch {}
@@ -429,6 +450,7 @@ async function updateTunnelUrl(selectedKey, tunnelUrl) {
       })
     });
   } catch { }
+  if (tunnelUrl) startTunnelHealthWatchdog(tunnelUrl);
 }
 
 async function startServerAndTunnel(selectedKey) {
@@ -465,15 +487,24 @@ async function startServerAndTunnel(selectedKey) {
   await setStep(STEP.CONNECTING);
 
   // Spawn quick tunnel — URL comes directly from cloudflared stdout
-  let tunnelProcess, tunnelUrl;
+  const tunnelRef = { current: null };
+  let tunnelUrl;
+  const onUrlUpdate1 = async (newUrl) => {
+    console.log(ORANGE(`🔄 Tunnel URL rotated: ${newUrl}`));
+    await updateTunnelUrl(selectedKey, newUrl);
+    pushUiState({ tunnelUrl: newUrl });
+  };
   try {
-    const result = await spawnQuickTunnel(SERVER_PORT, async (newUrl) => {
-      // URL rotated — update worker + UI
-      console.log(ORANGE(`🔄 Tunnel URL rotated: ${newUrl}`));
-      await updateTunnelUrl(selectedKey, newUrl);
-      pushUiState({ tunnelUrl: newUrl });
-    });
-    tunnelProcess = result.child;
+    const result = await spawnQuickTunnel(
+      SERVER_PORT,
+      onUrlUpdate1,
+      makeTunnelRestartHandler({
+        apiKey: selectedKey,
+        onUrlUpdate: onUrlUpdate1,
+        setTunnel: (c) => { tunnelRef.current = c; }
+      })
+    );
+    tunnelRef.current = result.child;
     tunnelUrl = result.tunnelUrl;
   } catch (error) {
     console.log(chalk.red(`❌ Failed to start tunnel: ${error.message}`));
@@ -495,10 +526,10 @@ async function startServerAndTunnel(selectedKey) {
     apiKey: selectedKey,
     tunnelUrl,
     serverPid: serverManager.getProcess()?.pid,
-    tunnelPid: tunnelProcess.pid
+    tunnelPid: tunnelRef.current?.pid
   });
 
-  return { serverManager, tunnelProcess, tunnelUrl };
+  return { serverManager, tunnelRef, tunnelUrl };
 }
 
 async function tuiMode() {
@@ -541,13 +572,24 @@ async function tuiMode() {
   await setStep(STEP.TUNNELING);
 
   let tunnelProcess, tunnelUrl;
+  const tunnelRef = { current: null };
+  const onUrlUpdate2 = async (newUrl) => {
+    await updateTunnelUrl(keyData.key, newUrl);
+    await pushUiState({ tunnelUrl: newUrl });
+  };
   try {
-    const result = await spawnQuickTunnel(SERVER_PORT, async (newUrl) => {
-      await updateTunnelUrl(keyData.key, newUrl);
-      await pushUiState({ tunnelUrl: newUrl });
-    });
+    const result = await spawnQuickTunnel(
+      SERVER_PORT,
+      onUrlUpdate2,
+      makeTunnelRestartHandler({
+        apiKey: keyData.key,
+        onUrlUpdate: onUrlUpdate2,
+        setTunnel: (c) => { tunnelRef.current = c; }
+      })
+    );
     tunnelProcess = result.child;
     tunnelUrl = result.tunnelUrl;
+    tunnelRef.current = tunnelProcess;
   } catch (err) {
     console.log(chalk.red(`\n❌ Tunnel failed: ${err.message}`));
     process.exit(1);
@@ -589,6 +631,11 @@ async function tuiMode() {
 
   let deviceApprovalBusy = false;
 
+  // Skip redraws while device approval prompt is active — otherwise SSE-driven
+  // menu repaints (state/permissions/log) would clear the screen and overwrite
+  // the prompt, making it invisible to the user.
+  const safeRedraw = () => { if (!deviceApprovalBusy) triggerMenuRedraw?.(); };
+
   // Handle pending approval — shared by SSE event and fallback poll.
   // Fallback recovers from missed SSE events (reconnect, TUI in submenu, etc.)
   const handlePendingApproval = async (socketId, deviceId, ip) => {
@@ -617,12 +664,12 @@ async function tuiMode() {
         currentTunnelUrl = newTunnel;
         if (data.permanentKey) keyData = { ...keyData, key: data.permanentKey };
         menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
-        triggerMenuRedraw?.();
+        safeRedraw();
       }
     } else if (type === "permissions") {
       // desktopEnabled or permission values changed — refresh both main menu and active submenu
-      activeSubmenuRefresh?.();
-      triggerMenuRedraw?.();
+      if (!deviceApprovalBusy) activeSubmenuRefresh?.();
+      safeRedraw();
     } else if (type === "deviceApproval" && data.action === "pending") {
       await handlePendingApproval(data.socketId, data.deviceId, data.ip);
     }
@@ -642,8 +689,11 @@ async function tuiMode() {
   }, tunnelProcess, keyData.key);
 
   // Handle web UI Start/Stop commands while TUI is running
-  let activeTunnel = tunnelProcess;
-  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
+  setupCmdPoller(
+    () => tunnelRef.current,
+    (t) => { tunnelRef.current = t; },
+    keyData.key
+  );
 
   const onShutdown = () => {
     try { stopSSE(); } catch {}
@@ -666,8 +716,15 @@ async function tuiMode() {
 }
 
 async function fetchServerState() {
-  const d = await apiGet("/api/ui/state");
-  return { desktopEnabled: !!d?.desktopEnabled, remoteAvailable: !!d?.remoteAvailable };
+  const [d, a] = await Promise.all([
+    apiGet("/api/ui/state"),
+    apiGet("/api/device/auto-approve"),
+  ]);
+  return {
+    desktopEnabled: !!d?.desktopEnabled,
+    remoteAvailable: !!d?.remoteAvailable,
+    autoApprove: !!a?.enabled,
+  };
 }
 
 /**
@@ -680,7 +737,7 @@ async function fetchServerState() {
  */
 async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader = () => {}, onRedrawRegister = () => {}, onCtrlC = null, logBuffer = []) {
   while (true) {
-    const { desktopEnabled: desktopOn, remoteAvailable } = await fetchServerState();
+    const { desktopEnabled: desktopOn, remoteAvailable, autoApprove } = await fetchServerState();
 
     const items = [
       { label: "Open Web UI", action: "webui" },
@@ -691,8 +748,9 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
       const desktopLabel = `Remote Desktop: ${desktopOn ? chalk.green("ON") : chalk.gray("OFF")}  ▶`;
       items.push({ label: desktopLabel, action: "desktop" });
     }
+    const autoLabel = autoApprove ? chalk.green("ON") : chalk.gray("OFF");
     items.push(
-      { label: "Manage Devices  \u25b6", action: "devices" },
+      { label: `Manage Devices  \u25b6  ${chalk.dim("(Auto-approve:")} ${autoLabel}${chalk.dim(")")}`, action: "devices" },
       { label: `View Logs (${logBuffer.length})`, action: "logs" },
       { label: chalk.gray("Exit"), action: "exit" },
     );
@@ -861,13 +919,16 @@ async function autoStartDev() {
   const result = await startServerAndTunnel(keyData.key);
   if (!result) process.exit(1);
 
-  const { serverManager, tunnelProcess, tunnelUrl } = result;
+  const { serverManager, tunnelRef, tunnelUrl } = result;
 
   await showConnectionInfo(keyData.key, tunnelUrl);
-  setupExitHandler(serverManager, tunnelProcess, keyData.key);
-  
-  let activeTunnel = tunnelProcess;
-  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
+  setupExitHandler(serverManager, tunnelRef.current, keyData.key);
+
+  setupCmdPoller(
+    () => tunnelRef.current,
+    (t) => { tunnelRef.current = t; },
+    keyData.key
+  );
 
   // Push stats to UI every 5s
   const startTime = Date.now();
@@ -890,6 +951,7 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
     try {
 
     if (cmd === "stop-tunnel") {
+      stopTunnelHealthWatchdog();
       const tunnel = getActiveTunnel();
       if (tunnel) {
         tunnel.kill();
@@ -916,10 +978,19 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
         if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
 
         await setStep(STEP.TUNNELING);
-        const result = await spawnQuickTunnel(SERVER_PORT, async (newUrl) => {
+        const onUrlUpdate3 = async (newUrl) => {
           await updateTunnelUrl(apiKey, newUrl);
           await pushUiState({ tunnelUrl: newUrl });
-        });
+        };
+        const result = await spawnQuickTunnel(
+          SERVER_PORT,
+          onUrlUpdate3,
+          makeTunnelRestartHandler({
+            apiKey,
+            onUrlUpdate: onUrlUpdate3,
+            setTunnel: (c) => setActiveTunnel(c)
+          })
+        );
         setActiveTunnel(result.child);
 
         await setStep(STEP.VERIFYING);

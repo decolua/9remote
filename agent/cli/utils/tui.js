@@ -212,8 +212,8 @@ export function resetProgress() {
  * @param {Array<{label: string}>} items
  * @param {number} defaultIndex
  * @param {string} headerContent — pre-built string shown above menu
- * @param {(setRedraw: () => void) => void} onRedrawInit — receive a redraw trigger fn (for SSE updates)
- * @returns {Promise<number>} selected index, -1 on ESC
+ * @param {(setRedraw: () => void, forceExit?: () => void) => void} onRedrawInit — receive redraw + forceExit triggers (for SSE updates / external prompts)
+ * @returns {Promise<number>} selected index, -1 on ESC, -2 on forceExit (caller should re-render)
  */
 export function selectMenu(title, items, defaultIndex = 0, headerContent = "", onRedrawInit = null, onCtrlC = null) {
   return new Promise((resolve) => {
@@ -281,8 +281,16 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
     process.stdin.resume();
     renderMenu();
 
+    // Allow external code to force-exit this menu (e.g. to show a prompt that needs stdin).
+    // Resolves with -2 so caller knows to re-render/restart the menu with a fresh stdin state.
+    const forceExit = () => {
+      if (!isActive) return;
+      cleanup();
+      resolve(-2);
+    };
+
     // Allow external code (SSE) to trigger a re-render without disrupting navigation
-    if (onRedrawInit) onRedrawInit(renderMenu);
+    if (onRedrawInit) onRedrawInit(renderMenu, forceExit);
   });
 }
 
@@ -333,7 +341,9 @@ export function showDeviceApproval(deviceId, ip) {
     const shortId = deviceId ? deviceId.slice(0, 8) : "unknown";
     const w = W();
 
-    // Fully take over stdin from selectMenu
+    // Save existing keypress listeners (e.g. selectMenu's) so we can restore
+    // them after the prompt — otherwise the caller's menu loses arrow-key input.
+    const savedListeners = process.stdin.listeners("keypress").slice();
     process.stdin.removeAllListeners("keypress");
     if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
     process.stdin.pause();
@@ -356,6 +366,15 @@ export function showDeviceApproval(deviceId, ip) {
     if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
     process.stdin.resume();
 
+    const restoreListeners = () => {
+      for (const l of savedListeners) process.stdin.on("keypress", l);
+      if (savedListeners.length > 0) {
+        // Previous owner (selectMenu) was in raw mode + resumed stdin.
+        if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
+        process.stdin.resume();
+      }
+    };
+
     const onKeypress = (str, key) => {
       if (!key) return;
       const ch = (key.name || "").toLowerCase();
@@ -370,7 +389,7 @@ export function showDeviceApproval(deviceId, ip) {
         console.log(approved
           ? `\n  ${C.green}\u2713 Device approved${C.reset}`
           : `\n  ${C.red}\u2717 Device rejected${C.reset}`);
-        setTimeout(() => resolve(approved), 500);
+        setTimeout(() => { restoreListeners(); resolve(approved); }, 500);
       }
     };
 

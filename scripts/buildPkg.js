@@ -91,6 +91,19 @@ async function buildDaemon() {
   console.log(`✅ Daemon → agent/dist/ptyDaemon.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
 
+async function buildInstall() {
+  console.log("\n📦 Bundling postinstall...");
+  const outfile = path.join(DIST_DIR, "install.cjs");
+  ensureDir(path.dirname(outfile));
+  await esbuild.build({
+    ...baseConfig,
+    entryPoints: [path.join(SERVER_DIR, "cli/scripts/install.js")],
+    outfile,
+    external: ["@hurdlegroup/robotjs"],
+  });
+  console.log(`✅ Install → agent/dist/install.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
+}
+
 function buildUi() {
   console.log("\n🎨 Building Preact UI...");
   // vite outDir is "../dist/ui" (relative to agent/ui/) → outputs directly to agent/dist/ui/
@@ -119,12 +132,14 @@ async function build() {
   await buildCli();
   await buildServer();
   await buildDaemon();
+  await buildInstall();
   copyAssets();
 
   console.log("\n🔒 Obfuscating bundles...");
   obfuscateFile(path.join(DIST_DIR, "cli.cjs"));
   obfuscateFile(path.join(DIST_DIR, "server.cjs"));
   obfuscateFile(path.join(DIST_DIR, "ptyDaemon.cjs"));
+  obfuscateFile(path.join(DIST_DIR, "install.cjs"));
 
   console.log("\n📦 Creating npm package...");
   run("npm pack", SERVER_DIR);

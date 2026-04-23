@@ -97,9 +97,10 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showTextPanel, keyboardOn]);
 
-  const sendUndo = useCallback(() => {
+  // Unified key emit — used by all bottom/extra row buttons.
+  const emitKeyDirect = useCallback((key, modifiers = []) => {
     if (!streaming) return;
-    emitKeyPress("z", ["control"]);
+    emitKeyPress(key, modifiers);
   }, [streaming, emitKeyPress]);
 
   const {
@@ -146,20 +147,9 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     setDragMode,
     toggleModifierKey,
     toggleSelectionMode,
-    toggleDragMode,
     handleTextInputFocus,
     handleCanvasKeyPress,
-    startScrollUp,
-    startScrollDown,
-    startScrollLeft,
-    startScrollRight,
-    stopScrolling,
     sendTextInput,
-    sendBackspace,
-    sendArrowKey,
-    sendEscKey,
-    sendTabKey,
-    sendEnterKey,
     handleSelection,
     handleModifiedTextInput,
     handleDirectInputChange
@@ -370,11 +360,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
         onToggleKeyboard={toggleKeyboard}
         onToggleTextPanel={toggleTextPanel}
         onToggleHelp={() => setShowHelp(true)}
-        onEscKey={sendEscKey}
-        onTabKey={sendTabKey}
-        onEnterKey={sendEnterKey}
-        onBackspace={sendBackspace}
-        onUndo={sendUndo}
+        onEmitKey={emitKeyDirect}
         onTextInputChange={setTextInputValue}
         onTextInputFocus={handleTextInputFocus}
         onTextInputBlur={() => {

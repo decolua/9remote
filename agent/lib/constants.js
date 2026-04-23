@@ -44,6 +44,12 @@ export const PERMISSION_POLL_MS = 5000;
 export const PERMISSION_POLL_FAST_MS = 1000;
 export const PERMISSION_POLL_FAST_DURATION = 60000;
 
+// Tunnel health watchdog — poll /api/health via the public tunnel URL
+export const TUNNEL_HEALTH = {
+  checkIntervalMs: 30000,
+  requestTimeoutMs: 5000,
+};
+
 // Browser-like headers to avoid CDN/firewall blocks
 const BROWSER_HEADERS = {
   "Accept": "application/json, text/plain, */*",

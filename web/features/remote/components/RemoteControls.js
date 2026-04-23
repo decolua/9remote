@@ -1,16 +1,26 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Button from "@/shared/components/ui/Button";
-import { ChevronLeft, RefreshCw, Keyboard, HelpCircle, Undo2, Hand } from "@/shared/components/ui/Icon";
+import {
+  ChevronLeft, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X
+} from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
-import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
+import {
+  REMOTE_CONFIG,
+  REMOTE_KEY_POOL,
+  REMOTE_DEFAULT_BOTTOM,
+  REMOTE_DEFAULT_EXTRA,
+  REMOTE_EXTRA_ROW_COUNT
+} from "@/features/remote/constants/REMOTE_CONFIG";
+import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
+import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 
 const v = (fn, ...args) => { vibrate(); fn?.(...args); };
 
 // onMouseDown.preventDefault() — prevents focus-steal so native keyboard stays on.
 function Btn({ active, primary, children, className = "", onClick, ...rest }) {
-  const base = "shrink-0 px-3 py-2 rounded-brand text-xs font-semibold transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] flex items-center justify-center";
+  const base = "shrink-0 px-1 h-9 rounded-brand text-xs font-semibold transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[38px] flex items-center justify-center";
   const normal = "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500";
   const activeCls = "bg-brand-500 text-white border border-brand-400 shadow-lg shadow-brand-500/20";
   const primaryCls = "bg-green-600 hover:bg-green-700 text-white border border-green-500";
@@ -49,11 +59,7 @@ export default function RemoteControls({
   onToggleKeyboard,
   onToggleTextPanel,
   onToggleHelp,
-  onEscKey,
-  onTabKey,
-  onEnterKey,
-  onBackspace,
-  onUndo,
+  onEmitKey,
   onTextInputChange,
   onTextInputFocus,
   onTextInputBlur,
@@ -62,9 +68,14 @@ export default function RemoteControls({
   onSendText,
   onClose
 }) {
-  const rowClass = "flex gap-1.5 overflow-auto px-2 py-1.5 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:content-center landscape:justify-center";
+  const rowClass = "flex gap-1.5 overflow-auto px-2 py-1 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:content-center landscape:justify-center";
   const rowStyle = { scrollbarWidth: "none", msOverflowStyle: "none" };
   const panelInputRef = useRef(null);
+  const [showExtra, setShowExtra] = useState(false);
+  const [showCustomize, setShowCustomize] = useState(false);
+
+  const bottomCustom = useCustomKeys("remoteDesktop.bottomKeys", REMOTE_KEY_POOL, REMOTE_DEFAULT_BOTTOM, "flat");
+  const extraCustom = useCustomKeys("remoteDesktop.extraKeys", REMOTE_KEY_POOL, REMOTE_DEFAULT_EXTRA, "grid");
 
   // Auto-focus panel textarea after slide-in (350ms matches panel animation).
   useEffect(() => {
@@ -76,16 +87,40 @@ export default function RemoteControls({
   const pcCfg = REMOTE_CONFIG.pcModeControls;
   const show = (k) => inputMode !== "mouse" || pcCfg[k];
 
+  // Render one pool key with correct handler
+  const renderPoolKey = (kc, idx) => {
+    if (kc.type === "modifier") {
+      return (
+        <Btn
+          key={kc.id + idx}
+          onClick={() => v(onToggleModifier, kc.modifier)}
+          disabled={!streaming}
+          active={modifierKeys[kc.modifier]}
+        >
+          {kc.label}
+        </Btn>
+      );
+    }
+    return (
+      <Btn
+        key={kc.id + idx}
+        onClick={() => v(onEmitKey, kc.key, kc.modifiers || [])}
+        disabled={!streaming}
+        primary={kc.primary}
+      >
+        {kc.label}
+      </Btn>
+    );
+  };
+
   return (
     <div className="bg-dark-600 border-t border-dark-400 select-none relative landscape:border-t-0 landscape:border-l landscape:h-full landscape:flex landscape:flex-col landscape:w-72 landscape:shrink-0">
-      {/* Hidden sink drives native keyboard. Use <textarea> (not <input>) to skip
-          iOS/Android AutoFill bar + top:0 anchor to keep offsetTop=0 on iOS. */}
+      {/* Hidden sink drives native keyboard. */}
       <textarea
         ref={textInputRef}
         rows={1}
         value={textInputValue}
         onChange={(e) => {
-          // Android IME sends chars via onChange (keyDown.key="Unidentified").
           if (keyboardOn && !showTextPanel) onDirectInputChange?.(e.target.value);
           else onTextInputChange(e.target.value);
         }}
@@ -102,51 +137,78 @@ export default function RemoteControls({
         data-form-type="other"
         name="remote-keyboard-sink"
         style={{
-          position: "absolute",
-          opacity: 0.01,
-          width: 1,
-          height: 1,
-          border: 0,
-          padding: 0,
-          left: 0,
-          top: 0,
-          fontSize: 16, // 16px prevents iOS auto-zoom on focus
-          resize: "none",
-          pointerEvents: "none",
-          zIndex: -1
+          position: "absolute", opacity: 0.01, width: 1, height: 1, border: 0, padding: 0,
+          left: 0, top: 0, fontSize: 16, resize: "none", pointerEvents: "none", zIndex: -1
         }}
       />
 
       <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} px-2 py-2 border-b border-dark-400 gap-2 landscape:border-b-0 landscape:border-t landscape:order-last`}>
-          <textarea
-            ref={panelInputRef}
-            rows={Math.min(2, (textInputValue.match(/\n/g) || []).length + 1)}
-            value={textInputValue}
-            onChange={(e) => onTextInputChange(e.target.value)}
-            onFocus={onTextInputFocus}
-            placeholder="Type text to send..."
-            autoCapitalize="off"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            data-lpignore="true"
-            data-1p-ignore="true"
-            data-form-type="other"
-            name="remote-batch-input"
-            className="w-full px-3 py-2 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none landscape:h-32"
-            disabled={!streaming}
-          />
-          <Button
-            variant="primary"
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => v(onSendText, streaming)}
-            disabled={!streaming || !textInputValue.trim()}
-          >
-            Send
-          </Button>
+        <textarea
+          ref={panelInputRef}
+          rows={Math.min(2, (textInputValue.match(/\n/g) || []).length + 1)}
+          value={textInputValue}
+          onChange={(e) => onTextInputChange(e.target.value)}
+          onFocus={onTextInputFocus}
+          onKeyDown={(e) => {
+            if (inputMode === "mouse" && e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (streaming && textInputValue.trim()) v(onSendText, streaming);
+            }
+          }}
+          placeholder={inputMode === "mouse" ? "Enter to send • Shift+Enter for new line" : "Type text to send..."}
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-form-type="other"
+          name="remote-batch-input"
+          className="w-full px-3 py-2 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none landscape:h-32"
+          disabled={!streaming}
+        />
+        <Button
+          variant="primary"
+          size="sm"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => v(onSendText, streaming)}
+          disabled={!streaming || !textInputValue.trim()}
+        >
+          Send
+        </Button>
       </div>
 
+      {/* Extra keys panel — slides in ABOVE toolbar, 3 scrollable rows */}
+      <div
+        className={`overflow-hidden transition-all duration-300 border-b border-dark-400 ${showExtra ? "max-h-56 opacity-100" : "max-h-0 opacity-0"}`}
+      >
+        <div className="p-2">
+          <div className="space-y-1">
+            {extraCustom.rows.map((row, rIdx) => (
+              <div key={rIdx} className="flex items-center gap-1.5">
+                <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto" style={rowStyle}>
+                  {row.map((id, cIdx) => {
+                    const kc = REMOTE_KEY_POOL.find(p => p.id === id);
+                    return kc ? renderPoolKey(kc, rIdx * 100 + cIdx) : null;
+                  })}
+                </div>
+                {rIdx === 0 && (
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { vibrate(); setShowCustomize(true); }}
+                    className="shrink-0 h-10 w-10 flex items-center justify-center text-dark-100 hover:text-white border border-dark-400 rounded-brand"
+                    title="Customize keys"
+                  >
+                    <Settings size={16} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Top toolbar */}
       <div className={`${rowClass} landscape:border-b landscape:border-dark-400`} style={rowStyle}>
         <Btn onClick={() => v(onClose)} title="Back">
           <ChevronLeft className="text-orange-400" size={16} />
@@ -177,7 +239,7 @@ export default function RemoteControls({
             onClick={() => v(onToggleHandMode)}
             disabled={!streaming}
             active={handMode}
-            title="Hand mode — long-press to hold mouse, drag to move, release to drop"
+            title="Hand mode"
           >
             <Hand size={14} />
           </Btn>
@@ -197,24 +259,27 @@ export default function RemoteControls({
             <HelpCircle size={14} />
           </Btn>
         )}
+        <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} title="Extra keys" className="ml-auto">
+          {showExtra ? <X size={16} /> : <MoreHorizontal size={16} />}
+        </Btn>
       </div>
 
-      {show("modifierRow") && (
+      {/* Bottom row (customizable) */}
+      {show("modifierRow") && bottomCustom.keys.length > 0 && (
         <div className={rowClass} style={rowStyle}>
-          <Btn onClick={() => v(onEscKey, streaming)} disabled={!streaming}>Esc</Btn>
-          <Btn onClick={() => v(onUndo)} disabled={!streaming} className="gap-1" title="Ctrl+Z">
-            <Undo2 size={12} /> Undo
-          </Btn>
-          <Btn onClick={() => v(onTabKey, streaming)} disabled={!streaming}>Tab</Btn>
-          {["ctrl", "alt", "shift", "cmd"].map((key) => (
-            <Btn key={key} onClick={() => v(onToggleModifier, key)} disabled={!streaming} active={modifierKeys[key]}>
-              {key === "cmd" ? "⌘" : key.charAt(0).toUpperCase() + key.slice(1)}
-            </Btn>
-          ))}
-          <Btn onClick={() => v(onBackspace, streaming)} disabled={!streaming}>⌫</Btn>
-          <Btn onClick={(e) => v(onEnterKey, e, streaming)} disabled={!streaming} primary>↵</Btn>
+          {bottomCustom.keys.map((kc, idx) => renderPoolKey(kc, idx))}
         </div>
       )}
+
+      <KeyCustomizeModal
+        isOpen={showCustomize}
+        onClose={() => setShowCustomize(false)}
+        title="Customize Remote Keys"
+        tabs={[
+          { id: "bottom", label: "Bottom Row", hook: bottomCustom },
+          { id: "extra", label: "Extra Panel", hook: extraCustom }
+        ]}
+      />
     </div>
   );
 }

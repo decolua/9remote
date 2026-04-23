@@ -2,13 +2,30 @@ import fs from "fs";
 import path from "path";
 import https from "https";
 import os from "os";
+import net from "net";
 import { execSync, spawn } from "child_process";
 import { writePid, readPid, clearPid } from "./pids.js";
 
-// Network change detection
+// Centralized tunnel runtime config
+const TUNNEL_CONFIG = {
+  maxRestartAttempts: 10,
+  restartWindowMs: 60000,
+  restartDelayMs: 2000,
+  networkCheckIntervalMs: 5000,
+  internetCheckTimeoutMs: 3000,
+  internetCheckHost: "1.1.1.1",
+  internetCheckPort: 443,
+  internetRetryIntervalMs: 3000,
+  internetMaxWaitMs: 120000
+};
+
+// Network + restart state (module-scoped)
 let networkMonitorInterval = null;
 let lastNetworkState = null;
-let currentTunnelToken = null;
+let currentRestartArg = null;
+let restartCallback = null;
+let restartTimes = [];
+let isWaitingForInternet = false;
 
 const BIN_DIR = path.join(os.homedir(), ".9remote", "bin");
 const BINARY_NAME = "cloudflared";
@@ -21,13 +38,71 @@ const LEGACY_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 // Track intentional shutdown to suppress exit logs
 let isIntentionalShutdown = false;
 
-// Auto-restart configuration
-const MAX_RESTART_ATTEMPTS = 5;
-const RESTART_WINDOW_MS = 60000; // 1 minute
-let restartTimes = [];
-let restartCallback = null;
-
 const GITHUB_BASE_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download";
+
+/**
+ * Check internet reachability via a single TCP connect attempt.
+ */
+function checkInternet() {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      try { socket.destroy(); } catch {}
+      resolve(ok);
+    };
+    socket.setTimeout(TUNNEL_CONFIG.internetCheckTimeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+    try {
+      socket.connect(TUNNEL_CONFIG.internetCheckPort, TUNNEL_CONFIG.internetCheckHost);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+/**
+ * Poll until internet is reachable or timeout elapses.
+ */
+async function waitForInternet() {
+  const deadline = Date.now() + TUNNEL_CONFIG.internetMaxWaitMs;
+  isWaitingForInternet = true;
+  try {
+    while (Date.now() < deadline) {
+      if (await checkInternet()) return true;
+      await new Promise((r) => setTimeout(r, TUNNEL_CONFIG.internetRetryIntervalMs));
+    }
+    return false;
+  } finally {
+    isWaitingForInternet = false;
+  }
+}
+
+/**
+ * Schedule a tunnel restart gated by internet availability + restart quota.
+ */
+async function scheduleRestart(arg, reason) {
+  if (!restartCallback) return;
+  console.log(`🌐 Waiting for internet before tunnel restart (${reason})...`);
+  const online = await waitForInternet();
+  if (!online) {
+    console.log(`❌ Internet unavailable after ${TUNNEL_CONFIG.internetMaxWaitMs / 1000}s — skip restart`);
+    return;
+  }
+  const now = Date.now();
+  restartTimes = restartTimes.filter((t) => t > now - TUNNEL_CONFIG.restartWindowMs);
+  restartTimes.push(now);
+  if (restartTimes.length > TUNNEL_CONFIG.maxRestartAttempts) {
+    console.log(`❌ Too many tunnel restarts (${TUNNEL_CONFIG.maxRestartAttempts} in ${TUNNEL_CONFIG.restartWindowMs / 1000}s). Giving up.`);
+    return;
+  }
+  console.log(`🔄 Restarting tunnel... (attempt ${restartTimes.length}/${TUNNEL_CONFIG.maxRestartAttempts}, reason: ${reason})`);
+  setTimeout(() => restartCallback(arg), TUNNEL_CONFIG.restartDelayMs);
+}
 
 /**
  * Platform mappings for cloudflared
@@ -209,8 +284,11 @@ function parseQuickTunnelUrl(message) {
  * @param {Function} onUrlUpdate - Called when URL changes after initial connect
  * @returns {Promise<{child, tunnelUrl}>}
  */
-export async function spawnQuickTunnel(localPort, onUrlUpdate = null) {
+export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart = null) {
   const binaryPath = await ensureCloudflared();
+
+  if (onRestart) restartCallback = onRestart;
+  currentRestartArg = localPort;
 
   // Use temp config to avoid conflicting with ~/.cloudflared/config.yml
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-quick-"));
@@ -254,6 +332,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null) {
         lastUrl = tunnelUrl;
         clearTimeout(timeout);
         cleanup();
+        startNetworkMonitor();
         resolve({ child, tunnelUrl });
         return;
       }
@@ -284,13 +363,8 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null) {
         reject(new Error(`cloudflared exited with code ${code}`));
         return;
       }
-      if (!isIntentionalShutdown && restartCallback) {
-        const now = Date.now();
-        restartTimes.push(now);
-        restartTimes = restartTimes.filter(t => t > now - RESTART_WINDOW_MS);
-        if (restartTimes.length <= MAX_RESTART_ATTEMPTS) {
-          setTimeout(() => restartCallback(localPort), 2000);
-        }
+      if (!isIntentionalShutdown) {
+        scheduleRestart(localPort, `quick tunnel exit code ${code}`);
       }
     });
   });
@@ -304,12 +378,9 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null) {
  */
 export async function spawnCloudflared(tunnelToken, onRestart = null) {
   const binaryPath = await ensureCloudflared();
-  
-  // Store restart callback and token for network change restart
-  if (onRestart) {
-    restartCallback = onRestart;
-  }
-  currentTunnelToken = tunnelToken;
+
+  if (onRestart) restartCallback = onRestart;
+  currentRestartArg = tunnelToken;
   
   const child = spawn(binaryPath, ["tunnel", "run", "--token", tunnelToken], {
     detached: false,
@@ -357,34 +428,8 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
   
   child.on("exit", (code, signal) => {
     console.log(`⚠️  Cloudflared process exited (code: ${code}, signal: ${signal}, intentional: ${isIntentionalShutdown})`);
-    
-    // Restart on ANY unexpected exit (including code 0 if not intentional)
-    if (!isIntentionalShutdown) {
-      console.log(`⚠️  Cloudflared unexpected exit detected - will restart`);
-      
-      // Auto-restart logic
-      if (restartCallback) {
-        const now = Date.now();
-        restartTimes.push(now);
-        
-        // Remove old restart times outside window
-        restartTimes = restartTimes.filter(t => t > now - RESTART_WINDOW_MS);
-        
-        if (restartTimes.length <= MAX_RESTART_ATTEMPTS) {
-          console.log(`🔄 Restarting tunnel... (attempt ${restartTimes.length}/${MAX_RESTART_ATTEMPTS})`);
-          setTimeout(() => {
-            console.log(`🔄 Executing tunnel restart...`);
-            restartCallback(tunnelToken);
-          }, 2000);
-        } else {
-          console.log(`❌ Too many tunnel restarts (${MAX_RESTART_ATTEMPTS} in ${RESTART_WINDOW_MS / 1000}s). Giving up.`);
-        }
-      } else {
-        console.log(`⚠️  No restart callback registered`);
-      }
-    } else {
-      console.log(`ℹ️  Cloudflared exit ignored (intentional shutdown)`);
-    }
+    if (isIntentionalShutdown) return;
+    scheduleRestart(tunnelToken, `tunnel exit code ${code}${signal ? `/${signal}` : ""}`);
   });
   
   // Save PID
@@ -428,7 +473,7 @@ export function killCloudflared() {
 export function resetRestartCounter() {
   restartTimes = [];
   restartCallback = null;
-  currentTunnelToken = null;
+  currentRestartArg = null;
   stopNetworkMonitor();
 }
 
@@ -456,29 +501,23 @@ function getNetworkFingerprint() {
  */
 function startNetworkMonitor() {
   if (networkMonitorInterval) return;
-  
+
   lastNetworkState = getNetworkFingerprint();
-  
-  networkMonitorInterval = setInterval(() => {
+
+  networkMonitorInterval = setInterval(async () => {
+    if (isWaitingForInternet) return;
     const current = getNetworkFingerprint();
-    
-    if (current !== lastNetworkState) {
-      console.log("🔄 Network change detected - restarting tunnel...");
-      lastNetworkState = current;
-      
-      // Kill cloudflared (sets isIntentionalShutdown = true)
-      killCloudflared();
-      
-      // Directly trigger restart instead of relying on exit event
-      // (exit event won't restart because isIntentionalShutdown = true)
-      if (restartCallback && currentTunnelToken) {
-        setTimeout(() => {
-          console.log("🔄 Restarting tunnel after network change...");
-          restartCallback(currentTunnelToken);
-        }, 2000);
-      }
-    }
-  }, 5000);
+    if (current === lastNetworkState) return;
+
+    console.log("🔄 Network change detected");
+    lastNetworkState = current;
+
+    if (!restartCallback || currentRestartArg == null) return;
+
+    // Kill current tunnel before restart (intentional, skip exit-restart path)
+    killCloudflared();
+    scheduleRestart(currentRestartArg, "network change");
+  }, TUNNEL_CONFIG.networkCheckIntervalMs);
 }
 
 /**

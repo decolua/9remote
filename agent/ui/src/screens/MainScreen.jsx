@@ -294,8 +294,28 @@ function ClientItem({ client, onRemove, onApprove }) {
   );
 }
 
+const TUNNEL_HEALTH_META = {
+  healthy:     { color: "#4ade80",          label: "Healthy",     dot: "bg-green-400" },
+  unreachable: { color: "#dc3545",          label: "Offline",     dot: "bg-red-500" },
+  unknown:     { color: "var(--text-muted)", label: "Checking...", dot: "bg-gray-400" },
+};
+
+function TunnelHealthBadge({ tunnelHealth }) {
+  const meta = TUNNEL_HEALTH_META[tunnelHealth?.status] || TUNNEL_HEALTH_META.unknown;
+  const time = tunnelHealth?.checkedAt ? new Date(tunnelHealth.checkedAt).toLocaleTimeString() : "--:--:--";
+  return (
+    <div
+      className="flex items-center gap-1.5 px-2 h-7 rounded-full glass-btn"
+      title={`Tunnel ${meta.label} · last check ${time}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+      <span className="text-[11px] font-medium" style={{ color: meta.color }}>{meta.label}</span>
+    </div>
+  );
+}
+
 export default function MainScreen({
-  step, stepDesc = "", healthCheck, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
+  step, stepDesc = "", healthCheck, tunnelHealth, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
   onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [],
   theme, onToggleTheme,
@@ -337,6 +357,7 @@ export default function MainScreen({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {isReady && <TunnelHealthBadge tunnelHealth={tunnelHealth} />}
             <button
               onClick={onToggleTheme}
               className="glass-btn w-7 h-7 flex items-center justify-center"

@@ -90,6 +90,73 @@ export const MODIFIER_MAP = {
   shift: "shift"
 };
 
+// ── Remote key pool (shared customize) ─────────────────────────────────────
+// Each key sent via emitKeyPress(key, modifiers[]).
+// type: "key" | "modifier" | "combo" | "arrow"
+// "modifier" keys toggle sticky state; "combo" keys auto-apply listed modifiers.
+export const REMOTE_KEY_POOL = [
+  // Modifiers (sticky)
+  { id: "ctrl", label: "Ctrl", modifier: "ctrl", type: "modifier" },
+  { id: "alt", label: "Alt", modifier: "alt", type: "modifier" },
+  { id: "shift", label: "Shift", modifier: "shift", type: "modifier" },
+  { id: "cmd", label: "⌘", modifier: "cmd", type: "modifier" },
+  // Core
+  { id: "esc", label: "Esc", key: "escape", type: "key" },
+  { id: "tab", label: "Tab", key: "tab", type: "key" },
+  { id: "enter", label: "↵", key: "enter", type: "key", primary: true },
+  { id: "backspace", label: "⌫", key: "backspace", type: "key" },
+  { id: "undo", label: "Undo", key: "z", modifiers: ["control"], type: "combo" },
+  // Arrows
+  { id: "up", label: "↑", key: "up", type: "arrow" },
+  { id: "down", label: "↓", key: "down", type: "arrow" },
+  { id: "left", label: "←", key: "left", type: "arrow" },
+  { id: "right", label: "→", key: "right", type: "arrow" },
+  // Navigation
+  { id: "home", label: "Home", key: "home", type: "key" },
+  { id: "end", label: "End", key: "end", type: "key" },
+  { id: "pgup", label: "PgUp", key: "pageup", type: "key" },
+  { id: "pgdn", label: "PgDn", key: "pagedown", type: "key" },
+  { id: "del", label: "Del", key: "delete", type: "key" },
+  { id: "ins", label: "Ins", key: "insert", type: "key" },
+  // Function keys
+  { id: "f1", label: "F1", key: "f1", type: "key" },
+  { id: "f2", label: "F2", key: "f2", type: "key" },
+  { id: "f3", label: "F3", key: "f3", type: "key" },
+  { id: "f4", label: "F4", key: "f4", type: "key" },
+  { id: "f5", label: "F5", key: "f5", type: "key" },
+  { id: "f6", label: "F6", key: "f6", type: "key" },
+  { id: "f7", label: "F7", key: "f7", type: "key" },
+  { id: "f8", label: "F8", key: "f8", type: "key" },
+  { id: "f9", label: "F9", key: "f9", type: "key" },
+  { id: "f10", label: "F10", key: "f10", type: "key" },
+  { id: "f11", label: "F11", key: "f11", type: "key" },
+  { id: "f12", label: "F12", key: "f12", type: "key" },
+  // Common Remote Desktop combos
+  { id: "ctrlAltDel", label: "Ctrl+Alt+Del", key: "delete", modifiers: ["control", "alt"], type: "combo" },
+  { id: "ctrlShiftEsc", label: "Task Mgr", key: "escape", modifiers: ["control", "shift"], type: "combo" },
+  { id: "altTab", label: "Alt+Tab", key: "tab", modifiers: ["alt"], type: "combo" },
+  { id: "altF4", label: "Alt+F4", key: "f4", modifiers: ["alt"], type: "combo" },
+  { id: "winKey", label: "Win", key: "command", type: "key" },
+  { id: "printScreen", label: "PrtSc", key: "printscreen", type: "key" },
+  { id: "copy", label: "Copy", key: "c", modifiers: ["control"], type: "combo" },
+  { id: "paste", label: "Paste", key: "v", modifiers: ["control"], type: "combo" },
+  { id: "cut", label: "Cut", key: "x", modifiers: ["control"], type: "combo" },
+  { id: "selectAll", label: "All", key: "a", modifiers: ["control"], type: "combo" }
+];
+
+// Default bottom row (modifier row) — matches original layout
+export const REMOTE_DEFAULT_BOTTOM = [
+  "esc", "undo", "up", "down", "tab", "ctrl", "alt", "shift", "cmd", "backspace", "enter"
+];
+
+// Default extra panel — fixed 3 rows, each scrolls horizontally
+export const REMOTE_DEFAULT_EXTRA = [
+  ["left", "right", "home", "end", "pgup", "pgdn", "del"],
+  ["f1", "f2", "f3", "f4", "f5", "f6", "f7"],
+  ["f8", "f9", "f10", "f11", "f12", "ctrlAltDel", "altTab"]
+];
+export const REMOTE_EXTRA_ROW_COUNT = 3;
+
 // SPECIAL_KEYS: map from raw `event.key` (case-sensitive) → robotjs key name.
 // Single-character keys (letters/digits/punctuation) are NOT listed — they pass through
 // as-is to preserve Shift-modified characters (e.g. "!", "A", "?").

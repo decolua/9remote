@@ -4,6 +4,7 @@ import MainScreen from "./screens/MainScreen";
 const PENDING_POLL_MS = 3000;
 
 const defaultHealthCheck = { running: false, timeoutMs: 0, startedAt: null, logs: [] };
+const defaultTunnelHealth = { status: "unknown", checkedAt: null };
 
 const defaultState = {
   step: 0,
@@ -16,6 +17,7 @@ const defaultState = {
   latency: null,
   uptime: null,
   healthCheck: defaultHealthCheck,
+  tunnelHealth: defaultTunnelHealth,
 };
 
 const defaultPermissions = { screenRecording: false, accessibility: false };
@@ -65,6 +67,7 @@ export default function App() {
           latency: data.latency ?? null,
           uptime: data.uptime ?? null,
           healthCheck: data.healthCheck ?? defaultHealthCheck,
+          tunnelHealth: data.tunnelHealth ?? defaultTunnelHealth,
         });
         setPermissions({
           screenRecording: data.screenRecording ?? false,
@@ -95,6 +98,7 @@ export default function App() {
             latency: data.latency ?? null,
             uptime: data.uptime ?? null,
             healthCheck: data.healthCheck ?? defaultHealthCheck,
+            tunnelHealth: data.tunnelHealth ?? defaultTunnelHealth,
           });
         } else if (data.type === "log") {
           setLogs((prev) => {
@@ -274,6 +278,7 @@ export default function App() {
       step={mainState.step}
       stepDesc={mainState.stepDesc}
       healthCheck={mainState.healthCheck}
+      tunnelHealth={mainState.tunnelHealth}
       tunnelUrl={mainState.tunnelUrl}
       oneTimeKey={mainState.oneTimeKey}
       oneTimeKeyExpiresAt={mainState.oneTimeKeyExpiresAt}

@@ -18,57 +18,94 @@ export const TERMINAL_OPTIONS = {
   smoothScrollDuration: 0
 };
 
-// Mobile keyboard button configurations
-// Basic keys: most used, always visible
-export const BASIC_KEYS = [
-  // Esc first, then up/down arrows
-  { label: "Esc", key: "Escape" },
-  { label: "↑", key: "ArrowUp", icon: true },
-  { label: "↓", key: "ArrowDown", icon: true },
-  // Most used (ordered by frequency)
-  { label: "^C", key: "c", ctrl: true },
-  { label: "Ctrl", key: "Ctrl", modifier: true },
-  { label: "Opt", key: "Alt", modifier: true },
-  { label: "Shift", key: "Shift", modifier: true },
-  { label: "Tab", key: "Tab" },
-  { label: "↵", key: "Enter" }
-];
-
-// Extended keys: 3 rows x 6 cols = 18 keys
-export const EXTENDED_KEYS = [
-  // Row 1: Navigation + arrows
-  { label: "←", key: "ArrowLeft", icon: true },
-  { label: "→", key: "ArrowRight", icon: true },
-  { label: "Home", key: "Home" },
-  { label: "End", key: "End" },
-  { label: "PgUp", key: "PageUp" },
-  { label: "PgDn", key: "PageDown" },
-  // Row 2: Ctrl combos
-  { label: "^Z", key: "z", ctrl: true },
-  { label: "^R", key: "r", ctrl: true },
-  { label: "^L", key: "l", ctrl: true },
-  { label: "^A", key: "a", ctrl: true },
-  { label: "^E", key: "e", ctrl: true },
-  { label: "^W", key: "w", ctrl: true },
-  // Row 3: Function keys (most used)
-  { label: "F1", key: "F1" },
-  { label: "F2", key: "F2" },
-  { label: "F3", key: "F3" },
-  { label: "F4", key: "F4" },
-  { label: "F5", key: "F5" },
-  { label: "F10", key: "F10" }
-];
-
 // macOS CMD key
 export const MAC_KEY = { label: "⌘", key: "Meta", modifier: true };
 
-// Keyboard button styles
+// ── Key pool (shared customize) ────────────────────────────────────────────
+// Each key: { id, label, key, type }
+// type: "key" | "modifier" | "ctrl" | "arrow"
+// "ctrl" keys auto-apply Ctrl modifier on send.
+export const TERMINAL_KEY_POOL = [
+  // Modifiers
+  { id: "ctrl", label: "Ctrl", key: "Ctrl", type: "modifier" },
+  { id: "opt", label: "Opt", key: "Alt", type: "modifier" },
+  { id: "shift", label: "Shift", key: "Shift", type: "modifier" },
+  { id: "meta", label: "⌘", key: "Meta", type: "modifier" },
+  // Core
+  { id: "esc", label: "Esc", key: "Escape", type: "key" },
+  { id: "tab", label: "Tab", key: "Tab", type: "key" },
+  { id: "enter", label: "↵", key: "Enter", type: "key" },
+  { id: "backspace", label: "⌫", key: "Backspace", type: "key" },
+  // Arrows
+  { id: "up", label: "↑", key: "ArrowUp", type: "arrow" },
+  { id: "down", label: "↓", key: "ArrowDown", type: "arrow" },
+  { id: "left", label: "←", key: "ArrowLeft", type: "arrow" },
+  { id: "right", label: "→", key: "ArrowRight", type: "arrow" },
+  // Navigation
+  { id: "home", label: "Home", key: "Home", type: "key" },
+  { id: "end", label: "End", key: "End", type: "key" },
+  { id: "pgup", label: "PgUp", key: "PageUp", type: "key" },
+  { id: "pgdn", label: "PgDn", key: "PageDown", type: "key" },
+  { id: "del", label: "Del", key: "Delete", type: "key" },
+  { id: "ins", label: "Ins", key: "Insert", type: "key" },
+  // Ctrl combos
+  { id: "ctrlA", label: "^A", key: "a", type: "ctrl" },
+  { id: "ctrlC", label: "^C", key: "c", type: "ctrl" },
+  { id: "ctrlD", label: "^D", key: "d", type: "ctrl" },
+  { id: "ctrlE", label: "^E", key: "e", type: "ctrl" },
+  { id: "ctrlK", label: "^K", key: "k", type: "ctrl" },
+  { id: "ctrlL", label: "^L", key: "l", type: "ctrl" },
+  { id: "ctrlN", label: "^N", key: "n", type: "ctrl" },
+  { id: "ctrlP", label: "^P", key: "p", type: "ctrl" },
+  { id: "ctrlR", label: "^R", key: "r", type: "ctrl" },
+  { id: "ctrlT", label: "^T", key: "t", type: "ctrl" },
+  { id: "ctrlU", label: "^U", key: "u", type: "ctrl" },
+  { id: "ctrlW", label: "^W", key: "w", type: "ctrl" },
+  { id: "ctrlX", label: "^X", key: "x", type: "ctrl" },
+  { id: "ctrlY", label: "^Y", key: "y", type: "ctrl" },
+  { id: "ctrlZ", label: "^Z", key: "z", type: "ctrl" },
+  // Function keys
+  { id: "f1", label: "F1", key: "F1", type: "key" },
+  { id: "f2", label: "F2", key: "F2", type: "key" },
+  { id: "f3", label: "F3", key: "F3", type: "key" },
+  { id: "f4", label: "F4", key: "F4", type: "key" },
+  { id: "f5", label: "F5", key: "F5", type: "key" },
+  { id: "f6", label: "F6", key: "F6", type: "key" },
+  { id: "f7", label: "F7", key: "F7", type: "key" },
+  { id: "f8", label: "F8", key: "F8", type: "key" },
+  { id: "f9", label: "F9", key: "F9", type: "key" },
+  { id: "f10", label: "F10", key: "F10", type: "key" },
+  { id: "f11", label: "F11", key: "F11", type: "key" },
+  { id: "f12", label: "F12", key: "F12", type: "key" },
+  // Symbols
+  { id: "pipe", label: "|", key: "|", type: "key" },
+  { id: "tilde", label: "~", key: "~", type: "key" },
+  { id: "slash", label: "/", key: "/", type: "key" },
+  { id: "backslash", label: "\\", key: "\\", type: "key" },
+  { id: "dash", label: "-", key: "-", type: "key" },
+  { id: "underscore", label: "_", key: "_", type: "key" }
+];
+
+// Default basic keys (main bar, always visible)
+export const TERMINAL_DEFAULT_BASIC = [
+  "esc", "up", "down", "ctrlC", "ctrl", "opt", "shift", "tab", "enter"
+];
+
+// Default extended keys — fixed 3 rows, each scrolls horizontally
+export const TERMINAL_DEFAULT_EXTRA = [
+  ["left", "right", "home", "end", "pgup", "pgdn", "del"],
+  ["ctrlZ", "ctrlR", "ctrlL", "ctrlA", "ctrlE", "ctrlW", "ctrlD"],
+  ["f1", "f2", "f3", "f4", "f5", "f10", "f11"]
+];
+export const TERMINAL_EXTRA_ROW_COUNT = 3;
+
+// Keyboard button styles — aligned with Remote Desktop Btn visual language
 export const BUTTON_STYLES = {
-  base: "flex items-center justify-center rounded font-semibold text-xs transition-all duration-200 shadow-sm",
-  normal: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400",
-  arrow: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white text-sm border border-dark-400",
-  modifierActive: "bg-gradient-to-br from-brand-500 to-brand-600 active:from-brand-400 active:to-brand-500 text-white shadow-md shadow-brand-500/30 ring-1 ring-brand-400",
-  // Square sizes
-  size: { width: "34px", height: "34px" },
+  base: "flex items-center justify-center rounded-brand font-semibold text-xs transition-all duration-200 shadow-sm",
+  normal: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500",
+  arrow: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white text-sm border border-dark-400 hover:border-brand-500",
+  modifierActive: "bg-brand-500 text-white border border-brand-400 shadow-lg shadow-brand-500/20",
+  // Slightly larger than original 34×34 but smaller than Remote Desktop Btn
+  size: { minWidth: "38px", height: "36px", paddingLeft: "8px", paddingRight: "8px" },
   sizeSmall: { width: "28px", height: "28px" }
 };

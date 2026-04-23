@@ -37,6 +37,8 @@ let uiState = {
     startedAt: null,
     logs: [], // [{ attempt, status, elapsedMs, ok, time }]
   },
+  // Ongoing tunnel health status (polled every N seconds after READY)
+  tunnelHealth: { status: "unknown", checkedAt: null },
 };
 
 let desktopEnabled = false;
