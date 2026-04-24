@@ -34,6 +34,7 @@ export default function App() {
   const [approvedDevices, setApprovedDevices] = useState([]);
   const [rejectedDevices, setRejectedDevices] = useState([]);
   const [autoApprove, setAutoApproveState] = useState(false);
+  const [autoStart, setAutoStartState] = useState(false);
   const [version, setVersion] = useState("");
   const [theme, setTheme] = useState(() => {
     // Will be overridden by server state if provided
@@ -116,6 +117,8 @@ export default function App() {
           setPendingDevice({ socketId: data.socketId, deviceId: data.deviceId, ip: data.ip });
         } else if (data.type === "deviceApproval" && data.action === "refresh") {
           fetchDevices();
+        } else if (data.type === "autostart") {
+          setAutoStartState(!!data.enabled);
         }
       } catch { /* ignore parse errors */ }
     };
@@ -125,6 +128,11 @@ export default function App() {
     // Load initial auto-approve state
     fetch("/api/device/auto-approve").then(r => r.json()).then(d => {
       setAutoApproveState(!!d?.enabled);
+    }).catch(() => {});
+
+    // Load initial auto-start state
+    fetch("/api/autostart").then(r => r.json()).then(d => {
+      setAutoStartState(!!d?.enabled);
     }).catch(() => {});
 
     // Fallback poll: recover pending approvals if SSE event was missed
@@ -239,6 +247,22 @@ export default function App() {
     fetchDevices();
   };
 
+  const handleAutoStartToggle = async () => {
+    const next = !autoStart;
+    setAutoStartState(next);
+    try {
+      const r = await fetch("/api/autostart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const d = await r.json().catch(() => null);
+      if (d && typeof d.enabled === "boolean") setAutoStartState(d.enabled);
+    } catch {
+      setAutoStartState(!next);
+    }
+  };
+
   const handleAutoApproveToggle = async () => {
     const next = !autoApprove;
     setAutoApproveState(next); // optimistic
@@ -309,6 +333,8 @@ export default function App() {
       onDeviceApproveRejected={handleDeviceApproveRejected}
       autoApprove={autoApprove}
       onAutoApproveToggle={handleAutoApproveToggle}
+      autoStart={autoStart}
+      onAutoStartToggle={handleAutoStartToggle}
     />
   );
 }

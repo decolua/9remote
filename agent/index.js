@@ -25,6 +25,7 @@ import {
   handleStop, handleStart, handleShutdown,
   handleConnections, handleDesktopToggle,
   handlePermissionsGet, handlePermissionsRequest,
+  handleAutoStartGet, handleAutoStartPost,
 } from "./api/ui.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove } from "./api/device.js";
@@ -162,6 +163,8 @@ const ROUTES = [
   { path: "/api/permissions",      method: "GET",  handler: handlePermissionsGet },
   { path: "/api/permissions/request", method: "POST", handler: handlePermissionsRequest },
   { path: "/api/desktop/toggle",   method: "POST", handler: handleDesktopToggle },
+  { path: "/api/autostart",        method: "GET",  handler: handleAutoStartGet },
+  { path: "/api/autostart",        method: "POST", handler: handleAutoStartPost },
   { path: "/api/local-sites",      method: "*",    public: true, handler: handleLocalSites },
   { path: "/api/codespace/stop",   method: "POST", handler: handleCodespaceStop },
 

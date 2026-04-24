@@ -5,6 +5,7 @@
 import { STEP, PERMISSION_POLL_FAST_MS, PERMISSION_POLL_FAST_DURATION } from "../lib/constants.js";
 import { writeCmd } from "../cli/utils/state.js";
 import { checkPermissions, openPermissionPane } from "../cli/utils/permissions.js";
+import { isAutoStartEnabled, setAutoStart } from "../cli/utils/autostart.js";
 import { jsonOk } from "../lib/router.js";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
@@ -230,6 +231,21 @@ export async function handleDesktopToggle(req, res) {
 
 export function handlePermissionsGet(req, res) {
   jsonOk(res, cachedPermissions);
+}
+
+export async function handleAutoStartGet(req, res) {
+  const enabled = await isAutoStartEnabled();
+  jsonOk(res, { enabled });
+}
+
+export async function handleAutoStartPost(req, res) {
+  const { parseJsonBody } = await import("../lib/router.js");
+  const data = await parseJsonBody(req, res);
+  if (!data) return;
+  const ok = await setAutoStart(!!data.enabled);
+  const enabled = await isAutoStartEnabled();
+  pushUiEvent("autostart", { enabled });
+  jsonOk(res, { ok, enabled });
 }
 
 export async function handlePermissionsRequest(req, res) {

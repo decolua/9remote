@@ -37,8 +37,31 @@ function PermissionRow({ type, granted, onRequest }) {
   );
 }
 
+/** Reusable toggle row — DRY for any on/off boolean setting */
+function ToggleRow({ icon, label, desc, value, onToggle, activeColor = "var(--brand-500)" }) {
+  return (
+    <div className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor: "var(--border)" }}>
+      <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 18, color: value ? "var(--brand-400)" : "var(--text-muted)" }}>
+        {icon}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium" style={{ color: "var(--text-main)" }}>{label}</p>
+        <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>{desc}</p>
+      </div>
+      <button
+        onClick={onToggle}
+        className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
+        style={{ background: value ? activeColor : "var(--border)", cursor: "pointer" }}
+      >
+        <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
+          style={{ left: value ? "calc(100% - 22px)" : "2px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+      </button>
+    </div>
+  );
+}
+
 /** Remote Services card — Terminal (always on) + Desktop (toggleable) */
-function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission }) {
+function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle }) {
   const permEntries = Object.entries(PERMISSION_META);
   // Desktop toggle requires all permissions granted
   const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
@@ -99,6 +122,18 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
             onRequest={onRequestPermission}
           />
         ))}
+      </div>
+
+      {/* Startup */}
+      <div className="flex flex-col border-t pt-2" style={{ borderColor: "var(--border)" }}>
+        <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Startup</p>
+        <ToggleRow
+          icon="power_settings_new"
+          label="Launch on system startup"
+          desc={autoStart ? "Runs in background when you log in" : "Disabled — start manually"}
+          value={!!autoStart}
+          onToggle={onAutoStartToggle}
+        />
       </div>
     </div>
   );
@@ -322,6 +357,7 @@ export default function MainScreen({
   pendingDevice, onDeviceApprove, onDeviceReject,
   approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected,
   autoApprove = false, onAutoApproveToggle,
+  autoStart = false, onAutoStartToggle,
 }) {
   const [activeTab, setActiveTab] = useState("connect");
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -465,6 +501,8 @@ export default function MainScreen({
                       onDesktopToggle={onDesktopToggle}
                       permissions={permissions}
                       onRequestPermission={onRequestPermission}
+                      autoStart={autoStart}
+                      onAutoStartToggle={onAutoStartToggle}
                     />
 
                     {/* Clients (merged devices + live connections) */}

@@ -719,14 +719,16 @@ async function tuiMode() {
 }
 
 async function fetchServerState() {
-  const [d, a] = await Promise.all([
+  const [d, a, s] = await Promise.all([
     apiGet("/api/ui/state"),
     apiGet("/api/device/auto-approve"),
+    apiGet("/api/autostart"),
   ]);
   return {
     desktopEnabled: !!d?.desktopEnabled,
     remoteAvailable: !!d?.remoteAvailable,
     autoApprove: !!a?.enabled,
+    autoStart: !!s?.enabled,
   };
 }
 
@@ -740,7 +742,7 @@ async function fetchServerState() {
  */
 async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader = () => {}, onRedrawRegister = () => {}, onCtrlC = null, logBuffer = []) {
   while (true) {
-    const { desktopEnabled: desktopOn, remoteAvailable, autoApprove } = await fetchServerState();
+    const { desktopEnabled: desktopOn, remoteAvailable, autoApprove, autoStart } = await fetchServerState();
 
     const items = [
       { label: "Open Web UI", action: "webui" },
@@ -752,8 +754,10 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
       items.push({ label: desktopLabel, action: "desktop" });
     }
     const autoLabel = autoApprove ? chalk.green("ON") : chalk.gray("OFF");
+    const startLabel = autoStart ? chalk.green("ON") : chalk.gray("OFF");
     items.push(
       { label: `Manage Devices  \u25b6  ${chalk.dim("(Auto-approve:")} ${autoLabel}${chalk.dim(")")}`, action: "devices" },
+      { label: `Launch on system startup: ${startLabel}`, action: "autostart" },
       { label: `View Logs (${logBuffer.length})`, action: "logs" },
       { label: chalk.gray("Exit"), action: "exit" },
     );
@@ -800,6 +804,9 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
 
     } else if (action === "devices") {
       await tuiDevicesMenu();
+
+    } else if (action === "autostart") {
+      await apiPost("/api/autostart", { enabled: !autoStart });
 
     } else if (action === "logs") {
       await tuiLogsView(logBuffer);
