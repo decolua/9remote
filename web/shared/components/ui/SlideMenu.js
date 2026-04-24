@@ -9,12 +9,14 @@ import SitesList from "@/features/terminal/components/SitesList";
 import CommandNotesPanel from "@/features/terminal/components/CommandNotes/CommandNotesPanel";
 import CommunityModal from "@/features/terminal/components/CommunityModal";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
 /**
  * SlideMenu - Global full-screen menu that slides from right to left
  * Uses Zustand store for state management
  */
 export default function SlideMenu() {
+  const { t } = useI18n();
   const {
     isOpen,
     activePanel,
@@ -152,11 +154,11 @@ export default function SlideMenu() {
   const getTitle = () => {
     switch (activePanel) {
       case "pwa":
-        return "Install as App";
+        return t("pwa.title");
       case "codespace":
-        return "Codespace";
+        return t("codespace.title");
       default:
-        return "Menu";
+        return t("menu.title");
     }
   };
 
@@ -183,7 +185,7 @@ export default function SlideMenu() {
               <button
                 onClick={handleBack}
                 className="p-1 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors mr-1"
-                aria-label="Back"
+                aria-label={t("common.back")}
               >
                 <ChevronLeft size={20} />
               </button>
@@ -193,7 +195,7 @@ export default function SlideMenu() {
           <button
             onClick={close}
             className="p-2 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors"
-            aria-label="Close menu"
+            aria-label={t("common.close")}
           >
             <X size={20} />
           </button>
@@ -258,6 +260,7 @@ export default function SlideMenu() {
  * Codespace Panel Component
  */
 function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
+  const { t } = useI18n();
   const [autoStart, setAutoStart] = useState(null); // null = loading, true/false = status
   const [toggling, setToggling] = useState(false);
 
@@ -304,14 +307,14 @@ function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
       {/* Info */}
       <div className="space-y-3 mb-6">
         <div className="flex items-center justify-between">
-          <span className="text-dark-100 text-sm">Name</span>
-          <span className="text-white font-medium">{codespaceInfo.codespaceName || "Unknown"}</span>
+          <span className="text-dark-100 text-sm">{t("codespace.name")}</span>
+          <span className="text-white font-medium">{codespaceInfo.codespaceName || t("codespace.unknown")}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-dark-100 text-sm">Status</span>
+          <span className="text-dark-100 text-sm">{t("codespace.status")}</span>
           <span className="text-green-400 font-medium flex items-center gap-1">
             <span className="w-2 h-2 bg-green-400 rounded-full" />
-            Running
+            {t("codespace.running")}
           </span>
         </div>
       </div>
@@ -320,8 +323,8 @@ function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
       <div className="pt-4 border-t border-dark-400 mb-6">
         <div className="flex items-center justify-between py-3">
           <div>
-            <span className="text-white text-sm font-medium">Auto Start 9Remote</span>
-            <p className="text-dark-100 text-xs mt-0.5">Start 9Remote when codespace opens</p>
+            <span className="text-white text-sm font-medium">{t("codespace.autoStart")}</span>
+            <p className="text-dark-100 text-xs mt-0.5">{t("codespace.autoStartHint")}</p>
           </div>
           {autoStart === null ? (
             <Loader2 className="animate-spin text-dark-100" size={20} />
@@ -350,15 +353,15 @@ function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
           className="w-full py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-brand transition flex items-center justify-center gap-2"
         >
           <Square size={16} />
-          Stop Codespace
+          {t("codespace.stop")}
         </button>
         <p className="text-dark-50 text-sm flex items-start gap-2">
           <span className="text-yellow-400">💡</span>
-          Stop to save usage
+          {t("codespace.stopHint")}
         </p>
         <p className="text-dark-100 text-xs flex items-start gap-2">
           <span className="text-orange-400">⚠️</span>
-          To restart, go to GitHub
+          {t("codespace.restartHint")}
         </p>
       </div>
     </div>

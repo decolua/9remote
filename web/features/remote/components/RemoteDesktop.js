@@ -14,6 +14,7 @@ import RemoteControls from "@/features/remote/components/RemoteControls";
 import RemoteHelpModal from "@/features/remote/components/RemoteHelpModal";
 import Spinner from "@/shared/components/ui/Spinner";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import { useI18n } from "@/shared/i18n";
 
 const STORAGE_KEYS = {
   pointerMode: "remoteDesktop.pointerMode",
@@ -22,6 +23,7 @@ const STORAGE_KEYS = {
 };
 
 export default function RemoteDesktop({ onClose, socketRef, connected }) {
+  const { t } = useI18n();
   const [showHelp, setShowHelp] = useState(false);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
   const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, false);
@@ -305,7 +307,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     >
       {!connected ? (
         <div className="flex-1 flex items-center justify-center bg-dark-700">
-          <Spinner size="lg" text="Connecting to remote..." />
+          <Spinner size="lg" text={t("remote.connecting")} />
         </div>
       ) : (
         <RemoteCanvas
@@ -391,10 +393,10 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
           if (keyboardOn) textInputRef.current?.focus();
         }}
         onConfirm={() => onClose?.()}
-        title="Exit remote desktop"
-        message="Are you sure you want to exit the current remote desktop session?"
-        confirmText="Exit"
-        cancelText="Cancel"
+        title={t("remote.exitRemote")}
+        message={t("remoteControls.exitConfirmMessage")}
+        confirmText={t("connection.exit")}
+        cancelText={t("common.cancel")}
       />
     </div>
   );

@@ -10,6 +10,7 @@ import { ChevronDown } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useInputMode } from "@/shared/hooks/useInputMode";
+import { useI18n } from "@/shared/i18n";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
@@ -27,6 +28,7 @@ function TerminalPane({
   notifications = {},
   clearNotification,
 }) {
+  const { t } = useI18n();
   const containerRef = useRef(null);
   const longPressTimer = useRef(null);
   const pasteInputRef = useRef(null);
@@ -219,7 +221,7 @@ function TerminalPane({
               handleScrollToBottom();
             }}
             className="absolute bottom-5 right-7 z-50 p-2 bg-black/30 hover:bg-black/50 text-white rounded-full border border-white/20 shadow-lg transition-all duration-200 hover:scale-105"
-            title="Scroll to bottom"
+            title={t("terminalPane.scrollToBottom")}
           >
             <ChevronDown size={20} />
           </button>
@@ -245,7 +247,7 @@ function TerminalPane({
                 if (e.key === "Enter") sendPasteText();
                 if (e.key === "Escape") closePastePopup();
               }}
-              placeholder="Paste or type here"
+              placeholder={t("terminalPane.pasteOrType")}
               className="px-4 py-3 bg-dark-600 text-white rounded-brand border border-dark-400 focus:border-brand-500 outline-none w-full"
             />
             <div className="flex gap-2 justify-end">
@@ -253,14 +255,14 @@ function TerminalPane({
                 onClick={closePastePopup}
                 className="px-4 py-2 bg-dark-600 hover:bg-dark-400 text-white rounded-brand border border-dark-400 transition-colors"
               >
-                Close
+                {t("common.close")}
               </button>
               {clipboardText && (
                 <button
                   onClick={handlePasteButton}
                   className="px-4 py-2 bg-dark-600 hover:bg-dark-400 text-white rounded-brand border border-dark-400 transition-colors"
                 >
-                  Paste
+                  {t("terminalPane.paste")}
                 </button>
               )}
               <button
@@ -268,7 +270,7 @@ function TerminalPane({
                 disabled={!pasteText}
                 className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-brand font-medium transition-colors"
               >
-                Send
+                {t("mobileKeyboard.send")}
               </button>
             </div>
           </div>

@@ -8,8 +8,10 @@ import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
 export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion }) {
+  const { t } = useI18n();
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -73,7 +75,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   const handleCreate = async () => {
     if (creating || !connected) return;
     setCreating(true);
-    await onCreate(newName || `Terminal ${sessions.length + 1}`);
+    await onCreate(newName || `${t("terminal.defaultName")} ${sessions.length + 1}`);
     setNewName("");
     setCreating(false);
   };
@@ -127,14 +129,14 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           <div className="p-1.5 bg-brand-500/10 rounded-brand">
             <Zap className="text-brand-500" size={20} />
           </div>
-          <h1 className="text-white text-lg font-semibold">9Remote</h1>
+          <h1 className="text-white text-lg font-semibold">{t("sessions.headerTitle")}</h1>
           {/* Connection indicator */}
           <span 
             className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500 animate-pulse"}`}
-            title={connected ? "Connected" : "Disconnected"}
+            title={connected ? t("sessions.connected") : t("sessions.disconnected")}
           />
           {!connected && codespaceDisconnected && (
-            <span className="text-red-400 text-xs">Codespace stopped</span>
+            <span className="text-red-400 text-xs">{t("sessions.codespaceStopped")}</span>
           )}
         </div>
         
@@ -150,7 +152,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                   ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500"
                   : "bg-dark-500/50 text-dark-200 cursor-not-allowed border-dark-400"
               }`}
-              title="Remote Desktop"
+              title={t("menu.remoteDesktop")}
             >
               <Monitor size={20} />
             </button>
@@ -165,7 +167,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                 ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500"
                 : "bg-dark-500/50 text-dark-200 cursor-not-allowed border-dark-400"
             }`}
-            title="Files"
+            title={t("menu.files")}
           >
             <FolderOpen size={20} />
           </button>
@@ -179,7 +181,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                 ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500"
                 : "bg-dark-500/50 text-dark-200 cursor-not-allowed border-dark-400"
             }`}
-            title="Sites"
+            title={t("menu.sites")}
           >
             <Globe size={20} />
           </button>
@@ -188,7 +190,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           <button
             onClick={() => { vibrate(); openMenu(); }}
             className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
-            title="Menu"
+            title={t("menu.title")}
           >
             <Settings size={20} />
           </button>
@@ -203,7 +205,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            placeholder="Terminal name (optional)"
+            placeholder={t("sessions.placeholder")}
             disabled={!connected}
           />
           <Button
@@ -213,7 +215,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             loading={creating}
             className="whitespace-nowrap"
           >
-            + New
+            {t("sessions.newButton")}
           </Button>
         </div>
 
@@ -223,8 +225,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             <div className="inline-flex p-4 bg-dark-600 rounded-brand-lg mb-4">
               <Terminal className="text-dark-100" size={48} />
             </div>
-            <p className="text-dark-50 mb-2 font-medium">No active sessions</p>
-            <p className="text-dark-100 text-sm">Create a new session to get started</p>
+            <p className="text-dark-50 mb-2 font-medium">{t("sessions.empty")}</p>
+            <p className="text-dark-100 text-sm">{t("sessions.emptyHint")}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -262,7 +264,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                       <>
                         <h3 className="text-white font-medium truncate">{session.name}</h3>
                         <p className="text-dark-100 text-sm">
-                          Created {new Date(session.createdAt).toLocaleTimeString()}
+                          {t("sessions.created", { time: new Date(session.createdAt).toLocaleTimeString() })}
                         </p>
                       </>
                     )}
@@ -278,7 +280,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                         ? "bg-dark-500 hover:bg-brand-500 text-dark-100 hover:text-white border border-dark-400 hover:border-brand-500" 
                         : "bg-dark-500/50 text-dark-200 cursor-not-allowed border border-dark-400"
                     }`}
-                    title="Edit name"
+                    title={t("sessions.editName")}
                   >
                     <Pencil size={16} />
                   </button>
@@ -292,7 +294,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                         ? "bg-dark-500 hover:bg-red-600 text-dark-100 hover:text-white border border-dark-400 hover:border-red-500" 
                         : "bg-dark-500/50 text-dark-200 cursor-not-allowed border border-dark-400"
                     }`}
-                    title="Delete"
+                    title={t("common.delete")}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -308,8 +310,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         isOpen={deleteConfirm.isOpen}
         onClose={closeDeleteConfirm}
         onConfirm={confirmDelete}
-        title="Delete Session"
-        message={`Are you sure you want to delete "${deleteConfirm.sessionName}"?`}
+        title={t("sessions.deleteTitle")}
+        message={t("sessions.deleteMessage", { name: deleteConfirm.sessionName })}
       />
 
       {/* Sites Modal - Reuse SitesList component */}

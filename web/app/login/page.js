@@ -10,9 +10,13 @@ import Button from "@/shared/components/ui/Button";
 import Spinner from "@/shared/components/ui/Spinner";
 import QRScanner from "@/shared/components/ui/QRScanner";
 import MobileBackgroundImage from "@/shared/components/ui/MobileBackground";
-import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode } from "@/shared/components/ui/Icon";
+import LanguageSwitcher from "@/shared/components/ui/LanguageSwitcher";
+import { useI18n } from "@/shared/i18n";
+import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode, Home, FileText } from "@/shared/components/ui/Icon";
+import { HOMEPAGE_URL, DOCS_URL } from "@/shared/constants/API";
 
 function LoginContent() {
+  const { t } = useI18n();
   const [apiKey, setApiKey] = useState("");
   const [rememberKey, setRememberKey] = useState(true);
   const [savedKeys, setSavedKeys] = useState([]);
@@ -148,10 +152,10 @@ function LoginContent() {
       const diffHours = Math.floor(diffMs / 3600000);
       const diffDays = Math.floor(diffMs / 86400000);
 
-      if (diffMins < 1) return "Just now";
-      if (diffMins < 60) return `${diffMins}m ago`;
-      if (diffHours < 24) return `${diffHours}h ago`;
-      if (diffDays < 7) return `${diffDays}d ago`;
+      if (diffMins < 1) return t("login.justNow");
+      if (diffMins < 60) return t("login.minutesAgo", { n: diffMins });
+      if (diffHours < 24) return t("login.hoursAgo", { n: diffHours });
+      if (diffDays < 7) return t("login.daysAgo", { n: diffDays });
       
       // Format as date if older than a week
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -167,7 +171,7 @@ function LoginContent() {
         <MobileBackgroundImage />
         <Container>
           <div className="bg-dark-600 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
-            <Spinner size="lg" text="Authenticating with token..." />
+            <Spinner size="lg" text={t("login.authenticating")} />
           </div>
         </Container>
       </>
@@ -183,14 +187,15 @@ function LoginContent() {
             <div className="p-2 bg-brand-500/10 rounded-brand">
               <Terminal className="text-brand-500" size={32} />
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="text-4xl font-bold text-white">9Remote</h1>
               {version && <p className="text-xs text-dark-100 mt-0.5">v{version}</p>}
             </div>
+            <LanguageSwitcher />
           </div>
 
           <p className="text-dark-100 mb-8">
-            Access your terminal from anywhere
+            {t("login.tagline")}
           </p>
 
           {/* QR Scan Section - Temporarily hidden */}
@@ -203,7 +208,7 @@ function LoginContent() {
                   aria-label="Scan QR Code"
                 >
                   <QrCode size={48} strokeWidth={1.5} className="text-brand-500" />
-                  <span className="text-sm text-dark-100">Tap to scan</span>
+                  <span className="text-sm text-dark-100">{t("login.tapToScan")}</span>
                 </button>
               </div>
 
@@ -213,7 +218,7 @@ function LoginContent() {
                   <div className="w-full border-t border-dark-400"></div>
                 </div>
                 <div className="relative flex justify-center text-sm">
-                  <span className="px-4 bg-dark-600 text-dark-100">or enter key manually</span>
+                  <span className="px-4 bg-dark-600 text-dark-100">{t("login.orEnterManually")}</span>
                 </div>
               </div>
             </>
@@ -222,7 +227,7 @@ function LoginContent() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-dark-50 mb-2">
-                Access Key
+                {t("login.accessKey")}
               </label>
               <div className="relative">
                 <input
@@ -230,7 +235,7 @@ function LoginContent() {
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
-                  placeholder="sk-xxx... or One-Time Key (ABC123)"
+                  placeholder={t("login.placeholder")}
                   className="w-full px-4 py-3 pr-20 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
                 />
                 {apiKey && (
@@ -266,7 +271,7 @@ function LoginContent() {
                 onChange={(e) => handleRememberChange(e.target.checked)}
                 className="w-4 h-4 bg-dark-700 border-dark-400 rounded accent-brand-500 focus:ring-1 focus:ring-brand-500"
               />
-              <span className="text-sm text-dark-50 group-hover:text-white transition-colors">Remember this key</span>
+              <span className="text-sm text-dark-50 group-hover:text-white transition-colors">{t("login.rememberKey")}</span>
             </label>
 
             <Button
@@ -276,14 +281,14 @@ function LoginContent() {
               loading={loading}
               className="w-full"
             >
-              Connect
+              {t("login.connect")}
             </Button>
           </div>
 
           {/* Saved Keys - only render after hydration */}
           {isHydrated && savedKeys.length > 0 && (
             <div className="mt-6 pt-6 border-t border-dark-400">
-              <h3 className="text-sm font-medium text-dark-50 mb-3">Saved Keys</h3>
+              <h3 className="text-sm font-medium text-dark-50 mb-3">{t("login.savedKeys")}</h3>
               <div className="space-y-2">
                 {savedKeys.map((item) => (
                   <div key={item.id} className="bg-dark-700/50 border border-dark-400 rounded-brand p-3 hover:border-brand-500/30 transition-colors">
@@ -297,7 +302,7 @@ function LoginContent() {
                         </code>
                         {item.lastLoginDate && (
                           <span className="text-xs text-dark-100 mt-1 block">
-                            Last login: {formatLoginDate(item.lastLoginDate)}
+                            {t("login.lastLogin")}: {formatLoginDate(item.lastLoginDate)}
                           </span>
                         )}
                       </div>
@@ -308,7 +313,7 @@ function LoginContent() {
                           className="flex items-center gap-1.5 text-brand-500 hover:text-brand-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <LogIn size={16} />
-                          Login
+                          {t("login.login")}
                         </button>
                         <button
                           onClick={() => handleRemoveKey(item.id)}
@@ -324,6 +329,28 @@ function LoginContent() {
               </div>
             </div>
           )}
+
+          <div className="mt-6 pt-6 border-t border-dark-400 flex items-center justify-center gap-4 text-sm text-dark-100">
+            <a
+              href={HOMEPAGE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 hover:text-brand-500 transition-colors"
+            >
+              <Home size={14} />
+              {t("login.home")}
+            </a>
+            <span className="text-dark-400">·</span>
+            <a
+              href={DOCS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 hover:text-brand-500 transition-colors"
+            >
+              <FileText size={14} />
+              {t("login.docs")}
+            </a>
+          </div>
         </div>
       </Container>
 

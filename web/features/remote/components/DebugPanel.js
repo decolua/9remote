@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useI18n } from "@/shared/i18n";
 
 export default function DebugPanel({ stats, onReset, onClose }) {
+  const { t } = useI18n();
   const [minimized, setMinimized] = useState(false);
 
   const getLatencyColor = (latency) => {
@@ -28,7 +30,7 @@ export default function DebugPanel({ stats, onReset, onClose }) {
           onClick={() => setMinimized(false)}
           className="bg-dark-600 text-white px-4 py-2 rounded-lg shadow-lg border border-dark-500 hover:bg-dark-500 transition-colors"
         >
-          🔍 Debug
+          🔍 {t("remote.debug")}
         </button>
       </div>
     );
@@ -39,20 +41,20 @@ export default function DebugPanel({ stats, onReset, onClose }) {
       {/* Header */}
       <div className="flex items-center justify-between mb-3 pb-2 border-b border-dark-600">
         <h3 className="text-white font-semibold flex items-center gap-2">
-          🔍 Debug Stats
+          🔍 {t("remote.debugTitle")}
         </h3>
         <div className="flex gap-2">
           <button
             onClick={() => setMinimized(true)}
             className="text-gray-400 hover:text-white transition-colors"
-            title="Minimize"
+            title={t("remote.minimize")}
           >
             ─
           </button>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white transition-colors"
-            title="Close"
+            title={t("common.close")}
           >
             ✕
           </button>
@@ -62,33 +64,33 @@ export default function DebugPanel({ stats, onReset, onClose }) {
       {/* Stats */}
       <div className="space-y-2 mb-3">
         <div className="flex justify-between items-center">
-          <span className="text-gray-400">Transport:</span>
+          <span className="text-gray-400">{t("remote.transport")}:</span>
           <span className={stats.webrtcPercent > 50 ? "text-blue-400 font-semibold" : "text-gray-300"}>
             {stats.webrtcPercent > 50 ? "WebRTC ✅" : "WebSocket"}
           </span>
         </div>
 
         <div className="flex justify-between items-center">
-          <span className="text-gray-400">FPS:</span>
+          <span className="text-gray-400">{t("remote.fps")}:</span>
           <span className={`font-semibold ${getFpsColor(stats.fps)}`}>
             {stats.fps}
           </span>
         </div>
 
         <div className="flex justify-between items-center">
-          <span className="text-gray-400">Latency:</span>
+          <span className="text-gray-400">{t("remote.latency")}:</span>
           <span className={`font-semibold ${getLatencyColor(stats.latency)}`}>
             {formatLatency(stats.latency)}
           </span>
         </div>
 
         <div className="flex justify-between items-center">
-          <span className="text-gray-400">Tiles/sec:</span>
+          <span className="text-gray-400">{t("remote.tilesPerSec")}:</span>
           <span className="text-white font-semibold">{stats.tilesPerSec}</span>
         </div>
 
         <div className="flex justify-between items-center">
-          <span className="text-gray-400">Bandwidth:</span>
+          <span className="text-gray-400">{t("remote.bandwidth")}:</span>
           <span className="text-white font-semibold">{stats.bandwidthMBps} MB/s</span>
         </div>
       </div>
@@ -115,7 +117,7 @@ export default function DebugPanel({ stats, onReset, onClose }) {
           onClick={onReset}
           className="flex-1 bg-dark-600 hover:bg-dark-500 text-white py-2 px-3 rounded transition-colors text-xs"
         >
-          Clear Stats
+          {t("remote.clearStats")}
         </button>
       </div>
     </div>

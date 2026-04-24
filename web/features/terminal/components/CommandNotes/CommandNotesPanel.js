@@ -5,11 +5,13 @@ import { X, Pencil, Trash2, Copy, Check, FileText, Send } from "@/shared/compone
 import { useCommandNotes } from "@/features/terminal/hooks/useCommandNotes";
 import { vibrate } from "@/shared/utils/vibration";
 import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
+import { useI18n } from "@/shared/i18n";
 
 /**
  * CommandNotesPanel - Manage saved command line notes
  */
 export default function CommandNotesPanel({ isOpen, onClose }) {
+  const { t } = useI18n();
   const { notes, addNote, updateNote, deleteNote } = useCommandNotes();
   const [copiedId, setCopiedId] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -110,7 +112,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
         <div className={`flex items-center justify-between px-4 py-3 border-b border-dark-400 flex-shrink-0 ${isIosPwa ? "safe-area-top" : ""}`}>
           <div className="flex items-center gap-2">
             <FileText size={20} className="text-brand-500" />
-            <h2 className="text-lg font-semibold text-white">Command Notes</h2>
+            <h2 className="text-lg font-semibold text-white">{t("commandNotes.title")}</h2>
           </div>
           <button
             onClick={onClose}
@@ -125,8 +127,8 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
           {notes.length === 0 && (
             <div className="text-center text-dark-100 py-8">
               <FileText size={32} className="mx-auto mb-3 text-dark-200" />
-              <p className="text-sm">No saved commands</p>
-              <p className="text-xs text-dark-200 mt-1">Add your first command below</p>
+              <p className="text-sm">{t("commandNotes.noSavedCommands")}</p>
+              <p className="text-xs text-dark-200 mt-1">{t("commandNotes.addFirstBelow")}</p>
             </div>
           )}
 
@@ -139,18 +141,18 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
                 <div
                   className="flex-1 min-w-0 cursor-pointer"
                   onClick={() => handleCopy(note.id, note.command)}
-                  title="Click to copy"
+                  title={t("commandNotes.clickToCopy")}
                 >
                   <p className="text-sm text-white font-mono break-all">{note.command}</p>
                   {copiedId === note.id && (
-                    <span className="text-xs text-green-400 mt-1 inline-block">Copied!</span>
+                    <span className="text-xs text-green-400 mt-1 inline-block">{t("commandNotes.copiedBang")}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-0.5 flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => handleCopy(note.id, note.command)}
                     className="p-1.5 text-dark-100 hover:text-brand-400 rounded transition-colors"
-                    title="Copy"
+                    title={t("commandNotes.copy")}
                   >
                     {copiedId === note.id ? (
                       <Check size={14} className="text-green-400" />
@@ -161,14 +163,14 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
                   <button
                     onClick={() => handleStartEdit(note)}
                     className="p-1.5 text-dark-100 hover:text-brand-400 rounded transition-colors"
-                    title="Edit"
+                    title={t("commandNotes.edit")}
                   >
                     <Pencil size={14} />
                   </button>
                   <button
                     onClick={() => handleDelete(note.id)}
                     className="p-1.5 text-dark-100 hover:text-red-400 rounded transition-colors"
-                    title="Delete"
+                    title={t("commandNotes.delete")}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -186,7 +188,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={editingId ? "Edit command..." : "Add command..."}
+              placeholder={editingId ? t("commandNotes.editCommandPlaceholder") : t("commandNotes.addCommandPlaceholder")}
               rows={2}
               className="flex-1 bg-dark-500 border border-dark-400 rounded-brand px-3 py-2 text-white text-sm placeholder-dark-100 focus:outline-none focus:border-brand-500 font-mono resize-none"
             />
@@ -194,7 +196,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
               onClick={handleSave}
               disabled={!command.trim()}
               className="p-2.5 bg-brand-600 hover:bg-brand-500 disabled:bg-dark-400 disabled:cursor-not-allowed text-white rounded-brand transition-colors flex-shrink-0"
-              title={editingId ? "Update" : "Add"}
+              title={editingId ? t("commandNotes.update") : t("commandNotes.add")}
             >
               <Send size={18} />
             </button>

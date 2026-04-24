@@ -6,6 +6,7 @@ import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
 export default function FileExplorer({ 
   workspace, 
@@ -19,6 +20,7 @@ export default function FileExplorer({
   onPathChange,
   isBrowsing = false
 }) {
+  const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(initialPath || workspace);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -173,7 +175,7 @@ export default function FileExplorer({
   const handleFileClick = (file) => {
     if (isBrowsing) return; // Browse mode: no file click
     if (file.type === "binary") {
-      setError("Cannot open binary file");
+      setError(t("files.cannotOpenBinary"));
       setTimeout(() => setError(""), 3000);
       return;
     }
@@ -205,8 +207,8 @@ export default function FileExplorer({
     closeContextMenu();
     setConfirmDialog({
       isOpen: true,
-      title: "Delete",
-      message: `Delete "${file.name}"?`,
+      title: t("files.deleteConfirmTitle"),
+      message: t("files.deleteConfirmMessage", { name: file.name }),
       onConfirm: async () => {
         const result = await fileSocket.deleteItem(file.path);
         if (result.success) {
@@ -266,7 +268,7 @@ export default function FileExplorer({
         <button
           onClick={() => { vibrate(); onBack(); }}
           className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
-          title="Close"
+          title={t("common.close")}
         >
           <X size={20} />
         </button>
@@ -282,9 +284,9 @@ export default function FileExplorer({
           <button
             onClick={() => { vibrate(); handleSetAsWorkspace(); }}
             className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs rounded-brand transition-all duration-200 font-medium shadow-lg shadow-brand-500/20"
-            title="Set as workspace"
+            title={t("files.setAsWorkspaceTitle")}
           >
-            Set Workspace
+            {t("files.setWorkspace")}
           </button>
         )}
 
@@ -293,7 +295,7 @@ export default function FileExplorer({
           <button
             onClick={() => { vibrate(); onSwitchWorkspace(); }}
             className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
-            title="Switch workspace"
+            title={t("files.switchWorkspace")}
           >
             <FolderOpen className="text-brand-500" size={20} />
           </button>
@@ -304,7 +306,7 @@ export default function FileExplorer({
           <button
             onClick={() => { vibrate(); setShowSearch(true); }}
             className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
-            title="Search files"
+            title={t("files.searchFiles")}
           >
             <Search className="text-brand-500" size={20} />
           </button>
@@ -320,7 +322,7 @@ export default function FileExplorer({
                 ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500" 
                 : "bg-dark-500/30 text-dark-200 border-dark-400 cursor-not-allowed"
             }`}
-            title={hasGit ? "Git" : "No git repository"}
+            title={hasGit ? t("git.title") : t("files.noGitRepo")}
           >
             <GitBranch className={hasGit ? "text-brand-500" : "text-dark-200"} size={20} />
           </button>
@@ -335,7 +337,7 @@ export default function FileExplorer({
             type="text"
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Search files..."
+            placeholder={t("files.searchPlaceholder")}
             className="flex-1 bg-transparent text-white placeholder-slate-400 focus:outline-none"
             autoFocus
           />
@@ -363,11 +365,11 @@ export default function FileExplorer({
         <div className="flex-1 min-h-0 overflow-auto">
           {searchLoading ? (
             <div className="flex items-center justify-center h-32 text-dark-100">
-              Searching...
+              {t("files.searching")}
             </div>
           ) : searchResults.length === 0 ? (
             <div className="flex items-center justify-center h-32 text-dark-100">
-              No files found
+              {t("files.noFilesFound")}
             </div>
           ) : (
             <div>
@@ -417,9 +419,9 @@ export default function FileExplorer({
               // Grid view for browse mode
               <div className="p-4">
                 {loading ? (
-                  <div className="flex items-center justify-center h-32 text-dark-100">Loading...</div>
+                  <div className="flex items-center justify-center h-32 text-dark-100">{t("common.loading")}</div>
                 ) : files.length === 0 ? (
-                  <div className="flex items-center justify-center h-32 text-dark-100">Empty folder</div>
+                  <div className="flex items-center justify-center h-32 text-dark-100">{t("files.emptyFolder")}</div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     {files.map((file) => (
@@ -477,7 +479,7 @@ export default function FileExplorer({
               className="w-full px-4 py-3 text-left text-white hover:bg-dark-500 flex items-center gap-3 transition-colors"
             >
               <Pencil size={16} />
-              Rename
+              {t("files.rename")}
             </button>
             <button
               onClick={() => {
@@ -488,14 +490,14 @@ export default function FileExplorer({
               className="w-full px-4 py-3 text-left text-white hover:bg-dark-500 flex items-center gap-3 transition-colors"
             >
               <Copy size={16} />
-              Copy path
+              {t("files.copyPath")}
             </button>
             <button
               onClick={() => { vibrate(); handleDelete(contextMenu.file); }}
               className="w-full px-4 py-3 text-left text-red-400 hover:bg-dark-500 flex items-center gap-3 transition-colors"
             >
               <Trash2 size={16} />
-              Delete
+              {t("files.delete")}
             </button>
           </div>
         </>
@@ -507,7 +509,7 @@ export default function FileExplorer({
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setShowNewItemModal(false)} />
           <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl w-full max-w-sm">
             <div className="px-4 py-3 border-b border-dark-400">
-              <h3 className="text-white font-semibold">Create New</h3>
+              <h3 className="text-white font-semibold">{t("files.createNew")}</h3>
             </div>
             <div className="p-4 space-y-4">
               <div className="flex gap-2">
@@ -519,7 +521,7 @@ export default function FileExplorer({
                       : "bg-dark-500 text-dark-50"
                   }`}
                 >
-                  <File size={16} className="text-slate-400" /> File
+                  <File size={16} className="text-slate-400" /> {t("files.file")}
                 </button>
                 <button
                   onClick={() => { vibrate(); setNewItemType("folder"); }}
@@ -529,7 +531,7 @@ export default function FileExplorer({
                       : "bg-dark-500 text-dark-50"
                   }`}
                 >
-                  <Folder size={16} className="text-orange-500/70" /> Folder
+                  <Folder size={16} className="text-orange-500/70" /> {t("files.folder")}
                 </button>
               </div>
               <input
@@ -537,7 +539,7 @@ export default function FileExplorer({
                 value={newItemName}
                 onChange={(e) => setNewItemName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCreateItem()}
-                placeholder={newItemType === "file" ? "filename.js" : "folder-name"}
+                placeholder={newItemType === "file" ? t("files.placeholderFile") : t("files.placeholderFolder")}
                 className="w-full px-3 py-2 bg-dark-500 border border-dark-400 rounded-brand text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
                 autoFocus
               />
@@ -546,13 +548,13 @@ export default function FileExplorer({
                   onClick={() => { vibrate(); setShowNewItemModal(false); }}
                   className="flex-1 py-2 bg-dark-500 text-white rounded-brand hover:bg-dark-400 transition"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   onClick={() => { vibrate(); handleCreateItem(); }}
                   className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition"
                 >
-                  Create
+                  {t("common.create")}
                 </button>
               </div>
             </div>
@@ -566,7 +568,7 @@ export default function FileExplorer({
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setRenameModal(null)} />
           <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl w-full max-w-sm">
             <div className="px-4 py-3 border-b border-dark-400">
-              <h3 className="text-white font-semibold">Rename</h3>
+              <h3 className="text-white font-semibold">{t("files.rename")}</h3>
             </div>
             <div className="p-4 space-y-4">
               <input
@@ -582,13 +584,13 @@ export default function FileExplorer({
                   onClick={() => { vibrate(); setRenameModal(null); }}
                   className="flex-1 py-2 bg-dark-500 text-white rounded-brand hover:bg-dark-400 transition"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   onClick={() => { vibrate(); handleRenameSubmit(); }}
                   className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition"
                 >
-                  Rename
+                  {t("files.rename")}
                 </button>
               </div>
             </div>

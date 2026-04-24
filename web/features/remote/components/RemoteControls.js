@@ -15,6 +15,7 @@ import {
 } from "@/features/remote/constants/REMOTE_CONFIG";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
+import { useI18n } from "@/shared/i18n";
 
 const v = (fn, ...args) => { vibrate(); fn?.(...args); };
 
@@ -68,6 +69,7 @@ export default function RemoteControls({
   onSendText,
   onClose
 }) {
+  const { t } = useI18n();
   const rowClass = "flex gap-1.5 overflow-auto px-2 py-1 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:content-center landscape:justify-center";
   const rowStyle = { scrollbarWidth: "none", msOverflowStyle: "none" };
   const panelInputRef = useRef(null);
@@ -155,7 +157,7 @@ export default function RemoteControls({
               if (streaming && textInputValue.trim()) v(onSendText, streaming);
             }
           }}
-          placeholder={inputMode === "mouse" ? "Enter to send • Shift+Enter for new line" : "Type text to send..."}
+          placeholder={inputMode === "mouse" ? t("remoteControls.enterToSend") : t("remoteControls.typeToSend")}
           autoCapitalize="off"
           autoComplete="off"
           autoCorrect="off"
@@ -174,7 +176,7 @@ export default function RemoteControls({
           onClick={() => v(onSendText, streaming)}
           disabled={!streaming || !textInputValue.trim()}
         >
-          Send
+          {t("remoteControls.send")}
         </Button>
       </div>
 
@@ -197,7 +199,7 @@ export default function RemoteControls({
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => { vibrate(); setShowCustomize(true); }}
                     className="shrink-0 h-10 w-10 flex items-center justify-center text-dark-100 hover:text-white border border-dark-400 rounded-brand"
-                    title="Customize keys"
+                    title={t("remote.customizeKeys")}
                   >
                     <Settings size={16} />
                   </button>
@@ -210,17 +212,17 @@ export default function RemoteControls({
 
       {/* Top toolbar */}
       <div className={`${rowClass} landscape:border-b landscape:border-dark-400`} style={rowStyle}>
-        <Btn onClick={() => v(onClose)} title="Back">
+        <Btn onClick={() => v(onClose)} title={t("remote.back")}>
           <ChevronLeft className="text-orange-400" size={16} />
         </Btn>
-        <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-dark-50" title="Reset zoom">
+        <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-dark-50" title={t("remote.resetZoom")}>
           {Math.round(canvasZoom * 100)}%
         </Btn>
-        <Btn onClick={() => v(onRefresh)} disabled={!streaming} title="Refresh">
+        <Btn onClick={() => v(onRefresh)} disabled={!streaming} title={t("remote.refresh")}>
           <RefreshCw size={14} />
         </Btn>
         {show("rectangleSelect") && (
-          <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title="Rectangle selection">
+          <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title={t("remote.rectangleSelection")}>
             □
           </Btn>
         )}
@@ -229,7 +231,7 @@ export default function RemoteControls({
             onClick={() => v(onTogglePointerMode)}
             disabled={!streaming}
             active={pointerMode === "trackpad"}
-            title={pointerMode === "trackpad" ? "Trackpad mode" : "Direct mode"}
+            title={pointerMode === "trackpad" ? t("remoteControls.trackpadMode") : t("remoteControls.directMode")}
           >
             <span className="text-base leading-none">🖱️</span>
           </Btn>
@@ -239,27 +241,27 @@ export default function RemoteControls({
             onClick={() => v(onToggleHandMode)}
             disabled={!streaming}
             active={handMode}
-            title="Hand mode"
+            title={t("remote.handMode")}
           >
             <Hand size={14} />
           </Btn>
         )}
         {show("keyboardToggle") && (
-          <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title="Toggle native keyboard">
+          <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title={t("remote.toggleKeyboard")}>
             <Keyboard size={14} />
           </Btn>
         )}
         {show("textPanel") && (
-          <Btn onClick={() => v(onToggleTextPanel)} disabled={!streaming} active={showTextPanel} title="Text batch input" className="landscape:hidden">
+          <Btn onClick={() => v(onToggleTextPanel)} disabled={!streaming} active={showTextPanel} title={t("remote.textBatchInput")} className="landscape:hidden">
             Aa
           </Btn>
         )}
         {show("help") && (
-          <Btn onClick={() => v(onToggleHelp)} title="Help">
+          <Btn onClick={() => v(onToggleHelp)} title={t("remote.help")}>
             <HelpCircle size={14} />
           </Btn>
         )}
-        <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} title="Extra keys" className="ml-auto">
+        <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} title={t("remote.extraKeys")} className="ml-auto">
           {showExtra ? <X size={16} /> : <MoreHorizontal size={16} />}
         </Btn>
       </div>
@@ -274,10 +276,10 @@ export default function RemoteControls({
       <KeyCustomizeModal
         isOpen={showCustomize}
         onClose={() => setShowCustomize(false)}
-        title="Customize Remote Keys"
+        title={t("remote.customizeRemoteKeys")}
         tabs={[
-          { id: "bottom", label: "Bottom Row", hook: bottomCustom },
-          { id: "extra", label: "Extra Panel", hook: extraCustom }
+          { id: "bottom", label: t("remoteControls.bottomRow"), hook: bottomCustom },
+          { id: "extra", label: t("remoteControls.extraPanel"), hook: extraCustom }
         ]}
       />
     </div>

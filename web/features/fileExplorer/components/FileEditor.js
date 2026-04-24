@@ -13,6 +13,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { AUTO_SAVE_DELAY, LANGUAGE_MAP } from "../constants/fileExplorer.js";
 import { ChevronLeft, Save, Loader2, GitBranch } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
 const languageExtensions = {
   javascript: javascript(),
@@ -29,6 +30,7 @@ function getLanguageExtension(filePath) {
 }
 
 export default function FileEditor({ filePath, fileSocket, onBack, line, column, workspace }) {
+  const { t } = useI18n();
   const editorRef = useRef(null);
   const viewRef = useRef(null);
   const textInputRef = useRef(null);
@@ -277,10 +279,10 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
         <div className="flex-1 flex items-center gap-2 min-w-0">
           <span className="text-white font-medium truncate">{fileName}</span>
           {hasChanges && (
-            <span className="w-2 h-2 bg-yellow-400 rounded-full flex-shrink-0" title="Unsaved changes" />
+            <span className="w-2 h-2 bg-yellow-400 rounded-full flex-shrink-0" title={t("editor.unsaved")} />
           )}
           {savedIndicator && (
-            <span className="text-green-400 text-xs flex-shrink-0">Saved</span>
+            <span className="text-green-400 text-xs flex-shrink-0">{t("editor.saved")}</span>
           )}
         </div>
 
@@ -290,7 +292,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
             onClick={() => { vibrate(); handleShowDiff(); }}
             disabled={loadingDiff}
             className="p-2 bg-dark-500 hover:bg-dark-400 text-orange-400 rounded-brand transition-all duration-200 border border-dark-400 hover:border-orange-500"
-            title={`Git: ${gitStatus.status === "M" ? "Modified" : gitStatus.status === "A" ? "Added" : gitStatus.status === "?" ? "Untracked" : gitStatus.status}`}
+            title={`Git: ${gitStatus.status === "M" ? t("editor.statusModified") : gitStatus.status === "A" ? t("editor.statusAdded") : gitStatus.status === "?" ? t("editor.statusUntracked") : gitStatus.status}`}
           >
             {loadingDiff ? <Loader2 className="animate-spin" size={16} /> : <GitBranch size={16} />}
           </button>
@@ -310,7 +312,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
           ) : (
             <Save size={16} />
           )}
-          <span className="hidden sm:inline">Save</span>
+          <span className="hidden sm:inline">{t("editor.save")}</span>
         </button>
       </div>
 
@@ -325,7 +327,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
       <div className="flex-1 min-h-0 overflow-hidden">
         {loading && (
           <div className="h-full flex items-center justify-center text-dark-100">
-            Loading...
+            {t("common.loading")}
           </div>
         )}
         <div 
@@ -345,7 +347,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
             onClick={(e) => e.stopPropagation()}
           >
             <div className="bg-dark-600 px-4 py-3 flex items-center justify-between border-b border-dark-400">
-              <span className="text-white font-medium">Git Diff: {fileName}</span>
+              <span className="text-white font-medium">{t("editor.gitDiff")}: {fileName}</span>
               <button
                 onClick={() => setShowDiff(false)}
                 className="p-1 hover:bg-dark-500 rounded transition-colors text-dark-100 hover:text-white"
@@ -373,7 +375,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
             ref={textInputRef}
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
-            placeholder="Type text and insert..."
+            placeholder={t("editor.typeText")}
             rows={1}
             className="w-full px-3 py-2 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none"
           />
@@ -389,7 +391,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
             disabled={!textInput.trim()}
             className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:opacity-50 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0"
           >
-            Insert
+            {t("editor.insert")}
           </button>
         </div>
       </div>

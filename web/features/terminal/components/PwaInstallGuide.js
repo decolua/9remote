@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Smartphone, Monitor, Download, Share, Menu, MoreVertical, Check, Copy } from "@/shared/components/ui/Icon";
+import { Smartphone, Monitor, Check, Copy } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { maskApiKey } from "@/shared/utils/formatters";
+import { useI18n } from "@/shared/i18n";
 
 /**
  * PWA Installation Guide Component
  * Detects platform and shows appropriate installation instructions
  */
 export default function PwaInstallGuide() {
+  const { t } = useI18n();
   const [platform, setPlatform] = useState("unknown");
   const [isInstalled, setIsInstalled] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -89,8 +91,8 @@ export default function PwaInstallGuide() {
           1
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-white font-medium mb-2">Copy Your Key</p>
-          <p className="text-dark-100 text-sm mb-2">Tap the key below to copy — you'll need it to login after installing</p>
+          <p className="text-white font-medium mb-2">{t("pwaGuide.copyYourKey")}</p>
+          <p className="text-dark-100 text-sm mb-2">{t("pwaGuide.copyKeyHint")}</p>
           <div
             className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-brand border transition-colors ${
               copied
@@ -102,7 +104,7 @@ export default function PwaInstallGuide() {
               type="button"
               onClick={handleCopyKey}
               className="flex-1 min-w-0 text-left bg-transparent outline-none border-0 p-0 cursor-pointer"
-              aria-label="Tap to copy API key"
+              aria-label={t("pwaGuide.tapToCopyApiKey")}
             >
               <code className="block text-sm text-dark-50 font-mono truncate">
                 {maskApiKey(apiKey)}
@@ -113,7 +115,7 @@ export default function PwaInstallGuide() {
               onClick={handleCopyKey}
               className={`flex items-center gap-1 text-sm flex-shrink-0 ${copied ? "text-green-400" : "text-brand-500"}`}
             >
-              {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy</>}
+              {copied ? <><Check size={14} /> {t("pwaGuide.copiedBang")}</> : <><Copy size={14} /> {t("pwaGuide.copy")}</>}
             </button>
           </div>
         </div>
@@ -130,8 +132,8 @@ export default function PwaInstallGuide() {
           {1 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Tap Share Button</p>
-          <p className="text-dark-100 text-sm">Tap the <Share size={14} className="inline mx-1" /> share button at the bottom of Safari</p>
+          <p className="text-white font-medium mb-1">{t("pwaGuide.tapShareButton")}</p>
+          <p className="text-dark-100 text-sm">{t("pwaGuide.tapShareHint")}</p>
         </div>
       </div>
 
@@ -140,8 +142,8 @@ export default function PwaInstallGuide() {
           {2 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Add to Home Screen</p>
-          <p className="text-dark-100 text-sm">Scroll down and tap "Add to Home Screen"</p>
+          <p className="text-white font-medium mb-1">{t("pwaGuide.addToHome")}</p>
+          <p className="text-dark-100 text-sm">{t("pwaGuide.addToHomeHint")}</p>
         </div>
       </div>
 
@@ -150,8 +152,8 @@ export default function PwaInstallGuide() {
           {3 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Open App & Paste Key</p>
-          <p className="text-dark-100 text-sm">Open the installed app and paste your key to login</p>
+          <p className="text-white font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
+          <p className="text-dark-100 text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
         </div>
       </div>
     </div>
@@ -166,8 +168,8 @@ export default function PwaInstallGuide() {
           {1 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Open Menu</p>
-          <p className="text-dark-100 text-sm">Tap the <MoreVertical size={14} className="inline mx-1" /> menu button (three dots) in Chrome</p>
+          <p className="text-white font-medium mb-1">{t("pwaGuide.openMenu")}</p>
+          <p className="text-dark-100 text-sm">{t("pwaGuide.openMenuHint")}</p>
         </div>
       </div>
 
@@ -176,8 +178,8 @@ export default function PwaInstallGuide() {
           {2 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Install App</p>
-          <p className="text-dark-100 text-sm">Tap "Install app" or "Add to Home screen"</p>
+          <p className="text-white font-medium mb-1">{t("pwaGuide.installApp")}</p>
+          <p className="text-dark-100 text-sm">{t("pwaGuide.installAppHint")}</p>
         </div>
       </div>
 
@@ -186,8 +188,8 @@ export default function PwaInstallGuide() {
           {3 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Open App & Paste Key</p>
-          <p className="text-dark-100 text-sm">Open the installed app and paste your key to login</p>
+          <p className="text-white font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
+          <p className="text-dark-100 text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
         </div>
       </div>
     </div>
@@ -202,8 +204,8 @@ export default function PwaInstallGuide() {
           {1 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Look for Install Icon</p>
-          <p className="text-dark-100 text-sm">Look for the <Download size={14} className="inline mx-1" /> install icon in the address bar</p>
+          <p className="text-white font-medium mb-1">{t("pwaGuide.lookInstallIcon")}</p>
+          <p className="text-dark-100 text-sm">{t("pwaGuide.lookInstallIconHint")}</p>
         </div>
       </div>
 
@@ -212,14 +214,14 @@ export default function PwaInstallGuide() {
           {2 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">Click Install & Paste Key</p>
-          <p className="text-dark-100 text-sm">Click install, open the app, and paste your key to login</p>
+          <p className="text-white font-medium mb-1">{t("pwaGuide.clickInstallPaste")}</p>
+          <p className="text-dark-100 text-sm">{t("pwaGuide.clickInstallPasteHint")}</p>
         </div>
       </div>
 
       <div className="mt-6 p-3 bg-blue-500/10 border border-blue-500/20 rounded-brand">
         <p className="text-blue-200 text-sm">
-          💡 Alternative: Open browser menu → "Install 9Remote" or "Create shortcut"
+          💡 {t("pwaGuide.alternativeHint")}
         </p>
       </div>
     </div>
@@ -238,7 +240,7 @@ export default function PwaInstallGuide() {
       default:
         return (
           <p className="text-dark-100 text-center py-8">
-            Loading platform detection...
+            {t("pwaGuide.loadingPlatform")}
           </p>
         );
     }
@@ -257,15 +259,15 @@ export default function PwaInstallGuide() {
   const getPlatformName = () => {
     switch (platform) {
       case "ios":
-        return "iOS (iPhone/iPad)";
+        return t("pwaGuide.iosPlatform");
       case "android":
-        return "Android";
+        return t("pwaGuide.androidPlatform");
       case "macos":
-        return "macOS";
+        return t("pwaGuide.macosPlatform");
       case "windows":
-        return "Windows";
+        return t("pwaGuide.windowsPlatform");
       default:
-        return "Desktop";
+        return t("pwaGuide.desktopPlatform");
     }
   };
 
@@ -276,9 +278,9 @@ export default function PwaInstallGuide() {
           <div className="inline-flex p-4 bg-green-500/10 rounded-brand-lg mb-4">
             <Check className="text-green-500" size={48} />
           </div>
-          <p className="text-white font-semibold mb-2">Already Installed!</p>
+          <p className="text-white font-semibold mb-2">{t("pwaGuide.alreadyInstalled")}</p>
           <p className="text-dark-100 text-sm">
-            You're already using 9Remote as an installed app
+            {t("pwaGuide.alreadyInstalledHint")}
           </p>
         </div>
       </div>
@@ -293,7 +295,7 @@ export default function PwaInstallGuide() {
           {getPlatformIcon()}
         </div>
         <div>
-          <p className="text-white font-medium">Installation Guide</p>
+          <p className="text-white font-medium">{t("pwaGuide.installationGuide")}</p>
           <p className="text-dark-100 text-sm">{getPlatformName()}</p>
         </div>
       </div>
@@ -321,7 +323,7 @@ export default function PwaInstallGuide() {
 
       {/* Instructions */}
       <div>
-        <p className="text-white font-medium mb-4">Installation Steps:</p>
+        <p className="text-white font-medium mb-4">{t("pwaGuide.installationSteps")}</p>
         {renderInstructions()}
       </div>
     </div>

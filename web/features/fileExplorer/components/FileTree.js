@@ -3,6 +3,7 @@
 import { FILE_ICON_NAMES, LANGUAGE_MAP, GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
 import { Folder, File, FileCode, FileJson, FileText, Image, Package } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
 const ICON_COMPONENTS = {
   Folder,
@@ -64,10 +65,11 @@ export default function FileTree({
   gitStatusMap = {},
   workspacePath
 }) {
+  const { t } = useI18n();
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-slate-400">Loading...</div>
+        <div className="text-slate-400">{t("common.loading")}</div>
       </div>
     );
   }
@@ -75,7 +77,7 @@ export default function FileTree({
   if (files.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-slate-400">Empty folder</div>
+        <div className="text-slate-400">{t("files.emptyFolder")}</div>
       </div>
     );
   }
@@ -124,7 +126,7 @@ export default function FileTree({
               <button
                 onClick={(e) => { vibrate(); handleMoreClick(e, file); }}
                 className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition flex-shrink-0"
-                title="More actions"
+                title={t("menu.settings")}
               >
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                   <circle cx="12" cy="5" r="2" />

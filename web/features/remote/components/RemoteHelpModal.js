@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "@/shared/components/ui/Icon";
+import { useI18n } from "@/shared/i18n";
 
 // Build help sections based on current mode. Keep it SHORT — only the essentials.
 function buildSections(inputMode, pointerMode) {
@@ -75,6 +76,7 @@ function buildSections(inputMode, pointerMode) {
 }
 
 export default function RemoteHelpModal({ onClose, inputMode = "touch", pointerMode = "direct" }) {
+  const { t } = useI18n();
   const sections = buildSections(inputMode, pointerMode);
   const modeLabel = inputMode === "mouse"
     ? "PC / Mouse"
@@ -93,7 +95,7 @@ export default function RemoteHelpModal({ onClose, inputMode = "touch", pointerM
       >
         <div className="flex items-center justify-between p-4 border-b border-dark-400 sticky top-0 bg-dark-600 z-10">
           <div className="flex items-baseline gap-2">
-            <h2 className="text-white text-base font-semibold">Help</h2>
+            <h2 className="text-white text-base font-semibold">{t("remote.help")}</h2>
             <span className="text-brand-400 text-xs font-mono">{modeLabel}</span>
           </div>
           <button

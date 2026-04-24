@@ -25,9 +25,11 @@ const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPan
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
+import { useI18n } from "@/shared/i18n";
 
 // Main workspace page - contains sessions, terminal, file explorer, remote desktop, etc.
 export default function WorkspacePage() {
+  const { t } = useI18n();
   // Hydration state for Zustand
   const [hydrated, setHydrated] = useState(false);
 
@@ -196,12 +198,12 @@ export default function WorkspacePage() {
   const handleCreateSession = useCallback((name) => {
     createSession(name, (result) => {
       if (!result.success) {
-        alert("Failed to create session: " + result.error);
+        alert(t("workspace.failedCreateSession", { error: result.error }));
       } else if (result.sessionId) {
         addOpenedSession(result.sessionId);
       }
     });
-  }, [createSession, addOpenedSession]);
+  }, [createSession, addOpenedSession, t]);
 
   // Smooth-scroll focused pane to center of viewport (desktop split-view only)
   useEffect(() => {
@@ -231,10 +233,10 @@ export default function WorkspacePage() {
 
   // Quick-create from terminal header "+" button - auto-switch focus to new session
   const handleQuickCreateSession = useCallback(() => {
-    const name = `Terminal ${sessions.length + 1}`;
+    const name = `${t("terminal.defaultName")} ${sessions.length + 1}`;
     createSession(name, (result) => {
       if (!result.success) {
-        alert("Failed to create session: " + result.error);
+        alert(t("workspace.failedCreateSession", { error: result.error }));
         return;
       }
       if (result.sessionId) {
@@ -242,7 +244,7 @@ export default function WorkspacePage() {
         handleSelectSession(result.sessionId);
       }
     });
-  }, [sessions, createSession, handleSelectSession]);
+  }, [sessions, createSession, handleSelectSession, t]);
 
   const handleDeleteSession = useCallback((sessionId) => {
     deleteSession(sessionId, () => {
@@ -253,10 +255,10 @@ export default function WorkspacePage() {
   const handleRenameSession = useCallback((sessionId, newName) => {
     renameSession(sessionId, newName, (result) => {
       if (!result.success) {
-        alert("Failed to rename session: " + result.error);
+        alert(t("workspace.failedRenameSession", { error: result.error }));
       }
     });
-  }, [renameSession]);
+  }, [renameSession, t]);
 
   const handleOpenRemote = useCallback(() => {
     pushView({ type: "remote" });
@@ -356,11 +358,11 @@ export default function WorkspacePage() {
   const handleLogoutWithConfirm = useCallback(() => {
     setConfirmDialog({
       isOpen: true,
-      title: "Logout",
-      message: "Are you sure you want to logout?",
+      title: t("workspace.logoutTitle"),
+      message: t("workspace.logoutMessage"),
       onConfirm: handleDisconnect
     });
-  }, [handleDisconnect]);
+  }, [handleDisconnect, t]);
 
   const closeConfirmDialog = useCallback(() => {
     setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: null });
@@ -373,7 +375,7 @@ export default function WorkspacePage() {
   if (isInitializing) {
     return (
       <div className="min-h-screen bg-dark-700 flex items-center justify-center">
-        <div className="text-dark-100">Loading...</div>
+        <div className="text-dark-100">{t("workspace.loading")}</div>
       </div>
     );
   }

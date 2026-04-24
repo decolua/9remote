@@ -2,8 +2,12 @@
 
 import { useEffect } from "react";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
-export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", cancelText = "Cancel" }) {
+export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmText, cancelText }) {
+  const { t } = useI18n();
+  const finalConfirm = confirmText ?? t("common.confirm");
+  const finalCancel = cancelText ?? t("common.cancel");
   // Close on Escape key
   useEffect(() => {
     if (!isOpen) return;
@@ -46,7 +50,7 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
             onClick={() => { vibrate(); onClose(); }}
             className="px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition font-medium"
           >
-            {cancelText}
+            {finalCancel}
           </button>
           <button
             onClick={() => {
@@ -56,7 +60,7 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
             }}
             className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-brand transition font-medium"
           >
-            {confirmText}
+            {finalConfirm}
           </button>
         </div>
       </div>

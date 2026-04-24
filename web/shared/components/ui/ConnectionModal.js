@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import Spinner from "./Spinner";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
 /**
  * Connection overlay modal - shows when retrying, failed, or waiting for device approval
@@ -12,6 +13,7 @@ import { vibrate } from "@/shared/utils/vibration";
  */
 export default function ConnectionModal({ retryStatus, approvalStatus, onLogout }) {
   const router = useRouter();
+  const { t } = useI18n();
 
   const handleBackToLogin = () => {
     if (onLogout) {
@@ -30,19 +32,19 @@ export default function ConnectionModal({ retryStatus, approvalStatus, onLogout 
           <div className="text-center">
             <Spinner size="lg" />
             <h3 className="text-white text-lg font-semibold mt-4">
-              Waiting for Approval
+              {t("connection.waitingApproval")}
             </h3>
             <p className="text-dark-100 mt-2">
-              The agent needs to approve this device before you can connect.
+              {t("connection.approvalDescription")}
             </p>
             <p className="text-dark-200 text-sm mt-1">
-              Check the terminal on your machine.
+              {t("connection.approvalHint")}
             </p>
             <button
               onClick={() => { vibrate(); handleBackToLogin(); }}
               className="mt-4 w-full py-2 bg-dark-500 hover:bg-dark-400 text-dark-50 font-medium rounded-brand transition"
             >
-              Cancel
+              {t("connection.cancel")}
             </button>
           </div>
         </div>
@@ -62,16 +64,16 @@ export default function ConnectionModal({ retryStatus, approvalStatus, onLogout 
               </svg>
             </div>
             <h3 className="text-white text-lg font-semibold mt-4">
-              Device Rejected
+              {t("connection.rejectedTitle")}
             </h3>
             <p className="text-dark-100 mt-2">
-              This device was not approved by the agent.
+              {t("connection.rejectedDescription")}
             </p>
             <button
               onClick={() => { vibrate(); handleBackToLogin(); }}
               className="mt-6 w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition"
             >
-              Back to Login
+              {t("connection.backToLogin")}
             </button>
           </div>
         </div>
@@ -92,10 +94,10 @@ export default function ConnectionModal({ retryStatus, approvalStatus, onLogout 
           <div className="text-center">
             <Spinner size="lg" />
             <h3 className="text-white text-lg font-semibold mt-4">
-              Reconnecting...
+              {t("connection.retrying")}
             </h3>
             <p className="text-dark-100 mt-2">
-              Attempt {retryStatus.attempt} of {retryStatus.maxAttempts}
+              {t("connection.attemptOf", { n: retryStatus.attempt, total: retryStatus.maxAttempts })}
             </p>
             <div className="mt-4 w-full bg-dark-500 rounded-full h-2">
               <div 
@@ -107,7 +109,7 @@ export default function ConnectionModal({ retryStatus, approvalStatus, onLogout 
               onClick={() => { vibrate(); handleBackToLogin(); }}
               className="mt-4 w-full py-2 bg-dark-500 hover:bg-dark-400 text-dark-50 font-medium rounded-brand transition"
             >
-              Exit
+              {t("connection.exit")}
             </button>
           </div>
         ) : (
@@ -119,16 +121,16 @@ export default function ConnectionModal({ retryStatus, approvalStatus, onLogout 
               </svg>
             </div>
             <h3 className="text-white text-lg font-semibold mt-4">
-              Connection Failed
+              {t("connection.failed")}
             </h3>
             <p className="text-dark-100 mt-2">
-              Unable to connect after {retryStatus.maxAttempts} attempts
+              {t("connection.failedDescription", { n: retryStatus.maxAttempts })}
             </p>
             <button
               onClick={() => { vibrate(); handleBackToLogin(); }}
               className="mt-6 w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition"
             >
-              Back to Login
+              {t("connection.backToLogin")}
             </button>
           </div>
         )}

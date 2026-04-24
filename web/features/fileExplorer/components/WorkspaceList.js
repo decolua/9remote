@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { Folder, Home, HardDrive, Sparkles } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
 const STORAGE_KEY = "recentWorkspaces";
 const MAX_RECENT = 5;
@@ -43,6 +44,7 @@ export function removeRecentWorkspace(workspacePath) {
 }
 
 export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces, systemInfo }) {
+  const { t } = useI18n();
   const [recent, setRecent] = useState([]);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, path: null, name: "" });
 
@@ -73,9 +75,9 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
 
-    if (minutes < 60) return `${minutes} min ago`;
-    if (hours < 24) return `${hours} hours ago`;
-    return `${days} days ago`;
+    if (minutes < 60) return t("common.minutesAgo", { n: minutes });
+    if (hours < 24) return t("common.hoursAgo", { n: hours });
+    return t("common.daysAgo", { n: days });
   };
 
   const getWorkspaceName = (fullPath) => {
@@ -94,7 +96,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-white text-lg font-semibold">Select Workspace</h1>
+        <h1 className="text-white text-lg font-semibold">{t("files.selectWorkspace")}</h1>
       </div>
 
       {/* Content */}
@@ -102,7 +104,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
         {/* Recent Workspaces */}
         {recent.length > 0 && (
           <div className="mb-6">
-            <h2 className="text-dark-100 text-sm font-medium mb-3">Recent Workspaces</h2>
+            <h2 className="text-dark-100 text-sm font-medium mb-3">{t("files.recentWorkspaces")}</h2>
             <div className="space-y-2">
               {recent.map((workspace) => (
                 <button
@@ -125,7 +127,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                   <div
                     onClick={(e) => { vibrate(); handleRemoveClick(e, workspace); }}
                     className="p-2 text-dark-100 hover:text-red-400 hover:bg-dark-500 rounded-brand transition-all duration-200 flex-shrink-0"
-                    title="Remove from recent"
+                    title={t("files.removeRecent")}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -142,7 +144,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
 
         {/* Browse options */}
         <div>
-          <h2 className="text-dark-100 text-sm font-medium mb-3">Select Workspace</h2>
+          <h2 className="text-dark-100 text-sm font-medium mb-3">{t("files.selectWorkspace")}</h2>
           <div className="space-y-2">
             {/* Windows: Show drives */}
             {systemInfo?.isWindows ? (
@@ -155,7 +157,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                   >
                     <HardDrive size={24} className="text-blue-500/70" />
                     <div className="flex-1">
-                      <div className="text-white font-medium">Drive {drive.letter}</div>
+                      <div className="text-white font-medium">{t("files.drive", { letter: drive.letter })}</div>
                       <div className="text-dark-100 text-sm">{drive.path}</div>
                     </div>
                     <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -173,7 +175,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                 >
                   <Home size={24} className="text-blue-500/70" />
                   <div className="flex-1">
-                    <div className="text-white font-medium">Home</div>
+                    <div className="text-white font-medium">{t("files.home")}</div>
                     <div className="text-dark-100 text-sm">~/</div>
                   </div>
                   <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -187,7 +189,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                 >
                   <HardDrive size={24} className="text-slate-400" />
                   <div className="flex-1">
-                    <div className="text-white font-medium">Root</div>
+                    <div className="text-white font-medium">{t("files.root")}</div>
                     <div className="text-dark-100 text-sm">/</div>
                   </div>
                   <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -205,7 +207,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
               >
                 <Sparkles size={24} className="text-purple-400" />
                 <div className="flex-1">
-                  <div className="text-white font-medium">Codespaces</div>
+                  <div className="text-white font-medium">{t("files.codespaces")}</div>
                   <div className="text-purple-400 text-sm">/workspaces</div>
                 </div>
                 <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -222,8 +224,8 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
         isOpen={confirmDialog.isOpen}
         onClose={() => setConfirmDialog({ isOpen: false, path: null, name: "" })}
         onConfirm={handleConfirmRemove}
-        title="Remove Workspace"
-        message={`Remove "${confirmDialog.name}" from recent workspaces?`}
+        title={t("files.removeTitle")}
+        message={t("files.removeMessage", { name: confirmDialog.name })}
       />
     </div>
   );

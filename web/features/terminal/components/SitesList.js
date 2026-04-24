@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { Globe, X, Trash2, RefreshCw, Loader2, Pencil, Check, ChevronRight } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useI18n } from "@/shared/i18n";
 
 const CUSTOM_PORTS_KEY = "custom_ports";
 const SITE_LABELS_KEY = "site_labels";
@@ -43,6 +44,7 @@ function saveSiteLabels(labels) {
 }
 
 export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
+  const { t } = useI18n();
   const [customPorts, setCustomPorts] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [openedWindows, setOpenedWindows] = useState({});
@@ -139,7 +141,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
     const windowRef = window.open('about:blank', `_proxy_${port}`);
     
     if (!windowRef) {
-      alert("Popup blocked! Please allow popups for this site.");
+      alert(t("sites.popupBlocked"));
       return;
     }
     
@@ -166,7 +168,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
       }
     } catch (err) {
       console.error(`[SitesList] Failed to start proxy session:`, err);
-      alert(`Failed to start proxy session for ${site.name}`);
+      alert(t("sites.startProxyFailed", { name: site.name }));
       windowRef.close();
       setOpenedWindows(prev => {
         const updated = { ...prev };
@@ -266,8 +268,8 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
   const handleRemovePort = (port) => {
     setConfirmDialog({
       isOpen: true,
-      title: "Remove Port",
-      message: `Remove port ${port} from saved list?`,
+      title: t("sites.removePortTitle"),
+      message: t("sites.removePortMessage", { port }),
       onConfirm: () => {
         const updated = customPorts.filter(p => p !== port);
         setCustomPorts(updated);
@@ -294,7 +296,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
           className="px-3 sm:px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border border-dark-400 hover:border-brand-500"
         >
           <Globe className="text-brand-500" size={16} />
-          <span className="hidden sm:inline">Sites</span>
+          <span className="hidden sm:inline">{t("sites.title")}</span>
         </button>
       )}
 
@@ -312,8 +314,8 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-dark-400 shrink-0">
               <div>
-                <h2 className="text-lg font-semibold text-orange-400">Local Sites</h2>
-                <p className="text-sm text-dark-100 mt-0.5">Select a site to preview</p>
+                <h2 className="text-lg font-semibold text-orange-400">{t("sites.localSites")}</h2>
+                <p className="text-sm text-dark-100 mt-0.5">{t("sites.selectSitePreview")}</p>
               </div>
               <button
                 onClick={handleClose}
@@ -332,7 +334,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                   value={newPort}
                   onChange={(e) => setNewPort(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAddPort()}
-                  placeholder="port"
+                  placeholder={t("sites.portPlaceholder")}
                   min="1"
                   max="65535"
                   className="flex-1 px-3 py-2 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent text-sm min-w-0 transition-all duration-200"
@@ -342,7 +344,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                   disabled={!newPort}
                   className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded-brand transition-all duration-200 shadow-lg shadow-brand-500/20"
                 >
-                  Open
+                  {t("sites.open")}
                 </button>
               </div>
             </div>
@@ -356,7 +358,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
               <div className="flex items-center justify-center py-8">
                 <div className="flex items-center gap-3 text-brand-500">
                   <Loader2 className="animate-spin" size={20} />
-                  <span>Loading Sites...</span>
+                  <span>{t("sites.loadingSites")}</span>
                 </div>
               </div>
             ) : currentSites.length === 0 ? (
@@ -364,8 +366,8 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                   <div className="w-12 h-12 mx-auto mb-3 rounded-brand-lg bg-dark-500 flex items-center justify-center">
                     <Globe className="text-dark-100" size={24} />
                   </div>
-                  <p className="text-dark-50 font-medium">No sites found</p>
-                  <p className="text-dark-100 text-sm mt-1">Start a local dev server to see it here</p>
+                  <p className="text-dark-50 font-medium">{t("sites.noSitesFound")}</p>
+                  <p className="text-dark-100 text-sm mt-1">{t("sites.startServerHint")}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -374,7 +376,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                     .filter(port => !currentSites.some(s => s.port === port))
                     .map((port) => {
                       const isEditing = editingPort === port;
-                      const displayName = siteLabels[port] || "Custom";
+                      const displayName = siteLabels[port] || t("common.new");
                       return (
                         <div
                           key={`custom-${port}`}
@@ -397,7 +399,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                                   }}
                                   onClick={(e) => e.stopPropagation()}
                                   autoFocus
-                                  placeholder="Site name"
+                                  placeholder={t("sites.siteNamePlaceholder")}
                                   className="w-full px-2 py-1 bg-dark-700 border border-brand-500 rounded-brand text-white text-sm focus:outline-none"
                                 />
                               ) : (
@@ -417,7 +419,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                             <button
                               onClick={(e) => { e.stopPropagation(); handleSaveEdit(); }}
                               className="p-2 text-brand-500 hover:text-white hover:bg-dark-500 rounded-brand transition-colors shrink-0"
-                              title="Save"
+                              title={t("sites.saveTitle")}
                             >
                               <Check size={16} />
                             </button>
@@ -425,7 +427,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                             <button
                               onClick={(e) => { e.stopPropagation(); handleStartEdit(port, siteLabels[port]); }}
                               className="p-2 text-dark-100 hover:text-brand-500 hover:bg-dark-500 rounded-brand transition-colors shrink-0"
-                              title="Edit name"
+                              title={t("sites.editNameTitle")}
                             >
                               <Pencil size={16} />
                             </button>
@@ -436,7 +438,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                               handleRemovePort(port);
                             }}
                             className="p-2 text-dark-100 hover:text-red-400 hover:bg-dark-500 rounded-brand transition-colors shrink-0"
-                            title="Remove"
+                            title={t("sites.removeTitle")}
                           >
                             <Trash2 size={16} />
                           </button>
@@ -497,7 +499,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                           <button
                             onClick={(e) => { e.stopPropagation(); handleSaveEdit(); }}
                             className="p-2 text-brand-500 hover:text-white hover:bg-dark-500 rounded-brand transition-colors shrink-0"
-                            title="Save"
+                            title={t("sites.saveTitle")}
                           >
                             <Check size={16} />
                           </button>
@@ -505,7 +507,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                           <button
                             onClick={(e) => { e.stopPropagation(); handleStartEdit(site.port, siteLabels[site.port]); }}
                             className="p-2 text-dark-100 hover:text-brand-500 hover:bg-dark-500 rounded-brand transition-colors shrink-0"
-                            title="Edit name"
+                            title={t("sites.editNameTitle")}
                           >
                             <Pencil size={16} />
                           </button>
@@ -523,7 +525,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
             {/* Footer */}
             <div className="px-5 py-3 border-t border-dark-400 flex items-center justify-between shrink-0">
               <span className="text-xs text-dark-100">
-                {currentSites.length > 0 ? `${currentSites.length} site${currentSites.length > 1 ? "s" : ""} found` : ""}
+                {currentSites.length > 0 ? t("sites.foundCount", { n: currentSites.length, suffix: currentSites.length > 1 ? "s" : "" }) : ""}
               </span>
               <button
                 onClick={loadSites}
@@ -531,7 +533,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                 className="flex items-center gap-2 px-3 py-1.5 text-sm text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={loadingSites ? "animate-spin text-brand-500" : ""} size={16} />
-                Refresh
+                {t("sites.refresh")}
               </button>
             </div>
           </div>

@@ -5,9 +5,11 @@ import * as LucideIcons from "lucide-react";
 import { X, ExternalLink } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { COMMUNITY_LINKS } from "@/features/terminal/constants/communityLinks";
+import { useI18n } from "@/shared/i18n";
 
 // Community modal - list external links (Facebook, GitHub, ...) driven by config
 export default function CommunityModal({ isOpen, onClose }) {
+  const { t } = useI18n();
   // Close on Escape
   useEffect(() => {
     if (!isOpen) return;
@@ -38,11 +40,11 @@ export default function CommunityModal({ isOpen, onClose }) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-dark-400">
-          <h2 className="text-lg font-semibold text-white">Community</h2>
+          <h2 className="text-lg font-semibold text-white">{t("community.title")}</h2>
           <button
             onClick={onClose}
             className="p-2 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors"
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             <X size={20} />
           </button>
@@ -51,7 +53,7 @@ export default function CommunityModal({ isOpen, onClose }) {
         {/* Body */}
         <div className="p-4 space-y-2">
           <p className="text-dark-100 text-sm px-1 mb-2">
-            Join the community to report bugs and suggest features
+            {t("community.description")}
           </p>
           {COMMUNITY_LINKS.map((link) => {
             const IconCmp = LucideIcons[link.icon];

@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useI18n } from "@/shared/i18n";
 
 export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
+  const { t } = useI18n();
   const baseUrl = tunnelUrl || (typeof window !== "undefined" ? window.location.origin : "");
   const proxyUrl = `${baseUrl}/proxy/${port}/`;
   const iframeRef = useRef(null);
@@ -110,7 +112,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
     
     if (!windowRef.current) {
       console.error("[SiteView] Failed to open window - popup may be blocked");
-      alert("Popup blocked! Please allow popups for this site.");
+      alert(t("sites.popupBlocked"));
       return;
     }
     
@@ -154,7 +156,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
         <button
           onClick={onBack}
           className="p-2 bg-slate-700 hover:bg-red-600 text-white rounded transition"
-          title="Close"
+          title={t("common.close")}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -178,7 +180,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
                 ? "bg-blue-600 hover:bg-blue-700 text-white"
                 : "bg-slate-700 hover:bg-slate-600 text-white"
             }`}
-            title={isWindowOpen ? "Focus opened tab" : "Open in new tab"}
+            title={isWindowOpen ? t("sites.focusOpenedTab") : t("sites.openInNewTab")}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -192,7 +194,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
                 ? "bg-slate-700 hover:bg-slate-600 text-white" 
                 : "bg-slate-700/50 text-slate-500 cursor-not-allowed"
             }`}
-            title="Go back"
+            title={t("sites.goBack")}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -206,7 +208,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
                 ? "bg-slate-700 hover:bg-slate-600 text-white" 
                 : "bg-slate-700/50 text-slate-500 cursor-not-allowed"
             }`}
-            title="Go forward"
+            title={t("sites.goForward")}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -215,7 +217,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
           <button
             onClick={handleRefresh}
             className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
-            title="Refresh"
+            title={t("sites.refresh")}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -236,7 +238,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-slate-400">
-            Loading...
+            {t("sites.loadingSite")}
           </div>
         )}
       </div>

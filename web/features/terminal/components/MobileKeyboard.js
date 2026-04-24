@@ -14,8 +14,10 @@ import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
+import { useI18n } from "@/shared/i18n";
 
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform }) => {
+  const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   const [textInput, setTextInput] = useState("");
   const [isMobile, setIsMobile] = useState(false);
@@ -223,7 +225,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      if (file.size > 5 * 1024 * 1024) { alert("File too large (max 5MB)"); return; }
+      if (file.size > 5 * 1024 * 1024) { alert(t("mobileKeyboard.fileTooLarge")); return; }
       const reader = new FileReader();
       reader.onload = () => {
         const base64Content = reader.result.split(",")[1];
@@ -233,11 +235,11 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
           });
         }
       };
-      reader.onerror = () => alert("Failed to read file");
+      reader.onerror = () => alert(t("mobileKeyboard.readFileFailed"));
       reader.readAsDataURL(file);
     } catch (err) {
       console.error("File upload error:", err);
-      alert("Failed to upload file: " + err.message);
+      alert(t("mobileKeyboard.uploadFailed", { error: err.message }));
     }
     event.target.value = "";
   };
@@ -288,7 +290,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPasteInput(false)}>
           <input
             ref={pasteInputRef}
-            placeholder="Paste here (Cmd+V)"
+            placeholder={t("mobileKeyboard.pasteHere")}
             onPaste={handlePasteInput}
             onClick={(e) => e.stopPropagation()}
             className="px-6 py-3 bg-dark-500 text-white rounded-brand border border-dark-400 focus:border-brand-500 font-medium transition-all duration-200 outline-none text-center w-64"
@@ -315,7 +317,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => { vibrate(); setShowCustomize(true); }}
                     className="shrink-0 h-10 w-10 flex items-center justify-center text-dark-100 hover:text-white border border-dark-400 rounded-brand"
-                    title="Customize keys"
+                    title={t("remote.customizeKeys")}
                   >
                     <Settings size={16} />
                   </button>
@@ -344,7 +346,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
                 sendTextBatch();
               }
             }}
-            placeholder={hasPhysicalKeyboard ? "Enter to send • Shift+Enter for new line" : "Type command and send..."}
+            placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend") : t("mobileKeyboard.typeCommand")}
             rows={Math.min(2, (textInput.match(/\n/g) || []).length + 1)}
             className="w-full px-3 py-2 pr-8 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none"
           />
@@ -363,7 +365,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
             disabled={!textInput.trim()}
             className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:opacity-50 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0"
           >
-            Send
+            {t("mobileKeyboard.send")}
           </button>
         </div>
       </div>
@@ -381,7 +383,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
               onClick={toggleExpanded}
               className={`${buttonBaseClass} ${isExpanded ? BUTTON_STYLES.modifierActive : BUTTON_STYLES.normal} flex-shrink-0`}
               style={BUTTON_STYLES.size}
-              title="Toggle extra keys"
+              title={t("mobileKeyboard.toggleExtraKeys")}
             >
               {isExpanded ? <X size={16} /> : <MoreHorizontal size={16} />}
             </button>
@@ -392,10 +394,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
       <KeyCustomizeModal
         isOpen={showCustomize}
         onClose={() => setShowCustomize(false)}
-        title="Customize Terminal Keys"
+        title={t("mobileKeyboard.customizeTerminalKeys")}
         tabs={[
-          { id: "basic", label: "Main Bar", hook: basicCustom },
-          { id: "extra", label: "Extra Panel", hook: extraCustom }
+          { id: "basic", label: t("mobileKeyboard.mainBar"), hook: basicCustom },
+          { id: "extra", label: t("mobileKeyboard.extraPanel"), hook: extraCustom }
         ]}
       />
     </div>

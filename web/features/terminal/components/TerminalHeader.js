@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { ChevronLeft, Settings, Monitor, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useI18n } from "@/shared/i18n";
 
 // Shared header for all terminal panes - contains tabs + actions
 export default function TerminalHeader({
@@ -31,6 +32,7 @@ export default function TerminalHeader({
   socketRef,
   isActive = true,
 }) {
+  const { t } = useI18n();
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
@@ -76,7 +78,7 @@ export default function TerminalHeader({
       <button
         onClick={() => { vibrate(); onBack(); }}
         className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
-        title="Back"
+        title={t("common.back")}
       >
         <ChevronLeft size={20} />
       </button>
@@ -101,7 +103,7 @@ export default function TerminalHeader({
                 }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${hasNotif ? "bg-yellow-400 animate-pulse" : connected ? "bg-green-400" : "bg-red-400"}`} />
-                <span className="truncate max-w-[120px]">{session.name || "Terminal"}</span>
+                <span className="truncate max-w-[120px]">{session.name || t("terminal.defaultName")}</span>
               </button>
             );
           })}
@@ -110,7 +112,7 @@ export default function TerminalHeader({
               onClick={() => { vibrate(); onCreateSession(); }}
               disabled={!connected}
               className="sticky right-0 ml-1 p-1 bg-dark-500 text-dark-50 hover:text-white transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 rounded-md"
-              title="New terminal"
+              title={t("terminal.newTerminal")}
             >
               <Plus size={20} />
             </button>
@@ -122,7 +124,7 @@ export default function TerminalHeader({
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
           className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
-          title="Remote Desktop"
+          title={t("menu.remoteDesktop")}
         >
           <Monitor size={20} />
         </button>
@@ -131,7 +133,7 @@ export default function TerminalHeader({
       <button
         onClick={() => { vibrate(); openMenu(); }}
         className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
-        title="Menu"
+        title={t("menu.title")}
       >
         <Settings size={20} />
       </button>

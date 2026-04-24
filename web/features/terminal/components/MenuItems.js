@@ -5,6 +5,9 @@ import { FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Lo
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useI18n } from "@/shared/i18n";
+import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
+import LanguageModal from "@/shared/components/ui/LanguageModal";
 
 /**
  * Shared menu items for SlideMenu (DRY)
@@ -31,6 +34,9 @@ export default function MenuItems({
   unsubscribeFromPush = null
 }) {
   const [expandedSection, setExpandedSection] = useState(null);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const { t, locale } = useI18n();
+  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale) || SUPPORTED_LOCALES[0];
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const isOutdated = !agentVersion || (webVersion && agentVersion !== webVersion);
@@ -121,7 +127,7 @@ export default function MenuItems({
           >
             <div className="flex items-center gap-3">
               <Palette className="text-brand-500" size={20} />
-              <span className="font-medium">Theme</span>
+              <span className="font-medium">{t("menu.theme")}</span>
             </div>
             <span className="text-dark-100 text-sm">{theme.charAt(0).toUpperCase() + theme.slice(1)}</span>
           </button>
@@ -155,10 +161,10 @@ export default function MenuItems({
         >
           <div className="flex items-center gap-3">
             <Bell className="text-brand-500" size={20} />
-            <span className="font-medium">Notifications</span>
+            <span className="font-medium">{t("menu.notifications")}</span>
           </div>
           <span className="text-dark-100 text-sm">
-            {pushEnabled && hookStatus ? Object.values(hookStatus).filter(s => s.enabled).length + " on" : ""}
+            {pushEnabled && hookStatus ? `${Object.values(hookStatus).filter(s => s.enabled).length} ${t("common.on")}` : ""}
           </span>
         </button>
         {expandedSection === "notifications" && (
@@ -166,14 +172,14 @@ export default function MenuItems({
             {!pushEnabled ? (
               // Not subscribed → show Enable button
               <div className="space-y-2">
-                <p className="text-dark-200 text-xs px-1">Enable push notifications to get alerted when AI completes tasks</p>
+                <p className="text-dark-200 text-xs px-1">{t("menu.pushHint")}</p>
                 <button
                   onClick={handleEnablePush}
                   disabled={pushLoading}
                   className="w-full py-2 px-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm font-medium rounded-brand flex items-center justify-center gap-2 transition-colors"
                 >
                   {pushLoading ? <Loader2 className="animate-spin" size={16} /> : <Bell size={16} />}
-                  Enable Push Notifications
+                  {t("menu.enablePush")}
                 </button>
               </div>
             ) : (
@@ -183,10 +189,10 @@ export default function MenuItems({
                   ["claude", "codex", "gemini"].map((tool) => {
                     const status = hookStatus[tool];
                     if (!status?.installed) return null;
-                    const toolNames = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI" };
+                    const toolKeys = { claude: "claudeCode", codex: "codex", gemini: "geminiCli" };
                     return (
                       <div key={tool} className="flex items-center justify-between py-1 px-1">
-                        <span className="text-sm text-white">{toolNames[tool]}</span>
+                        <span className="text-sm text-white">{t(`notifications.${toolKeys[tool]}`)}</span>
                         {togglingTool === tool ? (
                           <Loader2 className="animate-spin text-dark-100" size={18} />
                         ) : (
@@ -211,7 +217,7 @@ export default function MenuItems({
                   className="w-full py-1.5 px-3 bg-dark-600 hover:bg-dark-500 disabled:opacity-50 text-dark-100 text-xs rounded-brand flex items-center justify-center gap-2 transition-colors mt-1"
                 >
                   {pushLoading ? <Loader2 className="animate-spin" size={14} /> : null}
-                  Disable Push Notifications
+                  {t("menu.disablePush")}
                 </button>
               </div>
             )}
@@ -234,7 +240,7 @@ export default function MenuItems({
           }`}
         >
           <FolderOpen className="text-brand-500" size={20} />
-          <span className="font-medium">Files</span>
+          <span className="font-medium">{t("menu.files")}</span>
         </button>
       )}
 
@@ -252,7 +258,7 @@ export default function MenuItems({
           }`}
         >
           <Globe className="text-brand-500" size={20} />
-          <span className="font-medium">Sites</span>
+          <span className="font-medium">{t("menu.sites")}</span>
         </button>
       )}
 
@@ -265,7 +271,7 @@ export default function MenuItems({
           }`}
         >
           <FileText className="text-brand-500" size={20} />
-          <span className="font-medium">Command Notes</span>
+          <span className="font-medium">{t("menu.commandNotes")}</span>
         </button>
       )}
 
@@ -278,7 +284,7 @@ export default function MenuItems({
           }`}
         >
           <Users className="text-brand-500" size={20} />
-          <span className="font-medium">Community</span>
+          <span className="font-medium">{t("menu.community")}</span>
         </button>
       )}
 
@@ -291,7 +297,7 @@ export default function MenuItems({
           }`}
         >
           <Download className="text-brand-500" size={20} />
-          <span className="font-medium">Install App</span>
+          <span className="font-medium">{t("menu.installApp")}</span>
         </button>
       )}
 
@@ -304,9 +310,26 @@ export default function MenuItems({
           }`}
         >
           <Sparkles className="text-brand-500" size={20} />
-          <span className="font-medium">Codespace</span>
+          <span className="font-medium">{t("menu.codespace")}</span>
         </button>
       )}
+
+      {/* Language */}
+      <button
+        onClick={() => { vibrate(); setLanguageOpen(true); }}
+        className={`w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white rounded-brand-lg text-left flex items-center justify-between transition-colors border border-dark-400 ${
+          showTheme ? "menu-item-stagger-8" : "menu-item-stagger-7"
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <Globe className="text-brand-500" size={20} />
+          <span className="font-medium">{t("menu.language")}</span>
+        </div>
+        <span className="text-dark-100 text-sm flex items-center gap-1.5">
+          <span>{currentLocale.flag}</span>
+          <span>{currentLocale.label}</span>
+        </span>
+      </button>
 
       {/* Logout */}
       {onLogout && (
@@ -317,7 +340,7 @@ export default function MenuItems({
           }`}
         >
           <LogOut className="text-red-400" size={20} />
-          <span className="font-medium">Logout</span>
+          <span className="font-medium">{t("menu.logout")}</span>
         </button>
       )}
 
@@ -328,10 +351,10 @@ export default function MenuItems({
             <AlertCircle className="text-yellow-400 flex-shrink-0 mt-0.5" size={16} />
             <div className="text-xs space-y-1">
               <p className="text-yellow-300 font-medium">
-                Agent {agentVersion ? `v${agentVersion}` : "version unknown"} is outdated
+                {t("menu.versionMismatch", { version: agentVersion ? `v${agentVersion}` : "?" })}
               </p>
               <p className="text-dark-100">
-                Some features may not work. Run:
+                {t("menu.versionMismatchHint")}
               </p>
               <code className="block bg-dark-700 text-brand-400 px-2 py-1 rounded text-xs select-all">
                 npm i -g 9remote@latest
@@ -349,9 +372,11 @@ export default function MenuItems({
           </span>
         )}
         <p className="text-dark-100 text-sm">
-          Version {webVersion}{agentVersion ? ` / Agent ${agentVersion}` : ""}
+          {t("menu.version")} {webVersion}{agentVersion ? ` / Agent ${agentVersion}` : ""}
         </p>
       </div>
+
+      <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
     </div>
   );
 }

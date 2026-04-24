@@ -7,8 +7,10 @@ import { GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { ChevronLeft, Eye, Trash2, RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
 export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState("status");
   const [statusLoading, setStatusLoading] = useState(true);
   const [diffLoading, setDiffLoading] = useState(false);
@@ -78,12 +80,12 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
   // Handle discard for specific file
   const handleDiscardFile = useCallback((filePath, status) => {
     const fileName = filePath.split("/").pop();
-    const actionText = status === "?" ? "delete" : "discard changes in";
-    
+    const isUntracked = status === "?";
+
     setConfirmDialog({
       isOpen: true,
-      title: "Discard Changes",
-      message: `Are you sure you want to ${actionText} "${fileName}"? This cannot be undone.`,
+      title: t("git.discardConfirmTitle"),
+      message: isUntracked ? t("git.discardConfirmDelete", { name: fileName }) : t("git.discardConfirmDiscard", { name: fileName }),
       onConfirm: async () => {
         const result = await fileSocket.gitDiscard(workspace, filePath, status);
         if (result.success) {
@@ -105,7 +107,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
         }
       }
     });
-  }, [fileSocket, workspace, loadStatus, loadDiff, statusFiles, activeTab]);
+  }, [fileSocket, workspace, loadStatus, loadDiff, statusFiles, activeTab, t]);
 
   // Open file in editor
   const handleOpenFile = useCallback((filePath) => {
@@ -126,9 +128,9 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       });
       diff2htmlUi.draw();
     } catch {
-      node.innerHTML = `<pre class="text-dark-100 p-4">${diff || "No changes"}</pre>`;
+      node.innerHTML = `<pre class="text-dark-100 p-4">${diff || t("git.noChanges")}</pre>`;
     }
-  }, [activeTab, diff, diffLoading]);
+  }, [activeTab, diff, diffLoading, t]);
 
   const groupedFiles = {
     modified: statusFiles.filter(f => f.status === "M"),
@@ -178,7 +180,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
             <button
               onClick={(e) => { e.stopPropagation(); vibrate(); handleOpenFile(file.path); }}
               className="p-1.5 text-dark-100 hover:text-white hover:bg-dark-400 rounded-brand transition-all duration-200 flex-shrink-0"
-              title="Open file"
+              title={t("git.openFile")}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -190,7 +192,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           <button
             onClick={(e) => { e.stopPropagation(); vibrate(); handleDiscardFile(file.path, file.status); }}
             className="p-1.5 text-dark-100 hover:text-orange-400 hover:bg-dark-400 rounded-brand transition-all duration-200 flex-shrink-0"
-            title="Discard changes"
+            title={t("git.discardChangesTitle")}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -213,7 +215,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-white text-lg font-semibold">Git</h1>
+        <h1 className="text-white text-lg font-semibold">{t("git.title")}</h1>
         <button
           onClick={() => {
             vibrate();
@@ -224,7 +226,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
             }
           }}
           className="ml-auto p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200"
-          title="Refresh"
+          title={t("common.refresh")}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -242,7 +244,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
               : "text-dark-100 hover:text-white"
           }`}
         >
-          Status
+          {t("git.status")}
         </button>
         <button
           onClick={() => { vibrate(); handleSwitchToDiff(); }}
@@ -252,7 +254,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
               : "text-dark-100 hover:text-white"
           }`}
         >
-          Diff
+          {t("git.diffTab")}
         </button>
       </div>
 
@@ -268,19 +270,19 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
         {activeTab === "status" ? (
           statusLoading ? (
             <div className="flex items-center justify-center h-32 text-dark-100">
-              Loading...
+              {t("common.loading")}
             </div>
           ) :
           <div className="p-4 space-y-4">
             {statusFiles.length === 0 ? (
               <div className="text-center text-dark-100 py-8">
-                No changes
+                {t("git.noChanges")}
               </div>
             ) : (
               <>
                 {groupedFiles.modified.length > 0 && (
                   <div>
-                    <h3 className="text-dark-100 text-sm mb-2">Modified ({groupedFiles.modified.length})</h3>
+                    <h3 className="text-dark-100 text-sm mb-2">{t("git.modified")} ({groupedFiles.modified.length})</h3>
                     <div className="space-y-1">
                       {groupedFiles.modified.map(renderFileItem)}
                     </div>
@@ -289,7 +291,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
 
                 {groupedFiles.added.length > 0 && (
                   <div>
-                    <h3 className="text-dark-100 text-sm mb-2">Added ({groupedFiles.added.length})</h3>
+                    <h3 className="text-dark-100 text-sm mb-2">{t("git.added")} ({groupedFiles.added.length})</h3>
                     <div className="space-y-1">
                       {groupedFiles.added.map(renderFileItem)}
                     </div>
@@ -298,7 +300,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
 
                 {groupedFiles.deleted.length > 0 && (
                   <div>
-                    <h3 className="text-dark-100 text-sm mb-2">Deleted ({groupedFiles.deleted.length})</h3>
+                    <h3 className="text-dark-100 text-sm mb-2">{t("git.deleted")} ({groupedFiles.deleted.length})</h3>
                     <div className="space-y-1">
                       {groupedFiles.deleted.map(renderFileItem)}
                     </div>
@@ -307,7 +309,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
 
                 {groupedFiles.untracked.length > 0 && (
                   <div>
-                    <h3 className="text-dark-100 text-sm mb-2">Untracked ({groupedFiles.untracked.length})</h3>
+                    <h3 className="text-dark-100 text-sm mb-2">{t("git.untrackedTitle")} ({groupedFiles.untracked.length})</h3>
                     <div className="space-y-1">
                       {groupedFiles.untracked.map(renderFileItem)}
                     </div>
@@ -342,7 +344,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                   onClick={() => { vibrate(); handleDiscard(); }}
                   disabled={!selectedFile || diffLoading}
                   className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-dark-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2"
-                  title="Discard changes"
+                  title={t("git.discardChangesTitle")}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -353,7 +355,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
             
             {diffLoading ? (
               <div className="flex items-center justify-center h-32 text-dark-100">
-                Loading...
+                {t("common.loading")}
               </div>
             ) : diff ? (
               <div 
@@ -362,7 +364,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
               />
             ) : (
               <div className="flex items-center justify-center h-32 text-dark-100">
-                No changes
+                {t("git.noChanges")}
               </div>
             )}
             <style jsx global>{`
