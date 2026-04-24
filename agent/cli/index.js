@@ -641,11 +641,14 @@ async function tuiMode() {
   const handlePendingApproval = async (socketId, deviceId, ip) => {
     if (deviceApprovalBusy) return;
     deviceApprovalBusy = true;
-    const approved = await showDeviceApproval(deviceId, ip);
-    const endpoint = approved ? "approve" : "reject";
-    await apiPost(`/api/device/${endpoint}`, { socketId });
-    deviceApprovalBusy = false;
-    triggerMenuRedraw?.();
+    try {
+      const approved = await showDeviceApproval(deviceId, ip);
+      const endpoint = approved ? "approve" : "reject";
+      await apiPost(`/api/device/${endpoint}`, { socketId });
+    } catch {} finally {
+      deviceApprovalBusy = false;
+      triggerMenuRedraw?.();
+    }
   };
 
   const stopSSE = subscribeSSE(SERVER_PORT, async (type, data) => {

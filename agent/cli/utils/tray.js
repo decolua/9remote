@@ -243,9 +243,26 @@ export function openBrowser(url) {
     return;
   }
 
-  // Linux / other POSIX
-  try {
-    const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
-    child.unref();
-  } catch {}
+  // Linux: detach fully from controlling TTY so snap chromium / xdg-open
+  // doesn't get killed when parent TUI mutates raw stdin or process group.
+  // Try setsid first (creates new session, fully detaches), fallback chain.
+  const launchers = [
+    ["setsid", ["--fork", "xdg-open", url]],
+    ["setsid", ["xdg-open", url]],
+    ["xdg-open", [url]],
+    ["gio", ["open", url]],
+    ["sensible-browser", [url]],
+    ["x-www-browser", [url]],
+  ];
+  for (const [cmd, args] of launchers) {
+    try {
+      const child = spawn(cmd, args, {
+        detached: true,
+        stdio: "ignore",
+        env: { ...process.env },
+      });
+      child.unref();
+      return;
+    } catch {}
+  }
 }

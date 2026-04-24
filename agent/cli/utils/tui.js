@@ -378,19 +378,25 @@ export function showDeviceApproval(deviceId, ip) {
     const onKeypress = (str, key) => {
       if (!key) return;
       const ch = (key.name || "").toLowerCase();
-      if (ch === "y" || ch === "n" || key.name === "return" || (key.ctrl && key.name === "c")) {
+      // Treat ESC / unknown keys as reject so prompt never hangs forever
+      const isAccept = ch === "y" || key.name === "return";
+      const isReject = ch === "n" || key.name === "escape";
+      const isCtrlC = key.ctrl && key.name === "c";
+      if (!isAccept && !isReject && !isCtrlC) return;
+
+      try {
         process.stdin.removeListener("keypress", onKeypress);
         if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
         process.stdin.pause();
-        if (key.ctrl && key.name === "c") process.exit(0);
+      } catch {}
+      if (isCtrlC) process.exit(0);
 
-        const approved = ch === "y";
-        console.log(approved ? `${C.green}y${C.reset}` : `${C.red}n${C.reset}`);
-        console.log(approved
-          ? `\n  ${C.green}\u2713 Device approved${C.reset}`
-          : `\n  ${C.red}\u2717 Device rejected${C.reset}`);
-        setTimeout(() => { restoreListeners(); resolve(approved); }, 500);
-      }
+      const approved = isAccept;
+      console.log(approved ? `${C.green}y${C.reset}` : `${C.red}n${C.reset}`);
+      console.log(approved
+        ? `\n  ${C.green}\u2713 Device approved${C.reset}`
+        : `\n  ${C.red}\u2717 Device rejected${C.reset}`);
+      setTimeout(() => { try { restoreListeners(); } catch {} resolve(approved); }, 500);
     };
 
     process.stdin.on("keypress", onKeypress);
@@ -409,12 +415,21 @@ export function showDeviceApproval(deviceId, ip) {
 export function subscribeSSE(port, onEvent) {
   let req = null;
   let closed = false;
+  let idleTimer = null;
+  const IDLE_MS = 45000;
+
+  const armIdle = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { try { req?.destroy(); } catch {} }, IDLE_MS);
+  };
 
   const connect = () => {
     if (closed) return;
     req = http.get(`http://localhost:${port}/api/ui/events`, (res) => {
       let buf = "";
+      armIdle();
       res.on("data", (chunk) => {
+        armIdle();
         buf += chunk.toString();
         const lines = buf.split("\n");
         buf = lines.pop(); // keep incomplete line
@@ -432,14 +447,16 @@ export function subscribeSSE(port, onEvent) {
         }
       });
       res.on("end", () => {
+        if (idleTimer) clearTimeout(idleTimer);
         if (!closed) setTimeout(connect, 2000); // reconnect
       });
     });
     req.on("error", () => {
+      if (idleTimer) clearTimeout(idleTimer);
       if (!closed) setTimeout(connect, 2000); // reconnect on error
     });
   };
 
   connect();
-  return () => { closed = true; req?.destroy(); };
+  return () => { closed = true; if (idleTimer) clearTimeout(idleTimer); req?.destroy(); };
 }
