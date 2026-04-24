@@ -26,7 +26,9 @@ import {
   handleConnections, handleDesktopToggle,
   handlePermissionsGet, handlePermissionsRequest,
   handleAutoStartGet, handleAutoStartPost,
+  getUiState,
 } from "./api/ui.js";
+import { startTunnelHealthWatchdog } from "./cli/utils/tunnelHealth.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
@@ -230,6 +232,9 @@ export async function startServer() {
   loadUiState();
   loadDesktopState();
   refreshPermissionsAsync();
+  // Resume tunnel health watchdog if a READY session was restored
+  const restored = getUiState();
+  if (restored.step === STEP.READY && restored.tunnelUrl) startTunnelHealthWatchdog(restored.tunnelUrl);
   // macOS TCC has no change event — poll to detect permission revoke/grant
   if (process.platform === "darwin") {
     setInterval(refreshPermissionsAsync, PERMISSION_POLL_MS);

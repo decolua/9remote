@@ -746,8 +746,7 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
 
     const items = [
       { label: "Open Web UI", action: "webui" },
-      { label: "New One-Time Key", action: "otk" },
-      { label: "Regenerate Permanent Key", action: "regen" },
+      { label: "Keys  \u25b6", action: "keys" },
     ];
     if (remoteAvailable) {
       const desktopLabel = `Remote Desktop: ${desktopOn ? chalk.green("ON") : chalk.gray("OFF")}  ▶`;
@@ -776,26 +775,34 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
       openBrowser(url);
       console.log(chalk.green(`\n🌐 Opening ${url}\n`));
 
-    } else if (action === "otk") {
-      const newTempKey = await createTempKey(keyData.key, WORKER_URL);
-      if (newTempKey) {
-        const newConnectUrl = `${WORKER_URL}/login?k=${newTempKey.tempKey}`;
-        setHeader(await buildMenuHeader(newTempKey.tempKey, keyData.key, newConnectUrl, tunnelUrl));
-        await pushUiState({ oneTimeKey: newTempKey.tempKey, oneTimeKeyExpiresAt: newTempKey.expiresAt, qrUrl: newConnectUrl });
-      }
-
-    } else if (action === "regen") {
-      const confirmed = await tuiConfirm(chalk.yellow("⚠️  Replace current key and disconnect all sessions? Continue?"));
-      if (confirmed) {
-        const machineId = await getConsistentMachineId();
-        const { key } = generateApiKeyWithMachine(machineId);
-        keyData = saveKey(machineId, key, keyData.name || "Default");
-        await pushUiState({ permanentKey: keyData.key });
-        const newTmp = await createTempKey(keyData.key, WORKER_URL);
-        if (newTmp) {
-          const newUrl = `${WORKER_URL}/login?k=${newTmp.tempKey}`;
-          setHeader(await buildMenuHeader(newTmp.tempKey, keyData.key, newUrl, tunnelUrl));
-          await pushUiState({ oneTimeKey: newTmp.tempKey, oneTimeKeyExpiresAt: newTmp.expiresAt, qrUrl: newUrl });
+    } else if (action === "keys") {
+      const keyItems = [
+        { label: "New One-Time Key", action: "otk" },
+        { label: "Regenerate Permanent Key", action: "regen" },
+        { label: chalk.gray("← Back"), action: "back" },
+      ];
+      const ki = await selectMenu("Keys", keyItems, 0, getHeader);
+      const keyAction = ki >= 0 ? keyItems[ki].action : "back";
+      if (keyAction === "otk") {
+        const newTempKey = await createTempKey(keyData.key, WORKER_URL);
+        if (newTempKey) {
+          const newConnectUrl = `${WORKER_URL}/login?k=${newTempKey.tempKey}`;
+          setHeader(await buildMenuHeader(newTempKey.tempKey, keyData.key, newConnectUrl, tunnelUrl));
+          await pushUiState({ oneTimeKey: newTempKey.tempKey, oneTimeKeyExpiresAt: newTempKey.expiresAt, qrUrl: newConnectUrl });
+        }
+      } else if (keyAction === "regen") {
+        const confirmed = await tuiConfirm(chalk.yellow("⚠️  Replace current key and disconnect all sessions? Continue?"));
+        if (confirmed) {
+          const machineId = await getConsistentMachineId();
+          const { key } = generateApiKeyWithMachine(machineId);
+          keyData = saveKey(machineId, key, keyData.name || "Default");
+          await pushUiState({ permanentKey: keyData.key });
+          const newTmp = await createTempKey(keyData.key, WORKER_URL);
+          if (newTmp) {
+            const newUrl = `${WORKER_URL}/login?k=${newTmp.tempKey}`;
+            setHeader(await buildMenuHeader(newTmp.tempKey, keyData.key, newUrl, tunnelUrl));
+            await pushUiState({ oneTimeKey: newTmp.tempKey, oneTimeKeyExpiresAt: newTmp.expiresAt, qrUrl: newUrl });
+          }
         }
       }
 

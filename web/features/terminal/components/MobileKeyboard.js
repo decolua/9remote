@@ -6,6 +6,7 @@ import {
   TERMINAL_KEY_POOL,
   TERMINAL_DEFAULT_BASIC,
   TERMINAL_DEFAULT_EXTRA,
+  TERMINAL_PINNED_KEY_ID,
   BUTTON_STYLES
 } from "@/features/terminal/constants/terminalConfig";
 import { vibrate } from "@/shared/utils/vibration";
@@ -105,7 +106,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
 
   useEffect(() => {
     if (onExpandChange) onExpandChange(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasPhysicalKeyboard]);
 
   const tryPasteFromClipboard = useCallback(async () => {
@@ -373,10 +374,19 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
       {/* Bottom keyboard bar */}
       {!hasPhysicalKeyboard && (
         <div className={`overflow-auto bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
-          <div className="flex items-center gap-1.5 max-w-4xl mx-auto">
-            <div className="flex gap-1.5 flex-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-              {basicCustom.keys.map((kc, idx) => renderKey(kc, idx))}
+          <div className="flex items-center gap-1 max-w-4xl mx-auto">
+            <div className="flex gap-1 flex-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+              {basicCustom.keys
+                .filter(kc => kc.id !== TERMINAL_PINNED_KEY_ID)
+                .map((kc, idx) => renderKey(kc, idx))}
             </div>
+            {/* Pinned Enter key — always visible next to expand button */}
+            {(() => {
+              const pinned = TERMINAL_KEY_POOL.find(p => p.id === TERMINAL_PINNED_KEY_ID);
+              return pinned ? (
+                <div className="flex-shrink-0">{renderKey(pinned, "pinned")}</div>
+              ) : null;
+            })()}
             {/* Expand button */}
             <button
               onMouseDown={(e) => e.preventDefault()}
@@ -396,7 +406,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
         onClose={() => setShowCustomize(false)}
         title={t("mobileKeyboard.customizeTerminalKeys")}
         tabs={[
-          { id: "basic", label: t("mobileKeyboard.mainBar"), hook: basicCustom },
+          { id: "basic", label: t("mobileKeyboard.mainBar"), hook: basicCustom, excludeIds: [TERMINAL_PINNED_KEY_ID] },
           { id: "extra", label: t("mobileKeyboard.extraPanel"), hook: extraCustom }
         ]}
       />

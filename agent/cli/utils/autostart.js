@@ -75,9 +75,7 @@ ${args}
 function enableMac() {
   mkdirSync(path.dirname(PATHS.darwin), { recursive: true });
   writeFileSync(PATHS.darwin, buildPlist(getNodeBin(), getCliEntry()));
-  // Best-effort load — silent fail (already loaded / not allowed)
-  try { execFileSync("launchctl", ["unload", PATHS.darwin], { stdio: "ignore" }); } catch {}
-  try { execFileSync("launchctl", ["load", PATHS.darwin], { stdio: "ignore" }); } catch {}
+  // Do not launchctl load here: agent already running, plist takes effect at next login
   return true;
 }
 

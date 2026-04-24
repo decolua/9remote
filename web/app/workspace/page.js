@@ -134,6 +134,7 @@ export default function WorkspacePage() {
     const updateAppHeight = () => {
       const vv = window.visualViewport;
       const vvHeight = vv?.height || window.innerHeight;
+
       const offsetTop = vv?.offsetTop || 0;
       const isKeyboardOpen = vvHeight < window.innerHeight - 100;
 
@@ -177,8 +178,8 @@ export default function WorkspacePage() {
     document.addEventListener("touchmove", preventScroll, { passive: false });
 
     if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", updateAppHeight);
-      window.visualViewport.addEventListener("scroll", updateAppHeight);
+      window.visualViewport.addEventListener("resize", () => setTimeout(updateAppHeight, 200));
+      // window.visualViewport.addEventListener("scroll", () => setTimeout(updateAppHeight, 200));
     }
     window.addEventListener("resize", updateAppHeight);
     updateAppHeight();
@@ -387,8 +388,8 @@ export default function WorkspacePage() {
         {/* Session List */}
         <div
           className={`absolute inset-0 transition-all duration-300 ease-out ${currentView.type === "list"
-              ? "translate-x-0 opacity-100 z-10"
-              : "-translate-x-full opacity-0 z-0 pointer-events-none"
+            ? "translate-x-0 opacity-100 z-10"
+            : "-translate-x-full opacity-0 z-0 pointer-events-none"
             }`}
         >
           <SessionList

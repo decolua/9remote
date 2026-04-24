@@ -145,9 +145,13 @@ export const REMOTE_KEY_POOL = [
 ];
 
 // Default bottom row (modifier row) — matches original layout
+// Note: "enter" is pinned separately at end of bottom row, not included here.
 export const REMOTE_DEFAULT_BOTTOM = [
-  "esc", "undo", "up", "down", "tab", "ctrl", "alt", "shift", "cmd", "backspace", "enter"
+  "esc", "undo", "up", "down", "tab", "ctrl", "alt", "shift", "cmd", "backspace"
 ];
+
+// Pinned key id rendered fixed at end of bottom row (not customizable)
+export const REMOTE_PINNED_KEY_ID = "enter";
 
 // Default extra panel — fixed 3 rows, each scrolls horizontally
 export const REMOTE_DEFAULT_EXTRA = [

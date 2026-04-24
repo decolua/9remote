@@ -87,9 +87,13 @@ export const TERMINAL_KEY_POOL = [
 ];
 
 // Default basic keys (main bar, always visible)
+// Note: "enter" is pinned separately next to the expand button, not included here.
 export const TERMINAL_DEFAULT_BASIC = [
-  "esc", "up", "down", "ctrlC", "ctrl", "opt", "shift", "tab", "enter"
+  "esc", "up", "down", "ctrlC", "ctrl", "opt", "shift", "tab"
 ];
+
+// Pinned key id rendered fixed next to the expand button (not customizable)
+export const TERMINAL_PINNED_KEY_ID = "enter";
 
 // Default extended keys — fixed 3 rows, each scrolls horizontally
 export const TERMINAL_DEFAULT_EXTRA = [

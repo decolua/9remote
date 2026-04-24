@@ -23,6 +23,9 @@ dns.lookup = (hostname, options, cb) => {
  * Shared constants for agent server + CLI
  */
 
+// Local agent HTTP server port (UI + API)
+export const SERVER_PORT = 2208;
+
 // Connection step states (UI progress tracking)
 export const STEP = {
   STOPPED: 0,

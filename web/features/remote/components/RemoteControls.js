@@ -11,7 +11,8 @@ import {
   REMOTE_KEY_POOL,
   REMOTE_DEFAULT_BOTTOM,
   REMOTE_DEFAULT_EXTRA,
-  REMOTE_EXTRA_ROW_COUNT
+  REMOTE_EXTRA_ROW_COUNT,
+  REMOTE_PINNED_KEY_ID
 } from "@/features/remote/constants/REMOTE_CONFIG";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
@@ -21,7 +22,7 @@ const v = (fn, ...args) => { vibrate(); fn?.(...args); };
 
 // onMouseDown.preventDefault() — prevents focus-steal so native keyboard stays on.
 function Btn({ active, primary, children, className = "", onClick, ...rest }) {
-  const base = "shrink-0 px-1 h-9 rounded-brand text-xs font-semibold transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[38px] flex items-center justify-center";
+  const base = "shrink-0 px-1 h-9 rounded-brand text-xs font-semibold  shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[38px] flex items-center justify-center";
   const normal = "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500";
   const activeCls = "bg-brand-500 text-white border border-brand-400 shadow-lg shadow-brand-500/20";
   const primaryCls = "bg-green-600 hover:bg-green-700 text-white border border-green-500";
@@ -32,6 +33,7 @@ function Btn({ active, primary, children, className = "", onClick, ...rest }) {
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={`${base} ${variant} ${className}`}
+      style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
       {...rest}
     >
       {children}
@@ -210,66 +212,78 @@ export default function RemoteControls({
         </div>
       </div>
 
-      {/* Top toolbar */}
-      <div className={`${rowClass} landscape:border-b landscape:border-dark-400`} style={rowStyle}>
-        <Btn onClick={() => v(onClose)} title={t("remote.back")}>
-          <ChevronLeft className="text-orange-400" size={16} />
-        </Btn>
-        <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-dark-50" title={t("remote.resetZoom")}>
-          {Math.round(canvasZoom * 100)}%
-        </Btn>
-        <Btn onClick={() => v(onRefresh)} disabled={!streaming} title={t("remote.refresh")}>
-          <RefreshCw size={14} />
-        </Btn>
-        {show("rectangleSelect") && (
-          <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title={t("remote.rectangleSelection")}>
-            □
+      {/* Top toolbar — pin "..." at end, scroll rest */}
+      <div className="flex items-center gap-1.5 px-2 py-1 landscape:border-b landscape:border-dark-400 landscape:py-2">
+        <div className={`${rowClass} flex-1 min-w-0 px-0 py-0 landscape:py-0`} style={rowStyle}>
+          <Btn onClick={() => v(onClose)} title={t("remote.back")}>
+            <ChevronLeft className="text-orange-400" size={16} />
           </Btn>
-        )}
-        {show("pointerModeToggle") && (
-          <Btn
-            onClick={() => v(onTogglePointerMode)}
-            disabled={!streaming}
-            active={pointerMode === "trackpad"}
-            title={pointerMode === "trackpad" ? t("remoteControls.trackpadMode") : t("remoteControls.directMode")}
-          >
-            <span className="text-base leading-none">🖱️</span>
+          <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-dark-50" title={t("remote.resetZoom")}>
+            {Math.round(canvasZoom * 100)}%
           </Btn>
-        )}
-        {show("handMode") && pointerMode === "trackpad" && (
-          <Btn
-            onClick={() => v(onToggleHandMode)}
-            disabled={!streaming}
-            active={handMode}
-            title={t("remote.handMode")}
-          >
-            <Hand size={14} />
+          <Btn onClick={() => v(onRefresh)} disabled={!streaming} title={t("remote.refresh")}>
+            <RefreshCw size={14} />
           </Btn>
-        )}
-        {show("keyboardToggle") && (
-          <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title={t("remote.toggleKeyboard")}>
-            <Keyboard size={14} />
-          </Btn>
-        )}
-        {show("textPanel") && (
-          <Btn onClick={() => v(onToggleTextPanel)} disabled={!streaming} active={showTextPanel} title={t("remote.textBatchInput")} className="landscape:hidden">
-            Aa
-          </Btn>
-        )}
-        {show("help") && (
-          <Btn onClick={() => v(onToggleHelp)} title={t("remote.help")}>
-            <HelpCircle size={14} />
-          </Btn>
-        )}
-        <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} title={t("remote.extraKeys")} className="ml-auto">
+          {show("rectangleSelect") && (
+            <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title={t("remote.rectangleSelection")}>
+              □
+            </Btn>
+          )}
+          {show("pointerModeToggle") && (
+            <Btn
+              onClick={() => v(onTogglePointerMode)}
+              disabled={!streaming}
+              active={pointerMode === "trackpad"}
+              title={pointerMode === "trackpad" ? t("remoteControls.trackpadMode") : t("remoteControls.directMode")}
+            >
+              <span className="text-base leading-none">🖱️</span>
+            </Btn>
+          )}
+          {show("handMode") && pointerMode === "trackpad" && (
+            <Btn
+              onClick={() => v(onToggleHandMode)}
+              disabled={!streaming}
+              active={handMode}
+              title={t("remote.handMode")}
+            >
+              <Hand size={14} />
+            </Btn>
+          )}
+          {show("keyboardToggle") && (
+            <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title={t("remote.toggleKeyboard")}>
+              <Keyboard size={14} />
+            </Btn>
+          )}
+          {show("textPanel") && (
+            <Btn onClick={() => v(onToggleTextPanel)} disabled={!streaming} active={showTextPanel} title={t("remote.textBatchInput")} className="landscape:hidden">
+              Aa
+            </Btn>
+          )}
+          {show("help") && (
+            <Btn onClick={() => v(onToggleHelp)} title={t("remote.help")}>
+              <HelpCircle size={14} />
+            </Btn>
+          )}
+        </div>
+        {/* Pinned expand button — always visible */}
+        <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} title={t("remote.extraKeys")}>
           {showExtra ? <X size={16} /> : <MoreHorizontal size={16} />}
         </Btn>
       </div>
 
-      {/* Bottom row (customizable) */}
-      {show("modifierRow") && bottomCustom.keys.length > 0 && (
-        <div className={rowClass} style={rowStyle}>
-          {bottomCustom.keys.map((kc, idx) => renderPoolKey(kc, idx))}
+      {/* Bottom row (customizable) — pin Enter at end */}
+      {show("modifierRow") && (
+        <div className="flex items-center gap-1.5 px-2 py-1 landscape:py-2">
+          <div className={`${rowClass} flex-1 min-w-0 px-0 py-0 landscape:py-0`} style={rowStyle}>
+            {bottomCustom.keys
+              .filter(kc => kc.id !== REMOTE_PINNED_KEY_ID)
+              .map((kc, idx) => renderPoolKey(kc, idx))}
+          </div>
+          {/* Pinned Enter — always visible */}
+          {(() => {
+            const pinned = REMOTE_KEY_POOL.find(p => p.id === REMOTE_PINNED_KEY_ID);
+            return pinned ? renderPoolKey(pinned, "pinned") : null;
+          })()}
         </div>
       )}
 
@@ -278,7 +292,7 @@ export default function RemoteControls({
         onClose={() => setShowCustomize(false)}
         title={t("remote.customizeRemoteKeys")}
         tabs={[
-          { id: "bottom", label: t("remoteControls.bottomRow"), hook: bottomCustom },
+          { id: "bottom", label: t("remoteControls.bottomRow"), hook: bottomCustom, excludeIds: [REMOTE_PINNED_KEY_ID] },
           { id: "extra", label: t("remoteControls.extraPanel"), hook: extraCustom }
         ]}
       />

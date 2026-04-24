@@ -1,7 +1,18 @@
-import { TUNNEL_HEALTH, browserFetch } from "../../lib/constants.js";
-import { updateUiState } from "../../api/ui.js";
+import { TUNNEL_HEALTH, SERVER_PORT, browserFetch } from "../../lib/constants.js";
 
 let intervalId = null;
+
+// CLI runs in a separate process from the HTTP server — push state over HTTP
+// so SSE clients (web UI) actually receive the update.
+async function pushState(data) {
+  try {
+    await fetch(`http://localhost:${SERVER_PORT}/api/ui/state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  } catch {}
+}
 
 async function pingHealth(url) {
   const controller = new AbortController();
@@ -18,7 +29,7 @@ async function pingHealth(url) {
 
 async function runCheck(url) {
   const ok = await pingHealth(url);
-  updateUiState({
+  await pushState({
     tunnelHealth: {
       status: ok ? "healthy" : "unreachable",
       checkedAt: Date.now(),
@@ -38,5 +49,5 @@ export function stopTunnelHealthWatchdog() {
     clearInterval(intervalId);
     intervalId = null;
   }
-  updateUiState({ tunnelHealth: { status: "unknown", checkedAt: null } });
+  pushState({ tunnelHealth: { status: "unknown", checkedAt: null } });
 }

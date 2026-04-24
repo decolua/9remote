@@ -126,7 +126,8 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
         if (result.success) {
           if (result.cwd) cwdRef.current = result.cwd;
           setTimeout(() => {
-            loadWebGL();
+            // Temporary: disable WebGL renderer for blurry-text verification on mobile devices.
+            // loadWebGL();
             fitAddon.fit();
           }, 100);
         } else {

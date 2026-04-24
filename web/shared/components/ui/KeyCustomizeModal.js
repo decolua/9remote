@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { X, Trash2, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
-const KEY_BTN = "min-w-[44px] h-10 px-2.5 flex items-center justify-center rounded-brand border text-xs font-semibold select-none shrink-0 whitespace-nowrap";
+const KEY_BTN = "min-w-[38px] h-9 px-2 flex items-center justify-center rounded-brand border text-xs font-semibold select-none shrink-0 whitespace-nowrap";
 const STYLE_NORMAL = "bg-dark-500 border-dark-400 text-white hover:border-brand-500";
 const STYLE_SELECTED = "bg-brand-500 text-white";
 const STYLE_PLUS = "bg-transparent border-dashed border-dark-300 text-dark-100 hover:text-white hover:border-brand-500";
@@ -56,7 +56,21 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
   if (!isOpen) return null;
 
   const tab = tabs.find(t => t.id === activeTab) || tabs[0];
-  const { rows, available, replaceAt, swap, removeAt, reset } = tab.hook;
+  const { rows: rawRows, available: rawAvailable, replaceAt, swap, removeAt, reset } = tab.hook;
+  const excludeIds = tab.excludeIds || [];
+  // Map each filtered row to its raw col indexes, so hook ops target correct slot.
+  const rowMaps = rawRows.map(r => r.map((id, i) => ({ id, rawCol: i })).filter(x => !excludeIds.includes(x.id)));
+  const rows = rowMaps.map(m => m.map(x => x.id));
+  const available = excludeIds.length
+    ? rawAvailable.filter(k => !excludeIds.includes(k.id))
+    : rawAvailable;
+
+  // Resolve filtered (row, col) → raw col. For "+" slot (col === row.length) → append (rawRows[r].length).
+  const toRawCol = (r, c) => {
+    const map = rowMaps[r] || [];
+    if (c >= map.length) return (rawRows[r] || []).length;
+    return map[c].rawCol;
+  };
 
   const isSelected = (r, c) => selected && selected.row === r && selected.col === c;
 
@@ -65,7 +79,10 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
     if (!isPlus && isSelected(row, col)) { setSelected(null); return; }
     // Swap two filled slots
     if (selected && !isPlus && !(selected.col >= rows[selected.row].length)) {
-      swap(selected, { row, col });
+      swap(
+        { row: selected.row, col: toRawCol(selected.row, selected.col) },
+        { row, col: toRawCol(row, col) }
+      );
       setSelected(null);
       return;
     }
@@ -75,11 +92,10 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
 
   const handleAvailableClick = (id) => {
     if (!selected) {
-      // No target → add to first row's end (flat) or to first row for grid
       const targetRow = rows.length > 0 ? rows.length - 1 : 0;
-      replaceAt(targetRow, rows[targetRow]?.length ?? 0, id);
+      replaceAt(targetRow, (rawRows[targetRow] || []).length, id);
     } else {
-      replaceAt(selected.row, selected.col, id);
+      replaceAt(selected.row, toRawCol(selected.row, selected.col), id);
     }
     setSelected(null);
   };
@@ -87,7 +103,7 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
   const handleRemove = () => {
     if (!selected) return;
     const row = rows[selected.row] || [];
-    if (selected.col < row.length) removeAt(selected.row, selected.col);
+    if (selected.col < row.length) removeAt(selected.row, toRawCol(selected.row, selected.col));
     setSelected(null);
   };
 
