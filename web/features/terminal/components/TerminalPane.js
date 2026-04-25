@@ -24,6 +24,7 @@ function TerminalPane({
   theme = "default",
   onActivate,
   onRegisterApi,
+  onPasteFallback,
   showFocusBorder = false,
   notifications = {},
   clearNotification,
@@ -31,16 +32,12 @@ function TerminalPane({
   const { t } = useI18n();
   const containerRef = useRef(null);
   const longPressTimer = useRef(null);
-  const pasteInputRef = useRef(null);
-  const [showPasteInput, setShowPasteInput] = useState(false);
-  const [pasteText, setPasteText] = useState("");
-  const [clipboardText, setClipboardText] = useState("");
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   const { pushView } = useTerminalStore();
   const inputMode = useInputMode();
 
-  const { termRef, cwdRef, doResize, focus, stopMomentum } = useXTerm({
+  const { termRef, cwdRef, termReady, doResize, focus, stopMomentum } = useXTerm({
     socket, sessionId, theme, isVisible, isFocused, containerRef
   });
 
@@ -60,33 +57,22 @@ function TerminalPane({
 
   const currentTheme = THEMES[theme] || THEMES.default;
 
-  // Read clipboard if available (secure context + permission granted).
-  // Returns empty string on failure so popup still opens with empty input.
-  const readClipboardText = async () => {
-    if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
-      return "";
+  // Long-press: try clipboard paste; if fails/empty → open text input panel below
+  const handleLongPressPaste = async () => {
+    vibrate();
+    let text = "";
+    if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+      try { text = (await navigator.clipboard.readText()) || ""; } catch { text = ""; }
     }
-    try {
-      return (await navigator.clipboard.readText()) || "";
-    } catch {
-      return "";
+    if (text && socket) {
+      socket.emit("input", { sessionId, data: text });
+      return;
     }
+    onPasteFallback?.();
   };
 
-  const openPastePopup = async () => {
-    setPasteText("");
-    setShowPasteInput(true);
-    setTimeout(() => pasteInputRef.current?.focus(), 100);
-    const text = await readClipboardText();
-    setClipboardText(text);
-  };
-
-  // Long press handlers for paste
   const handleTouchStart = () => {
-    longPressTimer.current = setTimeout(() => {
-      vibrate();
-      openPastePopup();
-    }, 500);
+    longPressTimer.current = setTimeout(handleLongPressPaste, 500);
   };
 
   const handleTouchEnd = () => {
@@ -96,30 +82,9 @@ function TerminalPane({
     }
   };
 
-  const closePastePopup = () => {
-    // Refocus terminal synchronously to keep mobile virtual keyboard open
-    termRef.current?.focus();
-    setShowPasteInput(false);
-    setPasteText("");
-    setClipboardText("");
-  };
-
-  const handlePasteButton = () => {
-    setPasteText(clipboardText);
-    pasteInputRef.current?.focus();
-  };
-
-  const sendPasteText = () => {
-    if (pasteText && socket) {
-      socket.emit("input", { sessionId, data: pasteText });
-      vibrate();
-    }
-    closePastePopup();
-  };
-
   // Track scroll position to show/hide scroll-to-bottom button
   useEffect(() => {
-    if (!termRef.current || !isVisible) return;
+    if (!termReady || !termRef.current || !isVisible) return;
 
     const term = termRef.current;
     const MIN_SCROLL_THRESHOLD = 5;
@@ -130,14 +95,16 @@ function TerminalPane({
       setShowScrollButton(scrollDistance > MIN_SCROLL_THRESHOLD);
     };
 
+    checkScrollPosition();
     const disposable = term.onScroll(checkScrollPosition);
     const dataDisposable = term.onWriteParsed(checkScrollPosition);
 
     return () => {
       disposable.dispose();
       dataDisposable.dispose();
+      setShowScrollButton(false);
     };
-  }, [termRef, isVisible]);
+  }, [termRef, termReady, isVisible]);
 
   const handleScrollToBottom = () => {
     if (!termRef.current) return;
@@ -227,55 +194,6 @@ function TerminalPane({
           </button>
         )}
       </div>
-
-      {showPasteInput && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={closePastePopup}
-          onTouchStart={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <div
-            className="bg-dark-500 rounded-brand border border-dark-400 p-4 w-full max-w-md flex flex-col gap-3"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <input
-              ref={pasteInputRef}
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") sendPasteText();
-                if (e.key === "Escape") closePastePopup();
-              }}
-              placeholder={t("terminalPane.pasteOrType")}
-              className="px-4 py-3 bg-dark-600 text-white rounded-brand border border-dark-400 focus:border-brand-500 outline-none w-full"
-            />
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={closePastePopup}
-                className="px-4 py-2 bg-dark-600 hover:bg-dark-400 text-white rounded-brand border border-dark-400 transition-colors"
-              >
-                {t("common.close")}
-              </button>
-              {clipboardText && (
-                <button
-                  onClick={handlePasteButton}
-                  className="px-4 py-2 bg-dark-600 hover:bg-dark-400 text-white rounded-brand border border-dark-400 transition-colors"
-                >
-                  {t("terminalPane.paste")}
-                </button>
-              )}
-              <button
-                onClick={sendPasteText}
-                disabled={!pasteText}
-                className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-brand font-medium transition-colors"
-              >
-                {t("mobileKeyboard.send")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

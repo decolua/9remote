@@ -96,6 +96,15 @@ export default function WorkspacePage() {
     else delete paneElementsRef.current[sessionId];
   }, []);
 
+  // MobileKeyboard text-input API (for long-press paste fallback)
+  const keyboardTextApiRef = useRef(null);
+  const registerKeyboardTextApi = useCallback((api) => {
+    keyboardTextApiRef.current = api;
+  }, []);
+  const handlePasteFallback = useCallback(() => {
+    keyboardTextApiRef.current?.openTextPanel?.();
+  }, []);
+
   // Save theme to localStorage when changed
   const handleThemeChange = useCallback((newTheme) => {
     setTheme(newTheme);
@@ -171,7 +180,6 @@ export default function WorkspacePage() {
     const onResize = () => {
       clearTimeout(timerId);
       timerId = setTimeout(updateAppHeight, 200);
-      // alert(123);
     };
 
     if (window.visualViewport) {
@@ -503,6 +511,7 @@ export default function WorkspacePage() {
                         theme={theme}
                         onActivate={handleSelectSession}
                         onRegisterApi={registerPaneApi}
+                        onPasteFallback={handlePasteFallback}
                         showFocusBorder={isDesktop && openedSessions.length > 1}
                         notifications={notifications}
                         clearNotification={clearNotification}
@@ -519,6 +528,7 @@ export default function WorkspacePage() {
                   sessionId={activeSessionId}
                   onExpandChange={() => paneApisRef.current[activeSessionId]?.doResize?.()}
                   onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
+                  onRegisterTextApi={registerKeyboardTextApi}
                   platform={platform}
                 />
               )}

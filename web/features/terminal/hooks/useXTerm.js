@@ -297,6 +297,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   return {
     termRef,
     cwdRef, // Expose cwd for file path resolution
+    termReady,
     doResize,
     focus: () => termRef.current?.focus(),
     stopMomentum: () => stopMomentumRef.current?.()

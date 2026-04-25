@@ -17,7 +17,7 @@ import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
 
-const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform }) => {
+const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform }) => {
   const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showTextPanel, setShowTextPanel] = useState(false);
@@ -109,6 +109,17 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
     if (onExpandChange) onExpandChange(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasPhysicalKeyboard]);
+
+  // Expose openTextPanel for paste-fallback from TerminalPane
+  useEffect(() => {
+    if (!onRegisterTextApi) return;
+    const openTextPanel = () => {
+      setShowTextPanel(true);
+      setTimeout(() => textInputRef.current?.focus(), 100);
+    };
+    onRegisterTextApi({ openTextPanel });
+    return () => onRegisterTextApi(null);
+  }, [onRegisterTextApi]);
 
   const tryPasteFromClipboard = useCallback(async () => {
     try {
