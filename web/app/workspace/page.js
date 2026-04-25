@@ -150,20 +150,16 @@ export default function WorkspacePage() {
     const updateAppHeight = () => {
       const vv = window.visualViewport;
       const vvHeight = vv?.height || window.innerHeight;
-
       const offsetTop = vv?.offsetTop || 0;
       const isKeyboardOpen = vvHeight < window.innerHeight - 100;
-
-      // Skip iOS auto-scroll triggered by input focus when keyboard already open
-      if (isKeyboardOpen && lastKeyboardState === isKeyboardOpen) return;
 
       if (lastKeyboardState !== isKeyboardOpen) {
         lastKeyboardState = isKeyboardOpen;
         setKeyboardOpen(isKeyboardOpen);
       }
 
-      const vh = isKeyboardOpen ? vvHeight : window.innerHeight;
-      document.documentElement.style.setProperty("--app-height", `${vh}px`);
+      // Always follow visualViewport height so terminal fits exact visible area
+      document.documentElement.style.setProperty("--app-height", `${vvHeight}px`);
 
       // iOS 26 Safari bug (FB20191055): offsetTop stays > 0 after keyboard dismiss
       if (!isKeyboardOpen && offsetTop > 0) {
@@ -179,7 +175,7 @@ export default function WorkspacePage() {
     let timerId = 0;
     const onResize = () => {
       clearTimeout(timerId);
-      timerId = setTimeout(updateAppHeight, 200);
+      timerId = setTimeout(updateAppHeight, 100);
     };
 
     if (window.visualViewport) {
