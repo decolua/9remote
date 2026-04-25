@@ -287,3 +287,8 @@ body.keyboard-open .safe-area-bottom {
   background-position: 0 0, 0 0, 0 0, 0 0;
 }
 
+
+/* iOS Safari skip auto-scroll on input focus when keyboard already open */
+@keyframes inputFocusBlink { 0% { opacity: 0; } 100% { opacity: 1; } }
+.terminal-page input:focus,
+.terminal-page textarea:focus { animation: inputFocusBlink 0.01s; }

@@ -70,9 +70,16 @@ export default function WorkspacePage() {
     typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false
   );
   useEffect(() => {
-    const check = () => setIsDesktop(window.innerWidth >= DESKTOP_BREAKPOINT);
+    let timerId = 0;
+    const check = () => {
+      clearTimeout(timerId);
+      timerId = setTimeout(() => setIsDesktop(window.innerWidth >= DESKTOP_BREAKPOINT), 50);
+    };
     window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
+    return () => {
+      clearTimeout(timerId);
+      window.removeEventListener("resize", check);
+    };
   }, []);
 
   // Registry of per-pane APIs (focus, doResize) for MobileKeyboard callbacks
@@ -129,7 +136,7 @@ export default function WorkspacePage() {
 
   // VisualViewport height - handle mobile keyboard
   useEffect(() => {
-    let lastKeyboardState = false; // Track keyboard state to prevent unnecessary updates
+    let lastKeyboardState = false;
 
     const updateAppHeight = () => {
       const vv = window.visualViewport;
@@ -138,20 +145,18 @@ export default function WorkspacePage() {
       const offsetTop = vv?.offsetTop || 0;
       const isKeyboardOpen = vvHeight < window.innerHeight - 100;
 
-      // Only update if keyboard state actually changed
+      // Skip iOS auto-scroll triggered by input focus when keyboard already open
+      if (isKeyboardOpen && lastKeyboardState === isKeyboardOpen) return;
+
       if (lastKeyboardState !== isKeyboardOpen) {
         lastKeyboardState = isKeyboardOpen;
         setKeyboardOpen(isKeyboardOpen);
       }
 
-      // Use innerHeight when keyboard closed (visualViewport may stay short on iOS).
       const vh = isKeyboardOpen ? vvHeight : window.innerHeight;
       document.documentElement.style.setProperty("--app-height", `${vh}px`);
 
-      // iOS 26 Safari bug (FB20191055): after dismissing the keyboard,
-      // visualViewport.offsetTop can stay > 0 (~24px), pushing position:fixed
-      // elements down so the top of the app is clipped. Compensate by translating
-      // the <html> element up by offsetTop when keyboard is closed.
+      // iOS 26 Safari bug (FB20191055): offsetTop stays > 0 after keyboard dismiss
       if (!isKeyboardOpen && offsetTop > 0) {
         document.documentElement.style.transform = `translateY(${-offsetTop}px)`;
       } else {
@@ -162,8 +167,35 @@ export default function WorkspacePage() {
 
     document.documentElement.classList.add("terminal-page");
 
+    let timerId = 0;
+    const onResize = () => {
+      clearTimeout(timerId);
+      timerId = setTimeout(updateAppHeight, 200);
+      // alert(123);
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", onResize);
+      window.visualViewport.addEventListener("scroll", onResize);
+    }
+    window.addEventListener("resize", onResize);
+    onResize();
+
+    return () => {
+      clearTimeout(timerId);
+      document.documentElement.classList.remove("terminal-page");
+      document.documentElement.style.transform = "";
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", onResize);
+        window.visualViewport.removeEventListener("scroll", onResize);
+      }
+      window.removeEventListener("resize", onResize);
+    };
+  }, [setKeyboardOpen]);
+
+  // Prevent body scroll on touchmove (allow scroll in specific containers)
+  useEffect(() => {
     const preventScroll = (e) => {
-      // Allow scroll in xterm, codemirror, file explorer, git panel, modals
       if (
         e.target.closest(".xterm-viewport") ||
         e.target.closest(".xterm-screen") ||
@@ -174,35 +206,19 @@ export default function WorkspacePage() {
       ) return;
       e.preventDefault();
     };
-
     document.addEventListener("touchmove", preventScroll, { passive: false });
+    return () => document.removeEventListener("touchmove", preventScroll);
+  }, []);
 
-    // Prevent iOS auto-scroll pushing fixed layout when focusing inputs
+  // Prevent iOS auto-scroll pushing fixed layout when focusing inputs
+  useEffect(() => {
     const handleFocusIn = (e) => {
       if (e.target.matches("input, textarea")) {
         requestAnimationFrame(() => window.scrollTo(0, 0));
       }
     };
     document.addEventListener("focusin", handleFocusIn);
-
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", () => setTimeout(updateAppHeight, 0));
-      window.visualViewport.addEventListener("scroll", () => setTimeout(updateAppHeight, 0));
-    }
-    window.addEventListener("resize", updateAppHeight);
-    updateAppHeight();
-
-    return () => {
-      document.documentElement.classList.remove("terminal-page"); 
-      document.documentElement.style.transform = "";
-      document.removeEventListener("touchmove", preventScroll);
-      document.removeEventListener("focusin", handleFocusIn);
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener("resize", updateAppHeight);
-        window.visualViewport.removeEventListener("scroll", updateAppHeight);
-      }
-      window.removeEventListener("resize", updateAppHeight);
-    };
+    return () => document.removeEventListener("focusin", handleFocusIn);
   }, []);
 
   const handleCreateSession = useCallback((name) => {
