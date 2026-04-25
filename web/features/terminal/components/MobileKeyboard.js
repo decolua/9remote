@@ -20,6 +20,7 @@ import { useI18n } from "@/shared/i18n";
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform }) => {
   const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showTextPanel, setShowTextPanel] = useState(false);
   const [textInput, setTextInput] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [showPasteInput, setShowPasteInput] = useState(false);
@@ -257,10 +258,11 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
   );
 
   // Render one key from pool entry. `large=true` → auto-width + taller (extra panel).
-  const renderKey = (kc, idx, large = false) => {
+  const renderKey = (kc, idx, large = false, pinned = false) => {
     const isModifierActive = kc.type === "modifier" && getModifierActive(kc.id);
     const cls = isModifierActive
       ? `${buttonBaseClass} ${BUTTON_STYLES.modifierActive}`
+      : pinned ? `${buttonBaseClass} ${BUTTON_STYLES.pinned}`
       : kc.type === "arrow" ? arrowButtonClass : normalButtonClass;
     const accent = kc.type === "ctrl" ? "text-brand-400" : "";
     const sizeStyle = large
@@ -307,7 +309,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
           <div className="space-y-1">
             {extraCustom.rows.map((row, rIdx) => (
               <div key={rIdx} className="flex items-center gap-1.5">
-                <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+                <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto scroll-fade-x scroll-thin-x pr-3 rounded-lg">
                   {row.map((id, cIdx) => {
                     const kc = TERMINAL_KEY_POOL.find(p => p.id === id);
                     return kc ? renderKey(kc, rIdx * 100 + cIdx, true) : null;
@@ -330,7 +332,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
       </div>
 
       {/* Text Input Panel */}
-      <div className="bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 max-h-24 opacity-100 overflow-hidden">
+      <div className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 overflow-hidden transition-all duration-300 ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0 border-t-0"}`}>
         <div className="p-2 flex gap-2 items-center">
           <label className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-sm font-medium rounded transition-all duration-200 border border-dark-400 hover:border-brand-500 flex items-center gap-1 cursor-pointer flex-shrink-0">
             <Paperclip size={16} className="text-orange-500/70" />
@@ -375,7 +377,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
       {!hasPhysicalKeyboard && (
         <div className={`overflow-auto bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
           <div className="flex items-center gap-1 max-w-4xl mx-auto">
-            <div className="flex gap-1 flex-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+            <div className="flex gap-1 flex-1 overflow-x-auto scroll-fade-x scroll-thin-x pr-2 rounded-lg">
               {basicCustom.keys
                 .filter(kc => kc.id !== TERMINAL_PINNED_KEY_ID)
                 .map((kc, idx) => renderKey(kc, idx))}
@@ -384,14 +386,24 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, platform
             {(() => {
               const pinned = TERMINAL_KEY_POOL.find(p => p.id === TERMINAL_PINNED_KEY_ID);
               return pinned ? (
-                <div className="flex-shrink-0">{renderKey(pinned, "pinned")}</div>
+                <div className="flex-shrink-0">{renderKey(pinned, "pinned", false, true)}</div>
               ) : null;
             })()}
+            {/* Pinned Aa — toggle text input panel */}
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { vibrate(); setShowTextPanel(s => !s); }}
+              className={`${buttonBaseClass} ${showTextPanel ? BUTTON_STYLES.modifierActive : BUTTON_STYLES.pinned} flex-shrink-0`}
+              style={BUTTON_STYLES.size}
+              title={t("mobileKeyboard.toggleTextInput")}
+            >
+              Aa
+            </button>
             {/* Expand button */}
             <button
               onMouseDown={(e) => e.preventDefault()}
               onClick={toggleExpanded}
-              className={`${buttonBaseClass} ${isExpanded ? BUTTON_STYLES.modifierActive : BUTTON_STYLES.normal} flex-shrink-0`}
+              className={`${buttonBaseClass} ${isExpanded ? BUTTON_STYLES.modifierActive : BUTTON_STYLES.pinned} flex-shrink-0`}
               style={BUTTON_STYLES.size}
               title={t("mobileKeyboard.toggleExtraKeys")}
             >

@@ -2,105 +2,82 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { THEME } from "../constants/landingConfig";
+
+const LINKS = [
+  { href: "#features", label: "Features" },
+  { href: "#terminal-demo", label: "How it Works" },
+  { href: "https://docs.9remote.cc/", label: "Docs", external: true },
+  { href: "#get-started", label: "Get Started" },
+  { href: "https://github.com/decolua/9remote", label: "GitHub", external: true },
+  { href: "https://www.facebook.com/groups/9teamvn", label: "Community", external: true }
+];
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20);
-    };
+    const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? "bg-white/80 backdrop-blur-lg border-b border-gray-200 shadow-lg"
-          : "bg-transparent"
-      }`}
+      className="fixed top-0 left-0 right-0 z-50 transition-all duration-300"
+      style={{
+        background: scrolled ? "rgba(10,10,10,0.75)" : "transparent",
+        backdropFilter: scrolled ? "blur(16px)" : "none",
+        borderBottom: scrolled ? `1px solid ${THEME.border}` : "1px solid transparent"
+      }}
     >
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        {/* Logo */}
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-500 flex items-center justify-center font-bold text-lg shadow-lg shadow-brand-500/20 group-hover:shadow-brand-500/40 transition-shadow text-white">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-lg transition-shadow"
+            style={{
+              background: THEME.accent,
+              color: "#FFF",
+              boxShadow: `0 8px 24px -8px ${THEME.accentGlow}`
+            }}
+          >
             9
           </div>
-          <span className="text-xl font-bold tracking-tight">9Remote</span>
+          <span className="text-xl font-bold tracking-tight" style={{ color: THEME.text }}>9Remote</span>
         </Link>
 
-        {/* Desktop Menu */}
-        <div className="hidden md:flex items-center gap-8">
-          <a
-            href="#features"
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Features
-          </a>
-          <a
-            href="#terminal-demo"
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            How it Works
-          </a>
-          <a
-            href="https://docs.9remote.cc/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors flex items-center gap-1"
-          >
-            Documentation
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </a>
-          <a
-            href="#get-started"
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Get Started
-          </a>
-          <a
-            href="https://github.com/decolua/9remote"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors flex items-center gap-1"
-          >
-            GitHub
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </a>
-          <a
-            href="https://www.facebook.com/groups/9teamvn"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors flex items-center gap-1"
-          >
-            Facebook
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </a>
+        <div className="hidden md:flex items-center gap-7">
+          {LINKS.map((l) => (
+            <a
+              key={l.label}
+              href={l.href}
+              target={l.external ? "_blank" : undefined}
+              rel={l.external ? "noopener noreferrer" : undefined}
+              className="text-sm transition-colors"
+              style={{ color: THEME.textDim }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = THEME.text)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = THEME.textDim)}
+            >
+              {l.label}
+            </a>
+          ))}
         </div>
 
-        {/* CTA Button */}
         <div className="hidden md:flex items-center gap-4">
           <Link
             href="/login"
-            className="px-6 py-2 rounded-lg bg-brand-500 hover:bg-brand-500/90 text-white font-semibold text-sm shadow-lg shadow-brand-500/20 hover:shadow-brand-500/40 transition-all"
+            className="btn-cta px-5 py-2 rounded-lg font-semibold text-sm transition-transform hover:scale-[1.03]"
+            style={{ background: THEME.accent, color: "#FFF" }}
           >
-            Remote
+            <span>Remote</span>
           </Link>
         </div>
 
-        {/* Mobile Menu Button */}
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden p-2 text-gray-600 hover:text-gray-900"
+          className="md:hidden p-2"
+          style={{ color: THEME.text }}
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             {mobileMenuOpen ? (
@@ -112,58 +89,29 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-white/95 backdrop-blur-lg border-t border-gray-200">
+        <div
+          className="md:hidden"
+          style={{ background: "rgba(10,10,10,0.95)", backdropFilter: "blur(16px)", borderTop: `1px solid ${THEME.border}` }}
+        >
           <div className="flex flex-col gap-4 p-6">
-            <a
-              href="#features"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              Features
-            </a>
-            <a
-              href="#terminal-demo"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              How it Works
-            </a>
-            <a
-              href="https://docs.9remote.cc/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              Documentation
-            </a>
-            <a
-              href="#get-started"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              Get Started
-            </a>
-            <a
-              href="https://github.com/decolua/9remote"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              GitHub
-            </a>
-            <a
-              href="https://www.facebook.com/groups/9teamvn"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              Facebook
-            </a>
+            {LINKS.map((l) => (
+              <a
+                key={l.label}
+                href={l.href}
+                target={l.external ? "_blank" : undefined}
+                rel={l.external ? "noopener noreferrer" : undefined}
+                onClick={() => setMobileMenuOpen(false)}
+                className="text-sm"
+                style={{ color: THEME.textDim }}
+              >
+                {l.label}
+              </a>
+            ))}
             <Link
               href="/login"
-              className="px-6 py-2 rounded-lg bg-brand-500 hover:bg-brand-500/90 text-white font-semibold text-sm text-center"
+              className="px-6 py-2 rounded-lg font-semibold text-sm text-center"
+              style={{ background: THEME.accent, color: "#FFF" }}
             >
               Remote
             </Link>

@@ -340,6 +340,7 @@ export default {
     typeCommand: "Type command and send...",
     send: "Send",
     toggleExtraKeys: "Toggle extra keys",
+    toggleTextInput: "Toggle text input",
     customizeTerminalKeys: "Customize Terminal Keys",
     mainBar: "Main Bar",
     extraPanel: "Extra Panel",

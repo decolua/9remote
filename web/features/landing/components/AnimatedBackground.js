@@ -1,95 +1,52 @@
 "use client";
 
-export default function AnimatedBackground() {
+import { THEME } from "../constants/landingConfig";
 
-  return null;
-  
+export default function AnimatedBackground() {
   return (
-    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none" style={{ background: "transparent" }}>
-      {/* Grid pattern */}
-      <div 
-        className="absolute inset-0 opacity-[0.03]"
+    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none" style={{ background: THEME.bg }}>
+      {/* Subtle grid — softer on mobile to reduce orange overload */}
+      <div
+        className="absolute inset-0 opacity-[0.02] sm:opacity-[0.04] animate-grid-shift"
         style={{
           backgroundImage: `
-            linear-gradient(to right, #E68A6E 1px, transparent 1px),
-            linear-gradient(to bottom, #E68A6E 1px, transparent 1px)
+            linear-gradient(to right, ${THEME.accent} 1px, transparent 1px),
+            linear-gradient(to bottom, ${THEME.accent} 1px, transparent 1px)
           `,
-          backgroundSize: "50px 50px"
+          backgroundSize: "40px 40px"
         }}
       />
 
-      {/* Blob 1 - Warm orange */}
-      <div 
-        className="blob blob-1"
+      {/* Orange ambient glow top-left — smaller + dimmer on mobile */}
+      <div
+        className="absolute animate-pulse-glow w-[360px] h-[360px] sm:w-[700px] sm:h-[700px]"
         style={{
-          position: "absolute",
-          top: 0,
-          left: "25%",
-          width: "700px",
-          height: "700px",
+          top: "-10%",
+          left: "-5%",
           borderRadius: "50%",
-          background: "rgba(230, 138, 110, 0.08)",
-          filter: "blur(130px)",
-          animation: "blob 20s ease-in-out infinite"
+          background: "rgba(255,87,10,0.09)",
+          filter: "blur(120px)"
         }}
       />
 
-      {/* Blob 2 - Light peach */}
-      <div 
-        className="blob blob-2"
+      {/* Deep bottom-right glow — smaller + dimmer on mobile */}
+      <div
+        className="absolute animate-pulse-glow w-[420px] h-[420px] sm:w-[800px] sm:h-[800px]"
         style={{
-          position: "absolute",
-          top: "33%",
-          right: "25%",
-          width: "600px",
-          height: "600px",
+          bottom: "-15%",
+          right: "-10%",
           borderRadius: "50%",
-          background: "rgba(250, 229, 222, 0.5)",
-          filter: "blur(130px)",
-          animation: "blob 22s ease-in-out infinite",
-          animationDelay: "2s"
+          background: "rgba(255,87,10,0.06)",
+          filter: "blur(140px)",
+          animationDelay: "1.5s"
         }}
       />
 
-      {/* Blob 3 - Soft coral */}
-      <div 
-        className="blob blob-3"
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: "50%",
-          width: "650px",
-          height: "650px",
-          borderRadius: "50%",
-          background: "rgba(244, 203, 189, 0.4)",
-          filter: "blur(130px)",
-          animation: "blob 25s ease-in-out infinite",
-          animationDelay: "4s"
-        }}
-      />
-
-      {/* Light vignette overlay */}
-      <div 
+      {/* Vignette */}
+      <div
         className="absolute inset-0"
-        style={{
-          background: "radial-gradient(circle at center, transparent 0%, rgba(255, 255, 255, 0.3) 100%)"
-        }}
+        style={{ background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.6) 100%)" }}
       />
-
-      {/* CSS for animations */}
-      <style jsx>{`
-        @keyframes blob {
-          0%, 100% { 
-            transform: translate(0, 0) scale(1);
-          }
-          33% { 
-            transform: translate(30px, -50px) scale(1.1);
-          }
-          66% { 
-            transform: translate(-20px, 20px) scale(0.9);
-          }
-        }
-      `}</style>
     </div>
   );
 }

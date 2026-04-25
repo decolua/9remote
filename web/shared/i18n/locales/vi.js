@@ -340,6 +340,7 @@ export default {
     typeCommand: "Nhập lệnh và gửi...",
     send: "Gửi",
     toggleExtraKeys: "Bật/tắt phím mở rộng",
+    toggleTextInput: "Bật/tắt ô nhập văn bản",
     customizeTerminalKeys: "Tùy chỉnh phím Terminal",
     mainBar: "Thanh chính",
     extraPanel: "Bảng mở rộng",

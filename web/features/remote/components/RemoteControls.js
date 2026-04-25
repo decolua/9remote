@@ -15,18 +15,20 @@ import {
   REMOTE_PINNED_KEY_ID
 } from "@/features/remote/constants/REMOTE_CONFIG";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
+import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
 
 const v = (fn, ...args) => { vibrate(); fn?.(...args); };
 
 // onMouseDown.preventDefault() — prevents focus-steal so native keyboard stays on.
-function Btn({ active, primary, children, className = "", onClick, ...rest }) {
+function Btn({ active, primary, pinned, children, className = "", onClick, ...rest }) {
   const base = "shrink-0 px-1 h-9 rounded-brand text-xs font-semibold  shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[38px] flex items-center justify-center";
   const normal = "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500";
   const activeCls = "bg-brand-500 text-white border border-brand-400 shadow-lg shadow-brand-500/20";
   const primaryCls = "bg-green-600 hover:bg-green-700 text-white border border-green-500";
-  const variant = primary ? primaryCls : active ? activeCls : normal;
+  const pinnedCls = "bg-dark-700 hover:bg-dark-600 active:bg-dark-600 text-brand-300 border border-brand-500/40 hover:border-brand-500";
+  const variant = active ? activeCls : pinned ? pinnedCls : primary ? primaryCls : normal;
   return (
     <button
       type="button"
@@ -72,8 +74,8 @@ export default function RemoteControls({
   onClose
 }) {
   const { t } = useI18n();
-  const rowClass = "flex gap-1.5 overflow-auto px-2 py-1 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:content-center landscape:justify-center";
-  const rowStyle = { scrollbarWidth: "none", msOverflowStyle: "none" };
+  const { isIosPwa } = useDeviceInfo();
+  const rowClass = "flex gap-1.5 overflow-auto scroll-fade-x scroll-thin-x landscape:no-fade px-2 py-1 pr-2 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center rounded-lg";
   const panelInputRef = useRef(null);
   const [showExtra, setShowExtra] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
@@ -92,7 +94,7 @@ export default function RemoteControls({
   const show = (k) => inputMode !== "mouse" || pcCfg[k];
 
   // Render one pool key with correct handler
-  const renderPoolKey = (kc, idx) => {
+  const renderPoolKey = (kc, idx, pinned = false, extraClass = "") => {
     if (kc.type === "modifier") {
       return (
         <Btn
@@ -100,6 +102,8 @@ export default function RemoteControls({
           onClick={() => v(onToggleModifier, kc.modifier)}
           disabled={!streaming}
           active={modifierKeys[kc.modifier]}
+          pinned={pinned}
+          className={extraClass}
         >
           {kc.label}
         </Btn>
@@ -110,7 +114,9 @@ export default function RemoteControls({
         key={kc.id + idx}
         onClick={() => v(onEmitKey, kc.key, kc.modifiers || [])}
         disabled={!streaming}
-        primary={kc.primary}
+        primary={!pinned && kc.primary}
+        pinned={pinned}
+        className={extraClass}
       >
         {kc.label}
       </Btn>
@@ -190,7 +196,7 @@ export default function RemoteControls({
           <div className="space-y-1">
             {extraCustom.rows.map((row, rIdx) => (
               <div key={rIdx} className="flex items-center gap-1.5">
-                <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto" style={rowStyle}>
+                <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto scroll-fade-x scroll-thin-x pr-3 rounded-lg">
                   {row.map((id, cIdx) => {
                     const kc = REMOTE_KEY_POOL.find(p => p.id === id);
                     return kc ? renderPoolKey(kc, rIdx * 100 + cIdx) : null;
@@ -214,9 +220,9 @@ export default function RemoteControls({
 
       {/* Top toolbar — pin "..." at end, scroll rest */}
       <div className="flex items-center gap-1.5 px-2 py-1 landscape:border-b landscape:border-dark-400 landscape:py-2">
-        <div className={`${rowClass} flex-1 min-w-0 px-0 py-0 landscape:py-0`} style={rowStyle}>
-          <Btn onClick={() => v(onClose)} title={t("remote.back")}>
-            <ChevronLeft className="text-orange-400" size={16} />
+        <div className={`${rowClass} flex-1 min-w-0 px-0 py-0 landscape:py-0`}>
+          <Btn onClick={() => v(onClose)} title={t("remote.back")} pinned>
+            <ChevronLeft size={16} />
           </Btn>
           <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-dark-50" title={t("remote.resetZoom")}>
             {Math.round(canvasZoom * 100)}%
@@ -266,15 +272,15 @@ export default function RemoteControls({
           )}
         </div>
         {/* Pinned expand button — always visible */}
-        <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} title={t("remote.extraKeys")}>
+        <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} pinned title={t("remote.extraKeys")}>
           {showExtra ? <X size={16} /> : <MoreHorizontal size={16} />}
         </Btn>
       </div>
 
       {/* Bottom row (customizable) — pin Enter at end */}
       {show("modifierRow") && (
-        <div className="flex items-center gap-1.5 px-2 py-1 landscape:py-2">
-          <div className={`${rowClass} flex-1 min-w-0 px-0 py-0 landscape:py-0`} style={rowStyle}>
+        <div className={`flex items-center gap-1.5 px-2 py-1 landscape:py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
+          <div className={`${rowClass} flex-1 min-w-0 px-0 py-0 landscape:py-0`}>
             {bottomCustom.keys
               .filter(kc => kc.id !== REMOTE_PINNED_KEY_ID)
               .map((kc, idx) => renderPoolKey(kc, idx))}
@@ -282,7 +288,7 @@ export default function RemoteControls({
           {/* Pinned Enter — always visible */}
           {(() => {
             const pinned = REMOTE_KEY_POOL.find(p => p.id === REMOTE_PINNED_KEY_ID);
-            return pinned ? renderPoolKey(pinned, "pinned") : null;
+            return pinned ? renderPoolKey(pinned, "pinned", true) : null;
           })()}
         </div>
       )}

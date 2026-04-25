@@ -177,17 +177,26 @@ export default function WorkspacePage() {
 
     document.addEventListener("touchmove", preventScroll, { passive: false });
 
+    // Prevent iOS auto-scroll pushing fixed layout when focusing inputs
+    const handleFocusIn = (e) => {
+      if (e.target.matches("input, textarea")) {
+        requestAnimationFrame(() => window.scrollTo(0, 0));
+      }
+    };
+    document.addEventListener("focusin", handleFocusIn);
+
     if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", () => setTimeout(updateAppHeight, 200));
-      // window.visualViewport.addEventListener("scroll", () => setTimeout(updateAppHeight, 200));
+      window.visualViewport.addEventListener("resize", () => setTimeout(updateAppHeight, 0));
+      window.visualViewport.addEventListener("scroll", () => setTimeout(updateAppHeight, 0));
     }
     window.addEventListener("resize", updateAppHeight);
     updateAppHeight();
 
     return () => {
-      document.documentElement.classList.remove("terminal-page");
+      document.documentElement.classList.remove("terminal-page"); 
       document.documentElement.style.transform = "";
       document.removeEventListener("touchmove", preventScroll);
+      document.removeEventListener("focusin", handleFocusIn);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener("resize", updateAppHeight);
         window.visualViewport.removeEventListener("scroll", updateAppHeight);

@@ -109,6 +109,7 @@ export const BUTTON_STYLES = {
   normal: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500",
   arrow: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white text-sm border border-dark-400 hover:border-brand-500",
   modifierActive: "bg-brand-500 text-white border border-brand-400 shadow-lg shadow-brand-500/20",
+  pinned: "bg-dark-700 hover:bg-dark-600 active:bg-dark-600 text-brand-300 border border-brand-500/40 hover:border-brand-500",
   // Slightly larger than original 34×34 but smaller than Remote Desktop Btn
   size: { minWidth: "38px", height: "36px", paddingLeft: "8px", paddingRight: "8px" },
   sizeSmall: { width: "28px", height: "28px" }
