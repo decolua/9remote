@@ -24,15 +24,35 @@ const PATHS = {
   linux: join(HOME, ".config", "autostart", `${APP_ID}.desktop`),
 };
 
-// Resolve CLI entry: bundled cli.cjs (prod) → index.js (dev)
+// Resolve CLI entry by walking up from __dirname to find 9remote package.json, then read its bin
 function getCliEntry() {
-  const bundled = path.resolve(__dirname, "..", "..", "dist", "cli.cjs");
-  if (existsSync(bundled)) return bundled;
+  for (let dir = __dirname, prev = null; dir !== prev; prev = dir, dir = path.dirname(dir)) {
+    const pkgPath = path.join(dir, "package.json");
+    if (!existsSync(pkgPath)) continue;
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+      if (pkg.name !== "9remote") continue;
+      const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.["9remote"];
+      if (bin) {
+        const resolved = path.resolve(dir, bin);
+        if (existsSync(resolved)) return resolved;
+      }
+    } catch {}
+    break;
+  }
   return path.resolve(__dirname, "..", "index.js");
 }
 
 function getNodeBin() {
   return process.execPath;
+}
+
+// Build PATH env covering system + node bin dir so child spawns (cloudflared, node) work under launchd
+function getLaunchPath() {
+  const nodeDir = path.dirname(getNodeBin());
+  const base = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/opt/homebrew/bin"];
+  if (!base.includes(nodeDir)) base.unshift(nodeDir);
+  return base.join(":");
 }
 
 function escapeXml(s) {
@@ -63,6 +83,13 @@ ${args}
     <true/>
     <key>KeepAlive</key>
     <false/>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>${escapeXml(getLaunchPath())}</string>
+        <key>HOME</key>
+        <string>${escapeXml(HOME)}</string>
+    </dict>
     <key>StandardOutPath</key>
     <string>${join(HOME, ".9remote", "autostart.log")}</string>
     <key>StandardErrorPath</key>
@@ -75,13 +102,13 @@ ${args}
 function enableMac() {
   mkdirSync(path.dirname(PATHS.darwin), { recursive: true });
   writeFileSync(PATHS.darwin, buildPlist(getNodeBin(), getCliEntry()));
-  // Do not launchctl load here: agent already running, plist takes effect at next login
+  // Do not bootstrap here: agent already running, plist takes effect at next login (avoid port collision)
   return true;
 }
 
 function disableMac() {
+  // Only remove plist; don't bootout — that would kill the currently running agent (us)
   if (existsSync(PATHS.darwin)) {
-    try { execFileSync("launchctl", ["unload", PATHS.darwin], { stdio: "ignore" }); } catch {}
     try { unlinkSync(PATHS.darwin); } catch {}
   }
   return true;

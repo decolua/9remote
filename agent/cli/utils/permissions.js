@@ -3,7 +3,7 @@
  * Used by both the server (index.js) and TUI (tui.js via API).
  */
 
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
 
 export const PERM_URLS = {
   screenRecording: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -25,9 +25,12 @@ export function checkPermissions() {
     let sr = false, ax = false, done = 0;
     const finish = () => { if (++done === 2) resolve({ screenRecording: sr, accessibility: ax }); };
 
-    // Accessibility: reading UI elements truly requires AX permission (reflects revoke instantly)
-    exec(`osascript -e 'tell application "System Events" to tell process "Finder" to get name of every window'`,
-      { timeout: 3000 }, (err) => { ax = !err; finish(); });
+    // Accessibility: official AXIsProcessTrustedWithOptions API (reflects TCC state in realtime, no UI dependency)
+    execFile("osascript", [
+      "-e", 'use framework "ApplicationServices"',
+      "-e", `set checkOptions to current application's NSDictionary's dictionaryWithObject:(false) forKey:("AXTrustedCheckOptionPrompt" as string)`,
+      "-e", "return current application's AXIsProcessTrustedWithOptions(checkOptions) as boolean",
+    ], { timeout: 3000 }, (err, stdout) => { ax = !err && stdout.trim() === "true"; finish(); });
 
     // Screen Recording: CGPreflightScreenCaptureAccess via CoreGraphics — reflects TCC state in realtime
     exec(`osascript -e 'use framework "CoreGraphics"' -e "return (current application's CGPreflightScreenCaptureAccess()) as boolean"`,

@@ -1,7 +1,10 @@
 import dns from "dns";
 
-// Bypass broken macOS system DNS resolver for long hostnames (e.g. trycloudflare).
-// Skip localhost/IP to avoid slow/hanging DNS resolve on Windows.
+// Force public DNS to bypass macOS mDNSResponder negative cache
+// (new trycloudflare subdomains stuck NXDOMAIN until system TTL expires)
+const publicResolver = new dns.promises.Resolver();
+publicResolver.setServers(["1.1.1.1", "1.0.0.1", "8.8.8.8"]);
+
 const _originalLookup = dns.lookup;
 const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$|^::1$|^[0-9a-f:]+$/i;
 dns.lookup = (hostname, options, cb) => {
@@ -9,14 +12,11 @@ dns.lookup = (hostname, options, cb) => {
   if (hostname === "localhost" || IP_REGEX.test(hostname)) {
     return _originalLookup(hostname, options, cb);
   }
-  dns.resolve4(hostname, (err, addrs) => {
-    if (err) return _originalLookup(hostname, options, cb);
-    if (options.all) {
-      cb(null, addrs.map(a => ({ address: a, family: 4 })));
-    } else {
-      cb(null, addrs[0], 4);
-    }
-  });
+  publicResolver.resolve4(hostname).then((addrs) => {
+    if (!addrs?.length) return _originalLookup(hostname, options, cb);
+    if (options.all) cb(null, addrs.map((a) => ({ address: a, family: 4 })));
+    else cb(null, addrs[0], 4);
+  }).catch(() => _originalLookup(hostname, options, cb));
 };
 
 /**

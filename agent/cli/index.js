@@ -17,6 +17,7 @@ import { checkAndUpdate, checkLatestVersion, stopRunningInstances } from "./util
 import { writePid, clearPid } from "./utils/pids.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
 import { startTunnelHealthWatchdog, stopTunnelHealthWatchdog } from "./utils/tunnelHealth.js";
+import { tunnelLog } from "./utils/tunnelLog.js";
 import { showBanner, getBannerText, renderProgress, resetProgress, updateProgressDesc, setProgressInfo, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval } from "./utils/tui.js";
 import { checkPermissions } from "./utils/permissions.js";
 import { initTray, killTray, openBrowser, updateTrayTooltip, showTrayNotification } from "./utils/tray.js";
@@ -46,13 +47,17 @@ let activeSubmenuRefresh = null;
  */
 function makeTunnelRestartHandler({ apiKey, onUrlUpdate, setTunnel }) {
   return async (port) => {
+    tunnelLog(`▶️  restartHandler invoked port=${port}`);
     try {
       const r = await spawnQuickTunnel(port, onUrlUpdate);
       setTunnel(r.child);
       await updateTunnelUrl(apiKey, r.tunnelUrl);
+      await pushUiState({ tunnelUrl: r.tunnelUrl });
       await onUrlUpdate(r.tunnelUrl);
+      tunnelLog(`✅ Tunnel restarted: ${r.tunnelUrl}`);
       console.log(ORANGE(`✅ Tunnel restarted: ${r.tunnelUrl}`));
     } catch (err) {
+      tunnelLog(`❌ Tunnel restart failed: ${err?.message || err}`);
       console.log(chalk.red(`❌ Tunnel restart failed: ${err.message}`));
     }
   };
@@ -1291,6 +1296,9 @@ async function startTrayMode() {
   setupExitHandler(serverManager, null, keyData.key);
   setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
 
+  // Clear stale cloudflared PID from previous session to avoid spurious kill during spawn
+  try { clearPid("cloudflared"); } catch {}
+
   if (process.argv.includes("--start")) writeCmd("start-tunnel");
 
   const tray = await initTray({
@@ -1349,7 +1357,7 @@ async function start() {
   // Skip when re-entering via --tray / --auto (child spawned by launchBackground),
   // otherwise the detached child would read its own PID from agent.pid and
   // kill itself right after spawn.
-  const isChildRespawn = process.argv.includes("--tray") || process.argv.includes("--auto");
+  const isChildRespawn = process.argv.includes("--tray") || process.argv.includes("--auto") || process.argv.includes("--start");
   if (!isChildRespawn) {
     stopRunningInstances();
   }
@@ -1358,7 +1366,7 @@ async function start() {
     await startUiMode();
   } else if (command === "start" || process.argv.includes("--auto")) {
     await autoStartDev();
-  } else if (process.argv.includes("--tray")) {
+  } else if (process.argv.includes("--tray") || process.argv.includes("--start")) {
     await startTrayMode();
   } else {
     await startupMenu();

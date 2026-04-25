@@ -5,6 +5,7 @@ import os from "os";
 import net from "net";
 import { execSync, spawn } from "child_process";
 import { writePid, readPid, clearPid } from "./pids.js";
+import { tunnelLog } from "./tunnelLog.js";
 
 // Centralized tunnel runtime config
 const TUNNEL_CONFIG = {
@@ -12,6 +13,7 @@ const TUNNEL_CONFIG = {
   restartWindowMs: 60000,
   restartDelayMs: 2000,
   networkCheckIntervalMs: 5000,
+  networkRestoreDelayMs: 2500,
   internetCheckTimeoutMs: 3000,
   internetCheckHost: "1.1.1.1",
   internetCheckPort: 443,
@@ -86,22 +88,35 @@ async function waitForInternet() {
  * Schedule a tunnel restart gated by internet availability + restart quota.
  */
 async function scheduleRestart(arg, reason) {
-  if (!restartCallback) return;
-  console.log(`🌐 Waiting for internet before tunnel restart (${reason})...`);
+  tunnelLog(`scheduleRestart called (reason=${reason}, hasCallback=${!!restartCallback})`);
+  if (!restartCallback) {
+    tunnelLog("⚠️  No restartCallback registered — skip");
+    return;
+  }
+  tunnelLog(`🌐 Waiting for internet before restart (${reason})...`);
   const online = await waitForInternet();
   if (!online) {
-    console.log(`❌ Internet unavailable after ${TUNNEL_CONFIG.internetMaxWaitMs / 1000}s — skip restart`);
+    tunnelLog(`❌ Internet unavailable after ${TUNNEL_CONFIG.internetMaxWaitMs / 1000}s — skip restart`);
     return;
   }
   const now = Date.now();
   restartTimes = restartTimes.filter((t) => t > now - TUNNEL_CONFIG.restartWindowMs);
   restartTimes.push(now);
   if (restartTimes.length > TUNNEL_CONFIG.maxRestartAttempts) {
-    console.log(`❌ Too many tunnel restarts (${TUNNEL_CONFIG.maxRestartAttempts} in ${TUNNEL_CONFIG.restartWindowMs / 1000}s). Giving up.`);
+    tunnelLog(`❌ Too many restarts (${TUNNEL_CONFIG.maxRestartAttempts} in ${TUNNEL_CONFIG.restartWindowMs / 1000}s). Giving up.`);
     return;
   }
-  console.log(`🔄 Restarting tunnel... (attempt ${restartTimes.length}/${TUNNEL_CONFIG.maxRestartAttempts}, reason: ${reason})`);
-  setTimeout(() => restartCallback(arg), TUNNEL_CONFIG.restartDelayMs);
+  tunnelLog(`🔄 Restarting tunnel attempt ${restartTimes.length}/${TUNNEL_CONFIG.maxRestartAttempts} (reason: ${reason})`);
+  setTimeout(() => {
+    tunnelLog("⏰ restartDelay fired, calling restartCallback");
+    try {
+      Promise.resolve(restartCallback(arg)).catch((err) => {
+        tunnelLog(`❌ restartCallback rejected: ${err?.message || err}`);
+      });
+    } catch (err) {
+      tunnelLog(`❌ restartCallback threw: ${err?.message || err}`);
+    }
+  }, TUNNEL_CONFIG.restartDelayMs);
 }
 
 /**
@@ -310,10 +325,12 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
   writePid("cloudflared", child.pid);
   isIntentionalShutdown = false;
+  tunnelLog(`🚀 spawnQuickTunnel pid=${child.pid} port=${localPort}`);
 
   return new Promise((resolve, reject) => {
     let resolved = false;
     let lastUrl = null;
+    let lastOutput = "";
 
     const timeout = setTimeout(() => {
       if (resolved) return;
@@ -324,6 +341,8 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
     const handleLog = (data) => {
       const msg = data.toString();
+      lastOutput += msg;
+      if (lastOutput.length > 4096) lastOutput = lastOutput.slice(-4096);
       const tunnelUrl = parseQuickTunnelUrl(msg);
       if (!tunnelUrl) return;
 
@@ -333,12 +352,14 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
         clearTimeout(timeout);
         cleanup();
         startNetworkMonitor();
+        tunnelLog(`✅ tunnel ready: ${tunnelUrl}`);
         resolve({ child, tunnelUrl });
         return;
       }
 
       // URL rotated after initial connect — notify caller
       if (tunnelUrl !== lastUrl) {
+        tunnelLog(`🔄 URL rotated: ${tunnelUrl}`);
         lastUrl = tunnelUrl;
         onUrlUpdate?.(tunnelUrl);
       }
@@ -355,12 +376,18 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
       reject(err);
     });
 
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
       cleanup();
+      tunnelLog(`💥 cloudflared exit pid=${child.pid} code=${code} signal=${signal} intentional=${isIntentionalShutdown}`);
       if (!resolved) {
         resolved = true;
         clearTimeout(timeout);
-        reject(new Error(`cloudflared exited with code ${code}`));
+        const tail = lastOutput.trim().split("\n").slice(-5).join(" | ");
+        reject(new Error(`cloudflared exited (code=${code}, signal=${signal}) output: ${tail || "(empty)"}`));
+        // Initial spawn failed (e.g. trycloudflare API timeout) — still retry
+        if (!isIntentionalShutdown) {
+          scheduleRestart(localPort, `initial spawn failed (code ${code})`);
+        }
         return;
       }
       if (!isIntentionalShutdown) {
@@ -477,27 +504,34 @@ export function resetRestartCounter() {
   stopNetworkMonitor();
 }
 
+// Skip virtual/transient interfaces that flap during boot, sleep, or VPN connect
+const VIRTUAL_IFACE_REGEX = /^(utun|awdl|llw|anpi|bridge|gif|stf|ipsec|ap|tun|tap|vmnet|veth|docker)/i;
+
 /**
- * Get network state fingerprint (only active interfaces with IP)
+ * Get network state fingerprint (only physical active interfaces with IPv4)
  */
 function getNetworkFingerprint() {
   const interfaces = os.networkInterfaces();
   const active = [];
-  
+
   for (const [name, addrs] of Object.entries(interfaces)) {
     if (!addrs) continue;
+    if (VIRTUAL_IFACE_REGEX.test(name)) continue;
     for (const addr of addrs) {
       if (!addr.internal && addr.family === "IPv4") {
         active.push(`${name}:${addr.address}`);
       }
     }
   }
-  
+
   return active.sort().join("|");
 }
 
 /**
- * Start network change monitor
+ * Start network change monitor (event-driven).
+ * Polls only local interface fingerprint (cheap syscall, no network IO).
+ * When fingerprint changes: wait for stabilization, confirm Internet via TCP probe,
+ * then restart tunnel. Avoids periodic Internet pings.
  */
 function startNetworkMonitor() {
   if (networkMonitorInterval) return;
@@ -508,13 +542,20 @@ function startNetworkMonitor() {
     if (isWaitingForInternet) return;
     const current = getNetworkFingerprint();
     if (current === lastNetworkState) return;
-
-    console.log("🔄 Network change detected");
     lastNetworkState = current;
 
+    console.log("🔄 Network change detected");
     if (!restartCallback || currentRestartArg == null) return;
 
-    // Kill current tunnel before restart (intentional, skip exit-restart path)
+    // Wait briefly for network to stabilize (DHCP, RA, VPN auto-connect)
+    await new Promise((r) => setTimeout(r, TUNNEL_CONFIG.networkRestoreDelayMs));
+
+    // Confirm Internet before restarting; otherwise let exit-restart loop handle it
+    if (!(await checkInternet())) {
+      console.log("🌐 No internet yet, will retry on exit-restart loop");
+      return;
+    }
+
     killCloudflared();
     scheduleRestart(currentRestartArg, "network change");
   }, TUNNEL_CONFIG.networkCheckIntervalMs);
