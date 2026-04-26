@@ -16,10 +16,8 @@ import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
-import { THEMES } from "@/features/terminal/constants/themes";
 
-const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, theme }) => {
-  const themeBg = THEMES[theme]?.background ?? THEMES.default.background;
+const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform }) => {
   const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showTextPanel, setShowTextPanel] = useState(false);
@@ -308,21 +306,20 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
             placeholder={t("mobileKeyboard.pasteHere")}
             onPaste={handlePasteInput}
             onClick={(e) => e.stopPropagation()}
-            className="px-6 py-3 bg-dark-500 text-white rounded-brand border border-dark-400 focus:border-brand-500 font-medium transition-all duration-200 outline-none text-center w-64"
+            className="px-6 py-3 bg-surface-2 text-text rounded-brand focus:ring-2 focus:ring-brand-500/40 font-medium transition-all duration-150 ease-out outline-none text-center w-64"
           />
         </div>
       )}
 
       {/* Expanded keyboard panel — 3 scrollable rows */}
       <div
-        className={`transition-all duration-300 overflow-hidden ${isExpanded && !hasPhysicalKeyboard ? "max-h-64 opacity-100" : "max-h-0 opacity-0"}`}
-        style={{ backgroundColor: themeBg }}
+        className={`transition-all duration-300 overflow-hidden bg-bg ${isExpanded && !hasPhysicalKeyboard ? "max-h-64 opacity-100" : "max-h-0 opacity-0"}`}
       >
         <div className="p-2 max-w-2xl mx-auto">
           <div className="space-y-1">
             {extraCustom.rows.map((row, rIdx) => (
               <div key={rIdx} className="flex items-center gap-1.5">
-                <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto scroll-fade-x scroll-thin-x pr-3 rounded-lg">
+                <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto scroll-thin-x pr-3 rounded-lg">
                   {row.map((id, cIdx) => {
                     const kc = TERMINAL_KEY_POOL.find(p => p.id === id);
                     return kc ? renderKey(kc, rIdx * 100 + cIdx, true) : null;
@@ -332,7 +329,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                   <button
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => { vibrate(); setShowCustomize(true); }}
-                    className="shrink-0 h-10 w-10 flex items-center justify-center text-dark-100 hover:text-white border border-dark-400 rounded-brand"
+                    className="shrink-0 h-10 w-10 flex items-center justify-center text-text-muted hover:text-text bg-surface-2 hover:bg-surface-3 rounded-brand transition-all duration-150 ease-out"
                     title={t("remote.customizeKeys")}
                   >
                     <Settings size={16} />
@@ -346,11 +343,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Text Input Panel */}
       <div
-        className={`overflow-hidden transition-all duration-300 ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}
-        style={{ backgroundColor: themeBg }}
+        className={`overflow-hidden transition-all duration-300 bg-bg ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}
       >
         <div className="p-2 flex gap-2 items-center">
-          <label className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-sm font-medium rounded transition-all duration-200 border border-dark-400 hover:border-brand-500 flex items-center gap-1 cursor-pointer flex-shrink-0">
+          <label className="px-3 py-2 bg-surface-2 hover:bg-surface-3 text-sm font-medium rounded transition-all duration-150 ease-out flex items-center gap-1 cursor-pointer flex-shrink-0">
             <Paperclip size={16} className="text-orange-500/70" />
             <input type="file" onChange={handleFileUpload} className="hidden" accept="*/*" />
           </label>
@@ -367,13 +363,13 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
             }}
             placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend") : t("mobileKeyboard.typeCommand")}
             rows={Math.min(2, (textInput.match(/\n/g) || []).length + 1)}
-            className="w-full px-3 py-2 pr-8 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none"
+            className="w-full px-3 py-2 pr-8 bg-surface-2 rounded text-text text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none"
           />
           {textInput && (
             <button
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => { setTextInput(""); textInputRef.current?.focus(); }}
-              className="absolute right-2 top-2 w-5 h-5 flex items-center justify-center text-dark-100 hover:text-white transition-colors"
+              className="absolute right-2 top-2 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors"
             >
               ×
             </button>
@@ -382,7 +378,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
             onMouseDown={(e) => e.preventDefault()}
             onClick={sendTextBatch}
             disabled={!textInput.trim()}
-            className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:opacity-50 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0"
+            className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-surface-3 disabled:text-text-muted text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0"
           >
             {t("mobileKeyboard.send")}
           </button>
@@ -392,11 +388,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       {/* Bottom keyboard bar */}
       {!hasPhysicalKeyboard && (
         <div
-          className={`overflow-auto px-1.5 py-1.5 ${isIosPwa ? "safe-area-bottom" : ""}`}
-          style={{ backgroundColor: themeBg }}
+          className={`overflow-auto px-1.5 py-1.5 bg-bg ${isIosPwa ? "safe-area-bottom" : ""}`}
         >
           <div className="flex items-center gap-1 max-w-4xl mx-auto">
-            <div className="flex gap-1 flex-1 overflow-x-auto scroll-fade-x scroll-thin-x pr-2 rounded-lg">
+            <div className="flex gap-1 flex-1 overflow-x-auto scroll-thin-x pr-2 rounded-lg">
               {basicCustom.keys
                 .filter(kc => kc.id !== TERMINAL_PINNED_KEY_ID)
                 .map((kc, idx) => renderKey(kc, idx))}
@@ -412,7 +407,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
             <button
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => { vibrate(); setShowTextPanel(s => !s); }}
-              className={`${buttonBaseClass} ${showTextPanel ? BUTTON_STYLES.modifierActive : BUTTON_STYLES.pinned} flex-shrink-0`}
+              className={`${buttonBaseClass} ${showTextPanel ? BUTTON_STYLES.modifierActive : BUTTON_STYLES.pinned} flex-shrink-0 text-[11px]`}
               style={BUTTON_STYLES.size}
               title={t("mobileKeyboard.toggleTextInput")}
             >

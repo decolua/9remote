@@ -1,22 +1,26 @@
 "use client";
 
 import { useEffect, useCallback, useState } from "react";
-import { X, Sparkles, Square, ChevronLeft, Loader2 } from "@/shared/components/ui/Icon";
+import { X, Sparkles, Square, ChevronLeft, Loader2, Sun, Moon } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import MenuItems from "@/features/terminal/components/MenuItems";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 import SitesList from "@/features/terminal/components/SitesList";
 import CommandNotesPanel from "@/features/terminal/components/CommandNotes/CommandNotesPanel";
 import CommunityModal from "@/features/terminal/components/CommunityModal";
+import LanguageModal from "@/shared/components/ui/LanguageModal";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
+import { useTheme } from "@/shared/theme/ThemeProvider";
 
 /**
  * SlideMenu - Global full-screen menu that slides from right to left
  * Uses Zustand store for state management
  */
 export default function SlideMenu() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale) || SUPPORTED_LOCALES[0];
   const {
     isOpen,
     activePanel,
@@ -30,6 +34,8 @@ export default function SlideMenu() {
   const [sitesModalOpen, setSitesModalOpen] = useState(false);
   const [commandNotesOpen, setCommandNotesOpen] = useState(false);
   const [communityOpen, setCommunityOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const { theme: appTheme, toggleTheme } = useTheme();
 
   // Prevent body scroll when menu is open
   useEffect(() => {
@@ -175,30 +181,53 @@ export default function SlideMenu() {
 
       {/* Menu Panel - slides from right */}
       <div
-        className="absolute top-0 right-0 bottom-0 w-[85vw] sm:w-96 max-w-md bg-dark-600 border-l border-dark-400 shadow-2xl flex flex-col slide-in-right"
+        className="absolute top-0 right-0 bottom-0 w-[85vw] sm:w-96 max-w-md bg-surface border-l border-border shadow-2xl flex flex-col slide-in-right"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-dark-400 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2">
             {showBackButton && (
               <button
                 onClick={handleBack}
-                className="p-1 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors mr-1"
+                className="p-1 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors mr-1"
                 aria-label={t("common.back")}
               >
                 <ChevronLeft size={20} />
               </button>
             )}
-            <h2 className="text-lg font-semibold text-white">{getTitle()}</h2>
+            <h2 className="text-lg font-semibold text-text">{getTitle()}</h2>
           </div>
-          <button
-            onClick={close}
-            className="p-2 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors"
-            aria-label={t("common.close")}
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1">
+            {activePanel === "menu" && (
+              <>
+                <button
+                  onClick={() => { vibrate(); toggleTheme(); }}
+                  className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"
+                  aria-label={t("menu.theme")}
+                  title={t("menu.theme")}
+                >
+                  {appTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+                </button>
+                <button
+                  onClick={() => { vibrate(); setLanguageOpen(true); }}
+                  className="px-2 py-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors flex items-center gap-1.5 text-sm font-medium"
+                  aria-label={t("menu.language")}
+                  title={t("menu.language")}
+                >
+                  <span className="text-base leading-none">{currentLocale.flag}</span>
+                  <span className="uppercase">{currentLocale.code}</span>
+                </button>
+              </>
+            )}
+            <button
+              onClick={close}
+              className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"
+              aria-label={t("common.close")}
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Content - scrollable */}
@@ -252,6 +281,7 @@ export default function SlideMenu() {
         isOpen={communityOpen}
         onClose={handleCloseCommunity}
       />
+      <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
     </div>
   );
 }
@@ -307,11 +337,11 @@ function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
       {/* Info */}
       <div className="space-y-3 mb-6">
         <div className="flex items-center justify-between">
-          <span className="text-dark-100 text-sm">{t("codespace.name")}</span>
-          <span className="text-white font-medium">{codespaceInfo.codespaceName || t("codespace.unknown")}</span>
+          <span className="text-text-muted text-sm">{t("codespace.name")}</span>
+          <span className="text-text font-medium">{codespaceInfo.codespaceName || t("codespace.unknown")}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-dark-100 text-sm">{t("codespace.status")}</span>
+          <span className="text-text-muted text-sm">{t("codespace.status")}</span>
           <span className="text-green-400 font-medium flex items-center gap-1">
             <span className="w-2 h-2 bg-green-400 rounded-full" />
             {t("codespace.running")}
@@ -320,20 +350,20 @@ function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
       </div>
 
       {/* Auto Start Toggle */}
-      <div className="pt-4 border-t border-dark-400 mb-6">
+      <div className="pt-4 border-t border-border mb-6">
         <div className="flex items-center justify-between py-3">
           <div>
-            <span className="text-white text-sm font-medium">{t("codespace.autoStart")}</span>
-            <p className="text-dark-100 text-xs mt-0.5">{t("codespace.autoStartHint")}</p>
+            <span className="text-text text-sm font-medium">{t("codespace.autoStart")}</span>
+            <p className="text-text-muted text-xs mt-0.5">{t("codespace.autoStartHint")}</p>
           </div>
           {autoStart === null ? (
-            <Loader2 className="animate-spin text-dark-100" size={20} />
+            <Loader2 className="animate-spin text-text-muted" size={20} />
           ) : (
             <button
               onClick={handleToggleAutoStart}
               disabled={toggling}
               className={`relative w-12 h-6 rounded-full transition-colors ${
-                autoStart ? "bg-brand-500" : "bg-dark-400"
+                autoStart ? "bg-brand-500" : "bg-surface-2"
               } ${toggling ? "opacity-50" : ""}`}
             >
               <span
@@ -347,7 +377,7 @@ function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
       </div>
 
       {/* Stop section */}
-      <div className="pt-4 border-t border-dark-400 space-y-3">
+      <div className="pt-4 border-t border-border space-y-3">
         <button
           onClick={onStop}
           className="w-full py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-brand transition flex items-center justify-center gap-2"
@@ -355,11 +385,11 @@ function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
           <Square size={16} />
           {t("codespace.stop")}
         </button>
-        <p className="text-dark-50 text-sm flex items-start gap-2">
+        <p className="text-text text-sm flex items-start gap-2">
           <span className="text-yellow-400">💡</span>
           {t("codespace.stopHint")}
         </p>
-        <p className="text-dark-100 text-xs flex items-start gap-2">
+        <p className="text-text-muted text-xs flex items-start gap-2">
           <span className="text-orange-400">⚠️</span>
           {t("codespace.restartHint")}
         </p>

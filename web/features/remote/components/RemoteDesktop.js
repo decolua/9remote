@@ -296,7 +296,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
 
   return (
     <div
-      className="bg-dark-700 text-white flex flex-col landscape:flex-row h-[var(--app-height,100vh)] w-full"
+      className="bg-bg text-text flex flex-col landscape:flex-row h-[var(--app-height,100vh)] w-full"
       style={{
         userSelect: "none",
         WebkitUserSelect: "none",
@@ -306,7 +306,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
       onContextMenu={(e) => e.preventDefault()}
     >
       {!connected ? (
-        <div className="flex-1 flex items-center justify-center bg-dark-700">
+        <div className="flex-1 flex items-center justify-center bg-bg">
           <Spinner size="lg" text={t("remote.connecting")} />
         </div>
       ) : (

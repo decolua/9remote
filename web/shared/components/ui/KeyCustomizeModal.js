@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { X, Trash2, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
-const KEY_BTN = "min-w-[38px] h-9 px-2 flex items-center justify-center rounded-brand border text-xs font-semibold select-none shrink-0 whitespace-nowrap";
-const STYLE_NORMAL = "bg-dark-500 border-dark-400 text-white hover:border-brand-500";
+const KEY_BTN = "min-w-[38px] h-9 px-2 flex items-center justify-center rounded-brand text-xs font-semibold select-none shrink-0 whitespace-nowrap transition-all duration-150 ease-out active:scale-[0.96]";
+const STYLE_NORMAL = "bg-surface-2 hover:bg-surface-3 text-text";
 const STYLE_SELECTED = "bg-brand-500 text-white";
-const STYLE_PLUS = "bg-transparent border-dashed border-dark-300 text-dark-100 hover:text-white hover:border-brand-500";
+const STYLE_PLUS = "border border-dashed border-border text-text-subtle hover:text-text hover:bg-surface-2";
 const ROW_CLASS = "modal-scrollable flex items-center gap-1.5 overflow-x-auto pb-1";
 
 function KeyBtn({ label, selected, onClick }) {
@@ -118,23 +118,23 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
 
-      <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+      <div className="relative card-elev w-full max-w-2xl max-h-[85vh] flex flex-col">
         {/* Header */}
-        <div className="px-5 py-3 border-b border-dark-400 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-white">{title}</h3>
-          <button onClick={() => { vibrate(); onClose(); }} className="text-dark-100 hover:text-white">
+        <div className="px-5 py-3 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-text">{title}</h3>
+          <button onClick={() => { vibrate(); onClose(); }} className="text-text-muted hover:text-text">
             <X size={18} />
           </button>
         </div>
 
         {/* Tabs */}
         {tabs.length > 1 && (
-          <div className="px-5 pt-3 flex gap-2 border-b border-dark-400">
+          <div className="px-5 pt-1 flex gap-2 border-b border-border-subtle">
             {tabs.map(t => (
               <button
                 key={t.id}
                 onClick={() => { vibrate(); setActiveTab(t.id); }}
-                className={`px-3 py-1.5 -mb-px text-xs font-semibold border-b-2 transition ${activeTab === t.id ? "text-brand-400 border-brand-500" : "text-dark-100 border-transparent hover:text-white"}`}
+                className={`px-3 py-2 -mb-px text-xs font-semibold border-b-2 transition-colors duration-150 ${activeTab === t.id ? "text-brand-400 border-brand-500" : "text-text-muted border-transparent hover:text-text"}`}
               >
                 {t.label}
               </button>
@@ -147,7 +147,7 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
           {/* Current */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <div className="text-xs text-dark-100">
+              <div className="text-xs text-text-muted">
                 {selected ? "Click another to swap, or Remove below" : "Click to select"}
               </div>
               {hasRemovable && (
@@ -160,7 +160,7 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
               )}
             </div>
 
-            <div className="space-y-1.5 p-2 rounded-brand bg-dark-700 border border-dark-400">
+            <div className="space-y-1.5 p-2 rounded-brand bg-surface-2">
               {rows.map((row, rIdx) => (
                 <div key={rIdx} className={ROW_CLASS}>
                   {row.map((id, cIdx) => {
@@ -185,12 +185,12 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
 
           {/* Available */}
           <div>
-            <div className="text-xs text-dark-100 mb-2">
+            <div className="text-xs text-text-muted mb-2">
               Available — click to {selected ? (hasRemovable ? "replace selected" : "add to slot") : "add"}
             </div>
-            <div className="flex flex-wrap gap-1.5 p-2 rounded-brand bg-dark-700 border border-dark-400">
+            <div className="flex flex-wrap gap-1.5 p-2 rounded-brand bg-surface-2">
               {available.length === 0 && (
-                <div className="text-xs text-dark-100 italic">All keys added.</div>
+                <div className="text-xs text-text-muted italic">All keys added.</div>
               )}
               {available.map(k => (
                 <KeyBtn key={k.id} label={k.label} onClick={() => handleAvailableClick(k.id)} />
@@ -200,16 +200,16 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-dark-400 flex items-center justify-between">
+        <div className="px-5 py-3 flex items-center justify-between">
           <button
             onClick={() => { vibrate(); reset(); setSelected(null); }}
-            className="px-3 py-1.5 text-xs text-dark-100 hover:text-white"
+            className="px-3 py-1.5 text-xs text-text-muted hover:text-text transition-colors"
           >
             ↺ Reset to default
           </button>
           <button
             onClick={() => { vibrate(); onClose(); }}
-            className="px-4 py-1.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-brand"
+            className="px-4 py-1.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-brand transition-all duration-150 ease-out active:scale-[0.97]"
           >
             Done
           </button>

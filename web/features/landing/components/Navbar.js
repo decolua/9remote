@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { THEME } from "../constants/landingConfig";
+import ThemeToggle from "@/shared/theme/ThemeToggle";
 
 const LINKS = [
   { href: "#features", label: "Features" },
@@ -27,7 +28,7 @@ export default function Navbar() {
     <nav
       className="fixed top-0 left-0 right-0 z-50 transition-all duration-300"
       style={{
-        background: scrolled ? "rgba(10,10,10,0.75)" : "transparent",
+        background: scrolled ? "color-mix(in srgb, var(--color-bg) 75%, transparent)" : "transparent",
         backdropFilter: scrolled ? "blur(16px)" : "none",
         borderBottom: scrolled ? `1px solid ${THEME.border}` : "1px solid transparent"
       }}
@@ -64,7 +65,7 @@ export default function Navbar() {
           ))}
         </div>
 
-        <div className="hidden md:flex items-center gap-4">
+        <div className="hidden md:flex items-center gap-3">
           <Link
             href="/login"
             className="btn-cta px-5 py-2 rounded-lg font-semibold text-sm transition-transform hover:scale-[1.03]"
@@ -72,11 +73,14 @@ export default function Navbar() {
           >
             <span>Remote</span>
           </Link>
+          <ThemeToggle />
         </div>
 
+        <div className="md:hidden flex items-center gap-1">
+        <ThemeToggle />
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden p-2"
+          className="p-2"
           style={{ color: THEME.text }}
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -87,12 +91,13 @@ export default function Navbar() {
             )}
           </svg>
         </button>
+        </div>
       </div>
 
       {mobileMenuOpen && (
         <div
           className="md:hidden"
-          style={{ background: "rgba(10,10,10,0.95)", backdropFilter: "blur(16px)", borderTop: `1px solid ${THEME.border}` }}
+          style={{ background: "color-mix(in srgb, var(--color-bg) 95%, transparent)", backdropFilter: "blur(16px)", borderTop: `1px solid ${THEME.border}` }}
         >
           <div className="flex flex-col gap-4 p-6">
             {LINKS.map((l) => (

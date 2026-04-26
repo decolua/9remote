@@ -106,7 +106,7 @@ export default {
     menu: "Menu",
     newTerminal: "New terminal",
     remoteDesktop: "Remote Desktop",
-    defaultName: "Terminal"
+    defaultName: "Term"
   },
   files: {
     selectWorkspace: "Select Workspace",

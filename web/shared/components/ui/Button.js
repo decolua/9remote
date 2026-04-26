@@ -11,13 +11,13 @@ export default function Button({
   className = "",
   ...props 
 }) {
-  const baseClasses = "font-semibold rounded-brand transition-all duration-200 transform active:scale-[0.98]";
+  const baseClasses = "font-semibold rounded-brand transition-all duration-150 ease-out transform active:scale-[0.97]";
   
   const variantClasses = {
-    primary: "bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 text-white shadow-lg shadow-brand-500/20",
-    secondary: "bg-dark-500 hover:bg-dark-400 disabled:bg-dark-600 text-white border border-dark-400",
-    danger: "bg-red-500 hover:bg-red-600 disabled:bg-dark-500 text-white",
-    success: "bg-green-600 hover:bg-green-700 disabled:bg-dark-500 text-white"
+    primary: "bg-brand-500 hover:bg-brand-600 disabled:bg-surface-3 disabled:text-text-muted text-white shadow-sm",
+    secondary: "bg-surface-2 hover:bg-surface-3 disabled:bg-surface disabled:text-text-muted text-text",
+    danger: "bg-red-500 hover:bg-red-600 disabled:bg-surface-3 disabled:text-text-muted text-white",
+    success: "bg-green-600 hover:bg-green-700 disabled:bg-surface-3 disabled:text-text-muted text-white"
   };
   
   const sizeClasses = {
@@ -26,7 +26,7 @@ export default function Button({
     lg: "px-6 py-3 text-lg"
   };
   
-  const classes = `${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${disabled || loading ? "cursor-not-allowed opacity-50" : "hover:scale-[1.02]"} ${className}`;
+  const classes = `${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${disabled || loading ? "cursor-not-allowed" : ""} ${className}`;
   
   return (
     <button

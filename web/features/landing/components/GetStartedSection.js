@@ -37,7 +37,7 @@ export default function GetStartedSection() {
             <div className="rounded-lg overflow-hidden border" style={{ background: THEME.bg, borderColor: THEME.border }}>
               <div
                 className="flex items-center gap-2 px-4 py-3 border-b"
-                style={{ background: "#1F1F1F", borderColor: THEME.border }}
+                style={{ background: THEME.bgPanel, borderColor: THEME.border }}
               >
                 <div className="flex gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-full" style={{ background: "#FF5F57" }} />

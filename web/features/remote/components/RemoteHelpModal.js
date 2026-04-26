@@ -90,17 +90,17 @@ export default function RemoteHelpModal({ onClose, inputMode = "touch", pointerM
       onClick={onClose}
     >
       <div
-        className="bg-dark-600 border border-dark-400 rounded-brand max-w-lg w-full max-h-[80vh] overflow-y-auto shadow-2xl"
+        className="card-elev max-w-lg w-full max-h-[80vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-4 border-b border-dark-400 sticky top-0 bg-dark-600 z-10">
+        <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-surface z-10">
           <div className="flex items-baseline gap-2">
-            <h2 className="text-white text-base font-semibold">{t("remote.help")}</h2>
+            <h2 className="text-text text-base font-semibold">{t("remote.help")}</h2>
             <span className="text-brand-400 text-xs font-mono">{modeLabel}</span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-dark-500 text-dark-100 hover:text-white transition-colors"
+            className="p-1 rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
           >
             <X size={18} />
           </button>
@@ -115,10 +115,10 @@ export default function RemoteHelpModal({ onClose, inputMode = "touch", pointerM
               <ul className="space-y-1.5">
                 {section.items.map((item) => (
                   <li key={item.key} className="flex gap-3 text-sm">
-                    <span className="text-white font-mono bg-dark-700 px-2 py-0.5 rounded text-xs shrink-0 min-w-[120px] text-center">
+                    <span className="text-text font-mono bg-bg px-2 py-0.5 rounded text-xs shrink-0 min-w-[120px] text-center">
                       {item.key}
                     </span>
-                    <span className="text-dark-100">{item.desc}</span>
+                    <span className="text-text-muted">{item.desc}</span>
                   </li>
                 ))}
               </ul>

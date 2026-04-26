@@ -30,12 +30,12 @@ export default function LanguageModal({ isOpen, onClose }) {
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
         onClick={onClose}
       />
-      <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-2xl max-w-md w-full max-h-[80vh] flex flex-col animate-in zoom-in-95 duration-200">
-        <div className="px-5 py-4 border-b border-dark-400 flex items-center justify-between flex-shrink-0">
-          <h3 className="text-lg font-semibold text-white">{t("menu.language")}</h3>
+      <div className="relative card-elev max-w-md w-full max-h-[80vh] flex flex-col animate-in zoom-in-95 duration-200">
+        <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
+          <h3 className="text-lg font-semibold text-text">{t("menu.language")}</h3>
           <button
             onClick={onClose}
-            className="p-2 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors"
+            className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out"
             aria-label={t("common.close")}
           >
             <X size={20} />
@@ -48,8 +48,8 @@ export default function LanguageModal({ isOpen, onClose }) {
               <button
                 key={l.code}
                 onClick={() => handleSelect(l.code)}
-                className={`w-full px-4 py-3 rounded-brand text-left flex items-center gap-3 transition-colors ${
-                  active ? "bg-brand-500 text-white" : "text-dark-50 hover:bg-dark-500"
+                className={`w-full px-4 py-3 rounded-brand text-left flex items-center gap-3 transition-all duration-150 ease-out active:scale-[0.99] ${
+                  active ? "bg-brand-500 text-white" : "text-text hover:bg-surface-2"
                 }`}
               >
                 <span className="text-2xl flex-shrink-0">{l.flag}</span>

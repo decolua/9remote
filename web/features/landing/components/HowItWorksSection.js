@@ -23,13 +23,13 @@ export default function HowItWorksSection() {
   ];
 
   return (
-    <section id="how-it-works" className="relative py-20 px-4 sm:px-6 lg:px-8 bg-gray-50">
+    <section id="how-it-works" className="relative py-20 px-4 sm:px-6 lg:px-8 bg-surface">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-gray-900">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-text">
             How It Works
           </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="text-lg text-text-muted max-w-2xl mx-auto">
             Get started in 3 simple steps
           </p>
         </div>
@@ -59,13 +59,13 @@ export default function HowItWorksSection() {
 
               {/* Step content */}
               <div className="text-center">
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                <h3 className="text-xl font-semibold text-text mb-2">
                   {step.title}
                 </h3>
-                <p className="text-gray-600 text-sm mb-4">
+                <p className="text-text-muted text-sm mb-4">
                   {step.description}
                 </p>
-                <div className="p-3 bg-white backdrop-blur-sm border border-gray-200 rounded-lg">
+                <div className="p-3 bg-surface backdrop-blur-sm rounded-lg shadow-sm">
                   <code className="text-brand-500 font-mono text-xs sm:text-sm">
                     {step.command}
                   </code>

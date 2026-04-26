@@ -88,4 +88,6 @@ export const {
   Users,
   Facebook,
   Github,
+  Sun,
+  Moon,
 } = LucideIcons;

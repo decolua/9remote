@@ -35,15 +35,15 @@ export default function CommunityModal({ isOpen, onClose }) {
       />
 
       <div
-        className="relative w-full max-w-md bg-dark-600 border border-dark-400 rounded-brand-lg shadow-2xl slide-in-top"
+        className="relative w-full max-w-md card-elev slide-in-top"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-dark-400">
-          <h2 className="text-lg font-semibold text-white">{t("community.title")}</h2>
+        <div className="flex items-center justify-between px-5 py-4">
+          <h2 className="text-lg font-semibold text-text">{t("community.title")}</h2>
           <button
             onClick={onClose}
-            className="p-2 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors"
+            className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"
             aria-label={t("common.close")}
           >
             <X size={20} />
@@ -52,7 +52,7 @@ export default function CommunityModal({ isOpen, onClose }) {
 
         {/* Body */}
         <div className="p-4 space-y-2">
-          <p className="text-dark-100 text-sm px-1 mb-2">
+          <p className="text-text-muted text-sm px-1 mb-2">
             {t("community.description")}
           </p>
           {COMMUNITY_LINKS.map((link) => {
@@ -61,7 +61,7 @@ export default function CommunityModal({ isOpen, onClose }) {
               <button
                 key={link.id}
                 onClick={() => handleOpen(link.url)}
-                className="w-full px-4 py-3 bg-dark-700 hover:bg-dark-500 text-white rounded-brand-lg border border-dark-400 hover:border-brand-500 text-left flex items-center gap-3 transition-all duration-200 group"
+                className="w-full px-4 py-3 bg-surface-2 hover:bg-surface-3 text-text rounded-brand-lg text-left flex items-center gap-3 transition-all duration-150 ease-out active:scale-[0.99] group"
               >
                 <span
                   className="flex items-center justify-center w-10 h-10 rounded-brand flex-shrink-0"
@@ -72,10 +72,10 @@ export default function CommunityModal({ isOpen, onClose }) {
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{link.label}</div>
                   {link.description && (
-                    <div className="text-dark-100 text-xs truncate">{link.description}</div>
+                    <div className="text-text-muted text-xs truncate">{link.description}</div>
                   )}
                 </div>
-                <ExternalLink className="text-dark-100 group-hover:text-brand-500 flex-shrink-0" size={18} />
+                <ExternalLink className="text-text-muted group-hover:text-brand-500 flex-shrink-0" size={18} />
               </button>
             );
           })}

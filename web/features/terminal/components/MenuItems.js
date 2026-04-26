@@ -1,18 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Palette, Check, Bell, Loader2, FileText, AlertCircle, Users } from "@/shared/components/ui/Icon";
-import { THEMES } from "@/features/terminal/constants/themes";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, AlertCircle, Users } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
-import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
-import LanguageModal from "@/shared/components/ui/LanguageModal";
 
-/**
- * Shared menu items for SlideMenu (DRY)
- * Used by both SessionList and Terminal
- */
 export default function MenuItems({
   onRemote,
   onFiles,
@@ -28,28 +21,17 @@ export default function MenuItems({
   showTheme = false,
   theme = "default",
   onThemeChange,
-  hideActions = [], // Array of actions to hide: ['remote', 'files', 'sites']
+  hideActions = [],
   socketRef = null,
   subscribeToPush = null,
   unsubscribeFromPush = null
 }) {
   const [expandedSection, setExpandedSection] = useState(null);
-  const [languageOpen, setLanguageOpen] = useState(false);
-  const { t, locale } = useI18n();
-  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale) || SUPPORTED_LOCALES[0];
+  const { t } = useI18n();
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const isOutdated = !agentVersion || (webVersion && agentVersion !== webVersion);
 
-  const handleThemeChange = (newTheme) => {
-    vibrate();
-    if (onThemeChange) {
-      onThemeChange(newTheme);
-    }
-    setExpandedSection(null);
-  };
-
-  // Notification hook state
   const [hookStatus, setHookStatus] = useState(null);
   const [togglingTool, setTogglingTool] = useState(null);
   const [pushEnabled, setPushEnabled] = useState(() => {
@@ -60,10 +42,8 @@ export default function MenuItems({
   });
   const [pushLoading, setPushLoading] = useState(false);
 
-  // Detect PWA mode (standalone = installed as PWA)
   const isPWA = typeof window !== "undefined" && window.matchMedia("(display-mode: standalone)").matches;
 
-  // Load hook status on mount
   useEffect(() => {
     if (!socketRef?.current) return;
     socketRef.current.emit("getHookStatus", (status) => {
@@ -72,7 +52,6 @@ export default function MenuItems({
   }, [socketRef]);
 
   const handleEnablePush = useCallback(async () => {
-    console.log("🔔 handleEnablePush called, subscribeToPush=", !!subscribeToPush, "pushLoading=", pushLoading);
     if (!subscribeToPush || pushLoading) return;
     setPushLoading(true);
     await subscribeToPush();
@@ -85,7 +64,6 @@ export default function MenuItems({
     setPushLoading(true);
     await unsubscribeFromPush();
     setPushEnabled(false);
-    // Disable all hooks when push is disabled
     if (hookStatus && socketRef?.current) {
       for (const tool of Object.keys(hookStatus)) {
         if (hookStatus[tool]?.enabled) {
@@ -99,7 +77,6 @@ export default function MenuItems({
     setPushLoading(false);
   }, [unsubscribeFromPush, pushLoading, hookStatus, socketRef]);
 
-  // Toggle hook for a tool
   const handleToggleHook = useCallback((tool) => {
     if (!socketRef?.current || togglingTool) return;
     setTogglingTool(tool);
@@ -117,62 +94,26 @@ export default function MenuItems({
   }, [socketRef, hookStatus, togglingTool]);
 
   return (
-    <div className="p-4 space-y-2">
-      {/* Theme - only for Terminal */}
-      {showTheme && (
-        <div className="border border-dark-400 rounded-brand-lg overflow-hidden menu-item-stagger-1">
-          <button
-            onClick={() => { vibrate(); setExpandedSection(expandedSection === "theme" ? null : "theme"); }}
-            className="w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white text-left flex items-center justify-between transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <Palette className="text-brand-500" size={20} />
-              <span className="font-medium">{t("menu.theme")}</span>
-            </div>
-            <span className="text-dark-100 text-sm">{theme.charAt(0).toUpperCase() + theme.slice(1)}</span>
-          </button>
-          {expandedSection === "theme" && (
-            <div className="bg-dark-700/50 border-t border-dark-400 p-2 space-y-1 slide-in-top">
-              {Object.keys(THEMES).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => handleThemeChange(t)}
-                  className={`w-full px-3 py-2 text-left text-sm rounded-brand flex items-center justify-between transition-all duration-200 ${
-                    theme === t ? "bg-brand-500 text-white" : "text-dark-50 hover:bg-dark-600"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full border-2 border-dark-100" style={{ background: THEMES[t].background }} />
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
-                  </div>
-                  {theme === t && <Check size={16} />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
+    <div className="p-3 space-y-0.5">
       {/* Notifications - only show in PWA mode */}
-      {isPWA && <div className={`border border-dark-400 rounded-brand-lg overflow-hidden ${showTheme ? "menu-item-stagger-2" : "menu-item-stagger-1"}`}>
+      {isPWA && <div className="bg-surface rounded-brand-lg overflow-hidden">
         <button
           onClick={() => { vibrate(); setExpandedSection(expandedSection === "notifications" ? null : "notifications"); }}
-          className="w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white text-left flex items-center justify-between transition-colors"
+          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center justify-between transition-colors duration-150 ease-out"
         >
-          <div className="flex items-center gap-3">
-            <Bell className="text-brand-500" size={20} />
-            <span className="font-medium">{t("menu.notifications")}</span>
+          <div className="flex items-center gap-2.5">
+            <Bell className="text-brand-500" size={16} />
+            <span className="text-sm">{t("menu.notifications")}</span>
           </div>
-          <span className="text-dark-100 text-sm">
+          <span className="text-text-muted text-xs">
             {pushEnabled && hookStatus ? `${Object.values(hookStatus).filter(s => s.enabled).length} ${t("common.on")}` : ""}
           </span>
         </button>
         {expandedSection === "notifications" && (
-          <div className="bg-dark-700/50 border-t border-dark-400 p-3 space-y-3 slide-in-top">
+          <div className="bg-surface-2/50 p-3 space-y-3 slide-in-top">
             {!pushEnabled ? (
-              // Not subscribed → show Enable button
               <div className="space-y-2">
-                <p className="text-dark-200 text-xs px-1">{t("menu.pushHint")}</p>
+                <p className="text-text-muted text-xs px-1">{t("menu.pushHint")}</p>
                 <button
                   onClick={handleEnablePush}
                   disabled={pushLoading}
@@ -183,7 +124,6 @@ export default function MenuItems({
                 </button>
               </div>
             ) : (
-              // Subscribed → show tool toggles + disable button
               <div className="space-y-2">
                 {hookStatus ? (
                   ["claude", "codex", "gemini"].map((tool) => {
@@ -192,13 +132,13 @@ export default function MenuItems({
                     const toolKeys = { claude: "claudeCode", codex: "codex", gemini: "geminiCli" };
                     return (
                       <div key={tool} className="flex items-center justify-between py-1 px-1">
-                        <span className="text-sm text-white">{t(`notifications.${toolKeys[tool]}`)}</span>
+                        <span className="text-sm text-text">{t(`notifications.${toolKeys[tool]}`)}</span>
                         {togglingTool === tool ? (
-                          <Loader2 className="animate-spin text-dark-100" size={18} />
+                          <Loader2 className="animate-spin text-text-muted" size={18} />
                         ) : (
                           <button
                             onClick={() => handleToggleHook(tool)}
-                            className={`relative w-10 h-5 rounded-full transition-colors ${status.enabled ? "bg-brand-500" : "bg-dark-400"}`}
+                            className={`relative w-10 h-5 rounded-full transition-colors ${status.enabled ? "bg-brand-500" : "bg-surface-2"}`}
                           >
                             <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${status.enabled ? "left-5" : "left-0.5"}`} />
                           </button>
@@ -208,13 +148,13 @@ export default function MenuItems({
                   })
                 ) : (
                   <div className="text-center py-1">
-                    <Loader2 className="animate-spin text-dark-100 mx-auto" size={18} />
+                    <Loader2 className="animate-spin text-text-muted mx-auto" size={18} />
                   </div>
                 )}
                 <button
                   onClick={handleDisablePush}
                   disabled={pushLoading}
-                  className="w-full py-1.5 px-3 bg-dark-600 hover:bg-dark-500 disabled:opacity-50 text-dark-100 text-xs rounded-brand flex items-center justify-center gap-2 transition-colors mt-1"
+                  className="w-full py-1.5 px-3 bg-surface hover:bg-surface-2 disabled:opacity-50 text-text-muted text-xs rounded-brand flex items-center justify-center gap-2 transition-colors mt-1"
                 >
                   {pushLoading ? <Loader2 className="animate-spin" size={14} /> : null}
                   {t("menu.disablePush")}
@@ -231,16 +171,14 @@ export default function MenuItems({
         <button
           onClick={() => { vibrate(); onFiles(); }}
           disabled={!connected}
-          className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
-            showTheme ? "menu-item-stagger-3" : "menu-item-stagger-2"
-          } ${
+          className={`w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out ${
             connected
-              ? "bg-dark-700 hover:bg-dark-600 text-white"
-              : "bg-dark-700/30 text-dark-200 cursor-not-allowed"
+              ? "bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
+              : "bg-surface/30 text-text-muted cursor-not-allowed"
           }`}
         >
-          <FolderOpen className="text-brand-500" size={20} />
-          <span className="font-medium">{t("menu.files")}</span>
+          <FolderOpen className="text-brand-500" size={16} />
+          <span className="text-sm">{t("menu.files")}</span>
         </button>
       )}
 
@@ -249,16 +187,14 @@ export default function MenuItems({
         <button
           onClick={() => { vibrate(); onSites(); }}
           disabled={!connected}
-          className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
-            showTheme ? "menu-item-stagger-4" : "menu-item-stagger-3"
-          } ${
+          className={`w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out ${
             connected
-              ? "bg-dark-700 hover:bg-dark-600 text-white"
-              : "bg-dark-700/30 text-dark-200 cursor-not-allowed"
+              ? "bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
+              : "bg-surface/30 text-text-muted cursor-not-allowed"
           }`}
         >
-          <Globe className="text-brand-500" size={20} />
-          <span className="font-medium">{t("menu.sites")}</span>
+          <Globe className="text-brand-500" size={16} />
+          <span className="text-sm">{t("menu.sites")}</span>
         </button>
       )}
 
@@ -266,12 +202,10 @@ export default function MenuItems({
       {onCommandNotes && (
         <button
           onClick={() => { vibrate(); onCommandNotes(); }}
-          className={`w-full px-4 py-3 rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 bg-dark-700 hover:bg-dark-600 text-white ${
-            showTheme ? "menu-item-stagger-5" : "menu-item-stagger-4"
-          }`}
+          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
         >
-          <FileText className="text-brand-500" size={20} />
-          <span className="font-medium">{t("menu.commandNotes")}</span>
+          <FileText className="text-brand-500" size={16} />
+          <span className="text-sm">{t("menu.commandNotes")}</span>
         </button>
       )}
 
@@ -279,12 +213,10 @@ export default function MenuItems({
       {onCommunity && (
         <button
           onClick={() => { vibrate(); onCommunity(); }}
-          className={`w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
-            showTheme ? "menu-item-stagger-6" : "menu-item-stagger-5"
-          }`}
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
         >
-          <Users className="text-brand-500" size={20} />
-          <span className="font-medium">{t("menu.community")}</span>
+          <Users className="text-brand-500" size={16} />
+          <span className="text-sm">{t("menu.community")}</span>
         </button>
       )}
 
@@ -292,12 +224,10 @@ export default function MenuItems({
       {!isPWA && onInstallApp && (
         <button
           onClick={() => { vibrate(); onInstallApp(); }}
-          className={`w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
-            showTheme ? "menu-item-stagger-6" : "menu-item-stagger-5"
-          }`}
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
         >
-          <Download className="text-brand-500" size={20} />
-          <span className="font-medium">{t("menu.installApp")}</span>
+          <Download className="text-brand-500" size={16} />
+          <span className="text-sm">{t("menu.installApp")}</span>
         </button>
       )}
 
@@ -305,58 +235,37 @@ export default function MenuItems({
       {codespaceInfo?.isCodespaces && onCodespace && (
         <button
           onClick={() => { vibrate(); onCodespace(); }}
-          className={`w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 ${
-            showTheme ? "menu-item-stagger-8" : "menu-item-stagger-7"
-          }`}
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
         >
-          <Sparkles className="text-brand-500" size={20} />
-          <span className="font-medium">{t("menu.codespace")}</span>
+          <Sparkles className="text-brand-500" size={16} />
+          <span className="text-sm">{t("menu.codespace")}</span>
         </button>
       )}
-
-      {/* Language */}
-      <button
-        onClick={() => { vibrate(); setLanguageOpen(true); }}
-        className={`w-full px-4 py-3 bg-dark-700 hover:bg-dark-600 text-white rounded-brand-lg text-left flex items-center justify-between transition-colors border border-dark-400 ${
-          showTheme ? "menu-item-stagger-8" : "menu-item-stagger-7"
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <Globe className="text-brand-500" size={20} />
-          <span className="font-medium">{t("menu.language")}</span>
-        </div>
-        <span className="text-dark-100 text-sm flex items-center gap-1.5">
-          <span>{currentLocale.flag}</span>
-          <span>{currentLocale.label}</span>
-        </span>
-      </button>
 
       {/* Logout */}
       {onLogout && (
         <button
           onClick={() => { vibrate(); onLogout(); }}
-          className={`w-full px-4 py-3 bg-dark-700 hover:bg-red-600 text-white rounded-brand-lg text-left flex items-center gap-3 transition-colors border border-dark-400 hover:border-red-500 ${
-            showTheme ? "menu-item-stagger-8" : "menu-item-stagger-7"
-          }`}
+          className="w-full px-3 py-1.5 bg-surface hover:bg-red-500/15 text-text hover:text-red-400 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
         >
-          <LogOut className="text-red-400" size={20} />
-          <span className="font-medium">{t("menu.logout")}</span>
+          <LogOut className="text-red-400" size={16} />
+          <span className="text-sm">{t("menu.logout")}</span>
         </button>
       )}
 
       {/* Version mismatch warning */}
       {isOutdated && (
-        <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-brand-lg">
+        <div className="mt-3 p-3 bg-yellow-500/10 rounded-brand-lg">
           <div className="flex items-start gap-2">
             <AlertCircle className="text-yellow-400 flex-shrink-0 mt-0.5" size={16} />
             <div className="text-xs space-y-1">
               <p className="text-yellow-300 font-medium">
                 {t("menu.versionMismatch", { version: agentVersion ? `v${agentVersion}` : "?" })}
               </p>
-              <p className="text-dark-100">
+              <p className="text-text-muted">
                 {t("menu.versionMismatchHint")}
               </p>
-              <code className="block bg-dark-700 text-brand-400 px-2 py-1 rounded text-xs select-all">
+              <code className="block bg-surface text-brand-400 px-2 py-1 rounded text-xs select-all">
                 npm i -g 9remote@latest
               </code>
             </div>
@@ -367,16 +276,15 @@ export default function MenuItems({
       {/* Version + connection mode */}
       <div className="flex items-center justify-end gap-2 mt-4 mr-1">
         {connectionMode === "local" && (
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">
             LAN
           </span>
         )}
-        <p className="text-dark-100 text-sm">
+        <p className="text-text-muted text-sm">
           {t("menu.version")} {webVersion}{agentVersion ? ` / Agent ${agentVersion}` : ""}
         </p>
       </div>
 
-      <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
     </div>
   );
 }

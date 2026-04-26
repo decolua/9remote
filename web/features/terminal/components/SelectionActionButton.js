@@ -42,7 +42,7 @@ export default function SelectionActionButton({
       }}
     >
       <div 
-        className="bg-dark-500 border border-dark-400 rounded-lg shadow-xl overflow-hidden min-w-[200px]"
+        className="card-elev overflow-hidden min-w-[200px]"
         onMouseDown={(e) => {
           // Prevent focus loss when clicking modal content
           e.stopPropagation();
@@ -50,8 +50,8 @@ export default function SelectionActionButton({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-4 py-3 border-b border-dark-400 bg-dark-600">
-          <div className="text-white text-sm font-medium">Selected: {text.length > 30 ? text.substring(0, 30) + '...' : text}</div>
+        <div className="px-4 py-3 border-b border-border bg-surface">
+          <div className="text-text text-sm font-medium">Selected: {text.length > 30 ? text.substring(0, 30) + '...' : text}</div>
         </div>
 
         {/* Actions */}
@@ -60,7 +60,7 @@ export default function SelectionActionButton({
           {detectedType.isFile && (
             <button
               onClick={() => handleAction("openFile")}
-              className="w-full px-4 py-3 flex items-center gap-3 hover:bg-dark-400 text-white text-left rounded-brand transition-colors mb-1"
+              className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-2 text-text text-left rounded-brand transition-colors mb-1"
             >
               <FileText size={20} />
               <span>Open in Editor</span>
@@ -71,7 +71,7 @@ export default function SelectionActionButton({
           {detectedType.isUrl && (
             <button
               onClick={() => handleAction("openUrl")}
-              className="w-full px-4 py-3 flex items-center gap-3 hover:bg-dark-400 text-white text-left rounded-brand transition-colors mb-1"
+              className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-2 text-text text-left rounded-brand transition-colors mb-1"
             >
               <ExternalLink size={20} />
               <span>Open URL</span>
@@ -81,7 +81,7 @@ export default function SelectionActionButton({
           {/* Copy action - always available */}
           <button
             onClick={() => handleAction("copy")}
-            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-dark-400 text-white text-left rounded-brand transition-colors mb-1"
+            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-2 text-text text-left rounded-brand transition-colors mb-1"
           >
             <Copy size={20} />
             <span>Copy</span>
@@ -90,7 +90,7 @@ export default function SelectionActionButton({
           {/* Close action */}
           <button
             onClick={onClose}
-            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-dark-400 text-red-400 text-left rounded-brand transition-colors border-t border-dark-400 mt-2 pt-3"
+            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-2 text-red-400 text-left rounded-brand transition-colors border-t border-border mt-2 pt-3"
           >
             <X size={20} />
             <span>Close</span>

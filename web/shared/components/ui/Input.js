@@ -13,17 +13,17 @@ export default function Input({
   className = "",
   ...props 
 }) {
-  const baseClasses = "w-full px-4 py-3 bg-dark-600 border rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 transition-all duration-200";
+  const baseClasses = "w-full px-4 py-3 bg-surface-2 rounded-brand text-text placeholder-text-muted focus:outline-none transition-all duration-150 ease-out";
   const borderClasses = error 
-    ? "border-red-500 focus:border-red-500 focus:ring-red-500" 
-    : "border-dark-400 focus:border-transparent focus:ring-brand-500";
+    ? "ring-1 ring-red-500 focus:ring-2 focus:ring-red-500" 
+    : "focus:ring-2 focus:ring-brand-500/40";
   
   const classes = `${baseClasses} ${borderClasses} ${disabled ? "opacity-50 cursor-not-allowed" : ""} ${className}`;
   
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-sm font-medium text-dark-50 mb-2">
+        <label className="block text-sm font-medium text-text mb-2">
           {label}
         </label>
       )}

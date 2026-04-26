@@ -67,7 +67,7 @@ export function MacbookClaudeCode() {
       >
         <div
           className="flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 border-b"
-          style={{ background: "#1F1F1F", borderColor: THEME.border }}
+          style={{ background: THEME.bgPanel, borderColor: THEME.border }}
         >
           <div className="flex gap-1.5 sm:gap-2 flex-shrink-0">
             <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full" style={{ background: "#FF5F57" }} />
@@ -121,13 +121,13 @@ export function IPhoneChat() {
       />
       <div
         className="relative w-[260px] h-[540px] rounded-[3rem] p-3 shadow-2xl animate-float-phone"
-        style={{ background: "#0A0A0A", border: `1px solid ${THEME.borderStrong}` }}
+        style={{ background: THEME.bg, border: `1px solid ${THEME.borderStrong}` }}
       >
         <div
           className="w-full h-full rounded-[2.3rem] overflow-hidden flex flex-col relative"
           style={{ background: THEME.bg }}
         >
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-6 rounded-b-3xl z-10" style={{ background: "#0A0A0A" }} />
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-6 rounded-b-3xl z-10" style={{ background: THEME.bg }} />
 
           <div
             className="h-11 flex items-center justify-between px-5 pt-4 text-[10px] font-semibold"
@@ -165,7 +165,7 @@ export function IPhoneChat() {
           </div>
         </div>
 
-        <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-28 h-1 rounded-full" style={{ background: "#2A2A2A" }} />
+        <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-28 h-1 rounded-full" style={{ background: THEME.border }} />
       </div>
     </div>
   );
@@ -196,7 +196,7 @@ function ChatBubble({ role, text, typing }) {
 export function ConnectionBeam() {
   return (
     <div className="hidden lg:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120px] h-[2px] pointer-events-none z-20">
-      <div className="absolute inset-0 overflow-hidden rounded-full" style={{ background: "rgba(255,87,10,0.15)" }}>
+      <div className="absolute inset-0 overflow-hidden rounded-full" style={{ background: "color-mix(in srgb, var(--color-accent) 15%, transparent)" }}>
         <div className="absolute inset-y-0 left-0 w-[30%] animate-beam-flow" style={{ background: `linear-gradient(90deg, transparent, ${THEME.accent}, transparent)` }} />
       </div>
     </div>

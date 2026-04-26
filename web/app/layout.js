@@ -1,5 +1,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/shared/theme/ThemeProvider";
+import { STORAGE_KEY, DEFAULT_THEME } from "@/shared/theme/themeConfig";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -42,13 +44,17 @@ export const viewport = {
     themeColor: "#121212"
 };
 
+// Inline script - apply theme class before paint to prevent FOUC
+const themeInitScript = `(function(){try{var t=localStorage.getItem("${STORAGE_KEY}")||"${DEFAULT_THEME}";document.documentElement.classList.add(t);}catch(e){document.documentElement.classList.add("${DEFAULT_THEME}");}})();`;
+
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -66,7 +72,7 @@ export default function RootLayout({ children }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

@@ -61,7 +61,7 @@ export function FileUploadButton({ onFilesReady, disabled, pendingCount = 0 }) {
         onClick={() => inputRef.current?.click()}
         disabled={disabled}
         title="Attach file (image, PDF)"
-        className="relative flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
+        className="relative flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text hover:bg-surface-2 transition-colors disabled:opacity-40"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a4 4 0 00-5.656-5.656L5.757 10.757a6 6 0 108.486 8.486L20 13" />
@@ -137,11 +137,11 @@ export default function FileUpload({ onFilesReady, disabled }) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
-          isDragging ? "border-brand-500 bg-brand-500/10" : "border-dark-400 hover:border-dark-300"
+          isDragging ? "border-brand-500 bg-brand-500/10" : "border-border hover:border-border"
         } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
       >
-        <div className="text-dark-100 text-sm">📎 Drag & drop, paste (Ctrl+V), or click to select</div>
-        <div className="text-dark-300 text-xs mt-1">Supported: images (jpg, png, webp, gif, heic), PDF • Max {MAX_SIZE_MB}MB</div>
+        <div className="text-text-muted text-sm">📎 Drag & drop, paste (Ctrl+V), or click to select</div>
+        <div className="text-text-subtle text-xs mt-1">Supported: images (jpg, png, webp, gif, heic), PDF • Max {MAX_SIZE_MB}MB</div>
       </div>
       <input ref={inputRef} type="file" multiple accept={ALLOWED_MIME.join(",")} onChange={handleFileSelect} className="hidden" />
       {files.length > 0 && (
@@ -149,12 +149,12 @@ export default function FileUpload({ onFilesReady, disabled }) {
           {files.map((file, i) => (
             <div key={i} className="relative group">
               {file.preview ? (
-                <img src={file.preview} alt={file.fileName} className="w-16 h-16 object-cover rounded border border-dark-400" />
+                <img src={file.preview} alt={file.fileName} className="w-16 h-16 object-cover rounded border border-border" />
               ) : (
-                <div className="w-16 h-16 flex items-center justify-center bg-dark-500 rounded border border-dark-400 text-2xl">📄</div>
+                <div className="w-16 h-16 flex items-center justify-center bg-surface-2 rounded border border-border text-2xl">📄</div>
               )}
               <button onClick={() => handleRemove(i)} className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-              <div className="text-xs text-dark-200 mt-1 truncate w-16" title={file.fileName}>{file.fileName}</div>
+              <div className="text-xs text-text-muted mt-1 truncate w-16" title={file.fileName}>{file.fileName}</div>
             </div>
           ))}
         </div>

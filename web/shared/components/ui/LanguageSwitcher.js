@@ -17,7 +17,7 @@ export default function LanguageSwitcher({ className = "", showLabel = true }) {
     <>
       <button
         onClick={() => { vibrate(); setOpen(true); }}
-        className={`flex items-center gap-1.5 bg-dark-700 border border-dark-400 hover:border-brand-500 rounded-brand text-white text-sm px-2 py-1 transition-colors ${className}`}
+        className={`flex items-center gap-1.5 bg-surface-2 hover:bg-surface-3 rounded-brand text-text text-sm px-2 py-1 transition-all duration-150 ease-out active:scale-[0.96] ${className}`}
         title={current.label}
       >
         <Globe size={14} className="text-brand-500" />

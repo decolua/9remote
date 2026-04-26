@@ -13,7 +13,7 @@ import { THEME } from "../constants/landingConfig";
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen overflow-x-hidden safe-area-insets" style={{ background: THEME.bg, color: THEME.text }}>
+    <div className="min-h-screen overflow-x-hidden safe-area-insets" style={{ color: THEME.text }}>
       <AnimatedBackground />
       <Navbar />
       <main className="relative z-10">

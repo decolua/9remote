@@ -106,7 +106,7 @@ export default {
     menu: "Menu",
     newTerminal: "Terminal mới",
     remoteDesktop: "Điều khiển từ xa",
-    defaultName: "Terminal"
+    defaultName: "Term"
   },
   files: {
     selectWorkspace: "Chọn Workspace",

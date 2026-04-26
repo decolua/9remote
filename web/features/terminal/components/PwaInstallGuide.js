@@ -91,13 +91,13 @@ export default function PwaInstallGuide() {
           1
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-white font-medium mb-2">{t("pwaGuide.copyYourKey")}</p>
-          <p className="text-dark-100 text-sm mb-2">{t("pwaGuide.copyKeyHint")}</p>
+          <p className="text-text font-medium mb-2">{t("pwaGuide.copyYourKey")}</p>
+          <p className="text-text-muted text-sm mb-2">{t("pwaGuide.copyKeyHint")}</p>
           <div
             className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-brand border transition-colors ${
               copied
                 ? "bg-green-500/10 border-green-500/30"
-                : "bg-dark-700 border-dark-400 hover:border-brand-500/50 focus-within:border-brand-500/50"
+                : "bg-bg border-border hover:border-brand-500/50 focus-within:border-brand-500/50"
             }`}
           >
             <button
@@ -106,7 +106,7 @@ export default function PwaInstallGuide() {
               className="flex-1 min-w-0 text-left bg-transparent outline-none border-0 p-0 cursor-pointer"
               aria-label={t("pwaGuide.tapToCopyApiKey")}
             >
-              <code className="block text-sm text-dark-50 font-mono truncate">
+              <code className="block text-sm text-text font-mono truncate">
                 {maskApiKey(apiKey)}
               </code>
             </button>
@@ -132,8 +132,8 @@ export default function PwaInstallGuide() {
           {1 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">{t("pwaGuide.tapShareButton")}</p>
-          <p className="text-dark-100 text-sm">{t("pwaGuide.tapShareHint")}</p>
+          <p className="text-text font-medium mb-1">{t("pwaGuide.tapShareButton")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.tapShareHint")}</p>
         </div>
       </div>
 
@@ -142,8 +142,8 @@ export default function PwaInstallGuide() {
           {2 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">{t("pwaGuide.addToHome")}</p>
-          <p className="text-dark-100 text-sm">{t("pwaGuide.addToHomeHint")}</p>
+          <p className="text-text font-medium mb-1">{t("pwaGuide.addToHome")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.addToHomeHint")}</p>
         </div>
       </div>
 
@@ -152,8 +152,8 @@ export default function PwaInstallGuide() {
           {3 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
-          <p className="text-dark-100 text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
+          <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
         </div>
       </div>
     </div>
@@ -168,8 +168,8 @@ export default function PwaInstallGuide() {
           {1 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">{t("pwaGuide.openMenu")}</p>
-          <p className="text-dark-100 text-sm">{t("pwaGuide.openMenuHint")}</p>
+          <p className="text-text font-medium mb-1">{t("pwaGuide.openMenu")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.openMenuHint")}</p>
         </div>
       </div>
 
@@ -178,8 +178,8 @@ export default function PwaInstallGuide() {
           {2 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">{t("pwaGuide.installApp")}</p>
-          <p className="text-dark-100 text-sm">{t("pwaGuide.installAppHint")}</p>
+          <p className="text-text font-medium mb-1">{t("pwaGuide.installApp")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.installAppHint")}</p>
         </div>
       </div>
 
@@ -188,8 +188,8 @@ export default function PwaInstallGuide() {
           {3 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
-          <p className="text-dark-100 text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
+          <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
         </div>
       </div>
     </div>
@@ -204,8 +204,8 @@ export default function PwaInstallGuide() {
           {1 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">{t("pwaGuide.lookInstallIcon")}</p>
-          <p className="text-dark-100 text-sm">{t("pwaGuide.lookInstallIconHint")}</p>
+          <p className="text-text font-medium mb-1">{t("pwaGuide.lookInstallIcon")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.lookInstallIconHint")}</p>
         </div>
       </div>
 
@@ -214,12 +214,12 @@ export default function PwaInstallGuide() {
           {2 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-white font-medium mb-1">{t("pwaGuide.clickInstallPaste")}</p>
-          <p className="text-dark-100 text-sm">{t("pwaGuide.clickInstallPasteHint")}</p>
+          <p className="text-text font-medium mb-1">{t("pwaGuide.clickInstallPaste")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.clickInstallPasteHint")}</p>
         </div>
       </div>
 
-      <div className="mt-6 p-3 bg-blue-500/10 border border-blue-500/20 rounded-brand">
+      <div className="mt-6 p-3 bg-blue-500/10 rounded-brand">
         <p className="text-blue-200 text-sm">
           💡 {t("pwaGuide.alternativeHint")}
         </p>
@@ -239,7 +239,7 @@ export default function PwaInstallGuide() {
         return renderDesktopInstructions();
       default:
         return (
-          <p className="text-dark-100 text-center py-8">
+          <p className="text-text-muted text-center py-8">
             {t("pwaGuide.loadingPlatform")}
           </p>
         );
@@ -278,8 +278,8 @@ export default function PwaInstallGuide() {
           <div className="inline-flex p-4 bg-green-500/10 rounded-brand-lg mb-4">
             <Check className="text-green-500" size={48} />
           </div>
-          <p className="text-white font-semibold mb-2">{t("pwaGuide.alreadyInstalled")}</p>
-          <p className="text-dark-100 text-sm">
+          <p className="text-text font-semibold mb-2">{t("pwaGuide.alreadyInstalled")}</p>
+          <p className="text-text-muted text-sm">
             {t("pwaGuide.alreadyInstalledHint")}
           </p>
         </div>
@@ -290,40 +290,40 @@ export default function PwaInstallGuide() {
   return (
     <div className="p-6 space-y-6">
       {/* Platform Info */}
-      <div className="flex items-center gap-3 pb-4 border-b border-dark-400">
+      <div className="flex items-center gap-3 pb-4 border-b border-border">
         <div className="p-2 bg-brand-500/10 rounded-brand">
           {getPlatformIcon()}
         </div>
         <div>
-          <p className="text-white font-medium">{t("pwaGuide.installationGuide")}</p>
-          <p className="text-dark-100 text-sm">{getPlatformName()}</p>
+          <p className="text-text font-medium">{t("pwaGuide.installationGuide")}</p>
+          <p className="text-text-muted text-sm">{getPlatformName()}</p>
         </div>
       </div>
 
       {/* Benefits */}
-      {/* <div className="bg-dark-700 rounded-brand-lg p-4 space-y-2">
-        <p className="text-white font-medium text-sm mb-3">Why Install?</p>
+      {/* <div className="bg-bg rounded-brand-lg p-4 space-y-2">
+        <p className="text-text font-medium text-sm mb-3">Why Install?</p>
         <div className="flex items-start gap-2">
           <Check className="text-green-500 flex-shrink-0" size={16} />
-          <p className="text-dark-100 text-sm">Quick access from home screen</p>
+          <p className="text-text-muted text-sm">Quick access from home screen</p>
         </div>
         <div className="flex items-start gap-2">
           <Check className="text-green-500 flex-shrink-0" size={16} />
-          <p className="text-dark-100 text-sm">Works offline when cached</p>
+          <p className="text-text-muted text-sm">Works offline when cached</p>
         </div>
         <div className="flex items-start gap-2">
           <Check className="text-green-500 flex-shrink-0" size={16} />
-          <p className="text-dark-100 text-sm">Full-screen app experience</p>
+          <p className="text-text-muted text-sm">Full-screen app experience</p>
         </div>
         <div className="flex items-start gap-2">
           <Check className="text-green-500 flex-shrink-0" size={16} />
-          <p className="text-dark-100 text-sm">No browser UI clutter</p>
+          <p className="text-text-muted text-sm">No browser UI clutter</p>
         </div>
       </div> */}
 
       {/* Instructions */}
       <div>
-        <p className="text-white font-medium mb-4">{t("pwaGuide.installationSteps")}</p>
+        <p className="text-text font-medium mb-4">{t("pwaGuide.installationSteps")}</p>
         {renderInstructions()}
       </div>
     </div>

@@ -197,13 +197,13 @@ export default function QRScanner({ isOpen, onClose, onScan }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="relative bg-dark-600 rounded-brand-lg shadow-2xl max-w-md w-full mx-4 border border-dark-400 overflow-hidden">
+      <div className="relative card-elev max-w-md w-full mx-4 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-dark-400">
-          <h2 className="text-xl font-bold text-white">Scan QR Code</h2>
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h2 className="text-xl font-bold text-text">Scan QR Code</h2>
           <button
             onClick={handleClose}
-            className="text-dark-100 hover:text-white transition-colors p-1"
+            className="text-text-muted hover:text-text transition-colors p-1"
           >
             <X size={24} />
           </button>
@@ -222,27 +222,27 @@ export default function QRScanner({ isOpen, onClose, onScan }) {
         {/* Status & Instructions */}
         <div className="p-4">
           {/* Debug status - always show */}
-          <div className="mb-3 p-2 bg-dark-700 rounded text-xs font-mono text-dark-100 break-all">
+          <div className="mb-3 p-2 bg-bg rounded text-xs font-mono text-text-muted break-all">
             Status: {status}
           </div>
 
           {error ? (
-            <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-brand text-red-400">
+            <div className="flex items-start gap-2 p-3 bg-red-500/10 rounded-brand text-red-400">
               <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
               <p className="text-sm">{error}</p>
             </div>
           ) : scanStatus === "detected" ? (
-            <div className="flex items-center justify-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-brand text-green-400">
+            <div className="flex items-center justify-center gap-2 p-3 bg-green-500/10 rounded-brand text-green-400">
               <div className="text-2xl">✓</div>
               <p className="text-sm font-medium">QR Code detected!</p>
             </div>
           ) : scanStatus === "authenticating" ? (
-            <div className="flex items-center justify-center gap-2 p-3 bg-brand-500/10 border border-brand-500/30 rounded-brand text-brand-400">
+            <div className="flex items-center justify-center gap-2 p-3 bg-brand-500/10 rounded-brand text-brand-400">
               <div className="animate-spin">⏳</div>
               <p className="text-sm font-medium">Authenticating...</p>
             </div>
           ) : (
-            <p className="text-sm text-dark-100 text-center">
+            <p className="text-sm text-text-muted text-center">
               Point camera at the QR code from CLI
             </p>
           )}

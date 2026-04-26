@@ -14,7 +14,7 @@
   --color-brand-800: #7a2400;
   --color-brand-900: #3d1200;
 
-  /* Dark Background Colors */
+  /* Legacy dark scale - keep for backward compat, prefer semantic tokens below */
   --color-dark-50: #e0e0e0;
   --color-dark-100: #a0a0a0;
   --color-dark-200: #808080;
@@ -26,9 +26,91 @@
   --color-dark-800: #0d0d0d;
   --color-dark-900: #080808;
 
+  /* Semantic theme tokens - resolved at runtime via :root / .light overrides below */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-subtle: var(--text-subtle);
+  --color-accent: var(--color-brand-500);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+
   /* Border Radius */
-  --radius-brand: 12px;
-  --radius-brand-lg: 16px;
+  --radius-brand: 10px;
+  --radius-brand-lg: 14px;
+}
+
+/* Reusable elevated card: no border, soft shadow + surface contrast */
+.card-soft {
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-soft);
+  border-radius: var(--radius-brand-lg);
+}
+.card-elev {
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-elev);
+  border-radius: var(--radius-brand-lg);
+}
+
+/* Default = dark theme tokens (Claude-like, neutral warm dark) */
+:root {
+  --bg: #1a1a1a;
+  --surface: #262626;
+  --surface-2: #303030;
+  --surface-3: #3a3a3a;
+  --border: #333333;
+  --border-subtle: #2a2a2a;
+  --text: #ededed;
+  --text-muted: #9ca3af;
+  --text-subtle: #6b7280;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.3);
+  --shadow-elev: 
+    inset 0 1px 0 0 rgba(255,255,255,0.06),
+    0 1px 2px rgba(0,0,0,0.4),
+    0 16px 48px -8px rgba(0,0,0,0.55);
+  --shadow-focus: 0 0 0 3px rgba(255,87,10,0.15);
+  color-scheme: dark;
+}
+
+/* Light theme override - GitBook style */
+:root.light {
+  --bg: #FCFBF9;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --surface-3: #e7e7e9;
+  --border: #e5e7eb;
+  --border-subtle: #f1f1f3;
+  --text: #0a0a0a;
+  --text-muted: #6B7280;
+  --text-subtle: #9CA3AF;
+  --danger: #cf222e;
+  --success: #10B981;
+  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.04);
+  --shadow-elev: 
+    inset 0 1px 0 0 rgba(255,255,255,0.8),
+    0 1px 2px rgba(15,23,42,0.04),
+    0 12px 36px -8px rgba(15,23,42,0.10);
+  --shadow-focus: 0 0 0 3px rgba(230,138,110,0.18);
+  color-scheme: light;
+
+  /* GitBook-style softer brand (Cam đất) for light mode */
+  --color-brand-50: #fdf3ed;
+  --color-brand-100: #fbe2d4;
+  --color-brand-200: #f5c4a8;
+  --color-brand-300: #efa685;
+  --color-brand-400: #ea9577;
+  --color-brand-500: #E68A6E;
+  --color-brand-600: #d77459;
+  --color-brand-700: #b85d44;
+  --color-brand-800: #8a4332;
+  --color-brand-900: #5c2c21;
 }
 
 /* Slide Menu Animations */
@@ -64,15 +146,15 @@
 }
 
 .slide-in-right {
-  animation: slideInFromRight 0.3s ease-out forwards;
+  animation: slideInFromRight 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .fade-in {
-  animation: fadeIn 0.3s ease-out forwards;
+  animation: fadeIn 0.2s ease-out forwards;
 }
 
 .slide-in-top {
-  animation: slideInFromTop 0.2s ease-out forwards;
+  animation: slideInFromTop 0.18s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .menu-item-stagger-1 {
@@ -118,12 +200,11 @@
 }
 
 body {
-  background-color: #121212;
-  color: #ffffff;
+  background-color: var(--color-bg);
+  color: var(--color-text);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color-scheme: dark;
 }
 
 /* iOS keyboard toolbar accent color */
@@ -150,6 +231,21 @@ html.terminal-page body {
 /* Terminal wrapper */
 .terminal-wrapper {
   overflow: hidden !important;
+}
+
+/* Top-mid glow indicates focused terminal pane */
+.terminal-focus-glow::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50%;
+  height: 5px;
+  background: radial-gradient(ellipse at center, var(--color-brand-500) 0%, color-mix(in srgb, var(--color-brand-500) 60%, transparent) 35%, transparent 75%);
+  filter: blur(3px);
+  pointer-events: none;
+  z-index: 2;
 }
 
 /* XTerm - enable touch events for JS scroll handler */
@@ -246,22 +342,6 @@ body.keyboard-open .safe-area-bottom {
 }
 .btn-cta > * { position: relative; z-index: 2; }
 
-/* Horizontal scroll fade — hints overflow content on the right (stronger falloff) */
-.scroll-fade-x {
-  /* mask-image: linear-gradient(to right, red calc(100% - 28px), rgba(0,0,0,0.2) calc(100% - 18px), transparent);
-  -webkit-mask-image: linear-gradient(to right, red calc(100% - 28px), rgba(0,0,0,0.2) calc(100% - 18px), transparent); */
-  box-shadow: inset -24px 0 16px -16px rgba(59, 30, 9, 0.45);
-}
-/* Disable fade when wrapped (no horizontal overflow) */
-.scroll-fade-x.flex-wrap,
-.scroll-fade-x.overflow-x-hidden {
-  mask-image: none;
-  -webkit-mask-image: none;
-}
-@media (orientation: landscape) {
-  .landscape\:no-fade { mask-image: none; -webkit-mask-image: none; }
-}
-
 /* Thin horizontal scrollbar in brand color — makes scroll affordance visible */
 .scroll-thin-x {
   scrollbar-width: thin;
@@ -277,14 +357,42 @@ body.keyboard-open .safe-area-bottom {
 
 /* Dot Grid Background Pattern */
 .dot-grid-bg {
-  background-color: #0d0d0d;
+  background-color: var(--color-bg);
+}
+:root .dot-grid-bg {
   background-image: 
-    radial-gradient(circle at 15% 20%, rgba(255, 87, 10, 0.25) 0%, transparent 40%),
-    radial-gradient(circle at 85% 80%, rgba(255, 87, 10, 0.15) 0%, transparent 40%),
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
-  background-position: 0 0, 0 0, 0 0, 0 0;
+    radial-gradient(circle at 15% 20%, rgba(255, 87, 10, 0.18) 0%, transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(255, 87, 10, 0.10) 0%, transparent 40%);
+}
+:root.light .dot-grid-bg {
+  background-image: 
+    radial-gradient(circle at 15% 20%, rgba(230, 138, 110, 0.10) 0%, transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(230, 138, 110, 0.06) 0%, transparent 40%);
+}
+
+/* Landing animated background — theme-aware glow + vignette */
+.landing-bg {
+  background-color: var(--color-bg);
+}
+.landing-grid {
+  background-image:
+    linear-gradient(to right, var(--color-accent) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-accent) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+:root .landing-grid { opacity: 0.04; }
+:root.light .landing-grid { opacity: 0.08; }
+
+:root .landing-glow-1 { background: rgba(255, 87, 10, 0.09); }
+:root .landing-glow-2 { background: rgba(255, 87, 10, 0.06); }
+:root.light .landing-glow-1 { background: rgba(230, 138, 110, 0.18); }
+:root.light .landing-glow-2 { background: rgba(230, 138, 110, 0.12); }
+
+:root .landing-vignette {
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.6) 100%);
+}
+:root.light .landing-vignette {
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(252, 251, 249, 0.85) 100%);
 }
 
 

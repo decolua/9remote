@@ -104,19 +104,19 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
 
       {/* Panel */}
       <div
-        className="absolute top-0 right-0 w-[85vw] sm:w-96 max-w-md bg-dark-600 border-l border-dark-400 shadow-2xl flex flex-col slide-in-right"
+        className="absolute top-0 right-0 w-[85vw] sm:w-96 max-w-md bg-surface border-l border-border shadow-2xl flex flex-col slide-in-right"
         style={{ height: viewportHeight ? `${viewportHeight}px` : "100%" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className={`flex items-center justify-between px-4 py-3 border-b border-dark-400 flex-shrink-0 ${isIosPwa ? "safe-area-top" : ""}`}>
+        <div className={`flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0 ${isIosPwa ? "safe-area-top" : ""}`}>
           <div className="flex items-center gap-2">
             <FileText size={20} className="text-brand-500" />
-            <h2 className="text-lg font-semibold text-white">{t("commandNotes.title")}</h2>
+            <h2 className="text-lg font-semibold text-text">{t("commandNotes.title")}</h2>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors"
+            className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"
           >
             <X size={20} />
           </button>
@@ -125,17 +125,17 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
         {/* Notes List */}
         <div className="flex-1 overflow-y-auto modal-scrollable">
           {notes.length === 0 && (
-            <div className="text-center text-dark-100 py-8">
-              <FileText size={32} className="mx-auto mb-3 text-dark-200" />
+            <div className="text-center text-text-muted py-8">
+              <FileText size={32} className="mx-auto mb-3 text-text-muted" />
               <p className="text-sm">{t("commandNotes.noSavedCommands")}</p>
-              <p className="text-xs text-dark-200 mt-1">{t("commandNotes.addFirstBelow")}</p>
+              <p className="text-xs text-text-muted mt-1">{t("commandNotes.addFirstBelow")}</p>
             </div>
           )}
 
           {notes.map((note) => (
             <div
               key={note.id}
-              className="px-4 py-3 border-b border-dark-500/50 hover:bg-dark-500/30 transition-colors group"
+              className="px-4 py-3 border-b border-border/50 hover:bg-surface-2/30 transition-colors group"
             >
               <div className="flex items-start justify-between gap-2">
                 <div
@@ -143,7 +143,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
                   onClick={() => handleCopy(note.id, note.command)}
                   title={t("commandNotes.clickToCopy")}
                 >
-                  <p className="text-sm text-white font-mono break-all">{note.command}</p>
+                  <p className="text-sm text-text font-mono break-all">{note.command}</p>
                   {copiedId === note.id && (
                     <span className="text-xs text-green-400 mt-1 inline-block">{t("commandNotes.copiedBang")}</span>
                   )}
@@ -151,7 +151,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
                 <div className="flex items-center gap-0.5 flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => handleCopy(note.id, note.command)}
-                    className="p-1.5 text-dark-100 hover:text-brand-400 rounded transition-colors"
+                    className="p-1.5 text-text-muted hover:text-brand-400 rounded transition-colors"
                     title={t("commandNotes.copy")}
                   >
                     {copiedId === note.id ? (
@@ -162,14 +162,14 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
                   </button>
                   <button
                     onClick={() => handleStartEdit(note)}
-                    className="p-1.5 text-dark-100 hover:text-brand-400 rounded transition-colors"
+                    className="p-1.5 text-text-muted hover:text-brand-400 rounded transition-colors"
                     title={t("commandNotes.edit")}
                   >
                     <Pencil size={14} />
                   </button>
                   <button
                     onClick={() => handleDelete(note.id)}
-                    className="p-1.5 text-dark-100 hover:text-red-400 rounded transition-colors"
+                    className="p-1.5 text-text-muted hover:text-red-400 rounded transition-colors"
                     title={t("commandNotes.delete")}
                   >
                     <Trash2 size={14} />
@@ -181,7 +181,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
         </div>
 
         {/* Bottom Input */}
-        <div className={`px-3 py-3 border-t border-dark-400 flex-shrink-0 ${isIosPwa ? "safe-area-bottom" : ""}`}>
+        <div className={`px-3 py-3 border-t border-border flex-shrink-0 ${isIosPwa ? "safe-area-bottom" : ""}`}>
           <div className="flex gap-2 items-end">
             <textarea
               ref={textareaRef}
@@ -190,12 +190,12 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
               onKeyDown={handleKeyDown}
               placeholder={editingId ? t("commandNotes.editCommandPlaceholder") : t("commandNotes.addCommandPlaceholder")}
               rows={2}
-              className="flex-1 bg-dark-500 border border-dark-400 rounded-brand px-3 py-2 text-white text-sm placeholder-dark-100 focus:outline-none focus:border-brand-500 font-mono resize-none"
+              className="flex-1 bg-surface-2 rounded-brand px-3 py-2 text-text text-sm placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out font-mono resize-none"
             />
             <button
               onClick={handleSave}
               disabled={!command.trim()}
-              className="p-2.5 bg-brand-600 hover:bg-brand-500 disabled:bg-dark-400 disabled:cursor-not-allowed text-white rounded-brand transition-colors flex-shrink-0"
+              className="p-2.5 bg-brand-600 hover:bg-brand-500 disabled:bg-surface-2 disabled:cursor-not-allowed text-text rounded-brand transition-colors flex-shrink-0"
               title={editingId ? t("commandNotes.update") : t("commandNotes.add")}
             >
               <Send size={18} />

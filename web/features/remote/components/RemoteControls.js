@@ -24,10 +24,10 @@ const v = (fn, ...args) => { vibrate(); fn?.(...args); };
 // onMouseDown.preventDefault() — prevents focus-steal so native keyboard stays on.
 function Btn({ active, primary, pinned, children, className = "", onClick, ...rest }) {
   const base = "shrink-0 px-1 h-8 rounded-brand text-xs font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[34px] flex items-center justify-center";
-  const normal = "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500";
-  const activeCls = "bg-brand-500 text-white border border-brand-400 shadow-lg shadow-brand-500/20";
-  const primaryCls = "bg-green-600 hover:bg-green-700 text-white border border-green-500";
-  const pinnedCls = "bg-dark-700 hover:bg-dark-600 active:bg-dark-600 text-brand-300 border border-brand-500/40 hover:border-brand-500";
+  const normal = "bg-surface-2 hover:bg-surface-3 text-text transition-all duration-150 ease-out active:scale-[0.94]";
+  const activeCls = "bg-brand-500 text-white shadow-sm transition-all duration-150 ease-out active:scale-[0.94]";
+  const primaryCls = "bg-green-600 hover:bg-green-700 text-white shadow-sm transition-all duration-150 ease-out active:scale-[0.94]";
+  const pinnedCls = "bg-brand-500/15 hover:bg-brand-500/25 text-brand-400 transition-all duration-150 ease-out active:scale-[0.94]";
   const variant = active ? activeCls : pinned ? pinnedCls : primary ? primaryCls : normal;
   return (
     <button
@@ -75,7 +75,7 @@ export default function RemoteControls({
 }) {
   const { t } = useI18n();
   const { isIosPwa } = useDeviceInfo();
-  const rowClass = "flex gap-1.5 overflow-auto scroll-fade-x scroll-thin-x landscape:no-fade px-2 py-1 pr-2 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center rounded-lg";
+  const rowClass = "flex gap-1.5 overflow-auto scroll-thin-x px-2 py-1 pr-2 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center rounded-lg";
   const panelInputRef = useRef(null);
   const [showExtra, setShowExtra] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
@@ -126,7 +126,7 @@ export default function RemoteControls({
   };
 
   return (
-    <div className="bg-dark-700 select-none relative landscape:h-full landscape:flex landscape:flex-col landscape:w-72 landscape:shrink-0">
+    <div className="bg-bg select-none relative landscape:h-full landscape:flex landscape:flex-col landscape:w-72 landscape:shrink-0">
       {/* Hidden sink drives native keyboard. */}
       <textarea
         ref={textInputRef}
@@ -176,7 +176,7 @@ export default function RemoteControls({
           data-1p-ignore="true"
           data-form-type="other"
           name="remote-batch-input"
-          className="w-full px-3 py-2 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none landscape:h-32"
+          className="w-full px-3 py-1.5 bg-surface-2 rounded text-text text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none landscape:h-32"
           disabled={!streaming}
         />
         <Button
@@ -198,7 +198,7 @@ export default function RemoteControls({
           <div className="space-y-1">
             {extraCustom.rows.map((row, rIdx) => (
               <div key={rIdx} className="flex items-center gap-1.5">
-                <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto scroll-fade-x scroll-thin-x pr-3 rounded-lg">
+                <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto scroll-thin-x pr-3 rounded-lg">
                   {row.map((id, cIdx) => {
                     const kc = REMOTE_KEY_POOL.find(p => p.id === id);
                     return kc ? renderPoolKey(kc, rIdx * 100 + cIdx) : null;
@@ -208,7 +208,7 @@ export default function RemoteControls({
                   <button
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => { vibrate(); setShowCustomize(true); }}
-                    className="shrink-0 h-10 w-10 flex items-center justify-center text-dark-100 hover:text-white border border-dark-400 rounded-brand"
+                    className="shrink-0 h-10 w-10 flex items-center justify-center text-text-muted hover:text-text bg-surface-2 hover:bg-surface-3 rounded-brand transition-all duration-150 ease-out"
                     title={t("remote.customizeKeys")}
                   >
                     <Settings size={16} />
@@ -226,7 +226,7 @@ export default function RemoteControls({
           <Btn onClick={() => v(onClose)} title={t("remote.back")} pinned>
             <ChevronLeft size={16} />
           </Btn>
-          <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-dark-50" title={t("remote.resetZoom")}>
+          <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-text" title={t("remote.resetZoom")}>
             {Math.round(canvasZoom * 100)}%
           </Btn>
           <Btn onClick={() => v(onRefresh)} disabled={!streaming} title={t("remote.refresh")}>

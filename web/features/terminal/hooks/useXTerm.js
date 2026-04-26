@@ -46,7 +46,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       ...TERMINAL_OPTIONS,
       fontSize: window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize,
       fontFamily: TERMINAL_OPTIONS.fontFamily,
-      theme: THEMES[theme] || THEMES.default
+      theme: THEMES[theme] || THEMES.dark
     });
 
     const fitAddon = new FitAddon();
@@ -200,7 +200,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   // Update theme
   useEffect(() => {
     if (termRef.current) {
-      termRef.current.options.theme = THEMES[theme] || THEMES.default;
+      termRef.current.options.theme = THEMES[theme] || THEMES.dark;
     }
   }, [theme]);
 

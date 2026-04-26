@@ -262,19 +262,19 @@ export default function FileExplorer({
   const isAtWorkspace = currentPath === workspace;
 
   return (
-    <div className="h-full bg-dark-700 flex flex-col">
+    <div className="h-full bg-bg flex flex-col">
       {/* Header */}
-      <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-2 flex-shrink-0">
+      <div className="bg-surface px-4 py-3 flex items-center gap-2 flex-shrink-0">
         <button
           onClick={() => { vibrate(); onBack(); }}
-          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
+          className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
           title={t("common.close")}
         >
           <X size={20} />
         </button>
         
         <div className="flex-1 min-w-0">
-          <div className="text-white font-medium truncate text-sm">
+          <div className="text-text font-medium truncate text-sm">
             {getDisplayPath()}
           </div>
         </div>
@@ -283,7 +283,7 @@ export default function FileExplorer({
         {isBrowsing && (
           <button
             onClick={() => { vibrate(); handleSetAsWorkspace(); }}
-            className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs rounded-brand transition-all duration-200 font-medium shadow-lg shadow-brand-500/20"
+            className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs rounded-brand transition-all duration-150 ease-out active:scale-[0.97] font-medium shadow-sm"
             title={t("files.setAsWorkspaceTitle")}
           >
             {t("files.setWorkspace")}
@@ -294,7 +294,7 @@ export default function FileExplorer({
         {!isBrowsing && onSwitchWorkspace && (
           <button
             onClick={() => { vibrate(); onSwitchWorkspace(); }}
-            className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
+            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
             title={t("files.switchWorkspace")}
           >
             <FolderOpen className="text-brand-500" size={20} />
@@ -305,7 +305,7 @@ export default function FileExplorer({
         {!isBrowsing && (
           <button
             onClick={() => { vibrate(); setShowSearch(true); }}
-            className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
+            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
             title={t("files.searchFiles")}
           >
             <Search className="text-brand-500" size={20} />
@@ -317,28 +317,28 @@ export default function FileExplorer({
           <button
             onClick={() => { vibrate(); onOpenGit(); }}
             disabled={!hasGit}
-            className={`p-2 rounded-brand transition-all duration-200 border ${
+            className={`p-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.96] ${
               hasGit 
-                ? "bg-dark-500 hover:bg-dark-400 text-white border-dark-400 hover:border-brand-500" 
-                : "bg-dark-500/30 text-dark-200 border-dark-400 cursor-not-allowed"
+                ? "bg-surface-2 hover:bg-surface-3 text-text" 
+                : "bg-surface-2/30 text-text-muted cursor-not-allowed"
             }`}
             title={hasGit ? t("git.title") : t("files.noGitRepo")}
           >
-            <GitBranch className={hasGit ? "text-brand-500" : "text-dark-200"} size={20} />
+            <GitBranch className={hasGit ? "text-brand-500" : "text-text-muted"} size={20} />
           </button>
         )}
       </div>
 
       {/* Search bar */}
       {showSearch && (
-        <div className="bg-dark-600 border-b border-dark-400 px-4 py-2 flex items-center gap-2 flex-shrink-0">
-          <Search className="text-dark-100 flex-shrink-0" size={20} />
+        <div className="bg-surface-2 px-4 py-2 flex items-center gap-2 flex-shrink-0">
+          <Search className="text-text-muted flex-shrink-0" size={20} />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
             placeholder={t("files.searchPlaceholder")}
-            className="flex-1 bg-transparent text-white placeholder-slate-400 focus:outline-none"
+            className="flex-1 bg-transparent text-text placeholder-text-subtle focus:outline-none"
             autoFocus
           />
           {searchLoading && (
@@ -346,7 +346,7 @@ export default function FileExplorer({
           )}
           <button
             onClick={() => { vibrate(); closeSearch(); }}
-            className="p-1 text-dark-100 hover:text-white transition-colors"
+            className="p-1 text-text-muted hover:text-text transition-colors"
           >
             <X size={20} />
           </button>
@@ -364,11 +364,11 @@ export default function FileExplorer({
       {showSearch && searchQuery.length >= 2 ? (
         <div className="flex-1 min-h-0 overflow-auto">
           {searchLoading ? (
-            <div className="flex items-center justify-center h-32 text-dark-100">
+            <div className="flex items-center justify-center h-32 text-text-muted">
               {t("files.searching")}
             </div>
           ) : searchResults.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-dark-100">
+            <div className="flex items-center justify-center h-32 text-text-muted">
               {t("files.noFilesFound")}
             </div>
           ) : (
@@ -381,19 +381,19 @@ export default function FileExplorer({
                     onOpenFile(file.path);
                     closeSearch();
                   }}
-                  className="w-full px-4 py-3 flex items-center gap-3 border-b border-dark-500 hover:bg-dark-600 transition-colors text-left"
+                  className="w-full px-4 py-3 flex items-center gap-3 border-b border-border hover:bg-surface transition-colors text-left"
                 >
                   <span className="flex-shrink-0">
-                    {file.type === "binary" ? <Package size={20} className="text-red-500/70" /> : <File size={20} className="text-slate-400" />}
+                    {file.type === "binary" ? <Package size={20} className="text-red-500/70" /> : <File size={20} className="text-text-subtle" />}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-white truncate">{file.name}</div>
-                    <div className="text-dark-100 text-xs truncate">
+                    <div className="text-text truncate">{file.name}</div>
+                    <div className="text-text-muted text-xs truncate">
                       {file.path.replace(workspace, "").replace(/^\//, "")}
                     </div>
                   </div>
                   {file.sizeFormatted && (
-                    <span className="text-dark-100 text-xs flex-shrink-0">{file.sizeFormatted}</span>
+                    <span className="text-text-muted text-xs flex-shrink-0">{file.sizeFormatted}</span>
                   )}
                 </button>
               ))}
@@ -406,7 +406,7 @@ export default function FileExplorer({
           {currentPath !== "/" && !isAtWorkspace && !showSearch && (
             <button
               onClick={() => { vibrate(); handleGoUp(); }}
-              className="w-full px-4 py-3 flex items-center gap-3 border-b border-dark-500 hover:bg-dark-600 transition-colors text-left flex-shrink-0"
+              className="w-full px-4 py-3 flex items-center gap-3 border-b border-border hover:bg-surface transition-colors text-left flex-shrink-0"
             >
               <ChevronLeft className="text-green-500" size={28} />
               <span className="text-green-500">{currentPath.split("/").pop() || "/"}</span>
@@ -419,19 +419,19 @@ export default function FileExplorer({
               // Grid view for browse mode
               <div className="p-4">
                 {loading ? (
-                  <div className="flex items-center justify-center h-32 text-dark-100">{t("common.loading")}</div>
+                  <div className="flex items-center justify-center h-32 text-text-muted">{t("common.loading")}</div>
                 ) : files.length === 0 ? (
-                  <div className="flex items-center justify-center h-32 text-dark-100">{t("files.emptyFolder")}</div>
+                  <div className="flex items-center justify-center h-32 text-text-muted">{t("files.emptyFolder")}</div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     {files.map((file) => (
                       <button
                         key={file.path}
                         onClick={() => { vibrate(); handleFolderClick(file); }}
-                        className="bg-dark-600 border border-dark-400 rounded-brand-lg p-2 flex flex-col items-center gap-1 hover:border-brand-500/50 hover:bg-dark-500 transition-all duration-200 text-center"
+                        className="bg-surface hover:bg-surface-2 rounded-brand-lg p-2 flex flex-col items-center gap-1 transition-all duration-150 ease-out active:scale-[0.98] text-center"
                       >
                         <Folder size={48} className="text-yellow-500/80" />
-                        <span className="text-white text-xs font-medium truncate w-full">{file.name}</span>
+                        <span className="text-text text-xs font-medium truncate w-full">{file.name}</span>
                       </button>
                     ))}
                   </div>
@@ -468,7 +468,7 @@ export default function FileExplorer({
         <>
           <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
           <div
-            className="fixed z-50 bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl overflow-hidden min-w-[140px]"
+            className="fixed z-50 card-elev overflow-hidden min-w-[140px]"
             style={{ 
               right: 16,
               top: Math.min(contextMenu.y, window.innerHeight - 160)
@@ -476,7 +476,7 @@ export default function FileExplorer({
           >
             <button
               onClick={() => { vibrate(); handleRename(contextMenu.file); }}
-              className="w-full px-4 py-3 text-left text-white hover:bg-dark-500 flex items-center gap-3 transition-colors"
+              className="w-full px-4 py-3 text-left text-text hover:bg-surface-2 flex items-center gap-3 transition-colors"
             >
               <Pencil size={16} />
               {t("files.rename")}
@@ -487,14 +487,14 @@ export default function FileExplorer({
                 navigator.clipboard.writeText(contextMenu.file.path);
                 closeContextMenu();
               }}
-              className="w-full px-4 py-3 text-left text-white hover:bg-dark-500 flex items-center gap-3 transition-colors"
+              className="w-full px-4 py-3 text-left text-text hover:bg-surface-2 flex items-center gap-3 transition-colors"
             >
               <Copy size={16} />
               {t("files.copyPath")}
             </button>
             <button
               onClick={() => { vibrate(); handleDelete(contextMenu.file); }}
-              className="w-full px-4 py-3 text-left text-red-400 hover:bg-dark-500 flex items-center gap-3 transition-colors"
+              className="w-full px-4 py-3 text-left text-red-400 hover:bg-surface-2 flex items-center gap-3 transition-colors"
             >
               <Trash2 size={16} />
               {t("files.delete")}
@@ -507,9 +507,9 @@ export default function FileExplorer({
       {showNewItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setShowNewItemModal(false)} />
-          <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl w-full max-w-sm">
-            <div className="px-4 py-3 border-b border-dark-400">
-              <h3 className="text-white font-semibold">{t("files.createNew")}</h3>
+          <div className="relative card-elev w-full max-w-sm">
+            <div className="px-4 py-3">
+              <h3 className="text-text font-semibold">{t("files.createNew")}</h3>
             </div>
             <div className="p-4 space-y-4">
               <div className="flex gap-2">
@@ -518,17 +518,17 @@ export default function FileExplorer({
                   className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${
                     newItemType === "file" 
                       ? "bg-brand-500 text-white" 
-                      : "bg-dark-500 text-dark-50"
+                      : "bg-surface-2 text-text"
                   }`}
                 >
-                  <File size={16} className="text-slate-400" /> {t("files.file")}
+                  <File size={16} className="text-text-subtle" /> {t("files.file")}
                 </button>
                 <button
                   onClick={() => { vibrate(); setNewItemType("folder"); }}
                   className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${
                     newItemType === "folder" 
                       ? "bg-brand-500 text-white" 
-                      : "bg-dark-500 text-dark-50"
+                      : "bg-surface-2 text-text"
                   }`}
                 >
                   <Folder size={16} className="text-orange-500/70" /> {t("files.folder")}
@@ -540,19 +540,19 @@ export default function FileExplorer({
                 onChange={(e) => setNewItemName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCreateItem()}
                 placeholder={newItemType === "file" ? t("files.placeholderFile") : t("files.placeholderFolder")}
-                className="w-full px-3 py-2 bg-dark-500 border border-dark-400 rounded-brand text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                className="w-full px-3 py-2 bg-surface-2 rounded-brand text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
                 autoFocus
               />
               <div className="flex gap-2">
                 <button
                   onClick={() => { vibrate(); setShowNewItemModal(false); }}
-                  className="flex-1 py-2 bg-dark-500 text-white rounded-brand hover:bg-dark-400 transition"
+                  className="flex-1 py-2 bg-surface-2 text-text rounded-brand hover:bg-surface-3 transition-all duration-150 ease-out active:scale-[0.98]"
                 >
                   {t("common.cancel")}
                 </button>
                 <button
                   onClick={() => { vibrate(); handleCreateItem(); }}
-                  className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition"
+                  className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition-all duration-150 ease-out active:scale-[0.98]"
                 >
                   {t("common.create")}
                 </button>
@@ -566,9 +566,9 @@ export default function FileExplorer({
       {renameModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setRenameModal(null)} />
-          <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-xl w-full max-w-sm">
-            <div className="px-4 py-3 border-b border-dark-400">
-              <h3 className="text-white font-semibold">{t("files.rename")}</h3>
+          <div className="relative card-elev w-full max-w-sm">
+            <div className="px-4 py-3">
+              <h3 className="text-text font-semibold">{t("files.rename")}</h3>
             </div>
             <div className="p-4 space-y-4">
               <input
@@ -576,19 +576,19 @@ export default function FileExplorer({
                 value={renameModal.newName}
                 onChange={(e) => setRenameModal({ ...renameModal, newName: e.target.value })}
                 onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
-                className="w-full px-3 py-2 bg-dark-500 border border-dark-400 rounded-brand text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                className="w-full px-3 py-2 bg-surface-2 rounded-brand text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
                 autoFocus
               />
               <div className="flex gap-2">
                 <button
                   onClick={() => { vibrate(); setRenameModal(null); }}
-                  className="flex-1 py-2 bg-dark-500 text-white rounded-brand hover:bg-dark-400 transition"
+                  className="flex-1 py-2 bg-surface-2 text-text rounded-brand hover:bg-surface-3 transition-all duration-150 ease-out active:scale-[0.98]"
                 >
                   {t("common.cancel")}
                 </button>
                 <button
                   onClick={() => { vibrate(); handleRenameSubmit(); }}
-                  className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition"
+                  className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition-all duration-150 ease-out active:scale-[0.98]"
                 >
                   {t("files.rename")}
                 </button>

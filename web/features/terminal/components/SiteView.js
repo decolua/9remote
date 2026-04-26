@@ -149,13 +149,13 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
   }, []);
 
   return (
-    <div className="h-[var(--app-height,100vh)] flex flex-col bg-slate-900">
+    <div className="h-[var(--app-height,100vh)] flex flex-col bg-bg">
       {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-4 py-3 flex items-center gap-3 flex-shrink-0">
+      <div className="bg-surface border-b border-border px-4 py-3 flex items-center gap-3 flex-shrink-0">
         {/* Close button */}
         <button
           onClick={onBack}
-          className="p-2 bg-slate-700 hover:bg-red-600 text-white rounded transition"
+          className="p-2 bg-surface-2 hover:bg-red-600 text-text rounded transition"
           title={t("common.close")}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -166,7 +166,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
         {/* URL display */}
         <div className="flex-1 flex items-center gap-2 min-w-0">
           <span className="text-green-500 flex-shrink-0">●</span>
-          <span className="text-slate-400 text-sm truncate" title={currentUrl}>
+          <span className="text-text-muted text-sm truncate" title={currentUrl}>
             {currentUrl}
           </span>
         </div>
@@ -177,8 +177,8 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
             onClick={handleOpenInNewTab}
             className={`p-2 rounded transition ${
               isWindowOpen
-                ? "bg-blue-600 hover:bg-blue-700 text-white"
-                : "bg-slate-700 hover:bg-slate-600 text-white"
+                ? "bg-blue-600 hover:bg-blue-700 text-text"
+                : "bg-surface-2 hover:bg-surface-2 text-text"
             }`}
             title={isWindowOpen ? t("sites.focusOpenedTab") : t("sites.openInNewTab")}
           >
@@ -191,8 +191,8 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
             disabled={!canGoBack}
             className={`p-2 rounded transition ${
               canGoBack 
-                ? "bg-slate-700 hover:bg-slate-600 text-white" 
-                : "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                ? "bg-surface-2 hover:bg-surface-2 text-text" 
+                : "bg-surface/50 text-text-subtle cursor-not-allowed"
             }`}
             title={t("sites.goBack")}
           >
@@ -205,8 +205,8 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
             disabled={!canGoForward}
             className={`p-2 rounded transition ${
               canGoForward 
-                ? "bg-slate-700 hover:bg-slate-600 text-white" 
-                : "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                ? "bg-surface-2 hover:bg-surface-2 text-text" 
+                : "bg-surface/50 text-text-subtle cursor-not-allowed"
             }`}
             title={t("sites.goForward")}
           >
@@ -216,7 +216,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
           </button>
           <button
             onClick={handleRefresh}
-            className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+            className="p-2 bg-surface-2 hover:bg-surface-2 text-text rounded transition"
             title={t("sites.refresh")}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -237,7 +237,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
             sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-top-navigation"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-400">
+          <div className="w-full h-full flex items-center justify-center text-text-muted">
             {t("sites.loadingSite")}
           </div>
         )}

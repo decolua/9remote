@@ -85,18 +85,18 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
   };
 
   return (
-    <div className="h-full bg-dark-700 flex flex-col">
+    <div className="h-full bg-bg flex flex-col">
       {/* Header */}
-      <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-3 flex-shrink-0">
+      <div className="bg-surface px-4 py-3 flex items-center gap-3 flex-shrink-0">
         <button
           onClick={() => { vibrate(); onBack(); }}
-          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200"
+          className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-white text-lg font-semibold">{t("files.selectWorkspace")}</h1>
+        <h1 className="text-text text-lg font-semibold">{t("files.selectWorkspace")}</h1>
       </div>
 
       {/* Content */}
@@ -104,36 +104,36 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
         {/* Recent Workspaces */}
         {recent.length > 0 && (
           <div className="mb-6">
-            <h2 className="text-dark-100 text-sm font-medium mb-3">{t("files.recentWorkspaces")}</h2>
+            <h2 className="text-text-muted text-sm font-medium mb-3">{t("files.recentWorkspaces")}</h2>
             <div className="space-y-2">
               {recent.map((workspace) => (
                 <button
                   key={workspace.path}
                   onClick={() => { vibrate(); onSelect(workspace.path); }}
-                  className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
+                  className="w-full bg-surface hover:bg-surface-2 rounded-brand-lg p-4 flex items-center gap-3 transition-all duration-150 ease-out active:scale-[0.99] text-left"
                 >
                   <Folder size={24} className="text-orange-500/70 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-white font-medium truncate">
+                    <div className="text-text font-medium truncate">
                       {getWorkspaceName(workspace.path)}
                     </div>
-                    <div className="text-dark-100 text-sm truncate">
+                    <div className="text-text-muted text-sm truncate">
                       {workspace.path.replace(/^\/Users\/[^/]+/, "~")}
                     </div>
-                    <div className="text-dark-100 text-xs mt-1">
+                    <div className="text-text-muted text-xs mt-1">
                       {formatTime(workspace.lastOpened)}
                     </div>
                   </div>
                   <div
                     onClick={(e) => { vibrate(); handleRemoveClick(e, workspace); }}
-                    className="p-2 text-dark-100 hover:text-red-400 hover:bg-dark-500 rounded-brand transition-all duration-200 flex-shrink-0"
+                    className="p-2 text-text-muted hover:text-red-400 hover:bg-surface-2 rounded-brand transition-all duration-200 flex-shrink-0"
                     title={t("files.removeRecent")}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
                   </div>
-                  <svg className="w-5 h-5 text-dark-100 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-text-muted flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
@@ -144,7 +144,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
 
         {/* Browse options */}
         <div>
-          <h2 className="text-dark-100 text-sm font-medium mb-3">{t("files.selectWorkspace")}</h2>
+          <h2 className="text-text-muted text-sm font-medium mb-3">{t("files.selectWorkspace")}</h2>
           <div className="space-y-2">
             {/* Windows: Show drives */}
             {systemInfo?.isWindows ? (
@@ -153,14 +153,14 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                   <button
                     key={drive.letter}
                     onClick={() => { vibrate(); onBrowse(drive.path); }}
-                    className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
+                    className="w-full bg-surface hover:bg-surface-2 rounded-brand-lg p-4 flex items-center gap-3 transition-all duration-150 ease-out active:scale-[0.99] text-left"
                   >
                     <HardDrive size={24} className="text-blue-500/70" />
                     <div className="flex-1">
-                      <div className="text-white font-medium">{t("files.drive", { letter: drive.letter })}</div>
-                      <div className="text-dark-100 text-sm">{drive.path}</div>
+                      <div className="text-text font-medium">{t("files.drive", { letter: drive.letter })}</div>
+                      <div className="text-text-muted text-sm">{drive.path}</div>
                     </div>
-                    <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
@@ -171,28 +171,28 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                 {/* macOS/Linux: Show Home and Root */}
                 <button
                   onClick={() => { vibrate(); onBrowse("~"); }}
-                  className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
+                  className="w-full bg-surface hover:bg-surface-2 rounded-brand-lg p-4 flex items-center gap-3 transition-all duration-150 ease-out active:scale-[0.99] text-left"
                 >
                   <Home size={24} className="text-blue-500/70" />
                   <div className="flex-1">
-                    <div className="text-white font-medium">{t("files.home")}</div>
-                    <div className="text-dark-100 text-sm">~/</div>
+                    <div className="text-text font-medium">{t("files.home")}</div>
+                    <div className="text-text-muted text-sm">~/</div>
                   </div>
-                  <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
 
                 <button
                   onClick={() => { vibrate(); onBrowse("/"); }}
-                  className="w-full bg-dark-600 border border-dark-400 rounded-brand-lg p-4 flex items-center gap-3 hover:border-dark-400 transition text-left"
+                  className="w-full bg-surface hover:bg-surface-2 rounded-brand-lg p-4 flex items-center gap-3 transition-all duration-150 ease-out active:scale-[0.99] text-left"
                 >
-                  <HardDrive size={24} className="text-slate-400" />
+                  <HardDrive size={24} className="text-text-subtle" />
                   <div className="flex-1">
-                    <div className="text-white font-medium">{t("files.root")}</div>
-                    <div className="text-dark-100 text-sm">/</div>
+                    <div className="text-text font-medium">{t("files.root")}</div>
+                    <div className="text-text-muted text-sm">/</div>
                   </div>
-                  <svg className="w-5 h-5 text-dark-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
@@ -203,11 +203,11 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
             {isCodespaces && (
               <button
                 onClick={() => { vibrate(); onBrowse("/workspaces"); }}
-                className="w-full bg-purple-900/30 border border-purple-700/50 rounded-brand-lg p-4 flex items-center gap-3 hover:border-purple-600 transition text-left"
+                className="w-full bg-purple-500/15 hover:bg-purple-500/25 rounded-brand-lg p-4 flex items-center gap-3 transition-all duration-150 ease-out active:scale-[0.99] text-left"
               >
                 <Sparkles size={24} className="text-purple-400" />
                 <div className="flex-1">
-                  <div className="text-white font-medium">{t("files.codespaces")}</div>
+                  <div className="text-text font-medium">{t("files.codespaces")}</div>
                   <div className="text-purple-400 text-sm">/workspaces</div>
                 </div>
                 <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

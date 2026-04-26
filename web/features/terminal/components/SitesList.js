@@ -293,7 +293,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
       {externalIsOpen === undefined && (
         <button
           onClick={() => setShowModal(true)}
-          className="px-3 sm:px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2 border border-dark-400 hover:border-brand-500"
+          className="px-3 sm:px-4 py-2 bg-surface-2 hover:bg-surface-3 text-text text-sm font-medium rounded-brand transition-all duration-150 ease-out active:scale-[0.97] flex items-center gap-2"
         >
           <Globe className="text-brand-500" size={16} />
           <span className="hidden sm:inline">{t("sites.title")}</span>
@@ -308,27 +308,27 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
         >
           {/* Modal Content */}
           <div 
-            className="bg-dark-600 border border-dark-400 rounded-brand-lg shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            className="card-elev w-full max-w-md max-h-[85vh] flex flex-col animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-dark-400 shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-orange-400">{t("sites.localSites")}</h2>
-                <p className="text-sm text-dark-100 mt-0.5">{t("sites.selectSitePreview")}</p>
+                <p className="text-sm text-text-muted mt-0.5">{t("sites.selectSitePreview")}</p>
               </div>
               <button
                 onClick={handleClose}
-                className="p-2 text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors"
+                className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"
               >
                 <X size={20} />
               </button>
             </div>
 
             {/* Add Port - moved to top so keyboard doesn't cover it */}
-            <div className="px-4 py-3 border-b border-dark-400 shrink-0">
+            <div className="px-4 py-3 border-b border-border shrink-0">
               <div className="flex gap-2 items-center">
-                <span className="text-dark-100 text-sm whitespace-nowrap">http://localhost:</span>
+                <span className="text-text-muted text-sm whitespace-nowrap">http://localhost:</span>
                 <input
                   type="number"
                   value={newPort}
@@ -337,12 +337,12 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                   placeholder={t("sites.portPlaceholder")}
                   min="1"
                   max="65535"
-                  className="flex-1 px-3 py-2 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent text-sm min-w-0 transition-all duration-200"
+                  className="flex-1 px-3 py-2 bg-surface-2 rounded-brand text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 text-sm min-w-0 transition-all duration-150 ease-out"
                 />
                 <button
                   onClick={handleAddPort}
                   disabled={!newPort}
-                  className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded-brand transition-all duration-200 shadow-lg shadow-brand-500/20"
+                  className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-surface-2 disabled:cursor-not-allowed text-text text-sm font-medium rounded-brand transition-all duration-200 shadow-lg shadow-brand-500/20"
                 >
                   {t("sites.open")}
                 </button>
@@ -363,11 +363,11 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
               </div>
             ) : currentSites.length === 0 ? (
                 <div className="text-center py-8">
-                  <div className="w-12 h-12 mx-auto mb-3 rounded-brand-lg bg-dark-500 flex items-center justify-center">
-                    <Globe className="text-dark-100" size={24} />
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-brand-lg bg-surface-2 flex items-center justify-center">
+                    <Globe className="text-text-muted" size={24} />
                   </div>
-                  <p className="text-dark-50 font-medium">{t("sites.noSitesFound")}</p>
-                  <p className="text-dark-100 text-sm mt-1">{t("sites.startServerHint")}</p>
+                  <p className="text-text font-medium">{t("sites.noSitesFound")}</p>
+                  <p className="text-text-muted text-sm mt-1">{t("sites.startServerHint")}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -380,13 +380,13 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                       return (
                         <div
                           key={`custom-${port}`}
-                          className="w-full px-4 py-3 bg-dark-700/50 hover:bg-dark-600 border border-dark-400 hover:border-brand-500 rounded-brand-lg transition-all duration-200 group flex items-center justify-between gap-2"
+                          className="w-full px-4 py-3 bg-surface-2 hover:bg-surface-3 rounded-brand-lg transition-all duration-150 ease-out active:scale-[0.99] group flex items-center justify-between gap-2"
                         >
                           <button
                             onClick={() => !isEditing && handleSelectSite({ port, name: displayName, protocol: "http", isCustom: true })}
                             className="flex-1 flex items-center gap-3 text-left min-w-0"
                           >
-                            <div className="w-2.5 h-2.5 rounded-full bg-dark-200 shrink-0" />
+                            <div className="w-2.5 h-2.5 rounded-full bg-surface-2 shrink-0" />
                             <div className="min-w-0 flex-1">
                               {isEditing ? (
                                 <input
@@ -400,15 +400,15 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                                   onClick={(e) => e.stopPropagation()}
                                   autoFocus
                                   placeholder={t("sites.siteNamePlaceholder")}
-                                  className="w-full px-2 py-1 bg-dark-700 border border-brand-500 rounded-brand text-white text-sm focus:outline-none"
+                                  className="w-full px-2 py-1 bg-surface ring-2 ring-brand-500/40 rounded-brand text-text text-sm focus:outline-none transition-all duration-150"
                                 />
                               ) : (
-                                <div className="text-white font-medium group-hover:text-brand-500 transition-colors truncate">
+                                <div className="text-text font-medium group-hover:text-brand-500 transition-colors truncate">
                                   {displayName}
                                 </div>
                               )}
-                              <div className="text-xs text-dark-100 mt-0.5 flex items-center gap-2">
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-dark-500 text-dark-100">
+                              <div className="text-xs text-text-muted mt-0.5 flex items-center gap-2">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-surface-2 text-text-muted">
                                   http
                                 </span>
                                 <span>Port {port}</span>
@@ -418,7 +418,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                           {isEditing ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleSaveEdit(); }}
-                              className="p-2 text-brand-500 hover:text-white hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                              className="p-2 text-brand-500 hover:text-text hover:bg-surface-2 rounded-brand transition-colors shrink-0"
                               title={t("sites.saveTitle")}
                             >
                               <Check size={16} />
@@ -426,7 +426,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                           ) : (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleStartEdit(port, siteLabels[port]); }}
-                              className="p-2 text-dark-100 hover:text-brand-500 hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                              className="p-2 text-text-muted hover:text-brand-500 hover:bg-surface-2 rounded-brand transition-colors shrink-0"
                               title={t("sites.editNameTitle")}
                             >
                               <Pencil size={16} />
@@ -437,13 +437,13 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                               e.stopPropagation();
                               handleRemovePort(port);
                             }}
-                            className="p-2 text-dark-100 hover:text-red-400 hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                            className="p-2 text-text-muted hover:text-red-400 hover:bg-surface-2 rounded-brand transition-colors shrink-0"
                             title={t("sites.removeTitle")}
                           >
                             <Trash2 size={16} />
                           </button>
                           {!isEditing && (
-                            <ChevronRight className="text-dark-100 group-hover:text-brand-500 transition-colors shrink-0" size={20} />
+                            <ChevronRight className="text-text-muted group-hover:text-brand-500 transition-colors shrink-0" size={20} />
                           )}
                         </div>
                       );
@@ -456,7 +456,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                     return (
                       <div
                         key={`auto-${site.port}`}
-                        className="w-full px-4 py-3 bg-dark-700/50 hover:bg-dark-600 border border-dark-400 hover:border-brand-500 rounded-brand-lg transition-all duration-200 group flex items-center justify-between gap-2"
+                        className="w-full px-4 py-3 bg-surface-2 hover:bg-surface-3 rounded-brand-lg transition-all duration-150 ease-out active:scale-[0.99] group flex items-center justify-between gap-2"
                       >
                         <button
                           onClick={() => !isEditing && handleSelectSite({ ...site, name: displayName })}
@@ -476,14 +476,14 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                                 onClick={(e) => e.stopPropagation()}
                                 autoFocus
                                 placeholder={site.name}
-                                className="w-full px-2 py-1 bg-dark-700 border border-brand-500 rounded-brand text-white text-sm focus:outline-none"
+                                className="w-full px-2 py-1 bg-surface ring-2 ring-brand-500/40 rounded-brand text-text text-sm focus:outline-none transition-all duration-150"
                               />
                             ) : (
-                              <div className="text-white font-medium group-hover:text-brand-500 transition-colors truncate">
+                              <div className="text-text font-medium group-hover:text-brand-500 transition-colors truncate">
                                 {displayName}
                               </div>
                             )}
-                            <div className="text-xs text-dark-100 mt-0.5 flex items-center gap-2">
+                            <div className="text-xs text-text-muted mt-0.5 flex items-center gap-2">
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium uppercase ${
                                 site.protocol === "https"
                                   ? "bg-green-500/20 text-green-400"
@@ -498,7 +498,7 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                         {isEditing ? (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleSaveEdit(); }}
-                            className="p-2 text-brand-500 hover:text-white hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                            className="p-2 text-brand-500 hover:text-text hover:bg-surface-2 rounded-brand transition-colors shrink-0"
                             title={t("sites.saveTitle")}
                           >
                             <Check size={16} />
@@ -506,14 +506,14 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
                         ) : (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleStartEdit(site.port, siteLabels[site.port]); }}
-                            className="p-2 text-dark-100 hover:text-brand-500 hover:bg-dark-500 rounded-brand transition-colors shrink-0"
+                            className="p-2 text-text-muted hover:text-brand-500 hover:bg-surface-2 rounded-brand transition-colors shrink-0"
                             title={t("sites.editNameTitle")}
                           >
                             <Pencil size={16} />
                           </button>
                         )}
                         {!isEditing && (
-                          <ChevronRight className="text-dark-100 group-hover:text-brand-500 transition-colors shrink-0" size={20} />
+                          <ChevronRight className="text-text-muted group-hover:text-brand-500 transition-colors shrink-0" size={20} />
                         )}
                       </div>
                     );
@@ -523,14 +523,14 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
             </div>
 
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-dark-400 flex items-center justify-between shrink-0">
-              <span className="text-xs text-dark-100">
+            <div className="px-5 py-3 border-t border-border flex items-center justify-between shrink-0">
+              <span className="text-xs text-text-muted">
                 {currentSites.length > 0 ? t("sites.foundCount", { n: currentSites.length, suffix: currentSites.length > 1 ? "s" : "" }) : ""}
               </span>
               <button
                 onClick={loadSites}
                 disabled={loadingSites}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm text-dark-100 hover:text-white hover:bg-dark-500 rounded-brand transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={loadingSites ? "animate-spin text-brand-500" : ""} size={16} />
                 {t("sites.refresh")}

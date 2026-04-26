@@ -9,8 +9,9 @@ import Container from "@/shared/components/ui/Container";
 import Button from "@/shared/components/ui/Button";
 import Spinner from "@/shared/components/ui/Spinner";
 import QRScanner from "@/shared/components/ui/QRScanner";
-import MobileBackgroundImage from "@/shared/components/ui/MobileBackground";
+import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
 import LanguageSwitcher from "@/shared/components/ui/LanguageSwitcher";
+import ThemeToggle from "@/shared/theme/ThemeToggle";
 import { useI18n } from "@/shared/i18n";
 import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode, Home, FileText } from "@/shared/components/ui/Icon";
 import { HOMEPAGE_URL, DOCS_URL } from "@/shared/constants/API";
@@ -168,9 +169,9 @@ function LoginContent() {
   if (isTokenAuth && loading) {
     return (
       <>
-        <MobileBackgroundImage />
+        <AnimatedBackground />
         <Container>
-          <div className="bg-dark-600 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
+          <div className="card-elev p-8 max-w-md w-full border border-border">
             <Spinner size="lg" text={t("login.authenticating")} />
           </div>
         </Container>
@@ -180,21 +181,22 @@ function LoginContent() {
 
   return (
     <>
-      <MobileBackgroundImage />
+      <AnimatedBackground />
       <Container>
-        <div className="bg-dark-600 p-8 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400">
+        <div className="card-elev p-8 max-w-md w-full border border-border">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-brand-500/10 rounded-brand">
               <Terminal className="text-brand-500" size={32} />
             </div>
             <div className="flex-1">
-              <h1 className="text-4xl font-bold text-white">9Remote</h1>
-              {version && <p className="text-xs text-dark-100 mt-0.5">v{version}</p>}
+              <h1 className="text-4xl font-bold text-text">9Remote</h1>
+              {version && <p className="text-xs text-text-muted mt-0.5">v{version}</p>}
             </div>
             <LanguageSwitcher />
+            <ThemeToggle />
           </div>
 
-          <p className="text-dark-100 mb-8">
+          <p className="text-text-muted mb-8">
             {t("login.tagline")}
           </p>
 
@@ -204,21 +206,21 @@ function LoginContent() {
               <div className="flex flex-col items-center mb-3">
                 <button
                   onClick={() => setShowQRScanner(true)}
-                  className="flex flex-col items-center gap-2 p-2 border border-dark-400 rounded-brand hover:border-brand-500 hover:scale-105 transition-all duration-200"
+                  className="flex flex-col items-center gap-2 p-2 bg-surface-2 hover:bg-surface-3 rounded-brand transition-all duration-150 ease-out active:scale-[0.98]"
                   aria-label="Scan QR Code"
                 >
                   <QrCode size={48} strokeWidth={1.5} className="text-brand-500" />
-                  <span className="text-sm text-dark-100">{t("login.tapToScan")}</span>
+                  <span className="text-sm text-text-muted">{t("login.tapToScan")}</span>
                 </button>
               </div>
 
               {/* Divider */}
               <div className="relative mb-3">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-dark-400"></div>
+                  <div className="w-full h-px bg-border-subtle"></div>
                 </div>
                 <div className="relative flex justify-center text-sm">
-                  <span className="px-4 bg-dark-600 text-dark-100">{t("login.orEnterManually")}</span>
+                  <span className="px-4 bg-surface text-text-muted">{t("login.orEnterManually")}</span>
                 </div>
               </div>
             </>
@@ -226,7 +228,7 @@ function LoginContent() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-dark-50 mb-2">
+              <label className="block text-sm font-medium text-text mb-2">
                 {t("login.accessKey")}
               </label>
               <div className="relative">
@@ -236,14 +238,14 @@ function LoginContent() {
                   onChange={(e) => setApiKey(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
                   placeholder={t("login.placeholder")}
-                  className="w-full px-4 py-3 pr-20 bg-dark-700 border border-dark-400 rounded-brand text-white placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-transparent transition-all duration-200"
+                  className="w-full px-4 py-3 pr-20 bg-surface-2 rounded-brand text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
                 />
                 {apiKey && (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                     <button
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => setShowPassword(!showPassword)}
-                      className="text-dark-100 hover:text-white transition-colors"
+                      className="text-text-muted hover:text-text transition-colors"
                       type="button"
                     >
                       {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
@@ -251,7 +253,7 @@ function LoginContent() {
                     <button
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={handleClearInput}
-                      className="text-dark-100 hover:text-white transition-colors"
+                      className="text-text-muted hover:text-text transition-colors"
                       type="button"
                     >
                       <X size={20} />
@@ -260,7 +262,7 @@ function LoginContent() {
                 )}
               </div>
               {error && (
-                <p className="mt-2 text-sm text-red-400">{error}</p>
+                <p className="mt-2 text-sm text-danger">{error}</p>
               )}
             </div>
 
@@ -269,9 +271,9 @@ function LoginContent() {
                 type="checkbox"
                 checked={rememberKey}
                 onChange={(e) => handleRememberChange(e.target.checked)}
-                className="w-4 h-4 bg-dark-700 border-dark-400 rounded accent-brand-500 focus:ring-1 focus:ring-brand-500"
+                className="w-4 h-4 rounded accent-brand-500 focus:ring-2 focus:ring-brand-500/40"
               />
-              <span className="text-sm text-dark-50 group-hover:text-white transition-colors">{t("login.rememberKey")}</span>
+              <span className="text-sm text-text group-hover:text-text transition-colors">{t("login.rememberKey")}</span>
             </label>
 
             <Button
@@ -287,21 +289,21 @@ function LoginContent() {
 
           {/* Saved Keys - only render after hydration */}
           {isHydrated && savedKeys.length > 0 && (
-            <div className="mt-6 pt-6 border-t border-dark-400">
-              <h3 className="text-sm font-medium text-dark-50 mb-3">{t("login.savedKeys")}</h3>
+            <div className="mt-6 pt-6 border-t border-border-subtle">
+              <h3 className="text-sm font-medium text-text mb-3">{t("login.savedKeys")}</h3>
               <div className="space-y-2">
                 {savedKeys.map((item) => (
-                  <div key={item.id} className="bg-dark-700/50 border border-dark-400 rounded-brand p-3 hover:border-brand-500/30 transition-colors">
+                  <div key={item.id} className="bg-surface-2 rounded-brand p-3 hover:bg-surface-3 transition-all duration-150 ease-out">
                     <div className="flex items-center justify-between gap-3">
                       <div 
                         className="flex-1 min-w-0 cursor-pointer group"
                         onClick={() => handleLoginWithSavedKey(item.key)}
                       >
-                        <code className="text-sm text-dark-50 group-hover:text-brand-500 font-mono block truncate transition-colors">
+                        <code className="text-sm text-text group-hover:text-brand-500 font-mono block truncate transition-colors">
                           {maskApiKey(item.key)}
                         </code>
                         {item.lastLoginDate && (
-                          <span className="text-xs text-dark-100 mt-1 block">
+                          <span className="text-xs text-text-muted mt-1 block">
                             {t("login.lastLogin")}: {formatLoginDate(item.lastLoginDate)}
                           </span>
                         )}
@@ -318,7 +320,7 @@ function LoginContent() {
                         <button
                           onClick={() => handleRemoveKey(item.id)}
                           disabled={loading}
-                          className="flex items-center gap-1 text-dark-100 hover:text-red-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="flex items-center gap-1 text-text-muted hover:text-danger text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -330,7 +332,7 @@ function LoginContent() {
             </div>
           )}
 
-          <div className="mt-6 pt-6 border-t border-dark-400 flex items-center justify-center gap-4 text-sm text-dark-100">
+          <div className="mt-6 pt-6 border-t border-border-subtle flex items-center justify-center gap-4 text-sm text-text-muted">
             <a
               href={HOMEPAGE_URL}
               target="_blank"
@@ -340,7 +342,7 @@ function LoginContent() {
               <Home size={14} />
               {t("login.home")}
             </a>
-            <span className="text-dark-400">·</span>
+            <span className="text-text-subtle">·</span>
             <a
               href={DOCS_URL}
               target="_blank"
@@ -368,7 +370,7 @@ export default function LoginPage() {
   return (
     <Suspense fallback={
       <>
-        <MobileBackgroundImage />
+        <AnimatedBackground />
         <Container>
           <Spinner text="Loading..." />
         </Container>

@@ -14,6 +14,7 @@ import { AUTO_SAVE_DELAY, LANGUAGE_MAP } from "../constants/fileExplorer.js";
 import { ChevronLeft, Save, Loader2, GitBranch } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import { useTheme } from "@/shared/theme/ThemeProvider";
 
 const languageExtensions = {
   javascript: javascript(),
@@ -31,6 +32,7 @@ function getLanguageExtension(filePath) {
 
 export default function FileEditor({ filePath, fileSocket, onBack, line, column, workspace }) {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const editorRef = useRef(null);
   const viewRef = useRef(null);
   const textInputRef = useRef(null);
@@ -151,7 +153,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
       doc: content,
       extensions: [
         basicSetup,
-        oneDark,
+        ...(theme === "dark" ? [oneDark] : []),
         getLanguageExtension(filePath),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
@@ -193,7 +195,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, content, filePath]);
+  }, [loading, content, filePath, theme]);
 
   // Jump to line/column when line prop changes
   useEffect(() => {
@@ -266,18 +268,18 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
   };
 
   return (
-    <div className="h-full bg-dark-700 flex flex-col">
+    <div className="h-full bg-bg flex flex-col">
       {/* Header */}
-      <div className="bg-dark-600 border-b border-dark-400 px-4 py-3 flex items-center gap-2 flex-shrink-0">
+      <div className="bg-surface px-4 py-3 flex items-center gap-2 flex-shrink-0">
         <button
           onClick={() => { vibrate(); handleBack(); }}
-          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500"
+          className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
         >
           <ChevronLeft size={20} />
         </button>
 
         <div className="flex-1 flex items-center gap-2 min-w-0">
-          <span className="text-white font-medium truncate">{fileName}</span>
+          <span className="text-text font-medium truncate">{fileName}</span>
           {hasChanges && (
             <span className="w-2 h-2 bg-yellow-400 rounded-full flex-shrink-0" title={t("editor.unsaved")} />
           )}
@@ -291,7 +293,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
           <button
             onClick={() => { vibrate(); handleShowDiff(); }}
             disabled={loadingDiff}
-            className="p-2 bg-dark-500 hover:bg-dark-400 text-orange-400 rounded-brand transition-all duration-200 border border-dark-400 hover:border-orange-500"
+            className="p-2 bg-surface-2 hover:bg-surface-3 text-orange-400 rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
             title={`Git: ${gitStatus.status === "M" ? t("editor.statusModified") : gitStatus.status === "A" ? t("editor.statusAdded") : gitStatus.status === "?" ? t("editor.statusUntracked") : gitStatus.status}`}
           >
             {loadingDiff ? <Loader2 className="animate-spin" size={16} /> : <GitBranch size={16} />}
@@ -301,10 +303,10 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
         <button
           onClick={() => { vibrate(); saveFile(); }}
           disabled={!hasChanges || saving}
-          className={`px-3 py-2 rounded-brand transition-all duration-200 flex items-center gap-1 ${
+          className={`px-3 py-2 rounded-brand transition-all duration-150 ease-out flex items-center gap-1 ${
             hasChanges && !saving
-              ? "bg-brand-500 hover:bg-brand-600 text-white shadow-lg shadow-brand-500/20"
-              : "bg-dark-500 text-dark-200 cursor-not-allowed"
+              ? "bg-brand-500 hover:bg-brand-600 text-white shadow-sm active:scale-[0.97]"
+              : "bg-surface-2 text-text-muted cursor-not-allowed"
           }`}
         >
           {saving ? (
@@ -326,7 +328,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
       {/* Editor */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {loading && (
-          <div className="h-full flex items-center justify-center text-dark-100">
+          <div className="h-full flex items-center justify-center text-text-muted">
             {t("common.loading")}
           </div>
         )}
@@ -343,21 +345,21 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
           onClick={() => setShowDiff(false)}
         >
           <div 
-            className="bg-dark-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden border border-dark-400"
+            className="card-elev w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="bg-dark-600 px-4 py-3 flex items-center justify-between border-b border-dark-400">
-              <span className="text-white font-medium">{t("editor.gitDiff")}: {fileName}</span>
+            <div className="bg-surface-2 px-4 py-3 flex items-center justify-between">
+              <span className="text-text font-medium">{t("editor.gitDiff")}: {fileName}</span>
               <button
                 onClick={() => setShowDiff(false)}
-                className="p-1 hover:bg-dark-500 rounded transition-colors text-dark-100 hover:text-white"
+                className="p-1 hover:bg-surface-2 rounded transition-colors text-text-muted hover:text-text"
               >
                 ✕
               </button>
             </div>
             <pre className="flex-1 overflow-auto p-4 text-sm font-mono whitespace-pre-wrap">
               {diffContent.split("\n").map((line, i) => {
-                let className = "text-dark-100";
+                let className = "text-text-muted";
                 if (line.startsWith("+") && !line.startsWith("+++")) className = "text-green-400";
                 else if (line.startsWith("-") && !line.startsWith("---")) className = "text-red-400";
                 else if (line.startsWith("@@")) className = "text-blue-400";
@@ -369,7 +371,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
       )}
 
       {/* Text Input Panel */}
-      <div className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${showTextInput ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}>
+      <div className={`bg-surface transition-all duration-300 overflow-hidden ${showTextInput ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}>
         <div className="p-2 flex gap-2 items-center">
           <textarea
             ref={textInputRef}
@@ -377,7 +379,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
             onChange={(e) => setTextInput(e.target.value)}
             placeholder={t("editor.typeText")}
             rows={1}
-            className="w-full px-3 py-2 bg-dark-600 border border-dark-400 rounded text-white text-base placeholder-dark-100 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-all duration-200 resize-none"
+            className="w-full px-3 py-2 bg-surface-2 rounded text-text text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none"
           />
           <button
             onClick={() => {
@@ -389,7 +391,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
               setShowTextInput(false);
             }}
             disabled={!textInput.trim()}
-            className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-dark-500 disabled:opacity-50 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0"
+            className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-surface-2 disabled:opacity-50 text-white text-sm font-medium rounded transition-all duration-150 ease-out active:scale-[0.97] shadow-sm flex-shrink-0"
           >
             {t("editor.insert")}
           </button>
@@ -397,7 +399,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
       </div>
 
       {/* Code shortcuts toolbar - 2 rows */}
-      <div className="bg-dark-600 border-t border-dark-400 px-2 py-2 flex flex-col gap-1 flex-shrink-0">
+      <div className="bg-surface border-t border-border px-2 py-2 flex flex-col gap-1 flex-shrink-0">
         {/* Row 1: Navigation + modifiers */}
         <div className="flex gap-1">
           {[
@@ -424,10 +426,10 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
                   dispatchKey(item.key);
                 }
               }}
-              className={`flex-1 py-2 text-white text-xs rounded-brand transition-all duration-200 border ${
+              className={`flex-1 py-2 text-text text-xs rounded-brand transition-all duration-200 border ${
                 (item.modifier === "ctrl" && ctrlPressed) || (item.modifier === "alt" && altPressed)
                   ? "bg-brand-500 border-brand-400 shadow-md shadow-brand-500/30"
-                  : "bg-dark-500 hover:bg-dark-400 border-dark-400 hover:border-brand-500"
+                  : "bg-surface-2 hover:bg-surface-2 border-border hover:border-brand-500"
               }`}
             >
               {item.label}
@@ -461,10 +463,10 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
                   dispatchKey(item.key, { ctrl: item.ctrl, alt: item.alt });
                 }
               }}
-              className={`flex-1 py-2 text-white text-xs rounded-brand transition-all duration-200 border ${
+              className={`flex-1 py-2 text-text text-xs rounded-brand transition-all duration-200 border ${
                 item.toggleTextInput && showTextInput
                   ? "bg-brand-500 border-brand-400 shadow-md shadow-brand-500/30"
-                  : "bg-dark-500 hover:bg-dark-400 border-dark-400 hover:border-brand-500"
+                  : "bg-surface-2 hover:bg-surface-2 border-border hover:border-brand-500"
               }`}
             >
               {item.label}

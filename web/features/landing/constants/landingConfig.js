@@ -1,20 +1,20 @@
-// Centralized config for landing page theme + animations
+// Theme tokens resolve via CSS vars (semantic theme aware)
 export const THEME = {
-  bg: "#0A0A0A",
-  bgElevated: "#121212",
-  bgPanel: "#1A1A1A",
-  border: "rgba(255,255,255,0.08)",
-  borderStrong: "rgba(255,255,255,0.14)",
-  borderAccent: "rgba(255,87,10,0.35)",
-  text: "#FFFFFF",
-  textDim: "#A0A0A0",
-  textMuted: "#666666",
-  accent: "#FF570A",
-  accentGlow: "rgba(255,87,10,0.4)",
-  accentSoft: "rgba(255,87,10,0.12)",
-  success: "#10B981",
+  bg: "var(--color-bg)",
+  bgElevated: "var(--color-surface)",
+  bgPanel: "var(--color-surface-2)",
+  border: "var(--color-border)",
+  borderStrong: "var(--color-border)",
+  borderAccent: "color-mix(in srgb, var(--color-accent) 35%, transparent)",
+  text: "var(--color-text)",
+  textDim: "var(--color-text-muted)",
+  textMuted: "var(--color-text-subtle)",
+  accent: "var(--color-accent)",
+  accentGlow: "color-mix(in srgb, var(--color-accent) 40%, transparent)",
+  accentSoft: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
+  success: "var(--color-success)",
   warn: "#F59E0B",
-  err: "#EF4444"
+  err: "var(--color-danger)"
 };
 
 // Claude Code terminal demo sequence (typing animation)

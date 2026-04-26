@@ -7,16 +7,16 @@ export default function SaveKeyDialog({ isOpen, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-600 rounded-brand-lg shadow-2xl max-w-md w-full border border-dark-400 p-6">
-        <h2 className="text-xl font-bold text-white mb-3">
+      <div className="card-elev max-w-md w-full p-6">
+        <h2 className="text-xl font-bold text-text mb-3">
           Save API Key?
         </h2>
         
-        <p className="text-dark-50 mb-4">
+        <p className="text-text mb-4">
           Do you want to save this API key on this device for later use?
         </p>
 
-        <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3 mb-6">
+        <div className="bg-yellow-500/10 rounded-brand p-3 mb-6">
           <p className="text-yellow-200 text-sm flex items-start gap-2">
             <span className="text-lg">⚠️</span>
             <span>

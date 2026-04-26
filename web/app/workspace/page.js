@@ -9,10 +9,10 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath } from "@/features/fileExplorer/components/WorkspaceList";
-import MobileBackgroundImage from "@/shared/components/ui/MobileBackground";
 import { useNotification } from "@/shared/hooks/useNotification";
 import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "@/features/terminal/constants/terminalConfig";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
+import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
 
 const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
 const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
@@ -50,12 +50,6 @@ export default function WorkspacePage() {
     setHydrated(true);
   }, []);
 
-  const [theme, setTheme] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("terminal_theme") || "default";
-    }
-    return "default";
-  });
   const router = useRouter();
   const { getAuth } = useSessionStorage();
   const { socket, socketRef, connected, connectionMode, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
@@ -103,14 +97,6 @@ export default function WorkspacePage() {
   }, []);
   const handlePasteFallback = useCallback(() => {
     keyboardTextApiRef.current?.openTextPanel?.();
-  }, []);
-
-  // Save theme to localStorage when changed
-  const handleThemeChange = useCallback((newTheme) => {
-    setTheme(newTheme);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("terminal_theme", newTheme);
-    }
   }, []);
 
   // Current view is top of stack
@@ -404,15 +390,15 @@ export default function WorkspacePage() {
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen bg-dark-700 flex items-center justify-center">
-        <div className="text-dark-100">{t("workspace.loading")}</div>
+      <div className="min-h-screen bg-bg flex items-center justify-center">
+        <div className="text-text-muted">{t("workspace.loading")}</div>
       </div>
     );
   }
 
   return (
     <>
-      {/* <MobileBackgroundImage /> */}
+      <AnimatedBackground />
       <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
         {/* Session List */}
         <div
@@ -470,8 +456,6 @@ export default function WorkspacePage() {
                 onOpenFiles={handleOpenFiles}
                 onLogout={handleLogoutWithConfirm}
                 onStopCodespace={stopCodespace}
-                onThemeChange={handleThemeChange}
-                theme={theme}
                 codespaceInfo={codespaceInfo}
                 tunnelUrl={auth?.tunnelUrl}
                 apiKey={auth?.apiKey}
@@ -483,7 +467,7 @@ export default function WorkspacePage() {
               />
 
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
-              <div className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-dark-400" : "relative"}`}>
+              <div className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-border" : "relative"}`}>
                 {openedSessions.map((sessionId) => {
                   const isFocused = sessionId === activeSessionId;
                   const isVisible = isDesktop || isFocused;
@@ -504,7 +488,6 @@ export default function WorkspacePage() {
                         sessionId={sessionId}
                         isVisible={isVisible}
                         isFocused={isFocused}
-                        theme={theme}
                         onActivate={handleSelectSession}
                         onRegisterApi={registerPaneApi}
                         onPasteFallback={handlePasteFallback}
@@ -526,7 +509,6 @@ export default function WorkspacePage() {
                   onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
                   onRegisterTextApi={registerKeyboardTextApi}
                   platform={platform}
-                  theme={theme}
                 />
               )}
             </div>

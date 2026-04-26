@@ -33,22 +33,22 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
       />
       
       {/* Dialog */}
-      <div className="relative bg-dark-600 border border-dark-400 rounded-brand-lg shadow-2xl max-w-md w-full animate-in zoom-in-95 duration-200">
+      <div className="relative card-elev max-w-md w-full animate-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-dark-400">
-          <h3 className="text-lg font-semibold text-white">{title}</h3>
+        <div className="px-6 py-4">
+          <h3 className="text-lg font-semibold text-text">{title}</h3>
         </div>
         
         {/* Body */}
-        <div className="px-6 py-4">
-          <p className="text-dark-50">{message}</p>
+        <div className="px-6 pb-4">
+          <p className="text-text">{message}</p>
         </div>
         
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-dark-400 flex justify-end gap-3">
+        <div className="px-6 py-4 flex justify-end gap-3">
           <button
             onClick={() => { vibrate(); onClose(); }}
-            className="px-4 py-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition font-medium"
+            className="px-4 py-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.98] font-medium"
           >
             {finalCancel}
           </button>
@@ -58,7 +58,7 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
               onConfirm();
               onClose();
             }}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-brand transition font-medium"
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-brand transition-all duration-150 ease-out active:scale-[0.98] font-medium"
           >
             {finalConfirm}
           </button>

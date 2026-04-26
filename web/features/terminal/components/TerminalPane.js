@@ -11,6 +11,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useI18n } from "@/shared/i18n";
+import { useTheme } from "@/shared/theme/ThemeProvider";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
@@ -21,7 +22,6 @@ function TerminalPane({
   sessionId,
   isVisible,
   isFocused,
-  theme = "default",
   onActivate,
   onRegisterApi,
   onPasteFallback,
@@ -30,6 +30,7 @@ function TerminalPane({
   clearNotification,
 }) {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const containerRef = useRef(null);
   const longPressTimer = useRef(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -55,7 +56,7 @@ function TerminalPane({
     }
   }, [sessionId, isVisible, clearNotification]);
 
-  const currentTheme = THEMES[theme] || THEMES.default;
+  const currentTheme = THEMES[theme] || THEMES.dark;
 
   // Long-press: try clipboard paste; if fails/empty → open text input panel below
   const handleLongPressPaste = async () => {
@@ -159,19 +160,17 @@ function TerminalPane({
     if (!isFocused) onActivate?.(sessionId);
   };
 
-  // Use ring-inset so focus ring draws inside bounds (symmetric, not clipped by neighbors)
-  const borderClass = showFocusBorder && isFocused
-    ? "ring-1 ring-inset ring-brand-500/60"
-    : "";
+  // Top-mid soft glow when focused (light effect instead of full border)
+  const focusClass = showFocusBorder && isFocused ? "terminal-focus-glow" : "";
 
   return (
     <div
-      className={`h-full w-full flex flex-col overflow-hidden ${borderClass}`}
+      className={`h-full w-full flex flex-col overflow-hidden relative ${focusClass}`}
       style={{ background: currentTheme.background }}
       onMouseDown={handlePaneClick}
       onTouchStart={(e) => { handlePaneClick(); handleTouchStart(e); }}
     >
-      <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden px-2 sm:p-4 relative">
+      <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden px-1 py-1 relative">
         <div
           ref={containerRef}
           className="xterm-screen w-full h-full rounded-sm overflow-hidden"
@@ -187,7 +186,7 @@ function TerminalPane({
               e.stopPropagation();
               handleScrollToBottom();
             }}
-            className="absolute bottom-5 right-7 z-50 p-2 bg-black/30 hover:bg-black/50 text-white rounded-full border border-white/20 shadow-lg transition-all duration-200 hover:scale-105"
+            className="absolute bottom-5 right-7 z-50 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
             title={t("terminalPane.scrollToBottom")}
           >
             <ChevronDown size={20} />
