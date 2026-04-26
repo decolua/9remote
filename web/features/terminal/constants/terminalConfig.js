@@ -105,12 +105,15 @@ export const TERMINAL_EXTRA_ROW_COUNT = 3;
 
 // Keyboard button styles — aligned with Remote Desktop Btn visual language
 export const BUTTON_STYLES = {
-  base: "flex items-center justify-center rounded-brand font-semibold text-xs transition-all duration-200 shadow-sm",
+  base: "flex items-center justify-center rounded-brand font-semibold transition-all duration-200 shadow-sm",
+  // Text size variants: long labels (Ctrl/Shift/PgUp...) use smaller text; single chars/icons keep normal size
+  textNormal: "text-xs",
+  textSmall: "text-[11px]",
   normal: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500",
   arrow: "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white text-sm border border-dark-400 hover:border-brand-500",
   modifierActive: "bg-brand-500 text-white border border-brand-400 shadow-lg shadow-brand-500/20",
   pinned: "bg-dark-700 hover:bg-dark-600 active:bg-dark-600 text-brand-300 border border-brand-500/40 hover:border-brand-500",
-  // Slightly larger than original 34×34 but smaller than Remote Desktop Btn
-  size: { minWidth: "38px", height: "36px", paddingLeft: "8px", paddingRight: "8px" },
+  size: { minWidth: "34px", height: "32px", paddingLeft: "6px", paddingRight: "6px" },
+  sizeLarge: { minWidth: "38px", height: "32px", paddingLeft: "8px", paddingRight: "8px" },
   sizeSmall: { width: "28px", height: "28px" }
 };

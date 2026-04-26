@@ -23,7 +23,7 @@ const v = (fn, ...args) => { vibrate(); fn?.(...args); };
 
 // onMouseDown.preventDefault() — prevents focus-steal so native keyboard stays on.
 function Btn({ active, primary, pinned, children, className = "", onClick, ...rest }) {
-  const base = "shrink-0 px-1 h-9 rounded-brand text-xs font-semibold  shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[38px] flex items-center justify-center";
+  const base = "shrink-0 px-1 h-8 rounded-brand text-xs font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[34px] flex items-center justify-center";
   const normal = "bg-gradient-to-br from-dark-500 to-dark-600 hover:from-dark-400 hover:to-dark-500 active:from-dark-400 active:to-dark-500 text-white border border-dark-400 hover:border-brand-500";
   const activeCls = "bg-brand-500 text-white border border-brand-400 shadow-lg shadow-brand-500/20";
   const primaryCls = "bg-green-600 hover:bg-green-700 text-white border border-green-500";
@@ -95,6 +95,8 @@ export default function RemoteControls({
 
   // Render one pool key with correct handler
   const renderPoolKey = (kc, idx, pinned = false, extraClass = "") => {
+    const textCls = kc.label.length > 1 ? "text-[11px]" : "";
+    const cls = `${extraClass} ${textCls}`.trim();
     if (kc.type === "modifier") {
       return (
         <Btn
@@ -103,7 +105,7 @@ export default function RemoteControls({
           disabled={!streaming}
           active={modifierKeys[kc.modifier]}
           pinned={pinned}
-          className={extraClass}
+          className={cls}
         >
           {kc.label}
         </Btn>
@@ -116,7 +118,7 @@ export default function RemoteControls({
         disabled={!streaming}
         primary={!pinned && kc.primary}
         pinned={pinned}
-        className={extraClass}
+        className={cls}
       >
         {kc.label}
       </Btn>
@@ -124,7 +126,7 @@ export default function RemoteControls({
   };
 
   return (
-    <div className="bg-dark-600 border-t border-dark-400 select-none relative landscape:border-t-0 landscape:border-l landscape:h-full landscape:flex landscape:flex-col landscape:w-72 landscape:shrink-0">
+    <div className="bg-dark-700 select-none relative landscape:h-full landscape:flex landscape:flex-col landscape:w-72 landscape:shrink-0">
       {/* Hidden sink drives native keyboard. */}
       <textarea
         ref={textInputRef}
@@ -152,7 +154,7 @@ export default function RemoteControls({
         }}
       />
 
-      <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} px-2 py-2 border-b border-dark-400 gap-2 landscape:border-b-0 landscape:border-t landscape:order-last`}>
+      <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} px-2 py-2 gap-2 landscape:order-last`}>
         <textarea
           ref={panelInputRef}
           rows={Math.min(2, (textInputValue.match(/\n/g) || []).length + 1)}
@@ -190,7 +192,7 @@ export default function RemoteControls({
 
       {/* Extra keys panel — slides in ABOVE toolbar, 3 scrollable rows */}
       <div
-        className={`overflow-hidden transition-all duration-300 border-b border-dark-400 ${showExtra ? "max-h-56 opacity-100" : "max-h-0 opacity-0"}`}
+        className={`overflow-hidden transition-all duration-300 ${showExtra ? "max-h-56 opacity-100" : "max-h-0 opacity-0"}`}
       >
         <div className="p-2">
           <div className="space-y-1">
@@ -219,7 +221,7 @@ export default function RemoteControls({
       </div>
 
       {/* Top toolbar — pin "..." at end, scroll rest */}
-      <div className="flex items-center gap-1.5 px-2 py-1 landscape:border-b landscape:border-dark-400 landscape:py-2">
+      <div className="flex items-center gap-1.5 px-2 py-1 landscape:py-2">
         <div className={`${rowClass} flex-1 min-w-0 px-0 py-0 landscape:py-0`}>
           <Btn onClick={() => v(onClose)} title={t("remote.back")} pinned>
             <ChevronLeft size={16} />

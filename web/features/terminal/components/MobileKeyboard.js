@@ -16,8 +16,10 @@ import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
+import { THEMES } from "@/features/terminal/constants/themes";
 
-const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform }) => {
+const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, theme }) => {
+  const themeBg = THEMES[theme]?.background ?? THEMES.default.background;
   const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showTextPanel, setShowTextPanel] = useState(false);
@@ -276,9 +278,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       : pinned ? `${buttonBaseClass} ${BUTTON_STYLES.pinned}`
       : kc.type === "arrow" ? arrowButtonClass : normalButtonClass;
     const accent = kc.type === "ctrl" ? "text-brand-400" : "";
-    const sizeStyle = large
-      ? { height: "36px", minWidth: "42px", paddingLeft: "10px", paddingRight: "10px" }
-      : BUTTON_STYLES.size;
+    const textCls = kc.label.length > 1 ? BUTTON_STYLES.textSmall : BUTTON_STYLES.textNormal;
+    const sizeStyle = large ? BUTTON_STYLES.sizeLarge : BUTTON_STYLES.size;
 
     return (
       <button
@@ -289,7 +290,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
           else if (kc.type === "ctrl") sendKey(kc.key, { ctrl: true });
           else sendKey(kc.key);
         }}
-        className={`${cls} ${accent} whitespace-nowrap`}
+        className={`${cls} ${accent} ${textCls} whitespace-nowrap`}
         style={sizeStyle}
       >
         {kc.label}
@@ -314,7 +315,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Expanded keyboard panel — 3 scrollable rows */}
       <div
-        className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 transition-all duration-300 overflow-hidden ${isExpanded && !hasPhysicalKeyboard ? "max-h-64 opacity-100" : "max-h-0 opacity-0"}`}
+        className={`transition-all duration-300 overflow-hidden ${isExpanded && !hasPhysicalKeyboard ? "max-h-64 opacity-100" : "max-h-0 opacity-0"}`}
+        style={{ backgroundColor: themeBg }}
       >
         <div className="p-2 max-w-2xl mx-auto">
           <div className="space-y-1">
@@ -343,7 +345,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       </div>
 
       {/* Text Input Panel */}
-      <div className={`bg-gradient-to-b from-dark-700 to-dark-800 border-t border-dark-400 overflow-hidden transition-all duration-300 ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0 border-t-0"}`}>
+      <div
+        className={`overflow-hidden transition-all duration-300 ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}
+        style={{ backgroundColor: themeBg }}
+      >
         <div className="p-2 flex gap-2 items-center">
           <label className="px-3 py-2 bg-dark-500 hover:bg-dark-400 text-sm font-medium rounded transition-all duration-200 border border-dark-400 hover:border-brand-500 flex items-center gap-1 cursor-pointer flex-shrink-0">
             <Paperclip size={16} className="text-orange-500/70" />
@@ -386,7 +391,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Bottom keyboard bar */}
       {!hasPhysicalKeyboard && (
-        <div className={`overflow-auto bg-gradient-to-t from-dark-700 via-dark-700 to-dark-600 border-t-2 border-dark-400 px-1.5 py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
+        <div
+          className={`overflow-auto px-1.5 py-1.5 ${isIosPwa ? "safe-area-bottom" : ""}`}
+          style={{ backgroundColor: themeBg }}
+        >
           <div className="flex items-center gap-1 max-w-4xl mx-auto">
             <div className="flex gap-1 flex-1 overflow-x-auto scroll-fade-x scroll-thin-x pr-2 rounded-lg">
               {basicCustom.keys

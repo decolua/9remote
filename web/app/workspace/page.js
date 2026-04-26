@@ -526,6 +526,7 @@ export default function WorkspacePage() {
                   onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
                   onRegisterTextApi={registerKeyboardTextApi}
                   platform={platform}
+                  theme={theme}
                 />
               )}
             </div>

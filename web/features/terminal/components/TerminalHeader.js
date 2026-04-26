@@ -5,6 +5,7 @@ import { ChevronLeft, Settings, Monitor, Plus } from "@/shared/components/ui/Ico
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
+import { THEMES } from "@/features/terminal/constants/themes";
 
 // Shared header for all terminal panes - contains tabs + actions
 export default function TerminalHeader({
@@ -74,13 +75,16 @@ export default function TerminalHeader({
   }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, theme, onThemeChange, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
-    <div className="bg-dark-600 border-b border-dark-400 px-2 sm:px-4 py-2 flex items-center gap-2 flex-shrink-0">
+    <div
+      className="px-2 sm:px-4 py-2 flex items-center gap-2 flex-shrink-0"
+      style={{ backgroundColor: THEMES[theme]?.background ?? THEMES.default.background }}
+    >
       <button
         onClick={() => { vibrate(); onBack(); }}
-        className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
+        className="p-1.5 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 flex-shrink-0"
         title={t("common.back")}
       >
-        <ChevronLeft size={20} />
+        <ChevronLeft size={18} />
       </button>
 
       {/* Terminal Tabs - sticky "+" button stays visible when tabs overflow */}
@@ -123,19 +127,19 @@ export default function TerminalHeader({
       {onOpenRemote && (
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
-          className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
+          className="p-1.5 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 flex-shrink-0"
           title={t("menu.remoteDesktop")}
         >
-          <Monitor size={20} />
+          <Monitor size={18} />
         </button>
       )}
 
       <button
         onClick={() => { vibrate(); openMenu(); }}
-        className="p-2 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 border border-dark-400 hover:border-brand-500 flex-shrink-0"
+        className="p-1.5 bg-dark-500 hover:bg-dark-400 text-white rounded-brand transition-all duration-200 flex-shrink-0"
         title={t("menu.title")}
       >
-        <Settings size={20} />
+        <Settings size={18} />
       </button>
     </div>
   );
