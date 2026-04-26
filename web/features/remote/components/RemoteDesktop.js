@@ -325,6 +325,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
           handHolding={handHolding}
           virtualCursor={virtualCursor}
           inputMode={inputMode}
+          keyboardOn={keyboardOn}
           onPointerDown={createInteractionHandler("pointerdown")}
           onPointerMove={createInteractionHandler("pointermove")}
           onPointerUp={createInteractionHandler("pointerup")}
@@ -369,7 +370,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
           // Re-focus to keep native keyboard visible. Use ref (not state) so toggleKeyboard's blur can close it.
           if (keyboardOnRef.current && !showTextPanel) setTimeout(() => textInputRef.current?.focus(), 0);
         }}
-        onTextInputKeyDown={(e) => handleModifiedTextInput(e, streaming, keyboardOn && !showTextPanel)}
+        onTextInputKeyDown={(e) => handleModifiedTextInput(e, streaming, keyboardOn)}
         onDirectInputChange={(value) => handleDirectInputChange(value, streaming)}
         onSendText={sendTextInput}
         onClose={handleClose}

@@ -16,8 +16,7 @@ export default function GetStartedSection() {
     <section id="get-started" className="relative py-24 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         <div
-          className="relative rounded-2xl p-8 sm:p-12 border overflow-hidden"
-          style={{ background: THEME.bgElevated, borderColor: THEME.border }}
+          className="relative rounded-2xl p-8 sm:p-12 overflow-hidden"
         >
           <div
             className="absolute -top-24 -right-24 w-80 h-80 rounded-full pointer-events-none animate-pulse-glow"

@@ -383,13 +383,13 @@ body.keyboard-open .safe-area-bottom {
 :root .landing-grid { opacity: 0.04; }
 :root.light .landing-grid { opacity: 0.08; }
 
-:root .landing-glow-1 { background: rgba(255, 87, 10, 0.09); }
+/* :root .landing-glow-1 { background: rgba(255, 87, 10, 0.09); }
 :root .landing-glow-2 { background: rgba(255, 87, 10, 0.06); }
 :root.light .landing-glow-1 { background: rgba(230, 138, 110, 0.18); }
-:root.light .landing-glow-2 { background: rgba(230, 138, 110, 0.12); }
+:root.light .landing-glow-2 { background: rgba(230, 138, 110, 0.12); } */
 
 :root .landing-vignette {
-  background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.6) 100%);
+  /* background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.6) 100%); */
 }
 :root.light .landing-vignette {
   background: radial-gradient(ellipse at center, transparent 50%, rgba(252, 251, 249, 0.85) 100%);

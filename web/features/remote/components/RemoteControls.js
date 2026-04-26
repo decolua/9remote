@@ -133,7 +133,7 @@ export default function RemoteControls({
         rows={1}
         value={textInputValue}
         onChange={(e) => {
-          if (keyboardOn && !showTextPanel) onDirectInputChange?.(e.target.value);
+          if (keyboardOn) onDirectInputChange?.(e.target.value);
           else onTextInputChange(e.target.value);
         }}
         onKeyDown={onTextInputKeyDown}

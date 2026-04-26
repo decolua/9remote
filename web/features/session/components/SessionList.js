@@ -141,16 +141,16 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         </div>
         
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           {/* Remote Button */}
           {onOpenRemote && (
             <button
               onClick={() => { vibrate(); onOpenRemote(); }}
               disabled={!connected}
-              className={`p-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.96] ${
+              className={`p-2 rounded-brand transition-colors active:scale-[0.96] ${
                 connected
-                  ? "bg-surface-2 hover:bg-surface-3 text-text"
-                  : "bg-surface-2/50 text-text-muted cursor-not-allowed"
+                  ? "text-text-muted hover:text-text hover:bg-surface-2"
+                  : "text-text-subtle cursor-not-allowed"
               }`}
               title={t("menu.remoteDesktop")}
             >
@@ -162,10 +162,10 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           <button
             onClick={() => { vibrate(); onOpenFiles(); }}
             disabled={!connected}
-            className={`p-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.96] ${
+            className={`p-2 rounded-brand transition-colors active:scale-[0.96] ${
               connected
-                ? "bg-surface-2 hover:bg-surface-3 text-text"
-                : "bg-surface-2/50 text-text-muted cursor-not-allowed"
+                ? "text-text-muted hover:text-text hover:bg-surface-2"
+                : "text-text-subtle cursor-not-allowed"
             }`}
             title={t("menu.files")}
           >
@@ -176,10 +176,10 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           <button
             onClick={handleOpenSites}
             disabled={!connected}
-            className={`p-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.96] ${
+            className={`p-2 rounded-brand transition-colors active:scale-[0.96] ${
               connected
-                ? "bg-surface-2 hover:bg-surface-3 text-text"
-                : "bg-surface-2/50 text-text-muted cursor-not-allowed"
+                ? "text-text-muted hover:text-text hover:bg-surface-2"
+                : "text-text-subtle cursor-not-allowed"
             }`}
             title={t("menu.sites")}
           >
@@ -189,7 +189,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           {/* Menu Button */}
           <button
             onClick={() => { vibrate(); openMenu(); }}
-            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
+            className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors active:scale-[0.96]"
             title={t("menu.title")}
           >
             <Settings size={20} />

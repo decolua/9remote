@@ -3,73 +3,70 @@
 import { X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 
-// Build help sections based on current mode. Keep it SHORT — only the essentials.
-function buildSections(inputMode, pointerMode) {
-  // PC mode — physical mouse + keyboard
+// Build help sections based on current mode. Keys reference i18n namespace `remoteHelp`.
+function buildSections(t, inputMode, pointerMode) {
   if (inputMode === "mouse") {
     return [
       {
-        title: "Mouse",
+        title: t("remoteHelp.mouseTitle"),
         items: [
-          { key: "Click / Drag", desc: "Left-click, drag to select/move" },
-          { key: "Right-click", desc: "Context menu on remote" },
-          { key: "Wheel", desc: "Scroll remote (Shift + Wheel = horizontal)" },
-          { key: "Double-click", desc: "Double-click on remote" }
+          { key: t("remoteHelp.mouseClickKey"), desc: t("remoteHelp.mouseClickDesc") },
+          { key: t("remoteHelp.mouseRightKey"), desc: t("remoteHelp.mouseRightDesc") },
+          { key: t("remoteHelp.mouseWheelKey"), desc: t("remoteHelp.mouseWheelDesc") },
+          { key: t("remoteHelp.mouseDoubleKey"), desc: t("remoteHelp.mouseDoubleDesc") }
         ]
       },
       {
-        title: "Keyboard",
+        title: t("remoteHelp.keyboardTitle"),
         items: [
-          { key: "Physical keys", desc: "Sent directly (Tab, F-keys, etc. captured)" },
-          { key: "Ctrl / Alt / Shift / ⌘", desc: "Sticky modifier — combine with next key" }
+          { key: t("remoteHelp.keyPhysicalKey"), desc: t("remoteHelp.keyPhysicalDesc") },
+          { key: t("remoteHelp.keyModifierKey"), desc: t("remoteHelp.keyModifierDesc") }
         ]
       }
     ];
   }
 
-  // Touch — Trackpad (virtual cursor ✋)
   if (pointerMode === "trackpad") {
     return [
       {
-        title: "Gestures (Trackpad ✋)",
+        title: t("remoteHelp.gesturesTrackpadTitle"),
         items: [
-          { key: "1 finger swipe", desc: "Move virtual cursor" },
-          { key: "1 finger tap", desc: "Left-click at cursor" },
-          { key: "2 fingers tap", desc: "Right-click at cursor" },
-          { key: "2 fingers swipe", desc: "Scroll at cursor position" },
-          { key: "2 fingers pinch", desc: "Zoom canvas" }
+          { key: t("remoteHelp.trackpadSwipeKey"), desc: t("remoteHelp.trackpadSwipeDesc") },
+          { key: t("remoteHelp.trackpadTapKey"), desc: t("remoteHelp.trackpadTapDesc") },
+          { key: t("remoteHelp.trackpad2TapKey"), desc: t("remoteHelp.trackpad2TapDesc") },
+          { key: t("remoteHelp.trackpad2SwipeKey"), desc: t("remoteHelp.trackpad2SwipeDesc") },
+          { key: t("remoteHelp.trackpadPinchKey"), desc: t("remoteHelp.trackpadPinchDesc") }
         ]
       },
       {
-        title: "Toolbar",
+        title: t("remoteHelp.toolbarTitle"),
         items: [
-          { key: "✋", desc: "Hold left-click (drag mode) — tap again to release" },
-          { key: "🖱️", desc: "Switch to Direct mode" },
-          { key: "⌨️ / Aa", desc: "Native keyboard / text batch input" }
+          { key: "✋", desc: t("remoteHelp.toolbarHandDesc") },
+          { key: "🖱️", desc: t("remoteHelp.toolbarMouseDirectDesc") },
+          { key: "⌨️ / Aa", desc: t("remoteHelp.toolbarKeyboardDesc") }
         ]
       }
     ];
   }
 
-  // Touch — Direct
   return [
     {
-      title: "Gestures (Direct)",
+      title: t("remoteHelp.gesturesDirectTitle"),
       items: [
-        { key: "1 finger tap", desc: "Click at tap position" },
-        { key: "1 finger long-press", desc: "Right-click" },
-        { key: "1 finger double-tap", desc: "Double-click" },
-        { key: "2 fingers swipe", desc: "Scroll remote" },
-        { key: "2 fingers pinch", desc: "Zoom canvas" },
-        { key: "1 finger drag (zoom>1)", desc: "Pan canvas" }
+        { key: t("remoteHelp.directTapKey"), desc: t("remoteHelp.directTapDesc") },
+        { key: t("remoteHelp.directLongKey"), desc: t("remoteHelp.directLongDesc") },
+        { key: t("remoteHelp.directDoubleKey"), desc: t("remoteHelp.directDoubleDesc") },
+        { key: t("remoteHelp.directScrollKey"), desc: t("remoteHelp.directScrollDesc") },
+        { key: t("remoteHelp.directPinchKey"), desc: t("remoteHelp.directPinchDesc") },
+        { key: t("remoteHelp.directPanKey"), desc: t("remoteHelp.directPanDesc") }
       ]
     },
     {
-      title: "Toolbar",
+      title: t("remoteHelp.toolbarTitle"),
       items: [
-        { key: "🖱️", desc: "Switch to Trackpad (virtual cursor)" },
-        { key: "⌨️ / Aa", desc: "Native keyboard / text batch input" },
-        { key: "□", desc: "Rectangle selection mode" }
+        { key: "🖱️", desc: t("remoteHelp.toolbarMouseTrackpadDesc") },
+        { key: "⌨️ / Aa", desc: t("remoteHelp.toolbarKeyboardDesc") },
+        { key: "□", desc: t("remoteHelp.toolbarRectDesc") }
       ]
     }
   ];
@@ -77,12 +74,12 @@ function buildSections(inputMode, pointerMode) {
 
 export default function RemoteHelpModal({ onClose, inputMode = "touch", pointerMode = "direct" }) {
   const { t } = useI18n();
-  const sections = buildSections(inputMode, pointerMode);
+  const sections = buildSections(t, inputMode, pointerMode);
   const modeLabel = inputMode === "mouse"
-    ? "PC / Mouse"
+    ? t("remoteHelp.modePc")
     : pointerMode === "trackpad"
-      ? "Touch · Trackpad"
-      : "Touch · Direct";
+      ? t("remoteHelp.modeTrackpad")
+      : t("remoteHelp.modeDirect");
 
   return (
     <div

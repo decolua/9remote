@@ -19,6 +19,7 @@ export default function RemoteCanvas({
   handHolding,
   virtualCursor,
   inputMode,
+  keyboardOn,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -73,6 +74,15 @@ export default function RemoteCanvas({
 
   // Re-focus canvas on every pointerdown so clicks never "steal" focus away.
   const handlePointerDown = (e) => {
+    const ae = document.activeElement;
+    if (ae?.name === "remote-batch-input") {
+      if (keyboardOn) {
+        const sink = document.querySelector('textarea[name="remote-keyboard-sink"]');
+        sink?.focus();
+      } else {
+        ae.blur();
+      }
+    }
     if (isMouseInput) {
       canvasRef.current?.focus();
       if (e.pointerType === "mouse") setIsDraggingMouse(true);
