@@ -31,8 +31,9 @@ const STANDALONE_SERVER = path.resolve(__dirname, "../dist/server.cjs");
 const DEV_SERVER = path.resolve(__dirname, "../index.js");
 const WORKER_URL = "https://9remote.cc";
 const SERVER_PORT = 2208;
-const MAX_RESTART_ATTEMPTS = 10;
-const RESTART_WINDOW_MS = 60000; // 1 minute
+const SERVER_RESTART_BASE_MS = 1000;
+const SERVER_RESTART_MAX_MS = 60000;
+const SERVER_HEALTHY_RESET_MS = 30000;
 
 const ORANGE = chalk.rgb(230, 138, 110);
 const ORANGE_DIM = chalk.rgb(200, 120, 95);
@@ -185,10 +186,11 @@ function killProcessOnPort(port) {
 }
 
 function startServerWithRestart(onReady, onServerCrash) {
-  const restartTimes = [];
   let currentProcess = null;
   let isShuttingDown = false;
   let isFirstStart = true;
+  let failCount = 0;
+  let healthyTimer = null;
 
   const spawnServer = () => {
       if (isFirstStart) {
@@ -217,43 +219,27 @@ function startServerWithRestart(onReady, onServerCrash) {
     // No separate PID file: server is a direct child of agent. When the
     // updater kills agent with `taskkill /F /T`, this child dies too.
 
-    currentProcess.on("exit", (code, signal) => {
-      if (isShuttingDown) {
-        return;
-      }
+    // Reset fail counter once server stays alive long enough
+    if (healthyTimer) clearTimeout(healthyTimer);
+    healthyTimer = setTimeout(() => { failCount = 0; }, SERVER_HEALTHY_RESET_MS);
 
-      // Check if it's a crash (non-zero exit code or unexpected signal)
+    currentProcess.on("exit", (code, signal) => {
+      if (healthyTimer) { clearTimeout(healthyTimer); healthyTimer = null; }
+      if (isShuttingDown) return;
+
       if (code !== 0 || signal) {
         console.log(chalk.red(`\n💥 Server crashed (code: ${code}, signal: ${signal})`));
 
-        // Check restart limit
-        const now = Date.now();
-        restartTimes.push(now);
-        
-              while (restartTimes.length > 0 && restartTimes[0] < now - RESTART_WINDOW_MS) {
-          restartTimes.shift();
-        }
+        failCount++;
+        const delay = Math.min(SERVER_RESTART_BASE_MS * Math.pow(2, failCount - 1), SERVER_RESTART_MAX_MS);
+        console.log(chalk.yellow(`🔄 Restarting server in ${delay}ms (fail#${failCount})`));
 
-        if (restartTimes.length > MAX_RESTART_ATTEMPTS) {
-          console.log(chalk.red(`❌ Too many restarts (${MAX_RESTART_ATTEMPTS} in ${RESTART_WINDOW_MS / 1000}s). Giving up.`));
-          // Don't bare-exit: cloudflared + tray would orphan and PID files
-          // would go stale. shutdownAll handles all of that.
-          isShuttingDown = true;
-          shutdownAll({ code: 1 });
-          return;
-        }
-
-        console.log(chalk.yellow(`🔄 Restarting server... (attempt ${restartTimes.length}/${MAX_RESTART_ATTEMPTS})`));
-        
-        // ✅ Callback để restart cloudflared
         if (onServerCrash) {
           console.log(chalk.yellow("✅ Restarting tunnel connection..."));
           onServerCrash();
         }
-        
-              setTimeout(() => {
-          spawnServer();
-        }, 1000);
+
+        setTimeout(() => spawnServer(), delay);
       }
     });
 

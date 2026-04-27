@@ -4,21 +4,20 @@ import https from "https";
 import os from "os";
 import net from "net";
 import { execSync, spawn } from "child_process";
-import { writePid, readPid, clearPid } from "./pids.js";
+import { writePid, readPid, clearPid, isAlive } from "./pids.js";
 import { tunnelLog } from "./tunnelLog.js";
 
-// Centralized tunnel runtime config
+// Centralized tunnel runtime config — never give up, exponential backoff capped
 const TUNNEL_CONFIG = {
-  maxRestartAttempts: 10,
-  restartWindowMs: 60000,
-  restartDelayMs: 2000,
+  restartBackoffBaseMs: 2000,
+  restartBackoffMaxMs: 300000,
   networkCheckIntervalMs: 5000,
   networkRestoreDelayMs: 2500,
   internetCheckTimeoutMs: 3000,
   internetCheckHost: "1.1.1.1",
   internetCheckPort: 443,
   internetRetryIntervalMs: 3000,
-  internetMaxWaitMs: 120000
+  internetRetryMaxMs: 60000
 };
 
 // Network + restart state (module-scoped)
@@ -26,7 +25,8 @@ let networkMonitorInterval = null;
 let lastNetworkState = null;
 let currentRestartArg = null;
 let restartCallback = null;
-let restartTimes = [];
+let restartInFlight = false;
+let restartFailCount = 0;
 let isWaitingForInternet = false;
 
 const BIN_DIR = path.join(os.homedir(), ".9remote", "bin");
@@ -68,55 +68,61 @@ function checkInternet() {
 }
 
 /**
- * Poll until internet is reachable or timeout elapses.
+ * Poll until internet is reachable. Never gives up; backoff capped.
  */
 async function waitForInternet() {
-  const deadline = Date.now() + TUNNEL_CONFIG.internetMaxWaitMs;
   isWaitingForInternet = true;
+  let delay = TUNNEL_CONFIG.internetRetryIntervalMs;
   try {
-    while (Date.now() < deadline) {
-      if (await checkInternet()) return true;
-      await new Promise((r) => setTimeout(r, TUNNEL_CONFIG.internetRetryIntervalMs));
+    while (true) {
+      if (await checkInternet()) return;
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(Math.floor(delay * 1.5), TUNNEL_CONFIG.internetRetryMaxMs);
     }
-    return false;
   } finally {
     isWaitingForInternet = false;
   }
 }
 
+// Exponential backoff with cap (5 min) based on consecutive failure count
+function computeBackoff(failCount) {
+  const exp = TUNNEL_CONFIG.restartBackoffBaseMs * Math.pow(2, Math.max(0, failCount));
+  return Math.min(exp, TUNNEL_CONFIG.restartBackoffMaxMs);
+}
+
 /**
- * Schedule a tunnel restart gated by internet availability + restart quota.
+ * Schedule a tunnel restart. Never gives up. Single-flight to prevent races.
  */
 async function scheduleRestart(arg, reason) {
-  tunnelLog(`scheduleRestart called (reason=${reason}, hasCallback=${!!restartCallback})`);
   if (!restartCallback) {
     tunnelLog("⚠️  No restartCallback registered — skip");
     return;
   }
-  tunnelLog(`🌐 Waiting for internet before restart (${reason})...`);
-  const online = await waitForInternet();
-  if (!online) {
-    tunnelLog(`❌ Internet unavailable after ${TUNNEL_CONFIG.internetMaxWaitMs / 1000}s — skip restart`);
+  if (restartInFlight) {
+    tunnelLog(`⏭ restart already in flight, skip (${reason})`);
     return;
   }
-  const now = Date.now();
-  restartTimes = restartTimes.filter((t) => t > now - TUNNEL_CONFIG.restartWindowMs);
-  restartTimes.push(now);
-  if (restartTimes.length > TUNNEL_CONFIG.maxRestartAttempts) {
-    tunnelLog(`❌ Too many restarts (${TUNNEL_CONFIG.maxRestartAttempts} in ${TUNNEL_CONFIG.restartWindowMs / 1000}s). Giving up.`);
+  restartInFlight = true;
+  try {
+    tunnelLog(`🌐 Waiting for internet (${reason})...`);
+    await waitForInternet();
+    const delay = computeBackoff(restartFailCount);
+    tunnelLog(`🔄 Restart in ${delay}ms (fail#${restartFailCount}, reason: ${reason})`);
+    await new Promise((r) => setTimeout(r, delay));
+    await restartCallback(arg);
+    restartFailCount = 0;
+  } catch (err) {
+    restartFailCount++;
+    tunnelLog(`❌ restart failed (#${restartFailCount}): ${err?.message || err}`);
+    // Re-queue next attempt asynchronously to avoid recursion stack growth
+    setImmediate(() => {
+      restartInFlight = false;
+      scheduleRestart(arg, "retry after fail");
+    });
     return;
+  } finally {
+    restartInFlight = false;
   }
-  tunnelLog(`🔄 Restarting tunnel attempt ${restartTimes.length}/${TUNNEL_CONFIG.maxRestartAttempts} (reason: ${reason})`);
-  setTimeout(() => {
-    tunnelLog("⏰ restartDelay fired, calling restartCallback");
-    try {
-      Promise.resolve(restartCallback(arg)).catch((err) => {
-        tunnelLog(`❌ restartCallback rejected: ${err?.message || err}`);
-      });
-    } catch (err) {
-      tunnelLog(`❌ restartCallback threw: ${err?.message || err}`);
-    }
-  }, TUNNEL_CONFIG.restartDelayMs);
 }
 
 /**
@@ -498,7 +504,8 @@ export function killCloudflared() {
  * Reset restart counter and stop network monitor
  */
 export function resetRestartCounter() {
-  restartTimes = [];
+  restartFailCount = 0;
+  restartInFlight = false;
   restartCallback = null;
   currentRestartArg = null;
   stopNetworkMonitor();
@@ -539,25 +546,33 @@ function startNetworkMonitor() {
   lastNetworkState = getNetworkFingerprint();
 
   networkMonitorInterval = setInterval(async () => {
-    if (isWaitingForInternet) return;
+    if (isWaitingForInternet || restartInFlight) return;
+    if (!restartCallback || currentRestartArg == null) return;
+
     const current = getNetworkFingerprint();
-    if (current === lastNetworkState) return;
+    const fingerprintChanged = current !== lastNetworkState;
     lastNetworkState = current;
 
-    console.log("🔄 Network change detected");
-    if (!restartCallback || currentRestartArg == null) return;
+    // Liveness watchdog — catches cases where exit-restart chain stopped
+    // (e.g. callback never re-armed) or fingerprint never changed after reconnect.
+    const pid = readPid("cloudflared");
+    const cloudflaredDead = !pid || !isAlive(pid);
+
+    if (!fingerprintChanged && !cloudflaredDead) return;
+
+    if (fingerprintChanged) tunnelLog("🔄 Network change detected");
+    if (cloudflaredDead) tunnelLog("🔍 Liveness watchdog: cloudflared not alive");
 
     // Wait briefly for network to stabilize (DHCP, RA, VPN auto-connect)
     await new Promise((r) => setTimeout(r, TUNNEL_CONFIG.networkRestoreDelayMs));
 
-    // Confirm Internet before restarting; otherwise let exit-restart loop handle it
     if (!(await checkInternet())) {
-      console.log("🌐 No internet yet, will retry on exit-restart loop");
+      tunnelLog("🌐 No internet yet, will retry on next tick");
       return;
     }
 
-    killCloudflared();
-    scheduleRestart(currentRestartArg, "network change");
+    if (fingerprintChanged && !cloudflaredDead) killCloudflared();
+    scheduleRestart(currentRestartArg, fingerprintChanged ? "network change" : "liveness watchdog");
   }, TUNNEL_CONFIG.networkCheckIntervalMs);
 }
 

@@ -22,7 +22,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PATHS = {
   darwin: join(HOME, "Library", "LaunchAgents", `${APP_ID}.plist`),
   linux: join(HOME, ".config", "autostart", `${APP_ID}.desktop`),
+  linuxSystemd: join(HOME, ".config", "systemd", "user", `${APP_ID}.service`),
 };
+
+// Headless (VPS/SSH) detection — no GUI session means .desktop autostart never fires
+function isHeadlessLinux() {
+  return !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
+}
 
 // Resolve CLI entry by walking up from __dirname to find 9remote package.json, then read its bin
 function getCliEntry() {
@@ -172,13 +178,56 @@ Terminal=false
 `;
 }
 
+function buildSystemdUnit() {
+  const args = AUTOSTART_ARGS.map((a) => `'${a}'`).join(" ");
+  return `[Unit]
+Description=${APP_NAME} Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${getNodeBin()} ${getCliEntry()} ${args}
+Restart=always
+RestartSec=10
+Environment=PATH=${getLaunchPath()}
+Environment=HOME=${HOME}
+StandardOutput=append:${join(HOME, ".9remote", "autostart.log")}
+StandardError=append:${join(HOME, ".9remote", "autostart.log")}
+
+[Install]
+WantedBy=default.target
+`;
+}
+
+function systemctlUser(args) {
+  try {
+    execFileSync("systemctl", ["--user", ...args], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function enableLinux() {
+  if (isHeadlessLinux()) {
+    mkdirSync(path.dirname(PATHS.linuxSystemd), { recursive: true });
+    writeFileSync(PATHS.linuxSystemd, buildSystemdUnit());
+    systemctlUser(["daemon-reload"]);
+    systemctlUser(["enable", `${APP_ID}.service`]);
+    return true;
+  }
   mkdirSync(path.dirname(PATHS.linux), { recursive: true });
   writeFileSync(PATHS.linux, buildDesktopFile());
   return true;
 }
 
 function disableLinux() {
+  if (existsSync(PATHS.linuxSystemd)) {
+    systemctlUser(["disable", `${APP_ID}.service`]);
+    try { unlinkSync(PATHS.linuxSystemd); } catch {}
+    systemctlUser(["daemon-reload"]);
+  }
   if (existsSync(PATHS.linux)) {
     try { unlinkSync(PATHS.linux); } catch {}
   }
@@ -186,7 +235,7 @@ function disableLinux() {
 }
 
 function isEnabledLinux() {
-  return existsSync(PATHS.linux);
+  return existsSync(PATHS.linux) || existsSync(PATHS.linuxSystemd);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
