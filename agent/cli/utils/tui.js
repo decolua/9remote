@@ -6,6 +6,8 @@
 import readline from "readline";
 import http from "http";
 import { openPermissionPane } from "./permissions.js";
+import { computeDelay } from "./backoff.js";
+import { RETRY_CONFIG } from "../../lib/constants.js";
 
 export { openPermissionPane };
 
@@ -219,25 +221,27 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
   return new Promise((resolve) => {
     let selected = defaultIndex;
     let isActive = true;
+    let firstRender = true;
     const isWin = process.platform === "win32";
 
     const renderMenu = () => {
       if (!isActive) return;
-      process.stdout.write("\x1b[2J\x1b[H");
-      // Support both static string and dynamic getter function
+      // First paint: clear full screen for clean canvas; subsequent paints: cursor home + clear-to-EOL per line (no flicker)
+      process.stdout.write(firstRender ? "\x1b[2J\x1b[H" : "\x1b[H");
+      firstRender = false;
       const header = typeof headerContent === "function" ? headerContent() : headerContent;
       if (header) {
-        process.stdout.write(header + "\n");
+        for (const line of header.split("\n")) process.stdout.write(line + "\x1b[K\n");
       }
-      if (title) process.stdout.write(`${C.dim}${title}${C.reset}\n\n`);
+      if (title) process.stdout.write(`${C.dim}${title}${C.reset}\x1b[K\n\x1b[K\n`);
       items.forEach((item, i) => {
         const icon = i === selected ? (isWin ? ">" : "★") : (isWin ? " " : "☆");
-        if (i === selected) {
-          console.log(` \x1b[7m${C.bold}${icon} ${item.label}${C.reset}`);
-        } else {
-          console.log(`  ${icon} ${item.label}`);
-        }
+        const line = i === selected
+          ? ` \x1b[7m${C.bold}${icon} ${item.label}${C.reset}`
+          : `  ${icon} ${item.label}`;
+        process.stdout.write(line + "\x1b[K\n");
       });
+      process.stdout.write("\x1b[J");
     };
 
     const cleanup = () => {
@@ -322,7 +326,7 @@ export function confirm(message) {
 
       if (key.ctrl && key.name === "c") { process.stdout.write("\n"); process.exit(0); }
       const approved = (key.name || "").toLowerCase() === "y";
-      console.log(approved ? "y" : "n");
+      process.stdout.write((approved ? "y" : "n") + "\n");
       resolve(approved);
     };
 
@@ -349,17 +353,14 @@ export function showDeviceApproval(deviceId, ip) {
     process.stdin.pause();
 
     // Clear screen for clean approval UI
-    process.stdout.write("\x1b[2J\x1b[H");
-    console.log("");
-    console.log(`${C.orange}${'═'.repeat(w)}${C.reset}`);
-  console.log(`${C.orange}${C.bold} 🔔 New Device Connection${C.reset}`);
-  console.log(`${C.orange}${'═'.repeat(w)}${C.reset}`);
-  console.log(`  Device:  ${C.cyan}${shortId}...${C.reset}`);
-  console.log(`  IP:      ${C.cyan}${ip}${C.reset}`);
-  console.log(`${C.orange}${'═'.repeat(w)}${C.reset}`);
-  console.log("");
-
-  process.stdout.write(`  Allow this device? ${C.dim}(y/n)${C.reset} `);
+    const bar = `${C.orange}${'═'.repeat(w)}${C.reset}`;
+    process.stdout.write(
+      `\x1b[2J\x1b[H\n${bar}\n` +
+      `${C.orange}${C.bold} 🔔 New Device Connection${C.reset}\n${bar}\n` +
+      `  Device:  ${C.cyan}${shortId}...${C.reset}\n` +
+      `  IP:      ${C.cyan}${ip}${C.reset}\n${bar}\n\n` +
+      `  Allow this device? ${C.dim}(y/n)${C.reset} `
+    );
 
     // Use keypress events (same pattern as selectMenu)
     readline.emitKeypressEvents(process.stdin);
@@ -392,10 +393,10 @@ export function showDeviceApproval(deviceId, ip) {
       if (isCtrlC) process.exit(0);
 
       const approved = isAccept;
-      console.log(approved ? `${C.green}y${C.reset}` : `${C.red}n${C.reset}`);
-      console.log(approved
-        ? `\n  ${C.green}\u2713 Device approved${C.reset}`
-        : `\n  ${C.red}\u2717 Device rejected${C.reset}`);
+      const result = approved
+        ? `${C.green}y${C.reset}\n\n  ${C.green}\u2713 Device approved${C.reset}\n`
+        : `${C.red}n${C.reset}\n\n  ${C.red}\u2717 Device rejected${C.reset}\n`;
+      process.stdout.write(result);
       setTimeout(() => { try { restoreListeners(); } catch {} resolve(approved); }, 500);
     };
 
@@ -448,12 +449,12 @@ export function subscribeSSE(port, onEvent) {
       });
       res.on("end", () => {
         if (idleTimer) clearTimeout(idleTimer);
-        if (!closed) setTimeout(connect, 2000); // reconnect
+        if (!closed) setTimeout(connect, computeDelay(RETRY_CONFIG.sse, 1));
       });
     });
     req.on("error", () => {
       if (idleTimer) clearTimeout(idleTimer);
-      if (!closed) setTimeout(connect, 2000); // reconnect on error
+      if (!closed) setTimeout(connect, computeDelay(RETRY_CONFIG.sse, 1));
     });
   };
 

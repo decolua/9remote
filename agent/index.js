@@ -11,6 +11,9 @@ import chalk from "chalk";
 
 import { createRouter, jsonOk, jsonErr } from "./lib/router.js";
 import { STEP, browserFetch, PERMISSION_POLL_MS } from "./lib/constants.js";
+import { initLogger } from "./lib/logger.js";
+
+initLogger();
 import { setupSocketIO, getIO } from "./lib/socketio.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
@@ -23,12 +26,10 @@ import {
   loadUiState, loadDesktopState, refreshPermissionsAsync, pushUiEvent, setRemoteAvailable,
   handleSseEvents, handleStateGet, handleStatePost,
   handleStop, handleStart, handleShutdown,
-  handleConnections, handleDesktopToggle,
+  handleConnections, handleDesktopToggle, handleLogsGet,
   handlePermissionsGet, handlePermissionsRequest,
   handleAutoStartGet, handleAutoStartPost,
-  getUiState,
 } from "./api/ui.js";
-import { startTunnelHealthWatchdog } from "./cli/utils/tunnelHealth.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
@@ -162,6 +163,7 @@ const ROUTES = [
 
   // System (localhost-only)
   { path: "/api/connections",      method: "GET",  handler: handleConnections },
+  { path: "/api/logs",             method: "GET",  handler: handleLogsGet },
   { path: "/api/permissions",      method: "GET",  handler: handlePermissionsGet },
   { path: "/api/permissions/request", method: "POST", handler: handlePermissionsRequest },
   { path: "/api/desktop/toggle",   method: "POST", handler: handleDesktopToggle },
@@ -232,9 +234,6 @@ export async function startServer() {
   loadUiState();
   loadDesktopState();
   refreshPermissionsAsync();
-  // Resume tunnel health watchdog if a READY session was restored
-  const restored = getUiState();
-  if (restored.step === STEP.READY && restored.tunnelUrl) startTunnelHealthWatchdog(restored.tunnelUrl);
   // macOS TCC has no change event — poll to detect permission revoke/grant
   if (process.platform === "darwin") {
     setInterval(refreshPermissionsAsync, PERMISSION_POLL_MS);

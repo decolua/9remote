@@ -66,7 +66,7 @@ export default function TerminalHeader({
   }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
-    <div className="px-2 sm:px-4 py-2 flex items-center gap-2 flex-shrink-0 bg-bg">
+    <div className="px-2 sm:px-4 pt-2 flex items-center gap-2 flex-shrink-0 bg-bg">
       <button
         onClick={() => { vibrate(); onBack(); }}
         className="p-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
@@ -89,7 +89,7 @@ export default function TerminalHeader({
                   vibrate();
                   onSwitchSession?.(session.id);
                 }}
-                className={`px-3 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap ${
+                className={`px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap ${
                   isActiveTab ? "border-brand-500 text-brand-500" : "border-transparent text-text-muted hover:text-text"
                 }`}
               >

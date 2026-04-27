@@ -1,18 +1,18 @@
 import fs from "fs";
 import path from "path";
-import os from "os";
+import { PATHS } from "../../lib/constants.js";
 
-const STATE_DIR = path.join(os.homedir(), ".9remote");
-const STATE_FILE = path.join(STATE_DIR, "state.json");
-const KEYS_FILE = path.join(STATE_DIR, "keys.json");
-const CMD_FILE = path.join(STATE_DIR, "cmd.json");
+const STATE_DIR = PATHS.STATE;
+const STATE_FILE = path.join(PATHS.STATE, "state.json");
+const KEYS_FILE = path.join(PATHS.ROOT, "keys.json");
+const CMD_FILE = path.join(PATHS.STATE, "cmd.json");
 
 /**
  * Ensure state directory exists
  */
 function ensureDir() {
-  if (!fs.existsSync(STATE_DIR)) {
-    fs.mkdirSync(STATE_DIR, { recursive: true });
+  for (const d of [PATHS.ROOT, PATHS.STATE]) {
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
   }
 }
 

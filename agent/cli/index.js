@@ -3,12 +3,12 @@
 import inquirer from "inquirer";
 import chalk from "chalk";
 import qrcode from "qrcode-terminal";
-import { spawn, execSync, execFile } from "child_process";
+import { spawn, execSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import os from "os";
-import dns from "dns";
+import readline from "readline";
 import { getConsistentMachineId } from "./utils/machineId.js";
 import { generateApiKeyWithMachine } from "./utils/apiKey.js";
 import { loadKey, saveKey, loadState, saveState, clearState, readAndClearCmd, writeCmd } from "./utils/state.js";
@@ -16,12 +16,18 @@ import { createTempKey } from "./utils/token.js";
 import { checkAndUpdate, checkLatestVersion, stopRunningInstances } from "./utils/updateChecker.js";
 import { writePid, clearPid } from "./utils/pids.js";
 import { spawnQuickTunnel, killCloudflared, resetRestartCounter, ensureCloudflared } from "./utils/cloudflared.js";
-import { startTunnelHealthWatchdog, stopTunnelHealthWatchdog } from "./utils/tunnelHealth.js";
+import { startTunnelHealthWatchdog, stopTunnelHealthWatchdog, updateTunnelHealthUrl, recheckTunnelHealth } from "./utils/tunnelHealth.js";
+import { flushWinDns, resolveTunnelDns } from "./utils/dnsProbe.js";
 import { tunnelLog } from "./utils/tunnelLog.js";
+import { computeDelay, retryForever } from "./utils/backoff.js";
+import { RETRY_CONFIG } from "../lib/constants.js";
 import { showBanner, getBannerText, renderProgress, resetProgress, updateProgressDesc, setProgressInfo, selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval } from "./utils/tui.js";
 import { checkPermissions } from "./utils/permissions.js";
 import { initTray, killTray, openBrowser, updateTrayTooltip, showTrayNotification } from "./utils/tray.js";
 import { STEP, DEBUG, browserFetch } from "../lib/constants.js";
+import { initLogger, LOG_FILE_PATH, readRecentLogs } from "../lib/logger.js";
+
+initLogger();
 
 const skipUpdate = process.argv.includes("--skip-update");
 
@@ -31,8 +37,6 @@ const STANDALONE_SERVER = path.resolve(__dirname, "../dist/server.cjs");
 const DEV_SERVER = path.resolve(__dirname, "../index.js");
 const WORKER_URL = "https://9remote.cc";
 const SERVER_PORT = 2208;
-const SERVER_RESTART_BASE_MS = 1000;
-const SERVER_RESTART_MAX_MS = 60000;
 const SERVER_HEALTHY_RESET_MS = 30000;
 
 const ORANGE = chalk.rgb(230, 138, 110);
@@ -48,12 +52,9 @@ let activeSubmenuRefresh = null;
  */
 function makeTunnelRestartHandler({ apiKey, onUrlUpdate, setTunnel }) {
   return async (port) => {
-    tunnelLog(`▶️  restartHandler invoked port=${port}`);
     try {
-      const r = await spawnQuickTunnel(port, onUrlUpdate);
+      const r = await spawnQuickTunnelWithRetry(port, onUrlUpdate);
       setTunnel(r.child);
-      await updateTunnelUrl(apiKey, r.tunnelUrl);
-      await pushUiState({ tunnelUrl: r.tunnelUrl });
       await onUrlUpdate(r.tunnelUrl);
       tunnelLog(`✅ Tunnel restarted: ${r.tunnelUrl}`);
       console.log(ORANGE(`✅ Tunnel restarted: ${r.tunnelUrl}`));
@@ -62,6 +63,22 @@ function makeTunnelRestartHandler({ apiKey, onUrlUpdate, setTunnel }) {
       console.log(chalk.red(`❌ Tunnel restart failed: ${err.message}`));
     }
   };
+}
+
+// Wrap spawnQuickTunnel with retry (handles transient API errors like 1101/500)
+async function spawnQuickTunnelWithRetry(localPort, onUrlUpdate, onRestart) {
+  let attempt = 0;
+  while (true) {
+    attempt++;
+    try {
+      return await spawnQuickTunnel(localPort, onUrlUpdate, onRestart);
+    } catch (err) {
+      const delay = computeDelay(RETRY_CONFIG.tunnelSpawn, attempt);
+      tunnelLog(`⚠️  spawn attempt ${attempt} failed: ${err?.message || err} — retry in ${delay}ms`);
+      console.log(chalk.yellow(`⚠️  Tunnel spawn failed (#${attempt}) — retry in ${delay / 1000}s`));
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
 }
 
 /** Ensure API key exists, create if missing */
@@ -185,7 +202,7 @@ function killProcessOnPort(port) {
   } catch { }
 }
 
-function startServerWithRestart(onReady, onServerCrash) {
+function startServerWithRestart(onReady, onServerCrash, onRestarted) {
   let currentProcess = null;
   let isShuttingDown = false;
   let isFirstStart = true;
@@ -211,7 +228,7 @@ function startServerWithRestart(onReady, onServerCrash) {
 
     currentProcess = spawn("node", [serverPath], {
       cwd: path.dirname(serverPath),
-      stdio: "inherit",
+      stdio: ["ignore", "inherit", "inherit"],
       detached: false,
       windowsHide: true,
       env: spawnEnv,
@@ -227,20 +244,18 @@ function startServerWithRestart(onReady, onServerCrash) {
       if (healthyTimer) { clearTimeout(healthyTimer); healthyTimer = null; }
       if (isShuttingDown) return;
 
-      if (code !== 0 || signal) {
-        console.log(chalk.red(`\n💥 Server crashed (code: ${code}, signal: ${signal})`));
+      // Any unintentional exit (crash OR external SIGTERM) triggers restart
+      console.log(chalk.red(`\n💥 Server exited unexpectedly (code: ${code}, signal: ${signal})`));
+      failCount++;
+      const delay = computeDelay(RETRY_CONFIG.server, failCount);
+      console.log(chalk.yellow(`🔄 Restarting server in ${delay}ms (fail#${failCount})`));
 
-        failCount++;
-        const delay = Math.min(SERVER_RESTART_BASE_MS * Math.pow(2, failCount - 1), SERVER_RESTART_MAX_MS);
-        console.log(chalk.yellow(`🔄 Restarting server in ${delay}ms (fail#${failCount})`));
-
-        if (onServerCrash) {
-          console.log(chalk.yellow("✅ Restarting tunnel connection..."));
-          onServerCrash();
-        }
-
-        setTimeout(() => spawnServer(), delay);
+      if (onServerCrash) {
+        console.log(chalk.yellow("✅ Restarting tunnel connection..."));
+        onServerCrash();
       }
+
+      setTimeout(() => { spawnServer(); onRestarted?.(); }, delay);
     });
 
     currentProcess.on("error", (err) => {
@@ -428,19 +443,38 @@ function onBinaryProgress({ phase, percent }) {
   pushUiState({ stepDesc: text });
 }
 
+// Single-flight retry context — newest URL cancels older retries
+let urlSyncCtx = null;
+
 async function updateTunnelUrl(selectedKey, tunnelUrl) {
+  if (urlSyncCtx) urlSyncCtx.cancelled = true;
+  const ctx = { cancelled: false };
+  urlSyncCtx = ctx;
   const lanIp = getLanIp();
-  try {
-    await browserFetch(`${WORKER_URL}/api/session/update`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        apiKey: selectedKey,
-        tunnelUrl,
-        localIp: lanIp ? `${lanIp}:${SERVER_PORT}` : null
-      })
-    });
-  } catch { }
+
+  retryForever({
+    config: RETRY_CONFIG.urlSync,
+    label: `urlSync ${tunnelUrl}`,
+    log: tunnelLog,
+    ctx,
+    task: async () => {
+      const res = await browserFetch(`${WORKER_URL}/api/session/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: selectedKey, tunnelUrl, localIp: lanIp ? `${lanIp}:${SERVER_PORT}` : null })
+      });
+      if (ctx.cancelled) return true;
+      if (res.ok) {
+        tunnelLog(`✅ urlSync ok`);
+        recheckTunnelHealth();
+        return true;
+      }
+      const txt = await res.text().catch(() => "");
+      tunnelLog(`⚠️  urlSync HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      return false;
+    }
+  });
+
   if (tunnelUrl) startTunnelHealthWatchdog(tunnelUrl);
 }
 
@@ -484,9 +518,10 @@ async function startServerAndTunnel(selectedKey) {
     console.log(ORANGE(`🔄 Tunnel URL rotated: ${newUrl}`));
     await updateTunnelUrl(selectedKey, newUrl);
     pushUiState({ tunnelUrl: newUrl });
+    updateTunnelHealthUrl(newUrl);
   };
   try {
-    const result = await spawnQuickTunnel(
+    const result = await spawnQuickTunnelWithRetry(
       SERVER_PORT,
       onUrlUpdate1,
       makeTunnelRestartHandler({
@@ -531,10 +566,19 @@ async function tuiMode() {
 
   let keyData = await ensureKeyData();
 
+  let triggerMenuRedraw = null;
   let tuiServerMgr = { getProcess: () => null, shutdown: () => {} };
   const alreadyRunning = await isServerRunning();
   if (!alreadyRunning) {
-    tuiServerMgr = startServerWithRestart(null, null);
+    tuiServerMgr = startServerWithRestart(null, null, () => {
+      // Child exit can leave kernel TTY in cooked mode; toggle to force ioctl re-apply
+      if (process.stdin.isTTY) {
+        try { process.stdin.setRawMode(false); } catch {}
+        try { process.stdin.setRawMode(true); process.stdin.resume(); } catch {}
+      }
+      try { readline.emitKeypressEvents(process.stdin); } catch {}
+      triggerMenuRedraw?.();
+    });
     // Poll until server ready instead of fixed sleep
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline && !(await isServerRunning())) {
@@ -567,9 +611,10 @@ async function tuiMode() {
   const onUrlUpdate2 = async (newUrl) => {
     await updateTunnelUrl(keyData.key, newUrl);
     await pushUiState({ tunnelUrl: newUrl });
+    updateTunnelHealthUrl(newUrl);
   };
   try {
-    const result = await spawnQuickTunnel(
+    const result = await spawnQuickTunnelWithRetry(
       SERVER_PORT,
       onUrlUpdate2,
       makeTunnelRestartHandler({
@@ -616,7 +661,6 @@ async function tuiMode() {
 
   let menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
 
-  let triggerMenuRedraw = null;
   const logBuffer = [];
   const MAX_LOG_LINES = 200;
 
@@ -748,7 +792,7 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
     items.push(
       { label: `Manage Devices  \u25b6  ${chalk.dim("(Auto-approve:")} ${autoLabel}${chalk.dim(")")}`, action: "devices" },
       { label: `Launch on system startup: ${startLabel}`, action: "autostart" },
-      { label: `View Logs (${logBuffer.length})`, action: "logs" },
+      { label: "View Logs", action: "logs" },
       { label: chalk.gray("Exit"), action: "exit" },
     );
 
@@ -807,7 +851,7 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
       await apiPost("/api/autostart", { enabled: !autoStart });
 
     } else if (action === "logs") {
-      await tuiLogsView(logBuffer);
+      await tuiLogsView();
 
     } else {
       // Exit path — onCtrlC contains the full shutdownAll sequence
@@ -818,12 +862,12 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader = () => "", setHeader =
   }
 }
 
-/** View logs screen — scrollable, ESC to go back */
-async function tuiLogsView(logBuffer) {
-  const header = logBuffer.length
-    ? logBuffer.join("\n")
-    : chalk.gray("  No logs yet");
-  await selectMenu("Logs", [{ label: chalk.gray("← Back") }], 0, header);
+/** View logs screen — reads tail of agent.log for full history */
+async function tuiLogsView() {
+  const lines = readRecentLogs(60);
+  const body = lines.length ? lines.join("\n") : chalk.gray("  No logs yet");
+  const footer = `\n${chalk.dim("Log file:")} ${chalk.cyan(LOG_FILE_PATH)}\n${chalk.dim(`Tail: tail -f ${LOG_FILE_PATH}`)}`;
+  await selectMenu("Logs", [{ label: chalk.gray("← Back") }], 0, body + footer);
 }
 
 /**
@@ -971,7 +1015,19 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
     }
 
     if (cmd === "start-tunnel") {
-      if (getActiveTunnel()) { busy = false; return; } // already running
+      const existing = getActiveTunnel();
+      if (existing) {
+        // Stale ref — process already died but ref not cleared. Drop it and start fresh.
+        if (existing.killed || existing.exitCode != null) {
+          setActiveTunnel(null);
+        } else {
+          // Truly running — restore UI state to READY (handleStart pre-set PREPARING)
+          const cur = await apiGet("/api/ui/state");
+          await setStep(STEP.READY, { tunnelUrl: cur?.tunnelUrl || "" });
+          busy = false;
+          return;
+        }
+      }
       console.log(ORANGE("🚀 Starting tunnel..."));
       try {
         await setStep(STEP.PREPARING);
@@ -989,8 +1045,9 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
         const onUrlUpdate3 = async (newUrl) => {
           await updateTunnelUrl(apiKey, newUrl);
           await pushUiState({ tunnelUrl: newUrl });
+          updateTunnelHealthUrl(newUrl);
         };
-        const result = await spawnQuickTunnel(
+        const result = await spawnQuickTunnelWithRetry(
           SERVER_PORT,
           onUrlUpdate3,
           makeTunnelRestartHandler({
@@ -1040,35 +1097,6 @@ function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
       busy = false;
     }
   }, 1000);
-}
-
-// Win DNS negative cache giữ ENOTFOUND lâu hơn thời điểm Cloudflare publish subdomain.
-// Flush trước mỗi attempt để query đi thẳng upstream, tránh chờ TTL âm hết hạn.
-// Async fire-and-forget + windowsHide → không block, không popup cmd window.
-function flushWinDns() {
-  if (process.platform !== "win32") return;
-  execFile("ipconfig", ["/flushdns"], { windowsHide: true }, () => {});
-}
-
-// Resolve DNS trực tiếp qua Cloudflare 1.1.1.1 (bypass resolver hệ thống / ISP cache)
-// → biết ngay subdomain đã propagate chưa mà không tốn 5s chờ fetch timeout.
-const dnsResolver = new dns.promises.Resolver();
-dnsResolver.setServers(["1.1.1.1", "1.0.0.1", "8.8.8.8"]);
-
-async function resolveTunnelDns(hostname, timeoutMs = 2000) {
-  const t0 = Date.now();
-  try {
-    const addrs = await Promise.race([
-      dnsResolver.resolve4(hostname),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(Object.assign(new Error("DNS timeout"), { code: "ETIMEOUT" })), timeoutMs)
-      ),
-    ]);
-    return { ok: true, addrs, elapsedMs: Date.now() - t0 };
-  } catch (err) {
-    const code = err.code || err.message;
-    return { ok: false, code, elapsedMs: Date.now() - t0 };
-  }
 }
 
 async function waitForTunnelReady(tunnelUrl, { intervalMs = 2000, timeoutMs = 180000 } = {}) {
@@ -1176,14 +1204,11 @@ async function launchBackground() {
   const themeArg = process.argv.find(a => a.startsWith("--theme="));
   if (themeArg) bgArgs.push(themeArg);
 
-  // Redirect child stdout/stderr to log file for debugging crashes
-  const logDir = path.join(os.homedir(), ".9remote");
-  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-  const logPath = path.join(logDir, "bg.log");
-
-  // Log startup marker
+  // Redirect child stdout/stderr to centralized log file for debugging crashes
+  const logPath = LOG_FILE_PATH;
   try {
-    fs.appendFileSync(logPath, `\n\n=== ${new Date().toISOString()} spawn bg ===\n`);
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(logPath, `\n=== ${new Date().toISOString()} spawn bg ===\n`);
   } catch {}
 
   let bgPid = null;

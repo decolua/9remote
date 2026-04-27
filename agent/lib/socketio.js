@@ -2,7 +2,7 @@
 import { Server } from "socket.io";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { PATHS } from "./constants.js";
 import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
 import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
@@ -25,7 +25,7 @@ import {
 
 function loadApiKey() {
   try {
-    const keysFile = join(homedir(), ".9remote", "keys.json");
+    const keysFile = join(PATHS.ROOT, "keys.json");
     const data = JSON.parse(readFileSync(keysFile, "utf8"));
     return data.key || null;
   } catch {

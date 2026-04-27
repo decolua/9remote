@@ -75,7 +75,7 @@ export default function RemoteControls({
 }) {
   const { t } = useI18n();
   const { isIosPwa } = useDeviceInfo();
-  const rowClass = "flex gap-1.5 overflow-auto scroll-thin-x px-2 py-1 pr-2 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center rounded-lg";
+  const rowClass = "flex gap-1.5 overflow-auto scroll-thin-x py-0.5 pr-2 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center rounded-lg";
   const panelInputRef = useRef(null);
   const [showExtra, setShowExtra] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
@@ -154,7 +154,7 @@ export default function RemoteControls({
         }}
       />
 
-      <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} px-2 py-2 gap-2 landscape:order-last`}>
+      <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} px-2 py-1 gap-2 landscape:order-last`}>
         <textarea
           ref={panelInputRef}
           rows={Math.min(2, (textInputValue.match(/\n/g) || []).length + 1)}
@@ -194,7 +194,7 @@ export default function RemoteControls({
       <div
         className={`overflow-hidden transition-all duration-300 ${showExtra ? "max-h-56 opacity-100" : "max-h-0 opacity-0"}`}
       >
-        <div className="p-2">
+        <div className="px-2 py-1">
           <div className="space-y-1">
             {extraCustom.rows.map((row, rIdx) => (
               <div key={rIdx} className="flex items-center gap-1.5">

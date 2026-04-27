@@ -329,7 +329,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                   <button
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => { vibrate(); setShowCustomize(true); }}
-                    className="shrink-0 h-10 w-10 flex items-center justify-center text-text-muted hover:text-text bg-surface-2 hover:bg-surface-3 rounded-brand transition-all duration-150 ease-out"
+                    className="shrink-0 h-8 w-8 flex items-center justify-center text-text-muted hover:text-text bg-surface-2 hover:bg-surface-3 rounded-brand transition-all duration-150 ease-out"
                     title={t("remote.customizeKeys")}
                   >
                     <Settings size={16} />
@@ -388,7 +388,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       {/* Bottom keyboard bar */}
       {!hasPhysicalKeyboard && (
         <div
-          className={`overflow-auto px-1.5 py-1.5 bg-bg ${isIosPwa ? "safe-area-bottom" : ""}`}
+          className={`overflow-auto px-1.5 pb-1.5 bg-bg ${isIosPwa ? "safe-area-bottom" : ""}`}
         >
           <div className="flex items-center gap-1 max-w-4xl mx-auto">
             <div className="flex gap-1 flex-1 overflow-x-auto scroll-thin-x pr-2 rounded-lg">

@@ -4,11 +4,11 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { PATHS } from "./constants.js";
+import { readSettings, writeSettings } from "./settings.js";
 
-const STATE_DIR = join(homedir(), ".9remote");
-const DEVICES_FILE = join(STATE_DIR, "approvedDevices.json");
-const CONFIG_FILE = join(STATE_DIR, "config.json");
+const STATE_DIR = PATHS.CONFIG;
+const DEVICES_FILE = join(PATHS.CONFIG, "approvedDevices.json");
 
 // deviceId -> { approvedAt }
 let approvedDevices = new Map();
@@ -119,23 +119,9 @@ export function clearRejectedDevice(deviceId) {
   rejectedDevices.delete(deviceId);
 }
 
-// ── Auto-approve setting (persisted) ────────────────────────────────
-function readConfig() {
-  try {
-    if (existsSync(CONFIG_FILE)) return JSON.parse(readFileSync(CONFIG_FILE, "utf8")) || {};
-  } catch {}
-  return {};
-}
-
-function writeConfig(cfg) {
-  try {
-    ensureDir();
-    writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
-  } catch {}
-}
-
+// ── Auto-approve setting (persisted in settings.json) ───────────────
 export function loadAutoApprove() {
-  autoApprove = !!readConfig().autoApprove;
+  autoApprove = !!readSettings().autoApprove;
   return autoApprove;
 }
 
@@ -145,8 +131,6 @@ export function isAutoApprove() {
 
 export function setAutoApprove(enabled) {
   autoApprove = !!enabled;
-  const cfg = readConfig();
-  cfg.autoApprove = autoApprove;
-  writeConfig(cfg);
+  writeSettings({ autoApprove });
   return autoApprove;
 }

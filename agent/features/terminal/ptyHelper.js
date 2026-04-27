@@ -2,9 +2,10 @@
 import os from "os";
 import fs from "fs";
 import path from "path";
+import { PATHS } from "../../lib/constants.js";
 
-const BUFFER_DIR = path.join(os.homedir(), ".9remote", "buffers");
-const SESSION_METADATA_FILE = path.join(os.homedir(), ".9remote", "sessions.json");
+const BUFFER_DIR = PATHS.BUFFERS;
+const SESSION_METADATA_FILE = path.join(PATHS.STATE, "sessions.json");
 
 export const UPLOAD_DIR = "/tmp/9remote-uploads";
 

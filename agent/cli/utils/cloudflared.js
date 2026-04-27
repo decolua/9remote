@@ -6,18 +6,17 @@ import net from "net";
 import { execSync, spawn } from "child_process";
 import { writePid, readPid, clearPid, isAlive } from "./pids.js";
 import { tunnelLog } from "./tunnelLog.js";
+import { computeDelay } from "./backoff.js";
+import { RETRY_CONFIG } from "../../lib/constants.js";
+import { probeTunnelOnce } from "./dnsProbe.js";
 
-// Centralized tunnel runtime config — never give up, exponential backoff capped
+// Tunnel-only network probe params (not retry-related)
 const TUNNEL_CONFIG = {
-  restartBackoffBaseMs: 2000,
-  restartBackoffMaxMs: 300000,
   networkCheckIntervalMs: 5000,
   networkRestoreDelayMs: 2500,
   internetCheckTimeoutMs: 3000,
   internetCheckHost: "1.1.1.1",
   internetCheckPort: 443,
-  internetRetryIntervalMs: 3000,
-  internetRetryMaxMs: 60000
 };
 
 // Network + restart state (module-scoped)
@@ -28,6 +27,12 @@ let restartCallback = null;
 let restartInFlight = false;
 let restartFailCount = 0;
 let isWaitingForInternet = false;
+let activeTunnelUrl = null;
+let tunnelReadyAt = 0;
+let lastScheduleAt = 0;
+let killInFlight = false;
+const NETWORK_CHANGE_COOLDOWN_MS = 30000;
+const SCHEDULE_DEBOUNCE_MS = 5000;
 
 const BIN_DIR = path.join(os.homedir(), ".9remote", "bin");
 const BINARY_NAME = "cloudflared";
@@ -67,27 +72,19 @@ function checkInternet() {
   });
 }
 
-/**
- * Poll until internet is reachable. Never gives up; backoff capped.
- */
+// Poll until internet is reachable; never give up
 async function waitForInternet() {
   isWaitingForInternet = true;
-  let delay = TUNNEL_CONFIG.internetRetryIntervalMs;
   try {
+    let attempt = 0;
     while (true) {
+      attempt++;
       if (await checkInternet()) return;
-      await new Promise((r) => setTimeout(r, delay));
-      delay = Math.min(Math.floor(delay * 1.5), TUNNEL_CONFIG.internetRetryMaxMs);
+      await new Promise((r) => setTimeout(r, computeDelay(RETRY_CONFIG.internet, attempt)));
     }
   } finally {
     isWaitingForInternet = false;
   }
-}
-
-// Exponential backoff with cap (5 min) based on consecutive failure count
-function computeBackoff(failCount) {
-  const exp = TUNNEL_CONFIG.restartBackoffBaseMs * Math.pow(2, Math.max(0, failCount));
-  return Math.min(exp, TUNNEL_CONFIG.restartBackoffMaxMs);
 }
 
 /**
@@ -102,15 +99,20 @@ async function scheduleRestart(arg, reason) {
     tunnelLog(`⏭ restart already in flight, skip (${reason})`);
     return;
   }
+  // Debounce: collapse bursts (network change + exit handler) within 5s window
+  if (Date.now() - lastScheduleAt < SCHEDULE_DEBOUNCE_MS) {
+    tunnelLog(`⏭ restart debounced, skip (${reason})`);
+    return;
+  }
+  lastScheduleAt = Date.now();
   restartInFlight = true;
   try {
-    tunnelLog(`🌐 Waiting for internet (${reason})...`);
     await waitForInternet();
-    const delay = computeBackoff(restartFailCount);
-    tunnelLog(`🔄 Restart in ${delay}ms (fail#${restartFailCount}, reason: ${reason})`);
+    const delay = computeDelay(RETRY_CONFIG.tunnelRestart, restartFailCount + 1);
     await new Promise((r) => setTimeout(r, delay));
     await restartCallback(arg);
     restartFailCount = 0;
+    lastScheduleAt = 0;
   } catch (err) {
     restartFailCount++;
     tunnelLog(`❌ restart failed (#${restartFailCount}): ${err?.message || err}`);
@@ -331,7 +333,6 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
   writePid("cloudflared", child.pid);
   isIntentionalShutdown = false;
-  tunnelLog(`🚀 spawnQuickTunnel pid=${child.pid} port=${localPort}`);
 
   return new Promise((resolve, reject) => {
     let resolved = false;
@@ -355,6 +356,8 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
       if (!resolved) {
         resolved = true;
         lastUrl = tunnelUrl;
+        activeTunnelUrl = tunnelUrl;
+        tunnelReadyAt = Date.now();
         clearTimeout(timeout);
         cleanup();
         startNetworkMonitor();
@@ -367,6 +370,8 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
       if (tunnelUrl !== lastUrl) {
         tunnelLog(`🔄 URL rotated: ${tunnelUrl}`);
         lastUrl = tunnelUrl;
+        activeTunnelUrl = tunnelUrl;
+        tunnelReadyAt = Date.now();
         onUrlUpdate?.(tunnelUrl);
       }
     };
@@ -478,26 +483,32 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
  * Kill cloudflared process
  */
 export function killCloudflared() {
-  // Clean up legacy PID file from older installs (one-time migration)
+  if (killInFlight) return;
+  killInFlight = true;
   try {
-    if (fs.existsSync(LEGACY_PID_FILE)) {
-      const legacyPid = parseInt(fs.readFileSync(LEGACY_PID_FILE, "utf8"));
-      if (Number.isFinite(legacyPid)) {
-        isIntentionalShutdown = true;
-        try { process.kill(legacyPid); } catch {}
+    // Clean up legacy PID file from older installs (one-time migration)
+    try {
+      if (fs.existsSync(LEGACY_PID_FILE)) {
+        const legacyPid = parseInt(fs.readFileSync(LEGACY_PID_FILE, "utf8"));
+        if (Number.isFinite(legacyPid)) {
+          isIntentionalShutdown = true;
+          try { process.kill(legacyPid); } catch {}
+        }
+        fs.unlinkSync(LEGACY_PID_FILE);
       }
-      fs.unlinkSync(LEGACY_PID_FILE);
-    }
-  } catch {}
+    } catch {}
 
-  const pid = readPid("cloudflared");
-  if (!pid) return;
-  isIntentionalShutdown = true;
-  try {
-    process.kill(pid);
-    console.log(`✅ Cloudflared killed`);
-  } catch {}
-  clearPid("cloudflared");
+    const pid = readPid("cloudflared");
+    if (!pid) return;
+    isIntentionalShutdown = true;
+    try {
+      process.kill(pid);
+      tunnelLog(`✅ Cloudflared killed`);
+    } catch {}
+    clearPid("cloudflared");
+  } finally {
+    setTimeout(() => { killInFlight = false; }, 2000);
+  }
 }
 
 /**
@@ -508,6 +519,7 @@ export function resetRestartCounter() {
   restartInFlight = false;
   restartCallback = null;
   currentRestartArg = null;
+  activeTunnelUrl = null;
   stopNetworkMonitor();
 }
 
@@ -560,15 +572,32 @@ function startNetworkMonitor() {
 
     if (!fingerprintChanged && !cloudflaredDead) return;
 
+    // Cooldown: skip network-change kill within 30s of tunnel ready (avoids killing during DHCP stabilization)
+    if (fingerprintChanged && !cloudflaredDead && tunnelReadyAt && Date.now() - tunnelReadyAt < NETWORK_CHANGE_COOLDOWN_MS) {
+      tunnelLog("⏸ Network change in cooldown, skip");
+      return;
+    }
+
     if (fingerprintChanged) tunnelLog("🔄 Network change detected");
     if (cloudflaredDead) tunnelLog("🔍 Liveness watchdog: cloudflared not alive");
 
     // Wait briefly for network to stabilize (DHCP, RA, VPN auto-connect)
     await new Promise((r) => setTimeout(r, TUNNEL_CONFIG.networkRestoreDelayMs));
 
-    if (!(await checkInternet())) {
-      tunnelLog("🌐 No internet yet, will retry on next tick");
-      return;
+    if (!(await checkInternet())) return;
+
+    // Smart kill: probe twice (2s gap) — avoid false negatives during network handoff
+    if (fingerprintChanged && !cloudflaredDead && activeTunnelUrl) {
+      let survived = false;
+      for (let i = 0; i < 2; i++) {
+        const probe = await probeTunnelOnce(activeTunnelUrl);
+        if (probe.ok) { survived = true; break; }
+        if (i === 0) await new Promise((r) => setTimeout(r, 2000));
+      }
+      if (survived) {
+        tunnelLog("✅ Tunnel survived network change, skip restart");
+        return;
+      }
     }
 
     if (fingerprintChanged && !cloudflaredDead) killCloudflared();

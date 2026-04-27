@@ -3,20 +3,21 @@
  */
 
 import { STEP, PERMISSION_POLL_FAST_MS, PERMISSION_POLL_FAST_DURATION } from "../lib/constants.js";
+import { setSseEmitter, readRecentLogs } from "../lib/logger.js";
+import { LOG_TAIL_LINES } from "../lib/constants.js";
 import { writeCmd } from "../cli/utils/state.js";
 import { checkPermissions, openPermissionPane } from "../cli/utils/permissions.js";
 import { isAutoStartEnabled, setAutoStart } from "../cli/utils/autostart.js";
 import { jsonOk } from "../lib/router.js";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
+import { PATHS } from "../lib/constants.js";
+import { readSettings, writeSettings } from "../lib/settings.js";
 
-const HOME_DIR = process.env.HOME || process.env.USERPROFILE || ".";
-const NINE_REMOTE_DIR = join(HOME_DIR, ".9remote");
-const UI_STATE_FILE = join(NINE_REMOTE_DIR, "ui-state.json");
-const DESKTOP_STATE_FILE = join(NINE_REMOTE_DIR, "desktop.json");
+const UI_STATE_FILE = join(PATHS.STATE, "ui-state.json");
 
 function ensureDir() {
-  mkdirSync(NINE_REMOTE_DIR, { recursive: true });
+  mkdirSync(PATHS.STATE, { recursive: true });
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -69,18 +70,11 @@ function saveUiState() {
 }
 
 export function loadDesktopState() {
-  try {
-    if (existsSync(DESKTOP_STATE_FILE)) {
-      desktopEnabled = !!JSON.parse(readFileSync(DESKTOP_STATE_FILE, "utf8")).enabled;
-    }
-  } catch { }
+  desktopEnabled = !!readSettings().desktopEnabled;
 }
 
 function saveDesktopState() {
-  try {
-    ensureDir();
-    writeFileSync(DESKTOP_STATE_FILE, JSON.stringify({ enabled: desktopEnabled }));
-  } catch { }
+  writeSettings({ desktopEnabled });
 }
 
 // ── SSE / Events ─────────────────────────────────────────────────────────────
@@ -95,6 +89,9 @@ export function pushUiEvent(type, data) {
 export function pushUiLog(message) {
   pushUiEvent("log", { message: `[${new Date().toLocaleTimeString()}] ${message}` });
 }
+
+// Bridge logger → SSE so every console/crash message reaches TUI + Web UI
+setSseEmitter(pushUiLog);
 
 // ── Getters / Setters (used by other modules) ────────────────────────────────
 
@@ -209,6 +206,12 @@ export function handleShutdown(req, res) {
 
 export function handleConnections(req, res) {
   jsonOk(res, { connections: [...activeConnections.values()] });
+}
+
+export function handleLogsGet(req, res) {
+  const url = new URL(req.url, "http://localhost");
+  const n = parseInt(url.searchParams.get("lines") || LOG_TAIL_LINES, 10);
+  jsonOk(res, { logs: readRecentLogs(Number.isFinite(n) ? n : LOG_TAIL_LINES) });
 }
 
 export async function handleDesktopToggle(req, res) {

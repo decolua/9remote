@@ -1,11 +1,11 @@
 // WebPush Notification Management
-import os from "os";
 import fs from "fs";
 import path from "path";
 import webpush from "web-push";
+import { PATHS } from "../../lib/constants.js";
 
-const VAPID_CONFIG_PATH = path.join(os.homedir(), ".9remote", "vapid.json");
-const PUSH_SUBS_PATH = path.join(os.homedir(), ".9remote", "push-subscriptions.json");
+const VAPID_CONFIG_PATH = path.join(PATHS.CONFIG, "vapid.json");
+const PUSH_SUBS_PATH = path.join(PATHS.CONFIG, "push-subscriptions.json");
 const PUSH_OFFLINE_LIMIT_MS = 30 * 60 * 1000; // 30 minutes
 
 // Push subscriptions: { endpoint, keys, socketId, disconnectedAt }

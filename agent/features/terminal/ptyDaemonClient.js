@@ -82,8 +82,31 @@ function findNodePtyDir(startDir) {
  * Returns { script, cwd } pointing at the copy, or null if copy failed
  * (caller falls back to running from original path).
  */
+// Remove daemon version folders other than current — only if daemon is not alive.
+// Prevents disk bloat from accumulated upgrades while keeping live sessions safe.
+function cleanupOldDaemonVersions(currentVersion) {
+  try {
+    if (!fs.existsSync(DAEMON_RUNTIME_DIR)) return;
+    // Read PID lazy so we don't import pids.js into the daemon process itself
+    const pidFile = path.join(SOCKET_DIR, "pids", "ptyDaemon.pid");
+    let alive = false;
+    try {
+      const pid = parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10);
+      if (Number.isFinite(pid) && pid > 0) {
+        try { process.kill(pid, 0); alive = true; } catch {}
+      }
+    } catch {}
+    if (alive) return;
+    for (const name of fs.readdirSync(DAEMON_RUNTIME_DIR)) {
+      if (name === `v${currentVersion}`) continue;
+      try { fs.rmSync(path.join(DAEMON_RUNTIME_DIR, name), { recursive: true, force: true }); } catch {}
+    }
+  } catch {}
+}
+
 function prepareDaemonCopy(sourceScript) {
   const version = getCliVersion();
+  cleanupOldDaemonVersions(version);
   const runtimeDir = path.join(DAEMON_RUNTIME_DIR, `v${version}`);
   const copiedScript = path.join(runtimeDir, path.basename(sourceScript));
   const copiedPtyDir = path.join(runtimeDir, "node_modules", "node-pty");
@@ -334,10 +357,12 @@ async function startDaemon() {
 
   const { script, cwd } = daemonInfo;
 
-  // Capture daemon output for debugging
-  const logPath = path.join(SOCKET_DIR, "daemon.log");
+  // Capture daemon output for debugging — co-located with agent.log under logs/
+  const logDir = path.join(SOCKET_DIR, "logs");
+  try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
+  const logPath = path.join(logDir, "daemon.log");
   let logFd;
-  
+
   try {
     logFd = fs.openSync(logPath, "w"); // Use 'w' to clear old logs
   } catch (e) {

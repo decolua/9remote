@@ -11,6 +11,9 @@ import { join } from "path";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+import { PATHS as APP_PATHS } from "../../lib/constants.js";
+
+const AUTOSTART_LOG = join(APP_PATHS.LOGS, "autostart.log");
 
 const APP_ID = "cc.9remote.agent";
 const APP_NAME = "9Remote";
@@ -97,9 +100,9 @@ ${args}
         <string>${escapeXml(HOME)}</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>${join(HOME, ".9remote", "autostart.log")}</string>
+    <string>${AUTOSTART_LOG}</string>
     <key>StandardErrorPath</key>
-    <string>${join(HOME, ".9remote", "autostart.log")}</string>
+    <string>${AUTOSTART_LOG}</string>
 </dict>
 </plist>
 `;
@@ -192,8 +195,8 @@ Restart=always
 RestartSec=10
 Environment=PATH=${getLaunchPath()}
 Environment=HOME=${HOME}
-StandardOutput=append:${join(HOME, ".9remote", "autostart.log")}
-StandardError=append:${join(HOME, ".9remote", "autostart.log")}
+StandardOutput=append:${AUTOSTART_LOG}
+StandardError=append:${AUTOSTART_LOG}
 
 [Install]
 WantedBy=default.target

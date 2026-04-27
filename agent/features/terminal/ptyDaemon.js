@@ -31,8 +31,10 @@ const clients = new Set();
 const MAX_BUFFER_SIZE = 50 * 1024; // 50KB per session
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
 
-// Log file path
-const LOG_PATH = path.join(SOCKET_DIR, "daemon.log");
+// Log file path — under ~/.9remote/logs/ for consistency with agent.log
+const LOG_DIR = path.join(SOCKET_DIR, "logs");
+const LOG_PATH = path.join(LOG_DIR, "daemon.log");
+try { if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true }); } catch {}
 
 /**
  * Check and truncate log file if exceeds limit

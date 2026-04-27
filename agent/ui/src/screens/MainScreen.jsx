@@ -335,6 +335,16 @@ const TUNNEL_HEALTH_META = {
   unknown:     { color: "var(--text-muted)", label: "Checking...", dot: "bg-gray-400" },
 };
 
+/** Header icon-only button — uses native tooltip for clarity */
+function HeaderIconBtn({ icon, title, danger, onClick }) {
+  const btnClass = danger ? "btn-danger w-7 h-7 flex items-center justify-center" : "glass-btn w-7 h-7 flex items-center justify-center";
+  return (
+    <button onClick={onClick} title={title} className={btnClass} style={danger ? undefined : { color: "var(--text-muted)" }}>
+      <span className="material-symbols-outlined text-sm">{icon}</span>
+    </button>
+  );
+}
+
 function TunnelHealthBadge({ tunnelHealth }) {
   const meta = TUNNEL_HEALTH_META[tunnelHealth?.status] || TUNNEL_HEALTH_META.unknown;
   const time = tunnelHealth?.checkedAt ? new Date(tunnelHealth.checkedAt).toLocaleTimeString() : "--:--:--";
@@ -394,40 +404,29 @@ export default function MainScreen({
           </div>
           <div className="flex items-center gap-2">
             {isReady && <TunnelHealthBadge tunnelHealth={tunnelHealth} />}
-            <button
-              onClick={onToggleTheme}
-              className="glass-btn w-7 h-7 flex items-center justify-center"
-              style={{ color: "var(--text-muted)" }}
+            <HeaderIconBtn
+              icon={theme === "dark" ? "light_mode" : "dark_mode"}
               title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              <span className="material-symbols-outlined text-sm">
-                {theme === "dark" ? "light_mode" : "dark_mode"}
-              </span>
-            </button>
-            <button
+              onClick={onToggleTheme}
+            />
+            <HeaderIconBtn
+              icon="help_outline"
+              title="Help & documentation"
               onClick={() => window.open(HELP_URL, "_blank")}
-              className="glass-btn w-7 h-7 flex items-center justify-center"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <span className="material-symbols-outlined text-sm">help_outline</span>
-            </button>
+            />
             {!isStopped && (
-              <button
+              <HeaderIconBtn
+                icon="stop_circle"
+                title="Stop the tunnel and disconnect clients"
+                danger
                 onClick={() => setShowDisconnectConfirm(true)}
-                className="btn-danger px-3 h-7 flex items-center gap-1.5 text-xs font-medium"
-              >
-                <span className="material-symbols-outlined text-sm">stop_circle</span>
-                Disconnect
-              </button>
+              />
             )}
-            <button
-              onClick={() => setShowShutdownConfirm(true)}
-              className="glass-btn w-7 h-7 flex items-center justify-center"
-              style={{ color: "var(--text-muted)" }}
+            <HeaderIconBtn
+              icon="power_settings_new"
               title="Shutdown 9Remote (stop server, tunnel and quit)"
-            >
-              <span className="material-symbols-outlined text-sm">power_settings_new</span>
-            </button>
+              onClick={() => setShowShutdownConfirm(true)}
+            />
           </div>
         </div>
 

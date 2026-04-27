@@ -82,6 +82,12 @@ export default function App() {
       })
       .catch(() => {});
 
+    // Load log history first so user sees full context even before SSE arrives
+    fetch("/api/logs")
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d?.logs)) setLogs(d.logs); })
+      .catch(() => {});
+
     const es = new EventSource("/api/ui/events");
 
     es.onmessage = (e) => {

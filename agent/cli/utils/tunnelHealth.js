@@ -1,9 +1,11 @@
-import { TUNNEL_HEALTH, SERVER_PORT, browserFetch } from "../../lib/constants.js";
+import { TUNNEL_HEALTH, SERVER_PORT } from "../../lib/constants.js";
+import { probeTunnelOnce, flushWinDns } from "./dnsProbe.js";
+import { tunnelLog } from "./tunnelLog.js";
 
 let intervalId = null;
+let currentUrl = null;
+let lastStatus = null;
 
-// CLI runs in a separate process from the HTTP server — push state over HTTP
-// so SSE clients (web UI) actually receive the update.
 async function pushState(data) {
   try {
     await fetch(`http://localhost:${SERVER_PORT}/api/ui/state`, {
@@ -14,40 +16,40 @@ async function pushState(data) {
   } catch {}
 }
 
-async function pingHealth(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TUNNEL_HEALTH.requestTimeoutMs);
-  try {
-    const res = await browserFetch(`${url}/api/health`, { signal: controller.signal });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
+async function runCheck() {
+  if (!currentUrl) return;
+  const res = await probeTunnelOnce(currentUrl);
+  const status = res.ok ? "healthy" : "unreachable";
+  // Only log on transition (healthy→unreachable or vice versa) to avoid spam
+  if (status !== lastStatus) {
+    tunnelLog(`🩺 ${lastStatus ?? "init"} → ${status}${res.ok ? "" : ` (http=${res.httpStatus ?? "-"} dns=${res.dnsCode ?? "-"})`}`);
+    lastStatus = status;
   }
+  await pushState({ tunnelHealth: { status, checkedAt: Date.now() } });
 }
 
-async function runCheck(url) {
-  const ok = await pingHealth(url);
-  await pushState({
-    tunnelHealth: {
-      status: ok ? "healthy" : "unreachable",
-      checkedAt: Date.now(),
-    },
-  });
+// Same URL keeps existing interval; URL change triggers DNS flush + immediate check
+export function setTunnelHealthUrl(url) {
+  if (!url) return stopTunnelHealthWatchdog();
+  if (url === currentUrl) return;
+  currentUrl = url;
+  lastStatus = null;
+  flushWinDns();
+  if (!intervalId) intervalId = setInterval(runCheck, TUNNEL_HEALTH.checkIntervalMs);
+  runCheck();
 }
 
-export function startTunnelHealthWatchdog(url) {
-  stopTunnelHealthWatchdog();
-  if (!url) return;
-  runCheck(url);
-  intervalId = setInterval(() => runCheck(url), TUNNEL_HEALTH.checkIntervalMs);
+// Trigger immediate re-check (e.g. after urlSync OK signaling network restored)
+export function recheckTunnelHealth() {
+  if (currentUrl) runCheck();
 }
+
+export const startTunnelHealthWatchdog = setTunnelHealthUrl;
+export const updateTunnelHealthUrl = setTunnelHealthUrl;
 
 export function stopTunnelHealthWatchdog() {
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  if (intervalId) { clearInterval(intervalId); intervalId = null; }
+  currentUrl = null;
+  lastStatus = null;
   pushState({ tunnelHealth: { status: "unknown", checkedAt: null } });
 }

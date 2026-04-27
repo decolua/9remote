@@ -170,7 +170,7 @@ function TerminalPane({
       onMouseDown={handlePaneClick}
       onTouchStart={(e) => { handlePaneClick(); handleTouchStart(e); }}
     >
-      <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden px-1 py-1 relative">
+      <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden px-1 py-0.5 relative">
         <div
           ref={containerRef}
           className="xterm-screen w-full h-full rounded-sm overflow-hidden"
