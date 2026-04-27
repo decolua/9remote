@@ -1,5 +1,8 @@
 import { ProtocolManager } from "../../transport/ProtocolManager.js";
 import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
+import { createLogger } from "../../lib/logger.js";
+
+const logger = createLogger("remote");
 
 const { enableWebRTC, enableTurn, turnApiUrl, turnRefreshInterval, dcMaxMessageSize, dcChunkSize, dcMaxTilesPerFrame, answerTimeout } = REMOTE_CONFIG.webrtc;
 
@@ -18,7 +21,7 @@ export async function checkRemoteAvailable() {
   if (remoteAvailable !== null) return remoteAvailable;
   if (isKnownHeadless()) {
     remoteAvailable = false;
-    console.log("✅ Remote desktop not available (headless environment)");
+    logger.info("✅ Remote desktop not available (headless environment)");
     return remoteAvailable;
   }
   try {
@@ -28,7 +31,7 @@ export async function checkRemoteAvailable() {
     remoteAvailable = true;
   } catch {
     remoteAvailable = false;
-    console.log("✅ Remote desktop not available (no display or robotjs not installed)");
+    logger.info("✅ Remote desktop not available (no display or robotjs not installed)");
   }
   return remoteAvailable;
 }

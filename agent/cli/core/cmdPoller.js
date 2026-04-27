@@ -1,5 +1,7 @@
-import chalk from "chalk";
 import { browserFetch, SERVER_PORT, STEP } from "../../lib/constants.js";
+import { createLogger } from "../../lib/logger.js";
+
+const logger = createLogger("cmd");
 import { readAndClearCmd, loadKey, saveKey } from "../utils/state.js";
 import { stopTunnelHealthWatchdog, updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import { ensureCloudflared } from "../utils/cloudflared.js";
@@ -12,7 +14,7 @@ import { updateTunnelUrl } from "../tunnel/urlSync.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { showConnectionInfo } from "../session/display.js";
 import { shutdownAll } from "./lifecycle.js";
-import { COLORS, WORKER_URL, POLL, DELAYS } from "../config.js";
+import { WORKER_URL, POLL, DELAYS } from "../config.js";
 
 export function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
   let busy = false;
@@ -41,7 +43,7 @@ async function handleStop(getActiveTunnel, setActiveTunnel) {
   if (tunnel) {
     tunnel.kill();
     setActiveTunnel(null);
-    console.log(chalk.yellow("🛑 Tunnel stopped"));
+    logger.info("🛑 Tunnel stopped");
   }
   await setStep(STEP.STOPPED, { tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
   updateTrayTooltip({ tunnelUrl: "", running: true });
@@ -58,7 +60,7 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
       return "alreadyRunning";
     }
   }
-  console.log(COLORS.orange("🚀 Starting tunnel..."));
+  logger.info("🚀 Starting tunnel...");
   try {
     await setStep(STEP.PREPARING);
     await ensureCloudflared(onBinaryProgress);
@@ -86,7 +88,7 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
 
     await setStep(STEP.VERIFYING);
     const tunnelOk = await waitForTunnelReady(result.tunnelUrl);
-    if (!tunnelOk) console.log(chalk.yellow("\n⚠️  Tunnel health check timed out, proceeding anyway..."));
+    if (!tunnelOk) logger.warn("⚠️  Tunnel health check timed out, proceeding anyway...");
 
     await updateTunnelUrl(apiKey, result.tunnelUrl);
     updateTrayTooltip({ tunnelUrl: result.tunnelUrl, running: true });
@@ -94,7 +96,7 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     await new Promise((r) => setTimeout(r, DELAYS.postReadyHoldMs));
     await showConnectionInfo(apiKey, result.tunnelUrl);
   } catch (err) {
-    console.log(chalk.red(`❌ Failed to start tunnel: ${err.message}`));
+    logger.error(`❌ Failed to start tunnel: ${err.message}`);
     await setStep(STEP.STOPPED);
   }
 }
@@ -105,13 +107,13 @@ async function handleRegenerate() {
   const existing = loadKey();
   saveKey(machineId, key, existing?.name || "Default");
   await pushUiState({ permanentKey: key });
-  console.log(chalk.green(`✅ Key regenerated: ${key}`));
+  logger.info(`✅ Key regenerated: ${key}`);
 }
 
 function handleShutdown(getActiveTunnel, setActiveTunnel) {
-  console.log(chalk.yellow("\n🛑 Shutting down 9Remote completely..."));
+  logger.info("🛑 Shutting down 9Remote completely...");
   const tunnel = getActiveTunnel();
   setActiveTunnel(null);
   shutdownAll({ tunnelProcess: tunnel });
-  console.log(chalk.green("✅ 9Remote stopped"));
+  logger.info("✅ 9Remote stopped");
 }

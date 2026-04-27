@@ -1,9 +1,9 @@
-import chalk from "chalk";
 import { spawnQuickTunnel } from "../utils/cloudflared.js";
-import { tunnelLog } from "../utils/tunnelLog.js";
 import { computeDelay } from "../utils/backoff.js";
 import { RETRY_CONFIG } from "../../lib/constants.js";
-import { COLORS } from "../config.js";
+import { createLogger } from "../../lib/logger.js";
+
+const logger = createLogger("tunnel");
 
 export async function spawnQuickTunnelWithRetry(localPort, onUrlUpdate, onRestart) {
   let attempt = 0;
@@ -13,8 +13,7 @@ export async function spawnQuickTunnelWithRetry(localPort, onUrlUpdate, onRestar
       return await spawnQuickTunnel(localPort, onUrlUpdate, onRestart);
     } catch (err) {
       const delay = computeDelay(RETRY_CONFIG.tunnelSpawn, attempt);
-      tunnelLog(`⚠️  spawn attempt ${attempt} failed: ${err?.message || err} — retry in ${delay}ms`);
-      console.log(chalk.yellow(`⚠️  Tunnel spawn failed (#${attempt}) — retry in ${delay / 1000}s`));
+      logger.warn(`⚠️  spawn attempt ${attempt} failed: ${err?.message || err} — retry in ${delay}ms`);
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -27,11 +26,9 @@ export function makeTunnelRestartHandler({ onUrlUpdate, setTunnel }) {
       const r = await spawnQuickTunnelWithRetry(port, onUrlUpdate);
       setTunnel(r.child);
       await onUrlUpdate(r.tunnelUrl);
-      tunnelLog(`✅ Tunnel restarted: ${r.tunnelUrl}`);
-      console.log(COLORS.orange(`✅ Tunnel restarted: ${r.tunnelUrl}`));
+      logger.info(`✅ Tunnel restarted: ${r.tunnelUrl}`);
     } catch (err) {
-      tunnelLog(`❌ Tunnel restart failed: ${err?.message || err}`);
-      console.log(chalk.red(`❌ Tunnel restart failed: ${err.message}`));
+      logger.error(`❌ Tunnel restart failed: ${err?.message || err}`);
     }
   };
 }

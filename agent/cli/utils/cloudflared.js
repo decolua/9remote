@@ -5,9 +5,11 @@ import os from "os";
 import net from "net";
 import { execSync, spawn } from "child_process";
 import { writePid, readPid, clearPid, isAlive } from "./pids.js";
-import { tunnelLog } from "./tunnelLog.js";
+import { createLogger } from "../../lib/logger.js";
 import { computeDelay } from "./backoff.js";
-import { RETRY_CONFIG } from "../../lib/constants.js";
+
+const logger = createLogger("tunnel");
+import { RETRY_CONFIG, SERVER_PORT } from "../../lib/constants.js";
 import { probeTunnelOnce } from "./dnsProbe.js";
 
 // Tunnel-only network probe params (not retry-related)
@@ -92,16 +94,16 @@ async function waitForInternet() {
  */
 async function scheduleRestart(arg, reason) {
   if (!restartCallback) {
-    tunnelLog("⚠️  No restartCallback registered — skip");
+    logger.warn("⚠️  No restartCallback registered — skip");
     return;
   }
   if (restartInFlight) {
-    tunnelLog(`⏭ restart already in flight, skip (${reason})`);
+    logger.info(`⏭ restart already in flight, skip (${reason})`);
     return;
   }
   // Debounce: collapse bursts (network change + exit handler) within 5s window
   if (Date.now() - lastScheduleAt < SCHEDULE_DEBOUNCE_MS) {
-    tunnelLog(`⏭ restart debounced, skip (${reason})`);
+    logger.info(`⏭ restart debounced, skip (${reason})`);
     return;
   }
   lastScheduleAt = Date.now();
@@ -115,7 +117,7 @@ async function scheduleRestart(arg, reason) {
     lastScheduleAt = 0;
   } catch (err) {
     restartFailCount++;
-    tunnelLog(`❌ restart failed (#${restartFailCount}): ${err?.message || err}`);
+    logger.error(`❌ restart failed (#${restartFailCount}): ${err?.message || err}`);
     // Re-queue next attempt asynchronously to avoid recursion stack growth
     setImmediate(() => {
       restartInFlight = false;
@@ -361,14 +363,14 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
         clearTimeout(timeout);
         cleanup();
         startNetworkMonitor();
-        tunnelLog(`✅ tunnel ready: ${tunnelUrl}`);
+        logger.info(`✅ tunnel ready: ${tunnelUrl}`);
         resolve({ child, tunnelUrl });
         return;
       }
 
       // URL rotated after initial connect — notify caller
       if (tunnelUrl !== lastUrl) {
-        tunnelLog(`🔄 URL rotated: ${tunnelUrl}`);
+        logger.info(`🔄 URL rotated: ${tunnelUrl}`);
         lastUrl = tunnelUrl;
         activeTunnelUrl = tunnelUrl;
         tunnelReadyAt = Date.now();
@@ -389,7 +391,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
     child.on("exit", (code, signal) => {
       cleanup();
-      tunnelLog(`💥 cloudflared exit pid=${child.pid} code=${code} signal=${signal} intentional=${isIntentionalShutdown}`);
+      logger.info(`💥 cloudflared exit pid=${child.pid} code=${code} signal=${signal} intentional=${isIntentionalShutdown}`);
       if (!resolved) {
         resolved = true;
         clearTimeout(timeout);
@@ -427,7 +429,7 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
   });
   
   isIntentionalShutdown = false;
-  console.log(`✅ Cloudflared spawned with PID: ${child.pid}`);
+  logger.info(`✅ Cloudflared spawned with PID: ${child.pid}`);
   
   // Wait for 4 connections before resolving (tunnel is truly ready)
   await new Promise((resolve, reject) => {
@@ -465,7 +467,7 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
   });
   
   child.on("exit", (code, signal) => {
-    console.log(`⚠️  Cloudflared process exited (code: ${code}, signal: ${signal}, intentional: ${isIntentionalShutdown})`);
+    logger.warn(`⚠️  Cloudflared process exited (code: ${code}, signal: ${signal}, intentional: ${isIntentionalShutdown})`);
     if (isIntentionalShutdown) return;
     scheduleRestart(tunnelToken, `tunnel exit code ${code}${signal ? `/${signal}` : ""}`);
   });
@@ -479,33 +481,59 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
   return child;
 }
 
-/**
- * Kill cloudflared process
- */
+// Windows: taskkill /T /F kills entire process tree; SIGTERM only stops parent
+function killPid(pid) {
+  if (IS_WINDOWS) {
+    try { execSync(`taskkill /PID ${pid} /T /F`, { windowsHide: true, stdio: "ignore" }); } catch {}
+  } else {
+    try { process.kill(pid, "SIGKILL"); } catch {}
+  }
+}
+
+// Find cloudflared PIDs holding TCP to localhost:port — filtered by image name to avoid false positives
+function killCloudflaredByPort(port) {
+  try {
+    let pids = [];
+    if (IS_WINDOWS) {
+      const ps = `Get-NetTCPConnection -LocalPort ${port} -State Established -ErrorAction SilentlyContinue | Where-Object { (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).Name -eq 'cloudflared' } | Select-Object -ExpandProperty OwningProcess -Unique`;
+      const out = execSync(`powershell -NoProfile -Command "${ps}"`, { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+      pids = out.split(/\r?\n/).map((s) => +s.trim()).filter(Boolean);
+    } else {
+      const out = execSync(
+        `lsof -nP -iTCP:${port} -sTCP:ESTABLISHED 2>/dev/null | awk '/cloudflar/ {print $2}' | sort -u`,
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+      );
+      pids = out.split("\n").map((s) => +s.trim()).filter(Boolean);
+    }
+    for (const p of new Set(pids)) { killPid(p); logger.info(`✅ killed orphan cloudflared pid=${p}`); }
+  } catch {}
+}
+
 export function killCloudflared() {
   if (killInFlight) return;
   killInFlight = true;
   try {
-    // Clean up legacy PID file from older installs (one-time migration)
+    // One-time legacy PID file cleanup
     try {
       if (fs.existsSync(LEGACY_PID_FILE)) {
         const legacyPid = parseInt(fs.readFileSync(LEGACY_PID_FILE, "utf8"));
         if (Number.isFinite(legacyPid)) {
           isIntentionalShutdown = true;
-          try { process.kill(legacyPid); } catch {}
+          killPid(legacyPid);
         }
         fs.unlinkSync(LEGACY_PID_FILE);
       }
     } catch {}
 
     const pid = readPid("cloudflared");
-    if (!pid) return;
     isIntentionalShutdown = true;
-    try {
-      process.kill(pid);
-      tunnelLog(`✅ Cloudflared killed`);
-    } catch {}
-    clearPid("cloudflared");
+    if (pid) {
+      killPid(pid);
+      logger.info(`✅ Cloudflared killed`);
+      clearPid("cloudflared");
+    }
+
+    killCloudflaredByPort(SERVER_PORT);
   } finally {
     setTimeout(() => { killInFlight = false; }, 2000);
   }
@@ -574,12 +602,12 @@ function startNetworkMonitor() {
 
     // Cooldown: skip network-change kill within 30s of tunnel ready (avoids killing during DHCP stabilization)
     if (fingerprintChanged && !cloudflaredDead && tunnelReadyAt && Date.now() - tunnelReadyAt < NETWORK_CHANGE_COOLDOWN_MS) {
-      tunnelLog("⏸ Network change in cooldown, skip");
+      logger.info("⏸ Network change in cooldown, skip");
       return;
     }
 
-    if (fingerprintChanged) tunnelLog("🔄 Network change detected");
-    if (cloudflaredDead) tunnelLog("🔍 Liveness watchdog: cloudflared not alive");
+    if (fingerprintChanged) logger.info("🔄 Network change detected");
+    if (cloudflaredDead) logger.info("🔍 Liveness watchdog: cloudflared not alive");
 
     // Wait briefly for network to stabilize (DHCP, RA, VPN auto-connect)
     await new Promise((r) => setTimeout(r, TUNNEL_CONFIG.networkRestoreDelayMs));
@@ -595,7 +623,7 @@ function startNetworkMonitor() {
         if (i === 0) await new Promise((r) => setTimeout(r, 2000));
       }
       if (survived) {
-        tunnelLog("✅ Tunnel survived network change, skip restart");
+        logger.info("✅ Tunnel survived network change, skip restart");
         return;
       }
     }

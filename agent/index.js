@@ -11,9 +11,10 @@ import chalk from "chalk";
 
 import { createRouter, jsonOk, jsonErr } from "./lib/router.js";
 import { STEP, browserFetch, PERMISSION_POLL_MS } from "./lib/constants.js";
-import { initLogger } from "./lib/logger.js";
+import { initLogger, createLogger } from "./lib/logger.js";
 
 initLogger();
+const logger = createLogger("server");
 import { setupSocketIO, getIO } from "./lib/socketio.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
@@ -254,19 +255,19 @@ export async function startServer() {
   const gracefulShutdown = async (signal) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
-    console.log(chalk.yellow(`\n🛑 Received ${signal}, shutting down gracefully...`));
-    const forceExit = setTimeout(() => { console.log(chalk.red("⚠️  Forced exit")); process.exit(1); }, 5000);
+    logger.info(`🛑 Received ${signal}, shutting down gracefully...`);
+    const forceExit = setTimeout(() => { logger.error("⚠️  Forced exit"); process.exit(1); }, 5000);
     try {
-      server.close(() => console.log(chalk.gray("✓ HTTP server closed")));
+      server.close(() => logger.info("✓ HTTP server closed"));
       if (viteProcess) { try { viteProcess.kill(); } catch {} }
       const io = getIO();
-      if (io) { io.emit("server:shutdown"); io.close(() => console.log(chalk.gray("✓ Socket.IO closed"))); }
+      if (io) { io.emit("server:shutdown"); io.close(() => logger.info("✓ Socket.IO closed")); }
       await new Promise((r) => setTimeout(r, 500));
       clearTimeout(forceExit);
-      console.log(chalk.green("✅ Server stopped cleanly"));
+      logger.info("✅ Server stopped cleanly");
       process.exit(0);
     } catch (error) {
-      console.error(chalk.red("❌ Error during shutdown:"), error);
+      logger.error(`❌ Error during shutdown: ${error?.message || error}`);
       clearTimeout(forceExit);
       process.exit(1);
     }
@@ -278,10 +279,10 @@ export async function startServer() {
 
   // Keep server alive on unexpected errors — supervisor will restart if we exit anyway
   process.on("uncaughtException", (err) => {
-    console.error(chalk.red("⚠️  uncaughtException:"), err?.stack || err);
+    logger.error(`⚠️  uncaughtException: ${err?.stack || err}`);
   });
   process.on("unhandledRejection", (reason) => {
-    console.error(chalk.red("⚠️  unhandledRejection:"), reason);
+    logger.error(`⚠️  unhandledRejection: ${reason?.stack || reason}`);
   });
 
   return server;

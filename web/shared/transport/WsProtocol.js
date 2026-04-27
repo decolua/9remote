@@ -23,8 +23,9 @@ export class WsProtocol extends BaseProtocol {
     this._namespace = namespace;
     this._socketOptions = socketOptions;
     this._apiKey = apiKey;
-    // Saved Keys retry fewer times than onetime key (tempKey)
+    // Saved Keys retry fewer times than onetime key (tempKey) on initial connect
     this._maxAttempts = tempKey ? RETRY.maxAttempts : RETRY.savedKeyMaxAttempts;
+    this._reconnectMaxAttempts = RETRY.reconnectMaxAttempts;
     this._onConnect = onConnect;
     this._onDisconnect = onDisconnect;
     this._onRetryStatus = onRetryStatus;
@@ -68,6 +69,7 @@ export class WsProtocol extends BaseProtocol {
         this._socket = socket;
         this._connected = true;
         this._retryAttempt = 0; // Reset on successful connect
+        this._maxAttempts = this._reconnectMaxAttempts; // Subsequent retries use reconnect quota
         this._cancelRetry();
         this._onConnect?.(socket, mode);
         this._attachSocketEvents(socket);

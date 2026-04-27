@@ -1,5 +1,7 @@
-import chalk from "chalk";
 import { browserFetch, SERVER_PORT, STEP } from "../../lib/constants.js";
+import { createLogger } from "../../lib/logger.js";
+
+const logger = createLogger("mode");
 import { saveState } from "../utils/state.js";
 import { killCloudflared } from "../utils/cloudflared.js";
 import { updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
@@ -14,10 +16,10 @@ import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { ensureKeyData, getVersion } from "../session/key.js";
 import { showConnectionInfo } from "../session/display.js";
 import { showBanner } from "../utils/tui.js";
-import { COLORS, WORKER_URL, DELAYS, POLL } from "../config.js";
+import { WORKER_URL, DELAYS, POLL } from "../config.js";
 
 async function startServerAndTunnel(selectedKey) {
-  console.log(COLORS.orange("\n🚀 Starting server..."));
+  logger.info("🚀 Starting server...");
   await setStep(STEP.PREPARING);
 
   try { killCloudflared(); await new Promise((r) => setTimeout(r, DELAYS.killCloudflaredMs)); } catch {}
@@ -28,9 +30,9 @@ async function startServerAndTunnel(selectedKey) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey: selectedKey }),
     });
-    if (!res.ok) { console.log(chalk.red(`❌ Session create failed: ${res.status}`)); return null; }
+    if (!res.ok) { logger.error(`❌ Session create failed: ${res.status}`); return null; }
   } catch (e) {
-    console.log(chalk.red(`❌ Session create failed: ${e.message}`)); return null;
+    logger.error(`❌ Session create failed: ${e.message}`); return null;
   }
 
   const alreadyRunning = await isServerRunning();
@@ -40,13 +42,13 @@ async function startServerAndTunnel(selectedKey) {
 
   if (!alreadyRunning) await new Promise((r) => setTimeout(r, DELAYS.serverBootMs));
 
-  console.log(COLORS.orange("✅ Starting tunnel..."));
+  logger.info("✅ Starting tunnel...");
   await setStep(STEP.CONNECTING);
 
   const tunnelRef = { current: null };
   let tunnelUrl;
   const onUrlUpdate = async (newUrl) => {
-    console.log(COLORS.orange(`🔄 Tunnel URL rotated: ${newUrl}`));
+    logger.info(`🔄 Tunnel URL rotated: ${newUrl}`);
     await updateTunnelUrl(selectedKey, newUrl);
     pushUiState({ tunnelUrl: newUrl });
     updateTunnelHealthUrl(newUrl);
@@ -60,13 +62,13 @@ async function startServerAndTunnel(selectedKey) {
     tunnelRef.current = result.child;
     tunnelUrl = result.tunnelUrl;
   } catch (error) {
-    console.log(chalk.red(`❌ Failed to start tunnel: ${error.message}`));
+    logger.error(`❌ Failed to start tunnel: ${error.message}`);
     serverManager.shutdown();
     return null;
   }
 
   if (!(await waitForTunnelReady(tunnelUrl))) {
-    console.log(chalk.yellow("\n⚠️  Tunnel health check timed out, proceeding anyway..."));
+    logger.warn("⚠️  Tunnel health check timed out, proceeding anyway...");
   }
 
   await updateTunnelUrl(selectedKey, tunnelUrl);
@@ -84,7 +86,7 @@ async function startServerAndTunnel(selectedKey) {
 export async function autoStartDev() {
   showBanner(getVersion());
   const keyData = await ensureKeyData();
-  console.log(chalk.gray(`Using key: ${keyData.key.slice(0, 20)}... (${keyData.name})`));
+  logger.info(`Using key: ${keyData.key.slice(0, 20)}... (${keyData.name})`);
 
   const result = await startServerAndTunnel(keyData.key);
   if (!result) process.exit(1);

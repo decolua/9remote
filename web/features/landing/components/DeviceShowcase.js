@@ -1,18 +1,18 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { THEME, CLAUDE_CODE_SEQUENCE, PHONE_CHAT_SEQUENCE, TIMING } from "../constants/landingConfig";
+import { THEME, CLAUDE_CODE_SEQUENCE, CLAUDE_CODE_PRELOAD, PHONE_CHAT_SEQUENCE, PHONE_CHAT_PRELOAD, TIMING } from "../constants/landingConfig";
 
-// Typing effect hook with loop reset
-function useTypingSequence(sequence) {
-  const [lines, setLines] = useState([]);
+// Typing effect hook with loop reset; preload renders instantly as history
+function useTypingSequence(sequence, preload = []) {
+  const [lines, setLines] = useState(preload);
   const [currentText, setCurrentText] = useState("");
   const indexRef = useRef(0);
 
   useEffect(() => {
     if (indexRef.current >= sequence.length) {
       const reset = setTimeout(() => {
-        setLines([]);
+        setLines(preload);
         setCurrentText("");
         indexRef.current = 0;
       }, TIMING.loopReset);
@@ -33,7 +33,7 @@ function useTypingSequence(sequence) {
       indexRef.current += 1;
     }, TIMING.lineDelay);
     return () => clearTimeout(t);
-  }, [currentText, lines, sequence]);
+  }, [currentText, lines, sequence, preload]);
 
   const activeLine = indexRef.current < sequence.length ? sequence[indexRef.current] : null;
   return { lines, currentText, activeLine };
@@ -53,7 +53,7 @@ function lineColor(type) {
 
 // MacBook window frame with Claude Code terminal inside
 export function MacbookClaudeCode() {
-  const { lines, currentText, activeLine } = useTypingSequence(CLAUDE_CODE_SEQUENCE);
+  const { lines, currentText, activeLine } = useTypingSequence(CLAUDE_CODE_SEQUENCE, CLAUDE_CODE_PRELOAD);
 
   return (
     <div className="relative w-full max-w-full sm:max-w-[620px]">
@@ -111,7 +111,7 @@ export function MacbookClaudeCode() {
 
 // iPhone frame with live chat (user prompting AI on the go)
 export function IPhoneChat() {
-  const { lines, currentText, activeLine } = useTypingSequence(PHONE_CHAT_SEQUENCE);
+  const { lines, currentText, activeLine } = useTypingSequence(PHONE_CHAT_SEQUENCE, PHONE_CHAT_PRELOAD);
 
   return (
     <div className="relative">

@@ -35,6 +35,10 @@ export const DELAYS = {
 
 export const TUI = { maxLogLines: 200, headerWidth: 44 };
 
+export const URL_SYNC_DEBOUNCE_MS = 5000;
+export const HEALTH_FLAP_STABLE_CHECKS = 2;
+export const FAST_PROBE_TIMEOUT_MS = 30000;
+
 export const COLORS = {
   orange: chalk.rgb(230, 138, 110),
   orangeDim: chalk.rgb(200, 120, 95),

@@ -32,25 +32,19 @@ export async function launchBackground() {
   if (themeArg) bgArgs.push(themeArg);
 
   const logPath = LOG_FILE_PATH;
-  try {
-    fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    fs.appendFileSync(logPath, `\n=== ${new Date().toISOString()} spawn bg ===\n`);
-  } catch {}
+  try { fs.mkdirSync(path.dirname(logPath), { recursive: true }); } catch {}
 
   let bgPid = null;
 
-  // Detached spawn — windowsHide + ignore stdio prevents black cmd flash on Windows.
-  // Write agent.pid in PARENT so updater finds it even if child crashes early.
+  // Child writes to logger directly (file). Ignore child stdio to avoid raw mirror in log file.
   try {
-    const logFd = fs.openSync(logPath, "a");
     const bg = spawn(process.execPath, bgArgs, {
       detached: true,
       windowsHide: true,
-      stdio: ["ignore", logFd, logFd],
+      stdio: "ignore",
       env: { ...process.env },
     });
     bg.unref();
-    try { fs.closeSync(logFd); } catch {}
     bgPid = bg.pid;
     if (bg.pid) writePid("agent", bg.pid);
   } catch (err) {

@@ -17,6 +17,17 @@ export const THEME = {
   err: "var(--color-danger)"
 };
 
+// Pre-rendered terminal history (shown instantly on load)
+export const CLAUDE_CODE_PRELOAD = [
+  { type: "user", text: "> Refactor auth module to use JWT" },
+  { type: "assistant", text: "● Scanning auth files and dependencies..." },
+  { type: "tool", text: "⏺ Read(src/auth/session.js)" },
+  { type: "tool", text: "⏺ Grep(pattern: \"sessionId\", 8 matches)" },
+  { type: "diff-add", text: "+ import jwt from 'jsonwebtoken'" },
+  { type: "diff-add", text: "+ const TOKEN_TTL = '7d'" },
+  { type: "success", text: "  ✓ Migrated 8 endpoints" }
+];
+
 // Claude Code terminal demo sequence (typing animation)
 export const CLAUDE_CODE_SEQUENCE = [
   { type: "user", text: "> Build a login form with validation" },
@@ -30,6 +41,12 @@ export const CLAUDE_CODE_SEQUENCE = [
   { type: "tool", text: "⏺ Bash(npm run test)" },
   { type: "success", text: "  ✓ 12 tests passed" },
   { type: "assistant", text: "● Done. Login form ready with full validation." }
+];
+
+// Pre-rendered phone chat history (shown instantly on load)
+export const PHONE_CHAT_PRELOAD = [
+  { role: "user", text: "Fix the broken checkout button" },
+  { role: "ai", text: "Found null ref in handleSubmit. Patched ✓" }
 ];
 
 // Mobile phone chat demo (user prompting AI from phone)

@@ -1,13 +1,25 @@
 import { browserFetch, SERVER_PORT, RETRY_CONFIG } from "../../lib/constants.js";
-import { tunnelLog } from "../utils/tunnelLog.js";
+import { createLogger } from "../../lib/logger.js";
 import { retryForever } from "../utils/backoff.js";
-import { startTunnelHealthWatchdog, recheckTunnelHealth } from "../utils/tunnelHealth.js";
+import {
+  startTunnelHealthWatchdog,
+  pauseHealthWatchdog, resumeHealthWatchdog, setLastStatus,
+} from "../utils/tunnelHealth.js";
 import { getLanIp } from "../core/localApi.js";
-import { WORKER_URL } from "../config.js";
+import { waitForTunnelReady } from "./readiness.js";
+import { WORKER_URL, URL_SYNC_DEBOUNCE_MS, FAST_PROBE_TIMEOUT_MS } from "../config.js";
+
+const logger = createLogger("tunnel");
 
 let urlSyncCtx = null;
+let lastSyncedUrl = null;
+let lastSyncedAt = 0;
 
 export async function updateTunnelUrl(selectedKey, tunnelUrl) {
+  if (tunnelUrl && tunnelUrl === lastSyncedUrl && Date.now() - lastSyncedAt < URL_SYNC_DEBOUNCE_MS) {
+    logger.info(`⏭ urlSync debounced (same URL): ${tunnelUrl}`);
+    return;
+  }
   if (urlSyncCtx) urlSyncCtx.cancelled = true;
   const ctx = { cancelled: false };
   urlSyncCtx = ctx;
@@ -16,7 +28,7 @@ export async function updateTunnelUrl(selectedKey, tunnelUrl) {
   retryForever({
     config: RETRY_CONFIG.urlSync,
     label: `urlSync ${tunnelUrl}`,
-    log: tunnelLog,
+    log: (m) => logger.warn(m),
     ctx,
     task: async () => {
       const res = await browserFetch(`${WORKER_URL}/api/session/update`, {
@@ -26,15 +38,38 @@ export async function updateTunnelUrl(selectedKey, tunnelUrl) {
       });
       if (ctx.cancelled) return true;
       if (res.ok) {
-        tunnelLog(`✅ urlSync ok`);
-        recheckTunnelHealth();
+        lastSyncedUrl = tunnelUrl;
+        lastSyncedAt = Date.now();
+        logger.info(`✅ urlSync ok`);
+        runFastHealthProbe(tunnelUrl);
         return true;
       }
       const txt = await res.text().catch(() => "");
-      tunnelLog(`⚠️  urlSync HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      logger.warn(`⚠️  urlSync HTTP ${res.status}: ${txt.slice(0, 200)}`);
       return false;
     },
   });
 
   if (tunnelUrl) startTunnelHealthWatchdog(tunnelUrl);
+}
+
+let fastProbeCtx = null;
+
+// Pause watchdog to avoid duplicate probes; on healthy, sync watchdog state so it doesn't re-log transition
+async function runFastHealthProbe(tunnelUrl) {
+  if (fastProbeCtx?.url === tunnelUrl) return;
+  const ctx = { url: tunnelUrl };
+  fastProbeCtx = ctx;
+  pauseHealthWatchdog();
+  try {
+    const ok = await waitForTunnelReady(tunnelUrl, { timeoutMs: FAST_PROBE_TIMEOUT_MS });
+    if (fastProbeCtx !== ctx) return;
+    if (ok) {
+      setLastStatus("healthy");
+      logger.info(`✅ fast probe healthy`);
+    }
+  } catch {} finally {
+    if (fastProbeCtx === ctx) fastProbeCtx = null;
+    resumeHealthWatchdog();
+  }
 }

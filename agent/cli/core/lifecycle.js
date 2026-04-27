@@ -2,9 +2,11 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import chalk from "chalk";
 import { SERVER_PORT, RETRY_CONFIG } from "../../lib/constants.js";
+import { createLogger } from "../../lib/logger.js";
 import { computeDelay } from "../utils/backoff.js";
+
+const logger = createLogger("server");
 import { killCloudflared, resetRestartCounter } from "../utils/cloudflared.js";
 import { stopTunnelHealthWatchdog } from "../utils/tunnelHealth.js";
 import { killTray } from "../utils/tray.js";
@@ -43,7 +45,7 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
     const serverPath = useDevServer ? DEV_SERVER : STANDALONE_SERVER;
 
     if (!fs.existsSync(serverPath)) {
-      console.error(`❌ Server not found: ${serverPath}`);
+      logger.error(`❌ Server not found: ${serverPath}`);
       process.exit(1);
     }
 
@@ -65,13 +67,13 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
       if (healthyTimer) { clearTimeout(healthyTimer); healthyTimer = null; }
       if (isShuttingDown) return;
 
-      console.log(chalk.red(`\n💥 Server exited unexpectedly (code: ${code}, signal: ${signal})`));
+      logger.error(`💥 Server exited unexpectedly (code: ${code}, signal: ${signal})`);
       failCount++;
       const delay = computeDelay(RETRY_CONFIG.server, failCount);
-      console.log(chalk.yellow(`🔄 Restarting server in ${delay}ms (fail#${failCount})`));
+      logger.warn(`🔄 Restarting server in ${delay}ms (fail#${failCount})`);
 
       if (onServerCrash) {
-        console.log(chalk.yellow("✅ Restarting tunnel connection..."));
+        logger.info("✅ Restarting tunnel connection...");
         onServerCrash();
       }
 
@@ -79,7 +81,7 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
     });
 
     currentProcess.on("error", (err) => {
-      console.log(chalk.red(`❌ Server error: ${err.message}`));
+      logger.error(`❌ Server error: ${err.message}`);
     });
 
     onReady?.(currentProcess);
@@ -125,9 +127,9 @@ export function setupExitHandler(serverManager, tunnelProcess) {
   const onSignal = (sig) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    try { if (process.stdout.isTTY) console.log(chalk.yellow(`\n\n🛑 Stopping 9Remote (${sig})...`)); } catch {}
+    logger.info(`🛑 Stopping 9Remote (${sig})...`);
     shutdownAll({ serverManager, tunnelProcess });
-    try { if (process.stdout.isTTY) console.log(chalk.green("✅ Server stopped")); } catch {}
+    logger.info("✅ Server stopped");
   };
 
   process.on("SIGINT", () => onSignal("SIGINT"));
@@ -146,12 +148,12 @@ export function setupExitHandler(serverManager, tunnelProcess) {
   }
 
   process.on("uncaughtException", (err) => {
-    try { console.error(chalk.red("Uncaught exception:"), err?.message || err); } catch {}
+    logger.error(`Uncaught exception: ${err?.stack || err?.message || err}`);
     onSignal("uncaughtException");
     setTimeout(() => process.exit(1), SHUTDOWN_CRASH_DELAY_MS);
   });
   process.on("unhandledRejection", (err) => {
-    try { console.error(chalk.red("Unhandled rejection:"), err?.message || err); } catch {}
+    logger.error(`Unhandled rejection: ${err?.stack || err?.message || err}`);
     onSignal("unhandledRejection");
     setTimeout(() => process.exit(1), SHUTDOWN_CRASH_DELAY_MS);
   });

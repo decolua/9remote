@@ -1,7 +1,9 @@
 import chalk from "chalk";
 import readline from "readline";
 import { browserFetch, SERVER_PORT, STEP, LOG_TAIL_LINES } from "../../lib/constants.js";
-import { LOG_FILE_PATH, readRecentLogs } from "../../lib/logger.js";
+import { LOG_FILE_PATH, readRecentLogs, createLogger } from "../../lib/logger.js";
+
+const logger = createLogger("mode");
 import { saveState, saveKey } from "../utils/state.js";
 import { ensureCloudflared, killCloudflared } from "../utils/cloudflared.js";
 import { updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
@@ -65,7 +67,7 @@ export async function tuiMode() {
     });
     if (!res.ok) throw new Error(`Session create failed: ${res.status}`);
   } catch (err) {
-    console.log(chalk.red(`\n❌ Failed to connect: ${err.message}`));
+    logger.error(`❌ Failed to connect: ${err.message}`);
     process.exit(1);
   }
 
@@ -88,13 +90,13 @@ export async function tuiMode() {
     tunnelUrl = result.tunnelUrl;
     tunnelRef.current = tunnelProcess;
   } catch (err) {
-    console.log(chalk.red(`\n❌ Tunnel failed: ${err.message}`));
+    logger.error(`❌ Tunnel failed: ${err.message}`);
     process.exit(1);
   }
 
   await setStep(STEP.VERIFYING);
   if (!(await waitForTunnelReady(tunnelUrl))) {
-    console.log(chalk.yellow("\n⚠️  Tunnel health check timed out, proceeding anyway..."));
+    logger.warn("⚠️  Tunnel health check timed out, proceeding anyway...");
   }
 
   await updateTunnelUrl(keyData.key, tunnelUrl);
