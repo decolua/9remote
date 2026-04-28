@@ -86,8 +86,13 @@ const SPINNER_INTERVAL_MS = IS_WIN ? 120 : 80;
 
 // Ensure cursor is restored on any unexpected exit
 process.on("exit", () => process.stdout.write("\x1b[?25h"));
-process.on("SIGINT", () => { process.stdout.write("\x1b[?25h"); });
-process.on("SIGTERM", () => { process.stdout.write("\x1b[?25h"); });
+// Restore cursor on signal; defer exit to lifecycle.setupExitHandler if attached, else exit now
+const onSig = (sig, code) => {
+  process.stdout.write("\x1b[?25h");
+  if (process.listenerCount(sig) <= 1) process.exit(code);
+};
+process.on("SIGINT", () => onSig("SIGINT", 130));
+process.on("SIGTERM", () => onSig("SIGTERM", 143));
 
 let _progressLines = 0;
 let _spinnerInterval = null;

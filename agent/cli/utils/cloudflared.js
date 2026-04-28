@@ -11,6 +11,7 @@ import { computeDelay } from "./backoff.js";
 const logger = createLogger("tunnel");
 import { RETRY_CONFIG, SERVER_PORT } from "../../lib/constants.js";
 import { probeTunnelOnce } from "./dnsProbe.js";
+import { setLastStatus } from "./tunnelHealth.js";
 
 // Tunnel-only network probe params (not retry-related)
 const TUNNEL_CONFIG = {
@@ -392,6 +393,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
     child.on("exit", (code, signal) => {
       cleanup();
       logger.info(`💥 cloudflared exit pid=${child.pid} code=${code} signal=${signal} intentional=${isIntentionalShutdown}`);
+      if (!isIntentionalShutdown) setLastStatus("unreachable");
       if (!resolved) {
         resolved = true;
         clearTimeout(timeout);
@@ -608,6 +610,7 @@ function startNetworkMonitor() {
 
     if (fingerprintChanged) logger.info("🔄 Network change detected");
     if (cloudflaredDead) logger.info("🔍 Liveness watchdog: cloudflared not alive");
+    setLastStatus("unreachable");
 
     // Wait briefly for network to stabilize (DHCP, RA, VPN auto-connect)
     await new Promise((r) => setTimeout(r, TUNNEL_CONFIG.networkRestoreDelayMs));

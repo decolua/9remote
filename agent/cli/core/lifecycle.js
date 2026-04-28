@@ -15,7 +15,10 @@ import { clearPid } from "../utils/pids.js";
 import { SERVER_HEALTHY_RESET_MS, SHUTDOWN_EXIT_DELAY_MS, SHUTDOWN_CRASH_DELAY_MS } from "../config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const STANDALONE_SERVER = path.resolve(__dirname, "../../dist/server.cjs");
+// Bundle: dist/cli.cjs → ./server.cjs ; Dev: agent/cli/core/ → ../../dist/server.cjs
+const STANDALONE_SERVER = typeof __CLI_VERSION__ !== "undefined"
+  ? path.resolve(__dirname, "./server.cjs")
+  : path.resolve(__dirname, "../../dist/server.cjs");
 const DEV_SERVER = path.resolve(__dirname, "../../index.js");
 
 export function killProcessOnPort(port) {

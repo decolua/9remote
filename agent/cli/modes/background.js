@@ -22,9 +22,9 @@ export async function launchBackground() {
     await new Promise((r) => setTimeout(r, 500));
   }
 
-  // Bundle: dist/cli.cjs ; Dev: agent/cli/index.js
+  // Bundle: respawn current cli.cjs ; Dev: agent/cli/index.js
   const scriptPath = typeof __CLI_VERSION__ !== "undefined"
-    ? path.resolve(__dirname, "..", "cli.cjs")
+    ? process.argv[1]
     : path.resolve(__dirname, "..", "index.js");
   const bgArgs = [scriptPath, "--tray"];
 

@@ -62,7 +62,12 @@ export const updateTunnelHealthUrl = setTunnelHealthUrl;
 
 export function pauseHealthWatchdog() { paused = true; }
 export function resumeHealthWatchdog() { paused = false; }
-export function setLastStatus(status) { lastStatus = status; pendingStatus = null; pendingCount = 0; }
+export function setLastStatus(status) {
+  lastStatus = status;
+  pendingStatus = null;
+  pendingCount = 0;
+  pushState({ tunnelHealth: { status, checkedAt: Date.now() } });
+}
 
 export function stopTunnelHealthWatchdog() {
   if (intervalId) { clearInterval(intervalId); intervalId = null; }
