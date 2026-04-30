@@ -90,4 +90,8 @@ export const {
   Github,
   Sun,
   Moon,
+  LayoutDashboard,
+  Shield,
+  ArrowUp,
+  ArrowDown,
 } = LucideIcons;

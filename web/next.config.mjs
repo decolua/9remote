@@ -2,10 +2,13 @@
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = path.resolve(__dirname, "..");
 const rootPkg = JSON.parse(readFileSync("../package.json", "utf-8"));
+
+initOpenNextCloudflareForDev();
 
 const nextConfig = {
   reactStrictMode: false,
