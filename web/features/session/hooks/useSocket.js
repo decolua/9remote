@@ -87,7 +87,7 @@ export function useSocket() {
     socket.emit("device:clientReady");
   }, [removeTempKey, handleCodespaceStopping]);
 
-  const { socket, socketRef, connected, connectionMode, retryStatus, disconnect } = useBaseSocket({
+  const { socket, socketRef, connected, connectionMode, transport, retryStatus, disconnect } = useBaseSocket({
     namespace: "",
     redirectOnNoAuth: "/",
     onConnect: handleSocketReady,
@@ -162,6 +162,7 @@ export function useSocket() {
     socketRef,
     connected,
     connectionMode,
+    transport,
     retryStatus,
     approvalStatus,
     sessions,

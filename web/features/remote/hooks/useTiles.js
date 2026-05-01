@@ -164,14 +164,14 @@ export function useTiles(socketRef, streaming, canvasRef) {
 
       const frameTs = data.timestamp || Date.now();
 
-      // Cancel loading tiles and update latest timestamp per tileIndex
+      // Cancel loading tiles, update latest timestamp + hash (atomic v2) per tileIndex
       for (const tile of data.tiles) {
         const existing = loadingTilesRef.current.get(tile.tileIndex);
-        // Only update timestamp if this frame is newer — prevents old batches from overwriting
         const prevTs = tileTimestampRef.current.get(tile.tileIndex) ?? 0;
         if (frameTs >= prevTs) {
           if (existing?.controller) existing.controller.cancelled = true;
           tileTimestampRef.current.set(tile.tileIndex, frameTs);
+          if (tile.hash != null) clientTileHashesRef.current[tile.tileIndex] = tile.hash;
         }
       }
 
@@ -300,28 +300,34 @@ export function useTiles(socketRef, streaming, canvasRef) {
     }
   }, [canvasRef]);
 
-  // Handle binary tile batch from WS fallback — decode in worker, reuse tiles-data flow
-  const handleTilesBinary = useCallback((buffer) => {
+  // Handle binary tile batch — decode in worker, reuse tiles-data flow
+  // v=1 → legacy 24B header (no hash), v=2 → 28B header (hash embedded → atomic sync)
+  const _handleBinaryBatch = useCallback((buffer, v, transport = "ws") => {
     if (!buffer) return;
-    // socket.io-client delivers binary as ArrayBuffer by default
     const ab = buffer instanceof ArrayBuffer ? buffer : buffer?.buffer;
     if (!ab) return;
     const worker = getBinWorker();
-    if (!worker) return; // Worker unavailable — skip this batch gracefully
+    if (!worker) return;
+    const bytes = ab.byteLength;
     const id = ++_binMsgId;
     new Promise((resolve) => {
       _binPending.set(id, resolve);
-      worker.postMessage({ buffer: ab, id }, [ab]);
+      worker.postMessage({ buffer: ab, id, v }, [ab]);
     }).then((result) => {
       if (!result) return;
+      if (v === 2) isRequestingRef.current = false;
       handleTilesData({
         tiles: result.tiles,
         timestamp: result.timestamp,
         hasBitmap: result.hasBitmap,
-        transport: "ws"
+        bytes,
+        transport
       });
     });
   }, [handleTilesData]);
+
+  const handleTilesBinary = useCallback((buffer) => _handleBinaryBatch(buffer, 1, "ws"), [_handleBinaryBatch]);
+  const handleTilesBinaryV2 = useCallback((buffer) => _handleBinaryBatch(buffer, 2, "ws"), [_handleBinaryBatch]);
 
   // Handle metadata packet (hashes + changedIndices) — separated from binary tiles
   const handleTilesMeta = useCallback((meta) => {
@@ -399,6 +405,7 @@ export function useTiles(socketRef, streaming, canvasRef) {
     handleFullScreenData,
     handleTilesData,
     handleTilesBinary,
+    handleTilesBinaryV2,
     handleTilesMeta,
     startStreamingWithTiles,
     handleScreenDimensions,

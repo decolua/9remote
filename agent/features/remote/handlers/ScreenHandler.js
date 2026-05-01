@@ -1,21 +1,23 @@
 /**
- * Encode a single tile to binary.
- * Format: [24-byte header + N-byte JPEG]
+ * Encode a single tile to binary (v2).
+ * Format: [28-byte header + N-byte JPEG]
+ *   tileIndex(4) x(4) y(4) width(4) height(4) imageSize(4) hash(4)
  */
 function encodeTileBinary(tile) {
-  const header = Buffer.alloc(24);
+  const header = Buffer.alloc(28);
   header.writeUInt32LE(tile.tileIndex, 0);
   header.writeUInt32LE(tile.x, 4);
   header.writeUInt32LE(tile.y, 8);
   header.writeUInt32LE(tile.width, 12);
   header.writeUInt32LE(tile.height, 16);
   header.writeUInt32LE(tile.imageBuffer.length, 20);
+  header.writeUInt32LE(tile.hash >>> 0, 24);
   return Buffer.concat([header, tile.imageBuffer]);
 }
 
 /**
- * Encode batch of tiles to binary.
- * Format: [4-byte tileCount] + [8-byte timestamp Float64BE] + tile binaries
+ * Encode batch of tiles to binary (v2 — embeds hash per tile).
+ * Format: [4B tileCount] + [8B timestamp Float64BE] + tile binaries
  */
 export function encodeTilesBatch(tiles, timestamp) {
   const batchHeader = Buffer.alloc(12);
@@ -58,13 +60,8 @@ export class ScreenHandler {
         if (result?.tiles?.length > 0) {
           protocol.sendTiles({
             tiles: result.tiles,
-            timestamp: Date.now(),
-            currentHashes: result.currentHashes,
-            changedIndices: result.changedIndices
+            timestamp: Date.now()
           }, encodeTilesBatch);
-        } else {
-          // Hashes update is lightweight — always WS
-          protocol.emit("tiles-data", { tiles: [], timestamp: Date.now(), currentHashes: result.currentHashes, changedIndices: [] });
         }
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {

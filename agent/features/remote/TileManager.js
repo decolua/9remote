@@ -317,7 +317,8 @@ export class TileManager {
       y: row * this.tileSize,
       width: tileData.width,
       height: tileData.height,
-      imageBuffer, // Binary buffer instead of base64
+      imageBuffer,
+      hash: this.lastTileChecksums.get(tileIndex) ?? 0,
       timestamp: Date.now(),
       frameCount: this.frameCount
     };

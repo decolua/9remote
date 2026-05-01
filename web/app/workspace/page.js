@@ -52,7 +52,7 @@ export default function WorkspacePage() {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, connected, connectionMode, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socket, socketRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
   const fileSocket = useFileSocket(socketRef);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
   const [systemInfo, setSystemInfo] = useState(null);
@@ -518,7 +518,7 @@ export default function WorkspacePage() {
         {/* Remote Desktop - conditional render */}
         {currentView.type === "remote" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
-            <RemoteDesktop onClose={popView} socketRef={socketRef} connected={connected} connectionMode={connectionMode} />
+            <RemoteDesktop onClose={popView} socketRef={socketRef} connected={connected} connectionMode={connectionMode} transport={transport} />
           </div>
         )}
 

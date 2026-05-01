@@ -40,7 +40,7 @@ export const REMOTE_CONFIG = {
   // enableWebRTC: true  → init WebRTC manager, handle offer/answer signaling
   // enableTurn: false   → STUN P2P only, skip TURN credential fetch
   webrtc: {
-    enableWebRTC: false,
+    enableWebRTC: true,
     enableTurn: false,
     turnApiUrl: "https://9remote.cc/api/webrtc/turn-credentials",
     // TTL is 24h, refresh 1h before expiry
@@ -115,6 +115,9 @@ export const REMOTE_CONFIG = {
 
     // Pipeline metrics — capture/encode/total/fps/tiles/compression
     metrics: false,
-    metricsEveryFrames: 30
+    metricsEveryFrames: 30,
+
+    // WebRTC signaling/ICE/TURN events
+    webrtc: false
   }
 };

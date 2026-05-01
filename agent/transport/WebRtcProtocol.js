@@ -1,5 +1,6 @@
 import nodeDataChannel from "node-datachannel";
 import { BaseProtocol } from "./BaseProtocol.js";
+import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 
 const { PeerConnection } = nodeDataChannel;
 
@@ -69,6 +70,8 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dc = null;
     this._iceServers = DEFAULT_ICE;
     this._refreshTimer = null;
+    this._remoteSet = false;
+    this._pendingCandidates = [];
   }
 
   get type() { return "dc"; }
@@ -112,8 +115,13 @@ export class WebRtcProtocol extends BaseProtocol {
     });
 
     socket.on("webrtc:ice-candidate", ({ candidate, mid }) => {
+      // Buffer until remote description is set, else libdatachannel rejects
+      if (!this._remoteSet || !this._pc) {
+        this._pendingCandidates.push({ candidate, mid: mid || "0" });
+        return;
+      }
       try {
-        this._pc?.addRemoteCandidate(candidate, mid || "0");
+        this._pc.addRemoteCandidate(candidate, mid || "0");
       } catch (err) {
         console.error("[WebRtcProtocol] addRemoteCandidate error:", err.message);
       }
@@ -133,6 +141,8 @@ export class WebRtcProtocol extends BaseProtocol {
     try { this._pc?.close(); } catch {}
     this._pc = null;
     this._dc = null;
+    this._remoteSet = false;
+    this._pendingCandidates = [];
 
     const pc = new PeerConnection(`peer-${this._socketId}`, { iceServers: this._iceServers });
     pc.onDataChannel((dc) => {
@@ -153,6 +163,14 @@ export class WebRtcProtocol extends BaseProtocol {
       });
       try {
         this._pc.setRemoteDescription(sdp, "offer");
+        this._remoteSet = true;
+        // Drain buffered candidates after remote description is set
+        for (const { candidate, mid } of this._pendingCandidates) {
+          try { this._pc.addRemoteCandidate(candidate, mid); } catch (err) {
+            console.error("[WebRtcProtocol] addRemoteCandidate (drain) error:", err.message);
+          }
+        }
+        this._pendingCandidates = [];
         this._pc.setLocalDescription();
       } catch (err) {
         reject(err);
@@ -165,7 +183,7 @@ export class WebRtcProtocol extends BaseProtocol {
     const servers = await fetchTurnIceServers(this._turnApiUrl, this._apiKey);
     if (servers?.length) {
       this._iceServers = servers;
-      console.log(`[WebRtcProtocol] TURN credentials loaded (${servers.length} servers)`);
+      if (REMOTE_CONFIG.logging?.webrtc) console.log(`[WebRtcProtocol] TURN credentials loaded (${servers.length} servers)`);
     }
     clearTimeout(this._refreshTimer);
     this._refreshTimer = setTimeout(() => this._refreshTurn(), this._turnRefreshInterval);

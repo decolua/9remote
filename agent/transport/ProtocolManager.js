@@ -73,14 +73,7 @@ export class ProtocolManager {
    */
   sendTiles(payload, encodeBatch) {
     const { tiles } = payload;
-
     if (this._rtc?.isReady() && tiles?.length > 0 && encodeBatch) {
-      // Fallback to WS when tile count exceeds DC drain capacity
-      if (tiles.length > this._dcMaxTilesPerFrame) {
-        this._ws.emit("tiles-data", payload);
-        return;
-      }
-
       const frameTs = payload.timestamp ?? Date.now();
       const chunks = [];
       for (let i = 0; i < tiles.length; i += this._dcChunkSize) {
@@ -89,7 +82,6 @@ export class ProtocolManager {
       this._rtc.sendBinary(chunks);
       return;
     }
-
     this._emitTilesChunked(payload);
   }
 
@@ -105,23 +97,14 @@ export class ProtocolManager {
    * Metadata (hashes, changedIndices) travels in a separate "tiles-meta" event.
    */
   _emitTilesChunked(payload) {
-    const { tiles, timestamp, currentHashes, changedIndices } = payload;
+    const { tiles, timestamp } = payload;
     const list = tiles || [];
+    if (list.length === 0) return;
     const size = this._wsChunkSize;
     const frameTs = timestamp ?? Date.now();
-
-    if (list.length === 0) {
-      this._ws.emit("tiles-meta", { timestamp: frameTs, currentHashes, changedIndices });
-      return;
-    }
-
     for (let i = 0; i < list.length; i += size) {
       const chunk = list.slice(i, i + size);
-      this._ws.emit("tiles-data-binary", encodeTilesBatch(chunk, frameTs));
-    }
-
-    if (currentHashes || changedIndices) {
-      this._ws.emit("tiles-meta", { timestamp: frameTs, currentHashes, changedIndices });
+      this._ws.emit("tiles-bin-v2", encodeTilesBatch(chunk, frameTs));
     }
   }
 

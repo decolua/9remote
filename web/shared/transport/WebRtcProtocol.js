@@ -1,5 +1,6 @@
 import { BaseProtocol } from "./BaseProtocol";
 import { API_ENDPOINTS } from "@/shared/constants/API";
+import { debugLog } from "@/shared/utils/debugLog";
 
 // Module-level shared worker (one instance for all WebRtcProtocol instances)
 let _worker = null;
@@ -92,33 +93,37 @@ export class WebRtcProtocol extends BaseProtocol {
     const pc = new RTCPeerConnection({ iceServers });
     this._pc = pc;
 
-    const dc = pc.createDataChannel("tiles", { ordered: false, maxRetransmits: 0 });
+    const dc = pc.createDataChannel("tiles", { ordered: false, maxPacketLifeTime: 200 });
     dc.binaryType = "arraybuffer";
     this._dc = dc;
 
     dc.onopen = async () => {
-      // Detect STUN vs TURN via ICE stats
+      let pairInfo = "";
       try {
         const stats = await pc.getStats();
         stats.forEach((s) => {
           if (s.type === "candidate-pair" && s.state === "succeeded") {
             const local = [...stats.values()].find((c) => c.id === s.localCandidateId);
+            const remote = [...stats.values()].find((c) => c.id === s.remoteCandidateId);
             if (local?.candidateType === "relay") this._type = "dc-turn";
+            pairInfo = `local=${local?.candidateType}/${local?.protocol} remote=${remote?.candidateType}/${remote?.protocol}`;
           }
         });
       } catch {}
+      debugLog("transport", `[rtc] dc OPEN type=${this._type} ${pairInfo}`);
       this._connected = true;
       this._onConnect?.(this._type);
     };
 
     dc.onclose = () => {
+      debugLog("transport", "[rtc] dc CLOSE");
       this._connected = false;
       this._onDisconnect?.("dc-closed");
     };
 
     dc.onerror = (e) => {
       const msg = e.error?.message ?? "unknown";
-      if (!msg.includes("User-Initiated")) console.error("[WebRtcProtocol] DC error:", msg);
+      if (!msg.includes("User-Initiated")) console.error("[rtc] dc ERROR:", msg);
     };
 
     dc.onmessage = ({ data }) => {
@@ -135,10 +140,17 @@ export class WebRtcProtocol extends BaseProtocol {
     };
 
     pc.oniceconnectionstatechange = () => {
+      debugLog("transport", `[rtc] iceState=${pc.iceConnectionState}`);
       if (pc.iceConnectionState === "failed") {
         this._cleanup();
         this._onDisconnect?.("ice-failed");
       }
+    };
+    pc.onconnectionstatechange = () => {
+      debugLog("transport", `[rtc] pcState=${pc.connectionState}`);
+    };
+    pc.onsignalingstatechange = () => {
+      debugLog("transport", `[rtc] sigState=${pc.signalingState}`);
     };
 
     // Signaling via WS socket
@@ -146,15 +158,17 @@ export class WebRtcProtocol extends BaseProtocol {
       pc.addIceCandidate(new RTCIceCandidate({ candidate, sdpMid: mid })).catch(() => {});
     };
     const onAnswer = async ({ sdp }) => {
+      debugLog("transport", "[rtc] answer received");
       try {
         await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp }));
       } catch (err) {
+        console.error("[rtc] setRemoteDescription error:", err.message);
         this._cleanup();
         this._onDisconnect?.("sdp-error");
       }
     };
     const onError = ({ message }) => {
-      console.error("[WebRtcProtocol] server error:", message);
+      console.error("[rtc] server error:", message);
       this._cleanup();
       this._onDisconnect?.("server-error");
     };
@@ -168,9 +182,10 @@ export class WebRtcProtocol extends BaseProtocol {
     try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      debugLog("transport", "[rtc] offer sent");
       socket?.emit("webrtc:offer", { sdp: offer.sdp });
     } catch (err) {
-      console.error("[WebRtcProtocol] createOffer error:", err.message);
+      console.error("[rtc] createOffer error:", err.message);
       this._cleanup();
       this._onDisconnect?.("offer-error");
     }
@@ -215,16 +230,19 @@ export class WebRtcProtocol extends BaseProtocol {
   /** Decode binary tile batch via Worker, emit as "tiles-data" */
   _receiveTile(buffer) {
     const id = ++_workerMsgId;
+    // Capture bytes BEFORE transferring to worker (after transfer, byteLength=0)
+    const bytes = buffer.byteLength;
     new Promise((resolve) => {
       _workerPending.set(id, resolve);
-      getWorker().postMessage({ buffer, id }, [buffer]);
+      getWorker().postMessage({ buffer, id, v: 2 }, [buffer]);
     }).then((result) => {
       if (!result) return;
       const { tiles, timestamp, hasBitmap } = result;
 
       if (!this._pendingEmit) {
-        this._pendingEmit = { tiles: new Map(), timestamp, hasBitmap };
+        this._pendingEmit = { tiles: new Map(), timestamp, hasBitmap, bytes: 0 };
       }
+      this._pendingEmit.bytes += bytes;
       for (const tile of tiles) {
         const prev = this._latestTileTs.get(tile.tileIndex) ?? 0;
         if (timestamp >= prev) {
@@ -242,11 +260,11 @@ export class WebRtcProtocol extends BaseProtocol {
       this._flushTimer = setTimeout(() => {
         this._flushTimer = null;
         if (!this._pendingEmit) return;
-        const { tiles: tileMap, timestamp: ts, hasBitmap: hb } = this._pendingEmit;
+        const { tiles: tileMap, timestamp: ts, hasBitmap: hb, bytes: by } = this._pendingEmit;
         this._pendingEmit = null;
         const freshTiles = [...tileMap.values()];
         if (!freshTiles.length) return;
-        this._dispatch("tiles-data", { tiles: freshTiles, timestamp: ts, hasBitmap: hb, transport: this._type });
+        this._dispatch("tiles-data", { tiles: freshTiles, timestamp: ts, hasBitmap: hb, bytes: by, transport: this._type });
       }, 0);
     });
   }

@@ -39,8 +39,10 @@ export function useBenchmark() {
     const tileCount = data.tiles?.length || 0;
     m.tilesReceived += tileCount;
 
-    // Bytes count
-    const bytes = data.tiles?.reduce((sum, t) => sum + (t.imageBuffer?.byteLength || t.imageBuffer?.length || 0), 0) || 0;
+    // Bytes count — prefer transport-layer bytes (accurate even when bitmap transferred)
+    const bytes = typeof data.bytes === "number"
+      ? data.bytes
+      : (data.tiles?.reduce((sum, t) => sum + (t.imageBuffer?.byteLength || t.imageBuffer?.length || 0), 0) || 0);
     m.bytesReceived += bytes;
 
     // Latency - store with timestamp, keep 1 minute of data
@@ -51,8 +53,8 @@ export function useBenchmark() {
       m.latencies = m.latencies.filter(l => now - l.time < 60000);
     }
 
-    // Transport tracking
-    if (transport === "webrtc") {
+    // Transport tracking — match dc-stun, dc-turn, webrtc
+    if (transport?.startsWith("dc") || transport === "webrtc") {
       m.webrtcTilesTotal += tileCount;
     } else {
       m.wsTilesTotal += tileCount;

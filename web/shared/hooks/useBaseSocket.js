@@ -4,7 +4,9 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSessionStorage } from "./useSessionStorage";
 import { useDeviceId } from "./useDeviceId";
-import { WsProtocol } from "@/shared/transport/WsProtocol";
+import { ProtocolManager } from "@/shared/transport/ProtocolManager";
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
+import { debugLog } from "@/shared/utils/debugLog";
 
 /**
  * Base socket hook — thin wrapper around WsProtocol.
@@ -29,6 +31,7 @@ export function useBaseSocket(config = {}) {
 
   const [connected, setConnected] = useState(false);
   const [connectionMode, setConnectionMode] = useState("tunnel");
+  const [transport, setTransport] = useState("ws");
   const [retryStatus, setRetryStatus] = useState({
     isRetrying: false, attempt: 0, maxAttempts: 10, failed: false
   });
@@ -40,29 +43,46 @@ export function useBaseSocket(config = {}) {
       return;
     }
 
-    const protocol = new WsProtocol({
+    const wsConfig = {
       tunnelUrl: auth.tunnelUrl,
       localIp: auth.localIp || null,
       namespace,
       socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, tempKey: auth.tempKey ?? null, deviceId, ...socketOptions.auth } },
-      // Debug: log tempKey being sent
-      ...(console.log("[socket auth] tempKey:", auth.tempKey ?? null) && {}),
       apiKey: auth.apiKey,
       tempKey: auth.tempKey ?? null,
       onConnect: (socket, mode) => {
         socketRef.current = socket;
         setConnected(true);
-        setConnectionMode(mode || "tunnel");
+        setConnectionMode(mode || protocolRef.current?.connectionMode || "tunnel");
+        setTransport("ws");
+        debugLog("transport", "[transport] connected via ws");
         onConnect?.(socket, auth);
       },
       onDisconnect: (reason) => {
+        debugLog("transport", `[transport] ws disconnect reason=${reason}`);
         socketRef.current = null;
         setConnected(false);
+        setTransport("ws");
         onDisconnect?.(reason);
       },
       onRetryStatus: setRetryStatus
-    });
+    };
 
+    const rtcConfig = REMOTE_CONFIG.enableWebRTC ? {
+      enableWebRTC: true,
+      enableTurn: REMOTE_CONFIG.enableTurn,
+      apiKey: auth.apiKey,
+      onUpgrade: (via) => {
+        setTransport(via);
+        debugLog("transport", `[transport] upgraded to ${via}`);
+      },
+      onFallback: (to) => {
+        setTransport(to);
+        debugLog("transport", `[transport] fallback to ${to}`);
+      }
+    } : null;
+
+    const protocol = new ProtocolManager(wsConfig, rtcConfig);
     protocolRef.current = protocol;
     protocol.connect();
 
@@ -82,5 +102,5 @@ export function useBaseSocket(config = {}) {
     setConnected(false);
   };
 
-  return { socket: socketRef.current, socketRef, connected, connectionMode, retryStatus, disconnect };
+  return { socket: socketRef.current, socketRef, connected, connectionMode, transport, retryStatus, disconnect };
 }

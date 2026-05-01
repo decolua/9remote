@@ -12,6 +12,8 @@ import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import RemoteCanvas from "@/features/remote/components/RemoteCanvas";
 import RemoteControls from "@/features/remote/components/RemoteControls";
 import RemoteHelpModal from "@/features/remote/components/RemoteHelpModal";
+import DebugPanel from "@/features/remote/components/DebugPanel";
+import { debugLog } from "@/shared/utils/debugLog";
 import Spinner from "@/shared/components/ui/Spinner";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { useI18n } from "@/shared/i18n";
@@ -22,7 +24,7 @@ const STORAGE_KEYS = {
   handMode: "remoteDesktop.handMode"
 };
 
-export default function RemoteDesktop({ onClose, socketRef, connected }) {
+export default function RemoteDesktop({ onClose, socketRef, connected, transport }) {
   const { t } = useI18n();
   const [showHelp, setShowHelp] = useState(false);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
@@ -37,7 +39,27 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     if (inputMode === "mouse" && pointerMode !== "direct") setPointerMode("direct");
   }, [inputMode, pointerMode, setPointerMode]);
 
-  const { trackTilesReceived } = useBenchmark();
+  const { stats, trackTilesReceived, resetStats } = useBenchmark();
+  const [showDebug, setShowDebug] = useState(REMOTE_CONFIG.debug?.panel ?? false);
+  const debugMode = REMOTE_CONFIG.enableWebRTC ? "rtc" : "ws";
+  const copyStats = useCallback(() => {
+    const snapshot = { mode: debugMode, ...stats, ts: new Date().toISOString() };
+    navigator.clipboard?.writeText(JSON.stringify(snapshot, null, 2));
+  }, [stats, debugMode]);
+
+  // Periodic console log for benchmark comparison (copy console output to share)
+  const statsRef = useRef(stats);
+  useEffect(() => { statsRef.current = stats; }, [stats]);
+  useEffect(() => {
+    debugLog("remote", `[stats] interval started, mode=${debugMode}`);
+    const id = setInterval(() => {
+      debugLog("remote", `[stats][${debugMode}]`, JSON.stringify(statsRef.current));
+    }, 5000);
+    return () => {
+      debugLog("remote", "[stats] interval stopped");
+      clearInterval(id);
+    };
+  }, [debugMode]);
 
   const {
     streaming,
@@ -77,6 +99,11 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
   // can't be turned off on Android).
   const keyboardOnRef = useRef(keyboardOn);
   useEffect(() => { keyboardOnRef.current = keyboardOn; }, [keyboardOn]);
+
+  const lastTileTransportRef = useRef(null);
+  useEffect(() => {
+    if (transport) debugLog("remote", `[remote] transport state: ${transport}`);
+  }, [transport]);
 
   // Toggle native keyboard by focus/blur the hidden text input.
   // Must call focus() SYNCHRONOUSLY inside user gesture — iOS/Android block
@@ -176,6 +203,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     handleFullScreenData,
     handleTilesData,
     handleTilesBinary,
+    handleTilesBinaryV2,
     handleTilesMeta,
     handleScreenDimensions,
     cleanupTiles,
@@ -195,18 +223,62 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
     };
     const onFullScreenData = (data) => handleFullScreenData(data);
     const onTilesData = (data) => {
-      trackTilesReceived(data, data.transport || "ws");
+      const via = data.transport || "ws";
+      if (via !== lastTileTransportRef.current) {
+        lastTileTransportRef.current = via;
+        debugLog("remote", `[remote] tiles via ${via}`);
+      }
+      trackTilesReceived(data, via);
       handleTilesData(data);
     };
     const onScreenError = (err) => console.error("Screen error:", err);
 
-    const onTilesBinary = (buffer) => handleTilesBinary(buffer);
+    const onTilesBinary = (buffer) => {
+      const ab = buffer instanceof ArrayBuffer ? buffer : buffer?.buffer;
+      const bytes = ab?.byteLength || 0;
+      // Parse tileCount + timestamp from header (12B) for benchmark tracking
+      let tileCount = 0;
+      let timestamp = Date.now();
+      if (ab && ab.byteLength >= 12) {
+        const view = new DataView(ab);
+        tileCount = view.getUint32(0, true);
+        timestamp = view.getFloat64(4, false);
+      }
+      const via = "ws";
+      if (via !== lastTileTransportRef.current) {
+        lastTileTransportRef.current = via;
+        debugLog("remote", `[remote] tiles via ${via}`);
+      }
+      trackTilesReceived({ tiles: new Array(tileCount), timestamp, bytes }, via);
+      handleTilesBinary(buffer);
+    };
     const onTilesMeta = (meta) => handleTilesMeta(meta);
+
+    // v2 listener — atomic hash embedded per tile (new agent)
+    const onTilesBinV2 = (buffer) => {
+      const ab = buffer instanceof ArrayBuffer ? buffer : buffer?.buffer;
+      const bytes = ab?.byteLength || 0;
+      let tileCount = 0;
+      let timestamp = Date.now();
+      if (ab && ab.byteLength >= 12) {
+        const view = new DataView(ab);
+        tileCount = view.getUint32(0, true);
+        timestamp = view.getFloat64(4, false);
+      }
+      const via = "ws";
+      if (via !== lastTileTransportRef.current) {
+        lastTileTransportRef.current = via;
+        debugLog("remote", `[remote] tiles via ${via} v2`);
+      }
+      trackTilesReceived({ tiles: new Array(tileCount), timestamp, bytes }, via);
+      handleTilesBinaryV2(buffer);
+    };
 
     socket.on("screen-dimensions", onScreenDimensions);
     socket.on("full-screen-data", onFullScreenData);
     socket.on("tiles-data", onTilesData);
     socket.on("tiles-data-binary", onTilesBinary);
+    socket.on("tiles-bin-v2", onTilesBinV2);
     socket.on("tiles-meta", onTilesMeta);
     socket.on("screen-error", onScreenError);
 
@@ -218,6 +290,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
       socket.off("full-screen-data", onFullScreenData);
       socket.off("tiles-data", onTilesData);
       socket.off("tiles-data-binary", onTilesBinary);
+      socket.off("tiles-bin-v2", onTilesBinV2);
       socket.off("tiles-meta", onTilesMeta);
       socket.off("screen-error", onScreenError);
       cleanupTiles();
@@ -375,6 +448,16 @@ export default function RemoteDesktop({ onClose, socketRef, connected }) {
         onSendText={sendTextInput}
         onClose={handleClose}
       />
+
+      {showDebug && (
+        <DebugPanel
+          stats={stats}
+          mode={debugMode}
+          onReset={resetStats}
+          onCopy={copyStats}
+          onClose={() => setShowDebug(false)}
+        />
+      )}
 
       {showHelp && (
         <RemoteHelpModal

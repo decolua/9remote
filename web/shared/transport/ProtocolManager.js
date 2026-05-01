@@ -1,5 +1,6 @@
 import { WsProtocol } from "./WsProtocol";
 import { WebRtcProtocol } from "./WebRtcProtocol";
+import { debugLog } from "@/shared/utils/debugLog";
 
 /**
  * ProtocolManager — unified transport layer.
@@ -94,11 +95,15 @@ export class ProtocolManager {
         }
 
         // Start WebRTC upgrade in background
-        if (this._rtcConfig?.enableWebRTC) this._connectRtc();
+        if (this._rtcConfig?.enableWebRTC) {
+          debugLog("transport", "[pm] ws connected → start rtc upgrade");
+          this._connectRtc();
+        }
 
         this._wsConfig.onConnect?.(socket);
       },
       onDisconnect: (reason) => {
+        debugLog("transport", `[pm] ws disconnect reason=${reason} → stop rtc`);
         this._connected = false;
         this._type = "ws";
         this._stopRtc();
@@ -134,11 +139,18 @@ export class ProtocolManager {
       onConnect: (via) => {
         this._rtcActive = true;
         this._type = via;
-        // Forward DC "tiles-data" into unified bus
-        this._rtc.on("tiles-data", (data) => this._dispatch("tiles-data", data));
+        // Forward DC "tiles-data" into unified bus AND fire socket listeners directly
+        // (consumers register handlers on raw socket via socketRef.current.on)
+        this._rtc.on("tiles-data", (data) => {
+          this._dispatch("tiles-data", data);
+          const sock = this.socketRef.current;
+          const fns = sock?.listeners?.("tiles-data");
+          if (fns?.length) for (const fn of fns) fn(data);
+        });
         this._rtcConfig.onUpgrade?.(via);
       },
       onDisconnect: (reason) => {
+        debugLog("transport", `[pm] rtc disconnect reason=${reason}`);
         this._rtcActive = false;
         this._type = "ws";
         // Only signal WS fallback when DC never opened

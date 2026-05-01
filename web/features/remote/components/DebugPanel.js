@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useI18n } from "@/shared/i18n";
 
-export default function DebugPanel({ stats, onReset, onClose }) {
+export default function DebugPanel({ stats, mode, onReset, onClose, onCopy }) {
   const { t } = useI18n();
   const [minimized, setMinimized] = useState(false);
 
@@ -64,6 +64,12 @@ export default function DebugPanel({ stats, onReset, onClose }) {
       {/* Stats */}
       <div className="space-y-2 mb-3">
         <div className="flex justify-between items-center">
+          <span className="text-text-muted">Mode:</span>
+          <span className={mode === "rtc" ? "text-blue-400 font-semibold" : "text-yellow-400 font-semibold"}>
+            {mode === "rtc" ? "RTC enabled" : "WS only"}
+          </span>
+        </div>
+        <div className="flex justify-between items-center">
           <span className="text-text-muted">{t("remote.transport")}:</span>
           <span className={stats.webrtcPercent > 50 ? "text-blue-400 font-semibold" : "text-text-muted"}>
             {stats.webrtcPercent > 50 ? "WebRTC ✅" : "WebSocket"}
@@ -118,6 +124,12 @@ export default function DebugPanel({ stats, onReset, onClose }) {
           className="flex-1 bg-surface hover:bg-surface-2 text-text py-2 px-3 rounded transition-colors text-xs"
         >
           {t("remote.clearStats")}
+        </button>
+        <button
+          onClick={onCopy}
+          className="flex-1 bg-surface hover:bg-surface-2 text-text py-2 px-3 rounded transition-colors text-xs"
+        >
+          Copy
         </button>
       </div>
     </div>

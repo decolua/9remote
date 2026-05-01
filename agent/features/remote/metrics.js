@@ -54,6 +54,7 @@ export class FrameMetrics {
       `data=${avgBytesPerFrame}KB/frame | tileAvg=${avgTileKB}KB (min ${minTileKB}, max ${maxTileKB}) | ` +
       `compress=${compressRatio}x`;
     pushUiLog(msg);
+    console.log(msg);
     this.samples = [];
     this.lastLogTime = Date.now();
   }
