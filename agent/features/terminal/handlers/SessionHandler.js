@@ -2,6 +2,7 @@ import pty from "node-pty";
 import * as daemonClient from "../ptyDaemonClient.js";
 import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, UPLOAD_DIR } from "../ptyHelper.js";
 import { isCodespaces } from "../codespaceManager.js";
+import { broadcast } from "../../../transport/broadcast.js";
 import fs from "fs";
 import path from "path";
 
@@ -18,7 +19,7 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
     sessionData.buffer.push(data);
     let size = sessionData.buffer.reduce((s, c) => s + c.length, 0);
     while (size > MAX_BUFFER && sessionData.buffer.length > 1) size -= sessionData.buffer.shift().length;
-    io.emit("output", { sessionId, data: Buffer.from(data, "utf-8") });
+    broadcast(io, "output", { sessionId, data: Buffer.from(data, "utf-8") });
     if (PERSISTENCE_MODE === "buffer") {
       if (saveTimeout) clearTimeout(saveTimeout);
       saveTimeout = setTimeout(() => saveSessionBuffer(sessionId, sessionData.buffer, PERSISTENCE_MODE), 2000);
@@ -32,7 +33,7 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
     }
     sessions.delete(sessionId);
     deleteSessionBuffer(sessionId);
-    io.emit("sessionClosed", sessionId);
+    broadcast(io, "sessionClosed", sessionId);
   });
 }
 
@@ -142,7 +143,7 @@ export function setupSessionHandlers(socket, io, sessions) {
     if (session.pty) session.pty.kill();
     sessions.delete(sessionId);
     deleteSessionBuffer(sessionId);
-    io.emit("sessionClosed", sessionId);
+    broadcast(io, "sessionClosed", sessionId);
     saveSessionMetadata(sessions);
     callback({ success: true });
   });
@@ -163,7 +164,7 @@ export function setupSessionHandlers(socket, io, sessions) {
     }
 
     session.name = name;
-    io.emit("session-renamed", { sessionId, name });
+    broadcast(io, "session-renamed", { sessionId, name });
     saveSessionMetadata(sessions);
     callback({ success: true });
   });

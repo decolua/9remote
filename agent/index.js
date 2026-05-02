@@ -15,7 +15,7 @@ import { initLogger, createLogger } from "./lib/logger.js";
 
 initLogger();
 const logger = createLogger("server");
-import { setupSocketIO, getIO } from "./lib/socketio.js";
+import { startTransportServer, getIO } from "./transport/server.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
 import { initializeTerminal } from "./features/terminal/terminalSocket.js";
@@ -34,6 +34,7 @@ import {
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
+import * as sleepInhibitor from "./lib/sleepInhibitor.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const IS_DEV = process.env.NODE_ENV === "development";
@@ -202,6 +203,7 @@ function startViteDev() {
 }
 
 export async function startServer() {
+  sleepInhibitor.start();
   await initializeTerminal();
   proxyServer = createProxyServer();
   startViteDev();
@@ -240,7 +242,7 @@ export async function startServer() {
     setInterval(refreshPermissionsAsync, PERMISSION_POLL_MS);
   }
 
-  await setupSocketIO(server);
+  await startTransportServer(server);
 
   server.listen(port, (err) => {
     if (err) throw err;
@@ -255,6 +257,7 @@ export async function startServer() {
   const gracefulShutdown = async (signal) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    sleepInhibitor.stop();
     logger.info(`🛑 Received ${signal}, shutting down gracefully...`);
     const forceExit = setTimeout(() => { logger.error("⚠️  Forced exit"); process.exit(1); }, 5000);
     try {

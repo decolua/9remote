@@ -1,17 +1,17 @@
 import { BaseProtocol } from "./BaseProtocol";
+import { encode, decode } from "./codec";
 import { API_ENDPOINTS } from "@/shared/constants/API";
+import { ADAPTER_STATE, CHANNELS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 
-// Module-level shared worker (one instance for all WebRtcProtocol instances)
+// Shared decoder worker (one instance for all WebRtcProtocol instances)
 let _worker = null;
 let _workerMsgId = 0;
 const _workerPending = new Map();
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker(
-    new URL("../../features/remote/workers/tileDecoder.worker.js", import.meta.url)
-  );
+  _worker = new Worker(new URL("../../features/remote/workers/tileDecoder.worker.js", import.meta.url));
   _worker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
     const resolve = _workerPending.get(id);
     if (!resolve) return;
@@ -23,68 +23,51 @@ function getWorker() {
 }
 
 /**
- * WebRtcProtocol — RTCDataChannel transport adapter.
+ * WebRtcProtocol — RTCDataChannel transport adapter (browser).
  *
- * - Receives binary tile frames via DataChannel
- * - Decodes off main thread via tileDecoder Worker
- * - Re-emits as "tiles-data" — identical interface to WsProtocol
- * - Control events (emit) are intentionally a no-op: caller routes via WsProtocol
+ * Two DCs:
+ *   "control" — ordered/reliable — JSON control events
+ *   "binary"  — unordered/unreliable — binary tile frames (decoded → "message" tiles-data)
+ *
+ * Signaling: cross-channel via ProtocolManager (defaults WS, falls back to HTTP).
+ * Adapter is signaling-agnostic — gets `signaling` interface from connect ctx.
  */
 export class WebRtcProtocol extends BaseProtocol {
-  constructor({ socketRef, apiKey, enableTurn, onConnect, onDisconnect }) {
+  static id = "rtc";
+  static capabilities = { control: true, binary: true, signaling: "external" };
+  static priority = { control: 50, binary: 100 };
+
+  constructor() {
     super();
-    this._socketRef = socketRef;
-    this._apiKey = apiKey;
-    this._enableTurn = enableTurn;
-    this._onConnect = onConnect;
-    this._onDisconnect = onDisconnect;
-
     this._pc = null;
-    this._dc = null;
-    this._connected = false;
-    this._type = "dc-stun";
+    this._dcControl = null;
+    this._dcBinary = null;
+    this._typeDetail = "dc-stun";
 
-    // Internal event bus for decoded DC events
-    this._listeners = new Map();
-
-    // Pending emit accumulator — merge chunks before flushing
     this._pendingEmit = null;
     this._flushTimer = null;
-    // Latest timestamp per tileIndex — drop stale tiles
     this._latestTileTs = new Map();
 
-    // Named socket signaling handlers for clean removal
     this._signalingHandlers = {};
+    this._signaling = null;
   }
 
-  get type() { return this._type; }
-  get connected() { return this._connected; }
-
-  on(event, handler) {
-    if (!this._listeners.has(event)) this._listeners.set(event, new Set());
-    this._listeners.get(event).add(handler);
-  }
-
-  off(event, handler) {
-    this._listeners.get(event)?.delete(handler);
-  }
-
-  // WebRTC only handles incoming data — emit is no-op (WsProtocol handles control)
-  emit(_event, _data) {}
-
-  async connect() {
-    this._cleanup();
+  /**
+   * @param {object} ctx
+   * @param {object} ctx.auth         — { apiKey }
+   * @param {object} ctx.profile      — { rtc: { enableTurn } }
+   * @param {object} ctx.signaling    — { send(msg), on(handler), off() }
+   */
+  async connect(ctx) {
+    this._ctx = ctx;
+    this._cleanupPeer();
+    this._setState(ADAPTER_STATE.connecting);
 
     let iceServers = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
-    if (this._enableTurn) {
+    if (ctx.profile?.rtc?.enableTurn) {
       try {
-        const resp = await fetch(API_ENDPOINTS.turnCredentials, {
-          headers: { "X-API-Key": this._apiKey }
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          iceServers = data.iceServers;
-        }
+        const resp = await fetch(API_ENDPOINTS.turnCredentials, { headers: { "X-API-Key": ctx.auth.apiKey } });
+        if (resp.ok) iceServers = (await resp.json()).iceServers;
       } catch (err) {
         console.warn("[WebRtcProtocol] TURN fetch failed:", err.message);
       }
@@ -93,11 +76,16 @@ export class WebRtcProtocol extends BaseProtocol {
     const pc = new RTCPeerConnection({ iceServers });
     this._pc = pc;
 
-    const dc = pc.createDataChannel("tiles", { ordered: false, maxPacketLifeTime: 200 });
-    dc.binaryType = "arraybuffer";
-    this._dc = dc;
+    const ordered = ctx.profile?.rtc?.dcControl?.ordered ?? true;
+    const dcControl = pc.createDataChannel("control", { ordered });
+    const dcBinary = pc.createDataChannel("binary", { ordered: false, maxPacketLifeTime: 200 });
+    dcBinary.binaryType = "arraybuffer";
+    dcControl.binaryType = "arraybuffer";
+    this._dcControl = dcControl;
+    this._dcBinary = dcBinary;
 
-    dc.onopen = async () => {
+    const checkOpen = async () => {
+      if (dcControl.readyState !== "open" || dcBinary.readyState !== "open") return;
       let pairInfo = "";
       try {
         const stats = await pc.getStats();
@@ -105,132 +93,160 @@ export class WebRtcProtocol extends BaseProtocol {
           if (s.type === "candidate-pair" && s.state === "succeeded") {
             const local = [...stats.values()].find((c) => c.id === s.localCandidateId);
             const remote = [...stats.values()].find((c) => c.id === s.remoteCandidateId);
-            if (local?.candidateType === "relay") this._type = "dc-turn";
+            if (local?.candidateType === "relay") this._typeDetail = "dc-turn";
             pairInfo = `local=${local?.candidateType}/${local?.protocol} remote=${remote?.candidateType}/${remote?.protocol}`;
           }
         });
       } catch {}
-      debugLog("transport", `[rtc] dc OPEN type=${this._type} ${pairInfo}`);
-      this._connected = true;
-      this._onConnect?.(this._type);
+      debugLog("transport", `[rtc] dc OPEN type=${this._typeDetail} ${pairInfo}`);
+      this._setState(ADAPTER_STATE.open);
     };
 
-    dc.onclose = () => {
-      debugLog("transport", "[rtc] dc CLOSE");
-      this._connected = false;
-      this._onDisconnect?.("dc-closed");
-    };
+    dcControl.onopen = checkOpen;
+    dcBinary.onopen = checkOpen;
 
-    dc.onerror = (e) => {
+    // Closed only when BOTH DCs gone — single DC close = degraded
+    const handleClose = () => {
+      const cClosed = !this._dcControl || this._dcControl.readyState === "closed";
+      const bClosed = !this._dcBinary || this._dcBinary.readyState === "closed";
+      if (cClosed && bClosed) this._setState(ADAPTER_STATE.closed);
+      else this._setState(ADAPTER_STATE.degraded);
+    };
+    dcControl.onclose = handleClose;
+    dcBinary.onclose = handleClose;
+
+    dcControl.onerror = (e) => {
       const msg = e.error?.message ?? "unknown";
-      if (!msg.includes("User-Initiated")) console.error("[rtc] dc ERROR:", msg);
+      if (!msg.includes("User-Initiated")) console.error("[rtc] dcControl ERROR:", msg);
+    };
+    dcBinary.onerror = (e) => {
+      const msg = e.error?.message ?? "unknown";
+      if (!msg.includes("User-Initiated")) console.error("[rtc] dcBinary ERROR:", msg);
     };
 
-    dc.onmessage = ({ data }) => {
+    dcControl.onmessage = ({ data }) => {
+      let parsed;
+      try { parsed = decode(data); }
+      catch (err) { console.error("[rtc] control parse error:", err.message); return; }
+      this._emit("message", { event: parsed.event, data: parsed, source: "rtc" });
+    };
+
+    dcBinary.onmessage = ({ data }) => {
       if (data instanceof ArrayBuffer) this._receiveTile(data);
     };
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        this._socketRef.current?.emit("webrtc:ice-candidate", {
-          candidate: candidate.candidate,
-          mid: candidate.sdpMid
-        });
-      }
+      if (candidate) this._sendSignaling({ type: "ice", candidate: candidate.candidate, mid: candidate.sdpMid });
     };
 
     pc.oniceconnectionstatechange = () => {
       debugLog("transport", `[rtc] iceState=${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === "failed") {
-        this._cleanup();
-        this._onDisconnect?.("ice-failed");
+      // disconnected: transient — peer may recover. Only failed = terminal.
+      if (pc.iceConnectionState === "disconnected") {
+        this._setState(ADAPTER_STATE.degraded);
+      } else if (pc.iceConnectionState === "failed") {
+        this._cleanupPeer();
+        this._setState(ADAPTER_STATE.closed);
+      } else if (pc.iceConnectionState === "connected" && this._dcControl?.readyState === "open" && this._dcBinary?.readyState === "open") {
+        this._setState(ADAPTER_STATE.open);
       }
     };
-    pc.onconnectionstatechange = () => {
-      debugLog("transport", `[rtc] pcState=${pc.connectionState}`);
-    };
-    pc.onsignalingstatechange = () => {
-      debugLog("transport", `[rtc] sigState=${pc.signalingState}`);
-    };
 
-    // Signaling via WS socket
-    const onIceCandidate = ({ candidate, mid }) => {
-      pc.addIceCandidate(new RTCIceCandidate({ candidate, sdpMid: mid })).catch(() => {});
-    };
-    const onAnswer = async ({ sdp }) => {
-      debugLog("transport", "[rtc] answer received");
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp }));
-      } catch (err) {
-        console.error("[rtc] setRemoteDescription error:", err.message);
-        this._cleanup();
-        this._onDisconnect?.("sdp-error");
-      }
-    };
-    const onError = ({ message }) => {
-      console.error("[rtc] server error:", message);
-      this._cleanup();
-      this._onDisconnect?.("server-error");
-    };
-
-    this._signalingHandlers = { onIceCandidate, onAnswer, onError };
-    const socket = this._socketRef.current;
-    socket?.on("webrtc:ice-candidate", onIceCandidate);
-    socket?.on("webrtc:answer", onAnswer);
-    socket?.on("webrtc:error", onError);
+    // Setup signaling channel
+    this._signaling = ctx.signaling;
+    this._signaling?.on?.((msg) => this._handleSignal(msg));
 
     try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       debugLog("transport", "[rtc] offer sent");
-      socket?.emit("webrtc:offer", { sdp: offer.sdp });
+      this._sendSignaling({ type: "offer", sdp: offer.sdp });
     } catch (err) {
       console.error("[rtc] createOffer error:", err.message);
-      this._cleanup();
-      this._onDisconnect?.("offer-error");
+      this._cleanupPeer();
+      this._setState(ADAPTER_STATE.closed);
     }
   }
 
   disconnect() {
-    this._cleanup();
+    this._cleanupPeer();
+    this._signaling?.off?.();
+    this._signaling = null;
+    this._setState(ADAPTER_STATE.closed);
+  }
+
+  send(channel, payload) {
+    if (channel === CHANNELS.control) {
+      if (this._dcControl?.readyState !== "open") return false;
+      try {
+        this._dcControl.send(encode({ event: payload.event, args: payload.args || [], ackId: payload.ackId || null }));
+        return true;
+      } catch (err) {
+        console.error("[rtc] send control error:", err.message);
+        return false;
+      }
+    }
+    if (channel === CHANNELS.binary) {
+      if (this._dcBinary?.readyState !== "open") return false;
+      try {
+        this._dcBinary.send(payload);
+        return true;
+      } catch (err) {
+        console.error("[rtc] send binary error:", err.message);
+        return false;
+      }
+    }
+    return false;
+  }
+
+  get typeDetail() { return this._typeDetail; }
+
+  // ─── Signaling ─────────────────────────────────────────────────────────────
+
+  _sendSignaling(msg) {
+    this._signaling?.send?.(msg);
+  }
+
+  async _handleSignal(msg) {
+    if (!this._pc) return;
+    try {
+      if (msg.type === "answer") {
+        await this._pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
+      } else if (msg.type === "ice") {
+        await this._pc.addIceCandidate(new RTCIceCandidate({ candidate: msg.candidate, sdpMid: msg.mid })).catch(() => {});
+      } else if (msg.type === "error") {
+        console.error("[rtc] server error:", msg.message);
+        this._cleanupPeer();
+        this._setState(ADAPTER_STATE.closed);
+      }
+    } catch (err) {
+      console.error("[rtc] signal handle error:", err.message);
+    }
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────────
 
-  _cleanup() {
-    // Remove signaling listeners
-    const socket = this._socketRef.current;
-    const { onIceCandidate, onAnswer, onError } = this._signalingHandlers;
-    if (onIceCandidate) socket?.off("webrtc:ice-candidate", onIceCandidate);
-    if (onAnswer) socket?.off("webrtc:answer", onAnswer);
-    if (onError) socket?.off("webrtc:error", onError);
-    this._signalingHandlers = {};
-
-    if (this._dc) {
-      this._dc.onopen = null;
-      this._dc.onclose = null;
-      this._dc.onerror = null;
-      this._dc.onmessage = null;
-      this._dc.close();
-      this._dc = null;
+  _cleanupPeer() {
+    for (const dc of [this._dcControl, this._dcBinary]) {
+      if (!dc) continue;
+      dc.onopen = null; dc.onclose = null; dc.onerror = null; dc.onmessage = null;
+      try { dc.close(); } catch {}
     }
+    this._dcControl = null;
+    this._dcBinary = null;
     if (this._pc) {
       this._pc.onicecandidate = null;
       this._pc.oniceconnectionstatechange = null;
-      this._pc.close();
+      try { this._pc.close(); } catch {}
       this._pc = null;
     }
-
-    this._connected = false;
     this._pendingEmit = null;
     if (this._flushTimer) { clearTimeout(this._flushTimer); this._flushTimer = null; }
     this._latestTileTs.clear();
   }
 
-  /** Decode binary tile batch via Worker, emit as "tiles-data" */
   _receiveTile(buffer) {
     const id = ++_workerMsgId;
-    // Capture bytes BEFORE transferring to worker (after transfer, byteLength=0)
     const bytes = buffer.byteLength;
     new Promise((resolve) => {
       _workerPending.set(id, resolve);
@@ -239,9 +255,7 @@ export class WebRtcProtocol extends BaseProtocol {
       if (!result) return;
       const { tiles, timestamp, hasBitmap } = result;
 
-      if (!this._pendingEmit) {
-        this._pendingEmit = { tiles: new Map(), timestamp, hasBitmap, bytes: 0 };
-      }
+      if (!this._pendingEmit) this._pendingEmit = { tiles: new Map(), timestamp, hasBitmap, bytes: 0 };
       this._pendingEmit.bytes += bytes;
       for (const tile of tiles) {
         const prev = this._latestTileTs.get(tile.tileIndex) ?? 0;
@@ -255,7 +269,6 @@ export class WebRtcProtocol extends BaseProtocol {
         }
       }
 
-      // Flush after all pending onmessage drain (macrotask)
       if (this._flushTimer) clearTimeout(this._flushTimer);
       this._flushTimer = setTimeout(() => {
         this._flushTimer = null;
@@ -264,14 +277,13 @@ export class WebRtcProtocol extends BaseProtocol {
         this._pendingEmit = null;
         const freshTiles = [...tileMap.values()];
         if (!freshTiles.length) return;
-        this._dispatch("tiles-data", { tiles: freshTiles, timestamp: ts, hasBitmap: hb, bytes: by, transport: this._type });
+        // Emit as standard "message" → ProtocolManager fans out to "tiles-data" listeners
+        this._emit("message", {
+          event: "tiles-data",
+          data: { tiles: freshTiles, timestamp: ts, hasBitmap: hb, bytes: by, transport: this._typeDetail },
+          source: "rtc"
+        });
       }, 0);
     });
-  }
-
-  _dispatch(event, ...args) {
-    const set = this._listeners.get(event);
-    if (!set) return;
-    for (const handler of set) handler(...args);
   }
 }

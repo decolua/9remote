@@ -24,7 +24,7 @@ const STORAGE_KEYS = {
   handMode: "remoteDesktop.handMode"
 };
 
-export default function RemoteDesktop({ onClose, socketRef, connected, transport }) {
+export default function RemoteDesktop({ onClose, socketRef, protocolRef, connected, transport }) {
   const { t } = useI18n();
   const [showHelp, setShowHelp] = useState(false);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
@@ -41,6 +41,7 @@ export default function RemoteDesktop({ onClose, socketRef, connected, transport
 
   const { stats, trackTilesReceived, resetStats } = useBenchmark();
   const [showDebug, setShowDebug] = useState(REMOTE_CONFIG.debug?.panel ?? false);
+  const [wsBlocked, setWsBlocked] = useState(false);
   const debugMode = REMOTE_CONFIG.enableWebRTC ? "rtc" : "ws";
   const copyStats = useCallback(() => {
     const snapshot = { mode: debugMode, ...stats, ts: new Date().toISOString() };
@@ -451,6 +452,15 @@ export default function RemoteDesktop({ onClose, socketRef, connected, transport
 
       {showDebug && (
         <DebugPanel
+          onForceWsDisconnect={() => socketRef?.current?.disconnect()}
+          onToggleWsBlock={() => {
+            const pm = protocolRef?.current;
+            if (!pm) return;
+            const next = !pm.wsBlocked;
+            pm.setWsBlocked(next);
+            setWsBlocked(next);
+          }}
+          isWsBlocked={wsBlocked}
           stats={stats}
           mode={debugMode}
           onReset={resetStats}

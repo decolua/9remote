@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useI18n } from "@/shared/i18n";
 
-export default function DebugPanel({ stats, mode, onReset, onClose, onCopy }) {
+export default function DebugPanel({ stats, mode, onReset, onClose, onCopy, onForceWsDisconnect, onToggleWsBlock, isWsBlocked }) {
   const { t } = useI18n();
   const [minimized, setMinimized] = useState(false);
 
@@ -132,6 +132,30 @@ export default function DebugPanel({ stats, mode, onReset, onClose, onCopy }) {
           Copy
         </button>
       </div>
+
+      {/* Dev — WS disconnect / block to test RTC standalone */}
+      {(onForceWsDisconnect || onToggleWsBlock) && (
+        <div className="flex gap-2 mt-2">
+          {onForceWsDisconnect && (
+            <button
+              onClick={onForceWsDisconnect}
+              className="flex-1 bg-red-900/40 hover:bg-red-900/60 text-red-300 py-2 px-3 rounded transition-colors text-xs"
+              title="Disconnect WS once (auto-reconnect)"
+            >
+              ⚡ Kill WS
+            </button>
+          )}
+          {onToggleWsBlock && (
+            <button
+              onClick={onToggleWsBlock}
+              className={`flex-1 py-2 px-3 rounded transition-colors text-xs ${isWsBlocked ? "bg-yellow-900/60 hover:bg-yellow-900/80 text-yellow-200" : "bg-surface hover:bg-surface-2 text-text"}`}
+              title="Block WS reconnect to test RTC standalone"
+            >
+              {isWsBlocked ? "🔒 WS Blocked" : "🚫 Block WS"}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -98,6 +98,18 @@ export const REMOTE_CONFIG = {
     paddingTiles: 4           // Buffer tiles around focus region
   },
 
+  // Display wake — nudge OS to wake display on remote activity
+  displayWake: {
+    enabled: true,
+    throttleMs: 30000,
+    macDurationSec: 5
+  },
+
+  // Sleep inhibitor — block system sleep, allow display sleep
+  sleepInhibit: {
+    enabled: true
+  },
+
   // Logging — config-driven flags per log group. Toggle off in production.
   logging: {
     // Lifecycle — start/stop streaming, handlers attached, client cleanup

@@ -12,6 +12,7 @@ import { setupSessionHandlers } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
+import { broadcast } from "../../transport/broadcast.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ORANGE = chalk.rgb(230, 138, 110);
@@ -60,12 +61,12 @@ export async function initializeTerminal() {
 export function setupTerminalSocket(io, apiKey) {
   // Forward daemon events to all socket clients
   if (PERSISTENCE_MODE === "daemon") {
-    daemonClient.on("output", ({ sessionId, data }) => io.emit("output", { sessionId, data }));
-    daemonClient.on("sessionClosed", (sessionId) => { sessions.delete(sessionId); io.emit("sessionClosed", sessionId); });
+    daemonClient.on("output", ({ sessionId, data }) => broadcast(io, "output", { sessionId, data }));
+    daemonClient.on("sessionClosed", (sessionId) => { sessions.delete(sessionId); broadcast(io, "sessionClosed", sessionId); });
     daemonClient.on("sessionRenamed", ({ sessionId, name }) => {
       const s = sessions.get(sessionId);
       if (s) s.name = name;
-      io.emit("session-renamed", { sessionId, name });
+      broadcast(io, "session-renamed", { sessionId, name });
     });
   }
 

@@ -3,7 +3,7 @@
  */
 
 import { jsonOk, jsonErr, parseJsonBody } from "../lib/router.js";
-import { approveSocketDevice, rejectSocketDevice, disconnectDeviceSockets, approveRejectedDevice } from "../lib/socketio.js";
+import { approveSocketDevice, rejectSocketDevice, disconnectDeviceSockets, approveRejectedDevice } from "../transport/server.js";
 import { getAllPendingApprovals, getApprovedDevices, removeDevice, getRejectedDevices, clearRejectedDevice, isAutoApprove, setAutoApprove } from "../lib/deviceApproval.js";
 
 export async function handleApprove(req, res) {

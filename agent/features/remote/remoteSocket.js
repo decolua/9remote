@@ -1,10 +1,9 @@
-import { ProtocolManager } from "../../transport/ProtocolManager.js";
-import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
+import { unregisterProtocol } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
+import { ADAPTER_STATE } from "../../lib/transportConstants.js";
+import { wakeDisplay } from "../../lib/displayWaker.js";
 
 const logger = createLogger("remote");
-
-const { enableWebRTC, enableTurn, turnApiUrl, turnRefreshInterval, dcMaxMessageSize, dcChunkSize, dcMaxTilesPerFrame, answerTimeout } = REMOTE_CONFIG.webrtc;
 
 // Track remote availability globally
 let remoteAvailable = null;
@@ -104,29 +103,28 @@ export async function setupRemoteHandlers(socket, apiKey) {
   const tileManager = new TileManager(robot);
   resourceManager.addClient(socket.id, { tileManager, screenInterval: null, authenticated: true, apiKey: clientApiKey });
 
-  const protocol = new ProtocolManager(socket, {
-    enableWebRTC,
-    apiKey: enableTurn ? apiKey : null,
-    turnApiUrl: enableTurn ? turnApiUrl : null,
-    turnRefreshInterval,
-    dcMaxMessageSize,
-    dcChunkSize,
-    dcMaxTilesPerFrame,
-    answerTimeout,
-    wsChunkSize: REMOTE_CONFIG.streaming.chunkSize
-  });
+  // Reuse connection-level PM created in transport/server.js
+  const protocol = socket.data.protocol;
+  if (!protocol) { socket.emit("remote:unavailable"); return; }
+  socket.data.remoteAttached = true;
 
-  await protocol.init();
-  protocol.setupSignaling(socket);
-
-  const requireAuth = (handler) => handler;
+  // Wake display on every remote action (mouse/key/screen) — throttled internally
+  const requireAuth = (handler) => (...args) => { wakeDisplay(); return handler(...args); };
   mouseHandler.setupMouseHandlers(socket, requireAuth);
   keyboardHandler.setupKeyboardHandlers(socket, requireAuth);
   screenHandler.setupScreenHandlers(socket, requireAuth, protocol);
 
+  // WS rớt + RTC ready → giữ vô hạn, cleanup khi RTC tự closed.
+  // RTC chưa ready → cleanup ngay (giữ retry behavior cũ).
   socket.on("disconnect", () => {
-    resourceManager.removeClient(socket.id);
-    protocol.close();
+    const cleanup = () => {
+      resourceManager.removeClient(socket.id);
+      protocol.close();
+      unregisterProtocol(protocol);
+    };
+    const rtc = protocol._adapters?.get("rtc");
+    if (!rtc?.ready) return cleanup();
+    rtc.on("stateChange", (s) => { if (s === ADAPTER_STATE.closed) cleanup(); });
   });
 
   socket.emit("remote:ready");

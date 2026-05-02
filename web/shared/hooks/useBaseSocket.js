@@ -54,15 +54,13 @@ export function useBaseSocket(config = {}) {
         socketRef.current = socket;
         setConnected(true);
         setConnectionMode(mode || protocolRef.current?.connectionMode || "tunnel");
-        setTransport("ws");
-        debugLog("transport", "[transport] connected via ws");
+        debugLog("transport", "[transport] ws connected");
         onConnect?.(socket, auth);
       },
       onDisconnect: (reason) => {
         debugLog("transport", `[transport] ws disconnect reason=${reason}`);
         socketRef.current = null;
         setConnected(false);
-        setTransport("ws");
         onDisconnect?.(reason);
       },
       onRetryStatus: setRetryStatus
@@ -72,13 +70,11 @@ export function useBaseSocket(config = {}) {
       enableWebRTC: true,
       enableTurn: REMOTE_CONFIG.enableTurn,
       apiKey: auth.apiKey,
-      onUpgrade: (via) => {
-        setTransport(via);
-        debugLog("transport", `[transport] upgraded to ${via}`);
-      },
-      onFallback: (to) => {
-        setTransport(to);
-        debugLog("transport", `[transport] fallback to ${to}`);
+      onUpgrade: (via) => debugLog("transport", `[transport] upgraded to ${via}`),
+      onFallback: (to) => debugLog("transport", `[transport] fallback to ${to}`),
+      onTransportChange: (type) => {
+        setTransport(type);
+        debugLog("transport", `[transport] active=${type}`);
       }
     } : null;
 
@@ -102,5 +98,5 @@ export function useBaseSocket(config = {}) {
     setConnected(false);
   };
 
-  return { socket: socketRef.current, socketRef, connected, connectionMode, transport, retryStatus, disconnect };
+  return { socket: socketRef.current, socketRef, protocolRef, connected, connectionMode, transport, retryStatus, disconnect };
 }

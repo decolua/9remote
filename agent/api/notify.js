@@ -3,7 +3,8 @@
  */
 
 import { jsonOk, jsonErr } from "../lib/router.js";
-import { getIO } from "../lib/socketio.js";
+import { getIO } from "../transport/server.js";
+import { broadcast } from "../transport/broadcast.js";
 import { sendPushNotification } from "../features/terminal/pushManager.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
 
@@ -47,7 +48,7 @@ function dispatchNotify({ type, sessionId, tool }) {
 
   const notification = { type, sessionId, tool, timestamp: now };
   addNotification(sessionId, notification);
-  io.emit("chatNotification", notification);
+  broadcast(io, "chatNotification", notification);
 
   // PWA push: throttle per tool+type
   const pushKey = `${tool}:${type}`;

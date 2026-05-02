@@ -10,7 +10,7 @@ import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap } f
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion, transport = "ws" }) {
   const { t } = useI18n();
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -42,6 +42,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       notifications,
       clearNotification,
       agentVersion,
+      transport,
     });
 
     setCallbacks({
@@ -69,7 +70,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     connectionMode,
     subscribeToPush,
     unsubscribeFromPush,
-    agentVersion
+    agentVersion,
+    transport
   ]);
 
   const handleCreate = async () => {

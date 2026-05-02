@@ -1,8 +1,11 @@
-// Main Socket.IO setup
+// Transport server: WS entry point + future protocols
 import { Server } from "socket.io";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { PATHS } from "./constants.js";
+import { PATHS } from "../lib/constants.js";
+import { ProtocolManager } from "./ProtocolManager.js";
+import { registerProtocol, unregisterProtocol } from "./broadcast.js";
+import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
 import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
@@ -21,7 +24,7 @@ import {
   clearRejectedDevice,
   loadAutoApprove,
   isAutoApprove
-} from "./deviceApproval.js";
+} from "../lib/deviceApproval.js";
 
 function loadApiKey() {
   try {
@@ -46,6 +49,28 @@ function setupSocketFeatures(socket) {
     pushUiLog("One-time key used \u2014 clearing from UI");
     clearOneTimeKey();
   }
+  attachTransportBus(socket);
+}
+
+/** Create connection-level PM and route socket.emit through it (DRY transport bus) */
+function attachTransportBus(socket) {
+  if (socket.data.protocol) return;
+  const { webrtc, streaming } = REMOTE_CONFIG;
+  const pm = new ProtocolManager(socket, {
+    enableWebRTC: webrtc.enableWebRTC,
+    apiKey: webrtc.enableTurn ? loadApiKey() : null,
+    turnApiUrl: webrtc.enableTurn ? webrtc.turnApiUrl : null,
+    turnRefreshInterval: webrtc.turnRefreshInterval,
+    dcMaxMessageSize: webrtc.dcMaxMessageSize,
+    dcChunkSize: webrtc.dcChunkSize,
+    dcMaxTilesPerFrame: webrtc.dcMaxTilesPerFrame,
+    answerTimeout: webrtc.answerTimeout,
+    wsChunkSize: streaming.chunkSize
+  });
+  socket.data.protocol = pm;
+  registerProtocol(pm);
+  pm.init().then(() => pm.setupSignaling(socket)).catch((e) => console.error("[transport] pm init failed:", e.message));
+  pm.attachAsBus(socket);
 }
 
 /** Approve a pending socket by socketId */
@@ -55,7 +80,6 @@ export function approveSocketDevice(socketId) {
 
   const socket = io.sockets.sockets.get(socketId);
   const pending = getPendingApproval(socketId);
-  console.log(`[DEBUG-APPROVE] socketId=${socketId}, socketExists=${!!socket}, pendingExists=${!!pending}`);
   if (!socket || !pending) return false;
 
   // Save device as approved; clear any prior rejection
@@ -65,7 +89,6 @@ export function approveSocketDevice(socketId) {
 
   // Unlock socket + notify client
   socket.data.approved = true;
-  console.log(`[DEBUG-APPROVE] Emitting device:approved to ${socketId}`);
   socket.emit("device:approved");
 
   // Setup features
@@ -135,7 +158,7 @@ export function rejectSocketDevice(socketId) {
   return true;
 }
 
-export async function setupSocketIO(server) {
+export async function startTransportServer(server) {
   // Load approved devices + auto-approve setting from disk
   loadApprovedDevices();
   loadAutoApprove();
@@ -180,6 +203,13 @@ export async function setupSocketIO(server) {
       untrackConnection(socket.id);
       removePendingApproval(socket.id);
       pushUiLog(`Client disconnected: ${ip} (${reason})`);
+      // PM cleanup deferred: remoteSocket grace timer handles it if remote was attached;
+      // otherwise close immediately
+      const pm = socket.data?.protocol;
+      if (pm && !socket.data?.remoteAttached) {
+        try { pm.close(); } catch {}
+        unregisterProtocol(pm);
+      }
     });
 
     // Check device approval

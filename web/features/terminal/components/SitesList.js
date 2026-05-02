@@ -68,6 +68,10 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
       setLoadingSites(true);
     }
     try {
+      if (!tunnelUrl) {
+        console.error("[SitesList] tunnelUrl is missing");
+        return;
+      }
       const response = await fetch(`${tunnelUrl}/api/local-sites`, {
         headers: {
           "Authorization": `Bearer ${apiKey}`

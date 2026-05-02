@@ -1,19 +1,18 @@
 import nodeDataChannel from "node-datachannel";
 import { BaseProtocol } from "./BaseProtocol.js";
+import { encode, decode } from "./codec.js";
+import { ADAPTER_STATE, CHANNELS } from "../lib/transportConstants.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 
 const { PeerConnection } = nodeDataChannel;
 
-const DEFAULT_ICE = [
-  { hostname: "stun.cloudflare.com", port: 3478, type: "Stun" }
-];
+const DEFAULT_ICE = [{ hostname: "stun.cloudflare.com", port: 3478, type: "Stun" }];
 
 async function fetchTurnIceServers(turnApiUrl, apiKey) {
   try {
     const resp = await fetch(turnApiUrl, { headers: { "X-API-Key": apiKey } });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const { iceServers } = await resp.json();
-
     const result = [];
     for (const srv of iceServers) {
       for (const url of srv.urls) {
@@ -40,152 +39,179 @@ async function fetchTurnIceServers(turnApiUrl, apiKey) {
 }
 
 /**
- * WebRtcProtocol — per-client WebRTC PeerConnection adapter.
- *
- * Handles signaling (offer/answer/ICE) via the WS socket,
- * and exposes sendBinary() to push binary tile frames via DataChannel.
- *
- * Absorbs: WebRTCManager + WebRTCHandler
+ * WebRtcProtocol — server adapter. Two DCs (control/binary) created by client side;
+ * server reacts via onDataChannel. Signaling routed via ProtocolManager.
  */
 export class WebRtcProtocol extends BaseProtocol {
-  /**
-   * @param {object} config
-   * @param {string} config.socketId
-   * @param {string|null} config.apiKey
-   * @param {string|null} config.turnApiUrl
-   * @param {number} config.turnRefreshInterval
-   * @param {number} config.dcMaxMessageSize
-   * @param {number} config.answerTimeout
-   */
-  constructor({ socketId, apiKey, turnApiUrl, turnRefreshInterval, dcMaxMessageSize, answerTimeout }) {
-    super();
-    this._socketId = socketId;
-    this._apiKey = apiKey;
-    this._turnApiUrl = turnApiUrl;
-    this._turnRefreshInterval = turnRefreshInterval;
-    this._dcMaxMessageSize = dcMaxMessageSize;
-    this._answerTimeout = answerTimeout;
+  static id = "rtc";
+  static capabilities = { control: true, binary: true, signaling: "external" };
+  static priority = { control: 50, binary: 100 };
 
+  constructor() {
+    super();
     this._pc = null;
-    this._dc = null;
+    this._dcControl = null;
+    this._dcBinary = null;
     this._iceServers = DEFAULT_ICE;
     this._refreshTimer = null;
     this._remoteSet = false;
     this._pendingCandidates = [];
+    this._signaling = null;
   }
 
-  get type() { return "dc"; }
-  isReady() { return Boolean(this._dc); }
+  /**
+   * @param {object} ctx
+   * @param {object} ctx.auth        — { apiKey, socketId }
+   * @param {object} ctx.profile     — { rtc: { enableTurn, turnApiUrl, turnRefreshInterval, dcMaxMessageSize, answerTimeout } }
+   * @param {object} ctx.signaling   — { send(msg), on(handler), off() }
+   */
+  async connect(ctx) {
+    this._ctx = ctx;
+    this._setState(ADAPTER_STATE.connecting);
 
-  // WS events not sent via WebRTC — no-op (WsProtocol handles these)
-  emit(_event, _data) {}
+    const rtcCfg = ctx.profile?.rtc || {};
+    if (rtcCfg.enableTurn && ctx.auth?.apiKey && rtcCfg.turnApiUrl) {
+      await this._refreshTurn(rtcCfg);
+    }
 
-  /** Send binary chunks via DataChannel */
-  sendBinary(chunks) {
-    if (!this._dc) return false;
-    for (const chunk of chunks) {
+    this._signaling = ctx.signaling;
+    this._signaling?.on?.((msg) => this._handleSignal(msg, rtcCfg));
+  }
+
+  disconnect() {
+    clearTimeout(this._refreshTimer);
+    this._signaling?.off?.();
+    this._signaling = null;
+    this._cleanupPeer();
+    this._setState(ADAPTER_STATE.closed);
+  }
+
+  send(channel, payload) {
+    if (channel === CHANNELS.control) {
+      if (!this._dcControl) return false;
       try {
-        if (chunk.length <= this._dcMaxMessageSize) this._dc.sendMessageBinary(chunk);
+        this._dcControl.sendMessage(encode({ event: payload.event, args: payload.args || [], ackId: payload.ackId || null }));
+        return true;
       } catch (err) {
-        console.error("[WebRtcProtocol] sendBinary error:", err.message);
+        console.error("[WebRtcProtocol] send control:", err.message);
         return false;
       }
     }
-    return true;
+    if (channel === CHANNELS.binary) {
+      if (!this._dcBinary) return false;
+      try {
+        // payload may be array of chunks or single Buffer
+        const chunks = Array.isArray(payload) ? payload : [payload];
+        const max = this._ctx.profile?.rtc?.dcMaxMessageSize ?? 65536;
+        for (const chunk of chunks) {
+          if (chunk.length <= max) this._dcBinary.sendMessageBinary(chunk);
+        }
+        return true;
+      } catch (err) {
+        console.error("[WebRtcProtocol] send binary:", err.message);
+        return false;
+      }
+    }
+    return false;
   }
 
-  /** Initialize ICE servers — fetch TURN if apiKey provided, then schedule refresh */
-  async init() {
-    if (this._apiKey && this._turnApiUrl) {
-      await this._refreshTurn();
+  // ─── Signaling ─────────────────────────────────────────────────────────────
+
+  _handleSignal(msg, rtcCfg) {
+    if (msg.type === "offer") {
+      this._processOffer(msg.sdp, rtcCfg);
+    } else if (msg.type === "ice") {
+      if (!this._remoteSet || !this._pc) {
+        this._pendingCandidates.push({ candidate: msg.candidate, mid: msg.mid || "0" });
+        return;
+      }
+      try { this._pc.addRemoteCandidate(msg.candidate, msg.mid || "0"); }
+      catch (err) { console.error("[WebRtcProtocol] addRemoteCandidate:", err.message); }
     }
   }
 
-  /** Handle WebRTC signaling events from a socket */
-  setupSignaling(socket) {
-    socket.on("webrtc:offer", async ({ sdp }) => {
-      try {
-        this._createPeer();
-        const answerSdp = await this._processOffer(sdp, socket);
-        socket.emit("webrtc:answer", { sdp: answerSdp });
-      } catch (err) {
-        console.error("[WebRtcProtocol] offer error:", err.message);
-        socket.emit("webrtc:error", { message: err.message });
-      }
-    });
-
-    socket.on("webrtc:ice-candidate", ({ candidate, mid }) => {
-      // Buffer until remote description is set, else libdatachannel rejects
-      if (!this._remoteSet || !this._pc) {
-        this._pendingCandidates.push({ candidate, mid: mid || "0" });
-        return;
-      }
-      try {
-        this._pc.addRemoteCandidate(candidate, mid || "0");
-      } catch (err) {
-        console.error("[WebRtcProtocol] addRemoteCandidate error:", err.message);
-      }
-    });
-  }
-
-  close() {
-    clearTimeout(this._refreshTimer);
+  _createPeer(rtcCfg) {
     try { this._pc?.close(); } catch {}
     this._pc = null;
-    this._dc = null;
-  }
-
-  // ─── Internal ──────────────────────────────────────────────────────────────
-
-  _createPeer() {
-    try { this._pc?.close(); } catch {}
-    this._pc = null;
-    this._dc = null;
+    this._dcControl = null;
+    this._dcBinary = null;
     this._remoteSet = false;
     this._pendingCandidates = [];
 
-    const pc = new PeerConnection(`peer-${this._socketId}`, { iceServers: this._iceServers });
+    const socketId = this._ctx?.auth?.socketId || "anon";
+    const pc = new PeerConnection(`peer-${socketId}`, { iceServers: this._iceServers });
+
     pc.onDataChannel((dc) => {
-      dc.onOpen(() => { this._dc = dc; });
-      dc.onClosed(() => { this._dc = null; });
-      dc.onError((err) => console.error(`[WebRtcProtocol] DC error [${this._socketId.slice(0, 6)}]:`, err));
+      const label = dc.getLabel?.() || "";
+      const setOpen = () => {
+        if (label === "control") this._dcControl = dc;
+        else if (label === "binary") this._dcBinary = dc;
+        if (this._dcControl && this._dcBinary) this._setState(ADAPTER_STATE.open);
+      };
+      dc.onOpen(setOpen);
+      dc.onClosed(() => {
+        if (label === "control") this._dcControl = null;
+        if (label === "binary") this._dcBinary = null;
+        if (!this._dcControl && !this._dcBinary) this._setState(ADAPTER_STATE.closed);
+      });
+      dc.onError((err) => console.error(`[WebRtcProtocol] DC[${label}] error:`, err));
+      dc.onMessage((data) => {
+        if (label !== "control") return;
+        let parsed;
+        try { parsed = decode(data); }
+        catch (err) { console.error("[WebRtcProtocol] control parse:", err.message); return; }
+        try { this._emit("message", { event: parsed.event, data: parsed, source: "rtc" }); }
+        catch (err) { console.error(`[WebRtcProtocol] handler error event=${parsed.event}:`, err.message); }
+      });
     });
+
     this._pc = pc;
   }
 
-  _processOffer(sdp, socket) {
+  _processOffer(sdp, rtcCfg) {
+    this._createPeer(rtcCfg);
     return new Promise((resolve, reject) => {
       this._pc.onLocalDescription((answerSdp, type) => {
-        if (type === "answer") resolve(answerSdp);
+        if (type === "answer") {
+          this._signaling?.send?.({ type: "answer", sdp: answerSdp });
+          resolve();
+        }
       });
       this._pc.onLocalCandidate((candidate, mid) => {
-        if (candidate) socket.emit("webrtc:ice-candidate", { candidate, mid });
+        if (candidate) this._signaling?.send?.({ type: "ice", candidate, mid });
       });
       try {
         this._pc.setRemoteDescription(sdp, "offer");
         this._remoteSet = true;
-        // Drain buffered candidates after remote description is set
         for (const { candidate, mid } of this._pendingCandidates) {
-          try { this._pc.addRemoteCandidate(candidate, mid); } catch (err) {
-            console.error("[WebRtcProtocol] addRemoteCandidate (drain) error:", err.message);
-          }
+          try { this._pc.addRemoteCandidate(candidate, mid); }
+          catch (err) { console.error("[WebRtcProtocol] drain ice:", err.message); }
         }
         this._pendingCandidates = [];
         this._pc.setLocalDescription();
       } catch (err) {
+        this._signaling?.send?.({ type: "error", message: err.message });
         reject(err);
       }
-      setTimeout(() => reject(new Error("Answer timeout")), this._answerTimeout);
+      const timeout = rtcCfg?.answerTimeout || 10000;
+      setTimeout(() => reject(new Error("Answer timeout")), timeout);
     });
   }
 
-  async _refreshTurn() {
-    const servers = await fetchTurnIceServers(this._turnApiUrl, this._apiKey);
+  _cleanupPeer() {
+    try { this._pc?.close(); } catch {}
+    this._pc = null;
+    this._dcControl = null;
+    this._dcBinary = null;
+  }
+
+  async _refreshTurn(rtcCfg) {
+    const servers = await fetchTurnIceServers(rtcCfg.turnApiUrl, this._ctx.auth.apiKey);
     if (servers?.length) {
       this._iceServers = servers;
       if (REMOTE_CONFIG.logging?.webrtc) console.log(`[WebRtcProtocol] TURN credentials loaded (${servers.length} servers)`);
     }
     clearTimeout(this._refreshTimer);
-    this._refreshTimer = setTimeout(() => this._refreshTurn(), this._turnRefreshInterval);
+    this._refreshTimer = setTimeout(() => this._refreshTurn(rtcCfg), rtcCfg.turnRefreshInterval);
   }
 }

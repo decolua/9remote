@@ -68,13 +68,11 @@ export function useProtocol({
       apiKey: auth.apiKey,
       onConnect: (socket) => {
         setConnected(true);
-        setTransport("ws");
         setConnectionMode(managerRef.current?.connectionMode || "tunnel");
         onConnect?.(socket);
       },
       onDisconnect: (reason) => {
         setConnected(false);
-        setTransport("ws");
         onDisconnect?.(reason);
       },
       onRetryStatus: setRetryStatus,
@@ -85,8 +83,7 @@ export function useProtocol({
       enableWebRTC: true,
       enableTurn,
       apiKey: auth.apiKey,
-      onUpgrade: (via) => setTransport(via),
-      onFallback: () => setTransport("ws")
+      onTransportChange: (type) => setTransport(type)
     } : null;
 
     const manager = new ProtocolManager(wsConfig, rtcConfig);

@@ -12,7 +12,7 @@ export const REMOTE_CONFIG = {
 
   // Debug log toggles (set true to enable verbose console logs)
   debug: {
-    transport: false, // [transport] [pm] [rtc] connection lifecycle
+    transport: false, // [transport] [pm] [rtc] [ws] connection lifecycle + routing
     remote: false,    // [remote] [stats] tile transport + benchmark
     panel: false,     // DebugPanel overlay UI
   },

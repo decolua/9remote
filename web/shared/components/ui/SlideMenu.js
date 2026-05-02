@@ -197,6 +197,21 @@ export default function SlideMenu() {
               </button>
             )}
             <h2 className="text-lg font-semibold text-text">{getTitle()}</h2>
+            {activePanel === "menu" && (() => {
+              const isRtc = context.transport && context.transport !== "ws";
+              return (
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                    isRtc
+                      ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                      : "bg-yellow-500/15 text-yellow-500 border border-yellow-500/30"
+                  }`}
+                  title={`Transport: ${isRtc ? `WebRTC (${context.transport})` : "WebSocket"}`}
+                >
+                  {isRtc ? "RTC" : "WS"}
+                </span>
+              );
+            })()}
           </div>
           <div className="flex items-center gap-1">
             {activePanel === "menu" && (
