@@ -30,7 +30,7 @@ export default function LanguageModal({ isOpen, onClose }) {
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
         onClick={onClose}
       />
-      <div className="relative card-elev max-w-md w-full max-h-[80vh] flex flex-col animate-in zoom-in-95 duration-200">
+      <div className="relative card-elev max-w-lg w-full max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
         <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
           <h3 className="text-lg font-semibold text-text">{t("menu.language")}</h3>
           <button
@@ -41,23 +41,25 @@ export default function LanguageModal({ isOpen, onClose }) {
             <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto modal-scrollable p-2">
-          {SUPPORTED_LOCALES.map((l) => {
-            const active = l.code === locale;
-            return (
-              <button
-                key={l.code}
-                onClick={() => handleSelect(l.code)}
-                className={`w-full px-4 py-3 rounded-brand text-left flex items-center gap-3 transition-all duration-150 ease-out active:scale-[0.99] ${
-                  active ? "bg-brand-500 text-white" : "text-text hover:bg-surface-2"
-                }`}
-              >
-                <span className="text-2xl flex-shrink-0">{l.flag}</span>
-                <span className="flex-1 font-medium">{l.label}</span>
-                {active && <Check size={20} />}
-              </button>
-            );
-          })}
+        <div className="flex-1 overflow-y-auto modal-scrollable p-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {SUPPORTED_LOCALES.map((l) => {
+              const active = l.code === locale;
+              return (
+                <button
+                  key={l.code}
+                  onClick={() => handleSelect(l.code)}
+                  className={`px-2 py-2 rounded-brand flex items-center gap-2 transition-all duration-150 ease-out active:scale-[0.97] min-w-0 ${
+                    active ? "bg-brand-500 text-white" : "text-text hover:bg-surface-2"
+                  }`}
+                >
+                  <span className="text-lg flex-shrink-0">{l.flag}</span>
+                  <span className="flex-1 text-sm font-medium truncate text-left">{l.label}</span>
+                  {active && <Check size={14} className="flex-shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
