@@ -94,4 +94,5 @@ export const {
   Shield,
   ArrowUp,
   ArrowDown,
+  Bug,
 } = LucideIcons;

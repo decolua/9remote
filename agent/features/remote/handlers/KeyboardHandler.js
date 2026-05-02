@@ -47,6 +47,22 @@ export class KeyboardHandler {
       }
     }));
 
+    socket.on("desktop-switch", requireAuth((data) => {
+      try {
+        const direction = data?.direction;
+        const map = REMOTE_CONFIG.desktopSwitch[process.platform];
+        const combo = map?.[direction];
+        if (!combo) return;
+        const [key, modifiers] = combo;
+        robot.keyTap(key, modifiers);
+        const clientData = this.resourceManager.getClient(socket.id);
+        if (clientData) clientData.idleFrameCount = 0;
+        this.resourceManager.updateClientActivity(socket.id);
+      } catch (error) {
+        console.error("Desktop switch error:", error.message);
+      }
+    }));
+
     socket.on("type-text", requireAuth((data) => {
       const now = Date.now();
       if (now - this.lastTypeText < REMOTE_CONFIG.throttling.typeTextThrottle) return;

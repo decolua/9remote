@@ -40,7 +40,7 @@ export const REMOTE_CONFIG = {
   // enableWebRTC: true  → init WebRTC manager, handle offer/answer signaling
   // enableTurn: false   → STUN P2P only, skip TURN credential fetch
   webrtc: {
-    enableWebRTC: true,
+    enableWebRTC: false,
     enableTurn: false,
     turnApiUrl: "https://9remote.cc/api/webrtc/turn-credentials",
     // TTL is 24h, refresh 1h before expiry
@@ -108,6 +108,28 @@ export const REMOTE_CONFIG = {
   // Sleep inhibitor — block system sleep, allow display sleep
   sleepInhibit: {
     enabled: true
+  },
+
+  // Virtual desktop / Spaces switcher — keystroke per OS.
+  // direction: "prev" | "next" | "new". Each entry: [key, modifiers[]].
+  desktopSwitch: {
+    darwin: {
+      prev: ["left", ["control"]],
+      next: ["right", ["control"]],
+      // macOS: no native shortcut to create Space → emulate Mission Control + click "+"
+      // Skipped for MVP — user creates Spaces manually.
+      new: null
+    },
+    win32: {
+      prev: ["left", ["control", "command"]],
+      next: ["right", ["control", "command"]],
+      new: ["d", ["control", "command"]]
+    },
+    linux: {
+      prev: null,
+      next: null,
+      new: null
+    }
   },
 
   // Logging — config-driven flags per log group. Toggle off in production.

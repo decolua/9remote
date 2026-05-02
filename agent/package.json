@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "2.0.12",
+  "version": "2.0.15",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "dist/server.cjs",
@@ -35,6 +35,7 @@
     "edge-tts-node": "^1.5.7",
     "http-proxy": "^1.18.1",
     "inquirer": "^9.3.8",
+    "multicast-dns": "^7.2.5",
     "node-datachannel": "^0.32.1",
     "node-machine-id": "^1.1.12",
     "node-screenshots": "^0.2.8",

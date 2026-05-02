@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Button from "@/shared/components/ui/Button";
 import {
-  ChevronLeft, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X
+  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import {
@@ -64,6 +64,8 @@ export default function RemoteControls({
   onToggleKeyboard,
   onToggleTextPanel,
   onToggleHelp,
+  onToggleDebug,
+  debugOn,
   onEmitKey,
   onTextInputChange,
   onTextInputFocus,
@@ -71,7 +73,8 @@ export default function RemoteControls({
   onTextInputKeyDown,
   onDirectInputChange,
   onSendText,
-  onClose
+  onClose,
+  onDesktopSwitch
 }) {
   const { t } = useI18n();
   const { isIosPwa } = useDeviceInfo();
@@ -214,6 +217,17 @@ export default function RemoteControls({
                     <Settings size={16} />
                   </button>
                 )}
+                {rIdx === 1 && onToggleDebug && (
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { vibrate(); onToggleDebug(); }}
+                    className={`shrink-0 h-10 w-10 flex items-center justify-center rounded-brand transition-all duration-150 ease-out ${debugOn ? "bg-brand-500 text-white" : "text-text-muted hover:text-text bg-surface-2 hover:bg-surface-3"}`}
+                    title={t("remote.debug")}
+                  >
+                    <Bug size={16} />
+                  </button>
+                )}
+                {rIdx > 1 && <div className="shrink-0 h-10 w-10" />}
               </div>
             ))}
           </div>
@@ -232,6 +246,22 @@ export default function RemoteControls({
           <Btn onClick={() => v(onRefresh)} disabled={!streaming} title={t("remote.refresh")}>
             <RefreshCw size={14} />
           </Btn>
+          {onDesktopSwitch && (
+            <>
+              <Btn onClick={() => v(onDesktopSwitch, "prev")} disabled={!streaming} title="Previous desktop">
+                <Monitor size={12} />
+                <ChevronLeft size={12} className="-ml-0.5" />
+              </Btn>
+              <Btn onClick={() => v(onDesktopSwitch, "next")} disabled={!streaming} title="Next desktop">
+                <Monitor size={12} />
+                <ChevronRight size={12} className="-ml-0.5" />
+              </Btn>
+              <Btn onClick={() => v(onDesktopSwitch, "new")} disabled={!streaming} title="New desktop">
+                <Monitor size={12} />
+                <Plus size={10} className="-ml-0.5" />
+              </Btn>
+            </>
+          )}
           {show("rectangleSelect") && (
             <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title={t("remote.rectangleSelection")}>
               □

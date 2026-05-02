@@ -7,8 +7,8 @@ import { createLogger } from "./logger.js";
 const logger = createLogger("sleep");
 
 const PLATFORM_CMD = {
-  // -i idle, -m disk, -s system on AC. NO -d → display can still sleep.
-  darwin: { cmd: "caffeinate", args: ["-ims"] },
+  // -i idle, -m disk, -s system on AC, -d display. Keep display awake for remote access.
+  darwin: { cmd: "caffeinate", args: ["-imsd"] },
   // Block idle/sleep/lid; display sleep handled separately via DPMS.
   linux:  { cmd: "systemd-inhibit", args: ["--what=idle:sleep:handle-lid-switch", "--who=9remote", "--why=remote-active", "sleep", "infinity"] },
   // Persistent ES_SYSTEM_REQUIRED + ES_AWAYMODE_REQUIRED. NO ES_DISPLAY_REQUIRED.

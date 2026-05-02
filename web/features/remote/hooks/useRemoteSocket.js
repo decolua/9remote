@@ -67,6 +67,10 @@ export function useRemoteSocket(socketRef, connected) {
     if (streaming) emit("request-screen-with-hashes", { tileHashes });
   }, [emit, streaming]);
 
+  const emitDesktopSwitch = useCallback((direction) => {
+    if (streaming) emit("desktop-switch", { direction });
+  }, [emit, streaming]);
+
   return {
     streaming,
     emitRequestScreenWithHashes,
@@ -79,6 +83,7 @@ export function useRemoteSocket(socketRef, connected) {
     emitTypeText,
     emitScroll,
     emitBoostStream,
-    emitSetFocus
+    emitSetFocus,
+    emitDesktopSwitch
   };
 }

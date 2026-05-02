@@ -3,6 +3,7 @@ import { BaseProtocol } from "./BaseProtocol.js";
 import { encode, decode } from "./codec.js";
 import { ADAPTER_STATE, CHANNELS } from "../lib/transportConstants.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
+import { resolveCandidate } from "../lib/mdnsResolver.js";
 
 const { PeerConnection } = nodeDataChannel;
 
@@ -125,9 +126,17 @@ export class WebRtcProtocol extends BaseProtocol {
         this._pendingCandidates.push({ candidate: msg.candidate, mid: msg.mid || "0" });
         return;
       }
-      try { this._pc.addRemoteCandidate(msg.candidate, msg.mid || "0"); }
-      catch (err) { console.error("[WebRtcProtocol] addRemoteCandidate:", err.message); }
+      this._addRemoteCandidate(msg.candidate, msg.mid || "0");
     }
+  }
+
+  // Resolve .local mDNS hostnames to IP before adding (browser hides LAN IP)
+  async _addRemoteCandidate(candidate, mid) {
+    try {
+      const resolved = await resolveCandidate(candidate);
+      if (!resolved || !this._pc) return;
+      this._pc.addRemoteCandidate(resolved, mid);
+    } catch (err) { console.error("[WebRtcProtocol] addRemoteCandidate:", err.message); }
   }
 
   _createPeer(rtcCfg) {
@@ -184,8 +193,7 @@ export class WebRtcProtocol extends BaseProtocol {
         this._pc.setRemoteDescription(sdp, "offer");
         this._remoteSet = true;
         for (const { candidate, mid } of this._pendingCandidates) {
-          try { this._pc.addRemoteCandidate(candidate, mid); }
-          catch (err) { console.error("[WebRtcProtocol] drain ice:", err.message); }
+          this._addRemoteCandidate(candidate, mid);
         }
         this._pendingCandidates = [];
         this._pc.setLocalDescription();

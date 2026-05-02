@@ -74,7 +74,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     emitTypeText,
     emitScroll,
     emitBoostStream,
-    emitSetFocus
+    emitSetFocus,
+    emitDesktopSwitch
   } = useRemoteSocket(socketRef, connected);
 
   const socketEmitFunctions = {
@@ -416,6 +417,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       <RemoteControls
         streaming={streaming}
         canvasZoom={canvasZoom}
+        onDesktopSwitch={emitDesktopSwitch}
         selectionMode={selectionMode}
         pointerMode={pointerMode}
         handMode={handMode}
@@ -448,6 +450,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
         onDirectInputChange={(value) => handleDirectInputChange(value, streaming)}
         onSendText={sendTextInput}
         onClose={handleClose}
+        onToggleDebug={() => setShowDebug(s => !s)}
+        debugOn={showDebug}
       />
 
       {showDebug && (
