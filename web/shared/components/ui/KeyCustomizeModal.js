@@ -42,9 +42,16 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
   // selected target in Current: { row, col } — col === rowLen means "+" slot
   const [selected, setSelected] = useState(null);
 
+  // Reset selected only when modal opens (not when onClose ref changes each render).
   useEffect(() => {
     if (!isOpen) return;
     setSelected(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  // Esc handler — re-bind when onClose changes, no state reset.
+  useEffect(() => {
+    if (!isOpen) return;
     const onEsc = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);

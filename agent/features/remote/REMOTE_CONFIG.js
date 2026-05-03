@@ -110,15 +110,15 @@ export const REMOTE_CONFIG = {
     enabled: true
   },
 
-  // Virtual desktop / Spaces switcher — keystroke per OS.
-  // direction: "prev" | "next" | "new". Each entry: [key, modifiers[]].
+  // Virtual desktop / Spaces switcher.
+  // darwin: AppleScript key codes (124=right, 123=left). robotjs blocked by macOS for Space switch.
+  // win32: robotjs keyTap [key, modifiers].
   desktopSwitch: {
     darwin: {
-      prev: ["left", ["control"]],
-      next: ["right", ["control"]],
-      // macOS: no native shortcut to create Space → emulate Mission Control + click "+"
-      // Skipped for MVP — user creates Spaces manually.
-      new: null
+      prev: { keyCode: 123, mods: "control down" },
+      next: { keyCode: 124, mods: "control down" },
+      // macOS: open Mission Control — user clicks "+" manually (no reliable API)
+      new: { type: "missionControl" }
     },
     win32: {
       prev: ["left", ["control", "command"]],

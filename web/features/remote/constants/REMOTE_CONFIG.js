@@ -23,16 +23,16 @@ export const REMOTE_CONFIG = {
   // reliable: false → UDP-like (lower latency, may lose packets)
   dcReliable: false,
   dcOrdered: false,
-  
+
   // Streaming settings
   hashRequestInterval: 1500, // ms between hash verify requests (backup sync)
   lastDataThreshold: 500,    // skip request if received data within this ms
-  
+
   // Throttling
   mouseThrottle: 8,
   keyThrottle: 25,
   scrollInterval: 100,
-  
+
   // Tile settings
   tileLoadTimeout: 600,
   batchSize: 16,
@@ -40,13 +40,13 @@ export const REMOTE_CONFIG = {
 
   // Focus-based streaming — emit focus rect to server to save bandwidth/CPU
   focusDebounce: 50,         // ms debounce on pan/zoom before emitting focus rect
-  
+
   // Click detection
   longPressDelay: 1000,      // ms to trigger right-click
   doubleClickDelay: 300,    // ms between clicks for double-click
   moveThreshold: 10,        // px movement to cancel long-press
- 
-  
+
+
   // Edge scroll with momentum
   edgeScrollThreshold: 15,     // px overflow to trigger scroll
   edgeScrollMultiplier: 1.5,   // convert overflow to scroll amount (higher = faster)
@@ -92,7 +92,7 @@ export const REMOTE_CONFIG = {
 
 export const MODIFIER_MAP = {
   ctrl: "control",
-  cmd: "command", 
+  cmd: "command",
   alt: "alt",
   shift: "shift"
 };
@@ -139,7 +139,7 @@ export const REMOTE_KEY_POOL = [
   { id: "f11", label: "F11", key: "f11", type: "key" },
   { id: "f12", label: "F12", key: "f12", type: "key" },
   // Common Remote Desktop combos
-  { id: "ctrlAltDel", label: "Ctrl+Alt+Del", key: "delete", modifiers: ["control", "alt"], type: "combo" },
+  { id: "ctrlAltDel", label: "Ctl+Alt+Del", key: "delete", modifiers: ["control", "alt"], type: "combo" },
   { id: "ctrlShiftEsc", label: "Task Mgr", key: "escape", modifiers: ["control", "shift"], type: "combo" },
   { id: "altTab", label: "Alt+Tab", key: "tab", modifiers: ["alt"], type: "combo" },
   { id: "altF4", label: "Alt+F4", key: "f4", modifiers: ["alt"], type: "combo" },
@@ -148,7 +148,11 @@ export const REMOTE_KEY_POOL = [
   { id: "copy", label: "Copy", key: "c", modifiers: ["control"], type: "combo" },
   { id: "paste", label: "Paste", key: "v", modifiers: ["control"], type: "combo" },
   { id: "cut", label: "Cut", key: "x", modifiers: ["control"], type: "combo" },
-  { id: "selectAll", label: "All", key: "a", modifiers: ["control"], type: "combo" }
+  { id: "selectAll", label: "All", key: "a", modifiers: ["control"], type: "combo" },
+  // Virtual desktop / Spaces switcher
+  { id: "desktopPrev", label: "◀ Desk", type: "desktop", direction: "prev" },
+  { id: "desktopNext", label: "Desk ▶", type: "desktop", direction: "next" },
+  { id: "desktopNew", label: "+ Desk", type: "desktop", direction: "new" }
 ];
 
 // Default bottom row (modifier row) — matches original layout
@@ -162,9 +166,9 @@ export const REMOTE_PINNED_KEY_ID = "enter";
 
 // Default extra panel — fixed 3 rows, each scrolls horizontally
 export const REMOTE_DEFAULT_EXTRA = [
-  ["left", "right", "home", "end", "pgup", "pgdn", "del"],
-  ["f1", "f2", "f3", "f4", "f5", "f6", "f7"],
-  ["f8", "f9", "f10", "f11", "f12", "ctrlAltDel", "altTab"]
+  ["left", "right", "home", "end", "pgup", "pgdn", "del",],
+  ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "altTab"],
+  ["f9", "f10", "f11", "f12", "ctrlAltDel", , "desktopPrev", "desktopNext", "desktopNew"]
 ];
 export const REMOTE_EXTRA_ROW_COUNT = 3;
 

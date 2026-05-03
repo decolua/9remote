@@ -128,11 +128,6 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showTextPanel, keyboardOn]);
 
-  // Unified key emit — used by all bottom/extra row buttons.
-  const emitKeyDirect = useCallback((key, modifiers = []) => {
-    if (!streaming) return;
-    emitKeyPress(key, modifiers);
-  }, [streaming, emitKeyPress]);
 
   const {
     canvasRef,
@@ -183,8 +178,16 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     sendTextInput,
     handleSelection,
     handleModifiedTextInput,
-    handleDirectInputChange
+    handleDirectInputChange,
+    emitKeyWithActiveModifiers
   } = useInput(socketEmitFunctions);
+
+  // Unified key emit — merges sticky UI modifiers with combo's own modifiers.
+  const emitKeyDirect = useCallback((key, comboModifiers = []) => {
+    if (!streaming) return;
+    if (comboModifiers.length > 0) emitKeyPress(key, comboModifiers);
+    else emitKeyWithActiveModifiers(key);
+  }, [streaming, emitKeyPress, emitKeyWithActiveModifiers]);
 
   // Hand mode: ON presses mouse-left at virtual cursor; OFF releases it.
   const toggleHandMode = useCallback(() => {

@@ -367,6 +367,7 @@ export function useInput(socketEmitFunctions) {
     sendEnterKey,
     handleSelection,
     handleModifiedTextInput,
-    handleDirectInputChange
+    handleDirectInputChange,
+    emitKeyWithActiveModifiers
   };
 }

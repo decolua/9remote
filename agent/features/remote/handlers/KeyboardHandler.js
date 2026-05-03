@@ -1,5 +1,18 @@
 // Keyboard Handler for Remote Desktop
+import { execFile } from "child_process";
 import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
+
+// macOS Spaces switch — AppleScript bypasses macOS synthetic-event filter that blocks robotjs.
+function macSpaceSwitch(combo) {
+  let script;
+  if (combo.type === "missionControl") {
+    // Open Mission Control — user adds Space manually (no reliable AppleScript)
+    script = `tell application "System Events" to key code 160`;
+  } else {
+    script = `tell application "System Events" to key code ${combo.keyCode} using ${combo.mods}`;
+  }
+  execFile("osascript", ["-e", script], (err) => { if (err) console.error("osascript error:", err.message); });
+}
 
 export class KeyboardHandler {
   constructor(robot, resourceManager) {
@@ -50,11 +63,10 @@ export class KeyboardHandler {
     socket.on("desktop-switch", requireAuth((data) => {
       try {
         const direction = data?.direction;
-        const map = REMOTE_CONFIG.desktopSwitch[process.platform];
-        const combo = map?.[direction];
+        const combo = REMOTE_CONFIG.desktopSwitch[process.platform]?.[direction];
         if (!combo) return;
-        const [key, modifiers] = combo;
-        robot.keyTap(key, modifiers);
+        if (process.platform === "darwin") macSpaceSwitch(combo);
+        else robot.keyTap(combo[0], combo[1]);
         const clientData = this.resourceManager.getClient(socket.id);
         if (clientData) clientData.idleFrameCount = 0;
         this.resourceManager.updateClientActivity(socket.id);

@@ -114,6 +114,22 @@ export default function RemoteControls({
         </Btn>
       );
     }
+    if (kc.type === "desktop") {
+      const SideIcon = kc.direction === "prev" ? ChevronLeft : kc.direction === "next" ? ChevronRight : Plus;
+      return (
+        <Btn
+          key={kc.id + idx}
+          onClick={() => v(onDesktopSwitch, kc.direction)}
+          disabled={!streaming}
+          pinned={pinned}
+          className={cls}
+          title={`${kc.direction} desktop`}
+        >
+          <Monitor size={12} />
+          <SideIcon size={kc.direction === "new" ? 10 : 12} className="-ml-0.5" />
+        </Btn>
+      );
+    }
     return (
       <Btn
         key={kc.id + idx}
@@ -246,22 +262,6 @@ export default function RemoteControls({
           <Btn onClick={() => v(onRefresh)} disabled={!streaming} title={t("remote.refresh")}>
             <RefreshCw size={14} />
           </Btn>
-          {onDesktopSwitch && (
-            <>
-              <Btn onClick={() => v(onDesktopSwitch, "prev")} disabled={!streaming} title="Previous desktop">
-                <Monitor size={12} />
-                <ChevronLeft size={12} className="-ml-0.5" />
-              </Btn>
-              <Btn onClick={() => v(onDesktopSwitch, "next")} disabled={!streaming} title="Next desktop">
-                <Monitor size={12} />
-                <ChevronRight size={12} className="-ml-0.5" />
-              </Btn>
-              <Btn onClick={() => v(onDesktopSwitch, "new")} disabled={!streaming} title="New desktop">
-                <Monitor size={12} />
-                <Plus size={10} className="-ml-0.5" />
-              </Btn>
-            </>
-          )}
           {show("rectangleSelect") && (
             <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title={t("remote.rectangleSelection")}>
               □
