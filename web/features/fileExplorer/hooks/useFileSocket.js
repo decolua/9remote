@@ -16,13 +16,13 @@ export function useFileSocket(socketRef) {
   }, [socketRef]);
 
   // Get files in directory
-  const getFiles = useCallback((dirPath) => {
+  const getFiles = useCallback((dirPath, showHidden = false) => {
     return new Promise((resolve) => {
       if (!socketRef?.current) {
         resolve({ success: false, error: "Not connected" });
         return;
       }
-      socketRef.current.emit("getFiles", { dirPath }, resolve);
+      socketRef.current.emit("getFiles", { dirPath, showHidden }, resolve);
     });
   }, [socketRef]);
 

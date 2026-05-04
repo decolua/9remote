@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "הגדר כסביבת עבודה",
     switchWorkspace: "החלף סביבת עבודה",
     searchFiles: "חפש קבצים",
+    toggleHidden: "החלף קבצים מוסתרים",
     searchPlaceholder: "חפש קבצים...",
     searching: "מחפש...",
     noFilesFound: "לא נמצאו קבצים",
@@ -239,6 +240,7 @@ export default {
     refresh: "רענן",
     rectangleSelection: "בחירה מלבנית",
     handMode: "מצב יד",
+    preventSleep: "מנע שינה",
     toggleKeyboard: "החלף מקלדת מקורית",
     textBatchInput: "קלט טקסט באצווה",
     extraKeys: "מקשים נוספים",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "אתרים",

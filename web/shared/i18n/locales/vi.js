@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "Đặt làm workspace",
     switchWorkspace: "Đổi workspace",
     searchFiles: "Tìm tệp",
+    toggleHidden: "Ẩn/hiện tệp ẩn",
     searchPlaceholder: "Tìm tệp...",
     searching: "Đang tìm...",
     noFilesFound: "Không tìm thấy tệp",
@@ -239,6 +240,7 @@ export default {
     refresh: "Làm mới",
     rectangleSelection: "Chọn vùng chữ nhật",
     handMode: "Chế độ tay",
+    preventSleep: "Ngăn máy ngủ",
     toggleKeyboard: "Bật/tắt bàn phím hệ thống",
     textBatchInput: "Nhập văn bản hàng loạt",
     extraKeys: "Phím mở rộng",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "Trang web",

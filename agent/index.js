@@ -34,7 +34,10 @@ import {
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
+import { handleSleepInhibitGet, handleSleepInhibitPost } from "./api/sleepInhibit.js";
 import * as sleepInhibitor from "./lib/sleepInhibitor.js";
+import { loadSettings } from "./cli/utils/state.js";
+import { REMOTE_CONFIG } from "./features/remote/REMOTE_CONFIG.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const IS_DEV = process.env.NODE_ENV === "development";
@@ -136,6 +139,8 @@ const ROUTES = [
   }},
   { path: "/api/notify",           method: "POST", public: true, handler: handleNotifyPost },
   { path: "/api/notify",           method: "GET",  public: true, handler: handleNotifyGet },
+  { path: "/api/sleep-inhibit",    method: "GET",  public: true, handler: handleSleepInhibitGet },
+  { path: "/api/sleep-inhibit",    method: "POST", public: true, handler: handleSleepInhibitPost },
   { path: "/proxy/*",              method: "*",    public: true, handler: handleProxy },
 
   // UI state & SSE (localhost-only)
@@ -203,7 +208,12 @@ function startViteDev() {
 }
 
 export async function startServer() {
-  sleepInhibitor.start();
+  // Persisted setting overrides default config flag
+  const settings = loadSettings();
+  const sleepEnabled = settings.sleepInhibit !== undefined
+    ? !!settings.sleepInhibit
+    : !!REMOTE_CONFIG.sleepInhibit?.enabled;
+  if (sleepEnabled) sleepInhibitor.start();
   await initializeTerminal();
   proxyServer = createProxyServer();
   startViteDev();

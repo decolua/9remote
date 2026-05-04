@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "ตั้งเป็นเวิร์กสเปซ",
     switchWorkspace: "สลับเวิร์กสเปซ",
     searchFiles: "ค้นหาไฟล์",
+    toggleHidden: "สลับไฟล์ที่ซ่อน",
     searchPlaceholder: "ค้นหาไฟล์...",
     searching: "กำลังค้นหา...",
     noFilesFound: "ไม่พบไฟล์",
@@ -239,6 +240,7 @@ export default {
     refresh: "รีเฟรช",
     rectangleSelection: "เลือกแบบสี่เหลี่ยม",
     handMode: "โหมดมือ",
+    preventSleep: "ป้องกันเครื่องสลีป",
     toggleKeyboard: "สลับคีย์บอร์ดเนทีฟ",
     textBatchInput: "ป้อนข้อความเป็นชุด",
     extraKeys: "คีย์เพิ่มเติม",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "ไซต์",

@@ -54,7 +54,7 @@ export function setupFileHandlers(socket) {
     callback({ success: true, platform, isWindows: platform === "win32", drives: platform === "win32" ? getWindowsDrives() : [], homedir: os.homedir() });
   });
 
-  socket.on("getFiles", ({ dirPath }, callback) => {
+  socket.on("getFiles", ({ dirPath, showHidden }, callback) => {
     try {
       const targetPath = dirPath || os.homedir();
       const resolvedPath = targetPath.startsWith("~") ? targetPath.replace("~", os.homedir()) : targetPath;
@@ -62,7 +62,7 @@ export function setupFileHandlers(socket) {
 
       const files = [];
       for (const name of fs.readdirSync(resolvedPath)) {
-        if (name.startsWith(".") && name !== ".env" && name !== ".env.example") continue;
+        if (!showHidden && name.startsWith(".") && name !== ".env" && name !== ".env.example") continue;
         if (isIgnoredDir(name)) continue;
         try {
           const fullPath = path.join(resolvedPath, name);

@@ -1,7 +1,6 @@
 // Block system sleep, allow display sleep — keeps agent reachable 24/7
 // while letting screen power down naturally.
 import { spawn } from "child_process";
-import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("sleep");
@@ -22,7 +21,6 @@ const PLATFORM_CMD = {
 let proc = null;
 
 export function start() {
-  if (!REMOTE_CONFIG.sleepInhibit?.enabled) return;
   if (proc) return;
   const c = PLATFORM_CMD[process.platform];
   if (!c) return;
@@ -41,4 +39,14 @@ export function stop() {
   if (!proc) return;
   try { proc.kill(); } catch {}
   proc = null;
+  logger.info("💤 Sleep inhibitor stopped");
+}
+
+export function isActive() {
+  return proc !== null;
+}
+
+export function setEnabled(enabled) {
+  if (enabled) start(); else stop();
+  return isActive();
 }

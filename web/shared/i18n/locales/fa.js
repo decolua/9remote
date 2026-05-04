@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "تنظیم به‌عنوان فضای کاری",
     switchWorkspace: "تغییر فضای کاری",
     searchFiles: "جستجوی فایل‌ها",
+    toggleHidden: "نمایش/مخفی کردن فایل‌های مخفی",
     searchPlaceholder: "جستجوی فایل‌ها...",
     searching: "در حال جستجو...",
     noFilesFound: "فایلی یافت نشد",
@@ -239,6 +240,7 @@ export default {
     refresh: "تازه‌سازی",
     rectangleSelection: "انتخاب مستطیلی",
     handMode: "حالت دست",
+    preventSleep: "جلوگیری از خواب",
     toggleKeyboard: "تغییر صفحه‌کلید بومی",
     textBatchInput: "ورود متنی دسته‌ای",
     extraKeys: "کلیدهای اضافی",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "سایت‌ها",

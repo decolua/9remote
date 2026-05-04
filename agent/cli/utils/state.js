@@ -6,6 +6,7 @@ const STATE_DIR = PATHS.STATE;
 const STATE_FILE = path.join(PATHS.STATE, "state.json");
 const KEYS_FILE = path.join(PATHS.ROOT, "keys.json");
 const CMD_FILE = path.join(PATHS.STATE, "cmd.json");
+const SETTINGS_FILE = path.join(PATHS.STATE, "settings.json");
 
 /**
  * Ensure state directory exists
@@ -52,6 +53,30 @@ export function clearState() {
       fs.unlinkSync(STATE_FILE);
     }
   } catch {}
+}
+
+// ==================== SETTINGS ====================
+
+export function loadSettings() {
+  try {
+    ensureDir();
+    if (!fs.existsSync(SETTINGS_FILE)) return {};
+    return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")) || {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveSettings(patch) {
+  try {
+    ensureDir();
+    const next = { ...loadSettings(), ...patch };
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));
+    return next;
+  } catch (error) {
+    console.error("Error saving settings:", error);
+    return null;
+  }
 }
 
 // ==================== KEYS ====================

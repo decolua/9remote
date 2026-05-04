@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "Çalışma alanı olarak ayarla",
     switchWorkspace: "Çalışma alanını değiştir",
     searchFiles: "Dosya ara",
+    toggleHidden: "Gizli dosyaları aç/kapat",
     searchPlaceholder: "Dosya ara...",
     searching: "Aranıyor...",
     noFilesFound: "Dosya bulunamadı",
@@ -239,6 +240,7 @@ export default {
     refresh: "Yenile",
     rectangleSelection: "Dikdörtgen seçimi",
     handMode: "El modu",
+    preventSleep: "Uykuyu engelle",
     toggleKeyboard: "Yerel klavyeyi aç/kapat",
     textBatchInput: "Toplu metin girişi",
     extraKeys: "Ekstra tuşlar",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "Siteler",

@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "Imposta come workspace",
     switchWorkspace: "Cambia workspace",
     searchFiles: "Cerca file",
+    toggleHidden: "Mostra/nascondi file nascosti",
     searchPlaceholder: "Cerca file...",
     searching: "Ricerca...",
     noFilesFound: "Nessun file trovato",
@@ -239,6 +240,7 @@ export default {
     refresh: "Aggiorna",
     rectangleSelection: "Selezione rettangolare",
     handMode: "Modalità mano",
+    preventSleep: "Impedisci sospensione",
     toggleKeyboard: "Attiva/disattiva tastiera nativa",
     textBatchInput: "Inserimento testo batch",
     extraKeys: "Tasti extra",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "Siti",

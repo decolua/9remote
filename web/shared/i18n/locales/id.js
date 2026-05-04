@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "Atur sebagai ruang kerja",
     switchWorkspace: "Ganti ruang kerja",
     searchFiles: "Cari berkas",
+    toggleHidden: "Alihkan berkas tersembunyi",
     searchPlaceholder: "Cari berkas...",
     searching: "Mencari...",
     noFilesFound: "Tidak ada berkas ditemukan",
@@ -239,6 +240,7 @@ export default {
     refresh: "Segarkan",
     rectangleSelection: "Seleksi persegi",
     handMode: "Mode tangan",
+    preventSleep: "Cegah tidur",
     toggleKeyboard: "Alihkan papan ketik bawaan",
     textBatchInput: "Input teks batch",
     extraKeys: "Tombol tambahan",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "Situs",

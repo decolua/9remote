@@ -126,10 +126,10 @@ export default function MenuItems({
             ) : (
               <div className="space-y-2">
                 {hookStatus ? (
-                  ["claude", "codex", "gemini"].map((tool) => {
+                  ["claude", "codex", "gemini", "opencode"].map((tool) => {
                     const status = hookStatus[tool];
                     if (!status?.installed) return null;
-                    const toolKeys = { claude: "claudeCode", codex: "codex", gemini: "geminiCli" };
+                    const toolKeys = { claude: "claudeCode", codex: "codex", gemini: "geminiCli", opencode: "openCode" };
                     return (
                       <div key={tool} className="flex items-center justify-between py-1 px-1">
                         <span className="text-sm text-text">{t(`notifications.${toolKeys[tool]}`)}</span>

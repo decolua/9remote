@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "Ange som arbetsyta",
     switchWorkspace: "Byt arbetsyta",
     searchFiles: "Sök filer",
+    toggleHidden: "Växla dolda filer",
     searchPlaceholder: "Sök filer...",
     searching: "Söker...",
     noFilesFound: "Inga filer hittades",
@@ -239,6 +240,7 @@ export default {
     refresh: "Uppdatera",
     rectangleSelection: "Rektangelmarkering",
     handMode: "Handläge",
+    preventSleep: "Förhindra viloläge",
     toggleKeyboard: "Växla inbyggt tangentbord",
     textBatchInput: "Textbatchinmatning",
     extraKeys: "Extra tangenter",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "Webbplatser",

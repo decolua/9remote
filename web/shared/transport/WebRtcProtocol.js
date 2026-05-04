@@ -63,7 +63,18 @@ export class WebRtcProtocol extends BaseProtocol {
     this._cleanupPeer();
     this._setState(ADAPTER_STATE.connecting);
 
-    let iceServers = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
+    // STUN cluster — benchmarked from VN: Google ~150ms, Twilio ~144ms, Cloudflare ~813ms
+    let iceServers = [
+      { urls: [
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+        "stun:stun2.l.google.com:19302",
+        "stun:stun3.l.google.com:19302",
+        "stun:stun4.l.google.com:19302"
+      ] },
+      { urls: "stun:global.stun.twilio.com:3478" },
+      { urls: "stun:stun.cloudflare.com:3478" }
+    ];
     if (ctx.profile?.rtc?.enableTurn) {
       try {
         const resp = await fetch(API_ENDPOINTS.turnCredentials, { headers: { "X-API-Key": ctx.auth.apiKey } });
@@ -73,7 +84,12 @@ export class WebRtcProtocol extends BaseProtocol {
       }
     }
 
-    const pc = new RTCPeerConnection({ iceServers });
+    const pc = new RTCPeerConnection({
+      iceServers,
+      iceCandidatePoolSize: 4,
+      bundlePolicy: "max-bundle",
+      rtcpMuxPolicy: "require"
+    });
     this._pc = pc;
 
     const ordered = ctx.profile?.rtc?.dcControl?.ordered ?? true;

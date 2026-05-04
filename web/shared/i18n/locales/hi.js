@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "वर्कस्पेस के रूप में सेट करें",
     switchWorkspace: "वर्कस्पेस बदलें",
     searchFiles: "फ़ाइलें खोजें",
+    toggleHidden: "छिपी फ़ाइलें टॉगल करें",
     searchPlaceholder: "फ़ाइलें खोजें...",
     searching: "खोज रहे हैं...",
     noFilesFound: "कोई फ़ाइल नहीं मिली",
@@ -239,6 +240,7 @@ export default {
     refresh: "रीफ्रेश",
     rectangleSelection: "आयत चयन",
     handMode: "हैंड मोड",
+    preventSleep: "स्लीप रोकें",
     toggleKeyboard: "नेटिव कीबोर्ड टॉगल करें",
     textBatchInput: "टेक्स्ट बैच इनपुट",
     extraKeys: "अतिरिक्त कुंजियाँ",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "साइटें",

@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "Tetapkan sebagai ruang kerja",
     switchWorkspace: "Tukar ruang kerja",
     searchFiles: "Cari fail",
+    toggleHidden: "Togol fail tersembunyi",
     searchPlaceholder: "Cari fail...",
     searching: "Mencari...",
     noFilesFound: "Tiada fail dijumpai",
@@ -239,6 +240,7 @@ export default {
     refresh: "Muat semula",
     rectangleSelection: "Pemilihan segi empat",
     handMode: "Mod tangan",
+    preventSleep: "Halang tidur",
     toggleKeyboard: "Togol papan kekunci asli",
     textBatchInput: "Input teks berkelompok",
     extraKeys: "Kekunci tambahan",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "Tapak",

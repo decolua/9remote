@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Button from "@/shared/components/ui/Button";
 import {
-  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus
+  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, Coffee
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import {
@@ -74,7 +74,9 @@ export default function RemoteControls({
   onDirectInputChange,
   onSendText,
   onClose,
-  onDesktopSwitch
+  onDesktopSwitch,
+  tunnelUrl,
+  apiKey
 }) {
   const { t } = useI18n();
   const { isIosPwa } = useDeviceInfo();
@@ -82,6 +84,39 @@ export default function RemoteControls({
   const panelInputRef = useRef(null);
   const [showExtra, setShowExtra] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
+  const [sleepInhibit, setSleepInhibit] = useState(null);
+
+  // Fetch sleep inhibit state once tunnel + key ready
+  useEffect(() => {
+    if (!tunnelUrl || !apiKey) return;
+    let cancelled = false;
+    fetch(`${tunnelUrl}/api/sleep-inhibit`, { headers: { Authorization: `Bearer ${apiKey}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setSleepInhibit(!!d.enabled); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [tunnelUrl, apiKey]);
+
+  const toggleSleepInhibit = async () => {
+    if (!tunnelUrl || !apiKey) return;
+    const next = !sleepInhibit;
+    setSleepInhibit(next);
+    try {
+      const r = await fetch(`${tunnelUrl}/api/sleep-inhibit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ enabled: next })
+      });
+      if (r.ok) {
+        const d = await r.json();
+        setSleepInhibit(!!d.enabled);
+      } else {
+        setSleepInhibit(!next);
+      }
+    } catch {
+      setSleepInhibit(!next);
+    }
+  };
 
   const bottomCustom = useCustomKeys("remoteDesktop.bottomKeys", REMOTE_KEY_POOL, REMOTE_DEFAULT_BOTTOM, "flat");
   const extraCustom = useCustomKeys("remoteDesktop.extraKeys", REMOTE_KEY_POOL, REMOTE_DEFAULT_EXTRA, "grid");
@@ -295,6 +330,11 @@ export default function RemoteControls({
           {show("textPanel") && (
             <Btn onClick={() => v(onToggleTextPanel)} disabled={!streaming} active={showTextPanel} title={t("remote.textBatchInput")} className="landscape:hidden">
               Aa
+            </Btn>
+          )}
+          {sleepInhibit !== null && (
+            <Btn onClick={() => v(toggleSleepInhibit)} active={sleepInhibit} title={t("remote.preventSleep")}>
+              <Coffee size={14} />
             </Btn>
           )}
           {show("help") && (

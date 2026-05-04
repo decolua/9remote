@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "设为工作区",
     switchWorkspace: "切换工作区",
     searchFiles: "搜索文件",
+    toggleHidden: "切换隐藏文件",
     searchPlaceholder: "搜索文件...",
     searching: "搜索中...",
     noFilesFound: "未找到文件",
@@ -239,6 +240,7 @@ export default {
     refresh: "刷新",
     rectangleSelection: "矩形选择",
     handMode: "手型模式",
+    preventSleep: "防止睡眠",
     toggleKeyboard: "切换原生键盘",
     textBatchInput: "文本批量输入",
     extraKeys: "额外按键",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "站点",

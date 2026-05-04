@@ -7,7 +7,16 @@ import { resolveCandidate } from "../lib/mdnsResolver.js";
 
 const { PeerConnection } = nodeDataChannel;
 
-const DEFAULT_ICE = [{ hostname: "stun.cloudflare.com", port: 3478, type: "Stun" }];
+// STUN cluster — benchmarked from VN: Google ~150ms, Twilio ~144ms, Cloudflare ~813ms
+const DEFAULT_ICE = [
+  { hostname: "stun.l.google.com", port: 19302, type: "Stun" },
+  { hostname: "stun1.l.google.com", port: 19302, type: "Stun" },
+  { hostname: "stun2.l.google.com", port: 19302, type: "Stun" },
+  { hostname: "stun3.l.google.com", port: 19302, type: "Stun" },
+  { hostname: "stun4.l.google.com", port: 19302, type: "Stun" },
+  { hostname: "global.stun.twilio.com", port: 3478, type: "Stun" },
+  { hostname: "stun.cloudflare.com", port: 3478, type: "Stun" }
+];
 
 async function fetchTurnIceServers(turnApiUrl, apiKey) {
   try {

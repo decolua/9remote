@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "Встановити як робочу область",
     switchWorkspace: "Змінити робочу область",
     searchFiles: "Пошук файлів",
+    toggleHidden: "Перемкнути приховані файли",
     searchPlaceholder: "Пошук файлів...",
     searching: "Пошук...",
     noFilesFound: "Файли не знайдено",
@@ -239,6 +240,7 @@ export default {
     refresh: "Оновити",
     rectangleSelection: "Прямокутне виділення",
     handMode: "Режим руки",
+    preventSleep: "Запобігати сну",
     toggleKeyboard: "Перемкнути нативну клавіатуру",
     textBatchInput: "Пакетне введення тексту",
     extraKeys: "Додаткові клавіші",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "Сайти",

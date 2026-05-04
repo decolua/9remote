@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import FileTree from "./FileTree";
 import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen } from "@/shared/components/ui/Icon";
+import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen, Eye, EyeOff } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 
@@ -33,6 +33,7 @@ export default function FileExplorer({
   const [renameModal, setRenameModal] = useState(null);
   const [hasGit, setHasGit] = useState(false);
   const [gitStatusMap, setGitStatusMap] = useState({});
+  const [showHidden, setShowHidden] = useState(false);
   
   // Search state
   const [showSearch, setShowSearch] = useState(false);
@@ -86,7 +87,7 @@ export default function FileExplorer({
     setLoading(true);
     setError("");
     
-    const result = await fileSocket.getFiles(dirPath);
+    const result = await fileSocket.getFiles(dirPath, showHidden);
     
     if (result.success) {
       let filteredFiles = result.files;
@@ -109,7 +110,7 @@ export default function FileExplorer({
     }
     
     setLoading(false);
-  }, [fileSocket, isBrowsing]);
+  }, [fileSocket, isBrowsing, showHidden]);
 
   // Search files with debounce
   const handleSearch = useCallback((query) => {
@@ -151,6 +152,12 @@ export default function FileExplorer({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace, initialPath, isBrowsing]); // Removed loadFiles, checkGit from deps to prevent loop
+
+  // Reload when toggle hidden files
+  useEffect(() => {
+    if (currentPath) loadFiles(currentPath);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHidden]);
 
   // Cleanup search timer
   useEffect(() => {
@@ -298,6 +305,19 @@ export default function FileExplorer({
             title={t("files.switchWorkspace")}
           >
             <FolderOpen className="text-brand-500" size={20} />
+          </button>
+        )}
+
+        {/* Workspace mode: Toggle hidden files */}
+        {!isBrowsing && (
+          <button
+            onClick={() => { vibrate(); setShowHidden(v => !v); }}
+            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
+            title={t("files.toggleHidden")}
+          >
+            {showHidden
+              ? <Eye className="text-brand-500" size={20} />
+              : <EyeOff className="text-text-muted" size={20} />}
           </button>
         )}
 

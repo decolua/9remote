@@ -520,7 +520,7 @@ export default function WorkspacePage() {
         {/* Remote Desktop - conditional render */}
         {currentView.type === "remote" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
-            <RemoteDesktop onClose={popView} socketRef={socketRef} protocolRef={protocolRef} connected={connected} connectionMode={connectionMode} transport={transport} />
+            <RemoteDesktop onClose={popView} socketRef={socketRef} protocolRef={protocolRef} connected={connected} connectionMode={connectionMode} transport={transport} tunnelUrl={auth?.tunnelUrl} apiKey={auth?.apiKey} />
           </div>
         )}
 

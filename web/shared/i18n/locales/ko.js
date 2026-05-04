@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "워크스페이스로 설정",
     switchWorkspace: "워크스페이스 전환",
     searchFiles: "파일 검색",
+    toggleHidden: "숨김 파일 표시 전환",
     searchPlaceholder: "파일 검색...",
     searching: "검색 중...",
     noFilesFound: "파일을 찾을 수 없음",
@@ -239,6 +240,7 @@ export default {
     refresh: "새로고침",
     rectangleSelection: "사각형 선택",
     handMode: "핸드 모드",
+    preventSleep: "절전 방지",
     toggleKeyboard: "기본 키보드 전환",
     textBatchInput: "텍스트 일괄 입력",
     extraKeys: "추가 키",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "사이트",

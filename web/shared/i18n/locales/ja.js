@@ -142,6 +142,7 @@ export default {
     setAsWorkspaceTitle: "ワークスペースに設定",
     switchWorkspace: "ワークスペースを切り替え",
     searchFiles: "ファイルを検索",
+    toggleHidden: "隠しファイルを切替",
     searchPlaceholder: "ファイルを検索...",
     searching: "検索中...",
     noFilesFound: "ファイルが見つかりません",
@@ -239,6 +240,7 @@ export default {
     refresh: "更新",
     rectangleSelection: "矩形選択",
     handMode: "ハンドモード",
+    preventSleep: "スリープ防止",
     toggleKeyboard: "ネイティブキーボード切替",
     textBatchInput: "テキスト一括入力",
     extraKeys: "追加キー",
@@ -329,7 +331,8 @@ export default {
   notifications: {
     claudeCode: "Claude Code",
     codex: "Codex",
-    geminiCli: "Gemini CLI"
+    geminiCli: "Gemini CLI",
+    openCode: "OpenCode"
   },
   sites: {
     title: "サイト",

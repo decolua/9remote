@@ -6,6 +6,8 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import * as sleepInhibitor from "../../lib/sleepInhibitor.js";
+import { saveSettings } from "./state.js";
 
 let trayInstance = null;
 let trayState = { port: 0, tunnelUrl: "", running: false };
@@ -63,6 +65,7 @@ function buildMenu() {
     items: [
       { title: statusLine, tooltip: tunnelUrl || `http://localhost:${port}`, checked: false, enabled: false },
       { title: "Open Web UI", tooltip: `Open http://localhost:${port} in your browser`, checked: false, enabled: true },
+      { title: "Prevent Sleep", tooltip: "Block system sleep to keep agent reachable", checked: sleepInhibitor.isActive(), enabled: true },
       { title: "Shutdown", tooltip: "Stop 9Remote server, tunnel and quit", checked: false, enabled: true },
     ],
   };
@@ -89,6 +92,11 @@ export async function initTray({ port, onQuit, onOpenUI }) {
     trayInstance.onClick((action) => {
       if (action.item.title === "Open Web UI") {
         onOpenUI?.();
+      } else if (action.item.title === "Prevent Sleep") {
+        const next = !sleepInhibitor.isActive();
+        sleepInhibitor.setEnabled(next);
+        saveSettings({ sleepInhibit: next });
+        updateTrayTooltip();
       } else if (action.item.title === "Shutdown") {
         onQuit?.();
         killTray();

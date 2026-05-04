@@ -24,7 +24,7 @@ const STORAGE_KEYS = {
   handMode: "remoteDesktop.handMode"
 };
 
-export default function RemoteDesktop({ onClose, socketRef, protocolRef, connected, transport }) {
+export default function RemoteDesktop({ onClose, socketRef, protocolRef, connected, transport, tunnelUrl, apiKey }) {
   const { t } = useI18n();
   const [showHelp, setShowHelp] = useState(false);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
@@ -218,6 +218,9 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   useEffect(() => {
     const socket = socketRef?.current;
     if (!socket || !connected) return;
+
+    // Reset stale tile state on (re)connect — stale hashes cause agent to skip tiles → black canvas
+    cleanupTiles();
 
     const onScreenDimensions = (dimensions) => {
       handleScreenDimensions(dimensions);
@@ -455,6 +458,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
         onClose={handleClose}
         onToggleDebug={() => setShowDebug(s => !s)}
         debugOn={showDebug}
+        tunnelUrl={tunnelUrl}
+        apiKey={apiKey}
       />
 
       {showDebug && (

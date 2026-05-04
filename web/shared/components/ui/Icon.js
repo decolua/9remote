@@ -95,4 +95,5 @@ export const {
   ArrowUp,
   ArrowDown,
   Bug,
+  Coffee,
 } = LucideIcons;
