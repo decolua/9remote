@@ -1,10 +1,40 @@
 // File Explorer constants
 
 export const MAX_FILE_SIZE = 500 * 1024; // 500KB
+export const MAX_SEARCH_RESULTS = 200;
+export const MAX_MATCHES_PER_FILE = 10;
+export const DEFAULT_TREE_DEPTH = 3;
+export const DEFAULT_GIT_LOG_LIMIT = 20;
 
 export const IGNORED_DIRS = [
   "node_modules",
-  ".git"
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  "coverage",
+  "__pycache__",
+  ".cache",
+  ".vscode",
+  ".idea",
+  ".turbo",
+  ".vercel",
+  ".output",
+  "out",
+  ".nuxt",
+  ".svelte-kit",
+  "target",
+  "vendor",
+  ".gradle",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".tox",
+  ".venv",
+  "venv",
+  "env",
+  ".DS_Store",
+  ".parcel-cache",
+  ".rollup.cache"
 ];
 
 export const BINARY_EXTENSIONS = [

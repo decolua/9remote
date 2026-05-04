@@ -96,4 +96,11 @@ export const {
   ArrowDown,
   Bug,
   Coffee,
+  Pin,
+  PinOff,
+  Files,
+  PanelLeftOpen,
+  PanelLeftClose,
+  Replace,
+  Command,
 } = LucideIcons;

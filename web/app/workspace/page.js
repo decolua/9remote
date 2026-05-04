@@ -8,7 +8,7 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
-import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath } from "@/features/fileExplorer/components/WorkspaceList";
+import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
 import { useNotification } from "@/shared/hooks/useNotification";
 import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "@/features/terminal/constants/terminalConfig";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
@@ -22,6 +22,7 @@ const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/W
 const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/FileExplorer"), { ssr: false });
 const FileEditor = dynamic(() => import("@/features/fileExplorer/components/FileEditor"), { ssr: false });
 const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPanel"), { ssr: false });
+const FileWorkspaceDesktop = dynamic(() => import("@/features/fileExplorer/components/FileWorkspaceDesktop"), { ssr: false });
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
@@ -261,6 +262,21 @@ export default function WorkspacePage() {
       }
     });
   }, [sessions, createSession, handleSelectSession, t]);
+
+  // Create session from FileExplorer bottom panel - stay in current view
+  const handleCreateSessionInline = useCallback((onCreated) => {
+    const name = `${t("terminal.defaultName")} ${sessions.length + 1}`;
+    createSession(name, (result) => {
+      if (!result.success) {
+        alert(t("workspace.failedCreateSession", { error: result.error }));
+        return;
+      }
+      if (result.sessionId) {
+        addOpenedSession(result.sessionId);
+        onCreated?.(result.sessionId);
+      }
+    });
+  }, [sessions, createSession, addOpenedSession, t]);
 
   const handleDeleteSession = useCallback((sessionId) => {
     deleteSession(sessionId, () => {
@@ -550,8 +566,36 @@ export default function WorkspacePage() {
           </div>
         )}
 
-        {/* File Explorer (workspace mode) */}
-        {currentView.type === "files" && (
+        {/* Desktop VSCode-like layout: replaces files/editor/git when wide screen */}
+        {isDesktop && (currentView.type === "files" || currentView.type === "editor" || currentView.type === "git") && (() => {
+          const filesView = viewStack.find(v => v.type === "files");
+          const ws = filesView?.workspace || currentView.workspace;
+          const recentInitial = (() => {
+            const all = getRecentWorkspaces();
+            return all.find(w => w.path === ws)?.openedFiles || [];
+          })();
+          return (
+            <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+              <FileWorkspaceDesktop
+                workspace={ws}
+                fileSocket={fileSocket}
+                onBack={popView}
+                onSwitchWorkspace={handleOpenWorkspaceList}
+                initialOpenedFiles={recentInitial}
+                onOpenedFilesChange={(files) => updateOpenedFiles(ws, files)}
+                socket={socket}
+                connected={connected}
+                sessions={sessions}
+                onCreateTerminalSession={handleCreateSessionInline}
+                onDeleteTerminalSession={handleDeleteSession}
+                onRenameTerminalSession={handleRenameSession}
+              />
+            </div>
+          );
+        })()}
+
+        {/* File Explorer (workspace mode) - mobile only */}
+        {!isDesktop && currentView.type === "files" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
             <FileExplorer
               workspace={currentView.workspace}
@@ -566,8 +610,8 @@ export default function WorkspacePage() {
           </div>
         )}
 
-        {/* File Editor */}
-        {currentView.type === "editor" && (
+        {/* File Editor - mobile only */}
+        {!isDesktop && currentView.type === "editor" && (
           <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
             <FileEditor
               filePath={currentView.path}
@@ -580,8 +624,8 @@ export default function WorkspacePage() {
           </div>
         )}
 
-        {/* Git Panel */}
-        {currentView.type === "git" && (
+        {/* Git Panel - mobile only */}
+        {!isDesktop && currentView.type === "git" && (
           <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
             <GitPanel
               workspace={currentView.workspace}

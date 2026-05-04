@@ -37,6 +37,14 @@ export function useFileSocket(socketRef) {
     });
   }, [socketRef]);
 
+  // Read image as data URL
+  const readImage = useCallback((filePath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) { resolve({ success: false, error: "Not connected" }); return; }
+      socketRef.current.emit("readImage", { filePath }, resolve);
+    });
+  }, [socketRef]);
+
   // Write file content
   const writeFile = useCallback((filePath, content) => {
     return new Promise((resolve) => {
@@ -136,10 +144,171 @@ export function useFileSocket(socketRef) {
     });
   }, [socketRef]);
 
+  const searchInFiles = useCallback((workspace, query, options = {}) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      const {
+        caseSensitive = false,
+        regex = false,
+        includeGlob = "",
+        excludeGlob = ""
+      } = options;
+      socketRef.current.emit(
+        "searchInFiles",
+        { workspace, query, caseSensitive, regex, includeGlob, excludeGlob },
+        resolve
+      );
+    });
+  }, [socketRef]);
+
+  const replaceInFiles = useCallback((workspace, query, replacement, options = {}, files = []) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      const {
+        caseSensitive = false,
+        regex = false,
+        includeGlob = "",
+        excludeGlob = ""
+      } = options;
+      socketRef.current.emit(
+        "replaceInFiles",
+        { workspace, query, replacement, caseSensitive, regex, includeGlob, excludeGlob, files },
+        resolve
+      );
+    });
+  }, [socketRef]);
+
+  const watchDir = useCallback((dirPath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("watchDir", { dirPath }, resolve);
+    });
+  }, [socketRef]);
+
+  const unwatchDir = useCallback((dirPath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("unwatchDir", { dirPath }, resolve);
+    });
+  }, [socketRef]);
+
+  const revealInOS = useCallback((filePath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("revealInOS", { filePath }, resolve);
+    });
+  }, [socketRef]);
+
+  const openInTerminal = useCallback((dirPath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("openInTerminal", { dirPath }, resolve);
+    });
+  }, [socketRef]);
+
+  const getFileTree = useCallback((dirPath, depth = 1, showHidden = false) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("getFileTree", { dirPath, depth, showHidden }, resolve);
+    });
+  }, [socketRef]);
+
+  const gitBranch = useCallback((repoPath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitBranch", { repoPath }, resolve);
+    });
+  }, [socketRef]);
+
+  const gitAdd = useCallback((repoPath, files) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitAdd", { repoPath, files }, resolve);
+    });
+  }, [socketRef]);
+
+  const gitReset = useCallback((repoPath, files) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitReset", { repoPath, files }, resolve);
+    });
+  }, [socketRef]);
+
+  const gitCommit = useCallback((repoPath, message) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitCommit", { repoPath, message }, resolve);
+    });
+  }, [socketRef]);
+
+  const gitPush = useCallback((repoPath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitPush", { repoPath }, resolve);
+    });
+  }, [socketRef]);
+
+  const gitPull = useCallback((repoPath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitPull", { repoPath }, resolve);
+    });
+  }, [socketRef]);
+
+  const gitLog = useCallback((repoPath, limit = 50) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitLog", { repoPath, limit }, resolve);
+    });
+  }, [socketRef]);
+
   return {
     getSystemInfo,
     getFiles,
     readFile,
+    readImage,
     writeFile,
     createItem,
     deleteItem,
@@ -148,6 +317,20 @@ export function useFileSocket(socketRef) {
     gitFileStatus,
     gitDiff,
     gitDiscard,
-    searchFiles
+    searchFiles,
+    searchInFiles,
+    replaceInFiles,
+    watchDir,
+    unwatchDir,
+    revealInOS,
+    openInTerminal,
+    getFileTree,
+    gitBranch,
+    gitAdd,
+    gitReset,
+    gitCommit,
+    gitPush,
+    gitPull,
+    gitLog
   };
 }

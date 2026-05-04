@@ -6,8 +6,10 @@ import { Folder, Home, HardDrive, Sparkles } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 
+import { MAX_RECENT_WORKSPACES } from "../constants/fileExplorer.js";
+
 const STORAGE_KEY = "recentWorkspaces";
-const MAX_RECENT = 5;
+const MAX_RECENT = MAX_RECENT_WORKSPACES;
 
 export function getRecentWorkspaces() {
   if (typeof window === "undefined") return [];
@@ -23,9 +25,49 @@ export function addRecentWorkspace(workspacePath) {
   const all = getRecentWorkspaces();
   const existing = all.find(w => w.path === workspacePath);
   const rest = all.filter(w => w.path !== workspacePath);
-  // Preserve lastPath when re-adding existing workspace
-  rest.unshift({ path: workspacePath, lastOpened: Date.now(), lastPath: existing?.lastPath });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rest.slice(0, MAX_RECENT)));
+  // Preserve lastPath/name/pinned when re-adding existing workspace
+  rest.unshift({
+    path: workspacePath,
+    lastOpened: Date.now(),
+    lastPath: existing?.lastPath,
+    name: existing?.name,
+    pinned: existing?.pinned || false,
+    openedFiles: existing?.openedFiles || []
+  });
+  // Pinned items always kept at top
+  const pinned = rest.filter(w => w.pinned);
+  const unpinned = rest.filter(w => !w.pinned).slice(0, MAX_RECENT);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify([...pinned, ...unpinned]));
+}
+
+export function renameRecentWorkspace(workspacePath, name) {
+  if (typeof window === "undefined") return;
+  const recent = getRecentWorkspaces();
+  const idx = recent.findIndex(w => w.path === workspacePath);
+  if (idx === -1) return;
+  recent[idx] = { ...recent[idx], name: name?.trim() || undefined };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
+}
+
+export function togglePinWorkspace(workspacePath) {
+  if (typeof window === "undefined") return;
+  const recent = getRecentWorkspaces();
+  const idx = recent.findIndex(w => w.path === workspacePath);
+  if (idx === -1) return;
+  recent[idx] = { ...recent[idx], pinned: !recent[idx].pinned };
+  // Re-sort: pinned first
+  const pinned = recent.filter(w => w.pinned);
+  const unpinned = recent.filter(w => !w.pinned);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify([...pinned, ...unpinned]));
+}
+
+export function updateOpenedFiles(workspacePath, openedFiles) {
+  if (typeof window === "undefined") return;
+  const recent = getRecentWorkspaces();
+  const idx = recent.findIndex(w => w.path === workspacePath);
+  if (idx === -1) return;
+  recent[idx] = { ...recent[idx], openedFiles };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
 }
 
 export function updateRecentWorkspacePath(workspacePath, lastPath) {

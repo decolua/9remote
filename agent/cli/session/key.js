@@ -4,11 +4,16 @@ import { fileURLToPath } from "url";
 import { getConsistentMachineId } from "../utils/machineId.js";
 import { generateApiKeyWithMachine } from "../utils/apiKey.js";
 import { loadKey, saveKey } from "../utils/state.js";
+import { isCodespaces } from "../../features/terminal/codespaceManager.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function ensureKeyData() {
   const machineId = await getConsistentMachineId();
+  // In Codespaces, use NREMOTE_API_KEY injected via Codespace secret so web/agent share the same key.
+  if (isCodespaces() && process.env.NREMOTE_API_KEY) {
+    return saveKey(machineId, process.env.NREMOTE_API_KEY, "Codespace");
+  }
   let keyData = loadKey();
   if (!keyData.key) {
     const { key } = generateApiKeyWithMachine(machineId);

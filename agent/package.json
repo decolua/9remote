@@ -32,6 +32,7 @@
     "@julusian/jpeg-turbo": "^2.3.0",
     "bufferutil": "^4.1.0",
     "chalk": "^5.4.1",
+    "chokidar": "^3.6.0",
     "edge-tts-node": "^1.5.7",
     "http-proxy": "^1.18.1",
     "inquirer": "^9.3.8",

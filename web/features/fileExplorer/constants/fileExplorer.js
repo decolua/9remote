@@ -73,3 +73,51 @@ export const GIT_STATUS_COLORS = {
 };
 
 export const AUTO_SAVE_DELAY = 3000; // 3 seconds
+
+// VSCode-like layout constants
+export const SIDEBAR_DEFAULT_WIDTH = 18; // percent
+export const SIDEBAR_MIN_WIDTH = 12;
+export const SIDEBAR_MAX_WIDTH = 40;
+export const ACTIVITY_BAR_WIDTH = 48; // px
+export const STATUS_BAR_HEIGHT = 24; // px
+export const BOTTOM_PANEL_DEFAULT_HEIGHT = 30; // percent
+export const BOTTOM_PANEL_MIN_HEIGHT = 10;
+export const BOTTOM_PANEL_MAX_HEIGHT = 70;
+export const MAX_RECENT_WORKSPACES = 20;
+export const MAX_RECENT_FILES = 20;
+export const MAX_OPEN_TABS = 30;
+
+// LocalStorage keys
+export const STORAGE_KEYS = {
+  sidebarWidth: "fileExplorer.sidebarWidth",
+  sidebarVisible: "fileExplorer.sidebarVisible",
+  bottomPanelVisible: "fileExplorer.bottomPanelVisible",
+  bottomPanelHeight: "fileExplorer.bottomPanelHeight",
+  activityPanel: "fileExplorer.activityPanel",
+  recentFiles: "fileExplorer.recentFiles",
+  openTabs: "fileExplorer.openTabs",
+  editorFontSize: "fileExplorer.editorFontSize",
+  wordWrap: "fileExplorer.wordWrap",
+  autoSaveMode: "fileExplorer.autoSaveMode",
+  expandedFolders: "fileExplorer.expandedFolders"
+};
+
+// Activity panels
+export const ACTIVITY_PANELS = {
+  explorer: "explorer",
+  search: "search",
+  scm: "scm",
+  settings: "settings"
+};
+
+// Auto-save modes
+export const AUTO_SAVE_MODES = {
+  off: "off",
+  afterDelay: "afterDelay",
+  onFocusChange: "onFocusChange"
+};
+
+// Editor font size
+export const EDITOR_FONT_DEFAULT = 14;
+export const EDITOR_FONT_MIN = 10;
+export const EDITOR_FONT_MAX = 28;

@@ -1,7 +1,18 @@
 import fs from "fs";
 import path from "path";
-import { execSync } from "child_process";
-import { BINARY_EXTENSIONS, MAX_FILE_SIZE } from "../constants.js";
+import { execSync, spawn } from "child_process";
+import { BINARY_EXTENSIONS, MAX_FILE_SIZE, DEFAULT_GIT_LOG_LIMIT } from "../constants.js";
+
+function runGit(args, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn("git", args, { cwd, windowsHide: true });
+    let stdout = "", stderr = "";
+    child.stdout.on("data", (d) => { stdout += d.toString(); });
+    child.stderr.on("data", (d) => { stderr += d.toString(); });
+    child.on("error", (e) => resolve({ code: -1, stdout, stderr: e.message }));
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
 
 function isBinaryFile(filename) {
   return BINARY_EXTENSIONS.includes(path.extname(filename).toLowerCase());
@@ -133,6 +144,82 @@ export function setupGitHandlers(socket) {
       }
 
       callback({ success: true, diff });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitBranch", async ({ repoPath }, callback) => {
+    const r = await runGit(["branch", "--show-current"], repoPath);
+    if (r.code !== 0) return callback({ success: false });
+    callback({ success: true, branch: r.stdout.trim() });
+  });
+
+  socket.on("gitAdd", async ({ repoPath, files }, callback) => {
+    try {
+      const list = Array.isArray(files) && files.length ? files : ["."];
+      const r = await runGit(["add", "--", ...list], repoPath);
+      if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
+      callback({ success: true });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitReset", async ({ repoPath, files }, callback) => {
+    try {
+      const list = Array.isArray(files) && files.length ? files : ["."];
+      const r = await runGit(["reset", "HEAD", "--", ...list], repoPath);
+      callback({ success: r.code === 0, error: r.code === 0 ? undefined : r.stderr.trim() });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitCommit", async ({ repoPath, message }, callback) => {
+    try {
+      if (!message) return callback({ success: false, error: "Empty message" });
+      const r = await runGit(["commit", "-m", message], repoPath);
+      const output = (r.stdout + r.stderr).trim();
+      if (r.code !== 0) return callback({ success: false, output, error: r.stderr.trim() });
+      callback({ success: true, output });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitPush", async ({ repoPath }, callback) => {
+    try {
+      const r = await runGit(["push"], repoPath);
+      const output = (r.stdout + r.stderr).trim();
+      if (r.code !== 0) return callback({ success: false, output, error: r.stderr.trim() });
+      callback({ success: true, output });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitPull", async ({ repoPath }, callback) => {
+    try {
+      const r = await runGit(["pull"], repoPath);
+      const output = (r.stdout + r.stderr).trim();
+      if (r.code !== 0) return callback({ success: false, output, error: r.stderr.trim() });
+      callback({ success: true, output });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitLog", async ({ repoPath, limit }, callback) => {
+    try {
+      const n = typeof limit === "number" && limit > 0 ? limit : DEFAULT_GIT_LOG_LIMIT;
+      const r = await runGit(["log", `-n`, String(n), "--pretty=format:%h%x09%s"], repoPath);
+      if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
+      const commits = r.stdout.split("\n").filter(Boolean).map((line) => {
+        const [hash, ...rest] = line.split("\t");
+        return { hash, message: rest.join("\t") };
+      });
+      callback({ success: true, commits });
     } catch (error) {
       callback({ success: false, error: error.message });
     }

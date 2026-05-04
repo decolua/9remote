@@ -13,8 +13,13 @@ import AnimatedBackground from "@/features/landing/components/AnimatedBackground
 import LanguageSwitcher from "@/shared/components/ui/LanguageSwitcher";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
 import { useI18n } from "@/shared/i18n";
-import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode, Home, FileText } from "@/shared/components/ui/Icon";
+import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode, Home, FileText, Github } from "@/shared/components/ui/Icon";
 import { HOMEPAGE_URL, DOCS_URL } from "@/shared/constants/API";
+import GithubLoginForm from "@/features/codespace/components/GithubLoginForm";
+import CodespaceList from "@/features/codespace/components/CodespaceList";
+import { useGithub } from "@/features/codespace/hooks/useGithub";
+import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
+import { buildCodespaceUrl } from "@/shared/constants/github";
 
 function LoginContent() {
   const { t } = useI18n();
@@ -24,7 +29,11 @@ function LoginContent() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const [authTab, setAuthTab] = useState("local");
   const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
+
+  const { token: githubToken, clearToken: clearGithubToken } = useGithub();
+  const { setAuth } = useSessionStorage();
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -42,7 +51,27 @@ function LoginContent() {
     setRememberKey(savedPreference !== "false");
     setSavedKeys(loadKeys());
     setIsHydrated(true);
-  }, [loadKeys]);
+    if (githubToken) {
+      setAuthTab("github");
+    }
+  }, [loadKeys, githubToken]);
+
+  const handleGithubAuthenticated = () => {};
+
+  const handleGithubLogout = () => {
+    clearGithubToken();
+  };
+
+  // Connect to a started codespace using the agent apiKey (set via Codespace secret)
+  const handleCodespaceConnect = (cs, apiKey) => {
+    const tunnelUrl = buildCodespaceUrl(cs.name);
+    setAuth({
+      apiKey,
+      tunnelUrl,
+      mode: "remote"
+    });
+    router.push("/workspace/");
+  };
 
   // Handle remember key checkbox change
   const handleRememberChange = (checked) => {
@@ -179,6 +208,18 @@ function LoginContent() {
     );
   }
 
+  // Render GitHub flow (codespace list)
+  if (authTab === "github" && githubToken) {
+    return (
+      <>
+        <AnimatedBackground />
+        <Container>
+          <CodespaceList onConnect={handleCodespaceConnect} onLogout={handleGithubLogout} />
+        </Container>
+      </>
+    );
+  }
+
   return (
     <>
       <AnimatedBackground />
@@ -196,9 +237,35 @@ function LoginContent() {
             <ThemeToggle />
           </div>
 
-          <p className="text-text-muted mb-8">
+          <p className="text-text-muted mb-6">
             {t("login.tagline")}
           </p>
+
+          {/* Auth tabs */}
+          <div className="flex gap-1 p-1 mb-6 bg-surface-2 rounded-brand">
+            <button
+              onClick={() => setAuthTab("local")}
+              className={`flex-1 py-2 px-3 rounded-brand text-sm font-medium transition-colors ${
+                authTab === "local" ? "bg-surface text-text shadow-sm" : "text-text-muted hover:text-text"
+              }`}
+            >
+              <span className="inline-flex items-center gap-1.5"><Terminal size={14} />Local</span>
+            </button>
+            <button
+              onClick={() => setAuthTab("github")}
+              className={`flex-1 py-2 px-3 rounded-brand text-sm font-medium transition-colors ${
+                authTab === "github" ? "bg-surface text-text shadow-sm" : "text-text-muted hover:text-text"
+              }`}
+            >
+              <span className="inline-flex items-center gap-1.5"><Github size={14} />Codespace</span>
+            </button>
+          </div>
+
+          {authTab === "github" && (
+            <GithubLoginForm onAuthenticated={handleGithubAuthenticated} />
+          )}
+
+          {authTab === "local" && (<>
 
           {/* QR Scan Section - Temporarily hidden */}
           {false && (
@@ -331,6 +398,7 @@ function LoginContent() {
               </div>
             </div>
           )}
+          </>)}
 
           <div className="mt-6 pt-6 border-t border-border-subtle flex items-center justify-center gap-4 text-sm text-text-muted">
             <a
