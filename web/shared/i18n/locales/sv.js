@@ -240,7 +240,6 @@ export default {
     refresh: "Uppdatera",
     rectangleSelection: "Rektangelmarkering",
     handMode: "Handläge",
-    preventSleep: "Förhindra viloläge",
     toggleKeyboard: "Växla inbyggt tangentbord",
     textBatchInput: "Textbatchinmatning",
     extraKeys: "Extra tangenter",

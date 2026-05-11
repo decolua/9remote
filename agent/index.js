@@ -139,8 +139,6 @@ const ROUTES = [
   }},
   { path: "/api/notify",           method: "POST", public: true, handler: handleNotifyPost },
   { path: "/api/notify",           method: "GET",  public: true, handler: handleNotifyGet },
-  { path: "/api/sleep-inhibit",    method: "GET",  public: true, handler: handleSleepInhibitGet },
-  { path: "/api/sleep-inhibit",    method: "POST", public: true, handler: handleSleepInhibitPost },
   { path: "/proxy/*",              method: "*",    public: true, handler: handleProxy },
 
   // UI state & SSE (localhost-only)
@@ -176,6 +174,8 @@ const ROUTES = [
   { path: "/api/desktop/toggle",   method: "POST", handler: handleDesktopToggle },
   { path: "/api/autostart",        method: "GET",  handler: handleAutoStartGet },
   { path: "/api/autostart",        method: "POST", handler: handleAutoStartPost },
+  { path: "/api/sleep-inhibit",    method: "GET",  handler: handleSleepInhibitGet },
+  { path: "/api/sleep-inhibit",    method: "POST", handler: handleSleepInhibitPost },
   { path: "/api/local-sites",      method: "*",    public: true, handler: handleLocalSites },
   { path: "/api/codespace/stop",   method: "POST", handler: handleCodespaceStop },
 
@@ -208,12 +208,14 @@ function startViteDev() {
 }
 
 export async function startServer() {
-  // Persisted setting overrides default config flag
+  // Persisted setting overrides default mode. Migrate legacy boolean → mode.
   const settings = loadSettings();
-  const sleepEnabled = settings.sleepInhibit !== undefined
-    ? !!settings.sleepInhibit
-    : !!REMOTE_CONFIG.sleepInhibit?.enabled;
-  if (sleepEnabled) sleepInhibitor.start();
+  let mode = settings.sleepInhibitMode;
+  if (!mode) {
+    if (settings.sleepInhibit === false) mode = "never"; // legacy off → treat as default
+    else mode = REMOTE_CONFIG.sleepInhibit?.defaultMode || "never";
+  }
+  sleepInhibitor.setMode(mode);
   await initializeTerminal();
   proxyServer = createProxyServer();
   startViteDev();

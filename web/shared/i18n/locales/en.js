@@ -341,7 +341,6 @@ export default {
     refresh: "Refresh",
     rectangleSelection: "Rectangle selection",
     handMode: "Hand mode",
-    preventSleep: "Prevent sleep",
     toggleKeyboard: "Toggle native keyboard",
     textBatchInput: "Text batch input",
     extraKeys: "Extra keys",

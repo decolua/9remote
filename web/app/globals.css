@@ -347,11 +347,11 @@ body.keyboard-open .safe-area-bottom {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 87, 10, 0.55) transparent;
 }
-.scroll-thin-x::-webkit-scrollbar { height: 3px; }
+.scroll-thin-x::-webkit-scrollbar { height: 2px; }
 .scroll-thin-x::-webkit-scrollbar-track { background: transparent; }
 .scroll-thin-x::-webkit-scrollbar-thumb {
   background: rgba(255, 87, 10, 0.55);
-  border-radius: 3px;
+  border-radius: 2px;
 }
 .scroll-thin-x::-webkit-scrollbar-thumb:hover { background: rgba(255, 87, 10, 0.85); }
 

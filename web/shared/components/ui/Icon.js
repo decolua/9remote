@@ -95,7 +95,6 @@ export const {
   ArrowUp,
   ArrowDown,
   Bug,
-  Coffee,
   Pin,
   PinOff,
   Files,

@@ -240,7 +240,6 @@ export default {
     refresh: "Обновить",
     rectangleSelection: "Прямоугольное выделение",
     handMode: "Режим руки",
-    preventSleep: "Запретить сон",
     toggleKeyboard: "Переключить системную клавиатуру",
     textBatchInput: "Пакетный ввод текста",
     extraKeys: "Дополнительные клавиши",

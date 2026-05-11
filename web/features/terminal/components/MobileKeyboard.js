@@ -20,7 +20,7 @@ import { useI18n } from "@/shared/i18n";
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform }) => {
   const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showTextPanel, setShowTextPanel] = useState(false);
+  const [showTextPanel, setShowTextPanel] = useState(true);
   const [textInput, setTextInput] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [showPasteInput, setShowPasteInput] = useState(false);

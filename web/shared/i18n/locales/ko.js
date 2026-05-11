@@ -240,7 +240,6 @@ export default {
     refresh: "새로고침",
     rectangleSelection: "사각형 선택",
     handMode: "핸드 모드",
-    preventSleep: "절전 방지",
     toggleKeyboard: "기본 키보드 전환",
     textBatchInput: "텍스트 일괄 입력",
     extraKeys: "추가 키",

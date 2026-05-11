@@ -240,7 +240,6 @@ export default {
     refresh: "Làm mới",
     rectangleSelection: "Chọn vùng chữ nhật",
     handMode: "Chế độ tay",
-    preventSleep: "Ngăn máy ngủ",
     toggleKeyboard: "Bật/tắt bàn phím hệ thống",
     textBatchInput: "Nhập văn bản hàng loạt",
     extraKeys: "Phím mở rộng",

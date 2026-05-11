@@ -341,7 +341,6 @@ export default {
     refresh: "रीफ्रेश",
     rectangleSelection: "आयत चयन",
     handMode: "हैंड मोड",
-    preventSleep: "स्लीप रोकें",
     toggleKeyboard: "नेटिव कीबोर्ड टॉगल करें",
     textBatchInput: "टेक्स्ट बैच इनपुट",
     extraKeys: "अतिरिक्त कुंजियाँ",

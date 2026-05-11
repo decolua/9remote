@@ -54,7 +54,7 @@ export const REMOTE_CONFIG = {
   momentumMinVelocity: 0.3,    // stop when velocity below this
 
   // Virtual trackpad (Jump Desktop style)
-  pointerMode: "direct",         // "direct" | "trackpad" (default)
+  pointerMode: "trackpad",       // "direct" | "trackpad" (default)
   trackpadSensitivity: 1.3,      // base speed multiplier
   trackpadAcceleration: 1.5,     // extra multiplier when swipe fast
   trackpadTapMaxMove: 8,         // px — finger movement below this is treated as tap

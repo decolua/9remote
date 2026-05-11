@@ -240,7 +240,6 @@ export default {
     refresh: "更新",
     rectangleSelection: "矩形選択",
     handMode: "ハンドモード",
-    preventSleep: "スリープ防止",
     toggleKeyboard: "ネイティブキーボード切替",
     textBatchInput: "テキスト一括入力",
     extraKeys: "追加キー",

@@ -235,7 +235,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             {sessions.map((session) => (
               <div
                 key={session.id}
-                className={`bg-surface rounded-brand-lg p-3 flex items-center justify-between transition-all duration-150 ease-out ${
+                className={`bg-surface border border-border-subtle rounded-brand-lg p-3 flex items-center justify-between transition-all duration-150 ease-out ${
                   connected ? "hover:bg-surface-2" : "opacity-50"
                 }`}
               >

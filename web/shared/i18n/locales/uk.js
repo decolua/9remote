@@ -240,7 +240,6 @@ export default {
     refresh: "Оновити",
     rectangleSelection: "Прямокутне виділення",
     handMode: "Режим руки",
-    preventSleep: "Запобігати сну",
     toggleKeyboard: "Перемкнути нативну клавіатуру",
     textBatchInput: "Пакетне введення тексту",
     extraKeys: "Додаткові клавіші",

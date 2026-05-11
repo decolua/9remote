@@ -341,7 +341,6 @@ export default {
     refresh: "تازه‌سازی",
     rectangleSelection: "انتخاب مستطیلی",
     handMode: "حالت دست",
-    preventSleep: "جلوگیری از خواب",
     toggleKeyboard: "تغییر صفحه‌کلید بومی",
     textBatchInput: "ورود متنی دسته‌ای",
     extraKeys: "کلیدهای اضافی",

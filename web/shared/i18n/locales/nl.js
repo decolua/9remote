@@ -240,7 +240,6 @@ export default {
     refresh: "Vernieuwen",
     rectangleSelection: "Rechthoekige selectie",
     handMode: "Handmodus",
-    preventSleep: "Slaapstand voorkomen",
     toggleKeyboard: "Native toetsenbord wisselen",
     textBatchInput: "Tekst-batchinvoer",
     extraKeys: "Extra toetsen",

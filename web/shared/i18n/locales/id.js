@@ -240,7 +240,6 @@ export default {
     refresh: "Segarkan",
     rectangleSelection: "Seleksi persegi",
     handMode: "Mode tangan",
-    preventSleep: "Cegah tidur",
     toggleKeyboard: "Alihkan papan ketik bawaan",
     textBatchInput: "Input teks batch",
     extraKeys: "Tombol tambahan",

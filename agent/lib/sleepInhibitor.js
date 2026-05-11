@@ -1,16 +1,14 @@
-// Block system sleep, allow display sleep — keeps agent reachable 24/7
-// while letting screen power down naturally.
+// Block system sleep, allow display sleep — keeps agent reachable.
+// Mode-based: "never" = always on; "30m/1h/..." = auto-off after N idle (no active connections).
 import { spawn } from "child_process";
+import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("sleep");
 
 const PLATFORM_CMD = {
-  // -i idle, -m disk, -s system on AC, -d display. Keep display awake for remote access.
   darwin: { cmd: "caffeinate", args: ["-imsd"] },
-  // Block idle/sleep/lid; display sleep handled separately via DPMS.
   linux:  { cmd: "systemd-inhibit", args: ["--what=idle:sleep:handle-lid-switch", "--who=9remote", "--why=remote-active", "sleep", "infinity"] },
-  // Persistent ES_SYSTEM_REQUIRED + ES_AWAYMODE_REQUIRED. NO ES_DISPLAY_REQUIRED.
   win32:  {
     cmd: "powershell.exe",
     args: ["-NonInteractive", "-NoProfile", "-WindowStyle", "Hidden", "-Command",
@@ -19,8 +17,18 @@ const PLATFORM_CMD = {
 };
 
 let proc = null;
+let mode = REMOTE_CONFIG.sleepInhibit?.defaultMode || "never";
+let idleTimer = null;
+let connectionCount = 0;
 
-export function start() {
+let exitHookRegistered = false;
+function registerExitHook() {
+  if (exitHookRegistered) return;
+  exitHookRegistered = true;
+  process.on("exit", () => { if (proc) { try { proc.kill(); } catch {} proc = null; } });
+}
+
+function spawnProc() {
   if (proc) return;
   const c = PLATFORM_CMD[process.platform];
   if (!c) return;
@@ -28,6 +36,7 @@ export function start() {
     proc = spawn(c.cmd, c.args, { stdio: "ignore", windowsHide: true });
     proc.on("error", (err) => { logger.warn(`inhibitor error: ${err.message}`); proc = null; });
     proc.on("exit", () => { proc = null; });
+    registerExitHook();
     logger.info(`💤 Sleep inhibitor started (${c.cmd})`);
   } catch (err) {
     logger.warn(`Failed to start sleep inhibitor: ${err.message}`);
@@ -35,18 +44,79 @@ export function start() {
   }
 }
 
-export function stop() {
+function killProc() {
   if (!proc) return;
   try { proc.kill(); } catch {}
   proc = null;
   logger.info("💤 Sleep inhibitor stopped");
 }
 
+function clearIdleTimer() {
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+}
+
+function getModeMs(m) {
+  const presets = REMOTE_CONFIG.sleepInhibit?.presets || {};
+  return presets[m] ?? null;
+}
+
+function isValidMode(m) {
+  const presets = REMOTE_CONFIG.sleepInhibit?.presets || {};
+  return Object.prototype.hasOwnProperty.call(presets, m);
+}
+
+// Core reconciler — decides whether to run proc + arm idle timer based on mode + connections
+function reconcile() {
+  clearIdleTimer();
+  if (mode === "never") {
+    spawnProc();
+    return;
+  }
+  const ms = getModeMs(mode);
+  if (ms == null) {
+    // unknown mode — fallback to never
+    spawnProc();
+    return;
+  }
+  // Active connection → keep on
+  if (connectionCount > 0) {
+    spawnProc();
+    return;
+  }
+  // Idle → arm timer; until it fires, keep current state. Default: keep ON during idle window.
+  spawnProc();
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    if (connectionCount === 0) killProc();
+  }, ms);
+}
+
+export function start() {
+  reconcile();
+}
+
+export function stop() {
+  clearIdleTimer();
+  killProc();
+}
+
 export function isActive() {
   return proc !== null;
 }
 
-export function setEnabled(enabled) {
-  if (enabled) start(); else stop();
-  return isActive();
+export function getMode() {
+  return mode;
+}
+
+export function setMode(next) {
+  if (!isValidMode(next)) return mode;
+  mode = next;
+  reconcile();
+  return mode;
+}
+
+// Called by connection tracker on every connect/disconnect
+export function onConnectionChange(count) {
+  connectionCount = count;
+  reconcile();
 }

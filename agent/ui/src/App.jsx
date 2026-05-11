@@ -35,6 +35,8 @@ export default function App() {
   const [rejectedDevices, setRejectedDevices] = useState([]);
   const [autoApprove, setAutoApproveState] = useState(false);
   const [autoStart, setAutoStartState] = useState(false);
+  const [sleepInhibitMode, setSleepInhibitMode] = useState("never");
+  const [sleepInhibitPresets, setSleepInhibitPresets] = useState([]);
   const [version, setVersion] = useState("");
   const [theme, setTheme] = useState(() => {
     // Will be overridden by server state if provided
@@ -125,6 +127,9 @@ export default function App() {
           fetchDevices();
         } else if (data.type === "autostart") {
           setAutoStartState(!!data.enabled);
+        } else if (data.type === "sleepInhibit") {
+          if (data.mode) setSleepInhibitMode(data.mode);
+          if (Array.isArray(data.presets)) setSleepInhibitPresets(data.presets);
         }
       } catch { /* ignore parse errors */ }
     };
@@ -139,6 +144,12 @@ export default function App() {
     // Load initial auto-start state
     fetch("/api/autostart").then(r => r.json()).then(d => {
       setAutoStartState(!!d?.enabled);
+    }).catch(() => {});
+
+    // Load initial sleep-inhibit state
+    fetch("/api/sleep-inhibit").then(r => r.json()).then(d => {
+      if (d?.mode) setSleepInhibitMode(d.mode);
+      if (Array.isArray(d?.presets)) setSleepInhibitPresets(d.presets);
     }).catch(() => {});
 
     // Fallback poll: recover pending approvals if SSE event was missed
@@ -269,6 +280,22 @@ export default function App() {
     }
   };
 
+  const handleSleepInhibitChange = async (mode) => {
+    const prev = sleepInhibitMode;
+    setSleepInhibitMode(mode);
+    try {
+      const r = await fetch("/api/sleep-inhibit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const d = await r.json().catch(() => null);
+      if (d?.mode) setSleepInhibitMode(d.mode);
+    } catch {
+      setSleepInhibitMode(prev);
+    }
+  };
+
   const handleAutoApproveToggle = async () => {
     const next = !autoApprove;
     setAutoApproveState(next); // optimistic
@@ -341,6 +368,9 @@ export default function App() {
       onAutoApproveToggle={handleAutoApproveToggle}
       autoStart={autoStart}
       onAutoStartToggle={handleAutoStartToggle}
+      sleepInhibitMode={sleepInhibitMode}
+      sleepInhibitPresets={sleepInhibitPresets}
+      onSleepInhibitChange={handleSleepInhibitChange}
     />
   );
 }

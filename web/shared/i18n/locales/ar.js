@@ -341,7 +341,6 @@ export default {
     refresh: "تحديث",
     rectangleSelection: "تحديد مستطيل",
     handMode: "وضع اليد",
-    preventSleep: "منع السكون",
     toggleKeyboard: "تبديل لوحة المفاتيح الأصلية",
     textBatchInput: "إدخال نص دفعة واحدة",
     extraKeys: "مفاتيح إضافية",

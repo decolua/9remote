@@ -152,11 +152,20 @@ export async function refreshPermissionsAsync() {
 export function trackConnection(socketId, ip, deviceId = null, type = "ws") {
   activeConnections.set(socketId, { socketId, ip, deviceId, type, connectedAt: Date.now() });
   pushUiEvent("connections", { connections: [...activeConnections.values()] });
+  notifyConnectionChange();
 }
 
 export function untrackConnection(socketId) {
   activeConnections.delete(socketId);
   pushUiEvent("connections", { connections: [...activeConnections.values()] });
+  notifyConnectionChange();
+}
+
+async function notifyConnectionChange() {
+  try {
+    const m = await import("../lib/sleepInhibitor.js");
+    m.onConnectionChange(activeConnections.size);
+  } catch {}
 }
 
 // ── Route Handlers ───────────────────────────────────────────────────────────

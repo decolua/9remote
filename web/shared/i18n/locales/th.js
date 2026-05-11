@@ -240,7 +240,6 @@ export default {
     refresh: "รีเฟรช",
     rectangleSelection: "เลือกแบบสี่เหลี่ยม",
     handMode: "โหมดมือ",
-    preventSleep: "ป้องกันเครื่องสลีป",
     toggleKeyboard: "สลับคีย์บอร์ดเนทีฟ",
     textBatchInput: "ป้อนข้อความเป็นชุด",
     extraKeys: "คีย์เพิ่มเติม",

@@ -37,6 +37,40 @@ function PermissionRow({ type, granted, onRequest }) {
   );
 }
 
+const SLEEP_MODE_LABELS = {
+  "30m":   "Off after 30 min idle",
+  "1h":    "Off after 1 hour idle",
+  "2h":    "Off after 2 hours idle",
+  "4h":    "Off after 4 hours idle",
+  "24h":   "Off after 24 hours idle",
+  "never": "Never off",
+};
+
+/** Reusable dropdown row — for enum settings (mode picker etc.) */
+function SelectRow({ icon, label, desc, value, options, onChange }) {
+  return (
+    <div className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor: "var(--border)" }}>
+      <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 18, color: "var(--brand-400)" }}>
+        {icon}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium" style={{ color: "var(--text-main)" }}>{label}</p>
+        <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>{desc}</p>
+      </div>
+      <select
+        value={value}
+        onChange={(e) => onChange?.(e.target.value)}
+        className="flex-shrink-0 text-xs px-2 py-1 rounded-lg"
+        style={{ background: "var(--glass-bg)", color: "var(--text-main)", border: "1px solid var(--border)", cursor: "pointer" }}
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 /** Reusable toggle row — DRY for any on/off boolean setting */
 function ToggleRow({ icon, label, desc, value, onToggle, activeColor = "var(--brand-500)" }) {
   return (
@@ -61,7 +95,7 @@ function ToggleRow({ icon, label, desc, value, onToggle, activeColor = "var(--br
 }
 
 /** Remote Services card — Terminal (always on) + Desktop (toggleable) */
-function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle }) {
+function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle, sleepInhibitMode, sleepInhibitPresets, onSleepInhibitChange }) {
   const permEntries = Object.entries(PERMISSION_META);
   // Desktop toggle requires all permissions granted
   const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
@@ -133,6 +167,14 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
           desc={autoStart ? "Runs in background when you log in" : "Disabled — start manually"}
           value={!!autoStart}
           onToggle={onAutoStartToggle}
+        />
+        <SelectRow
+          icon="bedtime_off"
+          label="Prevent sleep"
+          desc="Block system sleep so the network stays alive"
+          value={sleepInhibitMode || "never"}
+          options={(sleepInhibitPresets || []).map((m) => ({ value: m, label: SLEEP_MODE_LABELS[m] || m }))}
+          onChange={onSleepInhibitChange}
         />
       </div>
     </div>
@@ -368,6 +410,7 @@ export default function MainScreen({
   approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected,
   autoApprove = false, onAutoApproveToggle,
   autoStart = false, onAutoStartToggle,
+  sleepInhibitMode = "never", sleepInhibitPresets = [], onSleepInhibitChange,
 }) {
   const [activeTab, setActiveTab] = useState("connect");
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -502,6 +545,9 @@ export default function MainScreen({
                       onRequestPermission={onRequestPermission}
                       autoStart={autoStart}
                       onAutoStartToggle={onAutoStartToggle}
+                      sleepInhibitMode={sleepInhibitMode}
+                      sleepInhibitPresets={sleepInhibitPresets}
+                      onSleepInhibitChange={onSleepInhibitChange}
                     />
 
                     {/* Clients (merged devices + live connections) */}

@@ -106,8 +106,17 @@ export const REMOTE_CONFIG = {
   },
 
   // Sleep inhibitor — block system sleep, allow display sleep
+  // mode: idle-timeout preset key. "never" = always on; "30m/1h/2h/4h/24h" = auto-off after N idle.
   sleepInhibit: {
-    enabled: true
+    defaultMode: "never",
+    presets: {
+      "30m": 30 * 60 * 1000,
+      "1h":  60 * 60 * 1000,
+      "2h":  2 * 60 * 60 * 1000,
+      "4h":  4 * 60 * 60 * 1000,
+      "24h": 24 * 60 * 60 * 1000,
+      "never": null
+    }
   },
 
   // Virtual desktop / Spaces switcher.

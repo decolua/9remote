@@ -341,7 +341,6 @@ export default {
     refresh: "רענן",
     rectangleSelection: "בחירה מלבנית",
     handMode: "מצב יד",
-    preventSleep: "מנע שינה",
     toggleKeyboard: "החלף מקלדת מקורית",
     textBatchInput: "קלט טקסט באצווה",
     extraKeys: "מקשים נוספים",

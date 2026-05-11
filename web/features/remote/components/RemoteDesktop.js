@@ -24,11 +24,11 @@ const STORAGE_KEYS = {
   handMode: "remoteDesktop.handMode"
 };
 
-export default function RemoteDesktop({ onClose, socketRef, protocolRef, connected, transport, tunnelUrl, apiKey }) {
+export default function RemoteDesktop({ onClose, socketRef, protocolRef, connected, transport }) {
   const { t } = useI18n();
   const [showHelp, setShowHelp] = useState(false);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
-  const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, false);
+  const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, true);
   const [keyboardOn, setKeyboardOn] = useState(false);
   const [pointerMode, setPointerMode] = usePersistedState(STORAGE_KEYS.pointerMode, REMOTE_CONFIG.pointerMode);
   const [handMode, setHandMode] = usePersistedState(STORAGE_KEYS.handMode, false);
@@ -458,8 +458,6 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
         onClose={handleClose}
         onToggleDebug={() => setShowDebug(s => !s)}
         debugOn={showDebug}
-        tunnelUrl={tunnelUrl}
-        apiKey={apiKey}
       />
 
       {showDebug && (

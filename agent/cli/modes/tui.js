@@ -159,6 +159,9 @@ export async function tuiMode() {
     } else if (type === "permissions") {
       if (!deviceApprovalBusy) activeSubmenuRefresh?.();
       safeRedraw();
+    } else if (type === "autostart" || type === "sleepInhibit") {
+      if (!deviceApprovalBusy) activeSubmenuRefresh?.();
+      safeRedraw();
     } else if (type === "deviceApproval" && data.action === "pending") {
       await handlePendingApproval(data.socketId, data.deviceId, data.ip);
     }
@@ -197,7 +200,7 @@ export async function tuiMode() {
 
 async function tuiMenuLoop(keyData, tunnelUrl, getHeader, setHeader, onRedrawRegister, onCtrlC, logBuffer) {
   while (true) {
-    const { desktopEnabled: desktopOn, remoteAvailable, autoApprove, autoStart } = await fetchServerState();
+    const { desktopEnabled: desktopOn, remoteAvailable, autoApprove } = await fetchServerState();
 
     const items = [
       { label: "Open Web UI", action: "webui" },
@@ -208,7 +211,7 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader, setHeader, onRedrawReg
     }
     items.push(
       { label: `Manage Devices  \u25b6  ${chalk.dim("(Auto-approve:")} ${autoApprove ? chalk.green("ON") : chalk.gray("OFF")}${chalk.dim(")")}`, action: "devices" },
-      { label: `Launch on system startup: ${autoStart ? chalk.green("ON") : chalk.gray("OFF")}`, action: "autostart" },
+      { label: "Settings  \u25b6", action: "settings" },
       { label: "View Logs", action: "logs" },
       { label: chalk.gray("Exit"), action: "exit" },
     );
@@ -230,8 +233,8 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader, setHeader, onRedrawReg
       await tuiDesktopMenu();
     } else if (action === "devices") {
       await tuiDevicesMenu();
-    } else if (action === "autostart") {
-      await apiPost("/api/autostart", { enabled: !autoStart });
+    } else if (action === "settings") {
+      await tuiSettingsMenu();
     } else if (action === "logs") {
       await tuiLogsView();
     } else {
@@ -272,6 +275,63 @@ async function tuiKeysMenu(keyData, tunnelUrl, setHeader, getHeader) {
         setHeader(await buildMenuHeader(newTmp.tempKey, keyData.key, newUrl, tunnelUrl));
         await pushUiState({ oneTimeKey: newTmp.tempKey, oneTimeKeyExpiresAt: newTmp.expiresAt, qrUrl: newUrl });
       }
+    }
+  }
+}
+
+const SLEEP_MODE_LABELS = {
+  "30m":   "Off after 30 min idle",
+  "1h":    "Off after 1 hour idle",
+  "2h":    "Off after 2 hours idle",
+  "4h":    "Off after 4 hours idle",
+  "24h":   "Off after 24 hours idle",
+  "never": "Never off",
+};
+
+async function tuiSleepModeMenu(currentMode, presets) {
+  const items = presets.map((m) => ({ label: SLEEP_MODE_LABELS[m] || m, action: m }));
+  items.push({ label: chalk.gray("← Back"), action: "back" });
+  const defaultIdx = Math.max(0, presets.indexOf(currentMode));
+  const idx = await selectMenu("Prevent sleep", items, defaultIdx);
+  const action = idx >= 0 ? items[idx].action : "back";
+  if (action !== "back") await apiPost("/api/sleep-inhibit", { mode: action });
+}
+
+async function tuiSettingsMenu() {
+  while (true) {
+    let autoStart = false;
+    let sleepMode = "never";
+    let sleepPresets = [];
+
+    const buildItems = () => [
+      { label: `Launch on system startup: ${autoStart ? chalk.green("ON") : chalk.gray("OFF")}`, action: "autostart" },
+      { label: `Prevent sleep:            ${chalk.green(SLEEP_MODE_LABELS[sleepMode] || sleepMode)}  ▶`, action: "sleep" },
+      { label: chalk.gray("← Back"), action: "back" },
+    ];
+
+    let items = buildItems();
+    let redrawMenu = null;
+    const syncFromServer = async () => {
+      const s = await fetchServerState();
+      autoStart = !!s.autoStart;
+      sleepMode = s.sleepInhibitMode || "never";
+      sleepPresets = s.sleepInhibitPresets || [];
+      items = buildItems();
+      redrawMenu?.();
+    };
+
+    await syncFromServer();
+    activeSubmenuRefresh = syncFromServer;
+    const idx = await selectMenu("Settings", items, 0, "", (setRedraw) => { redrawMenu = setRedraw; });
+    activeSubmenuRefresh = null;
+
+    const action = idx >= 0 ? items[idx].action : "back";
+    if (action === "autostart") {
+      await apiPost("/api/autostart", { enabled: !autoStart });
+    } else if (action === "sleep") {
+      await tuiSleepModeMenu(sleepMode, sleepPresets);
+    } else {
+      return;
     }
   }
 }

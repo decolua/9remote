@@ -240,7 +240,6 @@ export default {
     refresh: "Odśwież",
     rectangleSelection: "Zaznaczanie prostokątne",
     handMode: "Tryb dłoni",
-    preventSleep: "Zapobiegaj uśpieniu",
     toggleKeyboard: "Przełącz natywną klawiaturę",
     textBatchInput: "Wprowadzanie partii tekstu",
     extraKeys: "Dodatkowe klawisze",

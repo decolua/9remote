@@ -44,16 +44,20 @@ export async function isServerRunning() {
 }
 
 export async function fetchServerState() {
-  const [d, a, s] = await Promise.all([
+  const [d, a, s, si] = await Promise.all([
     apiGet("/api/ui/state"),
     apiGet("/api/device/auto-approve"),
     apiGet("/api/autostart"),
+    apiGet("/api/sleep-inhibit"),
   ]);
   return {
     desktopEnabled: !!d?.desktopEnabled,
     remoteAvailable: !!d?.remoteAvailable,
     autoApprove: !!a?.enabled,
     autoStart: !!s?.enabled,
+    sleepInhibitMode: si?.mode || "never",
+    sleepInhibitActive: !!si?.active,
+    sleepInhibitPresets: Array.isArray(si?.presets) ? si.presets : [],
   };
 }
 

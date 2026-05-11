@@ -240,7 +240,6 @@ export default {
     refresh: "Aggiorna",
     rectangleSelection: "Selezione rettangolare",
     handMode: "Modalità mano",
-    preventSleep: "Impedisci sospensione",
     toggleKeyboard: "Attiva/disattiva tastiera nativa",
     textBatchInput: "Inserimento testo batch",
     extraKeys: "Tasti extra",

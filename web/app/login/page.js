@@ -241,7 +241,8 @@ function LoginContent() {
             {t("login.tagline")}
           </p>
 
-          {/* Auth tabs */}
+          {/* Auth tabs - hidden */}
+          {false && (
           <div className="flex gap-1 p-1 mb-6 bg-surface-2 rounded-brand">
             <button
               onClick={() => setAuthTab("local")}
@@ -260,6 +261,7 @@ function LoginContent() {
               <span className="inline-flex items-center gap-1.5"><Github size={14} />Codespace</span>
             </button>
           </div>
+          )}
 
           {authTab === "github" && (
             <GithubLoginForm onAuthenticated={handleGithubAuthenticated} />

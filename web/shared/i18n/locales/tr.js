@@ -240,7 +240,6 @@ export default {
     refresh: "Yenile",
     rectangleSelection: "Dikdörtgen seçimi",
     handMode: "El modu",
-    preventSleep: "Uykuyu engelle",
     toggleKeyboard: "Yerel klavyeyi aç/kapat",
     textBatchInput: "Toplu metin girişi",
     extraKeys: "Ekstra tuşlar",
