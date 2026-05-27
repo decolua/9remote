@@ -34,15 +34,19 @@ export default function MenuItems({
 
   const [hookStatus, setHookStatus] = useState(null);
   const [togglingTool, setTogglingTool] = useState(null);
+  // Treat native WebView (Expo) the same as PWA for UI gating
+  const isExpoWebView = typeof window !== "undefined" && !!window.ReactNativeWebView;
+  const isApp = typeof window !== "undefined" && (
+    window.matchMedia("(display-mode: standalone)").matches || isExpoWebView
+  );
+
   const [pushEnabled, setPushEnabled] = useState(() => {
-    if (typeof window !== "undefined" && "Notification" in window) {
-      return Notification.permission === "granted";
-    }
+    if (typeof window === "undefined") return false;
+    if (window.ReactNativeWebView) return false;
+    if ("Notification" in window) return Notification.permission === "granted";
     return false;
   });
   const [pushLoading, setPushLoading] = useState(false);
-
-  const isPWA = typeof window !== "undefined" && window.matchMedia("(display-mode: standalone)").matches;
 
   useEffect(() => {
     if (!socketRef?.current) return;
@@ -55,9 +59,13 @@ export default function MenuItems({
     if (!subscribeToPush || pushLoading) return;
     setPushLoading(true);
     await subscribeToPush();
-    setPushEnabled(Notification.permission === "granted");
+    // Expo: native handles permission; treat subscribe call as enabled.
+    // PWA: rely on Notification API permission state.
+    const granted = isExpoWebView ||
+      (typeof Notification !== "undefined" && Notification.permission === "granted");
+    setPushEnabled(granted);
     setPushLoading(false);
-  }, [subscribeToPush, pushLoading]);
+  }, [subscribeToPush, pushLoading, isExpoWebView]);
 
   const handleDisablePush = useCallback(async () => {
     if (!unsubscribeFromPush || pushLoading) return;
@@ -95,8 +103,8 @@ export default function MenuItems({
 
   return (
     <div className="p-3 space-y-0.5">
-      {/* Notifications - only show in PWA mode */}
-      {isPWA && <div className="bg-surface rounded-brand-lg overflow-hidden">
+      {/* Notifications - show in PWA or native app (Expo WebView) */}
+      {isApp && <div className="bg-surface rounded-brand-lg overflow-hidden">
         <button
           onClick={() => { vibrate(); setExpandedSection(expandedSection === "notifications" ? null : "notifications"); }}
           className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center justify-between transition-colors duration-150 ease-out"
@@ -220,8 +228,8 @@ export default function MenuItems({
         </button>
       )}
 
-      {/* Install App - only show when NOT in PWA mode */}
-      {!isPWA && onInstallApp && (
+      {/* Install App - hide when running as PWA or native app */}
+      {!isApp && onInstallApp && (
         <button
           onClick={() => { vibrate(); onInstallApp(); }}
           className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"

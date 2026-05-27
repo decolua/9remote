@@ -14,7 +14,7 @@ const PERMISSION_META = {
 function PermissionRow({ type, granted, onRequest }) {
   const meta = PERMISSION_META[type] || { label: type, icon: "security", desc: "" };
   return (
-    <div className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor: "var(--border)" }}>
+    <div className="flex items-center gap-2 py-2">
       <span className={`material-symbols-outlined flex-shrink-0 ${granted ? "text-green-400" : ""}`} style={{ fontSize: 18, color: granted ? undefined : "var(--text-muted)" }}>
         {granted ? "check_circle" : "cancel"}
       </span>
@@ -102,60 +102,42 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
   const toggleDisabled = !canEnableDesktop && !desktopEnabled;
   return (
     <div className="glass-card p-4 flex flex-col gap-3">
-      {/* Terminal row */}
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(255,87,10,0.15)" }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--brand-400)" }}>terminal</span>
+      {/* Desktop block: row + permissions cùng group */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ background: desktopEnabled ? "rgba(255,87,10,0.15)" : "var(--glass-bg)" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, color: desktopEnabled ? "var(--brand-400)" : "var(--text-muted)" }}>
+              desktop_windows
+            </span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>Remote Desktop</p>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>Control screen, mouse & keyboard</p>
+          </div>
+          {/* Toggle — disabled until all permissions granted */}
+          <button
+            onClick={toggleDisabled ? undefined : onDesktopToggle}
+            disabled={toggleDisabled}
+            title={toggleDisabled ? "Grant all permissions below to enable" : ""}
+            className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
+            style={{ background: desktopEnabled ? "var(--brand-500)" : "var(--border)", opacity: toggleDisabled ? 0.5 : 1, cursor: toggleDisabled ? "not-allowed" : "pointer" }}
+          >
+            <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
+              style={{ left: desktopEnabled ? "calc(100% - 22px)" : "2px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+          </button>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>Remote Terminal</p>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Full shell access · always on</p>
-        </div>
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full" style={{ background: "rgba(74,222,128,0.1)" }}>
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-          <span className="text-xs text-green-400 font-medium">On</span>
-        </div>
-      </div>
 
-      {/* Divider */}
-      <div className="w-full h-px" style={{ background: "var(--border)" }} />
-
-      {/* Desktop row */}
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: desktopEnabled ? "rgba(255,87,10,0.15)" : "var(--glass-bg)" }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color: desktopEnabled ? "var(--brand-400)" : "var(--text-muted)" }}>
-            desktop_windows
-          </span>
+        <div className="grid grid-cols-2 gap-2 pl-12">
+          {permEntries.map(([type]) => (
+            <PermissionRow
+              key={type}
+              type={type}
+              granted={permissions?.[type] ?? false}
+              onRequest={onRequestPermission}
+            />
+          ))}
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>Remote Desktop</p>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Control screen, mouse & keyboard</p>
-        </div>
-        {/* Toggle — disabled until all permissions granted */}
-        <button
-          onClick={toggleDisabled ? undefined : onDesktopToggle}
-          disabled={toggleDisabled}
-          title={toggleDisabled ? "Grant all permissions below to enable" : ""}
-          className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
-          style={{ background: desktopEnabled ? "var(--brand-500)" : "var(--border)", opacity: toggleDisabled ? 0.5 : 1, cursor: toggleDisabled ? "not-allowed" : "pointer" }}
-        >
-          <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
-            style={{ left: desktopEnabled ? "calc(100% - 22px)" : "2px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-        </button>
-      </div>
-
-      {/* Permissions — always visible so user can grant before enabling desktop */}
-      <div className="flex flex-col border-t pt-2" style={{ borderColor: "var(--border)" }}>
-        <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>System Permissions</p>
-        {permEntries.map(([type]) => (
-          <PermissionRow
-            key={type}
-            type={type}
-            granted={permissions?.[type] ?? false}
-            onRequest={onRequestPermission}
-          />
-        ))}
       </div>
 
       {/* Startup */}

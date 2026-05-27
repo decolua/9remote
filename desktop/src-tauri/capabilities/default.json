@@ -5,9 +5,6 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "shell:allow-open",
-    "shell:allow-execute",
-    "shell:allow-spawn",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text"
   ]

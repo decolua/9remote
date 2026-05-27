@@ -443,15 +443,29 @@ export class TileManager {
     return encodeJpeg(buffer, width, height, 4, this.compressionQuality);
   }
 
-  // Pick adaptive profile matching given zoom level (1 = full view).
-  // Profiles iterated top-down; first with zoom >= minZoom wins.
-  pickProfile(zoom) {
-    const profiles = REMOTE_CONFIG.pipeline.qualityProfiles || [];
-    const z = typeof zoom === "number" && zoom > 0 ? zoom : 1;
-    for (const p of profiles) {
-      if (z >= p.minZoom) return p;
+  // Pick adaptive tier by effective pixel density viewer needs.
+  // effective = (viewerWidth * zoom * dpr) / agentWidth
+  // Apply hysteresis: only switch tier if effective crosses boundary by margin.
+  pickProfile({ zoom = 1, viewerWidth = 0, dpr = 1 } = {}) {
+    const tiers = REMOTE_CONFIG.pipeline.adaptiveTiers || [];
+    if (!tiers.length) return null;
+    const agentW = this.captureWidth || this.screenWidth || 1;
+    const vw = viewerWidth > 0 ? viewerWidth : agentW;
+    const z = zoom > 0 ? zoom : 1;
+    const d = dpr > 0 ? dpr : 1;
+    const effective = (vw * z * d) / agentW;
+    const margin = REMOTE_CONFIG.pipeline.tierHysteresis || 0;
+    const prev = this._currentTier;
+    for (const t of tiers) {
+      const threshold = prev && t === prev ? t.minEffective - margin : t.minEffective;
+      if (effective >= threshold) {
+        this._currentTier = t;
+        return t;
+      }
     }
-    return profiles[profiles.length - 1] || null;
+    const last = tiers[tiers.length - 1];
+    this._currentTier = last;
+    return last;
   }
 
   // Apply a quality profile — mutates scaleFactor/compressionQuality only.

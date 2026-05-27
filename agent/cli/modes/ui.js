@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { STEP, SERVER_PORT } from "../../lib/constants.js";
 import { writeCmd } from "../utils/state.js";
+import { writePid } from "../utils/pids.js";
 import { isServerRunning, pushUiState } from "../core/localApi.js";
 import { startServerWithRestart, setupExitHandler } from "../core/lifecycle.js";
 import { setupCmdPoller } from "../core/cmdPoller.js";
@@ -9,6 +10,7 @@ import { ensureKeyData, getVersion } from "../session/key.js";
 import { DELAYS } from "../config.js";
 
 export async function startUiMode() {
+  writePid("agent", process.pid);
   showBanner(getVersion());
   const keyData = await ensureKeyData();
 

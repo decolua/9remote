@@ -6,19 +6,6 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import * as sleepInhibitor from "../../lib/sleepInhibitor.js";
-import { saveSettings } from "./state.js";
-import { REMOTE_CONFIG } from "../../features/remote/REMOTE_CONFIG.js";
-
-const SLEEP_MODE_LABELS = {
-  "30m":   "Off after 30 min idle",
-  "1h":    "Off after 1 hour idle",
-  "2h":    "Off after 2 hours idle",
-  "4h":    "Off after 4 hours idle",
-  "24h":   "Off after 24 hours idle",
-  "never": "Never off",
-};
-const SLEEP_ITEM_PREFIX = "Prevent sleep: ";
 
 let trayInstance = null;
 let trayState = { port: 0, tunnelUrl: "", running: false };
@@ -76,27 +63,9 @@ function buildMenu() {
     items: [
       { title: statusLine, tooltip: tunnelUrl || `http://localhost:${port}`, checked: false, enabled: false },
       { title: "Open Web UI", tooltip: `Open http://localhost:${port} in your browser`, checked: false, enabled: true },
-      ...buildSleepItems(),
       { title: "Shutdown", tooltip: "Stop 9Remote server, tunnel and quit", checked: false, enabled: true },
     ],
   };
-}
-
-function buildSleepItems() {
-  const presets = Object.keys(REMOTE_CONFIG.sleepInhibit?.presets || {});
-  const current = sleepInhibitor.getMode();
-  return presets.map((m) => ({
-    title: `${SLEEP_ITEM_PREFIX}${SLEEP_MODE_LABELS[m] || m}`,
-    tooltip: "Click to switch prevent-sleep mode",
-    checked: m === current,
-    enabled: true,
-  }));
-}
-
-function modeFromTitle(title) {
-  if (!title.startsWith(SLEEP_ITEM_PREFIX)) return null;
-  const label = title.slice(SLEEP_ITEM_PREFIX.length);
-  return Object.keys(SLEEP_MODE_LABELS).find((k) => SLEEP_MODE_LABELS[k] === label) || null;
 }
 
 /**
@@ -125,13 +94,6 @@ export async function initTray({ port, onQuit, onOpenUI }) {
         onQuit?.();
         killTray();
         setTimeout(() => process.exit(0), 500);
-      } else {
-        const mode = modeFromTitle(title);
-        if (mode) {
-          sleepInhibitor.setMode(mode);
-          saveSettings({ sleepInhibitMode: mode });
-          updateTrayTooltip();
-        }
       }
     });
 

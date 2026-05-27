@@ -59,8 +59,12 @@ export function useRemoteSocket(socketRef, connected) {
   }, [emit, streaming]);
 
   // rect=null + zoom=1 tells server to apply the "full view" quality profile.
+  // viewerWidth + dpr let server compute effective pixel density for adaptive tier.
   const emitSetFocus = useCallback((rect, zoom = 1) => {
-    if (streaming) emit("set-focus", { rect, zoom });
+    if (!streaming) return;
+    const viewerWidth = typeof window !== "undefined" ? window.innerWidth : 0;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    emit("set-focus", { rect, zoom, viewerWidth, dpr });
   }, [emit, streaming]);
 
   const emitRequestScreenWithHashes = useCallback((tileHashes) => {

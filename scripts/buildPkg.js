@@ -60,7 +60,7 @@ async function buildCli() {
     ...baseConfig,
     entryPoints: [path.join(SERVER_DIR, "cli/index.js")],
     outfile,
-    external: ["node-pty", "sharp", "cloudflared", "@hurdlegroup/robotjs", "@julusian/jpeg-turbo", "node-datachannel", "node-screenshots", "systray"],
+    external: ["node-pty", "sharp", "cloudflared", "@hurdlegroup/robotjs", "@julusian/jpeg-turbo", "node-datachannel", "node-screenshots", "systray", "fsevents"],
   });
   console.log(`✅ CLI → agent/dist/cli.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
@@ -73,7 +73,7 @@ async function buildServer() {
     ...baseConfig,
     entryPoints: [path.join(SERVER_DIR, "index.js")],
     outfile,
-    external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel", "node-screenshots", "@julusian/jpeg-turbo"],
+    external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel", "node-screenshots", "@julusian/jpeg-turbo", "fsevents"],
   });
   console.log(`✅ Server → agent/dist/server.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }

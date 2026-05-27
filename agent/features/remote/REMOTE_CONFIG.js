@@ -24,16 +24,18 @@ export const REMOTE_CONFIG = {
     // Applied via sharp resize once per frame on the full screen buffer.
     // Mouse coords are percentage-based so this does NOT affect input mapping.
     outputScale: 1,
-    // Adaptive quality profiles — chosen by client zoom level.
-    // Iterate top-down, pick first profile where zoom >= minZoom.
-    // Higher zoom → higher quality + less downscale (sharper pixels when zoomed in).
-    // Full view (zoom=1) → aggressive downscale + lower quality (save bandwidth).
-    qualityProfiles: [
-      { minZoom: 3.0, outputScale: 1.00, jpegQuality: 60 },
-      { minZoom: 2.0, outputScale: 1.00, jpegQuality: 55 },
-      { minZoom: 1.3, outputScale: 0.90, jpegQuality: 50 },
-      { minZoom: 1.0, outputScale: 0.70, jpegQuality: 45 }
-    ]
+    // Adaptive quality tiers — single-axis pick by effective pixel density.
+    // effective = (viewerWidth * zoom * dpr) / agentWidth
+    // High effective → viewer needs native pixels (e.g. PC2PC) → sharp + high q.
+    // Low effective → mobile/small viewer → downscale + lower q to save bandwidth.
+    // Hysteresis prevents flap when effective oscillates around tier boundary.
+    adaptiveTiers: [
+      { minEffective: 1.0, outputScale: 1.00, jpegQuality: 72 },
+      { minEffective: 0.7, outputScale: 0.95, jpegQuality: 62 },
+      { minEffective: 0.4, outputScale: 0.80, jpegQuality: 52 },
+      { minEffective: 0,   outputScale: 0.65, jpegQuality: 45 }
+    ],
+    tierHysteresis: 0.05
   },
 
   // WebRTC transport config

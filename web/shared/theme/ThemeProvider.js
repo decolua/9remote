@@ -12,6 +12,15 @@ const applyClass = (theme) => {
   root.classList.add(theme);
 };
 
+// Notify native shell (Expo WebView) so status bar / safe area match current theme
+const notifyNative = (theme) => {
+  if (typeof window === "undefined") return;
+  if (!window.ReactNativeWebView) return;
+  try {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: "THEME_CHANGE", theme }));
+  } catch (e) { /* ignore */ }
+};
+
 export function ThemeProvider({ children }) {
   const [theme, setThemeState] = useState(DEFAULT_THEME);
 
@@ -21,12 +30,14 @@ export function ThemeProvider({ children }) {
     const initial = THEME_KEYS.includes(saved) ? saved : DEFAULT_THEME;
     setThemeState(initial);
     applyClass(initial);
+    notifyNative(initial);
   }, []);
 
   const setTheme = useCallback((next) => {
     if (!THEME_KEYS.includes(next)) return;
     setThemeState(next);
     applyClass(next);
+    notifyNative(next);
     if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, next);
   }, []);
 

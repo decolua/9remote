@@ -155,9 +155,11 @@ export class ScreenHandler {
       const clientData = this.resourceManager.getClient(socket.id);
       if (!clientData) return;
       const rect = data?.rect || null;
-      // Adaptive quality — pick profile from client zoom (default 1 = full)
+      // Adaptive quality — pick tier from effective pixel density (viewer/agent ratio)
       const zoom = typeof data?.zoom === "number" ? data.zoom : 1;
-      const profile = clientData.tileManager.pickProfile(zoom);
+      const viewerWidth = typeof data?.viewerWidth === "number" ? data.viewerWidth : 0;
+      const dpr = typeof data?.dpr === "number" ? data.dpr : 1;
+      const profile = clientData.tileManager.pickProfile({ zoom, viewerWidth, dpr });
       clientData.tileManager.setProfile(profile);
       clientData.tileManager.setFocusRect(rect);
       if (rect) {

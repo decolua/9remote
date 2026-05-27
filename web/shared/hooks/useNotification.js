@@ -13,8 +13,24 @@ export function useNotification(socketRef, connected) {
   const [notifications, setNotifications] = useState({});
   const getSelectedSession = useTerminalStore((state) => state.getSelectedSession);
   const getCurrentView = useTerminalStore((state) => state.getCurrentView);
+  const pushView = useTerminalStore((state) => state.pushView);
+  const addOpenedSession = useTerminalStore((state) => state.addOpenedSession);
 
   const isExpoWebView = typeof window !== "undefined" && !!window.ReactNativeWebView;
+
+  // Expose deep-link handler for native notification tap (Expo WebView)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.handleNotificationTap = (payload) => {
+      const sessionId = payload?.sessionId;
+      if (!sessionId) return;
+      addOpenedSession(sessionId);
+      pushView({ type: "terminal", sessionId });
+    };
+    return () => {
+      try { delete window.handleNotificationTap; } catch (e) { window.handleNotificationTap = undefined; }
+    };
+  }, [pushView, addOpenedSession]);
 
   // Subscribe to push notifications and send subscription to server
   const subscribeToPush = useCallback(async () => {
