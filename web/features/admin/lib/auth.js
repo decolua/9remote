@@ -5,7 +5,8 @@ import { ADMIN_COOKIE_NAME, ADMIN_TOKEN_TTL_SEC } from "../constants";
 const encoder = new TextEncoder();
 
 function getSecret(env) {
-  const secret = env?.ADMIN_JWT_SECRET || env?.CLOUDFLARE_API_KEY || "fallback_admin_secret";
+  const secret = env?.ADMIN_JWT_SECRET;
+  if (!secret) throw new Error("ADMIN_JWT_SECRET not configured");
   return encoder.encode(secret);
 }
 

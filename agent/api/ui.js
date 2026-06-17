@@ -65,7 +65,7 @@ export function loadUiState() {
 function saveUiState() {
   try {
     ensureDir();
-    writeFileSync(UI_STATE_FILE, JSON.stringify(uiState));
+    writeFileSync(UI_STATE_FILE, JSON.stringify(uiState), { mode: 0o600 });
   } catch { }
 }
 

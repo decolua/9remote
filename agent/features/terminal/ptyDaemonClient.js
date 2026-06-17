@@ -515,14 +515,15 @@ export async function listSessions() {
 /**
  * Create new session
  */
-export async function createSession(name, cols = 80, rows = 24) {
+export async function createSession(name, cols = 80, rows = 24, shellId = null) {
   const sessionId = `session-${Date.now()}`;
   const result = await request({
     type: "createSession",
     sessionId,
     name,
     cols,
-    rows
+    rows,
+    shellId
   });
   return result;
 }

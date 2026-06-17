@@ -7,7 +7,7 @@ import { stopTunnelHealthWatchdog, updateTunnelHealthUrl } from "../utils/tunnel
 import { ensureCloudflared } from "../utils/cloudflared.js";
 import { updateTrayTooltip } from "../utils/tray.js";
 import { getConsistentMachineId } from "../utils/machineId.js";
-import { generateApiKeyWithMachine } from "../utils/apiKey.js";
+import { generateApiKeyWithMachine, maskApiKey } from "../utils/apiKey.js";
 import { apiGet, pushUiState, setStep, onBinaryProgress } from "./localApi.js";
 import { spawnQuickTunnelWithRetry, makeTunnelRestartHandler } from "../tunnel/manager.js";
 import { updateTunnelUrl } from "../tunnel/urlSync.js";
@@ -107,7 +107,7 @@ async function handleRegenerate() {
   const existing = loadKey();
   saveKey(machineId, key, existing?.name || "Default");
   await pushUiState({ permanentKey: key });
-  logger.info(`✅ Key regenerated: ${key}`);
+  logger.info(`✅ Key regenerated: ${maskApiKey(key)}`);
 }
 
 function handleShutdown(getActiveTunnel, setActiveTunnel) {

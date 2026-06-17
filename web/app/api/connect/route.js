@@ -30,7 +30,7 @@ export async function POST(request) {
         apiKey = row.api_key;
         tempKey = normalized;
       } else {
-        const payload = decryptToken(body.token);
+        const payload = decryptToken(body.token, env);
         if (!payload) return jsonError("Invalid or expired token", 401);
         apiKey = payload.key;
       }
@@ -40,7 +40,7 @@ export async function POST(request) {
       return jsonError("Missing token or apiKey");
     }
 
-    if (!(await verifyApiKeyCrc(apiKey))) return jsonError("Invalid API key", 401);
+    if (!(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key", 401);
 
     const session = await env.DB.prepare(`
       SELECT tunnelUrl, machineId, publicIp, localIp FROM sessions

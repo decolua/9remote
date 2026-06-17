@@ -313,6 +313,28 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     return () => clearInterval(id);
   }, [streaming, connected, socketRef, requestScreenWithHashes]);
 
+  // Re-stream on WS reconnect: server-side socket is new → must re-emit start-streaming.
+  // Detect via socket.id change polled at the same cadence as hash-request (already running).
+  const lastSocketIdRef = useRef(null);
+  useEffect(() => {
+    if (!connected || !socketRef?.current) { lastSocketIdRef.current = null; return; }
+    lastSocketIdRef.current = socketRef.current.id || null;
+    const id = setInterval(() => {
+      const socket = socketRef.current;
+      const currentId = socket?.id;
+      if (!currentId) return;
+      if (lastSocketIdRef.current && currentId !== lastSocketIdRef.current) {
+        lastSocketIdRef.current = currentId;
+        cleanupTiles();
+        socket.emit("start-streaming");
+        socket.emit("request-screen-with-hashes", { tileHashes: [] });
+      } else if (!lastSocketIdRef.current) {
+        lastSocketIdRef.current = currentId;
+      }
+    }, REMOTE_CONFIG.hashRequestInterval);
+    return () => clearInterval(id);
+  }, [connected, socketRef, cleanupTiles]);
+
   // Pause stream when tab hidden to save CPU + bandwidth
   useEffect(() => {
     const socket = socketRef?.current;

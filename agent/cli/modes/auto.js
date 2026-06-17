@@ -16,6 +16,7 @@ import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { ensureKeyData, getVersion } from "../session/key.js";
 import { showConnectionInfo } from "../session/display.js";
 import { showBanner } from "../utils/tui.js";
+import { maskApiKey } from "../utils/apiKey.js";
 import { WORKER_URL, DELAYS, POLL } from "../config.js";
 
 async function startServerAndTunnel(selectedKey) {
@@ -86,7 +87,7 @@ async function startServerAndTunnel(selectedKey) {
 export async function autoStartDev() {
   showBanner(getVersion());
   const keyData = await ensureKeyData();
-  logger.info(`Using key: ${keyData.key.slice(0, 20)}... (${keyData.name})`);
+  logger.info(`Using key: ${maskApiKey(keyData.key)} (${keyData.name})`);
 
   const result = await startServerAndTunnel(keyData.key);
   if (!result) process.exit(1);

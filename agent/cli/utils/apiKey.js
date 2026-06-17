@@ -1,6 +1,7 @@
 import crypto from "crypto";
 
-const API_KEY_SECRET = process.env.API_KEY_SECRET || "9remote-api-key-secret";
+const API_KEY_SECRET = process.env.API_KEY_SECRET;
+if (!API_KEY_SECRET) throw new Error("API_KEY_SECRET env required");
 
 /**
  * Generate 4-char random keyId
@@ -74,4 +75,12 @@ export function parseApiKey(apiKey) {
 export function verifyApiKeyCrc(apiKey) {
   const parsed = parseApiKey(apiKey);
   return parsed !== null;
+}
+
+/**
+ * Mask API key for safe logging (preserve prefix + suffix)
+ */
+export function maskApiKey(apiKey) {
+  if (!apiKey || apiKey.length < 8) return "sk-***";
+  return `${apiKey.slice(0, 3)}***${apiKey.slice(-4)}`;
 }

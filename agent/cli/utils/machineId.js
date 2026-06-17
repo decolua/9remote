@@ -10,6 +10,7 @@ import crypto from "crypto";
  * @returns {Promise<string>} Machine ID (16-character hex)
  */
 export async function getConsistentMachineId(salt = null) {
+  // Salt is for ID stability, not security. Fallback kept to preserve existing keys.
   const saltValue = salt || process.env.MACHINE_ID_SALT || "9remote-salt";
   try {
     const rawMachineId = machineIdSync();

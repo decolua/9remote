@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import "../lib/loadEnv.js";
 import { initLogger } from "../lib/logger.js";
 import { stopRunningInstances } from "./utils/updateChecker.js";
 import { startUiMode } from "./modes/ui.js";

@@ -3,7 +3,7 @@
  */
 
 import { createServer, request as httpRequest } from "http";
-import { exec, spawn } from "child_process";
+import { execFile, spawn } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { join, extname } from "path";
 import { fileURLToPath } from "url";
@@ -92,7 +92,7 @@ function handleCodespaceStop(req, res) {
   const io = getIO();
   if (io) io.emit("codespace:stopping");
   jsonOk(res, { success: true, message: "Stopping codespace..." });
-  setTimeout(() => exec(`gh codespace stop -c ${name}`, { windowsHide: true }), 500);
+  setTimeout(() => execFile("gh", ["codespace", "stop", "-c", name], { windowsHide: true }), 500);
 }
 
 // ── Proxy handlers ────────────────────────────────────────────

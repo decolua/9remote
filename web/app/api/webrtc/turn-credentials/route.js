@@ -13,7 +13,7 @@ export async function GET(request) {
     const { env } = getCloudflareContext();
     const apiKey = request.headers.get("X-API-Key");
 
-    if (!apiKey || !(await verifyApiKeyCrc(apiKey))) return jsonError("Unauthorized", 401);
+    if (!apiKey || !(await verifyApiKeyCrc(apiKey, env))) return jsonError("Unauthorized", 401);
 
     const resp = await fetch(`${TURN_API}/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
       method: "POST",

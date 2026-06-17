@@ -10,7 +10,7 @@ export async function POST(request) {
   const { env } = getCloudflareContext();
   const { apiKey, shortId } = await request.json();
 
-  if (!(await verifyApiKeyCrc(apiKey))) return jsonError("Invalid API key");
+  if (!(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
   const { machineId } = parseApiKey(apiKey);
 
   await env.DB.prepare(`

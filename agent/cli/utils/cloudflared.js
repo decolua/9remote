@@ -258,6 +258,8 @@ export async function ensureCloudflared(onProgress) {
       onProgress?.({ phase: "download", percent });
     });
 
+    await verifyCloudflaredSha256(url, downloadDest);
+
     if (isArchive) {
       onProgress?.({ phase: "extract" });
       execSync(`tar -xzf "${downloadDest}" -C "${BIN_DIR}"`, { stdio: "pipe", windowsHide: true });
@@ -270,8 +272,43 @@ export async function ensureCloudflared(onProgress) {
 
     return BIN_PATH;
   } catch (error) {
+    try { if (fs.existsSync(downloadDest)) fs.unlinkSync(downloadDest); } catch {}
     console.error("❌ Failed to download cloudflared:", error.message);
     throw error;
+  }
+}
+
+// Fetch text content via https (no redirect handling needed for raw release files)
+function fetchText(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if ([301, 302].includes(res.statusCode)) return fetchText(res.headers.location).then(resolve).catch(reject);
+      if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+      let buf = "";
+      res.on("data", (c) => (buf += c));
+      res.on("end", () => resolve(buf));
+    }).on("error", reject);
+  });
+}
+
+// Verify downloaded cloudflared binary matches sha256 from official release manifest
+async function verifyCloudflaredSha256(downloadUrl, filePath) {
+  try {
+    const filename = path.basename(downloadUrl);
+    const manifestUrl = `${GITHUB_BASE_URL}/sha256sum.txt`;
+    const manifest = await fetchText(manifestUrl);
+    const line = manifest.split("\n").find((l) => l.includes(filename));
+    if (!line) {
+      logger.warn(`⚠️ No sha256 entry for ${filename}, skipping verify`);
+      return;
+    }
+    const expected = line.trim().split(/\s+/)[0];
+    const { createHash } = await import("crypto");
+    const actual = createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+    if (actual !== expected) throw new Error(`SHA256 mismatch: expected ${expected}, got ${actual}`);
+    logger.info(`✓ cloudflared SHA256 verified`);
+  } catch (e) {
+    throw new Error(`Integrity check failed: ${e.message}`);
   }
 }
 

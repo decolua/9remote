@@ -38,7 +38,7 @@ export function loadState() {
 export function saveState(state) {
   try {
     ensureDir();
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
   } catch (error) {
     console.error("Error saving state:", error);
   }
@@ -71,7 +71,7 @@ export function saveSettings(patch) {
   try {
     ensureDir();
     const next = { ...loadSettings(), ...patch };
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), { mode: 0o600 });
     return next;
   } catch (error) {
     console.error("Error saving settings:", error);
@@ -131,7 +131,7 @@ export function saveKey(machineId, key, name = "Default") {
       name,
       createdAt: new Date().toISOString()
     };
-    fs.writeFileSync(KEYS_FILE, JSON.stringify(data, null, 2));
+    fs.writeFileSync(KEYS_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
     return data;
   } catch (error) {
     console.error("Error saving key:", error);

@@ -4,6 +4,7 @@ import os from "os";
 import { execSync, spawn } from "child_process";
 import chokidar from "chokidar";
 import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH } from "../constants.js";
+import { isSensitivePath } from "../pathGuard.js";
 
 function isIgnoredDir(name) { return IGNORED_DIRS.includes(name); }
 function isBinaryFile(filename) {
@@ -125,6 +126,7 @@ export function setupFileHandlers(socket) {
     try {
       const targetPath = dirPath || os.homedir();
       const resolvedPath = targetPath.startsWith("~") ? targetPath.replace("~", os.homedir()) : targetPath;
+      if (isSensitivePath(resolvedPath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(resolvedPath)) return callback({ success: false, error: "Directory not found" });
 
       const files = [];
@@ -173,6 +175,7 @@ export function setupFileHandlers(socket) {
 
   socket.on("readFile", ({ filePath }, callback) => {
     try {
+      if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(filePath)) return callback({ success: false, error: "File not found" });
       const stat = fs.statSync(filePath);
       if (stat.size > MAX_FILE_SIZE) return callback({ success: false, error: `File too large (${formatSize(stat.size)}). Max ${formatSize(MAX_FILE_SIZE)}` });
@@ -185,6 +188,7 @@ export function setupFileHandlers(socket) {
 
   socket.on("readImage", ({ filePath }, callback) => {
     try {
+      if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(filePath)) return callback({ success: false, error: "File not found" });
       const stat = fs.statSync(filePath);
       const maxImageSize = 10 * 1024 * 1024;
@@ -202,6 +206,7 @@ export function setupFileHandlers(socket) {
 
   socket.on("writeFile", ({ filePath, content }, callback) => {
     try {
+      if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
       fs.writeFileSync(filePath, content, "utf-8");
       callback({ success: true });
     } catch (error) {
@@ -211,6 +216,7 @@ export function setupFileHandlers(socket) {
 
   socket.on("createItem", ({ itemPath, type }, callback) => {
     try {
+      if (isSensitivePath(itemPath)) return callback({ success: false, error: "Access denied" });
       if (fs.existsSync(itemPath)) return callback({ success: false, error: "Item already exists" });
       type === "folder" ? fs.mkdirSync(itemPath, { recursive: true }) : fs.writeFileSync(itemPath, "", "utf-8");
       callback({ success: true });
@@ -221,6 +227,7 @@ export function setupFileHandlers(socket) {
 
   socket.on("deleteItem", ({ itemPath }, callback) => {
     try {
+      if (isSensitivePath(itemPath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(itemPath)) return callback({ success: false, error: "Item not found" });
       const stat = fs.statSync(itemPath);
       stat.isDirectory() ? fs.rmSync(itemPath, { recursive: true }) : fs.unlinkSync(itemPath);
@@ -232,6 +239,7 @@ export function setupFileHandlers(socket) {
 
   socket.on("renameItem", ({ oldPath, newPath }, callback) => {
     try {
+      if (isSensitivePath(oldPath) || isSensitivePath(newPath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(oldPath)) return callback({ success: false, error: "Item not found" });
       if (fs.existsSync(newPath)) return callback({ success: false, error: "Target already exists" });
       fs.renameSync(oldPath, newPath);

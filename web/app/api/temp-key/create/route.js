@@ -22,7 +22,7 @@ export async function POST(request) {
     const { env } = getCloudflareContext();
     const { apiKey, expiryMinutes = TEMP_KEY_EXPIRY_MINUTES } = await request.json();
 
-    if (!apiKey || !(await verifyApiKeyCrc(apiKey))) return jsonError("Invalid API key");
+    if (!apiKey || !(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
 
     await env.DB.prepare(`DELETE FROM temp_keys WHERE api_key = ?`).bind(apiKey).run();
 

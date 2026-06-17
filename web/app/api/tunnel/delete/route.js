@@ -10,7 +10,7 @@ export async function DELETE(request) {
     const { env } = getCloudflareContext();
     const { apiKey } = await request.json();
 
-    if (!(await verifyApiKeyCrc(apiKey))) return jsonError("Invalid API key");
+    if (!(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
 
     const session = await env.DB.prepare(`SELECT tunnelId, shortId FROM sessions WHERE apiKey = ?`).bind(apiKey).first();
 

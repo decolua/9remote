@@ -91,3 +91,12 @@ export const GIT_STATUS_COLORS = {
 };
 
 export const AUTO_SAVE_DELAY = 3000; // 3 seconds
+
+// Blacklist sensitive paths (relative to home dir, or absolute system paths)
+export const SENSITIVE_HOME_DIRS = [
+  ".ssh", ".aws", ".gnupg", ".kube", ".docker", ".cargo",
+  ".npmrc", ".netrc", ".pypirc", ".config/gh", ".config/gcloud"
+];
+export const SENSITIVE_ABS_PATHS = [
+  "/etc/shadow", "/etc/sudoers", "/etc/ssh", "/root", "/private/etc/sudoers"
+];

@@ -107,16 +107,24 @@ export function useSocket() {
   }, [socketRef]);
 
   // Create new session
-  const createSession = useCallback((name, callback) => {
+  const createSession = useCallback((name, shellId, callback) => {
     if (!socketRef.current) return;
+    // Backward compat: createSession(name, callback)
+    if (typeof shellId === "function") { callback = shellId; shellId = null; }
 
-    socketRef.current.emit("createSession", { name }, (result) => {
+    socketRef.current.emit("createSession", { name, shellId }, (result) => {
       if (result.success) {
         loadSessions();
       }
       callback?.(result);
     });
   }, [socketRef, loadSessions]);
+
+  // Fetch available shells from agent
+  const getShells = useCallback((callback) => {
+    if (!socketRef.current) return;
+    socketRef.current.emit("getShells", (result) => callback?.(result));
+  }, [socketRef]);
 
   // Delete session
   const deleteSession = useCallback((sessionId, callback) => {
@@ -175,6 +183,7 @@ export function useSocket() {
     agentVersion,
     loadSessions,
     createSession,
+    getShells,
     deleteSession,
     renameSession,
     stopCodespace

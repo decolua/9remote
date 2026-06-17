@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import pty from "node-pty";
+import { resolveShell } from "./constants.js";
 
 // Socket path
 const SOCKET_DIR = path.join(os.homedir(), ".9remote");
@@ -78,16 +79,6 @@ function logError(message, error = null) {
 }
 
 /**
- * Get default shell
- */
-function getDefaultShell() {
-  if (process.platform === "win32") {
-    return process.env.COMSPEC || "cmd.exe";
-  }
-  return process.env.SHELL || "/bin/bash";
-}
-
-/**
  * Get default working directory
  */
 function getDefaultCwd() {
@@ -99,23 +90,20 @@ function getDefaultCwd() {
 }
 
 /**
- * Build shell environment
+ * Build shell environment based on selected shell path
  */
-function buildShellEnv() {
+function buildShellEnv(shellPath) {
   const env = {
     ...process.env,
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     LANG: process.env.LANG || "en_US.UTF-8"
   };
-  
-  // Inject shell integration to track working directory
-  const shell = getDefaultShell();
-  const isZsh = shell.includes("zsh");
-  const isBash = shell.includes("bash");
-  
+
+  const isZsh = shellPath.includes("zsh");
+  const isBash = shellPath.includes("bash");
+
   if (isZsh) {
-    // For zsh: use precmd hook to emit OSC 7
     env.ZDOTDIR = env.ZDOTDIR || env.HOME;
     const precmdHook = `
 precmd() {
@@ -124,11 +112,10 @@ precmd() {
 `;
     env._9REMOTE_PRECMD = precmdHook;
   } else if (isBash) {
-    // For bash: use PROMPT_COMMAND
     const existingPrompt = env.PROMPT_COMMAND || "";
     env.PROMPT_COMMAND = `printf "\\e]7;file://%s\\a" "\${HOSTNAME}\${PWD}"${existingPrompt ? `; ${existingPrompt}` : ""}`;
   }
-  
+
   return env;
 }
 
@@ -160,20 +147,19 @@ function send(client, message) {
 /**
  * Create new PTY session
  */
-function createSession(sessionId, name, cols = 80, rows = 24) {
+function createSession(sessionId, name, cols = 80, rows = 24, shellId = null) {
   if (sessions.has(sessionId)) {
     return { success: false, error: "Session already exists" };
   }
 
-  const shell = getDefaultShell();
-  const shellArgs = process.platform === "win32" ? [] : ["-l"];
+  const shellConfig = resolveShell(shellId);
   const cwd = getDefaultCwd();
-  
+
   try {
-    const shellEnv = buildShellEnv();
+    const shellEnv = buildShellEnv(shellConfig.path);
     shellEnv.NINE_REMOTE_SESSION_ID = sessionId;
-    
-    const ptyProcess = pty.spawn(shell, shellArgs, {
+
+    const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, {
       name: "xterm-256color",
       cols,
       rows,
@@ -182,12 +168,20 @@ function createSession(sessionId, name, cols = 80, rows = 24) {
       useConpty: process.platform === "win32"
     });
 
+    // Inject OSC 7 cwd tracking for powershell/pwsh after spawn
+    if (shellConfig.id === "powershell" || shellConfig.id === "pwsh") {
+      const prompt = `function prompt { $p = $PWD.Path -replace '\\\\','/'; "$([char]27)]7;file://$([System.Net.Dns]::GetHostName())$p$([char]27)\\PS $($PWD.Path)> " }\r\n`;
+      setTimeout(() => { try { ptyProcess.write(prompt); } catch {} }, 500);
+    }
+
     const session = {
       pty: ptyProcess,
       buffer: [],
       name: name || `Terminal ${sessions.size + 1}`,
       createdAt: Date.now(),
-      cwd // Store initial cwd
+      cwd,
+      shellId: shellConfig.id,
+      shellLabel: shellConfig.label
     };
 
     // Buffer output and broadcast to clients
@@ -212,7 +206,7 @@ function createSession(sessionId, name, cols = 80, rows = 24) {
     });
 
     sessions.set(sessionId, session);
-    return { success: true, sessionId, cwd };
+    return { success: true, sessionId, cwd, shellId: shellConfig.id, shellLabel: shellConfig.label };
   } catch (error) {
     logError("Failed to create session", error);
     return { success: false, error: error.message };
@@ -234,7 +228,9 @@ function handleMessage(client, message) {
       const list = Array.from(sessions.entries()).map(([id, s]) => ({
         id,
         name: s.name,
-        createdAt: s.createdAt
+        createdAt: s.createdAt,
+        shellId: s.shellId,
+        shellLabel: s.shellLabel
       }));
       send(client, { type: "sessionList", sessions: list, requestId: payload.requestId });
       break;
@@ -244,7 +240,8 @@ function handleMessage(client, message) {
         payload.sessionId || `session-${Date.now()}`,
         payload.name,
         payload.cols,
-        payload.rows
+        payload.rows,
+        payload.shellId
       );
       send(client, { type: "createResult", ...createResult, requestId: payload.requestId });
       break;
@@ -264,7 +261,7 @@ function handleMessage(client, message) {
           data: Buffer.from(history).toString("base64")
         });
       }
-      send(client, { type: "joinResult", success: true, name: session.name, cwd: session.cwd, requestId: payload.requestId });
+      send(client, { type: "joinResult", success: true, name: session.name, cwd: session.cwd, shellId: session.shellId, shellLabel: session.shellLabel, requestId: payload.requestId });
       break;
 
     case "input":
@@ -380,13 +377,17 @@ function startDaemon() {
     process.exit(1);
   });
 
-  server.listen(SOCKET_PATH);
+  server.listen(SOCKET_PATH, () => {
+    if (process.platform !== "win32") {
+      try { fs.chmodSync(SOCKET_PATH, 0o600); } catch {}
+    }
+  });
 
   // Write own PID so the updater / app can kill us by PID only. Kill-by-image
   // (taskkill /IM node.exe) would nuke unrelated node processes on the machine.
   try {
     fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
-    fs.writeFileSync(PID_FILE, String(process.pid));
+    fs.writeFileSync(PID_FILE, String(process.pid), { mode: 0o600 });
   } catch {}
 
   const cleanupAndExit = () => {

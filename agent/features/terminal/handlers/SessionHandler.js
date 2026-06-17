@@ -1,6 +1,7 @@
 import pty from "node-pty";
 import * as daemonClient from "../ptyDaemonClient.js";
 import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, UPLOAD_DIR } from "../ptyHelper.js";
+import { resolveShell, getShellList } from "../constants.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import fs from "fs";
@@ -42,24 +43,32 @@ export function setupSessionHandlers(socket, io, sessions) {
   socket.on("getSessions", (callback) => {
     const list = [];
     for (const [id, session] of sessions) {
-      list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false });
+      list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false, shellId: session.shellId, shellLabel: session.shellLabel });
     }
     callback(list);
   });
 
-  socket.on("createSession", async ({ name }, callback) => {
+  socket.on("getShells", (callback) => {
+    callback({ platform: process.platform, shells: getShellList() });
+  });
+
+  socket.on("createSession", async ({ name, shellId }, callback) => {
     const sessionId = `session-${Date.now()}`;
+    const shellConfig = resolveShell(shellId);
     const shellEnv = buildShellEnv();
     shellEnv.NINE_REMOTE_SESSION_ID = sessionId;
     const cwd = getDefaultCwd(isCodespaces());
 
     try {
+      // Auto-name from shell label if user didn't provide a custom name
+      const autoName = name || `${shellConfig.label} ${sessions.size + 1}`;
+
       // Daemon mode
       if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
-        const result = await daemonClient.createSession(name, 80, 24);
+        const result = await daemonClient.createSession(autoName, 80, 24, shellId);
         if (result.success) {
-          sessions.set(result.sessionId, { daemon: true, name: name || `Terminal ${sessions.size + 1}`, createdAt: Date.now(), cwd: result.cwd });
-          callback({ success: true, sessionId: result.sessionId });
+          sessions.set(result.sessionId, { daemon: true, name: autoName, createdAt: Date.now(), cwd: result.cwd, shellId: result.shellId, shellLabel: result.shellLabel });
+          callback({ success: true, sessionId: result.sessionId, shellLabel: result.shellLabel });
         } else {
           callback({ success: false, error: result.error });
         }
@@ -67,14 +76,12 @@ export function setupSessionHandlers(socket, io, sessions) {
       }
 
       // Buffer mode PTY
-      const shell = getDefaultShell();
-      const shellArgs = process.platform === "win32" ? [] : ["-l"];
-      const ptyProcess = pty.spawn(shell, shellArgs, { name: "xterm-256color", cols: 80, rows: 24, cwd, env: shellEnv, useConpty: false });
-      const sessionData = { pty: ptyProcess, name: name || `Terminal ${sessions.size + 1}`, createdAt: Date.now(), buffer: [], cwd };
+      const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, { name: "xterm-256color", cols: 80, rows: 24, cwd, env: shellEnv, useConpty: false });
+      const sessionData = { pty: ptyProcess, name: autoName, createdAt: Date.now(), buffer: [], cwd, shellId: shellConfig.id, shellLabel: shellConfig.label };
 
       attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions);
       sessions.set(sessionId, sessionData);
-      callback({ success: true, sessionId });
+      callback({ success: true, sessionId, shellLabel: shellConfig.label });
     } catch (error) {
       console.error("Failed to create session:", error);
       callback({ success: false, error: error.message });

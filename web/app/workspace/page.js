@@ -53,7 +53,13 @@ export default function WorkspacePage() {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, retryStatus, approvalStatus, loadSessions, createSession, getShells, deleteSession, renameSession, stopCodespace } = useSocket();
+  const [shells, setShells] = useState([]);
+
+  useEffect(() => {
+    if (!connected) return;
+    getShells((res) => { if (res?.shells) setShells(res.shells); });
+  }, [connected, getShells]);
   const fileSocket = useFileSocket(socketRef);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
   const [systemInfo, setSystemInfo] = useState(null);
@@ -249,9 +255,8 @@ export default function WorkspacePage() {
   }, [sessions, addOpenedSession, currentView, viewStack, setViewStack, pushView]);
 
   // Quick-create from terminal header "+" button - auto-switch focus to new session
-  const handleQuickCreateSession = useCallback(() => {
-    const name = `${t("terminal.defaultName")} ${sessions.length + 1}`;
-    createSession(name, (result) => {
+  const handleQuickCreateSession = useCallback((shellId) => {
+    createSession(null, shellId, (result) => {
       if (!result.success) {
         alert(t("workspace.failedCreateSession", { error: result.error }));
         return;
@@ -261,12 +266,11 @@ export default function WorkspacePage() {
         handleSelectSession(result.sessionId);
       }
     });
-  }, [sessions, createSession, handleSelectSession, t]);
+  }, [createSession, handleSelectSession, t]);
 
   // Create session from FileExplorer bottom panel - stay in current view
   const handleCreateSessionInline = useCallback((onCreated) => {
-    const name = `${t("terminal.defaultName")} ${sessions.length + 1}`;
-    createSession(name, (result) => {
+    createSession(null, (result) => {
       if (!result.success) {
         alert(t("workspace.failedCreateSession", { error: result.error }));
         return;
@@ -276,7 +280,7 @@ export default function WorkspacePage() {
         onCreated?.(result.sessionId);
       }
     });
-  }, [sessions, createSession, addOpenedSession, t]);
+  }, [createSession, addOpenedSession, t]);
 
   const handleDeleteSession = useCallback((sessionId) => {
     deleteSession(sessionId, () => {
@@ -482,6 +486,7 @@ export default function WorkspacePage() {
                 agentVersion={agentVersion}
                 socketRef={socketRef}
                 transport={transport}
+                shells={shells}
               />
 
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
