@@ -2,6 +2,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { STORAGE_KEY, DEFAULT_THEME } from "@/shared/theme/themeConfig";
+import { GoogleAnalytics } from "@next/third-parties/google";
+import { GA_ID } from "@/shared/constants/analytics";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -74,6 +76,7 @@ export default function RootLayout({ children }) {
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider>{children}</ThemeProvider>
+        {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
       </body>
     </html>
   );

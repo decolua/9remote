@@ -9,11 +9,12 @@ import Container from "@/shared/components/ui/Container";
 import Button from "@/shared/components/ui/Button";
 import Spinner from "@/shared/components/ui/Spinner";
 import QRScanner from "@/shared/components/ui/QRScanner";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
 import LanguageSwitcher from "@/shared/components/ui/LanguageSwitcher";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
 import { useI18n } from "@/shared/i18n";
-import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode, Home, FileText, Github } from "@/shared/components/ui/Icon";
+import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode, Home, FileText, Github, Pencil, Check } from "@/shared/components/ui/Icon";
 import { HOMEPAGE_URL, DOCS_URL } from "@/shared/constants/API";
 import GithubLoginForm from "@/features/codespace/components/GithubLoginForm";
 import CodespaceList from "@/features/codespace/components/CodespaceList";
@@ -30,6 +31,9 @@ function LoginContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [authTab, setAuthTab] = useState("local");
+  const [editingKeyId, setEditingKeyId] = useState(null);
+  const [editingLabel, setEditingLabel] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
 
   const { token: githubToken, clearToken: clearGithubToken } = useGithub();
@@ -38,7 +42,7 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { loading, error, authenticateWithToken, authenticateWithApiKey } = useAuth();
-  const { loadKeys, saveKey, removeKey, hasStoredKeys, updateLastLogin } = useApiKeyStorage();
+  const { loadKeys, saveKey, removeKey, renameKey, hasStoredKeys, updateLastLogin } = useApiKeyStorage();
 
   // Check for token (old) or temp key (new) in URL (QR code auth)
   const token = useMemo(() => searchParams.get("t"), [searchParams]);
@@ -141,10 +145,29 @@ function LoginContent() {
     }
   };
 
-  // Handle remove a saved key
-  const handleRemoveKey = (id) => {
-    removeKey(id);
+  // Confirm and remove the targeted key
+  const handleConfirmRemoveKey = () => {
+    if (!deleteTarget) return;
+    removeKey(deleteTarget.id);
     setSavedKeys(loadKeys());
+  };
+
+  // Start editing a key's label
+  const handleStartRename = (item) => {
+    setEditingKeyId(item.id);
+    setEditingLabel(item.label || "");
+  };
+
+  // Save edited label
+  const handleSaveRename = (id) => {
+    renameKey(id, editingLabel.trim());
+    setSavedKeys(loadKeys());
+    setEditingKeyId(null);
+  };
+
+  // Cancel editing
+  const handleCancelRename = () => {
+    setEditingKeyId(null);
   };
 
   // Handle QR scan result
@@ -363,38 +386,85 @@ function LoginContent() {
               <div className="space-y-2">
                 {savedKeys.map((item) => (
                   <div key={item.id} className="bg-surface-2 rounded-brand p-3 hover:bg-surface-3 transition-all duration-150 ease-out">
-                    <div className="flex items-center justify-between gap-3">
-                      <div 
-                        className="flex-1 min-w-0 cursor-pointer group"
-                        onClick={() => handleLoginWithSavedKey(item.key)}
-                      >
-                        <code className="text-sm text-text group-hover:text-brand-500 font-mono block truncate transition-colors">
-                          {maskApiKey(item.key)}
-                        </code>
+                    {editingKeyId === item.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={editingLabel}
+                          onChange={(e) => setEditingLabel(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveRename(item.id);
+                            if (e.key === "Escape") handleCancelRename();
+                          }}
+                          placeholder={t("login.namePlaceholder")}
+                          autoFocus
+                          className="flex-1 min-w-0 px-3 py-1.5 bg-surface rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                        />
+                        <button
+                          onClick={() => handleSaveRename(item.id)}
+                          className="text-brand-500 hover:text-brand-400 transition-colors"
+                          type="button"
+                        >
+                          <Check size={18} />
+                        </button>
+                        <button
+                          onClick={handleCancelRename}
+                          className="text-text-muted hover:text-text transition-colors"
+                          type="button"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                    ) : (
+                    <div className="space-y-2">
+                      {/* Row 1: label + rename (left), last login (right) */}
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => handleStartRename(item)}
+                          disabled={loading}
+                          className="group flex items-center gap-1.5 min-w-0 disabled:opacity-50"
+                          type="button"
+                          aria-label={t("login.rename")}
+                        >
+                          <span className="text-sm font-medium text-text group-hover:text-brand-500 truncate transition-colors">
+                            {item.label}
+                          </span>
+                          <Pencil size={14} className="shrink-0 text-text-muted group-hover:text-brand-500 transition-colors" />
+                        </button>
                         {item.lastLoginDate && (
-                          <span className="text-xs text-text-muted mt-1 block">
-                            {t("login.lastLogin")}: {formatLoginDate(item.lastLoginDate)}
+                          <span className="shrink-0 text-xs text-text-muted">
+                            {formatLoginDate(item.lastLoginDate)}
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button
+                      {/* Row 2: masked key (clickable login), actions */}
+                      <div className="flex items-center justify-between gap-3">
+                        <code
                           onClick={() => handleLoginWithSavedKey(item.key)}
-                          disabled={loading}
-                          className="flex items-center gap-1.5 text-brand-500 hover:text-brand-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="flex-1 min-w-0 text-sm text-text-muted hover:text-brand-500 font-mono truncate transition-colors cursor-pointer"
                         >
-                          <LogIn size={16} />
-                          {t("login.login")}
-                        </button>
-                        <button
-                          onClick={() => handleRemoveKey(item.id)}
-                          disabled={loading}
-                          className="flex items-center gap-1 text-text-muted hover:text-danger text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                          {maskApiKey(item.key)}
+                        </code>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <button
+                            onClick={() => handleLoginWithSavedKey(item.key)}
+                            disabled={loading}
+                            className="flex items-center gap-1.5 p-1 text-brand-500 hover:text-brand-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <LogIn size={16} />
+                            {t("login.login")}
+                          </button>
+                          <button
+                            onClick={() => setDeleteTarget({ id: item.id, label: item.label })}
+                            disabled={loading}
+                            className="flex items-center p-1 text-text-muted hover:text-danger text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </div>
                     </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -431,6 +501,16 @@ function LoginContent() {
         isOpen={showQRScanner}
         onClose={() => setShowQRScanner(false)}
         onScan={handleQRScan}
+      />
+
+      {/* Delete key confirmation */}
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmRemoveKey}
+        title={t("login.deleteKeyTitle")}
+        message={t("login.deleteKeyConfirm", { name: deleteTarget?.label })}
+        confirmText={t("common.delete")}
       />
     </>
   );

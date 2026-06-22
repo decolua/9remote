@@ -1,7 +1,6 @@
 import crypto from "crypto";
 
-const API_KEY_SECRET = process.env.API_KEY_SECRET;
-if (!API_KEY_SECRET) throw new Error("API_KEY_SECRET env required");
+const API_KEY_SECRET = process.env.API_KEY_SECRET || "9remote-api-key-secret";
 
 /**
  * Generate 4-char random keyId

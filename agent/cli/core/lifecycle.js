@@ -96,8 +96,13 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
     getProcess: () => currentProcess,
     shutdown: () => {
       isShuttingDown = true;
-      // SIGKILL: Windows TerminateProcess fires immediately; SIGTERM leaves orphans
-      if (currentProcess) { try { currentProcess.kill("SIGKILL"); } catch {} }
+      if (!currentProcess) return;
+      // SIGTERM first → server graceful shutdown (releases caffeinate/sleep inhibitor)
+      // Fallback SIGKILL after 2s if server doesn't exit cleanly
+      try { currentProcess.kill("SIGTERM"); } catch {}
+      setTimeout(() => {
+        try { if (currentProcess) currentProcess.kill("SIGKILL"); } catch {}
+      }, 2000);
     },
   };
 }

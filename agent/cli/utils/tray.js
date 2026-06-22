@@ -4,8 +4,11 @@
 
 import { spawn } from "child_process";
 import fs from "fs";
-import path from "path";
+import path, { join } from "path";
+import os from "os";
 import { fileURLToPath } from "url";
+
+const RUNTIME_MODULES = join(os.homedir(), ".9remote", "runtime", "node_modules");
 
 let trayInstance = null;
 let trayState = { port: 0, tunnelUrl: "", running: false };
@@ -72,33 +75,53 @@ function buildMenu() {
  * Initialize system tray
  * @param {{ port: number, onQuit: () => void, onOpenUI: () => void }} options
  */
+/** Resolve systray2 (modern binary) from runtime dir, fallback to global */
+function resolveSystray() {
+  const candidates = [
+    path.join(RUNTIME_MODULES, "systray2"),
+    "systray2",
+  ];
+  for (const p of candidates) {
+    try {
+      const mod = require(p);
+      return mod.default?.default || mod.default || mod;
+    } catch {}
+  }
+  return null;
+}
+
 export async function initTray({ port, onQuit, onOpenUI }) {
   if (!isTraySupported()) return null;
 
   try {
-    const mod = await import("systray");
-    const SysTray = mod.default?.default || mod.default;
+    const SysTray = resolveSystray();
+    if (!SysTray) return null;
+
+    // Ensure binary is executable (npm tarball sometimes strips +x)
+    const binName = process.platform === "darwin" ? "tray_darwin_release" : "tray_linux_release";
+    const binPath = path.join(RUNTIME_MODULES, "systray2", "traybin", binName);
+    try { if (fs.existsSync(binPath)) fs.chmodSync(binPath, 0o755); } catch {}
 
     trayState = { port, tunnelUrl: "", running: true };
-
     trayInstance = new SysTray({ menu: buildMenu(), debug: false, copyDir: true });
-    // Tray helper is a direct child of agent; no separate PID file needed.
-    // `taskkill /F /T /PID <agent>` at update time terminates it along with
-    // the agent tree — safer than matching by image name.
 
     trayInstance.onClick((action) => {
-      const title = action.item.title;
-      if (title === "Open Web UI") {
-        onOpenUI?.();
-      } else if (title === "Shutdown") {
+      const title = action.item?.title || action.item;
+      if (title === "Open Web UI") onOpenUI?.();
+      else if (title === "Shutdown") {
         onQuit?.();
         killTray();
         setTimeout(() => process.exit(0), 500);
       }
     });
 
-    trayInstance.onReady(() => {});
-    trayInstance.onError(() => {});
+    // systray2 exposes ready() promise; legacy systray uses onReady/onError callbacks
+    if (typeof trayInstance.ready === "function") {
+      trayInstance.ready().catch(() => {});
+    } else {
+      trayInstance.onReady(() => {});
+      trayInstance.onError(() => {});
+    }
 
     return trayInstance;
   } catch {

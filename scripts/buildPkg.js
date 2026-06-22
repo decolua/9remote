@@ -9,8 +9,8 @@ import * as esbuild from "esbuild";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import JavaScriptObfuscator from "javascript-obfuscator";
-import { nodePreset } from "./obfuscatorConfig.js";
+// import JavaScriptObfuscator from "javascript-obfuscator";
+// import { nodePreset } from "./obfuscatorConfig.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -31,12 +31,13 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-function obfuscateFile(file) {
-  const code = fs.readFileSync(file, "utf-8");
-  const result = JavaScriptObfuscator.obfuscate(code, nodePreset).getObfuscatedCode();
-  fs.writeFileSync(file, result);
-  console.log(`🔒 Obfuscated → ${path.relative(ROOT, file)} (${(fs.statSync(file).size / 1024).toFixed(1)} KB)`);
-}
+// Disabled: obfuscation triggers Defender false positive (Trojan:JS/NpmSteal)
+// function obfuscateFile(file) {
+//   const code = fs.readFileSync(file, "utf-8");
+//   const result = JavaScriptObfuscator.obfuscate(code, nodePreset).getObfuscatedCode();
+//   fs.writeFileSync(file, result);
+//   console.log(`🔒 Obfuscated → ${path.relative(ROOT, file)} (${(fs.statSync(file).size / 1024).toFixed(1)} KB)`);
+// }
 
 const baseConfig = {
   bundle: true,
@@ -135,11 +136,12 @@ async function build() {
   await buildInstall();
   copyAssets();
 
-  console.log("\n🔒 Obfuscating bundles...");
-  obfuscateFile(path.join(DIST_DIR, "cli.cjs"));
-  obfuscateFile(path.join(DIST_DIR, "server.cjs"));
-  obfuscateFile(path.join(DIST_DIR, "ptyDaemon.cjs"));
-  obfuscateFile(path.join(DIST_DIR, "install.cjs"));
+  // Disabled: obfuscation triggers Defender false positive (Trojan:JS/NpmSteal)
+  // console.log("\n🔒 Obfuscating bundles...");
+  // obfuscateFile(path.join(DIST_DIR, "cli.cjs"));
+  // obfuscateFile(path.join(DIST_DIR, "server.cjs"));
+  // obfuscateFile(path.join(DIST_DIR, "ptyDaemon.cjs"));
+  // obfuscateFile(path.join(DIST_DIR, "install.cjs"));
 
   console.log("\n📦 Creating npm package...");
   run("npm pack", SERVER_DIR);

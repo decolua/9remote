@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "2.0.17",
+  "version": "2.0.22",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "dist/server.cjs",
@@ -46,7 +46,6 @@
     "qrcode-terminal": "^0.12.0",
     "sharp": "^0.33.5",
     "socket.io": "^4.8.3",
-    "systray": "^1.0.5",
     "utf-8-validate": "^6.0.6",
     "web-push": "^3.6.7"
   },

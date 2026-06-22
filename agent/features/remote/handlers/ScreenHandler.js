@@ -82,6 +82,9 @@ export class ScreenHandler {
       remoteLog.lifecycle("🚀 Remote streaming started");
       clientData.idleFrameCount = 0;
       clientData.isStreaming = true;
+      // Bump generation so any leftover loop self-exits (prevents 2 loops sharing isProcessing)
+      clientData.streamGen = (clientData.streamGen || 0) + 1;
+      const myGen = clientData.streamGen;
 
       // Reset tile hashes so server sends a full frame on restart
       clientData.tileManager.lastTileChecksums.clear();
@@ -94,7 +97,7 @@ export class ScreenHandler {
       }
 
       const streamLoop = async () => {
-        if (!socket.connected || !clientData.isStreaming) {
+        if (!socket.connected || !clientData.isStreaming || clientData.streamGen !== myGen) {
           clientData.streamingTimeout = null;
           return;
         }

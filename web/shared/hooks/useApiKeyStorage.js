@@ -40,7 +40,7 @@ export function useApiKeyStorage() {
   }, [isBrowser]);
 
   // Save a new key (avoid duplicates)
-  const saveKey = useCallback((apiKey) => {
+  const saveKey = useCallback((apiKey, label = "") => {
     if (!apiKey || !isBrowser) return;
     try {
       const existing = loadKeys();
@@ -61,6 +61,7 @@ export function useApiKeyStorage() {
       const newKey = {
         id: Date.now().toString(),
         key: encode(apiKey),
+        label: label || `Key ${existing.length + 1}`,
         createdAt: new Date().toISOString(),
         lastLoginDate: new Date().toISOString()
       };
@@ -108,6 +109,22 @@ export function useApiKeyStorage() {
     }
   }, [isBrowser]);
 
+  // Rename a key (set custom label) by id
+  const renameKey = useCallback((id, label) => {
+    if (!isBrowser) return;
+    try {
+      const existing = loadKeys();
+      const updated = existing.map((item) => ({
+        ...item,
+        key: encode(item.key),
+        label: item.id === id ? label : (item.label || "")
+      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } catch (err) {
+      console.error("Failed to rename API key:", err);
+    }
+  }, [isBrowser, loadKeys]);
+
   // Update last login date for a key
   const updateLastLogin = useCallback((apiKey) => {
     if (!apiKey || !isBrowser) return;
@@ -128,6 +145,7 @@ export function useApiKeyStorage() {
     saveKey,
     loadKeys,
     removeKey,
+    renameKey,
     clearKeys,
     hasStoredKeys,
     updateLastLogin

@@ -27,6 +27,7 @@ export const REMOTE_CONFIG = {
   // Streaming settings
   hashRequestInterval: 1500, // ms between hash verify requests (backup sync)
   lastDataThreshold: 500,    // skip request if received data within this ms
+  restreamDelay: 200,        // ms delay before re-start streaming so agent's old loop exits (avoids isProcessing stall)
 
   // Throttling
   mouseThrottle: 8,

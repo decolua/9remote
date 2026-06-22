@@ -290,9 +290,16 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     socket.on("tiles-meta", onTilesMeta);
     socket.on("screen-error", onScreenError);
 
-    socket.emit("start-streaming");
+    // Stop any leftover agent loop first, then start fresh after a delay.
+    // Two overlapping loops share isProcessing on one tileManager → permanent stall.
+    socket.emit("stop-streaming");
+    const startTimer = setTimeout(() => {
+      socket.emit("start-streaming");
+      socket.emit("request-screen-with-hashes", { tileHashes: [] });
+    }, REMOTE_CONFIG.restreamDelay);
 
     return () => {
+      clearTimeout(startTimer);
       socket.emit("stop-streaming");
       socket.off("screen-dimensions", onScreenDimensions);
       socket.off("full-screen-data", onFullScreenData);
