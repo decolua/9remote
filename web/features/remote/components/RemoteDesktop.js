@@ -140,6 +140,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     clickIndicator,
     virtualCursor,
     handHolding,
+    scrollLock,
     getCanvasCoordinates,
     resetZoom,
     centerVirtualCursor,
@@ -394,12 +395,13 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       pointerMode,
       handMode,
       onHandRelease,
-      handleSelection: (clientX, clientY, selType) => handleSelection(clientX, clientY, selType, {
+      handleSelection: (clientX, clientY, selType, extra) => handleSelection(clientX, clientY, selType, {
         streaming,
         getCanvasCoordinates,
         baseCanvasSize,
         canvasZoom,
-        canvasPan
+        canvasPan,
+        ...extra
       })
     });
   };
@@ -433,6 +435,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
           selectionMode={selectionMode}
           handMode={handMode}
           handHolding={handHolding}
+          scrollLock={scrollLock}
           virtualCursor={virtualCursor}
           inputMode={inputMode}
           keyboardOn={keyboardOn}

@@ -56,6 +56,12 @@ export function useCanvas(socketEmitFunctions) {
   const handHoldingRef = useRef(false);
   const [handHolding, setHandHolding] = useState(false);
 
+  // Trackpad long-press scroll lock: hold 1 finger still → enter scroll mode.
+  // Cursor freezes, drag scrolls (both axes) instead of moving cursor.
+  const scrollLongPressTimerRef = useRef(null);
+  const scrollLockRef = useRef(false);
+  const [scrollLock, setScrollLock] = useState(false);
+
   // 2-finger tap detection (trackpad mode → right-click). Tracks max centroid/distance
   // movement during the 2-finger gesture; if gesture never locked + within tap thresholds
   // on touchend, emit right-click at the virtual cursor.
@@ -282,6 +288,21 @@ export function useCanvas(socketEmitFunctions) {
     }
   }, [socketEmitFunctions]);
 
+  // Horizontal scroll counterpart — mirrors emitScrollFromDelta for left/right.
+  const emitHScrollFromDelta = useCallback((deltaX) => {
+    edgeScrollAccumRef.current.x += deltaX;
+    const { edgeScrollThreshold, edgeScrollMultiplier } = REMOTE_CONFIG;
+    if (Math.abs(edgeScrollAccumRef.current.x) >= edgeScrollThreshold) {
+      const scrollAmount = Math.round(Math.abs(edgeScrollAccumRef.current.x) * edgeScrollMultiplier);
+      socketEmitFunctions?.emitScroll(
+        edgeScrollAccumRef.current.x > 0 ? "right" : "left",
+        Math.max(1, scrollAmount),
+        true
+      );
+      edgeScrollAccumRef.current.x = 0;
+    }
+  }, [socketEmitFunctions]);
+
   // Emit virtual cursor position as server percentage
   const emitVirtualCursor = useCallback((cursor) => {
     const canvas = canvasRef.current;
@@ -490,8 +511,8 @@ export function useCanvas(socketEmitFunctions) {
 
     // ── Virtual trackpad branch (Jump Desktop style) ─────────────────────
     // Only active on touch events in trackpad mode; mouse/desktop still direct.
-    // When selectionMode is on, bypass trackpad so user can draw selection rectangle.
-    if (pointerMode === "trackpad" && !selectionMode && event.type.startsWith("touch")) {
+    // Selection mode: anchored at virtual cursor, expands as cursor follows finger.
+    if (pointerMode === "trackpad" && event.type.startsWith("touch")) {
       const canvas = canvasRef.current;
       if (!canvas || canvas.width === 0) return;
 
@@ -508,6 +529,13 @@ export function useCanvas(socketEmitFunctions) {
           touchTotalMoveRef.current = 0;
           setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
           lastTouchTimeRef.current = Date.now();
+          // Selection mode: anchor selection start at virtual cursor (not finger).
+          if (selectionMode) {
+            const px = (virtualCursor.x / canvas.width) * 100;
+            const py = (virtualCursor.y / canvas.height) * 100;
+            handleSelection?.(0, 0, "start", { ...options, percentOverride: { percentX: px, percentY: py } });
+            return;
+          }
           // Hand mode: arm long-press timer to start hold-drag at current cursor.
           // Skip if already holding (instant-hold via toolbar toggle).
           if (handMode && !handHoldingRef.current) {
@@ -524,6 +552,17 @@ export function useCanvas(socketEmitFunctions) {
               socketEmitFunctions.emitMousePress?.(px, py, "left");
             }, REMOTE_CONFIG.longPressDelay);
           }
+          // Non-hand mode: arm long-press to enter scroll lock (cursor freezes).
+          if (!handMode && !scrollLockRef.current) {
+            if (scrollLongPressTimerRef.current) clearTimeout(scrollLongPressTimerRef.current);
+            scrollLongPressTimerRef.current = setTimeout(() => {
+              scrollLongPressTimerRef.current = null;
+              scrollLockRef.current = true;
+              setScrollLock(true);
+              edgeScrollAccumRef.current = { x: 0, y: 0 };
+              vibrate(15);
+            }, REMOTE_CONFIG.longPressDelay);
+          }
           return;
         }
 
@@ -531,6 +570,21 @@ export function useCanvas(socketEmitFunctions) {
           const deltaX = touch.clientX - lastTouchCenter.x;
           const deltaY = touch.clientY - lastTouchCenter.y;
           touchTotalMoveRef.current += Math.abs(deltaX) + Math.abs(deltaY);
+
+          // Scroll lock active: drag scrolls both axes, cursor stays frozen.
+          if (scrollLockRef.current) {
+            emitScrollFromDelta(deltaY);
+            emitHScrollFromDelta(deltaX);
+            setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+            lastTouchTimeRef.current = Date.now();
+            return;
+          }
+          // Moved before lock fired → cancel pending scroll long-press (treat as cursor move).
+          if (scrollLongPressTimerRef.current &&
+              touchTotalMoveRef.current > REMOTE_CONFIG.trackpadTapMaxMove) {
+            clearTimeout(scrollLongPressTimerRef.current);
+            scrollLongPressTimerRef.current = null;
+          }
 
           // Acceleration based on pointer speed (px/ms)
           const now = Date.now();
@@ -543,6 +597,22 @@ export function useCanvas(socketEmitFunctions) {
           const totalScale = Math.max(0.0001, fitScale * canvasZoom);
           const canvasDeltaX = (deltaX * mult) / totalScale;
           const canvasDeltaY = (deltaY * mult) / totalScale;
+
+          // Selection mode: move virtual cursor with finger, expand rect to new cursor.
+          if (selectionMode) {
+            setVirtualCursor(prev => {
+              const nx = Math.max(0, Math.min(canvas.width - 1, prev.x + canvasDeltaX));
+              const ny = Math.max(0, Math.min(canvas.height - 1, prev.y + canvasDeltaY));
+              const px = (nx / canvas.width) * 100;
+              const py = (ny / canvas.height) * 100;
+              emitVirtualCursor({ x: nx, y: ny });
+              handleSelection?.(0, 0, "move", { ...options, percentOverride: { percentX: px, percentY: py } });
+              return { x: nx, y: ny };
+            });
+            setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+            lastTouchTimeRef.current = now;
+            return;
+          }
 
           // Hand mode: if user started moving before long-press fired, cancel it
           // (treat as drag-without-hold). If already holding, emit mouse-move.
@@ -600,6 +670,13 @@ export function useCanvas(socketEmitFunctions) {
         }
 
         if (type === "touchend") {
+          // Selection mode: finalize drag-select at virtual cursor.
+          if (selectionMode) {
+            const px = (virtualCursor.x / canvas.width) * 100;
+            const py = (virtualCursor.y / canvas.height) * 100;
+            handleSelection?.(0, 0, "end", { ...options, percentOverride: { percentX: px, percentY: py } });
+            return;
+          }
           // Hand mode: cancel pending long-press, release if holding, then exit hand mode.
           if (handMode) {
             if (handLongPressTimerRef.current) {
@@ -614,6 +691,17 @@ export function useCanvas(socketEmitFunctions) {
               setHandHolding(false);
               onHandRelease?.();
             }
+            return;
+          }
+          // Scroll lock: clear pending/active lock; skip click on release.
+          if (scrollLongPressTimerRef.current) {
+            clearTimeout(scrollLongPressTimerRef.current);
+            scrollLongPressTimerRef.current = null;
+          }
+          if (scrollLockRef.current) {
+            scrollLockRef.current = false;
+            setScrollLock(false);
+            edgeScrollAccumRef.current = { x: 0, y: 0 };
             return;
           }
           const duration = Date.now() - touchStartTimeRef.current;
@@ -1029,7 +1117,7 @@ export function useCanvas(socketEmitFunctions) {
     baseCanvasSize, recentZoomGesture, fitScale, virtualCursor, getCanvasCoordinates, showClickIndicator,
     getTouchDistance, getTouchCenter, socketEmitFunctions, cancelLongPress,
     startLongPress, checkDoubleClick, stopMomentum, startMomentumScroll, emitVirtualCursor,
-    emitScrollFromDelta, handleMouseInteraction
+    emitScrollFromDelta, emitHScrollFromDelta, handleMouseInteraction
   ]);
 
   // Handle canvas dimensions from server
@@ -1135,6 +1223,7 @@ export function useCanvas(socketEmitFunctions) {
     clickIndicator,
     virtualCursor,
     handHolding,
+    scrollLock,
     getCanvasCoordinates,
     resetZoom,
     centerVirtualCursor,

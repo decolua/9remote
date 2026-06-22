@@ -32,6 +32,7 @@ function buildSections(t, inputMode, pointerMode) {
         title: t("remoteHelp.gesturesTrackpadTitle"),
         items: [
           { key: t("remoteHelp.trackpadSwipeKey"), desc: t("remoteHelp.trackpadSwipeDesc") },
+          { key: t("remoteHelp.trackpadScrollLockKey"), desc: t("remoteHelp.trackpadScrollLockDesc") },
           { key: t("remoteHelp.trackpadTapKey"), desc: t("remoteHelp.trackpadTapDesc") },
           { key: t("remoteHelp.trackpad2TapKey"), desc: t("remoteHelp.trackpad2TapDesc") },
           { key: t("remoteHelp.trackpad2SwipeKey"), desc: t("remoteHelp.trackpad2SwipeDesc") },

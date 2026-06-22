@@ -389,6 +389,8 @@ export default {
     trackpad2SwipeDesc: "Scroll at cursor position",
     trackpadPinchKey: "2 fingers pinch",
     trackpadPinchDesc: "Zoom canvas",
+    trackpadScrollLockKey: "Hold + drag",
+    trackpadScrollLockDesc: "Hold to lock scroll, drag any direction",
     directTapKey: "1 finger tap",
     directTapDesc: "Click at tap position",
     directLongKey: "1 finger long-press",

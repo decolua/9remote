@@ -389,6 +389,8 @@ export default {
     trackpad2SwipeDesc: "कर्सर स्थिति पर स्क्रॉल करें",
     trackpadPinchKey: "2 अंगुली पिंच",
     trackpadPinchDesc: "कैनवास ज़ूम करें",
+    trackpadScrollLockKey: "दबाए रखें + खींचें",
+    trackpadScrollLockDesc: "स्क्रॉल लॉक करने के लिए दबाए रखें, किसी भी दिशा में खींचें",
     directTapKey: "1 अंगुली टैप",
     directTapDesc: "टैप स्थिति पर क्लिक",
     directLongKey: "1 अंगुली लंबा-दबाएँ",

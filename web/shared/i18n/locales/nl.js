@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "Scrollen op cursorpositie",
     trackpadPinchKey: "2 vingers knijpen",
     trackpadPinchDesc: "Canvas zoomen",
+    trackpadScrollLockKey: "Vasthouden + slepen",
+    trackpadScrollLockDesc: "Houd vast om scrollen te vergrendelen, sleep in elke richting",
     directTapKey: "1 vinger tikken",
     directTapDesc: "Klikken op tikpositie",
     directLongKey: "1 vinger lang indrukken",

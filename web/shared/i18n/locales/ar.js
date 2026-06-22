@@ -389,6 +389,8 @@ export default {
     trackpad2SwipeDesc: "تمرير عند موضع المؤشر",
     trackpadPinchKey: "قرص بإصبعين",
     trackpadPinchDesc: "تكبير اللوحة",
+    trackpadScrollLockKey: "اضغط مطولاً + اسحب",
+    trackpadScrollLockDesc: "اضغط لتثبيت التمرير، اسحب بأي اتجاه",
     directTapKey: "نقرة بإصبع واحد",
     directTapDesc: "نقر عند موضع اللمس",
     directLongKey: "ضغطة طويلة بإصبع واحد",

@@ -389,6 +389,8 @@ export default {
     trackpad2SwipeDesc: "اسکرول در محل مکان‌نما",
     trackpadPinchKey: "حرکت چنگشی دو انگشتی",
     trackpadPinchDesc: "زوم بوم",
+    trackpadScrollLockKey: "نگه‌داشتن + کشیدن",
+    trackpadScrollLockDesc: "برای قفل اسکرول نگه دارید، به هر جهت بکشید",
     directTapKey: "ضربه یک انگشتی",
     directTapDesc: "کلیک در محل ضربه",
     directLongKey: "فشار طولانی یک انگشتی",

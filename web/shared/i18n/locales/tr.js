@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "İmleç konumunda kaydır",
     trackpadPinchKey: "2 parmak kıstırma",
     trackpadPinchDesc: "Tuvali yakınlaştır",
+    trackpadScrollLockKey: "Basılı tut + sürükle",
+    trackpadScrollLockDesc: "Kaydırmayı kilitlemek için basılı tut, her yöne sürükle",
     directTapKey: "1 parmak dokunma",
     directTapDesc: "Dokunma konumunda tıkla",
     directLongKey: "1 parmak uzun basma",

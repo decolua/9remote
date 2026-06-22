@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "커서 위치에서 스크롤",
     trackpadPinchKey: "두 손가락 핀치",
     trackpadPinchDesc: "캔버스 확대/축소",
+    trackpadScrollLockKey: "길게 누르기 + 드래그",
+    trackpadScrollLockDesc: "길게 눌러 스크롤 고정, 아무 방향으로 드래그",
     directTapKey: "한 손가락 탭",
     directTapDesc: "탭 위치에서 클릭",
     directLongKey: "한 손가락 길게 누르기",

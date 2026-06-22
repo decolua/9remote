@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "Gulir pada posisi kursor",
     trackpadPinchKey: "Cubit 2 jari",
     trackpadPinchDesc: "Zoom kanvas",
+    trackpadScrollLockKey: "Tahan + seret",
+    trackpadScrollLockDesc: "Tahan untuk mengunci scroll, seret ke segala arah",
     directTapKey: "Ketuk 1 jari",
     directTapDesc: "Klik pada posisi ketukan",
     directLongKey: "Tekan lama 1 jari",

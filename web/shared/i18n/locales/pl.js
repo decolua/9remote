@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "Przewijanie w pozycji kursora",
     trackpadPinchKey: "Szczypanie 2 palcami",
     trackpadPinchDesc: "Powiększanie obszaru",
+    trackpadScrollLockKey: "Przytrzymaj + przeciągnij",
+    trackpadScrollLockDesc: "Przytrzymaj, aby zablokować przewijanie, przeciągaj w dowolnym kierunku",
     directTapKey: "Stuknięcie 1 palcem",
     directTapDesc: "Kliknięcie w miejscu stuknięcia",
     directLongKey: "Długie naciśnięcie 1 palcem",

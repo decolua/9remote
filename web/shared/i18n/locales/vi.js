@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "Cuộn tại vị trí con trỏ",
     trackpadPinchKey: "2 ngón chụm",
     trackpadPinchDesc: "Zoom canvas",
+    trackpadScrollLockKey: "Giữ + kéo",
+    trackpadScrollLockDesc: "Giữ để khóa cuộn, kéo mọi hướng",
     directTapKey: "1 ngón chạm",
     directTapDesc: "Click tại vị trí chạm",
     directLongKey: "1 ngón giữ lâu",

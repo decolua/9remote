@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "Faire défiler à la position du curseur",
     trackpadPinchKey: "Pincement à 2 doigts",
     trackpadPinchDesc: "Zoomer le canevas",
+    trackpadScrollLockKey: "Maintenir + glisser",
+    trackpadScrollLockDesc: "Maintenez pour verrouiller le défilement, glissez dans toute direction",
     directTapKey: "Tape à 1 doigt",
     directTapDesc: "Clic à la position de la tape",
     directLongKey: "Appui long à 1 doigt",

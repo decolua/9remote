@@ -236,10 +236,11 @@ export function useInput(socketEmitFunctions) {
   }, [isMobile, keyboardVisible, emitKeyWithActiveModifiers]);
 
   const handleSelection = useCallback((clientX, clientY, type, options) => {
-    const { streaming, getCanvasCoordinates, baseCanvasSize, canvasZoom, canvasPan } = options;
+    const { streaming, getCanvasCoordinates, baseCanvasSize, canvasZoom, canvasPan, percentOverride } = options;
     if (!selectionMode || !streaming || !socketEmitFunctions?.emitMouseDragSelect) return;
 
-    const { percentX, percentY } = getCanvasCoordinates(clientX, clientY);
+    // percentOverride: trackpad mode anchors selection at virtual cursor, not finger.
+    const { percentX, percentY } = percentOverride || getCanvasCoordinates(clientX, clientY);
 
     if (type === "start") {
       setSelectionStart({ x: percentX, y: percentY });

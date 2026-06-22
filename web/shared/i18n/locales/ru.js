@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "Прокрутка в позиции курсора",
     trackpadPinchKey: "Щипок 2 пальцами",
     trackpadPinchDesc: "Масштабирование холста",
+    trackpadScrollLockKey: "Удерживать + тянуть",
+    trackpadScrollLockDesc: "Удерживайте для блокировки прокрутки, тяните в любом направлении",
     directTapKey: "Касание 1 пальцем",
     directTapDesc: "Клик в позиции касания",
     directLongKey: "Долгое нажатие 1 пальцем",

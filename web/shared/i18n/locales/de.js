@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "An Cursorposition scrollen",
     trackpadPinchKey: "2 Finger zusammenziehen",
     trackpadPinchDesc: "Leinwand zoomen",
+    trackpadScrollLockKey: "Halten + ziehen",
+    trackpadScrollLockDesc: "Halten zum Scroll-Sperren, in jede Richtung ziehen",
     directTapKey: "1 Finger tippen",
     directTapDesc: "Klick an Tippposition",
     directLongKey: "1 Finger lang drücken",

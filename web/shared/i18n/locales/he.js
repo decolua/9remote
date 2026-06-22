@@ -389,6 +389,8 @@ export default {
     trackpad2SwipeDesc: "גלילה במיקום הסמן",
     trackpadPinchKey: "צביטה ב-2 אצבעות",
     trackpadPinchDesc: "הגדלת הקנבס",
+    trackpadScrollLockKey: "החזק + גרור",
+    trackpadScrollLockDesc: "החזק לנעילת גלילה, גרור לכל כיוון",
     directTapKey: "הקשה באצבע אחת",
     directTapDesc: "לחיצה במיקום ההקשה",
     directLongKey: "לחיצה ארוכה באצבע אחת",

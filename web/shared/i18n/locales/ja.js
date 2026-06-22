@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "カーソル位置でスクロール",
     trackpadPinchKey: "2本指ピンチ",
     trackpadPinchDesc: "キャンバスをズーム",
+    trackpadScrollLockKey: "長押し + ドラッグ",
+    trackpadScrollLockDesc: "長押しでスクロール固定、任意の方向にドラッグ",
     directTapKey: "1本指タップ",
     directTapDesc: "タップ位置でクリック",
     directLongKey: "1本指長押し",

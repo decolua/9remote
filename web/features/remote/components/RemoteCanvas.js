@@ -17,6 +17,7 @@ export default function RemoteCanvas({
   selectionMode,
   handMode,
   handHolding,
+  scrollLock,
   virtualCursor,
   inputMode,
   keyboardOn,
@@ -164,10 +165,27 @@ export default function RemoteCanvas({
             top: `${virtualCursor.y * totalScale + canvasPan.y}px`,
             width: `${REMOTE_CONFIG.trackpadCursorSize}px`,
             height: `${REMOTE_CONFIG.trackpadCursorSize}px`,
-            transform: handMode ? "translate(-50%, -50%)" : "translate(-2px, -2px)"
+            transform: (handMode || scrollLock || selectionMode) ? "translate(-50%, -50%)" : "translate(-2px, -2px)"
           }}
         >
-          {handMode ? (
+          {scrollLock ? (
+            <div
+              className="w-full h-full flex items-center justify-center text-yellow-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
+              style={{ fontSize: `${REMOTE_CONFIG.trackpadCursorSize}px`, lineHeight: 1 }}
+            >
+              ✥
+            </div>
+          ) : selectionMode ? (
+            <svg viewBox="0 0 24 24" className="w-full h-full text-yellow-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+              <path
+                d="M12 3 V21 M3 12 H21"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          ) : handMode ? (
             <div
               className="w-full h-full flex items-center justify-center drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
               style={{ fontSize: `${REMOTE_CONFIG.trackpadCursorSize}px`, lineHeight: 1 }}

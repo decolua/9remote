@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "เลื่อนที่ตำแหน่งเคอร์เซอร์",
     trackpadPinchKey: "หนีบ 2 นิ้ว",
     trackpadPinchDesc: "ซูมแคนวาส",
+    trackpadScrollLockKey: "กดค้าง + ลาก",
+    trackpadScrollLockDesc: "กดค้างเพื่อล็อกการเลื่อน ลากได้ทุกทิศทาง",
     directTapKey: "แตะ 1 นิ้ว",
     directTapDesc: "คลิกที่ตำแหน่งแตะ",
     directLongKey: "กดค้าง 1 นิ้ว",

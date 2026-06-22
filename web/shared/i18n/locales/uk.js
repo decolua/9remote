@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "Прокрутка в позиції курсора",
     trackpadPinchKey: "Щипок 2 пальцями",
     trackpadPinchDesc: "Масштабування полотна",
+    trackpadScrollLockKey: "Утримувати + тягнути",
+    trackpadScrollLockDesc: "Утримуйте, щоб зафіксувати прокручування, тягніть у будь-якому напрямку",
     directTapKey: "Дотик 1 пальцем",
     directTapDesc: "Клік у позиції дотику",
     directLongKey: "Довге натискання 1 пальцем",

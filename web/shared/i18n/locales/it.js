@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "Scorri alla posizione del cursore",
     trackpadPinchKey: "Pizzico 2 dita",
     trackpadPinchDesc: "Zoom canvas",
+    trackpadScrollLockKey: "Tieni premuto + trascina",
+    trackpadScrollLockDesc: "Tieni premuto per bloccare lo scroll, trascina in qualsiasi direzione",
     directTapKey: "Tocco 1 dito",
     directTapDesc: "Clic alla posizione del tocco",
     directLongKey: "Pressione lunga 1 dito",

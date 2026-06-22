@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "Rulla vid markörens position",
     trackpadPinchKey: "2 fingrar nyp",
     trackpadPinchDesc: "Zooma duk",
+    trackpadScrollLockKey: "Håll + dra",
+    trackpadScrollLockDesc: "Håll för att låsa scroll, dra i valfri riktning",
     directTapKey: "1 finger tryck",
     directTapDesc: "Klicka vid tryckposition",
     directLongKey: "1 finger långtryck",

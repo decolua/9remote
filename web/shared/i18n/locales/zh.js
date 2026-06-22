@@ -288,6 +288,8 @@ export default {
     trackpad2SwipeDesc: "在光标位置滚动",
     trackpadPinchKey: "双指捏合",
     trackpadPinchDesc: "缩放画布",
+    trackpadScrollLockKey: "长按 + 拖动",
+    trackpadScrollLockDesc: "长按锁定滚动，可向任意方向拖动",
     directTapKey: "单指点按",
     directTapDesc: "在点按位置点击",
     directLongKey: "单指长按",
