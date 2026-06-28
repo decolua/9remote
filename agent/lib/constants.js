@@ -42,6 +42,18 @@ dns.lookup = (hostname, options, cb) => {
 // Local agent HTTP server port (UI + API)
 export const SERVER_PORT = 2208;
 
+// Vite dev server port (dev-mode UI origin)
+export const VITE_DEV_PORT = 5173;
+
+// Allowed origins for the localhost UI (token endpoint + socket trust guard).
+// A malicious cross-origin page sends a different Origin → rejected.
+export const LOCAL_UI_ORIGINS = [
+  `http://localhost:${SERVER_PORT}`,
+  `http://127.0.0.1:${SERVER_PORT}`,
+  `http://localhost:${VITE_DEV_PORT}`,
+  `http://127.0.0.1:${VITE_DEV_PORT}`,
+];
+
 // Centralized log file config — single sink for console + crash + tunnel + remote
 export const LOG_CONFIG = {
   fileName: "agent.log",
@@ -73,6 +85,12 @@ export const DEBUG = {
 export const PERMISSION_POLL_MS = 5000;
 export const PERMISSION_POLL_FAST_MS = 1000;
 export const PERMISSION_POLL_FAST_DURATION = 60000;
+
+// Claude Code uses fullscreen alternate-screen by default which breaks native scrollback
+// Applied two ways: agent process env (loadEnv) + ~/.claude/settings.json (hookManager)
+export const CLAUDE_SCROLLBACK_ENV = {
+  CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1",
+};
 
 // Tunnel health watchdog — poll /api/health via the public tunnel URL
 export const TUNNEL_HEALTH = {

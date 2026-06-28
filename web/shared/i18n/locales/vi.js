@@ -105,6 +105,20 @@ export default {
     editName: "Sửa tên",
     newTerminal: "Terminal mới"
   },
+  groups: {
+    title: "Nhóm",
+    newGroup: "Thêm nhóm",
+    newGroupPrompt: "Tên nhóm",
+    defaultName: "Nhóm mới",
+    ungrouped: "Chưa phân nhóm",
+    addTerminal: "Thêm terminal vào nhóm",
+    moveToGroup: "Chuyển sang nhóm",
+    rename: "Đổi tên nhóm",
+    delete: "Xóa nhóm",
+    emptyGroup: "Nhóm chưa có terminal",
+    deleteTitle: "Xóa nhóm",
+    deleteMessage: "Xóa nhóm \"{name}\"? Các terminal sẽ về Chưa phân nhóm.",
+  },
   terminal: {
     back: "Quay lại",
     menu: "Menu",

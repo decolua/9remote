@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import os from "os";
+import { CLAUDE_SCROLLBACK_ENV } from "./constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -24,4 +25,9 @@ for (const file of ENV_FILES) {
   if (existsSync(file)) {
     try { parseAndAssign(readFileSync(file, "utf8")); } catch {}
   }
+}
+
+// Inherited by daemon/shell/AI CLIs; user .env takes precedence
+for (const [k, v] of Object.entries(CLAUDE_SCROLLBACK_ENV)) {
+  if (!process.env[k]) process.env[k] = v;
 }

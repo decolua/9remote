@@ -85,3 +85,6 @@ benchmark/results/*
 .win/fix.txt
 web/wrangler.old.toml
 web/wrangler.toml
+.agents.vn/*
+.loop/*
+./source

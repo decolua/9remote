@@ -2,10 +2,13 @@
 import os from "os";
 import fs from "fs";
 import path from "path";
-import { SERVER_PORT } from "../../lib/constants.js";
+import { SERVER_PORT, PATHS as APP_PATHS, CLAUDE_SCROLLBACK_ENV } from "../../lib/constants.js";
 
 const NOTIFY_URL = `http://localhost:${SERVER_PORT}/api/notify`;
 const OPENCODE_PLUGIN_MARK = "9remoteNotify";
+
+// Backup of user's original env values, to restore on disable
+const CLAUDE_ENV_BACKUP_FILE = path.join(APP_PATHS.STATE, "claudeEnvBackup.json");
 
 const PATHS = {
   claude: () => path.join(os.homedir(), ".claude", "settings.json"),
@@ -37,6 +40,28 @@ function writeJsonFile(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
 }
 
+// Backup original env values then apply scrollback fix
+function applyClaudeEnv(settings) {
+  const backup = {};
+  const env = settings.env || {};
+  for (const k of Object.keys(CLAUDE_SCROLLBACK_ENV)) backup[k] = env[k] ?? null;
+  writeJsonFile(CLAUDE_ENV_BACKUP_FILE, backup);
+  settings.env = { ...env, ...CLAUDE_SCROLLBACK_ENV };
+}
+
+// Restore original env values (null = key didn't exist, so delete)
+function restoreClaudeEnv(settings) {
+  const backup = readJsonFile(CLAUDE_ENV_BACKUP_FILE);
+  const env = settings.env || {};
+  for (const k of Object.keys(CLAUDE_SCROLLBACK_ENV)) {
+    if (backup[k] == null) delete env[k];
+    else env[k] = backup[k];
+  }
+  if (Object.keys(env).length) settings.env = env;
+  else delete settings.env;
+  try { if (fs.existsSync(CLAUDE_ENV_BACKUP_FILE)) fs.unlinkSync(CLAUDE_ENV_BACKUP_FILE); } catch {}
+}
+
 // Claude Code
 function enableClaudeHook() {
   const filePath = PATHS.claude();
@@ -48,6 +73,7 @@ function enableClaudeHook() {
     Stop: [{ matcher: "", hooks: [{ type: "command", command: stopCmd }] }],
     Notification: [{ matcher: "permission_prompt|idle_prompt", hooks: [{ type: "command", command: notifyCmd }] }],
   };
+  applyClaudeEnv(settings);
   writeJsonFile(filePath, settings);
   return { success: true };
 }
@@ -60,6 +86,7 @@ function disableClaudeHook() {
     delete settings.hooks.Notification;
     if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
   }
+  restoreClaudeEnv(settings);
   writeJsonFile(filePath, settings);
   return { success: true };
 }
@@ -198,4 +225,16 @@ export function getHookStatus() {
     status[tool] = { installed: isToolInstalled(tool), enabled: isToolHookEnabled(tool) };
   }
   return status;
+}
+
+// Reconcile on startup: if user enabled Claude hook before env-fix existed, apply env now
+export function reconcileClaudeEnv() {
+  const filePath = PATHS.claude();
+  const settings = readJsonFile(filePath);
+  if (!settings.hooks?.Stop && !settings.hooks?.Notification) return;
+  const env = settings.env || {};
+  const needsApply = Object.keys(CLAUDE_SCROLLBACK_ENV).some(k => env[k] !== CLAUDE_SCROLLBACK_ENV[k]);
+  if (!needsApply) return;
+  applyClaudeEnv(settings);
+  writeJsonFile(filePath, settings);
 }

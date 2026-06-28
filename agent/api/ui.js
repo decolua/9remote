@@ -8,7 +8,9 @@ import { LOG_TAIL_LINES } from "../lib/constants.js";
 import { writeCmd } from "../cli/utils/state.js";
 import { checkPermissions, openPermissionPane } from "../cli/utils/permissions.js";
 import { isAutoStartEnabled, setAutoStart } from "../cli/utils/autostart.js";
-import { jsonOk } from "../lib/router.js";
+import { jsonOk, jsonErr } from "../lib/router.js";
+import { getLocalToken } from "../lib/localToken.js";
+import { LOCAL_UI_ORIGINS } from "../lib/constants.js";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { PATHS } from "../lib/constants.js";
@@ -147,6 +149,19 @@ export async function refreshPermissionsAsync() {
   if (changed) pushUiEvent("permissions", { ...cachedPermissions, desktopEnabled });
   if (isRemoteReady() !== prevReady) onRemoteReadyChange?.();
   return p;
+}
+
+/**
+ * Issue the ephemeral local token to the trusted localhost UI only.
+ * Origin guard blocks malicious cross-origin pages (router already enforces loopback).
+ */
+export function handleLocalToken(req, res) {
+  const origin = req.headers.origin;
+  // Browser cross-origin requests always send Origin; allow only same-origin UI or non-browser (no Origin)
+  if (origin && !LOCAL_UI_ORIGINS.includes(origin)) {
+    return jsonErr(res, 403, "Forbidden origin");
+  }
+  jsonOk(res, { localToken: getLocalToken() });
 }
 
 export function trackConnection(socketId, ip, deviceId = null, type = "ws") {

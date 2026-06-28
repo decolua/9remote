@@ -21,6 +21,7 @@ import { createProxyServer, handleProxyRequest, startProxySession, endProxySessi
 import { initializeTerminal } from "./features/terminal/terminalSocket.js";
 import { handleLocalSites } from "./api/localSites.js";
 import { verifyApiKeyCrc } from "./cli/utils/apiKey.js";
+import { generateLocalToken } from "./lib/localToken.js";
 import { isNewerVersion } from "./cli/utils/updateChecker.js";
 
 import {
@@ -30,11 +31,13 @@ import {
   handleConnections, handleDesktopToggle, handleLogsGet,
   handlePermissionsGet, handlePermissionsRequest,
   handleAutoStartGet, handleAutoStartPost,
+  handleLocalToken,
 } from "./api/ui.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
 import { handleSleepInhibitGet, handleSleepInhibitPost } from "./api/sleepInhibit.js";
+import { handleSessionsList, handleSessionDelete } from "./api/sessions.js";
 import * as sleepInhibitor from "./lib/sleepInhibitor.js";
 import { loadSettings } from "./cli/utils/state.js";
 import { REMOTE_CONFIG } from "./features/remote/REMOTE_CONFIG.js";
@@ -143,6 +146,7 @@ const ROUTES = [
 
   // UI state & SSE (localhost-only)
   { path: "/api/ui/events",        method: "GET",  handler: handleSseEvents },
+  { path: "/api/local-token",      method: "GET",  handler: handleLocalToken },
   { path: "/api/ui/state",         method: "GET",  handler: handleStateGet },
   { path: "/api/ui/state",         method: "POST", handler: handleStatePost },
   { path: "/api/ui/stop",          method: "POST", handler: handleStop },
@@ -176,6 +180,8 @@ const ROUTES = [
   { path: "/api/autostart",        method: "POST", handler: handleAutoStartPost },
   { path: "/api/sleep-inhibit",    method: "GET",  handler: handleSleepInhibitGet },
   { path: "/api/sleep-inhibit",    method: "POST", handler: handleSleepInhibitPost },
+  { path: "/api/sessions",         method: "GET",  handler: handleSessionsList },
+  { path: "/api/sessions/delete",  method: "POST", handler: handleSessionDelete },
   { path: "/api/local-sites",      method: "*",    public: true, handler: handleLocalSites },
   { path: "/api/codespace/stop",   method: "POST", handler: handleCodespaceStop },
 
@@ -246,6 +252,7 @@ export async function startServer() {
     await router(req, res);
   });
 
+  generateLocalToken();
   loadUiState();
   loadDesktopState();
   refreshPermissionsAsync();

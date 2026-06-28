@@ -105,6 +105,20 @@ export default {
     editName: "编辑名称",
     newTerminal: "新建终端"
   },
+  groups: {
+    title: "Groups",
+    newGroup: "Group",
+    newGroupPrompt: "Group name",
+    defaultName: "New Group",
+    ungrouped: "Ungrouped",
+    addTerminal: "Add terminal to group",
+    moveToGroup: "Move to group",
+    rename: "Rename group",
+    delete: "Delete group",
+    emptyGroup: "No terminals in this group",
+    deleteTitle: "Delete Group",
+    deleteMessage: "Delete group \"{name}\"? Terminals move to Ungrouped.",
+  },
   terminal: {
     back: "返回",
     menu: "菜单",

@@ -43,6 +43,8 @@ export default function WorkspacePage() {
     setViewStack,
     addOpenedSession,
     removeOpenedSession,
+    activeGroupId,
+    setActiveGroupId,
     reset: resetStore
   } = useTerminalStore();
 
@@ -53,7 +55,7 @@ export default function WorkspacePage() {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, retryStatus, approvalStatus, loadSessions, createSession, getShells, deleteSession, renameSession, stopCodespace } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, retryStatus, approvalStatus, loadSessions, createSession, getShells, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession } = useSocket();
   const [shells, setShells] = useState([]);
 
   useEffect(() => {
@@ -115,12 +117,13 @@ export default function WorkspacePage() {
     loadSessions();
   }, [storePopView, loadSessions]);
 
-  // Load sessions when socket connects
+  // Load sessions + groups when socket connects
   useEffect(() => {
     if (socket) {
       loadSessions();
+      loadGroups();
     }
-  }, [socket, loadSessions]);
+  }, [socket, loadSessions, loadGroups]);
 
   // Cleanup openedSessions - remove sessions that no longer exist
   // Delay to avoid race with newly-created sessions (server create → loadSessions is async)
@@ -218,8 +221,8 @@ export default function WorkspacePage() {
     return () => document.removeEventListener("focusin", handleFocusIn);
   }, []);
 
-  const handleCreateSession = useCallback((name) => {
-    createSession(name, (result) => {
+  const handleCreateSession = useCallback((name, groupId = null) => {
+    createSession(name, null, groupId, (result) => {
       if (!result.success) {
         alert(t("workspace.failedCreateSession", { error: result.error }));
       } else if (result.sessionId) {
@@ -240,9 +243,12 @@ export default function WorkspacePage() {
     return () => cancelAnimationFrame(id);
   }, [isDesktop, currentView, openedSessions]);
 
-  // Entering terminal view: auto-open ALL sessions, set active = selected one
+  // Entering terminal view: open sessions of the selected session's group, set active group
   const handleSelectSession = useCallback((sessionId) => {
-    sessions.forEach(s => addOpenedSession(s.id));
+    const selected = sessions.find(s => s.id === sessionId);
+    const groupId = selected?.groupId || null;
+    setActiveGroupId(groupId);
+    sessions.filter(s => (s.groupId || null) === groupId).forEach(s => addOpenedSession(s.id));
     addOpenedSession(sessionId);
 
     if (currentView.type === "terminal") {
@@ -252,21 +258,38 @@ export default function WorkspacePage() {
     } else {
       pushView({ type: "terminal", sessionId });
     }
-  }, [sessions, addOpenedSession, currentView, viewStack, setViewStack, pushView]);
+  }, [sessions, addOpenedSession, setActiveGroupId, currentView, viewStack, setViewStack, pushView]);
 
-  // Quick-create from terminal header "+" button - auto-switch focus to new session
+  // Quick-create from terminal header "+" button - create in active group, auto-switch focus.
+  // Keep activeGroupId unchanged (new session belongs to it); don't call handleSelectSession
+  // because the session isn't in `sessions` yet (loadSessions is async) → would reset group.
   const handleQuickCreateSession = useCallback((shellId) => {
-    createSession(null, shellId, (result) => {
+    createSession(null, shellId, activeGroupId, (result) => {
       if (!result.success) {
         alert(t("workspace.failedCreateSession", { error: result.error }));
         return;
       }
       if (result.sessionId) {
-        // Reuse handleSelectSession: adds to openedSessions + switches active tab
-        handleSelectSession(result.sessionId);
+        addOpenedSession(result.sessionId);
+        const newStack = [...viewStack];
+        newStack[newStack.length - 1] = { type: "terminal", sessionId: result.sessionId };
+        setViewStack(newStack);
       }
     });
-  }, [createSession, handleSelectSession, t]);
+  }, [createSession, activeGroupId, addOpenedSession, viewStack, setViewStack, t]);
+
+  // Switch active group in terminal view — focus first session of that group
+  const handleSelectGroup = useCallback((groupId) => {
+    setActiveGroupId(groupId);
+    const groupSessions = sessions.filter(s => (s.groupId || null) === groupId);
+    groupSessions.forEach(s => addOpenedSession(s.id));
+    const first = groupSessions[0];
+    if (first) {
+      const newStack = [...viewStack];
+      newStack[newStack.length - 1] = { type: "terminal", sessionId: first.id };
+      setViewStack(newStack);
+    }
+  }, [sessions, setActiveGroupId, addOpenedSession, viewStack, setViewStack]);
 
   // Create session from FileExplorer bottom panel - stay in current view
   const handleCreateSessionInline = useCallback((onCreated) => {
@@ -452,6 +475,11 @@ export default function WorkspacePage() {
             clearNotification={clearNotification}
             agentVersion={agentVersion}
             transport={transport}
+            groups={groups}
+            onCreateGroup={createGroup}
+            onRenameGroup={renameGroup}
+            onDeleteGroup={deleteGroup}
+            onMoveSession={moveSession}
           />
         </div>
 
@@ -459,13 +487,16 @@ export default function WorkspacePage() {
         {openedSessions.length > 0 && (() => {
           const isTerminalView = currentView.type === "terminal";
           const activeSessionId = isTerminalView ? currentView.sessionId : null;
+          // Only render panes belonging to the active group (tabs are filtered the same way)
+          const groupSessionIds = new Set(sessions.filter(s => (s.groupId || null) === activeGroupId).map(s => s.id));
+          const groupOpenedSessions = openedSessions.filter(sid => groupSessionIds.has(sid));
           return (
             <div
               className={`absolute inset-0 transition-all duration-300 ease-out flex flex-col ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
                 }`}
             >
               <TerminalHeader
-                sessions={sessions}
+                sessions={sessions.filter(s => (s.groupId || null) === activeGroupId)}
                 activeSessionId={activeSessionId}
                 isActive={isTerminalView}
                 connected={connected}
@@ -473,6 +504,10 @@ export default function WorkspacePage() {
                 onSwitchSession={handleSelectSession}
                 onCreateSession={handleQuickCreateSession}
                 onBack={popView}
+                groups={groups}
+                activeGroupId={activeGroupId}
+                onSelectGroup={handleSelectGroup}
+                hasUngrouped={sessions.some(s => !s.groupId)}
                 onOpenRemote={connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null}
                 onOpenFiles={handleOpenFiles}
                 onLogout={handleLogoutWithConfirm}
@@ -491,7 +526,7 @@ export default function WorkspacePage() {
 
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-border" : "relative"}`}>
-                {openedSessions.map((sessionId) => {
+                {groupOpenedSessions.map((sessionId) => {
                   const isFocused = sessionId === activeSessionId;
                   const isVisible = isDesktop || isFocused;
                   return (
@@ -514,7 +549,7 @@ export default function WorkspacePage() {
                         onActivate={handleSelectSession}
                         onRegisterApi={registerPaneApi}
                         onPasteFallback={handlePasteFallback}
-                        showFocusBorder={isDesktop && openedSessions.length > 1}
+                        showFocusBorder={isDesktop && groupOpenedSessions.length > 1}
                         notifications={notifications}
                         clearNotification={clearNotification}
                       />

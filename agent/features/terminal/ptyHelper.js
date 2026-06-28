@@ -6,6 +6,7 @@ import { PATHS } from "../../lib/constants.js";
 
 const BUFFER_DIR = PATHS.BUFFERS;
 const SESSION_METADATA_FILE = path.join(PATHS.STATE, "sessions.json");
+const GROUPS_FILE = path.join(PATHS.STATE, "terminalGroups.json");
 
 export const UPLOAD_DIR = "/tmp/9remote-uploads";
 
@@ -138,5 +139,33 @@ export function saveSessionMetadata(sessions) {
     fs.writeFileSync(SESSION_METADATA_FILE, JSON.stringify(metadata, null, 2), "utf8");
   } catch (error) {
     console.log("⚠️  Failed to save session metadata:", error.message);
+  }
+}
+
+// ============================================
+// Terminal groups persistence (agent-managed)
+// ============================================
+
+// Returns { groups: [{id,name,createdAt}], sessionGroups: { sessionId: groupId } }
+export function loadGroups() {
+  try {
+    if (fs.existsSync(GROUPS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(GROUPS_FILE, "utf8"));
+      return { groups: data.groups || [], sessionGroups: data.sessionGroups || {} };
+    }
+  } catch (error) {
+    console.log("⚠️  Failed to load groups:", error.message);
+  }
+  return { groups: [], sessionGroups: {} };
+}
+
+export function saveGroups(groups, sessionGroups) {
+  try {
+    const dir = path.dirname(GROUPS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const data = { groups: Array.from(groups.values()), sessionGroups };
+    fs.writeFileSync(GROUPS_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch (error) {
+    console.log("⚠️  Failed to save groups:", error.message);
   }
 }

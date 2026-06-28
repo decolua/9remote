@@ -7,10 +7,11 @@ import * as daemonClient from "./ptyDaemonClient.js";
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
 import { isRemoteReady, setRemoteReadyChangeHandler } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
-import { listSavedBufferSessions, loadSessionMetadata } from "./ptyHelper.js";
+import { listSavedBufferSessions, loadSessionMetadata, loadGroups } from "./ptyHelper.js";
 import { setupSessionHandlers } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
+import { reconcileClaudeEnv } from "./hookManager.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { broadcast } from "../../transport/broadcast.js";
 
@@ -24,7 +25,19 @@ const PKG_VERSION = typeof __CLI_VERSION__ !== "undefined"
 // Store sessions: sessionId -> { pty, name, createdAt, buffer, daemon }
 const sessions = new Map();
 
+// Agent-managed groups (single source of truth, persisted to JSON)
+const groups = new Map();            // groupId -> { id, name, createdAt }
+const sessionGroups = {};            // sessionId -> groupId
+
 export async function initializeTerminal() {
+  // Load persisted groups (agent-managed, independent of daemon)
+  const saved = loadGroups();
+  for (const g of saved.groups) groups.set(g.id, g);
+  Object.assign(sessionGroups, saved.sessionGroups);
+
+  // Backfill scrollback env for users who enabled Claude hook before the fix
+  try { reconcileClaudeEnv(); } catch {}
+
   if (PERSISTENCE_MODE === "daemon") {
     const connected = await daemonClient.initDaemonClient();
     if (!connected) {
@@ -92,7 +105,7 @@ export function setupTerminalSocket(io, apiKey) {
 
     socket.emit("serverInfo", buildServerInfo());
 
-    setupSessionHandlers(socket, io, sessions);
+    setupSessionHandlers(socket, io, sessions, groups, sessionGroups);
     setupInputHandlers(socket, sessions);
     setupPushHandlers(socket);
 

@@ -2,8 +2,18 @@ import { useState, useRef, useEffect } from "preact/hooks";
 import StepProgress from "../components/StepProgress";
 import QRCard from "../components/QRCard";
 import ConfirmPopup from "../components/ConfirmPopup";
+import SessionList from "../components/SessionList";
+import TerminalView from "../components/TerminalView";
+import { useSessions } from "../lib/terminalSocket";
 
 const HELP_URL = "https://docs.9remote.cc/";
+
+// Left menu — config-driven nav + per-menu header meta (9router pattern)
+const MENU = [
+  { id: "connection", label: "Connection", icon: "hub", desc: "Pair devices and manage your secure tunnel" },
+  { id: "sessions", label: "Sessions", icon: "terminal", desc: "Live terminal sessions running on this host" },
+  { id: "logs", label: "Logs", icon: "description", desc: "Server activity and diagnostics" },
+];
 
 const PERMISSION_META = {
   screenRecording: { label: "Screen Recording", icon: "screenshot_monitor", desc: "Capture screen content" },
@@ -187,80 +197,6 @@ const FEATURES = [
   { icon: "folder_open", label: "Files", desc: "Browse & edit files" },
 ];
 
-const PERKS = [
-  { icon: "qr_code_scanner", text: "Scan QR to connect instantly" },
-  { icon: "wifi_off", text: "No port forwarding needed" },
-  { icon: "devices", text: "Works on any device" },
-];
-
-function WelcomeScreen({ onStart }) {
-  const [connecting, setConnecting] = useState(false);
-  const handleConnect = () => {
-    setConnecting(true);
-    onStart();
-  };
-  return (
-    <div className="flex-1 flex flex-col items-center justify-between px-6 py-6 overflow-y-auto">
-      {/* Hero */}
-      <div className="flex flex-col items-center gap-2 text-center mt-2">
-        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-1" style={{ background: "var(--brand-500)", boxShadow: "0 8px 32px rgba(255,87,10,0.35)" }}>
-          <span className="material-symbols-outlined text-white" style={{ fontSize: 30 }}>terminal</span>
-        </div>
-        <h1 className="text-lg font-bold tracking-tight" style={{ color: "var(--text-main)" }}>9Remote</h1>
-        <p className="text-xs leading-5 max-w-[220px]" style={{ color: "var(--text-muted)" }}>
-          Access your terminal, desktop & files from anywhere
-        </p>
-      </div>
-
-      {/* Feature cards */}
-      <div className="flex gap-2 w-full mt-5">
-        {FEATURES.map((f) => (
-          <div key={f.label} className="flex-1 dark-card flex flex-col items-center gap-1.5 py-3 px-1">
-            <span className="material-symbols-outlined" style={{ fontSize: 22, color: "var(--brand-400)" }}>{f.icon}</span>
-            <p className="text-xs font-semibold" style={{ color: "var(--text-main)" }}>{f.label}</p>
-            <p className="text-[10px] text-center leading-4" style={{ color: "var(--text-muted)" }}>{f.desc}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Perks list */}
-      <div className="flex flex-col gap-2 w-full mt-4">
-        {PERKS.map((p) => (
-          <div key={p.text} className="flex items-center gap-2.5">
-            <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 16, color: "var(--brand-400)" }}>{p.icon}</span>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>{p.text}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* CTA */}
-      <button
-        onClick={!connecting ? handleConnect : undefined}
-        disabled={connecting}
-        className="btn-primary w-full py-3.5 flex items-center justify-center gap-2 text-sm font-semibold mt-6"
-        style={{ borderRadius: "var(--radius-brand)", opacity: connecting ? 0.7 : 1 }}
-      >
-        {connecting ? (
-          <>
-            <span className="flex gap-0.5 items-center">
-              {[0, 1, 2].map((d) => (
-                <span key={d} className="w-1.5 h-1.5 rounded-full bg-white dot-bounce"
-                  style={{ animationDelay: `${d * 0.18}s` }} />
-              ))}
-            </span>
-            Connecting...
-          </>
-        ) : (
-          <>
-            <span className="material-symbols-outlined text-base">play_arrow</span>
-            Connect
-          </>
-        )}
-      </button>
-    </div>
-  );
-}
-
 /** Merge approved + rejected devices with active connections into 1 client = 1 device list.
  *  Same device may open multiple sockets — use earliest connectedAt. */
 function mergeClients(approvedDevices, connections, rejectedDevices = []) {
@@ -369,6 +305,111 @@ function HeaderIconBtn({ icon, title, danger, onClick }) {
   );
 }
 
+/** Connection empty-state shown in panel when tunnel offline — single Connect CTA */
+function ConnectionEmpty({ onStart }) {
+  const [connecting, setConnecting] = useState(false);
+  const handleConnect = () => { setConnecting(true); onStart?.(); };
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-8 text-center max-w-md mx-auto w-full">
+      <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: "var(--glass-bg)" }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--text-muted)" }}>cloud_off</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        <p className="text-base font-semibold" style={{ color: "var(--text-main)" }}>Tunnel offline</p>
+        <p className="text-xs leading-5" style={{ color: "var(--text-muted)" }}>Start the tunnel to get a QR code and connect your devices from anywhere.</p>
+      </div>
+      <button
+        onClick={!connecting ? handleConnect : undefined}
+        disabled={connecting}
+        className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-sm font-semibold"
+        style={{ borderRadius: "var(--radius-brand)", opacity: connecting ? 0.7 : 1 }}
+      >
+        <span className="material-symbols-outlined text-base">play_arrow</span>
+        {connecting ? "Connecting…" : "Connect"}
+      </button>
+      <div className="grid grid-cols-3 gap-2 w-full">
+        {FEATURES.map((f) => (
+          <div key={f.label} className="dark-card flex flex-col items-center gap-1.5 py-3 px-1">
+            <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--brand-400)" }}>{f.icon}</span>
+            <p className="text-[11px] font-semibold" style={{ color: "var(--text-main)" }}>{f.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Primary left navigation — logo top, menu mid, controls bottom (9router pattern) */
+function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onClose }) {
+  const handleSelect = (id) => { onSelect(id); onClose?.(); };
+  return (
+    <aside className="flex flex-col sidebar w-64 flex-shrink-0 h-full">
+      {/* Brand */}
+      <div className="flex items-center gap-3 px-5 py-4">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "var(--brand-500)" }}>
+          <span className="material-symbols-outlined text-white text-base">terminal</span>
+        </div>
+        <div className="flex flex-col leading-tight">
+          <span className="brand-text text-xs">9Remote</span>
+          {version && <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>v{version}</span>}
+        </div>
+      </div>
+
+      {isReady && <div className="px-4 pb-3"><TunnelHealthBadge tunnelHealth={tunnelHealth} /></div>}
+
+      {/* Menu */}
+      <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto select-none">
+        {MENU.map((m) => {
+          const isActive = activeMenu === m.id;
+          return (
+            <button
+              key={m.id}
+              onClick={() => handleSelect(m.id)}
+              className="group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left"
+              style={isActive
+                ? { background: "var(--brand-tint)", color: "var(--brand-500)" }
+                : { color: "var(--text-muted)" }}
+            >
+              <span className={`material-symbols-outlined text-[18px] ${isActive ? "fill-1" : ""}`}>{m.icon}</span>
+              <span className="text-[13px] font-medium">{m.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
+/** Content header — per-menu title/icon/desc + global actions (9router pattern) */
+function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown, onMenuClick }) {
+  return (
+    <header className="shrink-0 flex items-center justify-between gap-3 px-6 lg:px-10 pt-4 pb-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
+      <div className="flex items-center gap-2 min-w-0">
+        <button onClick={onMenuClick} className="md:hidden glass-btn w-8 h-8 flex items-center justify-center flex-shrink-0" style={{ color: "var(--text-muted)" }} aria-label="Open menu">
+          <span className="material-symbols-outlined text-lg">menu</span>
+        </button>
+        <span className="material-symbols-outlined text-xl" style={{ color: "var(--brand-500)" }}>{menu?.icon}</span>
+        <div className="min-w-0">
+          <h1 className="text-lg lg:text-xl font-semibold tracking-tight truncate" style={{ color: "var(--text-main)" }}>{menu?.label}</h1>
+          {menu?.desc && <p className="hidden lg:block text-xs truncate" style={{ color: "var(--text-muted)" }}>{menu.desc}</p>}
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <HeaderIconBtn
+          icon={theme === "dark" ? "light_mode" : "dark_mode"}
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          onClick={onToggleTheme}
+        />
+        <HeaderIconBtn icon="help_outline" title="Help & documentation" onClick={() => window.open(HELP_URL, "_blank")} />
+        {!isStopped && (
+          <HeaderIconBtn icon="stop_circle" title="Stop the tunnel and disconnect clients" danger onClick={onStop} />
+        )}
+        <HeaderIconBtn icon="power_settings_new" title="Shutdown 9Remote (stop server, close tunnel and quit)" onClick={onShutdown} />
+      </div>
+    </header>
+  );
+}
+
 function TunnelHealthBadge({ tunnelHealth }) {
   const meta = TUNNEL_HEALTH_META[tunnelHealth?.status] || TUNNEL_HEALTH_META.unknown;
   const time = tunnelHealth?.checkedAt ? new Date(tunnelHealth.checkedAt).toLocaleTimeString() : "--:--:--";
@@ -393,12 +434,39 @@ export default function MainScreen({
   autoApprove = false, onAutoApproveToggle,
   autoStart = false, onAutoStartToggle,
   sleepInhibitMode = "never", sleepInhibitPresets = [], onSleepInhibitChange,
+  sessions = [], onSessionDelete, onSessionRefresh,
 }) {
-  const [activeTab, setActiveTab] = useState("connect");
+  const [activeMenu, setActiveMenu] = useState("connection");
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [openedIds, setOpenedIds] = useState([]);
   const logEndRef = useRef(null);
+  const term = useSessions();
+
+  // Open a session → also open all sessions in its group as split panes (web parity)
+  const openSession = (sessionId) => {
+    const sel = term.sessions.find((s) => s.id === sessionId);
+    const gid = sel?.groupId || null;
+    const groupIds = term.sessions.filter((s) => (s.groupId || null) === gid).map((s) => s.id);
+    setOpenedIds((prev) => Array.from(new Set([...prev, ...groupIds, sessionId])));
+    setActiveSessionId(sessionId);
+  };
+
+  // Prune opened list to existing sessions (don't touch activeSessionId — avoids race on create)
+  useEffect(() => {
+    const ids = term.sessions.map((s) => s.id);
+    setOpenedIds((prev) => prev.filter((id) => ids.includes(id)));
+  }, [term.sessions]);
+
+  // Close overlay only when the active session is actually closed (sessionClosed event)
+  useEffect(() => {
+    const onClosed = (id) => { if (id === activeSessionId) setActiveSessionId(null); };
+    term.socket.on("sessionClosed", onClosed);
+    return () => term.socket.off("sessionClosed", onClosed);
+  }, [activeSessionId, term.socket]);
   // STEP enum: STOPPED=0, PREPARING=1, CONNECTING=2, TUNNELING=3, VERIFYING=4, READY=5
   const isReady = step === 5;
   const isStopped = step === 0;
@@ -406,108 +474,75 @@ export default function MainScreen({
 
   // Refresh devices list whenever tab active or state updates (so offline/online stays in sync)
   useEffect(() => {
-    if (activeTab === "log") logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    if (activeTab === "connect") onFetchDevices?.();
-  }, [logs, activeTab, connections.length]);
+    if (activeMenu === "logs") logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (activeMenu === "connection") onFetchDevices?.();
+    if (activeMenu === "sessions") term.refresh();
+  }, [logs, activeMenu, connections.length]);
 
   const clients = mergeClients(approvedDevices, connections, rejectedDevices);
   const onlineCount = clients.filter((c) => c.status === "online").length;
 
+  const currentMenu = MENU.find((m) => m.id === activeMenu);
+
   return (
-    <div className="h-full flex flex-col relative overflow-hidden" style={{ background: "var(--bg-body)" }}>
-      <div className="flex-1 flex flex-col w-full min-h-0 dot-grid-bg overflow-hidden md:max-w-5xl p-3" style={{ margin: "0 auto" }}>
-        {/* header */}
-        <div className="flex items-center justify-between px-5 py-4" style={{ boxShadow: "var(--header-shadow)", backdropFilter: "blur(10px)" }}>
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "var(--brand-500)" }}>
-              <span className="material-symbols-outlined text-white text-base">terminal</span>
-            </div>
-            <div className="flex flex-col leading-tight">
-              <span className="brand-text text-xs">9Remote</span>
-              {version && <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>v{version}</span>}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {isReady && <TunnelHealthBadge tunnelHealth={tunnelHealth} />}
-            <HeaderIconBtn
-              icon={theme === "dark" ? "light_mode" : "dark_mode"}
-              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              onClick={onToggleTheme}
-            />
-            <HeaderIconBtn
-              icon="help_outline"
-              title="Help & documentation"
-              onClick={() => window.open(HELP_URL, "_blank")}
-            />
-            {!isStopped && (
-              <HeaderIconBtn
-                icon="stop_circle"
-                title="Stop the tunnel and disconnect clients"
-                danger
-                onClick={() => setShowDisconnectConfirm(true)}
-              />
-            )}
-            <HeaderIconBtn
-              icon="power_settings_new"
-              title="Shutdown 9Remote (stop server, tunnel and quit)"
-              onClick={() => setShowShutdownConfirm(true)}
-            />
-          </div>
-        </div>
+    <div className="h-full w-full flex overflow-hidden" style={{ background: "var(--bg-body)" }}>
+      {/* Sidebar — desktop */}
+      <div className="hidden md:flex">
+        <Sidebar
+          activeMenu={activeMenu}
+          onSelect={setActiveMenu}
+          version={version}
+          isReady={isReady}
+          tunnelHealth={tunnelHealth}
+        />
+      </div>
 
-        {/* banners */}
+      {/* Sidebar — mobile overlay */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+      <div className={`fixed inset-y-0 left-0 z-50 transform md:hidden transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <Sidebar
+          activeMenu={activeMenu}
+          onSelect={setActiveMenu}
+          version={version}
+          isReady={isReady}
+          tunnelHealth={tunnelHealth}
+          onClose={() => setSidebarOpen(false)}
+        />
+      </div>
+
+      {/* Main — header + scrollable content (9router pattern) */}
+      <main className="flex-1 flex flex-col min-w-0 h-full relative dot-grid-bg isolate">
+        {/* Faint grid background overlay */}
+        <div className="landing-grid absolute inset-0 pointer-events-none -z-10" aria-hidden="true" />
+        <PageHeader
+          menu={currentMenu}
+          isStopped={isStopped}
+          theme={theme}
+          onToggleTheme={onToggleTheme}
+          onStop={() => setShowDisconnectConfirm(true)}
+          onShutdown={() => setShowShutdownConfirm(true)}
+          onMenuClick={() => setSidebarOpen(true)}
+        />
         <UpdateBanner version={updateVersion} />
+        <div className="flex-1 overflow-y-auto p-6 lg:p-10">
+          <div className="max-w-7xl mx-auto flex flex-col gap-4">
+              {activeMenu === "connection" && isStopped && (
+                <ConnectionEmpty onStart={onStart} />
+              )}
 
-        {/* welcome / progress / main */}
-        {isStopped ? (
-          <WelcomeScreen onStart={onStart} connecting={false} />
-        ) : isConnecting ? (
-          <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4 max-w-2xl mx-auto w-full">
-            <StepProgress currentStep={step} activeDesc={stepDesc} healthCheck={healthCheck} />
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col md:flex-row min-h-0">
-            {/* Sidebar (QR + Keys) - desktop only visible, mobile in tabs */}
-            <div className="hidden md:flex md:flex-col sidebar w-96 flex-shrink-0 overflow-y-auto p-5 gap-4">
-              <QRCard
-                qrUrl={qrUrl}
-                oneTimeKey={oneTimeKey}
-                oneTimeKeyExpiresAt={oneTimeKeyExpiresAt}
-                permanentKey={permanentKey}
-                tunnelUrl={tunnelUrl}
-                onGenerateOneTimeKey={onGenerateOneTimeKey}
-                onRegenerateKey={onRegenerateKey}
-              />
-            </div>
+              {activeMenu === "connection" && isConnecting && (
+                <div className="flex-1 flex flex-col gap-4 max-w-2xl mx-auto w-full">
+                  <StepProgress currentStep={step} activeDesc={stepDesc} healthCheck={healthCheck} />
+                </div>
+              )}
 
-            {/* Main content */}
-            <div className="flex-1 flex flex-col min-h-0">
-              {/* tabs */}
-              <div className="flex px-5 pt-3 gap-3" style={{ borderColor: "var(--border)" }}>
-                {[
-                  { id: "connect", label: "Connection" },
-                  { id: "log", label: "Logs" },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className="py-2 text-xs font-medium border-b-2 transition-colors"
-                    style={activeTab === tab.id
-                      ? { borderColor: "var(--brand-500)", color: "var(--brand-500)" }
-                      : { borderColor: "transparent", color: "var(--text-muted)" }
-                    }
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* content */}
-              <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4">
-                {activeTab === "connect" && (
-                  <>
-                    {/* QR Card - mobile only */}
-                    <div className="md:hidden">
+              {activeMenu === "connection" && isReady && (
+                <>
+                  {/* QR sticky (1/3) left + Config & Clients (2/3) right */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                    <div className="md:col-span-1 md:sticky md:top-4">
                       <QRCard
                         qrUrl={qrUrl}
                         oneTimeKey={oneTimeKey}
@@ -518,22 +553,21 @@ export default function MainScreen({
                         onRegenerateKey={onRegenerateKey}
                       />
                     </div>
+                    <div className="md:col-span-2 flex flex-col gap-4">
+                      <ServicesCard
+                        desktopEnabled={desktopEnabled}
+                        onDesktopToggle={onDesktopToggle}
+                        permissions={permissions}
+                        onRequestPermission={onRequestPermission}
+                        autoStart={autoStart}
+                        onAutoStartToggle={onAutoStartToggle}
+                        sleepInhibitMode={sleepInhibitMode}
+                        sleepInhibitPresets={sleepInhibitPresets}
+                        onSleepInhibitChange={onSleepInhibitChange}
+                      />
 
-                    {/* Feature cards */}
-                    <ServicesCard
-                      desktopEnabled={desktopEnabled}
-                      onDesktopToggle={onDesktopToggle}
-                      permissions={permissions}
-                      onRequestPermission={onRequestPermission}
-                      autoStart={autoStart}
-                      onAutoStartToggle={onAutoStartToggle}
-                      sleepInhibitMode={sleepInhibitMode}
-                      sleepInhibitPresets={sleepInhibitPresets}
-                      onSleepInhibitChange={onSleepInhibitChange}
-                    />
-
-                    {/* Clients (merged devices + live connections) */}
-                    <div className="glass-card p-4 flex flex-col gap-1">
+                      {/* Clients (merged devices + live connections) */}
+                      <div className="glass-card p-4 flex flex-col gap-1">
                       <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
                         Clients{clients.length > 0 ? ` (${onlineCount}/${clients.length} online)` : ""}
                       </p>
@@ -572,11 +606,28 @@ export default function MainScreen({
                           />
                         ))
                       )}
+                      </div>
                     </div>
+                  </div>
                   </>
                 )}
 
-                {activeTab === "log" && (
+                {activeMenu === "sessions" && (
+                  <SessionList
+                    sessions={term.sessions}
+                    groups={term.groups}
+                    connected={term.connected}
+                    onSelect={(s) => openSession(s.id)}
+                    onCreate={(groupId) => term.createSession(groupId)}
+                    onDelete={(id) => term.deleteSession(id)}
+                    onRename={(id, name) => term.renameSession(id, name)}
+                    onCreateGroup={(name, cb) => term.createGroup(name, cb)}
+                    onRenameGroup={(id, name) => term.renameGroup(id, name)}
+                    onDeleteGroup={(id) => term.deleteGroup(id)}
+                  />
+                )}
+
+                {activeMenu === "logs" && (
                   <div className="flex-1 flex flex-col">
                     {logs.length === 0 ? (
                       <p className="text-xs text-center mt-8" style={{ color: "var(--text-muted)" }}>No logs yet</p>
@@ -590,11 +641,9 @@ export default function MainScreen({
                     )}
                   </div>
                 )}
-              </div>
-            </div>
           </div>
-        )}
-      </div>
+        </div>
+      </main>
 
       {showDisconnectConfirm && (
         <ConfirmPopup
@@ -655,6 +704,32 @@ export default function MainScreen({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Full-screen terminal overlay (mirrors web) */}
+      {activeSessionId && (
+        <TerminalView
+          socket={term.socket}
+          sessions={term.sessions}
+          openedIds={openedIds}
+          activeId={activeSessionId}
+          connected={term.connected}
+          theme={theme}
+          groups={term.groups}
+          onSwitch={setActiveSessionId}
+          onSelectGroup={(gid) => {
+            const groupIds = term.sessions.filter((s) => (s.groupId || null) === gid).map((s) => s.id);
+            setOpenedIds((prev) => Array.from(new Set([...prev, ...groupIds])));
+            if (groupIds[0]) setActiveSessionId(groupIds[0]);
+          }}
+          onCreate={(groupId) => term.createSession(groupId, (r) => {
+            if (r?.success && r.sessionId) {
+              setOpenedIds((prev) => Array.from(new Set([...prev, r.sessionId])));
+              setActiveSessionId(r.sessionId);
+            }
+          })}
+          onBack={() => setActiveSessionId(null)}
+        />
       )}
     </div>
   );

@@ -2,7 +2,8 @@
 import { Server } from "socket.io";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { PATHS } from "../lib/constants.js";
+import { PATHS, LOCAL_UI_ORIGINS } from "../lib/constants.js";
+import { verifyLocalToken } from "../lib/localToken.js";
 import { ProtocolManager } from "./ProtocolManager.js";
 import { registerProtocol, unregisterProtocol } from "./broadcast.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
@@ -195,6 +196,21 @@ export async function startTransportServer(server) {
       if (event === "device:clientReady" || event === "disconnect") return next();
       return next(new Error("Device not approved"));
     });
+
+    // Trusted local UI — valid ephemeral token + loopback + same-origin (or non-browser).
+    // Resists CSWSH: a malicious page can't read the token (loopback + origin-guarded endpoint).
+    const rawAddr = socket.handshake.address || "";
+    const isLoopback = rawAddr === "127.0.0.1" || rawAddr === "::1" || rawAddr === "::ffff:127.0.0.1";
+    const isTunnel = !!socket.handshake.headers["cf-connecting-ip"];
+    const origin = socket.handshake.headers.origin;
+    const originOk = !origin || LOCAL_UI_ORIGINS.includes(origin);
+    if (!isTunnel && isLoopback && originOk && verifyLocalToken(socket.handshake.auth?.localToken)) {
+      socket.data.approved = true;
+      socket.data.localUi = true;
+      pushUiLog("Local UI connected — trusted (token)");
+      setupSocketFeatures(socket);
+      return; // do not track in Clients list
+    }
 
     trackConnection(socket.id, ip, deviceId);
     pushUiLog(`Client connected: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);

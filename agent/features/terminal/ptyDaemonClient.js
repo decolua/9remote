@@ -108,19 +108,34 @@ function prepareDaemonCopy(sourceScript) {
   const version = getCliVersion();
   cleanupOldDaemonVersions(version);
   const runtimeDir = path.join(DAEMON_RUNTIME_DIR, `v${version}`);
-  const copiedScript = path.join(runtimeDir, path.basename(sourceScript));
-  const copiedPtyDir = path.join(runtimeDir, "node_modules", "node-pty");
+
+  // Dev daemon (.js) imports local constants via relative paths (./constants.js,
+  // ../../lib/constants.js) → mirror that tree so imports resolve. Bundled .cjs
+  // has no local imports → keep it flat at runtimeDir root.
+  const isDev = sourceScript.endsWith(".js");
+  const scriptDir = isDev ? path.join(runtimeDir, "features", "terminal") : runtimeDir;
+  const copiedScript = path.join(scriptDir, path.basename(sourceScript));
+  const copiedPtyDir = path.join(scriptDir, "node_modules", "node-pty");
 
   // Already prepared — skip work
   if (fs.existsSync(copiedScript) && fs.existsSync(copiedPtyDir)) {
-    return { script: copiedScript, cwd: runtimeDir };
+    return { script: copiedScript, cwd: scriptDir };
   }
 
   try {
-    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.mkdirSync(scriptDir, { recursive: true });
 
     // Copy daemon script
     fs.copyFileSync(sourceScript, copiedScript);
+
+    // Dev mode: copy the local constants the daemon imports, preserving relative layout
+    if (isDev) {
+      const srcDir = path.dirname(sourceScript);
+      fs.copyFileSync(path.join(srcDir, "constants.js"), path.join(scriptDir, "constants.js"));
+      const libDest = path.join(runtimeDir, "lib");
+      fs.mkdirSync(libDest, { recursive: true });
+      fs.copyFileSync(path.resolve(srcDir, "..", "..", "lib", "constants.js"), path.join(libDest, "constants.js"));
+    }
 
     // Locate node-pty relative to the source script so this works in both dev
     // (agent/features/terminal/) and bundled (dist/) layouts.
@@ -128,7 +143,7 @@ function prepareDaemonCopy(sourceScript) {
     if (!ptyDir) return null;
     copyDirSync(ptyDir, copiedPtyDir);
 
-    return { script: copiedScript, cwd: runtimeDir };
+    return { script: copiedScript, cwd: scriptDir };
   } catch {
     return null;
   }

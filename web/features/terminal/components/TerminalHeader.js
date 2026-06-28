@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, Settings, Monitor, Plus } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Settings, Monitor, Plus, ChevronDown } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
@@ -29,12 +29,19 @@ export default function TerminalHeader({
   transport = "ws",
   isActive = true,
   shells = [],
+  groups = [],
+  activeGroupId = null,
+  onSelectGroup,
+  hasUngrouped = false,
 }) {
   const { t } = useI18n();
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
   const [showShellMenu, setShowShellMenu] = useState(false);
   const shellMenuRef = useRef(null);
+  const [showGroupMenu, setShowGroupMenu] = useState(false);
+  const groupMenuRef = useRef(null);
+  const activeGroupName = groups.find((g) => g.id === activeGroupId)?.name || t("groups.ungrouped");
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
 
   useEffect(() => {
@@ -49,6 +56,19 @@ export default function TerminalHeader({
       document.removeEventListener("touchstart", onDocClick);
     };
   }, [showShellMenu]);
+
+  useEffect(() => {
+    if (!showGroupMenu) return;
+    const onDocClick = (e) => {
+      if (groupMenuRef.current && !groupMenuRef.current.contains(e.target)) setShowGroupMenu(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("touchstart", onDocClick);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("touchstart", onDocClick);
+    };
+  }, [showGroupMenu]);
 
   const handlePlusClick = () => {
     vibrate();
@@ -103,6 +123,33 @@ export default function TerminalHeader({
       >
         <ChevronLeft size={18} />
       </button>
+
+      {/* Group selector — desktop only, hidden when only one option exists */}
+      {onSelectGroup && (groups.length + (hasUngrouped ? 1 : 0)) > 1 && (
+        <div ref={groupMenuRef} className="relative hidden sm:block flex-shrink-0">
+          <button
+            onClick={() => { vibrate(); setShowGroupMenu(v => !v); }}
+            className="px-2 py-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-colors flex items-center gap-1 max-w-[160px]"
+            title={t("groups.title")}
+          >
+            <span className="truncate text-sm font-medium">{activeGroupName}</span>
+            <ChevronDown size={14} />
+          </button>
+          {showGroupMenu && (
+            <div className="absolute left-0 top-full mt-1 z-30 bg-surface-2 border border-border-subtle rounded-brand shadow-lg py-1 min-w-[160px]">
+              {[...groups, ...(hasUngrouped ? [{ id: null, name: t("groups.ungrouped") }] : [])].map((g) => (
+                <button
+                  key={g.id || "ungrouped"}
+                  onClick={() => { vibrate(); onSelectGroup(g.id); setShowGroupMenu(false); }}
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-surface-3 ${g.id === activeGroupId ? "text-brand-500" : "text-text"}`}
+                >
+                  {g.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* overflow-auto whitelists this for mobile touchmove (see page.js preventScroll) */}
       <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-dark-400 scrollbar-track-transparent">

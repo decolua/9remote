@@ -1,6 +1,6 @@
 import pty from "node-pty";
 import * as daemonClient from "../ptyDaemonClient.js";
-import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, UPLOAD_DIR } from "../ptyHelper.js";
+import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveGroups, UPLOAD_DIR } from "../ptyHelper.js";
 import { resolveShell, getShellList } from "../constants.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
@@ -38,12 +38,16 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
   });
 }
 
-// sessions ref is passed in from terminalSocket to keep single source of truth
-export function setupSessionHandlers(socket, io, sessions) {
+// sessions ref is passed in from terminalSocket to keep single source of truth.
+// groups (Map) + sessionGroups (object) are agent-managed and persisted to JSON.
+export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups) {
+  // Persist current groups + session->group map
+  const persistGroups = () => saveGroups(groups, sessionGroups);
+
   socket.on("getSessions", (callback) => {
     const list = [];
     for (const [id, session] of sessions) {
-      list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false, shellId: session.shellId, shellLabel: session.shellLabel });
+      list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false, shellId: session.shellId, shellLabel: session.shellLabel, groupId: sessionGroups[id] || null });
     }
     callback(list);
   });
@@ -52,7 +56,61 @@ export function setupSessionHandlers(socket, io, sessions) {
     callback({ platform: process.platform, shells: getShellList() });
   });
 
-  socket.on("createSession", async ({ name, shellId }, callback) => {
+  // Group operations — handled at agent (independent of daemon)
+  socket.on("getGroups", (callback) => {
+    callback(Array.from(groups.values()));
+  });
+
+  socket.on("createGroup", ({ name }, callback) => {
+    const id = `group-${Date.now()}`;
+    const group = { id, name: name || "Group", createdAt: Date.now() };
+    groups.set(id, group);
+    persistGroups();
+    broadcast(io, "groupsChanged");
+    callback({ success: true, group });
+  });
+
+  socket.on("renameGroup", ({ groupId, name }, callback) => {
+    const group = groups.get(groupId);
+    if (!group) return callback({ success: false, error: "Group not found" });
+    group.name = name;
+    persistGroups();
+    broadcast(io, "groupsChanged");
+    callback({ success: true });
+  });
+
+  socket.on("deleteGroup", async ({ groupId }, callback) => {
+    if (!groups.delete(groupId)) return callback({ success: false, error: "Group not found" });
+    // Close all terminals belonging to this group
+    const targetIds = Object.keys(sessionGroups).filter((sid) => sessionGroups[sid] === groupId);
+    for (const sid of targetIds) {
+      const session = sessions.get(sid);
+      if (session) {
+        if (session.daemon && daemonClient.isConnected()) {
+          try { await daemonClient.deleteSession(sid); } catch {}
+        } else if (session.pty) {
+          session.pty.kill();
+          deleteSessionBuffer(sid);
+        }
+        sessions.delete(sid);
+        broadcast(io, "sessionClosed", sid);
+      }
+      delete sessionGroups[sid];
+    }
+    persistGroups();
+    broadcast(io, "groupsChanged");
+    callback({ success: true });
+  });
+
+  socket.on("moveSession", ({ sessionId, groupId }, callback) => {
+    if (groupId && groups.has(groupId)) sessionGroups[sessionId] = groupId;
+    else delete sessionGroups[sessionId];
+    persistGroups();
+    broadcast(io, "groupsChanged");
+    callback({ success: true });
+  });
+
+  socket.on("createSession", async ({ name, shellId, groupId }, callback) => {
     const sessionId = `session-${Date.now()}`;
     const shellConfig = resolveShell(shellId);
     const shellEnv = buildShellEnv();
@@ -68,6 +126,7 @@ export function setupSessionHandlers(socket, io, sessions) {
         const result = await daemonClient.createSession(autoName, 80, 24, shellId);
         if (result.success) {
           sessions.set(result.sessionId, { daemon: true, name: autoName, createdAt: Date.now(), cwd: result.cwd, shellId: result.shellId, shellLabel: result.shellLabel });
+          if (groupId && groups.has(groupId)) { sessionGroups[result.sessionId] = groupId; persistGroups(); }
           callback({ success: true, sessionId: result.sessionId, shellLabel: result.shellLabel });
         } else {
           callback({ success: false, error: result.error });
@@ -81,6 +140,7 @@ export function setupSessionHandlers(socket, io, sessions) {
 
       attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions);
       sessions.set(sessionId, sessionData);
+      if (groupId && groups.has(groupId)) { sessionGroups[sessionId] = groupId; persistGroups(); }
       callback({ success: true, sessionId, shellLabel: shellConfig.label });
     } catch (error) {
       console.error("Failed to create session:", error);
@@ -140,6 +200,7 @@ export function setupSessionHandlers(socket, io, sessions) {
       try {
         await daemonClient.deleteSession(sessionId);
         sessions.delete(sessionId);
+        if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
         callback({ success: true });
       } catch (e) {
         callback({ success: false, error: e.message });
@@ -149,6 +210,7 @@ export function setupSessionHandlers(socket, io, sessions) {
 
     if (session.pty) session.pty.kill();
     sessions.delete(sessionId);
+    if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
     deleteSessionBuffer(sessionId);
     broadcast(io, "sessionClosed", sessionId);
     saveSessionMetadata(sessions);

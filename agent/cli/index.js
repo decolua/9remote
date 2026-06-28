@@ -7,11 +7,15 @@ import { startUiMode } from "./modes/ui.js";
 import { startTrayMode } from "./modes/tray.js";
 import { autoStartDev } from "./modes/auto.js";
 import { startupMenu } from "./modes/startup.js";
+import { runHeadlessCommand, printHelp } from "./modes/headless.js";
 
 initLogger();
 
 async function start() {
   const command = process.argv[2];
+
+  // Headless commands (key/otk/devices/...) drive the running server via API; no TTY needed
+  if (await runHeadlessCommand(process.argv)) return;
 
   // Skip self-kill when re-entering via --tray/--auto/--start (child of launchBackground),
   // otherwise the detached child reads its own PID from agent.pid and kills itself
@@ -24,6 +28,9 @@ async function start() {
     await autoStartDev();
   } else if (process.argv.includes("--tray") || process.argv.includes("--start")) {
     await startTrayMode();
+  } else if (!process.stdin.isTTY) {
+    // No interactive terminal (SSH/server): TUI menu would break, show help instead
+    printHelp();
   } else {
     await startupMenu();
   }

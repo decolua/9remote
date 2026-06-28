@@ -6,6 +6,7 @@ import { WORKER_API } from "@/shared/constants/API";
 // Socket.io connection management hook for Terminal
 export function useSocket() {
   const [sessions, setSessions] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [remoteAvailable, setRemoteAvailable] = useState(false);
   const [codespaceInfo, setCodespaceInfo] = useState(null);
   const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
@@ -81,6 +82,12 @@ export function useSocket() {
       setSessions(prev => prev.filter(s => s.id !== sessionId));
     });
 
+    // Groups changed elsewhere — refresh both lists
+    socket.on("groupsChanged", () => {
+      socket.emit("getGroups", (list) => setGroups(list || []));
+      socket.emit("getSessions", (list) => setSessions(list || []));
+    });
+
     socket.on("codespace:stopping", handleCodespaceStopping);
 
     // Signal server that client listeners are ready
@@ -106,18 +113,42 @@ export function useSocket() {
     });
   }, [socketRef]);
 
-  // Create new session
-  const createSession = useCallback((name, shellId, callback) => {
+  // Load groups list
+  const loadGroups = useCallback(() => {
     if (!socketRef.current) return;
-    // Backward compat: createSession(name, callback)
-    if (typeof shellId === "function") { callback = shellId; shellId = null; }
+    socketRef.current.emit("getGroups", (list) => setGroups(list || []));
+  }, [socketRef]);
 
-    socketRef.current.emit("createSession", { name, shellId }, (result) => {
+  // Create new session (groupId optional)
+  const createSession = useCallback((name, shellId, groupId, callback) => {
+    if (!socketRef.current) return;
+    // Backward compat: createSession(name, callback) / createSession(name, shellId, callback)
+    if (typeof shellId === "function") { callback = shellId; shellId = null; groupId = null; }
+    else if (typeof groupId === "function") { callback = groupId; groupId = null; }
+
+    socketRef.current.emit("createSession", { name, shellId, groupId }, (result) => {
       if (result.success) {
         loadSessions();
       }
       callback?.(result);
     });
+  }, [socketRef, loadSessions]);
+
+  // Group CRUD + move
+  const createGroup = useCallback((name, callback) => {
+    socketRef.current?.emit("createGroup", { name }, (result) => { if (result?.success) loadGroups(); callback?.(result); });
+  }, [socketRef, loadGroups]);
+
+  const renameGroup = useCallback((groupId, name, callback) => {
+    socketRef.current?.emit("renameGroup", { groupId, name }, (result) => { if (result?.success) loadGroups(); callback?.(result); });
+  }, [socketRef, loadGroups]);
+
+  const deleteGroup = useCallback((groupId, callback) => {
+    socketRef.current?.emit("deleteGroup", { groupId }, (result) => { if (result?.success) { loadGroups(); loadSessions(); } callback?.(result); });
+  }, [socketRef, loadGroups, loadSessions]);
+
+  const moveSession = useCallback((sessionId, groupId, callback) => {
+    socketRef.current?.emit("moveSession", { sessionId, groupId }, (result) => { if (result?.success) loadSessions(); callback?.(result); });
   }, [socketRef, loadSessions]);
 
   // Fetch available shells from agent
@@ -181,11 +212,17 @@ export function useSocket() {
     codespaceStopping,
     platform,
     agentVersion,
+    groups,
     loadSessions,
+    loadGroups,
     createSession,
     getShells,
     deleteSession,
     renameSession,
+    createGroup,
+    renameGroup,
+    deleteGroup,
+    moveSession,
     stopCodespace
   };
 }

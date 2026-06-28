@@ -2,11 +2,19 @@ import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 import obfuscator from "vite-plugin-javascript-obfuscator";
 import { browserPreset } from "../scripts/obfuscatorConfig.js";
+import { fileURLToPath } from "url";
+import path from "path";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AGENT_PORT = 2208;
 
 export default defineConfig({
   root: "ui",
+  resolve: {
+    alias: {
+      "@shared": path.resolve(__dirname, "ui/src/lib"),
+    },
+  },
   plugins: [preact(), obfuscator({ apply: "build", include: ["**/*.js"], options: browserPreset })],
   server: {
     port: 5173,

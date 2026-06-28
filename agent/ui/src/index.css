@@ -6,44 +6,55 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens — synced with web */
+/* Design tokens — synced with web/app/globals.css */
 :root {
-  --brand-500: #FF570A;
-  --brand-600: #e04400;
-  --brand-400: #ff6e33;
-  --radius-brand: 12px;
-  --radius-brand-lg: 16px;
+  --radius-brand: 10px;
+  --radius-brand-lg: 14px;
 }
 
-/* Light theme */
+/* Light theme — GitBook-style softer brand (web light) */
 :root[data-theme="light"] {
-  --bg-body: #EBE9E6;
-  --bg-main: #FBF9F6;
-  --bg-alt: #F5F1ED;
+  --brand-500: #E68A6E;
+  --brand-600: #d77459;
+  --brand-400: #ea9577;
+  --brand-tint: rgba(230, 138, 110, 0.12);
+  --bg-body: #FCFBF9;
+  --bg-main: #FCFBF9;
+  --bg-alt: #F4F4F5;
   --surface: #FFFFFF;
-  --sidebar: rgba(246, 246, 246, 0.8);
-  --border: rgba(0, 0, 0, 0.1);
-  --text-main: #383733;
-  --text-muted: #75736E;
+  --surface-2: #F4F4F5;
+  --sidebar: var(--surface);
+  --border: #E5E7EB;
+  --border-subtle: #F1F1F3;
+  --text-main: #0A0A0A;
+  --text-muted: #6B7280;
   --glass-bg: rgba(255, 255, 255, 0.6);
   --glass-border: rgba(0, 0, 0, 0.08);
   --glass-hover: rgba(255, 255, 255, 0.8);
+  --grid-opacity: 0.08;
   --header-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-/* Dark theme */
+/* Dark theme — Claude-like neutral warm dark (web default) */
 :root[data-theme="dark"] {
-  --bg-body: #292928;
-  --bg-main: #191918;
-  --bg-alt: #1F1F1E;
-  --surface: #242423;
-  --sidebar: rgba(30, 30, 30, 0.8);
-  --border: rgba(255, 255, 255, 0.1);
-  --text-main: #ECEBE8;
-  --text-muted: #9E9D99;
-  --glass-bg: rgba(36, 36, 35, 0.6);
-  --glass-border: rgba(255, 255, 255, 0.1);
-  --glass-hover: rgba(36, 36, 35, 0.8);
+  --brand-500: #FF570A;
+  --brand-600: #e04400;
+  --brand-400: #ff6e33;
+  --brand-tint: rgba(255, 87, 10, 0.12);
+  --bg-body: #1A1A1A;
+  --bg-main: #1A1A1A;
+  --bg-alt: #303030;
+  --surface: #262626;
+  --surface-2: #303030;
+  --sidebar: var(--surface);
+  --border: #333333;
+  --border-subtle: #2A2A2A;
+  --text-main: #EDEDED;
+  --text-muted: #9CA3AF;
+  --glass-bg: rgba(38, 38, 38, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-hover: rgba(48, 48, 48, 0.8);
+  --grid-opacity: 0.04;
   --header-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
@@ -67,7 +78,7 @@
     background-color: var(--bg-main);
     color: var(--text-main);
     -webkit-font-smoothing: antialiased;
-    user-select: none;
+    user-select: text;
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 
@@ -86,6 +97,15 @@
   .dot-grid-bg {
     background: var(--bg-main);
     transition: background-color 0.3s ease;
+  }
+
+  /* Faint grid overlay — synced with web landing grid (absolute inside relative parent) */
+  .landing-grid {
+    background-image:
+      linear-gradient(to right, var(--brand-500) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--brand-500) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: var(--grid-opacity, 0.05);
   }
 
   /* Dark card — synced with web login card */
@@ -130,7 +150,7 @@
     color: #fff;
     font-weight: 600;
     transition: all 0.2s ease;
-    box-shadow: 0 4px 16px rgba(255, 87, 10, 0.2);
+    box-shadow: 0 4px 16px rgba(229, 106, 74, 0.2);
   }
 
   .btn-primary:hover {
@@ -139,7 +159,7 @@
   }
 
   .btn-primary:disabled {
-    background: rgba(255, 87, 10, 0.3);
+    background: rgba(229, 106, 74, 0.3);
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
@@ -159,9 +179,11 @@
     border-color: rgba(220, 53, 69, 0.4);
   }
 
-  /* Sidebar for desktop layout */
+  /* Sidebar — 9router pattern: vibrancy bg + right border */
   .sidebar {
-    /* No background - transparent */
+    background: var(--sidebar);
+    border-right: 1px solid var(--border-subtle);
+    backdrop-filter: blur(20px);
   }
 
   .brand-text {
@@ -173,6 +195,17 @@
   .material-symbols-outlined {
     font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
   }
+
+  /* Filled icon variant for active nav (9router) */
+  .fill-1 {
+    font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
+  }
+}
+
+/* Brand-tinted text selection (9router) */
+::selection {
+  background-color: rgba(229, 106, 74, 0.25);
+  color: var(--brand-500);
 }
 
 @keyframes pulse-ring {
@@ -201,3 +234,44 @@
 .dot-bounce {
   animation: dot-bounce 1s ease-in-out infinite;
 }
+
+/* Terminal pane — fix xterm helpers overlay + focus glow (synced with web) */
+.terminal-wrapper { overflow: hidden !important; }
+.terminal-wrapper .xterm-viewport { overflow-y: auto !important; }
+.terminal-wrapper .xterm-screen { touch-action: pan-y !important; }
+.xterm .xterm-helpers { z-index: 0 !important; }
+.xterm-helper-textarea { opacity: 0 !important; }
+
+/* Top-mid glow indicates focused terminal pane (web parity) */
+.terminal-focus-glow::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50%;
+  height: 5px;
+  background: radial-gradient(ellipse at center, var(--brand-500) 0%, rgba(255,87,10,0.6) 35%, transparent 75%);
+  filter: blur(3px);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Overlay slide-in (web parity) */
+@keyframes slide-in-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.slide-in-right { animation: slide-in-right 0.3s ease-out; }
+
+/* Terminal header hover (web parity) */
+.term-btn:hover { background: var(--surface-2); filter: brightness(0.95); }
+.term-tab:hover { color: var(--text-main) !important; }
+.term-group-item:hover { background: var(--surface-2); }
+
+/* Session cards (web parity) */
+.session-card { background: var(--surface); border: 1px solid var(--border-subtle); transition: background-color 0.15s ease; }
+.session-card:hover { background: var(--surface-2); }
+.card-act { color: var(--text-muted); transition: all 0.15s ease; }
+.card-act:hover { background: var(--surface-2); color: var(--text-main); }
+.card-del { color: var(--text-muted); transition: all 0.15s ease; }
+.card-del:hover { background: rgba(239,68,68,0.15); color: #ef4444; }
+.dashed-card { border: 1px dashed var(--border); color: var(--text-muted); transition: all 0.15s ease; }
+.dashed-card:hover { border-color: var(--brand-500); color: var(--brand-500); background: var(--brand-tint); }

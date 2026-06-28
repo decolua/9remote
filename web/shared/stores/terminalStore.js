@@ -10,6 +10,16 @@ export const useTerminalStore = create(
       // Navigation stack
       viewStack: [{ type: "list" }],
       openedSessions: [],
+
+      // Active group for terminal-view tab filtering (null = Ungrouped)
+      activeGroupId: null,
+      setActiveGroupId: (groupId) => set({ activeGroupId: groupId }),
+
+      // Collapsed accordion groups in SessionList (key by groupId, "ungrouped" for null)
+      collapsedGroups: {},
+      toggleGroup: (key) => set((state) => ({
+        collapsedGroups: { ...state.collapsedGroups, [key]: !state.collapsedGroups[key] }
+      })),
       
       // Actions
       pushView: (view) => set((state) => ({
@@ -54,7 +64,8 @@ export const useTerminalStore = create(
       // Reset to initial state
       reset: () => set({
         viewStack: [{ type: "list" }],
-        openedSessions: []
+        openedSessions: [],
+        activeGroupId: null
       })
     }),
     {
