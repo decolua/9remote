@@ -18,6 +18,7 @@
   --brand-600: #d77459;
   --brand-400: #ea9577;
   --brand-tint: rgba(230, 138, 110, 0.12);
+  --brand-rgb: 230, 138, 110;
   --bg-body: #FCFBF9;
   --bg-main: #FCFBF9;
   --bg-alt: #F4F4F5;
@@ -37,10 +38,11 @@
 
 /* Dark theme — Claude-like neutral warm dark (web default) */
 :root[data-theme="dark"] {
-  --brand-500: #FF570A;
-  --brand-600: #e04400;
-  --brand-400: #ff6e33;
-  --brand-tint: rgba(255, 87, 10, 0.12);
+  --brand-500: #E56A4A;
+  --brand-600: #cc5236;
+  --brand-400: #ea7855;
+  --brand-tint: rgba(229, 106, 74, 0.12);
+  --brand-rgb: 229, 106, 74;
   --bg-body: #1A1A1A;
   --bg-main: #1A1A1A;
   --bg-alt: #303030;
@@ -237,7 +239,23 @@
 
 /* Terminal pane — fix xterm helpers overlay + focus glow (synced with web) */
 .terminal-wrapper { overflow: hidden !important; }
-.terminal-wrapper .xterm-viewport { overflow-y: auto !important; }
+.terminal-wrapper .xterm-viewport {
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--brand-rgb), 0.5) transparent;
+}
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar { width: 6px; }
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(var(--brand-rgb), 0.5);
+  border-radius: 3px;
+}
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--brand-rgb), 0.8);
+}
+/* XTerm custom overlay scrollbar (JS-rendered div, not native) — thin only, keep default color */
+.terminal-wrapper .xterm .scrollbar { width: 6px !important; }
+.terminal-wrapper .xterm .scrollbar .slider { width: 6px !important; border-radius: 3px !important; }
 .terminal-wrapper .xterm-screen { touch-action: pan-y !important; }
 .xterm .xterm-helpers { z-index: 0 !important; }
 .xterm-helper-textarea { opacity: 0 !important; }
@@ -251,7 +269,7 @@
   transform: translateX(-50%);
   width: 50%;
   height: 5px;
-  background: radial-gradient(ellipse at center, var(--brand-500) 0%, rgba(255,87,10,0.6) 35%, transparent 75%);
+  background: radial-gradient(ellipse at center, var(--brand-500) 0%, rgba(var(--brand-rgb), 0.6) 35%, transparent 75%);
   filter: blur(3px);
   pointer-events: none;
   z-index: 2;
@@ -263,8 +281,12 @@
 
 /* Terminal header hover (web parity) */
 .term-btn:hover { background: var(--surface-2); filter: brightness(0.95); }
-.term-tab:hover { color: var(--text-main) !important; }
+.term-tab:not(.term-tab-active):hover { color: var(--text-main) !important; }
 .term-group-item:hover { background: var(--surface-2); }
+
+/* Connection cards — borderless on dark, subtle border on light (session parity) */
+.conn-card { border: none; }
+:root[data-theme="light"] .conn-card { border: 1px solid var(--border-subtle); }
 
 /* Session cards (web parity) */
 .session-card { background: var(--surface); border: 1px solid var(--border-subtle); transition: background-color 0.15s ease; }

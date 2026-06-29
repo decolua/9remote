@@ -227,9 +227,11 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
   const sendTextBatch = () => {
     vibrate(15);
-    if (!textInput.trim() || !socket || !sessionId) return;
-    socket.emit("input", { sessionId, data: textInput });
-    setTextInput("");
+    if (!socket || !sessionId) return;
+    // Empty input → send single Enter (\r); otherwise send raw text
+    const data = textInput === "" ? "\r" : textInput;
+    socket.emit("input", { sessionId, data });
+    if (textInput !== "") setTextInput("");
     textInputRef.current?.focus();
   };
 
@@ -374,13 +376,13 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
               ×
             </button>
           )}
-          <button
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={sendTextBatch}
-            disabled={!textInput.trim()}
-            className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-surface-3 disabled:text-text-muted text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0"
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={sendTextBatch}
+                  disabled={false}
+                  className="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[72px]"
           >
-            {t("mobileKeyboard.send")}
+            {textInput.trim() ? t("mobileKeyboard.send") : "Enter"}
           </button>
         </div>
       </div>

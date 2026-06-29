@@ -88,3 +88,5 @@ web/wrangler.toml
 .agents.vn/*
 .loop/*
 ./source
+web/graphify-out/*
+agent/graphify-out/*

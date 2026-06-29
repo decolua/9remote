@@ -111,12 +111,12 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
   const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
   const toggleDisabled = !canEnableDesktop && !desktopEnabled;
   return (
-    <div className="glass-card p-4 flex flex-col gap-3">
+    <div className="glass-card conn-card p-4 flex flex-col gap-3">
       {/* Desktop block: row + permissions cùng group */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: desktopEnabled ? "rgba(255,87,10,0.15)" : "var(--glass-bg)" }}>
+            style={{ background: desktopEnabled ? "rgba(var(--brand-rgb),0.15)" : "var(--glass-bg)" }}>
             <span className="material-symbols-outlined" style={{ fontSize: 20, color: desktopEnabled ? "var(--brand-400)" : "var(--text-muted)" }}>
               desktop_windows
             </span>
@@ -177,13 +177,13 @@ function UpdateBanner({ version }) {
   if (!version) return null;
   const handleUpdate = () => fetch("/api/update", { method: "POST" }).catch(() => {});
   return (
-    <div className="px-5 py-2 flex items-center gap-2 border-b" style={{ background: "rgba(255,87,10,0.08)", borderColor: "rgba(255,87,10,0.2)" }}>
+    <div className="px-5 py-2 flex items-center gap-2 border-b" style={{ background: "rgba(var(--brand-rgb),0.08)", borderColor: "rgba(var(--brand-rgb),0.2)" }}>
       <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "var(--brand-400)" }}>system_update</span>
       <span className="text-xs flex-1" style={{ color: "var(--brand-400)" }}>Version {version} available</span>
       <button
         onClick={handleUpdate}
         className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-medium"
-        style={{ background: "rgba(255,87,10,0.15)", color: "var(--brand-400)" }}
+        style={{ background: "rgba(var(--brand-rgb),0.15)", color: "var(--brand-400)" }}
       >
         Update
       </button>
@@ -541,8 +541,8 @@ export default function MainScreen({
               {activeMenu === "connection" && isReady && (
                 <>
                   {/* QR sticky (1/3) left + Config & Clients (2/3) right */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-                    <div className="md:col-span-1 md:sticky md:top-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
+                    <div className="md:col-span-1">
                       <QRCard
                         qrUrl={qrUrl}
                         oneTimeKey={oneTimeKey}
@@ -567,7 +567,7 @@ export default function MainScreen({
                       />
 
                       {/* Clients (merged devices + live connections) */}
-                      <div className="glass-card p-4 flex flex-col gap-1">
+                      <div className="glass-card conn-card p-4 flex flex-col gap-1">
                       <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
                         Clients{clients.length > 0 ? ` (${onlineCount}/${clients.length} online)` : ""}
                       </p>
@@ -619,6 +619,7 @@ export default function MainScreen({
                     connected={term.connected}
                     onSelect={(s) => openSession(s.id)}
                     onCreate={(groupId) => term.createSession(groupId)}
+                    onCreateNamed={(groupId, name) => term.createSession(groupId, undefined, name)}
                     onDelete={(id) => term.deleteSession(id)}
                     onRename={(id, name) => term.renameSession(id, name)}
                     onCreateGroup={(name, cb) => term.createGroup(name, cb)}
@@ -728,6 +729,14 @@ export default function MainScreen({
               setActiveSessionId(r.sessionId);
             }
           })}
+          onCreateNamed={(groupId, name) => term.createSession(groupId, (r) => {
+            if (r?.success && r.sessionId) {
+              setOpenedIds((prev) => Array.from(new Set([...prev, r.sessionId])));
+              setActiveSessionId(r.sessionId);
+            }
+          }, name)}
+          onRename={(id, name) => term.renameSession(id, name)}
+          onDelete={(id) => term.deleteSession(id)}
           onBack={() => setActiveSessionId(null)}
         />
       )}

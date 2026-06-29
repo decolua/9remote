@@ -14,7 +14,7 @@ export const THEME_PALETTE = {
     text: "#ededed",
     textMuted: "#9ca3af",
     textSubtle: "#6b7280",
-    accent: "#FF570A",
+    accent: "#E56A4A",
     danger: "#ef4444",
     success: "#22c55e",
   },

@@ -57,7 +57,7 @@ export function useSessions() {
     };
   }, []);
 
-  const createSession = (groupId, cb) => socket.emit("createSession", { groupId: groupId || null }, (r) => { refresh(); cb?.(r); });
+  const createSession = (groupId, cb, name) => socket.emit("createSession", { groupId: groupId || null, name: name || null }, (r) => { refresh(); cb?.(r); });
   const deleteSession = (sessionId) => socket.emit("deleteSession", sessionId, () => refresh());
   const renameSession = (sessionId, name) => socket.emit("renameSession", { sessionId, name }, () => refresh());
   const createGroup = (name, cb) => socket.emit("createGroup", { name }, (r) => { refresh(); cb?.(r); });

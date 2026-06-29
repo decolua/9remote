@@ -197,6 +197,13 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     return () => clearTimeout(timer);
   }, [isVisible, doResize]);
 
+  // Refit terminal when pane receives focus (desktop split + mobile active pane)
+  useEffect(() => {
+    if (!isFocused) return;
+    const timer = setTimeout(doResize, 100);
+    return () => clearTimeout(timer);
+  }, [isFocused, doResize]);
+
   // Update theme
   useEffect(() => {
     if (termRef.current) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, Settings, Monitor, Plus, ChevronDown } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Settings, Monitor, Plus, ChevronDown, Pencil, Trash2, X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
@@ -33,29 +33,74 @@ export default function TerminalHeader({
   activeGroupId = null,
   onSelectGroup,
   hasUngrouped = false,
+  onRenameSession,
+  onDeleteSession,
+  onCreateNamedSession,
 }) {
   const { t } = useI18n();
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
-  const [showShellMenu, setShowShellMenu] = useState(false);
-  const shellMenuRef = useRef(null);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const groupMenuRef = useRef(null);
+  // Tab right-click context menu (rename/delete)
+  const [tabMenu, setTabMenu] = useState({ sessionId: null, x: 0, y: 0 });
+  const tabMenuRef = useRef(null);
+  const [editingTabId, setEditingTabId] = useState(null);
+  const [editTabName, setEditTabName] = useState("");
+  const [tabDeleteConfirm, setTabDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
+  // New terminal modal (named create)
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [newTerminalName, setNewTerminalName] = useState("");
   const activeGroupName = groups.find((g) => g.id === activeGroupId)?.name || t("groups.ungrouped");
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
 
+  // Close tab context menu on outside click / Escape
   useEffect(() => {
-    if (!showShellMenu) return;
+    if (!tabMenu.sessionId) return;
     const onDocClick = (e) => {
-      if (shellMenuRef.current && !shellMenuRef.current.contains(e.target)) setShowShellMenu(false);
+      if (tabMenuRef.current && !tabMenuRef.current.contains(e.target)) setTabMenu({ sessionId: null, x: 0, y: 0 });
     };
+    const onKey = (e) => { if (e.key === "Escape") setTabMenu({ sessionId: null, x: 0, y: 0 }); };
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("touchstart", onDocClick);
+    document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("touchstart", onDocClick);
+      document.removeEventListener("keydown", onKey);
     };
-  }, [showShellMenu]);
+  }, [tabMenu.sessionId]);
+
+  const handleTabContextMenu = (e, session) => {
+    e.preventDefault();
+    vibrate();
+    setTabMenu({ sessionId: session.id, x: e.clientX, y: e.clientY });
+  };
+
+  const startTabRename = (session) => {
+    setEditingTabId(session.id);
+    setEditTabName(session.name || "");
+    setTabMenu({ sessionId: null, x: 0, y: 0 });
+  };
+
+  const saveTabRename = (sessionId) => {
+    if (editTabName.trim()) onRenameSession?.(sessionId, editTabName.trim());
+    setEditingTabId(null);
+    setEditTabName("");
+  };
+
+  const openTabDeleteConfirm = (session) => {
+    setTabDeleteConfirm({ isOpen: true, sessionId: session.id, sessionName: session.name || "" });
+    setTabMenu({ sessionId: null, x: 0, y: 0 });
+  };
+
+  const handleCreateSubmit = () => {
+    const name = newTerminalName.trim();
+    setCreateModalOpen(false);
+    setNewTerminalName("");
+    if (onCreateNamedSession) onCreateNamedSession(name || null, activeGroupId);
+    else onCreateSession?.(activeGroupId);
+  };
 
   useEffect(() => {
     if (!showGroupMenu) return;
@@ -69,17 +114,6 @@ export default function TerminalHeader({
       document.removeEventListener("touchstart", onDocClick);
     };
   }, [showGroupMenu]);
-
-  const handlePlusClick = () => {
-    vibrate();
-    if (shells.length > 1) setShowShellMenu(v => !v);
-    else onCreateSession?.();
-  };
-
-  const handlePickShell = (shellId) => {
-    setShowShellMenu(false);
-    onCreateSession?.(shellId);
-  };
 
   useEffect(() => {
     if (activeTabRef.current && tabsContainerRef.current) {
@@ -165,38 +199,42 @@ export default function TerminalHeader({
                   vibrate();
                   onSwitchSession?.(session.id);
                 }}
+                onContextMenu={(e) => handleTabContextMenu(e, session)}
                 className={`px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap ${
                   isActiveTab ? "border-brand-500 text-brand-500" : "border-transparent text-text-muted hover:text-text"
                 }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${hasNotif ? "bg-yellow-400 animate-pulse" : connected ? "bg-green-400" : "bg-red-400"}`} />
-                <span className="truncate max-w-[120px]">{session.name || t("terminal.defaultName")}</span>
+                {editingTabId === session.id ? (
+                  <input
+                    type="text"
+                    value={editTabName}
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                    onInput={(e) => setEditTabName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveTabRename(session.id);
+                      if (e.key === "Escape") { setEditingTabId(null); setEditTabName(""); }
+                    }}
+                    onBlur={() => saveTabRename(session.id)}
+                    className="bg-transparent border-b border-brand-500 outline-none max-w-[120px] text-text"
+                  />
+                ) : (
+                  <span className="truncate max-w-[120px]">{session.name || t("terminal.defaultName")}</span>
+                )}
               </button>
             );
           })}
           {onCreateSession && (
-            <div ref={shellMenuRef} className="relative sticky right-0 ml-1 flex-shrink-0">
+            <div className="relative sticky right-0 ml-1 flex-shrink-0">
               <button
-                onClick={handlePlusClick}
+                onClick={() => { vibrate(); setCreateModalOpen(true); }}
                 disabled={!connected}
                 className="p-1.5 bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
                 title={t("terminal.newTerminal")}
               >
                 <Plus size={18} />
               </button>
-              {showShellMenu && shells.length > 1 && (
-                <div className="absolute right-0 top-full mt-1 z-50 bg-surface-2 border border-surface-3 rounded-brand shadow-lg min-w-[160px] py-1">
-                  {shells.map(s => (
-                    <button
-                      key={s.id}
-                      onClick={() => handlePickShell(s.id)}
-                      className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 transition-colors"
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -219,6 +257,105 @@ export default function TerminalHeader({
       >
         <Settings size={18} />
       </button>
+
+      {/* Tab right-click context menu */}
+      {tabMenu.sessionId && (
+        <div
+          ref={tabMenuRef}
+          className="fixed z-[60] bg-surface-2 border border-border-subtle rounded-brand shadow-lg py-1 min-w-[140px]"
+          style={{ left: tabMenu.x, top: tabMenu.y }}
+        >
+          <button
+            onClick={() => startTabRename(sessions.find((s) => s.id === tabMenu.sessionId))}
+            className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
+          >
+            <Pencil size={14} /> {t("sessions.editName")}
+          </button>
+          <button
+            onClick={() => openTabDeleteConfirm(sessions.find((s) => s.id === tabMenu.sessionId))}
+            className="w-full text-left px-3 py-1.5 text-sm text-red-500 hover:bg-red-500/10 flex items-center gap-2"
+          >
+            <Trash2 size={14} /> {t("sessions.deleteTitle")}
+          </button>
+        </div>
+      )}
+
+      {/* New terminal modal (named create) */}
+      {createModalOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setCreateModalOpen(false)}
+        >
+          <div
+            className="bg-surface rounded-brand-lg p-5 w-80 shadow-elev"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-text">{t("terminal.newTerminal")}</p>
+              <button onClick={() => setCreateModalOpen(false)} className="text-text-muted hover:text-text">
+                <X size={18} />
+              </button>
+            </div>
+            <input
+              type="text"
+              value={newTerminalName}
+              autoFocus
+              placeholder={t("terminal.defaultName")}
+              onInput={(e) => setNewTerminalName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateSubmit();
+                if (e.key === "Escape") setCreateModalOpen(false);
+              }}
+              className="w-full px-3 py-2 mb-4 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleCreateSubmit}
+                className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-brand transition-colors"
+              >
+                {t("common.create")}
+              </button>
+              <button
+                onClick={() => setCreateModalOpen(false)}
+                className="flex-1 py-2 text-sm text-text-muted bg-surface-2 hover:bg-surface-3 rounded-brand transition-colors"
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab delete confirm */}
+      {tabDeleteConfirm.isOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setTabDeleteConfirm({ isOpen: false, sessionId: null, sessionName: "" })}
+        >
+          <div className="bg-surface rounded-brand-lg p-5 w-80 shadow-elev" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm text-text mb-4">
+              {t("sessions.deleteMessage", { name: tabDeleteConfirm.sessionName })}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  if (tabDeleteConfirm.sessionId) onDeleteSession?.(tabDeleteConfirm.sessionId);
+                  setTabDeleteConfirm({ isOpen: false, sessionId: null, sessionName: "" });
+                }}
+                className="flex-1 py-2 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-brand transition-colors"
+              >
+                {t("common.delete")}
+              </button>
+              <button
+                onClick={() => setTabDeleteConfirm({ isOpen: false, sessionId: null, sessionName: "" })}
+                className="flex-1 py-2 text-sm text-text-muted bg-surface-2 hover:bg-surface-3 rounded-brand transition-colors"
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

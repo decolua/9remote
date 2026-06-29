@@ -17,6 +17,7 @@ import {
 export default function TerminalPane({ socket, sessionId, theme = "dark", isFocused, onActivate, showFocusBorder }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
+  const fitAddonRef = useRef(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   useEffect(() => {
@@ -24,6 +25,7 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
 
     const { term, fitAddon, doFit, dispose } = createTerminal(containerRef.current, { theme });
     termRef.current = term;
+    fitAddonRef.current = fitAddon;
 
     // Resize observer → debounced fit + emit resize
     let resizeTimer = null;
@@ -89,8 +91,19 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
     if (termRef.current) termRef.current.options.theme = resolveTheme(theme);
   }, [theme]);
 
-  // Focus
-  useEffect(() => { if (isFocused) termRef.current?.focus(); }, [isFocused]);
+  // Focus → also refit (layout may have changed since last visible)
+  useEffect(() => {
+    if (!isFocused || !termRef.current) return;
+    termRef.current.focus();
+    const timer = setTimeout(() => {
+      const fitAddon = fitAddonRef.current;
+      const term = termRef.current;
+      if (!fitAddon || !term || !containerRef.current?.offsetWidth) return;
+      fitAddon.fit();
+      socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [isFocused, sessionId, socket]);
 
   const scrollToBottom = () => termRef.current?.scrollToBottom();
   const glow = showFocusBorder && isFocused ? "terminal-focus-glow" : "";

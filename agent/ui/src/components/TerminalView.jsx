@@ -6,13 +6,77 @@ import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "../lib/constants";
 const UNGROUPED = { id: null, name: "Ungrouped" };
 
 // Full-screen terminal overlay — mirrors web workspace (split panes + tabs + group selector)
-export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", onSwitch, onCreate, onSelectGroup, onBack }) {
+export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
+  const [textInput, setTextInput] = useState("");
+  const [tabMenu, setTabMenu] = useState({ sessionId: null, x: 0, y: 0 });
+  const tabMenuRef = useRef(null);
+  const [editingTabId, setEditingTabId] = useState(null);
+  const [editTabName, setEditTabName] = useState("");
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [newTerminalName, setNewTerminalName] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const groupMenuRef = useRef(null);
   const tabsRef = useRef(null);
   const activeTabRef = useRef(null);
   const paneEls = useRef({});
+
+  // Active session object (input bar target) — undefined when no active pane
+  const activeSession = sessions.find((s) => s.id === activeId);
+
+  // Send current text input to active session (Enter parity: empty → send "\r")
+  const sendText = () => {
+    if (!socket || !activeSession) return;
+    const data = textInput === "" ? "\r" : textInput;
+    socket.emit("input", { sessionId: activeSession.id, data });
+    if (textInput !== "") setTextInput("");
+  };
+
+  // Close tab context menu on outside click / Escape
+  useEffect(() => {
+    if (!tabMenu.sessionId) return;
+    const onDoc = (e) => { if (tabMenuRef.current && !tabMenuRef.current.contains(e.target)) setTabMenu({ sessionId: null, x: 0, y: 0 }); };
+    const onKey = (e) => { if (e.key === "Escape") setTabMenu({ sessionId: null, x: 0, y: 0 }); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("touchstart", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("touchstart", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [tabMenu.sessionId]);
+
+  const handleTabContextMenu = (e, session) => {
+    e.preventDefault();
+    setTabMenu({ sessionId: session.id, x: e.clientX, y: e.clientY });
+  };
+
+  const startTabRename = (session) => {
+    setEditingTabId(session.id);
+    setEditTabName(session.name || "");
+    setTabMenu({ sessionId: null, x: 0, y: 0 });
+  };
+
+  const saveTabRename = (sessionId) => {
+    if (editTabName.trim()) onRename?.(sessionId, editTabName.trim());
+    setEditingTabId(null);
+    setEditTabName("");
+  };
+
+  const handleCreateSubmit = () => {
+    const name = newTerminalName.trim() || null;
+    setCreateModalOpen(false);
+    setNewTerminalName("");
+    if (onCreateNamed) onCreateNamed(activeGroupId, name);
+    else onCreate?.(activeGroupId);
+  };
+
+  const suggestTerminalName = (groupId) => {
+    const count = sessions.filter((s) => (s.groupId || null) === groupId).length;
+    return `Terminal ${count + 1}`;
+  };
 
   useEffect(() => {
     let t = 0;
@@ -57,9 +121,9 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const showGroupSelector = groupOptions.length > 1;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col slide-in-right" style={{ background: "var(--bg-body)" }}>
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "var(--bg-body)" }}>
       {/* Header — back + group selector + tabs + new (web TerminalHeader parity) */}
-      <div className="px-2 sm:px-4 pt-2 pb-1 flex items-center gap-2 flex-shrink-0">
+      <div className="px-2 sm:px-4 pt-2 pb-1 flex items-center gap-2 flex-shrink-0 relative z-10">
         <button
           onClick={onBack}
           title="Back to sessions"
@@ -108,16 +172,34 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                   key={s.id}
                   ref={isActive ? activeTabRef : null}
                   onClick={() => onSwitch?.(s.id)}
-                  className="px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap term-tab"
+                  onContextMenu={(e) => handleTabContextMenu(e, s)}
+                  className={`px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap term-tab${isActive ? " term-tab-active" : ""}`}
                   style={{ color: isActive ? "var(--brand-500)" : "var(--text-muted)" }}
                 >
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: connected ? "#22c55e" : "#ef4444" }} />
-                  <span className="truncate max-w-[120px]">{s.name || s.id}</span>
+                  {editingTabId === s.id ? (
+                    <input
+                      type="text"
+                      value={editTabName}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onInput={(e) => setEditTabName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveTabRename(s.id);
+                        if (e.key === "Escape") { setEditingTabId(null); setEditTabName(""); }
+                      }}
+                      onBlur={() => saveTabRename(s.id)}
+                      className="bg-transparent border-b outline-none max-w-[120px]"
+                      style={{ borderColor: "var(--brand-500)", color: "var(--text-main)" }}
+                    />
+                  ) : (
+                    <span className="truncate max-w-[120px]">{s.name || s.id}</span>
+                  )}
                 </button>
               );
             })}
             <button
-              onClick={() => connected && onCreate?.(activeGroupId)}
+              onClick={() => connected && (setNewTerminalName(suggestTerminalName(activeGroupId)), setCreateModalOpen(true))}
               disabled={!connected}
               title="New terminal"
               className="p-1.5 ml-1 rounded-lg transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0 term-btn"
@@ -130,7 +212,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
       </div>
 
       {/* Panes: desktop = horizontal split, mobile = active pane only */}
-      <div className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden" : "relative"}`}>
+      <div className={`flex-1 min-h-0 relative z-10 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden" : "relative"}`}>
         {openedGroup.map((s) => {
           const isFocused = s.id === activeId;
           return (
@@ -154,6 +236,149 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
           );
         })}
       </div>
+
+      {/* Text input bar — web MobileKeyboard parity (send raw text or lone Enter) */}
+      {activeSession && (
+        <div className="flex items-center gap-2 px-2 py-1.5 flex-shrink-0 relative z-10" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={textInput}
+              onInput={(e) => setTextInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  sendText();
+                }
+              }}
+              placeholder="Type command…"
+              className="w-full px-3 py-1.5 pr-8 rounded-lg text-sm focus:outline-none"
+              style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}
+            />
+            {textInput && (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setTextInput("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full"
+                style={{ color: "var(--text-muted)" }}
+                aria-label="Clear"
+              >
+                <Icon name="plus" size={14} className="rotate-45" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={sendText}
+            className="btn-primary px-4 py-1.5 text-sm font-semibold flex-shrink-0 min-w-[72px]"
+          >
+            {textInput.trim() ? "Send" : "Enter"}
+          </button>
+        </div>
+      )}
+
+      {/* Tab right-click context menu */}
+      {tabMenu.sessionId && (
+        <div
+          ref={tabMenuRef}
+          className="fixed z-[60] py-1 min-w-[140px]"
+          style={{
+            left: tabMenu.x, top: tabMenu.y,
+            background: "var(--surface-2)", border: "1px solid var(--border)",
+            borderRadius: "var(--radius-brand)", boxShadow: "var(--header-shadow, 0 2px 12px rgba(0,0,0,0.3))",
+          }}
+        >
+          <button
+            onClick={() => startTabRename(sessions.find((s) => s.id === tabMenu.sessionId))}
+            className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act"
+            style={{ color: "var(--text-main)" }}
+          >
+            <Icon name="pencil" size={14} /> Rename
+          </button>
+          <button
+            onClick={() => {
+              const s = sessions.find((x) => x.id === tabMenu.sessionId);
+              setDeleteConfirm({ id: s?.id, name: s?.name || s?.id });
+              setTabMenu({ sessionId: null, x: 0, y: 0 });
+            }}
+            className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-del"
+            style={{ color: "var(--text-main)" }}
+          >
+            <Icon name="trash" size={14} /> Delete
+          </button>
+        </div>
+      )}
+
+      {/* New terminal modal */}
+      {createModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => setCreateModalOpen(false)}
+        >
+          <div className="glass-card p-5 w-80" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-semibold mb-3" style={{ color: "var(--text-main)" }}>New Terminal</p>
+            <input
+              type="text"
+              value={newTerminalName}
+              autoFocus
+              placeholder={suggestTerminalName(activeGroupId)}
+              onInput={(e) => setNewTerminalName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateSubmit();
+                if (e.key === "Escape") setCreateModalOpen(false);
+              }}
+              className="w-full px-3 py-2 rounded-lg text-sm mb-4 focus:outline-none"
+              style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}
+            />
+            <div className="flex gap-2">
+              <button onClick={handleCreateSubmit} className="btn-primary flex-1 py-2 text-sm font-semibold">
+                Create
+              </button>
+              <button
+                onClick={() => { setNewTerminalName(""); setCreateModalOpen(false); }}
+                className="glass-btn flex-1 py-2 text-sm"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => setDeleteConfirm(null)}
+        >
+          <div className="glass-card p-5 w-80" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm mb-4" style={{ color: "var(--text-main)" }}>
+              {`Delete terminal ${deleteConfirm.name}?`}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  if (deleteConfirm?.id) onDelete?.(deleteConfirm.id);
+                  setDeleteConfirm(null);
+                }}
+                className="flex-1 py-2 text-sm font-semibold text-white rounded-lg"
+                style={{ background: "#ef4444" }}
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="glass-btn flex-1 py-2 text-sm"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

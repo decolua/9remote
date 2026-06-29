@@ -2,7 +2,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* Brand Colors */
+  /* Brand Colors (light mode — saturated orange) */
   --color-brand-50: #fff2ec;
   --color-brand-100: #ffe0cc;
   --color-brand-200: #ffbf99;
@@ -75,8 +75,21 @@
     inset 0 1px 0 0 rgba(255,255,255,0.06),
     0 1px 2px rgba(0,0,0,0.4),
     0 16px 48px -8px rgba(0,0,0,0.55);
-  --shadow-focus: 0 0 0 3px rgba(255,87,10,0.15);
+  --shadow-focus: 0 0 0 3px rgba(229,106,74,0.18);
   color-scheme: dark;
+
+  /* Dark mode brand — terracotta #E56A4A (synced with 9router dark) */
+  --brand-rgb: 229, 106, 74;
+  --color-brand-50: #2a1612;
+  --color-brand-100: #3d201a;
+  --color-brand-200: #5c2f1d;
+  --color-brand-300: #7a2f1d;
+  --color-brand-400: #cc5236;
+  --color-brand-500: #E56A4A;
+  --color-brand-600: #ea7855;
+  --color-brand-700: #ee8d6a;
+  --color-brand-800: #f4b59c;
+  --color-brand-900: #fadccf;
 }
 
 /* Light theme override - GitBook style */
@@ -99,6 +112,7 @@
     0 12px 36px -8px rgba(15,23,42,0.10);
   --shadow-focus: 0 0 0 3px rgba(230,138,110,0.18);
   color-scheme: light;
+  --brand-rgb: 230, 138, 110;
 
   /* GitBook-style softer brand (Cam đất) for light mode */
   --color-brand-50: #fdf3ed;
@@ -228,6 +242,23 @@ html.terminal-page body {
   touch-action: none;
 }
 
+/* WezTerm-style blurred background image layer behind terminal */
+.terminal-bg-image {
+  position: absolute;
+  inset: -20px;
+  background-image: url("https://screamageddon.com/wp-content/uploads/2018/07/demons-revenge-slider-background-image.jpg");
+  background-size: cover;
+  background-position: center;
+  filter: blur(14px) brightness(0.55) saturate(1.1);
+  transform: scale(1.15);
+  z-index: 0;
+  pointer-events: none;
+}
+.terminal-wrapper {
+  position: relative;
+  z-index: 1;
+}
+
 /* Terminal wrapper */
 .terminal-wrapper {
   overflow: hidden !important;
@@ -253,10 +284,21 @@ html.terminal-page body {
   touch-action: pan-y !important;
 }
 
-/* XTerm scrollbar - visible for debugging */
+/* XTerm scrollbar - thin brand-colored */
 .terminal-wrapper .xterm-viewport {
   overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--brand-rgb), 0.5) transparent;
 }
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar { width: 6px; }
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(var(--brand-rgb), 0.5);
+  border-radius: 3px;
+}
+/* XTerm custom overlay scrollbar (JS-rendered div, not native) — thin only, keep default color */
+.terminal-wrapper .xterm .scrollbar { width: 6px !important; }
+.terminal-wrapper .xterm .scrollbar .slider { width: 6px !important; border-radius: 3px !important; }
 
 /* Disable text selection on buttons */
 button {
@@ -319,8 +361,8 @@ body.keyboard-open .safe-area-bottom {
   100% { transform: translateX(220%) skewX(-20deg); }
 }
 @keyframes ctaGlowPulse {
-  0%, 100% { box-shadow: 0 8px 24px -8px rgba(255,87,10,0.45), 0 0 0 0 rgba(255,87,10,0.5); }
-  50% { box-shadow: 0 12px 32px -8px rgba(255,87,10,0.6), 0 0 0 8px rgba(255,87,10,0); }
+  0%, 100% { box-shadow: 0 8px 24px -8px rgba(var(--brand-rgb), 0.45), 0 0 0 0 rgba(var(--brand-rgb), 0.5); }
+  50% { box-shadow: 0 12px 32px -8px rgba(var(--brand-rgb), 0.6), 0 0 0 8px rgba(var(--brand-rgb), 0); }
 }
 .btn-cta {
   position: relative;
@@ -345,15 +387,15 @@ body.keyboard-open .safe-area-bottom {
 /* Thin horizontal scrollbar in brand color — makes scroll affordance visible */
 .scroll-thin-x {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 87, 10, 0.55) transparent;
+  scrollbar-color: rgba(var(--brand-rgb), 0.55) transparent;
 }
 .scroll-thin-x::-webkit-scrollbar { height: 2px; }
 .scroll-thin-x::-webkit-scrollbar-track { background: transparent; }
 .scroll-thin-x::-webkit-scrollbar-thumb {
-  background: rgba(255, 87, 10, 0.55);
+  background: rgba(var(--brand-rgb), 0.55);
   border-radius: 2px;
 }
-.scroll-thin-x::-webkit-scrollbar-thumb:hover { background: rgba(255, 87, 10, 0.85); }
+.scroll-thin-x::-webkit-scrollbar-thumb:hover { background: rgba(var(--brand-rgb), 0.85); }
 
 /* Dot Grid Background Pattern */
 .dot-grid-bg {
@@ -361,8 +403,8 @@ body.keyboard-open .safe-area-bottom {
 }
 :root .dot-grid-bg {
   background-image: 
-    radial-gradient(circle at 15% 20%, rgba(255, 87, 10, 0.18) 0%, transparent 40%),
-    radial-gradient(circle at 85% 80%, rgba(255, 87, 10, 0.10) 0%, transparent 40%);
+    radial-gradient(circle at 15% 20%, rgba(var(--brand-rgb), 0.18) 0%, transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(var(--brand-rgb), 0.10) 0%, transparent 40%);
 }
 :root.light .dot-grid-bg {
   background-image: 

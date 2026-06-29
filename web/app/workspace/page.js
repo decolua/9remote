@@ -503,6 +503,9 @@ export default function WorkspacePage() {
                 notifications={notifications}
                 onSwitchSession={handleSelectSession}
                 onCreateSession={handleQuickCreateSession}
+                onRenameSession={handleRenameSession}
+                onDeleteSession={handleDeleteSession}
+                onCreateNamedSession={handleCreateSession}
                 onBack={popView}
                 groups={groups}
                 activeGroupId={activeGroupId}

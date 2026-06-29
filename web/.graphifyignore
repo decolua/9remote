@@ -1,0 +1,12 @@
+# code-only: skip all semantic (LLM) extraction
+*.md
+*.mdx
+*.markdown
+*.rst
+*.txt
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.pdf

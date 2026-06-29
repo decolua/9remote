@@ -6,10 +6,9 @@ import Input from "@/shared/components/ui/Input";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import SitesList from "@/features/terminal/components/SitesList";
-import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap, Plus, FolderPlus, ChevronDown, ChevronRight } from "@/shared/components/ui/Icon";
+import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap, Plus, FolderPlus, X, Folder } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { useTerminalStore } from "@/shared/stores/terminalStore";
 
 const UNGROUPED_KEY = "ungrouped";
 
@@ -24,8 +23,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   const [groupDeleteConfirm, setGroupDeleteConfirm] = useState({ isOpen: false, groupId: null, groupName: "" });
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
-
-  const { collapsedGroups, toggleGroup } = useTerminalStore();
+  const [terminalModal, setTerminalModal] = useState({ open: false, groupId: null });
+  const [newTerminalName, setNewTerminalName] = useState("");
 
   // Slide menu store
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
@@ -134,6 +133,19 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     setGroupModalOpen(false);
   };
 
+  const submitCreateTerminal = () => {
+    const name = newTerminalName.trim() || null;
+    onCreate?.(name, terminalModal.groupId);
+    setNewTerminalName("");
+    setTerminalModal({ open: false, groupId: null });
+  };
+
+  // Suggested name based on terminal count in target group
+  const suggestTerminalName = (groupId) => {
+    const count = sessions.filter((s) => (s.groupId || null) === groupId).length;
+    return `${t("terminal.defaultName")} ${count + 1}`;
+  };
+
   const handleSaveGroupEdit = (groupId) => {
     if (editGroupName.trim()) onRenameGroup?.(groupId, editGroupName.trim());
     setEditingGroupId(null);
@@ -232,21 +244,17 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       <div className="flex-1 p-4 sm:p-6 overflow-auto modal-scrollable">
         {/* Sessions grouped accordion — create via inline dashed cards */}
         {(
-          <div className="space-y-4">
+          <div className="space-y-8">
             {sections.map((section) => {
               const groupSessions = sessionsByGroup(section.id);
               // Hide empty Ungrouped to reduce clutter
               if (section.isUngrouped && groupSessions.length === 0) return null;
-              const collapsed = !!collapsedGroups[section.key];
               return (
                 <div key={section.key}>
-                  {/* Group header */}
+                  {/* Group header — folder icon, no collapse */}
                   <div className="flex items-center gap-2 mb-2 px-1">
-                    <button
-                      onClick={() => { vibrate(); toggleGroup(section.key); }}
-                      className="flex items-center gap-1.5 text-sm text-text-muted hover:text-brand-500 transition-colors"
-                    >
-                      {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                    <div className="flex items-center gap-1.5 text-sm text-text-muted">
+                      <Folder size={16} className="text-brand-500/70" />
                       {editingGroupId === section.id ? (
                         <input
                           type="text"
@@ -259,12 +267,14 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                           autoFocus
                         />
                       ) : (
-                        <span>{section.name}</span>
+                        <span className="font-medium text-text">{section.name}</span>
                       )}
-                    </button>
+                      <span className="text-xs text-text-muted">({groupSessions.length})</span>
+                    </div>
                     {!section.isUngrouped && (
                       <>
                         <button
+                          onMouseDown={(e) => e.preventDefault()}
                           onClick={() => { vibrate(); setEditingGroupId(section.id); setEditGroupName(section.name); }}
                           className="p-1 rounded-brand text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
                           title={t("groups.rename")}
@@ -283,7 +293,6 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                   </div>
 
                   {/* Cards */}
-                  {!collapsed && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                         {groupSessions.map((session) => (
                           <div
@@ -325,6 +334,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                             </div>
                             <div className="flex gap-1.5 ml-3">
                               <button
+                                onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => { vibrate(); handleStartEdit(session); }}
                                 disabled={!connected}
                                 className={`p-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.96] ${connected ? "hover:bg-surface-3 text-text-muted hover:text-text" : "text-text-muted cursor-not-allowed"}`}
@@ -345,15 +355,14 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                         ))}
                         {/* Inline dashed card to add a terminal into this group */}
                         <button
-                          onClick={() => { vibrate(); onCreate(null, section.id); }}
+                          onClick={() => { vibrate(); setNewTerminalName(suggestTerminalName(section.id)); setTerminalModal({ open: true, groupId: section.id }); }}
                           disabled={!connected}
                           className={`min-h-[58px] rounded-brand-lg p-3 flex items-center justify-center gap-1.5 text-sm border border-dashed border-border text-text-muted transition-all duration-150 ease-out ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10" : "opacity-50 cursor-not-allowed"}`}
                           title={t("groups.addTerminal")}
                         >
-                          <Plus size={16} /> {t("terminal.newTerminal")}
+                          <Plus className="text-brand-500" size={16} /> <span className="text-brand-500">{t("terminal.newTerminal")}</span>
                         </button>
                       </div>
-                  )}
                 </div>
               );
             })}
@@ -362,7 +371,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             <button
               onClick={() => { vibrate(); setGroupModalOpen(true); }}
               disabled={!connected}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold border border-brand-500/40 text-brand-500 bg-brand-500/5 transition-all duration-150 ease-out active:scale-[0.96] ${connected ? "hover:bg-brand-500/15 hover:border-brand-500" : "opacity-50 cursor-not-allowed"}`}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-brand-500/50 text-brand-500 bg-brand-500/5 transition-all duration-150 ease-out active:scale-[0.97] ${connected ? "hover:bg-brand-500/15 hover:border-brand-500" : "opacity-50 cursor-not-allowed"}`}
             >
               <FolderPlus size={16} /> {t("groups.newGroup")}
             </button>
@@ -408,6 +417,39 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         title={t("groups.deleteTitle")}
         message={t("groups.deleteMessage", { name: groupDeleteConfirm.groupName })}
       />
+
+      {/* Create Terminal Modal */}
+      {terminalModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setTerminalModal({ open: false, groupId: null })} />
+          <div className="relative card-elev max-w-sm w-full p-6">
+            <h3 className="text-lg font-semibold text-text mb-4">{t("terminal.newTerminal")}</h3>
+            <div className="relative">
+              <Input
+                value={newTerminalName}
+                onChange={(e) => setNewTerminalName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submitCreateTerminal(); if (e.key === "Escape") setTerminalModal({ open: false, groupId: null }); }}
+                placeholder={suggestTerminalName(terminalModal.groupId)}
+                autoFocus
+              />
+              {newTerminalName && (
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setNewTerminalName("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text rounded-full hover:bg-surface-3 transition-colors"
+                  aria-label="Clear"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <div className="flex gap-3 mt-5">
+              <Button variant="primary" onClick={submitCreateTerminal} className="flex-1">{t("common.confirm")}</Button>
+              <Button variant="secondary" onClick={() => { setNewTerminalName(""); setTerminalModal({ open: false, groupId: null }); }} className="flex-1">{t("common.cancel")}</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sites Modal - Reuse SitesList component */}
       <SitesList
