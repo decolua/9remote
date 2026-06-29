@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Button from "@/shared/components/ui/Button";
 import {
-  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus
+  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import {
@@ -183,7 +183,7 @@ export default function RemoteControls({
           onKeyDown={(e) => {
             if (inputMode === "mouse" && e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (streaming && textInputValue.trim()) v(onSendText, streaming);
+              if (streaming) v(onSendText, streaming);
             }
           }}
           placeholder={inputMode === "mouse" ? t("remoteControls.enterToSend") : t("remoteControls.typeToSend")}
@@ -203,9 +203,9 @@ export default function RemoteControls({
           size="sm"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => v(onSendText, streaming)}
-          disabled={!streaming || !textInputValue.trim()}
+          disabled={!streaming}
         >
-          {t("remoteControls.send")}
+          {textInputValue.trim() ? t("remoteControls.send") : <CornerDownLeft size={16} strokeWidth={2.5} />}
         </Button>
       </div>
 

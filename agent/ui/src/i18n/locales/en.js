@@ -1,0 +1,43 @@
+export default {
+  common: {
+    create: "Create",
+    cancel: "Cancel",
+    delete: "Delete",
+    rename: "Rename",
+    language: "Language",
+  },
+  terminal: {
+    backToSessions: "Back to sessions",
+    switchGroup: "Switch group",
+    newTerminal: "New terminal",
+    send: "Send",
+    typeCommand: "Type command…",
+    deleteConfirm: "Delete terminal {name}?",
+  },
+  sessions: {
+    newTerminal: "New Terminal",
+    addGroup: "Add Group",
+    newGroup: "New Group",
+    groupName: "Group name",
+    renameGroup: "Rename group",
+    deleteGroup: "Delete group",
+    ungrouped: "Ungrouped",
+    deleteSessionConfirm: "Delete session {name}? This will kill the terminal.",
+    deleteGroupConfirm: "Delete group {name}? All terminals inside will be closed.",
+  },
+  menu: {
+    connection: "Connection",
+    connectionDesc: "Pair devices and manage your secure tunnel",
+    sessions: "Sessions",
+    sessionsDesc: "Live terminal sessions running on this host",
+    logs: "Logs",
+    logsDesc: "Server activity and diagnostics",
+  },
+  header: {
+    documentation: "Documentation",
+    reset: "Reset the tunnel and reconnect clients",
+    shutdown: "Shutdown 9Remote (stop server, close tunnel and quit)",
+    lightMode: "Switch to light mode",
+    darkMode: "Switch to dark mode",
+  },
+};

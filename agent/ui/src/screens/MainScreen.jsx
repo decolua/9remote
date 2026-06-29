@@ -5,6 +5,9 @@ import ConfirmPopup from "../components/ConfirmPopup";
 import SessionList from "../components/SessionList";
 import TerminalView from "../components/TerminalView";
 import { useSessions } from "../lib/terminalSocket";
+import { updateTitle } from "../lib/titleMarquee";
+import { useI18n } from "../i18n";
+import { SUPPORTED_LOCALES } from "../i18n/config";
 
 const HELP_URL = "https://docs.9remote.cc/";
 
@@ -339,8 +342,45 @@ function ConnectionEmpty({ onStart }) {
   );
 }
 
+/** Language switcher — globe button + dropdown (header global action) */
+function LanguageMenu() {
+  const { t, locale, setLocale } = useI18n();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen((v) => !v)} title={t("common.language")} className="glass-btn w-7 h-7 flex items-center justify-center">
+        <span className="material-symbols-outlined text-sm">language</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg py-1 max-h-72 overflow-y-auto min-w-[160px]" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          {SUPPORTED_LOCALES.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => { setLocale(l.code); setOpen(false); }}
+              className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act"
+              style={{ color: l.code === locale ? "var(--brand-500)" : "var(--text-main)" }}
+            >
+              <span>{l.flag}</span> {l.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Primary left navigation — logo top, menu mid, controls bottom (9router pattern) */
 function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onClose }) {
+  const { t } = useI18n();
   const handleSelect = (id) => { onSelect(id); onClose?.(); };
   return (
     <aside className="flex flex-col sidebar w-64 flex-shrink-0 h-full">
@@ -355,7 +395,7 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onClose
         </div>
       </div>
 
-      {isReady && <div className="px-4 pb-3"><TunnelHealthBadge tunnelHealth={tunnelHealth} /></div>}
+      {isReady && <div className="px-4 pb-3 flex justify-center"><TunnelHealthBadge tunnelHealth={tunnelHealth} /></div>}
 
       {/* Menu */}
       <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto select-none">
@@ -371,7 +411,7 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onClose
                 : { color: "var(--text-muted)" }}
             >
               <span className={`material-symbols-outlined text-[18px] ${isActive ? "fill-1" : ""}`}>{m.icon}</span>
-              <span className="text-[13px] font-medium">{m.label}</span>
+              <span className="text-[13px] font-medium">{t(`menu.${m.id}`)}</span>
             </button>
           );
         })}
@@ -382,6 +422,7 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onClose
 
 /** Content header — per-menu title/icon/desc + global actions (9router pattern) */
 function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown, onMenuClick }) {
+  const { t } = useI18n();
   return (
     <header className="shrink-0 flex items-center justify-between gap-3 px-6 lg:px-10 pt-4 pb-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
       <div className="flex items-center gap-2 min-w-0">
@@ -390,21 +431,22 @@ function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown,
         </button>
         <span className="material-symbols-outlined text-xl" style={{ color: "var(--brand-500)" }}>{menu?.icon}</span>
         <div className="min-w-0">
-          <h1 className="text-lg lg:text-xl font-semibold tracking-tight truncate" style={{ color: "var(--text-main)" }}>{menu?.label}</h1>
-          {menu?.desc && <p className="hidden lg:block text-xs truncate" style={{ color: "var(--text-muted)" }}>{menu.desc}</p>}
+          <h1 className="text-lg lg:text-xl font-semibold tracking-tight truncate" style={{ color: "var(--text-main)" }}>{menu ? t(`menu.${menu.id}`) : ""}</h1>
+          {menu && <p className="hidden lg:block text-xs truncate" style={{ color: "var(--text-muted)" }}>{t(`menu.${menu.id}Desc`)}</p>}
         </div>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <HeaderIconBtn
           icon={theme === "dark" ? "light_mode" : "dark_mode"}
-          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          title={theme === "dark" ? t("header.lightMode") : t("header.darkMode")}
           onClick={onToggleTheme}
         />
-        <HeaderIconBtn icon="help_outline" title="Help & documentation" onClick={() => window.open(HELP_URL, "_blank")} />
+        <LanguageMenu />
+        <HeaderIconBtn icon="menu_book" title={t("header.documentation")} onClick={() => window.open(HELP_URL, "_blank")} />
         {!isStopped && (
-          <HeaderIconBtn icon="stop_circle" title="Stop the tunnel and disconnect clients" danger onClick={onStop} />
+          <HeaderIconBtn icon="restart_alt" title={t("header.reset")} onClick={onStop} />
         )}
-        <HeaderIconBtn icon="power_settings_new" title="Shutdown 9Remote (stop server, close tunnel and quit)" onClick={onShutdown} />
+        <HeaderIconBtn icon="power_settings_new" title={t("header.shutdown")} danger onClick={onShutdown} />
       </div>
     </header>
   );
@@ -415,7 +457,7 @@ function TunnelHealthBadge({ tunnelHealth }) {
   const time = tunnelHealth?.checkedAt ? new Date(tunnelHealth.checkedAt).toLocaleTimeString() : "--:--:--";
   return (
     <div
-      className="flex items-center gap-1.5 px-2 h-7 rounded-full glass-btn"
+      className="inline-flex items-center justify-center gap-1.5 px-3 h-7 rounded-full glass-btn"
       title={`Tunnel ${meta.label} · last check ${time}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
@@ -427,7 +469,7 @@ function TunnelHealthBadge({ tunnelHealth }) {
 export default function MainScreen({
   step, stepDesc = "", healthCheck, tunnelHealth, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
-  onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [],
+  onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [], onClearLogs,
   theme, onToggleTheme,
   pendingDevice, onDeviceApprove, onDeviceReject,
   approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected,
@@ -445,6 +487,12 @@ export default function MainScreen({
   const [openedIds, setOpenedIds] = useState([]);
   const logEndRef = useRef(null);
   const term = useSessions();
+
+  // Clear finished badge for the terminal currently being viewed (active pane never shows it)
+  useEffect(() => { if (activeSessionId) term.clearFinished(activeSessionId); }, [activeSessionId, term.finishedIds]);
+
+  // Reflect unseen finished-terminal count in document title (marquee)
+  useEffect(() => { updateTitle(term.finishedIds.size); return () => updateTitle(0); }, [term.finishedIds]);
 
   // Open a session → also open all sessions in its group as split panes (web parity)
   const openSession = (sessionId) => {
@@ -617,7 +665,8 @@ export default function MainScreen({
                     sessions={term.sessions}
                     groups={term.groups}
                     connected={term.connected}
-                    onSelect={(s) => openSession(s.id)}
+                    finishedIds={term.finishedIds}
+                    onSelect={(s) => { term.clearFinished(s.id); openSession(s.id); }}
                     onCreate={(groupId) => term.createSession(groupId)}
                     onCreateNamed={(groupId, name) => term.createSession(groupId, undefined, name)}
                     onDelete={(id) => term.deleteSession(id)}
@@ -630,6 +679,13 @@ export default function MainScreen({
 
                 {activeMenu === "logs" && (
                   <div className="flex-1 flex flex-col">
+                    {logs.length > 0 && (
+                      <div className="flex justify-end mb-2">
+                        <button onClick={onClearLogs} title="Clear logs" className="glass-btn flex items-center gap-1.5 px-2.5 h-7 text-xs" style={{ color: "var(--text-muted)" }}>
+                          <span className="material-symbols-outlined text-sm">delete_sweep</span> Clear
+                        </button>
+                      </div>
+                    )}
                     {logs.length === 0 ? (
                       <p className="text-xs text-center mt-8" style={{ color: "var(--text-muted)" }}>No logs yet</p>
                     ) : (
@@ -648,9 +704,8 @@ export default function MainScreen({
 
       {showDisconnectConfirm && (
         <ConfirmPopup
-          message="Disconnect and stop the tunnel? Remote clients will be disconnected."
-          confirmLabel="Disconnect"
-          confirmDanger
+          message="Reset and stop the tunnel? Remote clients will be disconnected."
+          confirmLabel="Reset"
           onConfirm={() => { setShowDisconnectConfirm(false); onStop?.(); }}
           onCancel={() => setShowDisconnectConfirm(false)}
         />
@@ -717,7 +772,8 @@ export default function MainScreen({
           connected={term.connected}
           theme={theme}
           groups={term.groups}
-          onSwitch={setActiveSessionId}
+          finishedIds={term.finishedIds}
+          onSwitch={(id) => { term.clearFinished(id); setActiveSessionId(id); }}
           onSelectGroup={(gid) => {
             const groupIds = term.sessions.filter((s) => (s.groupId || null) === gid).map((s) => s.id);
             setOpenedIds((prev) => Array.from(new Set([...prev, ...groupIds])));

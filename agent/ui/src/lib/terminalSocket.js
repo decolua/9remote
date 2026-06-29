@@ -27,6 +27,7 @@ export function useSessions() {
   const [connected, setConnected] = useState(socket.connected);
   const [sessions, setSessions] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [finishedIds, setFinishedIds] = useState(() => new Set());
 
   const refresh = () => {
     socket.emit("getSessions", (list) => setSessions(Array.isArray(list) ? list : []));
@@ -39,12 +40,15 @@ export function useSessions() {
     const onConnect = () => { setConnected(true); refreshRef.current(); };
     const onDisconnect = () => setConnected(false);
     const onChanged = () => refreshRef.current();
+    // Terminal command finished (AI hook) → mark session badge
+    const onFinish = (n) => { if (n?.sessionId) setFinishedIds((p) => new Set(p).add(n.sessionId)); };
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("sessionClosed", onChanged);
     socket.on("groupsChanged", onChanged);
     socket.on("session-renamed", onChanged);
+    socket.on("chatNotification", onFinish);
 
     if (socket.connected) refreshRef.current();
 
@@ -54,8 +58,11 @@ export function useSessions() {
       socket.off("sessionClosed", onChanged);
       socket.off("groupsChanged", onChanged);
       socket.off("session-renamed", onChanged);
+      socket.off("chatNotification", onFinish);
     };
   }, []);
+
+  const clearFinished = (sessionId) => setFinishedIds((p) => { if (!p.has(sessionId)) return p; const n = new Set(p); n.delete(sessionId); return n; });
 
   const createSession = (groupId, cb, name) => socket.emit("createSession", { groupId: groupId || null, name: name || null }, (r) => { refresh(); cb?.(r); });
   const deleteSession = (sessionId) => socket.emit("deleteSession", sessionId, () => refresh());
@@ -64,7 +71,7 @@ export function useSessions() {
   const renameGroup = (groupId, name) => socket.emit("renameGroup", { groupId, name }, () => refresh());
   const deleteGroup = (groupId) => socket.emit("deleteGroup", { groupId }, () => refresh());
 
-  return { socket, connected, sessions, groups, refresh, createSession, deleteSession, renameSession, createGroup, renameGroup, deleteGroup };
+  return { socket, connected, sessions, groups, finishedIds, clearFinished, refresh, createSession, deleteSession, renameSession, createGroup, renameGroup, deleteGroup };
 }
 
 export { getSocket };

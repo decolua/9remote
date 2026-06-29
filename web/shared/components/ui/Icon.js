@@ -37,6 +37,7 @@ export const {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  CornerDownLeft,
   Check,
   AlertCircle,
   Loader2,

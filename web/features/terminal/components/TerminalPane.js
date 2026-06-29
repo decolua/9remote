@@ -161,7 +161,9 @@ function TerminalPane({
   };
 
   // Top-mid soft glow when focused (light effect instead of full border)
-  const focusClass = showFocusBorder && isFocused ? "terminal-focus-glow" : "";
+  const focusClass = showFocusBorder && isFocused
+    ? "terminal-focus-glow"
+    : (notifications[sessionId] && !isFocused ? "terminal-done-border" : "");
 
   return (
     <div
@@ -170,10 +172,10 @@ function TerminalPane({
       onMouseDown={handlePaneClick}
       onTouchStart={(e) => { handlePaneClick(); handleTouchStart(e); }}
     >
-      <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden px-1 py-0.5 relative">
+      <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden relative">
         <div
           ref={containerRef}
-          className="xterm-screen w-full h-full rounded-sm overflow-hidden"
+          className="xterm-screen w-full h-full rounded-sm overflow-hidden px-1 py-0.5 "
           onTouchEnd={handleTouchEnd}
           onTouchMove={handleTouchEnd}
         />

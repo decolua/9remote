@@ -10,7 +10,7 @@ import {
   BUTTON_STYLES
 } from "@/features/terminal/constants/terminalConfig";
 import { vibrate } from "@/shared/utils/vibration";
-import { Paperclip, Settings, MoreHorizontal, X } from "@/shared/components/ui/Icon";
+import { Paperclip, Settings, MoreHorizontal, X, CornerDownLeft } from "@/shared/components/ui/Icon";
 import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
@@ -380,9 +380,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={sendTextBatch}
                   disabled={false}
-                  className="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[72px]"
+                  className="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[72px] flex items-center justify-center"
           >
-            {textInput.trim() ? t("mobileKeyboard.send") : "Enter"}
+            {textInput.trim() ? t("mobileKeyboard.send") : <CornerDownLeft size={16} strokeWidth={2.5} />}
           </button>
         </div>
       </div>

@@ -169,7 +169,12 @@ export function useInput(socketEmitFunctions) {
   }, []);
 
   const sendTextInput = useCallback((streaming) => {
-    if (!textInputValue.trim() || !streaming || !socketEmitFunctions?.emitTypeText) return;
+    if (!streaming || !socketEmitFunctions?.emitTypeText) return;
+    // Empty input → send lone Enter; otherwise type the buffered text
+    if (!textInputValue.trim()) {
+      socketEmitFunctions.emitKeyPress?.("enter", []);
+      return;
+    }
     socketEmitFunctions.emitTypeText(textInputValue);
     setTextInputValue("");
   }, [textInputValue, socketEmitFunctions]);

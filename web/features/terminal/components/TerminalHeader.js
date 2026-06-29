@@ -51,7 +51,16 @@ export default function TerminalHeader({
   // New terminal modal (named create)
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newTerminalName, setNewTerminalName] = useState("");
+  const createInputRef = useRef(null);
+  const tabInputRef = useRef(null);
   const activeGroupName = groups.find((g) => g.id === activeGroupId)?.name || t("groups.ungrouped");
+
+  // Suggested default name based on terminal count in active group
+  const suggestTerminalName = (groupId) => `${t("terminal.defaultName")} ${sessions.filter((s) => (s.groupId || null) === groupId).length + 1}`;
+
+  // Reliable focus+select on conditional mount (autoFocus is flaky)
+  useEffect(() => { if (createModalOpen) requestAnimationFrame(() => { createInputRef.current?.focus(); createInputRef.current?.select(); }); }, [createModalOpen]);
+  useEffect(() => { if (editingTabId) requestAnimationFrame(() => { tabInputRef.current?.focus(); tabInputRef.current?.select(); }); }, [editingTabId]);
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
 
   // Close tab context menu on outside click / Escape
@@ -208,8 +217,8 @@ export default function TerminalHeader({
                 {editingTabId === session.id ? (
                   <input
                     type="text"
+                    ref={tabInputRef}
                     value={editTabName}
-                    autoFocus
                     onClick={(e) => e.stopPropagation()}
                     onInput={(e) => setEditTabName(e.target.value)}
                     onKeyDown={(e) => {
@@ -228,7 +237,7 @@ export default function TerminalHeader({
           {onCreateSession && (
             <div className="relative sticky right-0 ml-1 flex-shrink-0">
               <button
-                onClick={() => { vibrate(); setCreateModalOpen(true); }}
+                onClick={() => { vibrate(); setNewTerminalName(suggestTerminalName(activeGroupId)); setCreateModalOpen(true); }}
                 disabled={!connected}
                 className="p-1.5 bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
                 title={t("terminal.newTerminal")}
@@ -296,18 +305,30 @@ export default function TerminalHeader({
                 <X size={18} />
               </button>
             </div>
-            <input
-              type="text"
-              value={newTerminalName}
-              autoFocus
-              placeholder={t("terminal.defaultName")}
-              onInput={(e) => setNewTerminalName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreateSubmit();
-                if (e.key === "Escape") setCreateModalOpen(false);
-              }}
-              className="w-full px-3 py-2 mb-4 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-            />
+            <div className="relative mb-4">
+              <input
+                type="text"
+                ref={createInputRef}
+                value={newTerminalName}
+                placeholder={t("terminal.defaultName")}
+                onInput={(e) => setNewTerminalName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateSubmit();
+                  if (e.key === "Escape") setCreateModalOpen(false);
+                }}
+                className="w-full px-3 py-2 pr-8 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+              />
+              {newTerminalName && (
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setNewTerminalName("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text"
+                  title={t("common.cancel")}
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={handleCreateSubmit}

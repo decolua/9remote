@@ -370,6 +370,7 @@ export default function App() {
       onGenerateOneTimeKey={handleGenerateOneTimeKey}
       onRegenerateKey={handleRegenerateKey}
       logs={logs}
+      onClearLogs={() => setLogs([])}
       version={version}
       theme={theme}
       onToggleTheme={toggleTheme}

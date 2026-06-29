@@ -10,6 +10,7 @@ import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
 import { useNotification } from "@/shared/hooks/useNotification";
+import { updateTitle } from "@/shared/utils/titleMarquee";
 import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "@/features/terminal/constants/terminalConfig";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
@@ -64,6 +65,10 @@ export default function WorkspacePage() {
   }, [connected, getShells]);
   const fileSocket = useFileSocket(socketRef);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
+
+  // Reflect unseen finished-terminal count in browser tab title (marquee)
+  useEffect(() => { updateTitle(Object.keys(notifications).length); return () => updateTitle(0); }, [notifications]);
+
   const [systemInfo, setSystemInfo] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen); // Selector - only subscribe to function

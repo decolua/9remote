@@ -6,6 +6,7 @@ import chalk from "chalk";
 import { SERVER_PORT } from "../../lib/constants.js";
 import { LOG_FILE_PATH } from "../../lib/logger.js";
 import { writePid } from "../utils/pids.js";
+import { writeCmd } from "../utils/state.js";
 import { openBrowser } from "../utils/tray.js";
 import { isServerRunning } from "../core/localApi.js";
 import { killProcessOnPort } from "../core/lifecycle.js";
@@ -64,6 +65,9 @@ export async function launchBackground() {
     console.log(chalk.gray(`   Check log: ${logPath}\n`));
     process.exit(1);
   }
+
+  // Web UI mode → auto start tunnel (idempotent via cmdPoller handleStart)
+  writeCmd("start-tunnel");
 
   openBrowser(uiUrl);
   const pidStr = bgPid ? ` (PID: ${bgPid})` : "";

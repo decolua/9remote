@@ -275,6 +275,27 @@
   z-index: 2;
 }
 
+.terminal-focus-glow::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50%;
+  height: 5px;
+  background: radial-gradient(ellipse at center, var(--brand-500) 0%, rgba(var(--brand-rgb), 0.6) 35%, transparent 75%);
+  filter: blur(3px);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Finished-terminal highlight — thin amber ring + soft glow (cleared on focus) */
+.terminal-done-border {
+  outline: 1px solid #f59e0b;
+  outline-offset: -1px;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+}
+
 /* Overlay slide-in (web parity) */
 @keyframes slide-in-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 .slide-in-right { animation: slide-in-right 0.3s ease-out; }

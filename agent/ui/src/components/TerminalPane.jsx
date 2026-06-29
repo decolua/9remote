@@ -14,7 +14,7 @@ import {
 
 // Single xterm pane bound local socket — direct protocol (output/input/resize/joinSession).
 // Core logic lives in @shared/terminal; this component only wires Preact lifecycle.
-export default function TerminalPane({ socket, sessionId, theme = "dark", isFocused, onActivate, showFocusBorder }) {
+export default function TerminalPane({ socket, sessionId, theme = "dark", isFocused, onActivate, showFocusBorder, showDoneBorder }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -106,7 +106,7 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
   }, [isFocused, sessionId, socket]);
 
   const scrollToBottom = () => termRef.current?.scrollToBottom();
-  const glow = showFocusBorder && isFocused ? "terminal-focus-glow" : "";
+  const glow = showFocusBorder && isFocused ? "terminal-focus-glow" : (showDoneBorder && !isFocused ? "terminal-done-border" : "");
 
   return (
     <div

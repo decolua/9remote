@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from "preact/hooks";
 import Icon from "./Icon";
+import { useI18n } from "../i18n";
 import TerminalPane from "./TerminalPane";
 import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "../lib/constants";
 
 const UNGROUPED = { id: null, name: "Ungrouped" };
 
 // Full-screen terminal overlay — mirrors web workspace (split panes + tabs + group selector)
-export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
+export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", finishedIds, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
+  const { t } = useI18n();
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [textInput, setTextInput] = useState("");
@@ -20,6 +22,8 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const groupMenuRef = useRef(null);
   const tabsRef = useRef(null);
   const activeTabRef = useRef(null);
+  const createInputRef = useRef(null);
+  const tabInputRef = useRef(null);
   const paneEls = useRef({});
 
   // Active session object (input bar target) — undefined when no active pane
@@ -75,7 +79,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
 
   const suggestTerminalName = (groupId) => {
     const count = sessions.filter((s) => (s.groupId || null) === groupId).length;
-    return `Terminal ${count + 1}`;
+    return `Term ${count + 1}`;
   };
 
   useEffect(() => {
@@ -109,6 +113,10 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
     return () => cancelAnimationFrame(id);
   }, [activeId, isDesktop, openedIds]);
 
+  // Reliable focus+select for create modal / tab rename (autoFocus is flaky on conditional mount)
+  useEffect(() => { if (createModalOpen) requestAnimationFrame(() => { createInputRef.current?.focus(); createInputRef.current?.select(); }); }, [createModalOpen]);
+  useEffect(() => { if (editingTabId) requestAnimationFrame(() => { tabInputRef.current?.focus(); tabInputRef.current?.select(); }); }, [editingTabId]);
+
   const active = sessions.find((s) => s.id === activeId);
   const activeGroupId = active?.groupId || null;
   const groupSessions = sessions.filter((s) => (s.groupId || null) === activeGroupId);
@@ -125,8 +133,8 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
       {/* Header — back + group selector + tabs + new (web TerminalHeader parity) */}
       <div className="px-2 sm:px-4 pt-2 pb-1 flex items-center gap-2 flex-shrink-0 relative z-10">
         <button
-          onClick={onBack}
-          title="Back to sessions"
+        onClick={onBack}
+        title={t("terminal.backToSessions")}
           className="p-1.5 rounded-lg transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0 term-btn"
           style={{ background: "var(--surface-2)", color: "var(--text-main)" }}
         >
@@ -140,7 +148,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
               onClick={() => setShowGroupMenu((v) => !v)}
               className="px-2 py-1.5 rounded-lg transition-all duration-150 ease-out flex items-center gap-1 max-w-[160px] term-btn"
               style={{ background: "var(--surface-2)", color: "var(--text-main)" }}
-              title="Switch group"
+              title={t("terminal.switchGroup")}
             >
               <span className="truncate text-sm font-medium">{activeGroupName}</span>
               <Icon name="chevronDown" size={14} />
@@ -180,8 +188,8 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                   {editingTabId === s.id ? (
                     <input
                       type="text"
+                      ref={tabInputRef}
                       value={editTabName}
-                      autoFocus
                       onClick={(e) => e.stopPropagation()}
                       onInput={(e) => setEditTabName(e.target.value)}
                       onKeyDown={(e) => {
@@ -201,7 +209,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
             <button
               onClick={() => connected && (setNewTerminalName(suggestTerminalName(activeGroupId)), setCreateModalOpen(true))}
               disabled={!connected}
-              title="New terminal"
+              title={t("terminal.newTerminal")}
               className="p-1.5 ml-1 rounded-lg transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0 term-btn"
               style={{ background: "var(--surface-2)", color: "var(--text-muted)", opacity: connected ? 1 : 0.4, cursor: connected ? "pointer" : "not-allowed" }}
             >
@@ -231,6 +239,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 isFocused={isFocused}
                 onActivate={onSwitch}
                 showFocusBorder={isDesktop && multi}
+                showDoneBorder={finishedIds?.has(s.id)}
               />
             </div>
           );
@@ -241,18 +250,19 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
       {activeSession && (
         <div className="flex items-center gap-2 px-2 py-1.5 flex-shrink-0 relative z-10" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
           <div className="relative flex-1">
-            <input
-              type="text"
+            <textarea
               value={textInput}
+              rows={Math.min(2, (textInput.match(/\n/g) || []).length + 1)}
               onInput={(e) => setTextInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                // Enter sends; Shift+Enter inserts newline (web parity)
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   sendText();
                 }
               }}
-              placeholder="Type command…"
-              className="w-full px-3 py-1.5 pr-8 rounded-lg text-sm focus:outline-none"
+              placeholder={t("terminal.typeCommand")}
+              className="w-full px-3 py-1.5 pr-8 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-500/40"
               style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}
             />
             {textInput && (
@@ -269,9 +279,9 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
           </div>
           <button
             onClick={sendText}
-            className="btn-primary px-4 py-1.5 text-sm font-semibold flex-shrink-0 min-w-[72px]"
+            className="btn-primary px-4 py-1.5 text-sm font-semibold flex-shrink-0 min-w-[72px] flex items-center justify-center"
           >
-            {textInput.trim() ? "Send" : "Enter"}
+            {textInput.trim() ? t("terminal.send") : <Icon name="cornerDownLeft" size={16} strokeWidth={2.5} />}
           </button>
         </div>
       )}
@@ -292,7 +302,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
             className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act"
             style={{ color: "var(--text-main)" }}
           >
-            <Icon name="pencil" size={14} /> Rename
+            <Icon name="pencil" size={14} /> {t("common.rename")}
           </button>
           <button
             onClick={() => {
@@ -303,7 +313,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
             className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-del"
             style={{ color: "var(--text-main)" }}
           >
-            <Icon name="trash" size={14} /> Delete
+            <Icon name="trash" size={14} /> {t("common.delete")}
           </button>
         </div>
       )}
@@ -317,29 +327,41 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
         >
           <div className="glass-card p-5 w-80" onClick={(e) => e.stopPropagation()}>
             <p className="text-sm font-semibold mb-3" style={{ color: "var(--text-main)" }}>New Terminal</p>
-            <input
-              type="text"
-              value={newTerminalName}
-              autoFocus
-              placeholder={suggestTerminalName(activeGroupId)}
-              onInput={(e) => setNewTerminalName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreateSubmit();
-                if (e.key === "Escape") setCreateModalOpen(false);
-              }}
-              className="w-full px-3 py-2 rounded-lg text-sm mb-4 focus:outline-none"
-              style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}
-            />
+            <div className="relative mb-4">
+              <input
+                type="text"
+                ref={createInputRef}
+                value={newTerminalName}
+                placeholder={suggestTerminalName(activeGroupId)}
+                onInput={(e) => setNewTerminalName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateSubmit();
+                  if (e.key === "Escape") setCreateModalOpen(false);
+                }}
+                className="w-full px-3 py-2 pr-8 rounded-lg text-sm focus:outline-none"
+                style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}
+              />
+              {newTerminalName && (
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setNewTerminalName("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <Icon name="plus" size={14} className="rotate-45" />
+                </button>
+              )}
+            </div>
             <div className="flex gap-2">
               <button onClick={handleCreateSubmit} className="btn-primary flex-1 py-2 text-sm font-semibold">
-                Create
+                {t("common.create")}
               </button>
               <button
                 onClick={() => { setNewTerminalName(""); setCreateModalOpen(false); }}
                 className="glass-btn flex-1 py-2 text-sm"
                 style={{ color: "var(--text-muted)" }}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </div>
@@ -355,7 +377,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
         >
           <div className="glass-card p-5 w-80" onClick={(e) => e.stopPropagation()}>
             <p className="text-sm mb-4" style={{ color: "var(--text-main)" }}>
-              {`Delete terminal ${deleteConfirm.name}?`}
+              {t("terminal.deleteConfirm", { name: deleteConfirm.name })}
             </p>
             <div className="flex gap-2">
               <button
@@ -366,14 +388,14 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 className="flex-1 py-2 text-sm font-semibold text-white rounded-lg"
                 style={{ background: "#ef4444" }}
               >
-                Delete
+                {t("common.delete")}
               </button>
               <button
                 onClick={() => setDeleteConfirm(null)}
                 className="glass-btn flex-1 py-2 text-sm"
                 style={{ color: "var(--text-muted)" }}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </div>

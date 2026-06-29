@@ -1,0 +1,43 @@
+export default {
+  common: {
+    create: "Tạo",
+    cancel: "Hủy",
+    delete: "Xóa",
+    rename: "Đổi tên",
+    language: "Ngôn ngữ",
+  },
+  terminal: {
+    backToSessions: "Quay lại danh sách phiên",
+    switchGroup: "Chuyển nhóm",
+    newTerminal: "Terminal mới",
+    send: "Gửi",
+    typeCommand: "Nhập lệnh…",
+    deleteConfirm: "Xóa terminal {name}?",
+  },
+  sessions: {
+    newTerminal: "Terminal mới",
+    addGroup: "Thêm nhóm",
+    newGroup: "Nhóm mới",
+    groupName: "Tên nhóm",
+    renameGroup: "Đổi tên nhóm",
+    deleteGroup: "Xóa nhóm",
+    ungrouped: "Chưa phân nhóm",
+    deleteSessionConfirm: "Xóa phiên {name}? Việc này sẽ tắt terminal.",
+    deleteGroupConfirm: "Xóa nhóm {name}? Tất cả terminal bên trong sẽ bị đóng.",
+  },
+  menu: {
+    connection: "Kết nối",
+    connectionDesc: "Ghép nối thiết bị và quản lý tunnel bảo mật",
+    sessions: "Phiên",
+    sessionsDesc: "Các phiên terminal đang chạy trên máy này",
+    logs: "Nhật ký",
+    logsDesc: "Hoạt động và chẩn đoán máy chủ",
+  },
+  header: {
+    documentation: "Tài liệu",
+    reset: "Đặt lại tunnel và kết nối lại thiết bị",
+    shutdown: "Tắt 9Remote (dừng máy chủ, đóng tunnel và thoát)",
+    lightMode: "Chuyển sang giao diện sáng",
+    darkMode: "Chuyển sang giao diện tối",
+  },
+};

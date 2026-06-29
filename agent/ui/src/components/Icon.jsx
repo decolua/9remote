@@ -11,6 +11,8 @@ const PATHS = {
   chevronLeft: <><path d="m15 18-6-6 6-6" /></>,
   zap: <><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" /></>,
   arrowLeft: <><path d="m12 19-7-7 7-7" /><path d="M19 12H5" /></>,
+  cornerDownLeft: <><path d="M20 4v7a4 4 0 0 1-4 4H4" /><path d="m9 10-5 5 5 5" /></>,
+  language: <><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></>,
 };
 
 export default function Icon({ name, size = 20, color, className = "", ...props }) {
