@@ -92,6 +92,10 @@ export const CLAUDE_SCROLLBACK_ENV = {
   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1",
 };
 
+// Supported AI CLI tools for notification hooks — single source of truth
+export const AI_TOOLS = ["claude", "codex", "gemini", "opencode"];
+export const TOOL_LABELS = { claude: "Claude", codex: "Codex", gemini: "Gemini", opencode: "OpenCode" };
+
 // Tunnel health watchdog — poll /api/health via the public tunnel URL
 export const TUNNEL_HEALTH = {
   checkIntervalMs: 30000,

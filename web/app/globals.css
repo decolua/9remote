@@ -294,6 +294,7 @@ html.terminal-page body {
 }
 
 /* Finished-terminal highlight — thin amber ring + soft glow (cleared on focus) */
+/* Finished-terminal badge styles — KEEP IN SYNC with agent/ui/src/index.css (separate build) */
 .terminal-done-border::after {
   content: "";
   position: absolute;
@@ -309,6 +310,12 @@ html.terminal-page body {
 @keyframes borderFlow {
   from { background-position: 0% 0; }
   to { background-position: 200% 0; }
+}
+/* Tab finished dot pulse (parity with agent term-tab-done-dot) */
+.term-tab-done-dot { animation: tabDonePulse 1.2s ease-in-out infinite; }
+@keyframes tabDonePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 /* XTerm - enable touch events for JS scroll handler */

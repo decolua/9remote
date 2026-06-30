@@ -79,6 +79,7 @@ export default {
     enablePush: "Включить push-уведомления",
     disablePush: "Отключить push-уведомления",
     pushHint: "Включите push-уведомления, чтобы получать оповещения о завершении задач ИИ",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Агент {version} устарел",
     versionMismatchHint: "Некоторые функции могут не работать. Запустите:",
     version: "Версия"

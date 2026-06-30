@@ -79,6 +79,7 @@ export default {
     enablePush: "Activer les notifications push",
     disablePush: "Désactiver les notifications push",
     pushHint: "Activez les notifications push pour être alerté lorsque l'IA termine ses tâches",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "L'agent {version} est obsolète",
     versionMismatchHint: "Certaines fonctionnalités peuvent ne pas fonctionner. Exécutez :",
     version: "Version"

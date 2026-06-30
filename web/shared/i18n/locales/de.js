@@ -79,6 +79,7 @@ export default {
     enablePush: "Push-Benachrichtigungen aktivieren",
     disablePush: "Push-Benachrichtigungen deaktivieren",
     pushHint: "Push-Benachrichtigungen aktivieren, um benachrichtigt zu werden, wenn KI Aufgaben abschließt",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} ist veraltet",
     versionMismatchHint: "Einige Funktionen funktionieren möglicherweise nicht. Ausführen:",
     version: "Version"

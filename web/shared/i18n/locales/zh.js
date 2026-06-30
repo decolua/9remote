@@ -79,6 +79,7 @@ export default {
     enablePush: "启用推送通知",
     disablePush: "禁用推送通知",
     pushHint: "启用推送通知，以便在 AI 完成任务时收到提醒",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} 已过时",
     versionMismatchHint: "部分功能可能无法使用。请运行：",
     version: "版本"

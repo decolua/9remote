@@ -79,6 +79,7 @@ export default {
     enablePush: "Aktifkan Notifikasi Push",
     disablePush: "Nonaktifkan Notifikasi Push",
     pushHint: "Aktifkan notifikasi push untuk mendapat peringatan saat AI menyelesaikan tugas",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agen {version} sudah usang",
     versionMismatchHint: "Beberapa fitur mungkin tidak berfungsi. Jalankan:",
     version: "Versi"

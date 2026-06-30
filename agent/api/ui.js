@@ -212,8 +212,8 @@ export async function handleStatePost(req, res) {
 
 export function handleStop(req, res) {
   jsonOk(res);
-  updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
-  writeCmd("stop-tunnel");
+  updateUiState({ step: STEP.PREPARING, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+  writeCmd("restart-tunnel");
 }
 
 export function handleStart(req, res) {

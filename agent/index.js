@@ -34,7 +34,7 @@ import {
   handleLocalToken,
 } from "./api/ui.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
-import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove } from "./api/device.js";
+import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove, handleSetLabel } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
 import { handleSleepInhibitGet, handleSleepInhibitPost } from "./api/sleepInhibit.js";
 import { handleSessionsList, handleSessionDelete } from "./api/sessions.js";
@@ -166,6 +166,7 @@ const ROUTES = [
   { path: "/api/device/approve-rejected", method: "POST", handler: handleApproveRejected },
   { path: "/api/device/clear-rejected", method: "POST", handler: handleClearRejected },
   { path: "/api/device/remove",         method: "POST", handler: handleRemove },
+  { path: "/api/device/label",          method: "POST", handler: handleSetLabel },
   { path: "/api/device/disconnect",     method: "POST", handler: handleDisconnect },
   { path: "/api/device/auto-approve",   method: "GET",  handler: handleGetAutoApprove },
   { path: "/api/device/auto-approve",   method: "POST", handler: handleSetAutoApprove },

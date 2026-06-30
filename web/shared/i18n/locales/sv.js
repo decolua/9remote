@@ -79,6 +79,7 @@ export default {
     enablePush: "Aktivera push-aviseringar",
     disablePush: "Inaktivera push-aviseringar",
     pushHint: "Aktivera push-aviseringar för att få meddelanden när AI slutför uppgifter",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} är föråldrad",
     versionMismatchHint: "Vissa funktioner kanske inte fungerar. Kör:",
     version: "Version"

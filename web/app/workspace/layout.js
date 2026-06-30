@@ -506,6 +506,7 @@ export default function WorkspaceLayout({ children }) {
             >
               <TerminalHeader
                 sessions={sessions.filter(s => (s.groupId || null) === activeGroupId)}
+                allSessions={sessions}
                 activeSessionId={activeSessionId}
                 isActive={isTerminalView}
                 connected={connected}

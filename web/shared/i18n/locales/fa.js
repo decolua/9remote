@@ -79,6 +79,7 @@ export default {
     enablePush: "فعال‌سازی اعلان‌های پوش",
     disablePush: "غیرفعال‌سازی اعلان‌های پوش",
     pushHint: "اعلان‌های پوش را فعال کنید تا هنگام تکمیل وظایف توسط هوش مصنوعی مطلع شوید",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "نسخه Agent {version} قدیمی است",
     versionMismatchHint: "ممکن است برخی قابلیت‌ها کار نکنند. اجرا کنید:",
     version: "نسخه"

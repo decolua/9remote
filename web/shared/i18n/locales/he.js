@@ -79,6 +79,7 @@ export default {
     enablePush: "הפעל התראות דחיפה",
     disablePush: "השבת התראות דחיפה",
     pushHint: "הפעל התראות דחיפה כדי לקבל התראה כש-AI משלים משימות",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "סוכן {version} מיושן",
     versionMismatchHint: "ייתכן שחלק מהתכונות לא יעבדו. הרץ:",
     version: "גרסה"

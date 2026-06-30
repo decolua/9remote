@@ -8,6 +8,7 @@ import { useI18n } from "@/shared/i18n";
 
 export default function TerminalHeader({
   sessions = [],
+  allSessions = [],
   activeSessionId,
   connected,
   notifications = {},
@@ -54,6 +55,8 @@ export default function TerminalHeader({
   const createInputRef = useRef(null);
   const tabInputRef = useRef(null);
   const activeGroupName = groups.find((g) => g.id === activeGroupId)?.name || t("groups.ungrouped");
+  // A group is "finished" if any of its sessions has an unseen notification — surfaces cross-group dots
+  const groupHasFinished = (gid) => allSessions.some((s) => (s.groupId || null) === gid && notifications[s.id]);
 
   // Suggested default name based on terminal count in active group
   const suggestTerminalName = (groupId) => `${t("terminal.defaultName")} ${sessions.filter((s) => (s.groupId || null) === groupId).length + 1}`;
@@ -176,6 +179,10 @@ export default function TerminalHeader({
             title={t("groups.title")}
           >
             <span className="truncate text-sm font-medium">{activeGroupName}</span>
+            {/* Dot when a NON-active group has a finished session, so user knows to switch */}
+            {[...groups, ...(hasUngrouped ? [{ id: null }] : [])].some((g) => g.id !== activeGroupId && groupHasFinished(g.id)) && (
+              <span className="w-1.5 h-1.5 rounded-full term-tab-done-dot bg-yellow-400" />
+            )}
             <ChevronDown size={14} />
           </button>
           {showGroupMenu && (
@@ -184,9 +191,10 @@ export default function TerminalHeader({
                 <button
                   key={g.id || "ungrouped"}
                   onClick={() => { vibrate(); onSelectGroup(g.id); setShowGroupMenu(false); }}
-                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-surface-3 ${g.id === activeGroupId ? "text-brand-500" : "text-text"}`}
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-surface-3 flex items-center justify-between gap-2 ${g.id === activeGroupId ? "text-brand-500" : "text-text"}`}
                 >
-                  {g.name}
+                  <span className="truncate">{g.name}</span>
+                  {groupHasFinished(g.id) && <span className="w-1.5 h-1.5 rounded-full term-tab-done-dot bg-yellow-400 flex-shrink-0" />}
                 </button>
               ))}
             </div>
@@ -213,7 +221,7 @@ export default function TerminalHeader({
                   isActiveTab ? "border-brand-500 text-brand-500" : "border-transparent text-text-muted hover:text-text"
                 }`}
               >
-                <span className={`w-1.5 h-1.5 rounded-full ${hasNotif ? "bg-yellow-400 animate-pulse" : connected ? "bg-green-400" : "bg-red-400"}`} />
+                <span className={`w-1.5 h-1.5 rounded-full ${hasNotif ? "bg-yellow-400 term-tab-done-dot" : connected ? "bg-green-400" : "bg-red-400"}`} />
                 {editingTabId === session.id ? (
                   <input
                     type="text"

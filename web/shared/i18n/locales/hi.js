@@ -79,6 +79,7 @@ export default {
     enablePush: "पुश सूचनाएँ सक्षम करें",
     disablePush: "पुश सूचनाएँ अक्षम करें",
     pushHint: "AI द्वारा कार्य पूर्ण करने पर सूचना पाने के लिए पुश सूचनाएँ सक्षम करें",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} पुराना है",
     versionMismatchHint: "कुछ सुविधाएँ काम नहीं कर सकतीं। चलाएँ:",
     version: "संस्करण"

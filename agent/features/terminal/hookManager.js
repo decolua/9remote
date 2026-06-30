@@ -2,10 +2,11 @@
 import os from "os";
 import fs from "fs";
 import path from "path";
-import { SERVER_PORT, PATHS as APP_PATHS, CLAUDE_SCROLLBACK_ENV } from "../../lib/constants.js";
+import { SERVER_PORT, PATHS as APP_PATHS, CLAUDE_SCROLLBACK_ENV, AI_TOOLS } from "../../lib/constants.js";
 
 const NOTIFY_URL = `http://localhost:${SERVER_PORT}/api/notify`;
-const OPENCODE_PLUGIN_MARK = "9remoteNotify";
+// JS identifier cannot start with a digit, so plugin export name differs from the file mark
+const OPENCODE_PLUGIN_MARK = "nineRemoteNotify";
 
 // Backup of user's original env values, to restore on disable
 const CLAUDE_ENV_BACKUP_FILE = path.join(APP_PATHS.STATE, "claudeEnvBackup.json");
@@ -14,7 +15,7 @@ const PATHS = {
   claude: () => path.join(os.homedir(), ".claude", "settings.json"),
   codex: () => path.join(os.homedir(), ".codex", "config.toml"),
   gemini: () => path.join(os.homedir(), ".gemini", "settings.json"),
-  opencode: () => path.join(os.homedir(), ".config", "opencode", "plugins", `${OPENCODE_PLUGIN_MARK}.js`),
+  opencode: () => path.join(os.homedir(), ".config", "opencode", "plugin", `${OPENCODE_PLUGIN_MARK}.js`),
 };
 
 const TOOL_DIRS = {
@@ -91,20 +92,43 @@ function disableClaudeHook() {
   return { success: true };
 }
 
-// Codex (TOML)
-const CODEX_BLOCK_RE = /\n*# 9Remote notification\nnotify\s*=.*\n?/g;
+// Codex (TOML) — only ONE active `notify` is allowed, so we wrap any pre-existing one.
+// `notify` is a top-level key, so it MUST live before the first [section]; we keep our block at the file head.
+const CODEX_BLOCK_RE = /# 9Remote notification\nnotify\s*=.*\n?/g;
+// Marker prefix used to disable (comment out) the user's original notify so it can be restored later
+const CODEX_SAVED_PREFIX = "# 9Remote-saved: ";
+// Split TOML head (before first [section]) from the rest; notify is only valid in the head
+function splitCodexHead(content) {
+  const idx = content.search(/^\[/m);
+  return idx === -1 ? [content, ""] : [content.slice(0, idx), content.slice(idx)];
+}
+// Match a top-level active notify line (not commented, not our saved marker)
+const CODEX_ACTIVE_NOTIFY_RE = /^notify\s*=\s*(\[[^\n]*\])\s*$/m;
 
 function enableCodexHook() {
   const filePath = PATHS.codex();
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const cmd = buildCurlCmd("stop", "codex");
   let content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
   content = content.replace(CODEX_BLOCK_RE, "");
-  // Trailing newline guarantee, then append managed block
-  if (content.length && !content.endsWith("\n")) content += "\n";
-  content += `\n# 9Remote notification\nnotify = ["bash", "-c", ${JSON.stringify(cmd)}]\n`;
-  fs.writeFileSync(filePath, content, "utf8");
+
+  let [head, rest] = splitCodexHead(content);
+
+  // Chain the user's existing top-level notify (if any) after ours: run /notify, then exec original
+  let chain = "";
+  const match = head.match(CODEX_ACTIVE_NOTIFY_RE);
+  if (match) {
+    try {
+      const argv = JSON.parse(match[1]);
+      if (Array.isArray(argv) && argv.length) chain = ` ; exec ${argv.map(a => `'${String(a).replace(/'/g, "'\\''")}'`).join(" ")} "$@"`;
+    } catch {}
+    head = head.replace(CODEX_ACTIVE_NOTIFY_RE, `${CODEX_SAVED_PREFIX}$&`);
+  }
+
+  const cmd = `${buildCurlCmd("stop", "codex")}${chain}`;
+  const block = `# 9Remote notification\nnotify = ["bash", "-c", ${JSON.stringify(cmd)}, "9remote"]\n`;
+  if (head.length && !head.endsWith("\n")) head += "\n";
+  fs.writeFileSync(filePath, head + block + rest, "utf8");
   return { success: true };
 }
 
@@ -113,7 +137,12 @@ function disableCodexHook() {
   if (!fs.existsSync(filePath)) return { success: true };
   let content = fs.readFileSync(filePath, "utf8");
   content = content.replace(CODEX_BLOCK_RE, "");
-  fs.writeFileSync(filePath, content, "utf8");
+  // Restore the user's original notify we commented out on enable
+  content = content.replace(new RegExp(`^${CODEX_SAVED_PREFIX}(notify\\s*=.*)$`, "m"), "$1");
+  // Ensure the head's last key is newline-separated from the first [section]
+  let [head, rest] = splitCodexHead(content);
+  if (rest && head.length && !head.endsWith("\n")) head += "\n";
+  fs.writeFileSync(filePath, head + rest, "utf8");
   return { success: true };
 }
 
@@ -149,16 +178,18 @@ function disableGeminiHook() {
 
 // OpenCode (JS plugin file)
 function buildOpencodePlugin() {
-  const stopUrl = `${NOTIFY_URL}?type=stop&tool=opencode`;
-  const notifyUrl = `${NOTIFY_URL}?type=notification&tool=opencode`;
   return `// 9Remote OpenCode notify plugin (auto-generated)
-const post = (url) => {
+const base = ${JSON.stringify(NOTIFY_URL)};
+const post = (type) => {
+  const sid = process.env.NINE_REMOTE_SESSION_ID || "";
+  if (!sid) return;
+  const url = base + "?type=" + type + "&sessionId=" + encodeURIComponent(sid) + "&tool=opencode";
   try { fetch(url, { signal: AbortSignal.timeout(2000) }).catch(() => {}); } catch {}
 };
 export const ${OPENCODE_PLUGIN_MARK} = async () => ({
   event: async ({ event }) => {
-    if (event.type === "session.idle") post(${JSON.stringify(stopUrl)});
-    else if (event.type === "permission.asked") post(${JSON.stringify(notifyUrl)});
+    if (event.type === "session.idle") post("stop");
+    else if (event.type === "permission.asked") post("notification");
   },
 });
 `;
@@ -209,7 +240,7 @@ function isToolInstalled(tool) {
 const ENABLERS = { claude: enableClaudeHook, codex: enableCodexHook, gemini: enableGeminiHook, opencode: enableOpencodeHook };
 const DISABLERS = { claude: disableClaudeHook, codex: disableCodexHook, gemini: disableGeminiHook, opencode: disableOpencodeHook };
 
-export const SUPPORTED_TOOLS = ["claude", "codex", "gemini", "opencode"];
+export const SUPPORTED_TOOLS = AI_TOOLS;
 
 export function enableToolHook(tool) {
   return ENABLERS[tool]?.() || { success: false, error: "Unknown tool" };
@@ -217,6 +248,17 @@ export function enableToolHook(tool) {
 
 export function disableToolHook(tool) {
   return DISABLERS[tool]?.() || { success: false, error: "Unknown tool" };
+}
+
+// Auto-enable hooks for every installed AI tool on startup. Idempotent: skips not-installed/already-enabled.
+// To support a new tool later: add it to SUPPORTED_TOOLS + ENABLERS + PATHS + TOOL_DIRS — picked up here automatically.
+export function autoEnableInstalledHooks() {
+  const result = {};
+  for (const tool of SUPPORTED_TOOLS) {
+    if (!isToolInstalled(tool) || isToolHookEnabled(tool)) continue;
+    try { result[tool] = enableToolHook(tool).success; } catch { result[tool] = false; }
+  }
+  return result;
 }
 
 export function getHookStatus() {

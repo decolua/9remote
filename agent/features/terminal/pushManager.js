@@ -2,7 +2,7 @@
 import fs from "fs";
 import path from "path";
 import webpush from "web-push";
-import { PATHS } from "../../lib/constants.js";
+import { PATHS, TOOL_LABELS } from "../../lib/constants.js";
 
 const VAPID_CONFIG_PATH = path.join(PATHS.CONFIG, "vapid.json");
 const PUSH_SUBS_PATH = path.join(PATHS.CONFIG, "push-subscriptions.json");
@@ -113,8 +113,7 @@ async function sendExpoPush(sub, toolName, notification) {
 }
 
 export async function sendPushNotification(notification) {
-  const toolNames = { claude: "Claude", codex: "Codex", gemini: "Gemini" };
-  const toolName = toolNames[notification.tool] || "AI";
+  const toolName = TOOL_LABELS[notification.tool] || "AI";
 
   console.log(`🔔 Sending push notification: ${notification.type} ${toolName}`);
 
@@ -159,4 +158,9 @@ loadPushSubscriptions();
 
 export function getVapidPublicKey() {
   return vapidKeys.publicKey;
+}
+
+// True only when a device is actively connected — gate for sending push (disconnected app shouldn't push)
+export function hasPushSubscriptions() {
+  return pushSubscriptions.some((s) => !s.disconnectedAt);
 }

@@ -79,6 +79,7 @@ export default {
     enablePush: "푸시 알림 활성화",
     disablePush: "푸시 알림 비활성화",
     pushHint: "AI가 작업을 완료했을 때 알림을 받으려면 푸시 알림을 활성화하세요",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version}이(가) 구버전입니다",
     versionMismatchHint: "일부 기능이 작동하지 않을 수 있습니다. 다음을 실행하세요:",
     version: "버전"

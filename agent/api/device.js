@@ -4,7 +4,7 @@
 
 import { jsonOk, jsonErr, parseJsonBody } from "../lib/router.js";
 import { approveSocketDevice, rejectSocketDevice, disconnectDeviceSockets, approveRejectedDevice } from "../transport/server.js";
-import { getAllPendingApprovals, getApprovedDevices, removeDevice, getRejectedDevices, clearRejectedDevice, isAutoApprove, setAutoApprove } from "../lib/deviceApproval.js";
+import { getAllPendingApprovals, getApprovedDevices, removeDevice, getRejectedDevices, clearRejectedDevice, isAutoApprove, setAutoApprove, setDeviceLabel } from "../lib/deviceApproval.js";
 
 export async function handleApprove(req, res) {
   const data = await parseJsonBody(req, res);
@@ -64,6 +64,13 @@ export async function handleDisconnect(req, res) {
 
 export function handleGetAutoApprove(req, res) {
   jsonOk(res, { enabled: isAutoApprove() });
+}
+
+export async function handleSetLabel(req, res) {
+  const data = await parseJsonBody(req, res);
+  if (!data) return;
+  const ok = setDeviceLabel(data.deviceId, data.label);
+  jsonOk(res, { ok });
 }
 
 export async function handleSetAutoApprove(req, res) {

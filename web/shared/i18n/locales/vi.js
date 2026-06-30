@@ -79,6 +79,7 @@ export default {
     enablePush: "Bật thông báo đẩy",
     disablePush: "Tắt thông báo đẩy",
     pushHint: "Bật thông báo đẩy để được nhắc khi AI hoàn thành tác vụ",
+    pushActiveHint: "Thông báo đẩy đang bật cho thiết bị này. Bạn sẽ được báo khi AI hoàn thành.",
     versionMismatch: "Agent {version} đã lỗi thời",
     versionMismatchHint: "Một số tính năng có thể không hoạt động. Chạy:",
     version: "Phiên bản"

@@ -185,7 +185,6 @@ export default function App() {
 
   const handleStop = () => {
     fetch("/api/ui/stop", { method: "POST" }).catch(() => {});
-    setMainState(defaultState);
   };
 
   const handleStart = () => {
@@ -338,6 +337,15 @@ export default function App() {
     fetchDevices();
   };
 
+  const handleDeviceLabel = async (deviceId, label) => {
+    await fetch("/api/device/label", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId, label }),
+    }).catch(() => {});
+    fetchDevices();
+  };
+
   const handleRegenerateKey = async () => {
     const res = await fetch("/api/key/regenerate", { method: "POST" }).catch(() => null);
     if (!res?.ok) return;
@@ -385,6 +393,7 @@ export default function App() {
       onSessionRefresh={fetchSessions}
       onSessionDelete={handleSessionDelete}
       onDeviceApproveRejected={handleDeviceApproveRejected}
+      onDeviceLabel={handleDeviceLabel}
       autoApprove={autoApprove}
       onAutoApproveToggle={handleAutoApproveToggle}
       autoStart={autoStart}

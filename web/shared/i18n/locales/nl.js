@@ -79,6 +79,7 @@ export default {
     enablePush: "Pushmeldingen inschakelen",
     disablePush: "Pushmeldingen uitschakelen",
     pushHint: "Schakel pushmeldingen in om gewaarschuwd te worden wanneer AI taken voltooit",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} is verouderd",
     versionMismatchHint: "Sommige functies werken mogelijk niet. Voer uit:",
     version: "Versie"

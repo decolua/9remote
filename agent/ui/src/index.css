@@ -290,6 +290,7 @@
 }
 
 /* Finished-terminal highlight — animated gradient bottom border (cleared on focus) */
+/* Finished-terminal badge styles — KEEP IN SYNC with web/app/globals.css (separate build) */
 .terminal-done-border::after {
   content: "";
   position: absolute;

@@ -25,6 +25,10 @@ export function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
     busy = true;
     try {
       if (cmd === "stop-tunnel") await handleStop(getActiveTunnel, setActiveTunnel);
+      else if (cmd === "restart-tunnel") {
+        await handleStop(getActiveTunnel, setActiveTunnel);
+        await handleStart(getActiveTunnel, setActiveTunnel, apiKey);
+      }
       else if (cmd === "start-tunnel") {
         const handled = await handleStart(getActiveTunnel, setActiveTunnel, apiKey);
         if (handled === "alreadyRunning") { busy = false; return; }

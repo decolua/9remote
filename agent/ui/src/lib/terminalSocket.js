@@ -27,6 +27,7 @@ export function useSessions() {
   const [connected, setConnected] = useState(socket.connected);
   const [sessions, setSessions] = useState([]);
   const [groups, setGroups] = useState([]);
+  // Badge state as a Set of sessionId (web equivalent: `notifications` object in web/shared/hooks/useNotification.js)
   const [finishedIds, setFinishedIds] = useState(() => new Set());
 
   const refresh = () => {

@@ -79,6 +79,7 @@ export default {
     enablePush: "Увімкнути push-сповіщення",
     disablePush: "Вимкнути push-сповіщення",
     pushHint: "Увімкніть push-сповіщення, щоб отримувати повідомлення, коли ШІ завершує завдання",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Агент {version} застарів",
     versionMismatchHint: "Деякі функції можуть не працювати. Виконайте:",
     version: "Версія"

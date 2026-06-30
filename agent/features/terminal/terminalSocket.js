@@ -11,8 +11,9 @@ import { listSavedBufferSessions, loadSessionMetadata, loadGroups, saveSessionMe
 import { setupSessionHandlers } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
-import { reconcileClaudeEnv } from "./hookManager.js";
+import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
+import { clearNotification } from "./notificationManager.js";
 import { broadcast } from "../../transport/broadcast.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -65,6 +66,8 @@ export async function initializeTerminal() {
 
   // Backfill scrollback env for users who enabled Claude hook before the fix
   try { reconcileClaudeEnv(); } catch {}
+  // Auto-enable notify hooks for every installed AI tool (claude/codex/gemini/opencode)
+  try { autoEnableInstalledHooks(); } catch {}
 
   if (PERSISTENCE_MODE === "daemon") {
     const connected = await daemonClient.initDaemonClient();
@@ -101,7 +104,13 @@ export function setupTerminalSocket(io, apiKey) {
   // Forward daemon events to all socket clients
   if (PERSISTENCE_MODE === "daemon") {
     daemonClient.on("output", ({ sessionId, data }) => broadcast(io, "output", { sessionId, data }));
-    daemonClient.on("sessionClosed", (sessionId) => { sessions.delete(sessionId); broadcast(io, "sessionClosed", sessionId); });
+    daemonClient.on("sessionClosed", (sessionId) => {
+      sessions.delete(sessionId);
+      // Drop any stale finished-badge so title count + UI stay in sync
+      clearNotification(sessionId);
+      broadcast(io, "sessionClosed", sessionId);
+      broadcast(io, "notificationCleared", sessionId);
+    });
   }
 
   // Build serverInfo payload (reusable for initial emit + live broadcast)

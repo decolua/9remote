@@ -1,5 +1,5 @@
 import { getVapidPublicKey, addPushSubscription, removePushSubscription, markSubscriptionConnected } from "../pushManager.js";
-import { enableToolHook, disableToolHook, getHookStatus } from "../hookManager.js";
+// enableToolHook/getHookStatus kept for reference (hooks auto-enabled on startup, not toggled by clients)
 import { addNotification, clearNotification, getNotifications } from "../notificationManager.js";
 import { getAutoStartStatus, setAutoStart, isCodespaces } from "../codespaceManager.js";
 
@@ -28,15 +28,10 @@ export function setupPushHandlers(socket) {
     if (identifier) removePushSubscription(identifier);
   });
 
-  socket.on("enableHook", async ({ tool }, callback) => {
-    try { callback(await enableToolHook(tool)); } catch (e) { callback({ success: false, error: e.message }); }
-  });
-
-  socket.on("disableHook", async ({ tool }, callback) => {
-    try { callback(await disableToolHook(tool)); } catch (e) { callback({ success: false, error: e.message }); }
-  });
-
-  socket.on("getHookStatus", (callback) => callback(getHookStatus()));
+  // Hooks are always auto-enabled on agent startup (badge in-app source); enable/disable/status not exposed to clients
+  // socket.on("enableHook", async ({ tool }, callback) => { try { callback(await enableToolHook(tool)); } catch (e) { callback({ success: false, error: e.message }); } });
+  // socket.on("disableHook", async ({ tool }, callback) => { try { callback(await disableToolHook(tool)); } catch (e) { callback({ success: false, error: e.message }); } });
+  // socket.on("getHookStatus", (callback) => callback(getHookStatus()));
 
   socket.on("getAutoStartStatus", (callback) => {
     if (!isCodespaces()) return callback({ success: false, error: "Not in Codespaces" });

@@ -1,8 +1,24 @@
-export default function ConfirmPopup({ message, confirmLabel = "Confirm", confirmDanger = false, onConfirm, onCancel }) {
+import { useRef, useEffect } from "preact/hooks";
+
+export default function ConfirmPopup({ message, confirmLabel = "Confirm", confirmDanger = false, inputValue, onInput, inputPlaceholder = "", onConfirm, onCancel }) {
+  const hasInput = onInput !== undefined;
+  const inputRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
-      <div className="glass-card p-5 flex flex-col gap-4 w-72">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onCancel}>
+      <div className="glass-card p-5 flex flex-col gap-4 w-72" onClick={(e) => e.stopPropagation()}>
         <p className="text-sm text-center" style={{ color: "var(--text-main)" }}>{message}</p>
+        {hasInput && (
+          <input
+            ref={inputRef}
+            value={inputValue}
+            placeholder={inputPlaceholder}
+            onInput={(e) => onInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && onConfirm()}
+            className="w-full px-3 py-2 text-sm rounded-xl"
+            style={{ background: "var(--glass-bg)", color: "var(--text-main)", border: "1px solid var(--border)" }}
+          />
+        )}
         <div className="flex gap-2">
           <button onClick={onCancel} className="glass-btn flex-1 py-2 text-sm" style={{ color: "var(--text-muted)" }}>
             Cancel

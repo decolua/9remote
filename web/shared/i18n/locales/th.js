@@ -79,6 +79,7 @@ export default {
     enablePush: "เปิดการแจ้งเตือนแบบ Push",
     disablePush: "ปิดการแจ้งเตือนแบบ Push",
     pushHint: "เปิดการแจ้งเตือนเพื่อรับการแจ้งเตือนเมื่อ AI ทำงานเสร็จ",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} ล้าสมัยแล้ว",
     versionMismatchHint: "บางฟีเจอร์อาจไม่ทำงาน รัน:",
     version: "เวอร์ชัน"

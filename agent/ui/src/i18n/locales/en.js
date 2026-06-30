@@ -34,9 +34,13 @@ export default {
     logsDesc: "Server activity and diagnostics",
   },
   header: {
+    settings: "Settings",
+    language: "Language",
     documentation: "Documentation",
     reset: "Reset the tunnel and reconnect clients",
+    resetShort: "Reset",
     shutdown: "Shutdown 9Remote (stop server, close tunnel and quit)",
+    shutdownShort: "Shutdown",
     lightMode: "Switch to light mode",
     darkMode: "Switch to dark mode",
   },

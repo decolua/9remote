@@ -127,6 +127,8 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const groupOptions = [...groups, ...(hasUngrouped ? [UNGROUPED] : [])];
   const activeGroupName = groups.find((g) => g.id === activeGroupId)?.name || UNGROUPED.name;
   const showGroupSelector = groupOptions.length > 1;
+  // A group is "finished" if any of its sessions has an unseen finished badge — surfaces cross-group dots
+  const groupHasFinished = (gid) => sessions.some((s) => (s.groupId || null) === gid && finishedIds?.has(s.id));
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "var(--bg-body)" }}>
@@ -151,6 +153,10 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
               title={t("terminal.switchGroup")}
             >
               <span className="truncate text-sm font-medium">{activeGroupName}</span>
+              {/* Dot when a NON-active group has a finished session, so user knows to switch */}
+              {groupOptions.some((g) => g.id !== activeGroupId && groupHasFinished(g.id)) && (
+                <span className="w-1.5 h-1.5 rounded-full term-tab-done-dot" style={{ background: "#f59e0b" }} />
+              )}
               <Icon name="chevronDown" size={14} />
             </button>
             {showGroupMenu && (
@@ -159,10 +165,11 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                   <button
                     key={g.id || "ungrouped"}
                     onClick={() => { onSelectGroup?.(g.id); setShowGroupMenu(false); }}
-                    className="w-full text-left px-3 py-1.5 text-sm transition term-group-item"
+                    className="w-full text-left px-3 py-1.5 text-sm transition term-group-item flex items-center justify-between gap-2"
                     style={{ color: g.id === activeGroupId ? "var(--brand-500)" : "var(--text-main)" }}
                   >
-                    {g.name}
+                    <span className="truncate">{g.name}</span>
+                    {groupHasFinished(g.id) && <span className="w-1.5 h-1.5 rounded-full term-tab-done-dot flex-shrink-0" style={{ background: "#f59e0b" }} />}
                   </button>
                 ))}
               </div>

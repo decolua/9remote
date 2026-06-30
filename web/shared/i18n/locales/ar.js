@@ -79,6 +79,7 @@ export default {
     enablePush: "تفعيل إشعارات الدفع",
     disablePush: "تعطيل إشعارات الدفع",
     pushHint: "فعّل إشعارات الدفع ليتم تنبيهك عند انتهاء الذكاء الاصطناعي من المهام",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "الوكيل {version} قديم",
     versionMismatchHint: "قد لا تعمل بعض الميزات. شغّل:",
     version: "الإصدار"

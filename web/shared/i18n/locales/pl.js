@@ -79,6 +79,7 @@ export default {
     enablePush: "Włącz powiadomienia push",
     disablePush: "Wyłącz powiadomienia push",
     pushHint: "Włącz powiadomienia push, aby otrzymywać alerty po zakończeniu zadań przez AI",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} jest nieaktualny",
     versionMismatchHint: "Niektóre funkcje mogą nie działać. Uruchom:",
     version: "Wersja"

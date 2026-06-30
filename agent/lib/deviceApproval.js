@@ -66,6 +66,14 @@ export function removeDevice(deviceId) {
   saveApprovedDevices();
 }
 
+export function setDeviceLabel(deviceId, label) {
+  const meta = approvedDevices.get(deviceId);
+  if (!meta) return false;
+  approvedDevices.set(deviceId, { ...meta, label: label || "" });
+  saveApprovedDevices();
+  return true;
+}
+
 export function getApprovedDevices() {
   return [...approvedDevices.entries()].map(([id, meta]) => ({ deviceId: id, ...meta }));
 }

@@ -33,8 +33,6 @@ export default function MenuItems({
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const isOutdated = !agentVersion || (webVersion && agentVersion !== webVersion);
 
-  const [hookStatus, setHookStatus] = useState(null);
-  const [togglingTool, setTogglingTool] = useState(null);
   const [copiedCommand, setCopiedCommand] = useState(false);
 
   // Copy agent update command to clipboard
@@ -58,13 +56,6 @@ export default function MenuItems({
   });
   const [pushLoading, setPushLoading] = useState(false);
 
-  useEffect(() => {
-    if (!socketRef?.current) return;
-    socketRef.current.emit("getHookStatus", (status) => {
-      setHookStatus(status);
-    });
-  }, [socketRef]);
-
   const handleEnablePush = useCallback(async () => {
     if (!subscribeToPush || pushLoading) return;
     setPushLoading(true);
@@ -82,34 +73,8 @@ export default function MenuItems({
     setPushLoading(true);
     await unsubscribeFromPush();
     setPushEnabled(false);
-    if (hookStatus && socketRef?.current) {
-      for (const tool of Object.keys(hookStatus)) {
-        if (hookStatus[tool]?.enabled) {
-          socketRef.current.emit("disableHook", { tool }, () => {});
-        }
-      }
-      setHookStatus(prev => Object.fromEntries(
-        Object.entries(prev).map(([k, v]) => [k, { ...v, enabled: false }])
-      ));
-    }
     setPushLoading(false);
-  }, [unsubscribeFromPush, pushLoading, hookStatus, socketRef]);
-
-  const handleToggleHook = useCallback((tool) => {
-    if (!socketRef?.current || togglingTool) return;
-    setTogglingTool(tool);
-    const isEnabled = hookStatus?.[tool]?.enabled;
-    const event = isEnabled ? "disableHook" : "enableHook";
-    socketRef.current.emit(event, { tool }, (result) => {
-      setTogglingTool(null);
-      if (result.success) {
-        setHookStatus(prev => ({
-          ...prev,
-          [tool]: { ...prev[tool], enabled: !isEnabled }
-        }));
-      }
-    });
-  }, [socketRef, hookStatus, togglingTool]);
+  }, [unsubscribeFromPush, pushLoading]);
 
   return (
     <div className="p-3 space-y-0.5">
@@ -124,7 +89,7 @@ export default function MenuItems({
             <span className="text-sm">{t("menu.notifications")}</span>
           </div>
           <span className="text-text-muted text-xs">
-            {pushEnabled && hookStatus ? `${Object.values(hookStatus).filter(s => s.enabled).length} ${t("common.on")}` : ""}
+            {pushEnabled ? t("common.on") : ""}
           </span>
         </button>
         {expandedSection === "notifications" && (
@@ -143,32 +108,7 @@ export default function MenuItems({
               </div>
             ) : (
               <div className="space-y-2">
-                {hookStatus ? (
-                  ["claude", "codex", "gemini", "opencode"].map((tool) => {
-                    const status = hookStatus[tool];
-                    if (!status?.installed) return null;
-                    const toolKeys = { claude: "claudeCode", codex: "codex", gemini: "geminiCli", opencode: "openCode" };
-                    return (
-                      <div key={tool} className="flex items-center justify-between py-1 px-1">
-                        <span className="text-sm text-text">{t(`notifications.${toolKeys[tool]}`)}</span>
-                        {togglingTool === tool ? (
-                          <Loader2 className="animate-spin text-text-muted" size={18} />
-                        ) : (
-                          <button
-                            onClick={() => handleToggleHook(tool)}
-                            className={`relative w-10 h-5 rounded-full transition-colors ${status.enabled ? "bg-brand-500" : "bg-surface-2"}`}
-                          >
-                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${status.enabled ? "left-5" : "left-0.5"}`} />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="text-center py-1">
-                    <Loader2 className="animate-spin text-text-muted mx-auto" size={18} />
-                  </div>
-                )}
+                <p className="text-text-muted text-xs px-1">{t("menu.pushActiveHint")}</p>
                 <button
                   onClick={handleDisablePush}
                   disabled={pushLoading}

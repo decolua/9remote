@@ -7,6 +7,8 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
  * Hook to manage push notifications and chat notification events
  * Badge state is stored on server, synced to client via socket
  * On any chatNotification → re-fetch full state from server
+ * NOTE: badge state shape here is `notifications` (object keyed by sessionId);
+ * the agent preact UI uses a Set `finishedIds` (see agent/ui/src/lib/terminalSocket.js) — equivalent semantics.
  */
 export function useNotification(socketRef, connected) {
   const subscriptionRef = useRef(null);

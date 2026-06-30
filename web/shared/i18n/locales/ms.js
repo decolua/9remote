@@ -79,6 +79,7 @@ export default {
     enablePush: "Dayakan Pemberitahuan Tolak",
     disablePush: "Lumpuhkan Pemberitahuan Tolak",
     pushHint: "Dayakan pemberitahuan tolak untuk dimaklumkan apabila AI selesai tugas",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agen {version} sudah lapuk",
     versionMismatchHint: "Beberapa ciri mungkin tidak berfungsi. Jalankan:",
     version: "Versi"

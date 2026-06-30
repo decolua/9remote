@@ -79,6 +79,7 @@ export default {
     enablePush: "プッシュ通知を有効にする",
     disablePush: "プッシュ通知を無効にする",
     pushHint: "プッシュ通知を有効にすると、AIがタスクを完了したときに通知を受け取れます",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} は古いバージョンです",
     versionMismatchHint: "一部の機能が動作しない可能性があります。実行してください:",
     version: "バージョン"

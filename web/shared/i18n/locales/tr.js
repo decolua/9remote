@@ -79,6 +79,7 @@ export default {
     enablePush: "Anlık Bildirimleri Etkinleştir",
     disablePush: "Anlık Bildirimleri Devre Dışı Bırak",
     pushHint: "AI görevleri tamamladığında uyarı almak için anlık bildirimleri etkinleştirin",
+    pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} güncel değil",
     versionMismatchHint: "Bazı özellikler çalışmayabilir. Çalıştırın:",
     version: "Sürüm"
