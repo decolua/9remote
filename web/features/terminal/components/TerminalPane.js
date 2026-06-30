@@ -49,12 +49,12 @@ function TerminalPane({
     return () => onRegisterApi(sessionId, null);
   }, [sessionId, focus, doResize, onRegisterApi]);
 
-  // Clear notification when pane becomes visible for this session
+  // Clear notification when this pane is focused (actively viewed)
   useEffect(() => {
-    if (isVisible && sessionId) {
+    if (isFocused && sessionId) {
       clearNotification?.(sessionId);
     }
-  }, [sessionId, isVisible, clearNotification]);
+  }, [sessionId, isFocused, clearNotification]);
 
   const currentTheme = THEMES[theme] || THEMES.dark;
 

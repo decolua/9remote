@@ -7,7 +7,7 @@ import { broadcast } from "../../../transport/broadcast.js";
 import fs from "fs";
 import path from "path";
 
-const MAX_BUFFER = 50 * 1024;
+const MAX_BUFFER = 2 * 1024 * 1024;
 const PERSISTENCE_MODE = "daemon";
 
 /**
@@ -18,8 +18,9 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
 
   ptyProcess.onData((data) => {
     sessionData.buffer.push(data);
-    let size = sessionData.buffer.reduce((s, c) => s + c.length, 0);
-    while (size > MAX_BUFFER && sessionData.buffer.length > 1) size -= sessionData.buffer.shift().length;
+    // Trim by char length keeping the tail — avoids cutting whole chunks mid-ANSI
+    const size = sessionData.buffer.reduce((s, c) => s + c.length, 0);
+    if (size > MAX_BUFFER) sessionData.buffer = [sessionData.buffer.join("").slice(-MAX_BUFFER)];
     broadcast(io, "output", { sessionId, data: Buffer.from(data, "utf-8") });
     if (PERSISTENCE_MODE === "buffer") {
       if (saveTimeout) clearTimeout(saveTimeout);
@@ -123,10 +124,11 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
 
       // Daemon mode
       if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
-        const result = await daemonClient.createSession(autoName, 80, 24, shellId);
+        const result = await daemonClient.createSession(autoName, 80, 24, shellId, sessionId, cwd);
         if (result.success) {
           sessions.set(result.sessionId, { daemon: true, name: autoName, createdAt: Date.now(), cwd: result.cwd, shellId: result.shellId, shellLabel: result.shellLabel });
           if (groupId && groups.has(groupId)) { sessionGroups[result.sessionId] = groupId; persistGroups(); }
+          saveSessionMetadata(sessions);
           callback({ success: true, sessionId: result.sessionId, shellLabel: result.shellLabel });
         } else {
           callback({ success: false, error: result.error });
@@ -155,8 +157,19 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     // Daemon mode
     if (session.daemon && daemonClient.isConnected()) {
       try {
+        // Session lost after daemon respawn → recreate PTY with same id + title + prior cwd (buffer gone, metadata kept)
+        if (session.needsRespawn) {
+          const created = await daemonClient.createSession(session.name, 80, 24, session.shellId, sessionId, session.cwd);
+          if (!created.success) return callback({ success: false, error: created.error });
+          delete session.needsRespawn;
+          session.cwd = created.cwd;
+          session.shellLabel = created.shellLabel;
+          saveSessionMetadata(sessions);
+        }
         const result = await daemonClient.joinSession(sessionId);
-        callback({ success: result.success, name: result.name, cwd: result.cwd, error: result.error });
+        // Persist live cwd (user may have cd'd) — agent is source of truth
+        if (result.cwd && result.cwd !== session.cwd) { session.cwd = result.cwd; saveSessionMetadata(sessions); }
+        callback({ success: result.success, name: session.name, cwd: result.cwd || session.cwd, error: result.error });
       } catch (e) {
         callback({ success: false, error: e.message });
       }
@@ -201,6 +214,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
         await daemonClient.deleteSession(sessionId);
         sessions.delete(sessionId);
         if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
+        saveSessionMetadata(sessions);
         callback({ success: true });
       } catch (e) {
         callback({ success: false, error: e.message });
@@ -221,17 +235,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     const session = sessions.get(sessionId);
     if (!session) return callback({ success: false, error: "Session not found" });
 
-    if (session.daemon && daemonClient.isConnected()) {
-      try {
-        await daemonClient.renameSession(sessionId, name);
-        session.name = name;
-        callback({ success: true });
-      } catch (e) {
-        callback({ success: false, error: e.message });
-      }
-      return;
-    }
-
+    // Name is agent-owned (single source of truth) for both daemon and buffer mode
     session.name = name;
     broadcast(io, "session-renamed", { sessionId, name });
     saveSessionMetadata(sessions);

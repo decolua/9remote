@@ -10,7 +10,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import pty from "node-pty";
-import { resolveShell } from "./constants.js";
+import { resolveShell, DAEMON_VERSION } from "./constants.js";
 
 // Socket path
 const SOCKET_DIR = path.join(os.homedir(), ".9remote");
@@ -29,7 +29,7 @@ const sessions = new Map();
 const clients = new Set();
 
 // Constants
-const MAX_BUFFER_SIZE = 50 * 1024; // 50KB per session
+const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB raw fallback per session
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
 
 // Log file path — under ~/.9remote/logs/ for consistency with agent.log
@@ -147,13 +147,14 @@ function send(client, message) {
 /**
  * Create new PTY session
  */
-function createSession(sessionId, name, cols = 80, rows = 24, shellId = null) {
+function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cwd = null) {
   if (sessions.has(sessionId)) {
     return { success: false, error: "Session already exists" };
   }
 
   const shellConfig = resolveShell(shellId);
-  const cwd = getDefaultCwd();
+  // Agent-supplied cwd (restore prior dir); fall back to default if missing/invalid
+  if (!cwd || !fs.existsSync(cwd)) cwd = getDefaultCwd();
 
   try {
     const shellEnv = buildShellEnv(shellConfig.path);
@@ -177,7 +178,7 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null) {
     const session = {
       pty: ptyProcess,
       buffer: [],
-      name: name || `Terminal ${sessions.size + 1}`,
+      name,
       createdAt: Date.now(),
       cwd,
       shellId: shellConfig.id,
@@ -187,10 +188,13 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null) {
     // Buffer output and broadcast to clients
     ptyProcess.onData((data) => {
       session.buffer.push(data);
+      // Track live cwd from OSC 7 escape: \e]7;file://host/path\a (or ST terminator)
+      const osc7 = data.match(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)/);
+      if (osc7) { try { session.cwd = decodeURIComponent(osc7[1]); } catch {} }
+      // Trim by char length keeping the tail — avoids cutting whole chunks mid-ANSI
       let totalSize = session.buffer.reduce((sum, chunk) => sum + chunk.length, 0);
-      while (totalSize > MAX_BUFFER_SIZE && session.buffer.length > 1) {
-        session.buffer.shift();
-        totalSize = session.buffer.reduce((sum, chunk) => sum + chunk.length, 0);
+      if (totalSize > MAX_BUFFER_SIZE) {
+        session.buffer = [session.buffer.join("").slice(-MAX_BUFFER_SIZE)];
       }
 
       broadcast({
@@ -221,7 +225,7 @@ function handleMessage(client, message) {
 
   switch (type) {
     case "ping":
-      send(client, { type: "pong" });
+      send(client, { type: "pong", version: DAEMON_VERSION, requestId: payload.requestId });
       break;
 
     case "listSessions":
@@ -230,7 +234,8 @@ function handleMessage(client, message) {
         name: s.name,
         createdAt: s.createdAt,
         shellId: s.shellId,
-        shellLabel: s.shellLabel
+        shellLabel: s.shellLabel,
+        cwd: s.cwd
       }));
       send(client, { type: "sessionList", sessions: list, requestId: payload.requestId });
       break;
@@ -241,7 +246,8 @@ function handleMessage(client, message) {
         payload.name,
         payload.cols,
         payload.rows,
-        payload.shellId
+        payload.shellId,
+        payload.cwd
       );
       send(client, { type: "createResult", ...createResult, requestId: payload.requestId });
       break;
@@ -252,9 +258,9 @@ function handleMessage(client, message) {
         send(client, { type: "joinResult", success: false, error: "Session not found", requestId: payload.requestId });
         return;
       }
-      // Send buffered output
-      if (session.buffer.length > 0) {
-        const history = session.buffer.join("");
+      // Replay raw buffered output
+      const history = session.buffer.length > 0 ? session.buffer.join("") : "";
+      if (history) {
         send(client, {
           type: "output",
           sessionId,
@@ -296,15 +302,9 @@ function handleMessage(client, message) {
       }
       break;
 
-    case "renameSession":
-      const renameSession = sessions.get(sessionId);
-      if (renameSession) {
-        renameSession.name = payload.name;
-        broadcast({ type: "sessionRenamed", sessionId, name: payload.name });
-        send(client, { type: "renameResult", success: true, requestId: payload.requestId });
-      } else {
-        send(client, { type: "renameResult", success: false, error: "Session not found", requestId: payload.requestId });
-      }
+    case "getCwd":
+      const cwdSession = sessions.get(sessionId);
+      send(client, { type: "cwdResult", cwd: cwdSession?.cwd || null, requestId: payload.requestId });
       break;
 
     default:

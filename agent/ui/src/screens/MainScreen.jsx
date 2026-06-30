@@ -14,9 +14,24 @@ const HELP_URL = "https://docs.9remote.cc/";
 // Left menu — config-driven nav + per-menu header meta (9router pattern)
 const MENU = [
   { id: "connection", label: "Connection", icon: "hub", desc: "Pair devices and manage your secure tunnel" },
-  { id: "sessions", label: "Sessions", icon: "terminal", desc: "Live terminal sessions running on this host" },
+  { id: "terminals", label: "Terminals", icon: "terminal", desc: "Live terminal sessions running on this host" },
   { id: "logs", label: "Logs", icon: "description", desc: "Server activity and diagnostics" },
 ];
+
+const DEFAULT_MENU = "connection";
+const TERMINALS_MENU = "terminals";
+
+// Parse URL pathname → { menu, sessionId } (sessionId only under /terminals/:id)
+const parsePath = () => {
+  const [seg, sub] = window.location.pathname.replace(/^\/+/, "").split("/");
+  const menu = MENU.some((m) => m.id === seg) ? seg : DEFAULT_MENU;
+  const sessionId = menu === TERMINALS_MENU && sub ? decodeURIComponent(sub) : null;
+  return { menu, sessionId };
+};
+
+// Build pathname from current menu + open terminal
+const buildPath = (menu, sessionId) =>
+  menu === TERMINALS_MENU && sessionId ? `/${menu}/${encodeURIComponent(sessionId)}` : `/${menu}`;
 
 const PERMISSION_META = {
   screenRecording: { label: "Screen Recording", icon: "screenshot_monitor", desc: "Capture screen content" },
@@ -478,7 +493,7 @@ export default function MainScreen({
   sleepInhibitMode = "never", sleepInhibitPresets = [], onSleepInhibitChange,
   sessions = [], onSessionDelete, onSessionRefresh,
 }) {
-  const [activeMenu, setActiveMenu] = useState("connection");
+  const [activeMenu, setActiveMenu] = useState(() => parsePath().menu);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
@@ -487,6 +502,36 @@ export default function MainScreen({
   const [openedIds, setOpenedIds] = useState([]);
   const logEndRef = useRef(null);
   const term = useSessions();
+
+  // Navigate menu → leaving terminals also closes any open terminal
+  const navigateMenu = (id) => {
+    setActiveMenu(id);
+    if (id !== TERMINALS_MENU) setActiveSessionId(null);
+  };
+
+  // Sync state with browser back/forward
+  useEffect(() => {
+    const onPop = () => {
+      const { menu, sessionId } = parsePath();
+      setActiveMenu(menu);
+      setActiveSessionId(sessionId);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Single source of truth: push URL whenever menu / open terminal changes.
+  // Gate the very first run so a deep-linked :id isn't wiped before reopen kicks in;
+  // once unlocked, closing a terminal correctly drops the :id from the URL.
+  const routeReadyRef = useRef(false);
+  useEffect(() => {
+    if (!routeReadyRef.current) {
+      if (!activeSessionId && parsePath().sessionId) return; // wait for reopen
+      routeReadyRef.current = true;
+    }
+    const next = buildPath(activeMenu, activeSessionId);
+    if (window.location.pathname !== next) window.history.pushState(null, "", next);
+  }, [activeMenu, activeSessionId]);
 
   // Clear finished badge for the terminal currently being viewed (active pane never shows it)
   useEffect(() => { if (activeSessionId) term.clearFinished(activeSessionId); }, [activeSessionId, term.finishedIds]);
@@ -502,6 +547,15 @@ export default function MainScreen({
     setOpenedIds((prev) => Array.from(new Set([...prev, ...groupIds, sessionId])));
     setActiveSessionId(sessionId);
   };
+
+  // Reopen terminal from deep-link URL once its session has loaded.
+  // If the id no longer exists after sessions load, drop it from the URL.
+  useEffect(() => {
+    const { menu, sessionId } = parsePath();
+    if (!sessionId || activeSessionId) return;
+    if (term.sessions.some((s) => s.id === sessionId)) openSession(sessionId);
+    else if (term.sessions.length) window.history.replaceState(null, "", `/${menu}`);
+  }, [term.sessions]);
 
   // Prune opened list to existing sessions (don't touch activeSessionId — avoids race on create)
   useEffect(() => {
@@ -524,7 +578,7 @@ export default function MainScreen({
   useEffect(() => {
     if (activeMenu === "logs") logEndRef.current?.scrollIntoView({ behavior: "smooth" });
     if (activeMenu === "connection") onFetchDevices?.();
-    if (activeMenu === "sessions") term.refresh();
+    if (activeMenu === "terminals") term.refresh();
   }, [logs, activeMenu, connections.length]);
 
   const clients = mergeClients(approvedDevices, connections, rejectedDevices);
@@ -538,7 +592,7 @@ export default function MainScreen({
       <div className="hidden md:flex">
         <Sidebar
           activeMenu={activeMenu}
-          onSelect={setActiveMenu}
+          onSelect={navigateMenu}
           version={version}
           isReady={isReady}
           tunnelHealth={tunnelHealth}
@@ -552,7 +606,7 @@ export default function MainScreen({
       <div className={`fixed inset-y-0 left-0 z-50 transform md:hidden transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <Sidebar
           activeMenu={activeMenu}
-          onSelect={setActiveMenu}
+          onSelect={navigateMenu}
           version={version}
           isReady={isReady}
           tunnelHealth={tunnelHealth}
@@ -660,7 +714,7 @@ export default function MainScreen({
                   </>
                 )}
 
-                {activeMenu === "sessions" && (
+                {activeMenu === "terminals" && (
                   <SessionList
                     sessions={term.sessions}
                     groups={term.groups}
@@ -680,7 +734,7 @@ export default function MainScreen({
                 {activeMenu === "logs" && (
                   <div className="flex-1 flex flex-col">
                     {logs.length > 0 && (
-                      <div className="flex justify-end mb-2">
+                      <div className="flex justify-end mb-2 sticky top-0 z-10">
                         <button onClick={onClearLogs} title="Clear logs" className="glass-btn flex items-center gap-1.5 px-2.5 h-7 text-xs" style={{ color: "var(--text-muted)" }}>
                           <span className="material-symbols-outlined text-sm">delete_sweep</span> Clear
                         </button>

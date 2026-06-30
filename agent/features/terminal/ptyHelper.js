@@ -132,7 +132,7 @@ export function saveSessionMetadata(sessions) {
   try {
     const metadata = {};
     for (const [id, session] of sessions) {
-      metadata[id] = { name: session.name, createdAt: session.createdAt };
+      metadata[id] = { name: session.name, createdAt: session.createdAt, shellId: session.shellId, cwd: session.cwd };
     }
     const dir = path.dirname(SESSION_METADATA_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

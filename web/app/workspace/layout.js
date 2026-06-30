@@ -28,9 +28,10 @@ import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
 import { useI18n } from "@/shared/i18n";
+import { useRouteSync } from "@/shared/hooks/useRouteSync";
 
-// Main workspace page - contains sessions, terminal, file explorer, remote desktop, etc.
-export default function WorkspacePage() {
+// Workspace shell - holds socket/state/views; child routes are URL markers only
+export default function WorkspaceLayout({ children }) {
   const { t } = useI18n();
   // Hydration state for Zustand
   const [hydrated, setHydrated] = useState(false);
@@ -115,6 +116,9 @@ export default function WorkspacePage() {
 
   // Current view is top of stack
   const currentView = viewStack[viewStack.length - 1];
+
+  // Sync URL <-> viewStack (deep-link, F5, back/forward)
+  useRouteSync(hydrated);
 
   // Pop view and reload sessions - keep terminals alive across back/forth
   const popView = useCallback(() => {
@@ -699,6 +703,8 @@ export default function WorkspacePage() {
           message={confirmDialog.message}
         />
       </div>
+      {/* Child routes are URL markers only (render nothing) */}
+      <div hidden>{children}</div>
     </>
   );
 }

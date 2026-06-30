@@ -28,8 +28,8 @@ export default {
   menu: {
     connection: "Kết nối",
     connectionDesc: "Ghép nối thiết bị và quản lý tunnel bảo mật",
-    sessions: "Phiên",
-    sessionsDesc: "Các phiên terminal đang chạy trên máy này",
+    terminals: "Terminal",
+    terminalsDesc: "Các phiên terminal đang chạy trên máy này",
     logs: "Nhật ký",
     logsDesc: "Hoạt động và chẩn đoán máy chủ",
   },

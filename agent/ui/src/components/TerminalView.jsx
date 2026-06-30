@@ -184,7 +184,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                   className={`px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap term-tab${isActive ? " term-tab-active" : ""}`}
                   style={{ color: isActive ? "var(--brand-500)" : "var(--text-muted)" }}
                 >
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: connected ? "#22c55e" : "#ef4444" }} />
+                  <span className={`w-1.5 h-1.5 rounded-full${finishedIds?.has(s.id) && !isActive ? " term-tab-done-dot" : ""}`} style={{ background: finishedIds?.has(s.id) && !isActive ? "#f59e0b" : (connected ? "#22c55e" : "#ef4444") }} />
                   {editingTabId === s.id ? (
                     <input
                       type="text"

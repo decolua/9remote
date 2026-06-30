@@ -9,6 +9,7 @@ import path from "path";
 import os from "os";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
+import { DAEMON_VERSION } from "./constants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -60,10 +61,10 @@ function copyDirSync(src, dest) {
  * Find the node-pty package folder by walking up from the daemon script.
  * Returns null if not found (caller falls back to running from original path).
  */
-function findNodePtyDir(startDir) {
+function findPackageDir(startDir, pkg) {
   let dir = startDir;
   for (let i = 0; i < 6; i++) {
-    const candidate = path.join(dir, "node_modules", "node-pty");
+    const candidate = path.join(dir, "node_modules", pkg);
     if (fs.existsSync(candidate)) return candidate;
     const parent = path.dirname(dir);
     if (parent === dir) break;
@@ -71,6 +72,7 @@ function findNodePtyDir(startDir) {
   }
   return null;
 }
+const findNodePtyDir = (startDir) => findPackageDir(startDir, "node-pty");
 
 /**
  * Prepare a self-contained daemon folder at ~/.9remote/daemon/v<version>/.
@@ -105,9 +107,8 @@ function cleanupOldDaemonVersions(currentVersion) {
 }
 
 function prepareDaemonCopy(sourceScript) {
-  const version = getCliVersion();
-  cleanupOldDaemonVersions(version);
-  const runtimeDir = path.join(DAEMON_RUNTIME_DIR, `v${version}`);
+  cleanupOldDaemonVersions(DAEMON_VERSION);
+  const runtimeDir = path.join(DAEMON_RUNTIME_DIR, `v${DAEMON_VERSION}`);
 
   // Dev daemon (.js) imports local constants via relative paths (./constants.js,
   // ../../lib/constants.js) → mirror that tree so imports resolve. Bundled .cjs
@@ -271,10 +272,6 @@ function handleMessage(message) {
       emit("sessionClosed", data.sessionId);
       break;
 
-    case "sessionRenamed":
-      emit("sessionRenamed", { sessionId: data.sessionId, name: data.name });
-      break;
-
     case "pong":
       // Heartbeat response
       break;
@@ -424,6 +421,40 @@ async function startDaemon() {
   return false;
 }
 
+// Ask a running daemon its version over a throwaway connection.
+// Returns version string, or null if unreachable/no answer.
+function probeDaemonVersion() {
+  return new Promise((resolve) => {
+    const probe = net.connect(SOCKET_PATH);
+    let buf = "";
+    const done = (v) => { try { probe.destroy(); } catch {} resolve(v); };
+    const timer = setTimeout(() => done(null), 2000);
+    probe.on("connect", () => probe.write(JSON.stringify({ type: "ping", requestId: -1 }) + "\n"));
+    probe.on("data", (chunk) => {
+      buf += chunk.toString();
+      const nl = buf.indexOf("\n");
+      if (nl === -1) return;
+      clearTimeout(timer);
+      try { const msg = JSON.parse(buf.slice(0, nl)); done(msg.version || "unknown"); }
+      catch { done(null); }
+    });
+    probe.on("error", () => { clearTimeout(timer); done(null); });
+  });
+}
+
+// Kill the running daemon by PID and wait until its socket is gone.
+async function killStaleDaemon() {
+  try {
+    const pidFile = path.join(SOCKET_DIR, "pids", "ptyDaemon.pid");
+    const pid = parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10);
+    if (Number.isFinite(pid) && pid > 0) process.kill(pid, "SIGTERM");
+  } catch {}
+  for (let i = 0; i < 20; i++) {
+    if (!(await isDaemonRunning())) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 /**
  * Connect to daemon
  */
@@ -433,6 +464,14 @@ async function connectToDaemon() {
 
   try {    
     // Check if daemon is running
+    if (await isDaemonRunning()) {
+      // Running but stale version → kill so a fresh one spawns below
+      const v = await probeDaemonVersion();
+      if (v !== DAEMON_VERSION) {
+        console.log(`[DaemonClient] Daemon v${v} != v${DAEMON_VERSION}, restarting`);
+        await killStaleDaemon();
+      }
+    }
     if (!(await isDaemonRunning())) {
       // Start daemon
       if (!(await startDaemon())) {
@@ -530,17 +569,29 @@ export async function listSessions() {
 /**
  * Create new session
  */
-export async function createSession(name, cols = 80, rows = 24, shellId = null) {
-  const sessionId = `session-${Date.now()}`;
+export async function createSession(name, cols = 80, rows = 24, shellId = null, sessionId = `session-${Date.now()}`, cwd = null) {
   const result = await request({
     type: "createSession",
     sessionId,
     name,
     cols,
     rows,
-    shellId
+    shellId,
+    cwd
   });
   return result;
+}
+
+/**
+ * Get live cwd of a session (for persisting last working dir)
+ */
+export async function getSessionCwd(sessionId) {
+  try {
+    const result = await request({ type: "getCwd", sessionId });
+    return result.cwd || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -570,13 +621,5 @@ export function resizeSession(sessionId, cols, rows) {
  */
 export async function deleteSession(sessionId) {
   const result = await request({ type: "deleteSession", sessionId });
-  return result;
-}
-
-/**
- * Rename session
- */
-export async function renameSession(sessionId, name) {
-  const result = await request({ type: "renameSession", sessionId, name });
   return result;
 }

@@ -7,7 +7,7 @@ import * as daemonClient from "./ptyDaemonClient.js";
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
 import { isRemoteReady, setRemoteReadyChangeHandler } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
-import { listSavedBufferSessions, loadSessionMetadata, loadGroups } from "./ptyHelper.js";
+import { listSavedBufferSessions, loadSessionMetadata, loadGroups, saveSessionMetadata } from "./ptyHelper.js";
 import { setupSessionHandlers } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
@@ -29,6 +29,34 @@ const sessions = new Map();
 const groups = new Map();            // groupId -> { id, name, createdAt }
 const sessionGroups = {};            // sessionId -> groupId
 
+// Merge live daemon sessions with persisted metadata.
+// Daemon-known sessions are live; metadata-only ones survived a daemon respawn → mark needsRespawn.
+async function syncDaemonSessions() {
+  const daemonSessions = await daemonClient.listSessions();
+  const liveById = new Map(daemonSessions.map((s) => [s.id, s]));
+  const metadata = loadSessionMetadata();
+
+  // Kill daemon orphans (live but absent from agent metadata) — leftovers from an older daemon
+  for (const s of daemonSessions) {
+    if (!metadata[s.id]) { try { await daemonClient.deleteSession(s.id); } catch {} }
+  }
+
+  // Agent metadata is the source of truth; daemon only reports which are live + live cwd
+  sessions.clear();
+  for (const [id, meta] of Object.entries(metadata)) {
+    const live = liveById.get(id);
+    sessions.set(id, {
+      daemon: true,
+      name: meta.name,
+      createdAt: meta.createdAt,
+      shellId: meta.shellId,
+      cwd: live?.cwd || meta.cwd,
+      needsRespawn: !live
+    });
+  }
+  saveSessionMetadata(sessions);
+}
+
 export async function initializeTerminal() {
   // Load persisted groups (agent-managed, independent of daemon)
   const saved = loadGroups();
@@ -43,11 +71,9 @@ export async function initializeTerminal() {
     if (!connected) {
       console.error("❌ Failed to connect to PTY daemon, falling back to buffer mode");
     } else {
-      const daemonSessions = await daemonClient.listSessions();
-      for (const s of daemonSessions) {
-        sessions.set(s.id, { daemon: true, name: s.name, createdAt: s.createdAt });
-      }
-      const count = daemonSessions.length;
+      await syncDaemonSessions();
+      // Re-sync when daemon respawns (e.g. version bump) so titles survive and lost PTYs are marked for respawn
+      daemonClient.on("connected", () => { syncDaemonSessions().catch(() => {}); });
       // Silent connect
       return;
     }
@@ -76,11 +102,6 @@ export function setupTerminalSocket(io, apiKey) {
   if (PERSISTENCE_MODE === "daemon") {
     daemonClient.on("output", ({ sessionId, data }) => broadcast(io, "output", { sessionId, data }));
     daemonClient.on("sessionClosed", (sessionId) => { sessions.delete(sessionId); broadcast(io, "sessionClosed", sessionId); });
-    daemonClient.on("sessionRenamed", ({ sessionId, name }) => {
-      const s = sessions.get(sessionId);
-      if (s) s.name = name;
-      broadcast(io, "session-renamed", { sessionId, name });
-    });
   }
 
   // Build serverInfo payload (reusable for initial emit + live broadcast)

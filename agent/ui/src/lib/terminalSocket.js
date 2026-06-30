@@ -42,27 +42,40 @@ export function useSessions() {
     const onChanged = () => refreshRef.current();
     // Terminal command finished (AI hook) → mark session badge
     const onFinish = (n) => { if (n?.sessionId) setFinishedIds((p) => new Set(p).add(n.sessionId)); };
+    // Restore badge state from agent (source of truth) on connect/reload
+    const onState = (state) => setFinishedIds(new Set(Object.keys(state || {})));
+    // Another client cleared a badge → mirror locally
+    const onCleared = (sessionId) => setFinishedIds((p) => { if (!p.has(sessionId)) return p; const n = new Set(p); n.delete(sessionId); return n; });
+    const syncState = () => { onConnect(); socket.emit("getNotificationState"); };
 
-    socket.on("connect", onConnect);
+    socket.on("connect", syncState);
     socket.on("disconnect", onDisconnect);
     socket.on("sessionClosed", onChanged);
     socket.on("groupsChanged", onChanged);
     socket.on("session-renamed", onChanged);
     socket.on("chatNotification", onFinish);
+    socket.on("notificationState", onState);
+    socket.on("notificationCleared", onCleared);
 
-    if (socket.connected) refreshRef.current();
+    if (socket.connected) syncState();
 
     return () => {
-      socket.off("connect", onConnect);
+      socket.off("connect", syncState);
       socket.off("disconnect", onDisconnect);
       socket.off("sessionClosed", onChanged);
       socket.off("groupsChanged", onChanged);
       socket.off("session-renamed", onChanged);
       socket.off("chatNotification", onFinish);
+      socket.off("notificationState", onState);
+      socket.off("notificationCleared", onCleared);
     };
   }, []);
 
-  const clearFinished = (sessionId) => setFinishedIds((p) => { if (!p.has(sessionId)) return p; const n = new Set(p); n.delete(sessionId); return n; });
+  // Clear local badge + notify agent (keeps server state accurate)
+  const clearFinished = (sessionId) => {
+    setFinishedIds((p) => { if (!p.has(sessionId)) return p; const n = new Set(p); n.delete(sessionId); return n; });
+    socket.emit("clearNotification", sessionId);
+  };
 
   const createSession = (groupId, cb, name) => socket.emit("createSession", { groupId: groupId || null, name: name || null }, (r) => { refresh(); cb?.(r); });
   const deleteSession = (sessionId) => socket.emit("deleteSession", sessionId, () => refresh());

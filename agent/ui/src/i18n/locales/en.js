@@ -28,8 +28,8 @@ export default {
   menu: {
     connection: "Connection",
     connectionDesc: "Pair devices and manage your secure tunnel",
-    sessions: "Sessions",
-    sessionsDesc: "Live terminal sessions running on this host",
+    terminals: "Terminals",
+    terminalsDesc: "Live terminal sessions running on this host",
     logs: "Logs",
     logsDesc: "Server activity and diagnostics",
   },

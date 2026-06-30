@@ -19,6 +19,9 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
   const [terminalModal, setTerminalModal] = useState({ open: false, groupId: null });
   const [newTerminalName, setNewTerminalName] = useState("");
 
+  // Focus input and place caret at end
+  const focusEnd = (el) => { if (el) { el.focus(); const n = el.value.length; el.setSelectionRange(n, n); } };
+
   const saveEdit = (id) => { if (editName.trim()) onRename(id, editName.trim()); setEditingId(null); setEditName(""); };
   const saveGroupEdit = (id) => { if (editGroupName.trim()) onRenameGroup?.(id, editGroupName.trim()); setEditingGroupId(null); setEditGroupName(""); };
 
@@ -63,9 +66,8 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
                   <Icon name="folder" size={16} />
                   {editingGroupId === section.id ? (
                     <input
-                      type="text" value={editGroupName} autoFocus
+                      type="text" value={editGroupName} ref={focusEnd}
                       onClick={(e) => e.stopPropagation()}
-                      onFocus={(e) => e.target.select()}
                       onInput={(e) => setEditGroupName(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") saveGroupEdit(section.id); if (e.key === "Escape") setEditingGroupId(null); }}
                       onBlur={() => saveGroupEdit(section.id)}
@@ -101,8 +103,7 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
                         <div className="flex-1 min-w-0">
                           {editingId === s.id ? (
                             <input
-                            type="text" value={editName} autoFocus
-                            onFocus={(e) => e.target.select()}
+                            type="text" value={editName} ref={focusEnd}
                             onInput={(e) => setEditName(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Enter") saveEdit(s.id); if (e.key === "Escape") { setEditingId(null); setEditName(""); } }}
                               onBlur={() => saveEdit(s.id)}
@@ -177,7 +178,7 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
             <p className="text-sm font-semibold mb-3" style={{ color: "var(--text-main)" }}>{t("sessions.newTerminal")}</p>
             <div className="relative mb-4">
               <input
-                type="text" value={newTerminalName} autoFocus placeholder={suggestTerminalName(terminalModal.groupId)}
+                type="text" value={newTerminalName} ref={focusEnd} placeholder={suggestTerminalName(terminalModal.groupId)}
                 onInput={(e) => setNewTerminalName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") submitCreateTerminal(); if (e.key === "Escape") setTerminalModal({ open: false, groupId: null }); }}
                 className="w-full px-3 py-2 pr-8 rounded-lg text-sm focus:outline-none" style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}

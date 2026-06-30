@@ -289,11 +289,27 @@
   z-index: 2;
 }
 
-/* Finished-terminal highlight — thin amber ring + soft glow (cleared on focus) */
-.terminal-done-border {
-  outline: 1px solid #f59e0b;
-  outline-offset: -1px;
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+/* Finished-terminal highlight — animated gradient bottom border (cleared on focus) */
+.terminal-done-border::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #f59e0b, #ef4444, #8b5cf6, #3b82f6, #10b981, #f59e0b);
+  background-size: 200% 100%;
+  animation: borderFlow 3s linear infinite;
+  pointer-events: none;
+}
+@keyframes borderFlow {
+  from { background-position: 0% 0; }
+  to { background-position: 200% 0; }
+}
+.term-tab-done-dot { animation: tabDonePulse 1.2s ease-in-out infinite; }
+@keyframes tabDonePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 /* Overlay slide-in (web parity) */

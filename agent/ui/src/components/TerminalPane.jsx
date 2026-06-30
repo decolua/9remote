@@ -50,6 +50,11 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
     const writeDisp = term.onWriteParsed(checkScroll);
 
     const doJoin = () => {
+      // Fit first so daemon serializes the snapshot at the client's real size (alt-screen TUI wraps by cols)
+      doFit();
+      socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+      // Reset before replay so serialized snapshot (incl. alt-screen) paints on a clean buffer
+      term.reset();
       joinSession(socket, sessionId, {
         onSuccess: () => setTimeout(doFit, 100),
         onError: (msg) => term.write(`\r\n\x1b[1;31mError: ${msg}\x1b[0m\r\n`),
