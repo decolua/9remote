@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, AlertCircle, Users, Copy, Check } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
-import { AGENT_UPDATE_COMMAND } from "@/shared/constants/API";
+import AgentOutdatedBanner, { isAgentOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 
 export default function MenuItems({
   onRemote,
@@ -31,17 +31,8 @@ export default function MenuItems({
   const { t } = useI18n();
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
-  const isOutdated = !agentVersion || (webVersion && agentVersion !== webVersion);
+  const isOutdated = isAgentOutdated(agentVersion, webVersion);
 
-  const [copiedCommand, setCopiedCommand] = useState(false);
-
-  // Copy agent update command to clipboard
-  const handleCopyCommand = useCallback(() => {
-    vibrate();
-    navigator.clipboard.writeText(AGENT_UPDATE_COMMAND);
-    setCopiedCommand(true);
-    setTimeout(() => setCopiedCommand(false), 2000);
-  }, []);
   // Treat native WebView (Expo) the same as PWA for UI gating
   const isExpoWebView = typeof window !== "undefined" && !!window.ReactNativeWebView;
   const isApp = typeof window !== "undefined" && (
@@ -212,34 +203,7 @@ export default function MenuItems({
       )}
 
       {/* Version mismatch warning */}
-      {isOutdated && (
-        <div className="mt-3 p-3 bg-yellow-500/15 border border-yellow-500/30 rounded-brand-lg">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="text-yellow-400 flex-shrink-0 mt-0.5" size={16} />
-            <div className="text-xs space-y-1.5 min-w-0 flex-1">
-              <p className="text-yellow-200 font-semibold">
-                {t("menu.versionMismatch", { version: agentVersion ? `v${agentVersion}` : "?" })}
-              </p>
-              <p className="text-yellow-100/80">
-                {t("menu.versionMismatchHint")}
-              </p>
-              <div className="flex items-center gap-2 bg-surface px-2 py-1.5 rounded">
-                <code className="flex-1 min-w-0 text-brand-400 text-xs font-mono break-all select-all">
-                  {AGENT_UPDATE_COMMAND}
-                </code>
-                <button
-                  onClick={handleCopyCommand}
-                  className="shrink-0 p-1 text-text-muted hover:text-brand-400 transition-colors"
-                  title={copiedCommand ? t("common.copied") : t("common.copy")}
-                  type="button"
-                >
-                  {copiedCommand ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {isOutdated && <AgentOutdatedBanner agentVersion={agentVersion} className="mt-3" />}
 
       {/* Version + connection mode */}
       <div className="flex items-center justify-end gap-2 mt-4 mr-1">

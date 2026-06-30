@@ -116,18 +116,8 @@ export function useNotification(socketRef, connected) {
 
     // Receive full badge state from server, auto-clear active focused tab
     const handleNotificationState = (state) => {
-      // console.log("📋 notificationState received:", state);
-      const incoming = state || {};
-      // If user is viewing a terminal and app is focused → clear that session's badge
-      const currentView = getCurrentView();
-      const activeSessionId = getSelectedSession();
-      if (!document.hidden && currentView?.type === "terminal" && activeSessionId && incoming[activeSessionId]) {
-        currentSocket.emit("clearNotification", activeSessionId);
-        const { [activeSessionId]: _, ...rest } = incoming;
-        setNotifications(rest);
-      } else {
-        setNotifications(incoming);
-      }
+      // Keep badges even for the focused session; cleared only on input (A) or switch (B)
+      setNotifications(state || {});
     };
 
     // On any new notification → re-fetch full state (server is source of truth)

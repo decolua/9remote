@@ -10,11 +10,12 @@ import {
   joinSession,
   bindReconnect,
   bindVisibilityRepaint,
+  isUserTyping,
 } from "@shared/terminal/index.js";
 
 // Single xterm pane bound local socket — direct protocol (output/input/resize/joinSession).
 // Core logic lives in @shared/terminal; this component only wires Preact lifecycle.
-export default function TerminalPane({ socket, sessionId, theme = "dark", isFocused, onActivate, showFocusBorder, showDoneBorder }) {
+export default function TerminalPane({ socket, sessionId, theme = "dark", isFocused, onActivate, onInput, showFocusBorder, showDoneBorder }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -87,9 +88,9 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
   // Input handler — separate effect so focus change rebinds (web parity)
   useEffect(() => {
     if (!termRef.current || !socket || !sessionId || !isFocused) return;
-    const handler = termRef.current.onData((data) => socket.emit("input", { sessionId, data }));
+    const handler = termRef.current.onData((data) => { if (isUserTyping(data)) onInput?.(sessionId); socket.emit("input", { sessionId, data }); });
     return () => handler.dispose();
-  }, [isFocused, socket, sessionId]);
+  }, [isFocused, socket, sessionId, onInput]);
 
   // Theme switch
   useEffect(() => {
@@ -111,7 +112,8 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
   }, [isFocused, sessionId, socket]);
 
   const scrollToBottom = () => termRef.current?.scrollToBottom();
-  const glow = showFocusBorder && isFocused ? "terminal-focus-glow" : (showDoneBorder && !isFocused ? "terminal-done-border" : "");
+  // Done-border shows even while focused (badge persists until input/switch); takes priority over focus glow
+  const glow = showDoneBorder ? "terminal-done-border" : (showFocusBorder && isFocused ? "terminal-focus-glow" : "");
 
   return (
     <div

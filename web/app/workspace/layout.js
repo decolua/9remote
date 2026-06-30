@@ -259,6 +259,7 @@ export default function WorkspaceLayout({ children }) {
     setActiveGroupId(groupId);
     sessions.filter(s => (s.groupId || null) === groupId).forEach(s => addOpenedSession(s.id));
     addOpenedSession(sessionId);
+    clearNotification?.(sessionId); // Clear badge on switching into a session (B)
 
     if (currentView.type === "terminal") {
       const newStack = [...viewStack];
@@ -267,7 +268,7 @@ export default function WorkspaceLayout({ children }) {
     } else {
       pushView({ type: "terminal", sessionId });
     }
-  }, [sessions, addOpenedSession, setActiveGroupId, currentView, viewStack, setViewStack, pushView]);
+  }, [sessions, addOpenedSession, setActiveGroupId, currentView, viewStack, setViewStack, pushView, clearNotification]);
 
   // Quick-create from terminal header "+" button - create in active group, auto-switch focus.
   // Keep activeGroupId unchanged (new session belongs to it); don't call handleSelectSession
@@ -580,6 +581,7 @@ export default function WorkspaceLayout({ children }) {
                   onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
                   onRegisterTextApi={registerKeyboardTextApi}
                   platform={platform}
+                  onInput={clearNotification}
                 />
               )}
             </div>

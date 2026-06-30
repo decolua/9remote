@@ -1,27 +1,27 @@
 import en from "./en";
-import vi from "./vi";
-import zh from "./zh";
-import es from "./es";
-import hi from "./hi";
 import ar from "./ar";
+import de from "./de";
+import es from "./es";
+import fa from "./fa";
+import fr from "./fr";
+import he from "./he";
+import hi from "./hi";
+import id from "./id";
+import it from "./it";
+import ja from "./ja";
+import ko from "./ko";
+import ms from "./ms";
+import nl from "./nl";
+import pl from "./pl";
 import pt from "./pt";
 import ru from "./ru";
-import ja from "./ja";
-import de from "./de";
-import fr from "./fr";
-import ko from "./ko";
-import it from "./it";
-import tr from "./tr";
-import id from "./id";
-import th from "./th";
-import pl from "./pl";
-import nl from "./nl";
 import sv from "./sv";
+import th from "./th";
+import tr from "./tr";
 import uk from "./uk";
-import fa from "./fa";
-import he from "./he";
-import ms from "./ms";
+import vi from "./vi";
+import zh from "./zh";
 
 export const LOCALES = {
-  en, vi, zh, es, hi, ar, pt, ru, ja, de, fr, ko, it, tr, id, th, pl, nl, sv, uk, fa, he, ms,
+  en, ar, de, es, fa, fr, he, hi, id, it, ja, ko, ms, nl, pl, pt, ru, sv, th, tr, uk, vi, zh,
 };

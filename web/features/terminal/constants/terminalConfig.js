@@ -18,6 +18,10 @@ export const TERMINAL_OPTIONS = {
   smoothScrollDuration: 0
 };
 
+// Real typing vs scroll/mouse: scroll in alt-screen apps emits arrow ESC seqs.
+// Treat data starting with ESC (0x1b) as non-typing so badges survive scrolling.
+export const isUserTyping = (d) => !!d && d.charCodeAt(0) !== 0x1b;
+
 // macOS CMD key
 export const MAC_KEY = { label: "⌘", key: "Meta", modifier: true };
 

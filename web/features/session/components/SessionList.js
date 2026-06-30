@@ -9,6 +9,7 @@ import SitesList from "@/features/terminal/components/SitesList";
 import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap, Plus, FolderPlus, X, Folder } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import AgentOutdatedBanner, { isAgentOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 
 const UNGROUPED_KEY = "ungrouped";
 
@@ -242,6 +243,10 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
 
       {/* Content */}
       <div className="flex-1 p-4 sm:p-6 overflow-auto modal-scrollable">
+        {/* Agent outdated warning — update to use group terminal */}
+        {isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) && (
+          <AgentOutdatedBanner agentVersion={agentVersion} className="mb-6" />
+        )}
         {/* Sessions grouped accordion — create via inline dashed cards */}
         {(
           <div className="space-y-8">

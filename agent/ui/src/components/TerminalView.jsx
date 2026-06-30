@@ -7,7 +7,7 @@ import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "../lib/constants";
 const UNGROUPED = { id: null, name: "Ungrouped" };
 
 // Full-screen terminal overlay — mirrors web workspace (split panes + tabs + group selector)
-export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", finishedIds, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
+export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", finishedIds, clearFinished, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
   const { t } = useI18n();
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
@@ -33,6 +33,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const sendText = () => {
     if (!socket || !activeSession) return;
     const data = textInput === "" ? "\r" : textInput;
+    clearFinished?.(activeSession.id);
     socket.emit("input", { sessionId: activeSession.id, data });
     if (textInput !== "") setTextInput("");
   };
@@ -191,7 +192,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                   className={`px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap term-tab${isActive ? " term-tab-active" : ""}`}
                   style={{ color: isActive ? "var(--brand-500)" : "var(--text-muted)" }}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full${finishedIds?.has(s.id) && !isActive ? " term-tab-done-dot" : ""}`} style={{ background: finishedIds?.has(s.id) && !isActive ? "#f59e0b" : (connected ? "#22c55e" : "#ef4444") }} />
+                  <span className={`w-1.5 h-1.5 rounded-full${finishedIds?.has(s.id) ? " term-tab-done-dot" : ""}`} style={{ background: finishedIds?.has(s.id) ? "#f59e0b" : (connected ? "#22c55e" : "#ef4444") }} />
                   {editingTabId === s.id ? (
                     <input
                       type="text"
@@ -245,6 +246,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 theme={theme}
                 isFocused={isFocused}
                 onActivate={onSwitch}
+                onInput={clearFinished}
                 showFocusBorder={isDesktop && multi}
                 showDoneBorder={finishedIds?.has(s.id)}
               />

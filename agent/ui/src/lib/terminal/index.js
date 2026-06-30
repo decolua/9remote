@@ -55,6 +55,10 @@ export const TERMINAL_THEMES = {
 
 export const SCROLL_THRESHOLD = 5;
 
+// Real typing vs scroll/mouse: scroll in alt-screen apps emits arrow ESC seqs.
+// Treat data starting with ESC (0x1b) as non-typing so badges survive scrolling.
+export const isUserTyping = (d) => !!d && d.charCodeAt(0) !== 0x1b;
+
 const TERMINAL_OPTIONS = {
   cursorBlink: true,
   fontSize: 14,

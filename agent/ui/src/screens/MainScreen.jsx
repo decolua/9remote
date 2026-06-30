@@ -33,14 +33,14 @@ const parsePath = () => {
 const buildPath = (menu, sessionId) =>
   menu === TERMINALS_MENU && sessionId ? `/${menu}/${encodeURIComponent(sessionId)}` : `/${menu}`;
 
-const PERMISSION_META = {
-  screenRecording: { label: "Screen Recording", icon: "screenshot_monitor", desc: "Capture screen content" },
-  accessibility:   { label: "Accessibility",    icon: "accessibility_new",  desc: "Control mouse & keyboard" },
-};
+const getPermissionMeta = (t) => ({
+  screenRecording: { label: t("remote.screenRecording"), icon: "screenshot_monitor", desc: t("remote.captureScreen") },
+  accessibility:   { label: t("remote.accessibility"),    icon: "accessibility_new",  desc: t("remote.controlMouseKeyboard") },
+});
 
 /** Single permission row */
-function PermissionRow({ type, granted, onRequest }) {
-  const meta = PERMISSION_META[type] || { label: type, icon: "security", desc: "" };
+function PermissionRow({ type, granted, onRequest, t }) {
+  const meta = getPermissionMeta(t)[type] || { label: type, icon: "security", desc: "" };
   return (
     <div className="flex items-center gap-2 py-2">
       <span className={`material-symbols-outlined flex-shrink-0 ${granted ? "text-green-400" : ""}`} style={{ fontSize: 18, color: granted ? undefined : "var(--text-muted)" }}>
@@ -65,14 +65,14 @@ function PermissionRow({ type, granted, onRequest }) {
   );
 }
 
-const SLEEP_MODE_LABELS = {
-  "30m":   "Off after 30 min idle",
-  "1h":    "Off after 1 hour idle",
-  "2h":    "Off after 2 hours idle",
-  "4h":    "Off after 4 hours idle",
-  "24h":   "Off after 24 hours idle",
-  "never": "Never off",
-};
+const getSleepModeLabels = (t) => ({
+  "30m":   t("remote.sleepModes.30m"),
+  "1h":    t("remote.sleepModes.1h"),
+  "2h":    t("remote.sleepModes.2h"),
+  "4h":    t("remote.sleepModes.4h"),
+  "24h":   t("remote.sleepModes.24h"),
+  "never": t("remote.sleepModes.never"),
+});
 
 /** Reusable dropdown row — for enum settings (mode picker etc.) */
 function SelectRow({ icon, label, desc, value, options, onChange }) {
@@ -123,8 +123,8 @@ function ToggleRow({ icon, label, desc, value, onToggle, activeColor = "var(--br
 }
 
 /** Remote Services card — Terminal (always on) + Desktop (toggleable) */
-function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle, sleepInhibitMode, sleepInhibitPresets, onSleepInhibitChange }) {
-  const permEntries = Object.entries(PERMISSION_META);
+function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle, sleepInhibitMode, sleepInhibitPresets, onSleepInhibitChange, t }) {
+  const permEntries = Object.entries(getPermissionMeta(t));
   // Desktop toggle requires all permissions granted
   const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
   const toggleDisabled = !canEnableDesktop && !desktopEnabled;
@@ -140,14 +140,14 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
             </span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>Remote Desktop</p>
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>Control screen, mouse & keyboard</p>
+            <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>{t("remote.remoteDesktop")}</p>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>{t("remote.controlScreen")}</p>
           </div>
           {/* Toggle — disabled until all permissions granted */}
           <button
             onClick={toggleDisabled ? undefined : onDesktopToggle}
             disabled={toggleDisabled}
-            title={toggleDisabled ? "Grant all permissions below to enable" : ""}
+            title={toggleDisabled ? t("dialogs.grantPermissions") : ""}
             className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
             style={{ background: desktopEnabled ? "var(--brand-500)" : "var(--border)", opacity: toggleDisabled ? 0.5 : 1, cursor: toggleDisabled ? "not-allowed" : "pointer" }}
           >
@@ -163,6 +163,7 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
               type={type}
               granted={permissions?.[type] ?? false}
               onRequest={onRequestPermission}
+              t={t}
             />
           ))}
         </div>
@@ -180,10 +181,10 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
         />
         <SelectRow
           icon="bedtime_off"
-          label="Prevent sleep"
-          desc="Block system sleep so the network stays alive"
+          label={t("remote.preventSleep")}
+          desc={t("remote.blockSleep")}
           value={sleepInhibitMode || "never"}
-          options={(sleepInhibitPresets || []).map((m) => ({ value: m, label: SLEEP_MODE_LABELS[m] || m }))}
+          options={(sleepInhibitPresets || []).map((m) => ({ value: m, label: getSleepModeLabels(t)[m] || m }))}
           onChange={onSleepInhibitChange}
         />
       </div>
@@ -209,10 +210,10 @@ function UpdateBanner({ version }) {
   );
 }
 
-const FEATURES = [
-  { icon: "terminal", label: "Terminal", desc: "Full shell access" },
-  { icon: "desktop_windows", label: "Desktop", desc: "Remote screen control" },
-  { icon: "folder_open", label: "Files", desc: "Browse & edit files" },
+const getFeatures = (t) => [
+  { icon: "terminal", label: t("connection.features.terminal"), desc: t("connection.features.fullShell") },
+  { icon: "desktop_windows", label: t("connection.features.desktop"), desc: t("connection.features.remoteScreen") },
+  { icon: "folder_open", label: t("connection.features.files"), desc: t("connection.features.browseEdit") },
 ];
 
 /** Merge approved + rejected devices with active connections into 1 client = 1 device list.
@@ -336,7 +337,7 @@ function HeaderIconBtn({ icon, title, danger, onClick }) {
 }
 
 /** Connection empty-state shown in panel when tunnel offline — single Connect CTA */
-function ConnectionEmpty({ onStart }) {
+function ConnectionEmpty({ onStart, t }) {
   const [connecting, setConnecting] = useState(false);
   const handleConnect = () => { setConnecting(true); onStart?.(); };
   return (
@@ -345,8 +346,8 @@ function ConnectionEmpty({ onStart }) {
         <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--text-muted)" }}>cloud_off</span>
       </div>
       <div className="flex flex-col gap-1">
-        <p className="text-base font-semibold" style={{ color: "var(--text-main)" }}>Tunnel offline</p>
-        <p className="text-xs leading-5" style={{ color: "var(--text-muted)" }}>Start the tunnel to get a QR code and connect your devices from anywhere.</p>
+        <p className="text-base font-semibold" style={{ color: "var(--text-main)" }}>{t("connection.tunnelOffline")}</p>
+        <p className="text-xs leading-5" style={{ color: "var(--text-muted)" }}>{t("connection.startTunnel")}</p>
       </div>
       <button
         onClick={!connecting ? handleConnect : undefined}
@@ -355,10 +356,10 @@ function ConnectionEmpty({ onStart }) {
         style={{ borderRadius: "var(--radius-brand)", opacity: connecting ? 0.7 : 1 }}
       >
         <span className="material-symbols-outlined text-base">play_arrow</span>
-        {connecting ? "Connecting…" : "Connect"}
+        {connecting ? t("connection.connecting") : t("connection.connect")}
       </button>
       <div className="grid grid-cols-3 gap-2 w-full">
-        {FEATURES.map((f) => (
+        {getFeatures(t).map((f) => (
           <div key={f.label} className="dark-card flex flex-col items-center gap-1.5 py-3 px-1">
             <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--brand-400)" }}>{f.icon}</span>
             <p className="text-[11px] font-semibold" style={{ color: "var(--text-main)" }}>{f.label}</p>
@@ -545,6 +546,7 @@ export default function MainScreen({
   sleepInhibitMode = "never", sleepInhibitPresets = [], onSleepInhibitChange,
   sessions = [], onSessionDelete, onSessionRefresh,
 }) {
+  const { t } = useI18n();
   const [activeMenu, setActiveMenu] = useState(() => parsePath().menu);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
@@ -587,8 +589,8 @@ export default function MainScreen({
     if (window.location.pathname !== next) window.history.pushState(null, "", next);
   }, [activeMenu, activeSessionId]);
 
-  // Clear finished badge for the terminal currently being viewed (active pane never shows it)
-  useEffect(() => { if (activeSessionId) term.clearFinished(activeSessionId); }, [activeSessionId, term.finishedIds]);
+  // Clear badge only when SWITCHING into a terminal (B); a badge arriving while already focused stays until input (A)
+  useEffect(() => { if (activeSessionId) term.clearFinished(activeSessionId); }, [activeSessionId]);
 
   // Reflect unseen finished-terminal count in document title (marquee)
   useEffect(() => { updateTitle(term.finishedIds.size); return () => updateTitle(0); }, [term.finishedIds]);
@@ -685,12 +687,12 @@ export default function MainScreen({
         <div className="flex-1 overflow-y-auto p-6 lg:p-10">
           <div className="max-w-7xl mx-auto flex flex-col gap-4">
               {activeMenu === "connection" && isStopped && (
-                <ConnectionEmpty onStart={onStart} />
+                <ConnectionEmpty onStart={onStart} t={t} />
               )}
 
               {activeMenu === "connection" && isConnecting && (
                 <div className="flex-1 flex flex-col gap-4 max-w-2xl mx-auto w-full">
-                  <StepProgress currentStep={step} activeDesc={stepDesc} healthCheck={healthCheck} />
+                  <StepProgress currentStep={step} activeDesc={stepDesc} healthCheck={healthCheck} t={t} />
                 </div>
               )}
 
@@ -720,6 +722,7 @@ export default function MainScreen({
                         sleepInhibitMode={sleepInhibitMode}
                         sleepInhibitPresets={sleepInhibitPresets}
                         onSleepInhibitChange={onSleepInhibitChange}
+                        t={t}
                       />
 
                       {/* Clients (merged devices + live connections) */}
@@ -894,6 +897,7 @@ export default function MainScreen({
           theme={theme}
           groups={term.groups}
           finishedIds={term.finishedIds}
+          clearFinished={term.clearFinished}
           onSwitch={(id) => { term.clearFinished(id); setActiveSessionId(id); }}
           onSelectGroup={(gid) => {
             const groupIds = term.sessions.filter((s) => (s.groupId || null) === gid).map((s) => s.id);

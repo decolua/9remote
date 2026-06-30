@@ -1,15 +1,15 @@
-const STEPS_META = [
-  { icon: "download", label: "Preparing", desc: "Checking tunnel binary" },
-  { icon: "cloud_sync", label: "Connecting", desc: "Creating session" },
-  { icon: "lan", label: "Tunneling", desc: "Starting secure tunnel" },
-  { icon: "verified", label: "Verifying", desc: "Health check" },
-  { icon: "check_circle", label: "Ready", desc: "Connected" },
+const getStepsMeta = (t) => [
+  { icon: "download", label: t("steps.preparing"), desc: t("steps.checkingTunnel") },
+  { icon: "cloud_sync", label: t("steps.connecting"), desc: t("steps.creatingSession") },
+  { icon: "lan", label: t("steps.tunneling"), desc: t("steps.startingTunnel") },
+  { icon: "verified", label: t("steps.verifying"), desc: t("steps.healthCheck") },
+  { icon: "check_circle", label: t("steps.ready"), desc: t("steps.connected") },
 ];
 
 const VERIFYING_IDX = 3;
 
 // currentStep: 1=Preparing, 2=Connecting, 3=Tunneling, 4=Verifying, (5=Ready handled by parent)
-export default function StepProgress({ currentStep, activeDesc = "", healthCheck }) {
+export default function StepProgress({ currentStep, activeDesc = "", healthCheck, t }) {
   // map step (1-based) to 0-based index
   const activeIdx = currentStep - 1;
 
@@ -18,11 +18,12 @@ export default function StepProgress({ currentStep, activeDesc = "", healthCheck
     ? healthCheck.logs[healthCheck.logs.length - 1]
     : null;
 
+  const stepsMeta = getStepsMeta(t);
   return (
     <div className="glass-card p-5 flex flex-col gap-4">
-      <span className="text-xs font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Setting up connection</span>
+      <span className="text-xs font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>{t("steps.setupConnection")}</span>
       <div className="flex flex-col gap-3">
-        {STEPS_META.map((meta, i) => {
+        {stepsMeta.map((meta, i) => {
           const completed = i < activeIdx;
           const active = i === activeIdx;
           const isVerifying = active && i === VERIFYING_IDX;
@@ -85,12 +86,12 @@ export default function StepProgress({ currentStep, activeDesc = "", healthCheck
 
               {/* right badge */}
               {completed && (
-                <span className="text-xs flex-shrink-0" style={{ color: "var(--text-muted)" }}>Done</span>
+                <span className="text-xs flex-shrink-0" style={{ color: "var(--text-muted)" }}>{t("steps.done")}</span>
               )}
               {active && (
                 <span className="text-xs flex-shrink-0 px-2 py-0.5 rounded-full"
                   style={{ background: "rgba(255,87,10,0.15)", color: "var(--brand-400)" }}>
-                  Running
+                  {t("steps.running")}
                 </span>
               )}
             </div>

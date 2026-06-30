@@ -39,7 +39,7 @@ function TerminalPane({
   const inputMode = useInputMode();
 
   const { termRef, cwdRef, termReady, doResize, focus, stopMomentum } = useXTerm({
-    socket, sessionId, theme, isVisible, isFocused, containerRef
+    socket, sessionId, theme, isVisible, isFocused, containerRef, onInput: clearNotification
   });
 
   // Expose pane API (focus, resize) to parent for MobileKeyboard callbacks
@@ -48,13 +48,6 @@ function TerminalPane({
     onRegisterApi(sessionId, { focus, doResize });
     return () => onRegisterApi(sessionId, null);
   }, [sessionId, focus, doResize, onRegisterApi]);
-
-  // Clear notification when this pane is focused (actively viewed)
-  useEffect(() => {
-    if (isFocused && sessionId) {
-      clearNotification?.(sessionId);
-    }
-  }, [sessionId, isFocused, clearNotification]);
 
   const currentTheme = THEMES[theme] || THEMES.dark;
 
@@ -66,6 +59,7 @@ function TerminalPane({
       try { text = (await navigator.clipboard.readText()) || ""; } catch { text = ""; }
     }
     if (text && socket) {
+      clearNotification?.(sessionId);
       socket.emit("input", { sessionId, data: text });
       return;
     }
@@ -160,10 +154,10 @@ function TerminalPane({
     if (!isFocused) onActivate?.(sessionId);
   };
 
-  // Top-mid soft glow when focused (light effect instead of full border)
-  const focusClass = showFocusBorder && isFocused
-    ? "terminal-focus-glow"
-    : (notifications[sessionId] && !isFocused ? "terminal-done-border" : "");
+  // Done-border shows even while focused (badge persists until input/switch); takes priority over focus glow
+  const focusClass = notifications[sessionId]
+    ? "terminal-done-border"
+    : (showFocusBorder && isFocused ? "terminal-focus-glow" : "");
 
   return (
     <div

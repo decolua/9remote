@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "2.0.22",
+  "version": "2.0.26",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "dist/server.cjs",
@@ -29,7 +29,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@julusian/jpeg-turbo": "^2.3.0",
+    "@julusian/jpeg-turbo": "^3.0.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "bufferutil": "^4.1.0",
@@ -39,7 +39,7 @@
     "http-proxy": "^1.18.1",
     "inquirer": "^9.3.8",
     "multicast-dns": "^7.2.5",
-    "node-datachannel": "^0.32.1",
+    "node-datachannel": "^0.32.3",
     "node-machine-id": "^1.1.12",
     "node-screenshots": "^0.2.8",
     "ora": "^8.1.1",

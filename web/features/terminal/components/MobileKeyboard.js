@@ -17,7 +17,7 @@ import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
 
-const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform }) => {
+const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput }) => {
   const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showTextPanel, setShowTextPanel] = useState(true);
@@ -125,6 +125,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     try {
       const text = await navigator.clipboard.readText();
       if (text && socket) {
+        onInput?.(sessionId);
         socket.emit("input", { sessionId, data: text });
         vibrate();
         return true;
@@ -169,6 +170,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       const data = generateCombination(key, {
         ctrl: ctrlPressed, alt: altPressed, shift: shiftPressed, meta: metaPressed
       });
+      onInput?.(sessionId);
       socket.emit("input", { sessionId, data });
       setCtrlPressed(false); setMetaPressed(false); setAltPressed(false); setShiftPressed(false);
     };
@@ -191,6 +193,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     e.preventDefault();
     const text = e.clipboardData?.getData("text");
     if (text && socket) {
+      onInput?.(sessionId);
       socket.emit("input", { sessionId, data: text });
       vibrate();
     }
@@ -211,6 +214,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       return;
     }
     const data = generateCombination(key, forceModifiers);
+    onInput?.(sessionId);
     socket.emit("input", { sessionId, data });
     if (key !== "Ctrl" && key !== "Meta" && key !== "Alt" && key !== "Shift") {
       setCtrlPressed(false); setMetaPressed(false); setAltPressed(false); setShiftPressed(false);
@@ -230,6 +234,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     if (!socket || !sessionId) return;
     // Empty input → send single Enter (\r); otherwise send raw text
     const data = textInput === "" ? "\r" : textInput;
+    onInput?.(sessionId);
     socket.emit("input", { sessionId, data });
     if (textInput !== "") setTextInput("");
     textInputRef.current?.focus();

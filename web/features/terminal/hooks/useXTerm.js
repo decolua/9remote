@@ -5,12 +5,12 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { THEMES } from "@/features/terminal/constants/themes";
-import { TERMINAL_OPTIONS } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, isUserTyping } from "@/features/terminal/constants/terminalConfig";
 
 // XTerm instance management hook
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
-export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, containerRef }) {
+export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, containerRef, onInput }) {
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const inputHandlerRef = useRef(null);
@@ -185,10 +185,11 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
     if (isFocused) {
       inputHandlerRef.current = termRef.current.onData((data) => {
+        if (isUserTyping(data)) onInput?.(sessionId);
         socket.emit("input", { sessionId, data });
       });
     }
-  }, [isFocused, socket, sessionId]);
+  }, [isFocused, socket, sessionId, onInput]);
 
   // Re-fit when becoming visible (desktop: all opened panes; mobile: active pane)
   useEffect(() => {
