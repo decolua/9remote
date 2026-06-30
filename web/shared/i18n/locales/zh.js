@@ -74,6 +74,7 @@ export default {
     installApp: "安装应用",
     codespace: "Codespace",
     logout: "退出登录",
+    reload: "重新加载应用",
     remoteDesktop: "远程桌面",
     settings: "设置",
     enablePush: "启用推送通知",

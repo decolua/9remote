@@ -2,6 +2,7 @@
 // Plain functions (Preact-compatible), logic adapted from web useXTerm.
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 
 // XTerm theme (matches web palette)
 export const TERMINAL_THEMES = {
@@ -69,6 +70,8 @@ const TERMINAL_OPTIONS = {
   scrollOnUserInput: true,
   fastScrollModifier: "none",
   smoothScrollDuration: 0,
+  rescaleOverlappingGlyphs: true,
+  minimumContrastRatio: 1,
 };
 
 export function resolveTheme(name) {
@@ -84,6 +87,9 @@ export function createTerminal(container, { theme = "dark" } = {}) {
   });
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
+  // Unicode v11 width tables fix CJK/combining glyph misalignment on mobile
+  term.loadAddon(new Unicode11Addon());
+  term.unicode.activeVersion = "11";
   term.open(container);
 
   const doFit = () => {

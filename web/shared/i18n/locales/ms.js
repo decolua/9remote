@@ -74,6 +74,7 @@ export default {
     installApp: "Pasang Aplikasi",
     codespace: "Codespace",
     logout: "Log keluar",
+    reload: "Muat semula apl",
     remoteDesktop: "Desktop Jauh",
     settings: "Tetapan",
     enablePush: "Dayakan Pemberitahuan Tolak",

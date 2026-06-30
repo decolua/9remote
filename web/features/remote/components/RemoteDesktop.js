@@ -291,6 +291,10 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     socket.on("tiles-meta", onTilesMeta);
     socket.on("screen-error", onScreenError);
 
+    // Force fresh handshake: agent re-attaches remote handlers per new socket.id
+    // after a background WS reconnect, resetting canvas dims. Request dims FIRST so
+    // canvas width/height are set before any tile arrives (else black canvas).
+    socket.emit("get-screen-dimensions");
     // Stop any leftover agent loop first, then start fresh after a delay.
     // Two overlapping loops share isProcessing on one tileManager → permanent stall.
     socket.emit("stop-streaming");
@@ -323,25 +327,31 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
 
   // Re-stream on WS reconnect: server-side socket is new → must re-emit start-streaming.
   // Detect via socket.id change polled at the same cadence as hash-request (already running).
+  // Detect WS reconnect (socket.id change) OR a fresh mount that never rendered any
+  // tile (background-reconnect race) → re-handshake so the agent's new per-socket
+  // handlers start streaming and canvas repaints (fixes black canvas on re-entry).
   const lastSocketIdRef = useRef(null);
   useEffect(() => {
     if (!connected || !socketRef?.current) { lastSocketIdRef.current = null; return; }
-    lastSocketIdRef.current = socketRef.current.id || null;
+    lastSocketIdRef.current = null; // null on mount → first poll forces a re-stream
+    const restream = (socket) => {
+      cleanupTiles();
+      socket.emit("get-screen-dimensions");
+      socket.emit("start-streaming");
+      socket.emit("request-screen-with-hashes", { tileHashes: [] });
+    };
     const id = setInterval(() => {
       const socket = socketRef.current;
       const currentId = socket?.id;
       if (!currentId) return;
-      if (lastSocketIdRef.current && currentId !== lastSocketIdRef.current) {
-        lastSocketIdRef.current = currentId;
-        cleanupTiles();
-        socket.emit("start-streaming");
-        socket.emit("request-screen-with-hashes", { tileHashes: [] });
-      } else if (!lastSocketIdRef.current) {
-        lastSocketIdRef.current = currentId;
-      }
+      const idChanged = lastSocketIdRef.current && currentId !== lastSocketIdRef.current;
+      // First poll after mount: re-stream if nothing rendered yet (stale/empty canvas)
+      const staleMount = !lastSocketIdRef.current && renderedTilesRef.current.size === 0;
+      lastSocketIdRef.current = currentId;
+      if (idChanged || staleMount) restream(socket);
     }, REMOTE_CONFIG.hashRequestInterval);
     return () => clearInterval(id);
-  }, [connected, socketRef, cleanupTiles]);
+  }, [connected, socketRef, cleanupTiles, renderedTilesRef]);
 
   // Pause stream when tab hidden to save CPU + bandwidth
   useEffect(() => {

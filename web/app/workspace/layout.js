@@ -455,7 +455,7 @@ export default function WorkspaceLayout({ children }) {
       <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
         {/* Session List */}
         <div
-          className={`absolute inset-0 transition-all duration-300 ease-out ${currentView.type === "list"
+          className={`absolute inset-0 transition-all duration-150 ease-out ${currentView.type === "list"
             ? "translate-x-0 opacity-100 z-10"
             : "-translate-x-full opacity-0 z-0 pointer-events-none"
             }`}
@@ -502,7 +502,7 @@ export default function WorkspaceLayout({ children }) {
           const groupOpenedSessions = openedSessions.filter(sid => groupSessionIds.has(sid));
           return (
             <div
-              className={`absolute inset-0 transition-all duration-300 ease-out flex flex-col ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
+              className={`absolute inset-0 transition-all duration-150 ease-out flex flex-col ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
                 }`}
             >
               <TerminalHeader

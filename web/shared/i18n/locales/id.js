@@ -74,6 +74,7 @@ export default {
     installApp: "Instal Aplikasi",
     codespace: "Codespace",
     logout: "Keluar",
+    reload: "Muat ulang aplikasi",
     remoteDesktop: "Desktop Jarak Jauh",
     settings: "Pengaturan",
     enablePush: "Aktifkan Notifikasi Push",

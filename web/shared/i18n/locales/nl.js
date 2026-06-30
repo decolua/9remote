@@ -74,6 +74,7 @@ export default {
     installApp: "App installeren",
     codespace: "Codespace",
     logout: "Uitloggen",
+    reload: "App herladen",
     remoteDesktop: "Extern bureaublad",
     settings: "Instellingen",
     enablePush: "Pushmeldingen inschakelen",

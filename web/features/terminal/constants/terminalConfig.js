@@ -15,7 +15,9 @@ export const TERMINAL_OPTIONS = {
   allowProposedApi: true,
   scrollOnUserInput: true,
   fastScrollModifier: "none",
-  smoothScrollDuration: 0
+  smoothScrollDuration: 0,
+  rescaleOverlappingGlyphs: true,
+  minimumContrastRatio: 1
 };
 
 // Real typing vs scroll/mouse: scroll in alt-screen apps emits arrow ESC seqs.

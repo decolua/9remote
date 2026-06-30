@@ -6,9 +6,9 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { AGENT_UPDATE_COMMAND } from "@/shared/constants/API";
 
-// True when agent missing or version differs from web build
+// True only when both versions known and differ (hidden by default until mismatch)
 export function isAgentOutdated(agentVersion, webVersion) {
-  return !agentVersion || (webVersion && agentVersion !== webVersion);
+  return !!agentVersion && !!webVersion && agentVersion !== webVersion;
 }
 
 export default function AgentOutdatedBanner({ agentVersion, className = "" }) {

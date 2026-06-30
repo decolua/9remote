@@ -452,7 +452,7 @@ function MenuAction({ icon, label, danger, onClick }) {
 }
 
 /** Primary left navigation — logo top, menu mid, controls bottom (9router pattern) */
-function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onClose }) {
+function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onResetTunnel, onClose }) {
   const { t } = useI18n();
   const handleSelect = (id) => { onSelect(id); onClose?.(); };
   return (
@@ -468,7 +468,7 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onClose
         </div>
       </div>
 
-      {isReady && <div className="px-4 pb-3 flex justify-center"><TunnelHealthBadge tunnelHealth={tunnelHealth} /></div>}
+      {isReady && <div className="px-4 pb-3 flex justify-center"><TunnelHealthBadge tunnelHealth={tunnelHealth} onResetTunnel={onResetTunnel} /></div>}
 
       {/* Menu */}
       <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto select-none">
@@ -520,17 +520,18 @@ function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown,
   );
 }
 
-function TunnelHealthBadge({ tunnelHealth }) {
+function TunnelHealthBadge({ tunnelHealth, onResetTunnel }) {
   const meta = TUNNEL_HEALTH_META[tunnelHealth?.status] || TUNNEL_HEALTH_META.unknown;
   const time = tunnelHealth?.checkedAt ? new Date(tunnelHealth.checkedAt).toLocaleTimeString() : "--:--:--";
   return (
-    <div
-      className="inline-flex items-center justify-center gap-1.5 px-3 h-7 rounded-full glass-btn"
+    <button
+      onClick={onResetTunnel}
+      className="inline-flex items-center justify-center gap-1.5 px-3 h-7 rounded-full glass-btn card-act"
       title={`Tunnel ${meta.label} · last check ${time}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
       <span className="text-[11px] font-medium" style={{ color: meta.color }}>{meta.label}</span>
-    </div>
+    </button>
   );
 }
 
@@ -652,6 +653,7 @@ export default function MainScreen({
           version={version}
           isReady={isReady}
           tunnelHealth={tunnelHealth}
+          onResetTunnel={() => setShowDisconnectConfirm(true)}
         />
       </div>
 
@@ -666,6 +668,7 @@ export default function MainScreen({
           version={version}
           isReady={isReady}
           tunnelHealth={tunnelHealth}
+          onResetTunnel={() => setShowDisconnectConfirm(true)}
           onClose={() => setSidebarOpen(false)}
         />
       </div>

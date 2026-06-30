@@ -74,6 +74,7 @@ export default {
     installApp: "Instalar App",
     codespace: "Codespace",
     logout: "Sair",
+    reload: "Recarregar app",
     remoteDesktop: "Área de Trabalho Remota",
     settings: "Configurações",
     enablePush: "Ativar Notificações Push",

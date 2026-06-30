@@ -74,6 +74,7 @@ export default {
     installApp: "Установить приложение",
     codespace: "Codespace",
     logout: "Выйти",
+    reload: "Перезагрузить приложение",
     remoteDesktop: "Удалённый рабочий стол",
     settings: "Настройки",
     enablePush: "Включить push-уведомления",

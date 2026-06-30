@@ -74,6 +74,7 @@ export default {
     installApp: "アプリをインストール",
     codespace: "Codespace",
     logout: "ログアウト",
+    reload: "アプリを再読み込み",
     remoteDesktop: "リモートデスクトップ",
     settings: "設定",
     enablePush: "プッシュ通知を有効にする",

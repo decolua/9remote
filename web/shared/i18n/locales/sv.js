@@ -74,6 +74,7 @@ export default {
     installApp: "Installera app",
     codespace: "Codespace",
     logout: "Logga ut",
+    reload: "Ladda om appen",
     remoteDesktop: "Fjärrskrivbord",
     settings: "Inställningar",
     enablePush: "Aktivera push-aviseringar",

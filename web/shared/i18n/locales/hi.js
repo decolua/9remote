@@ -74,6 +74,7 @@ export default {
     installApp: "ऐप इंस्टॉल करें",
     codespace: "Codespace",
     logout: "लॉगआउट",
+    reload: "ऐप पुनः लोड करें",
     remoteDesktop: "रिमोट डेस्कटॉप",
     settings: "सेटिंग्स",
     enablePush: "पुश सूचनाएँ सक्षम करें",

@@ -212,6 +212,7 @@ export default function TerminalHeader({
               <button
                 key={session.id}
                 ref={isActiveTab ? activeTabRef : null}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   vibrate();
                   onSwitchSession?.(session.id);

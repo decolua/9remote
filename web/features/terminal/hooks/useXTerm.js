@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { TERMINAL_OPTIONS, isUserTyping } from "@/features/terminal/constants/terminalConfig";
 
@@ -51,6 +52,9 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    // Unicode v11 width tables fix CJK/combining glyph misalignment on mobile
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = "11";
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 

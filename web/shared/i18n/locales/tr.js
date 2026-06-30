@@ -74,6 +74,7 @@ export default {
     installApp: "Uygulamayı Yükle",
     codespace: "Codespace",
     logout: "Çıkış Yap",
+    reload: "Uygulamayı yenile",
     remoteDesktop: "Uzak Masaüstü",
     settings: "Ayarlar",
     enablePush: "Anlık Bildirimleri Etkinleştir",

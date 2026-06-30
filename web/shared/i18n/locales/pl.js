@@ -74,6 +74,7 @@ export default {
     installApp: "Zainstaluj aplikację",
     codespace: "Codespace",
     logout: "Wyloguj",
+    reload: "Przeładuj aplikację",
     remoteDesktop: "Pulpit zdalny",
     settings: "Ustawienia",
     enablePush: "Włącz powiadomienia push",

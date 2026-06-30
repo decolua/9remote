@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users } from "@/shared/components/ui/Icon";
+import { useState, useCallback } from "react";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
@@ -27,7 +27,6 @@ export default function MenuItems({
   subscribeToPush = null,
   unsubscribeFromPush = null
 }) {
-  const [expandedSection, setExpandedSection] = useState(null);
   const { t } = useI18n();
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
@@ -47,72 +46,45 @@ export default function MenuItems({
   });
   const [pushLoading, setPushLoading] = useState(false);
 
-  const handleEnablePush = useCallback(async () => {
-    if (!subscribeToPush || pushLoading) return;
+  // Toggle push on/off; enable requests permission via subscribeToPush
+  const handleTogglePush = useCallback(async () => {
+    if (pushLoading) return;
+    vibrate();
     setPushLoading(true);
-    await subscribeToPush();
-    // Expo: native handles permission; treat subscribe call as enabled.
-    // PWA: rely on Notification API permission state.
-    const granted = isExpoWebView ||
-      (typeof Notification !== "undefined" && Notification.permission === "granted");
-    setPushEnabled(granted);
+    if (pushEnabled) {
+      await unsubscribeFromPush?.();
+      setPushEnabled(false);
+    } else {
+      await subscribeToPush?.();
+      const granted = isExpoWebView ||
+        (typeof Notification !== "undefined" && Notification.permission === "granted");
+      setPushEnabled(granted);
+    }
     setPushLoading(false);
-  }, [subscribeToPush, pushLoading, isExpoWebView]);
-
-  const handleDisablePush = useCallback(async () => {
-    if (!unsubscribeFromPush || pushLoading) return;
-    setPushLoading(true);
-    await unsubscribeFromPush();
-    setPushEnabled(false);
-    setPushLoading(false);
-  }, [unsubscribeFromPush, pushLoading]);
+  }, [pushEnabled, pushLoading, subscribeToPush, unsubscribeFromPush, isExpoWebView]);
 
   return (
     <div className="p-3 space-y-0.5">
-      {/* Notifications - show in PWA or native app (Expo WebView) */}
-      {isApp && <div className="bg-surface rounded-brand-lg overflow-hidden">
+      {/* Notifications switch - show in PWA or native app (Expo WebView) */}
+      {isApp && (
         <button
-          onClick={() => { vibrate(); setExpandedSection(expandedSection === "notifications" ? null : "notifications"); }}
-          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center justify-between transition-colors duration-150 ease-out"
+          onClick={handleTogglePush}
+          disabled={pushLoading}
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 disabled:opacity-50 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
         >
           <div className="flex items-center gap-2.5">
             <Bell className="text-brand-500" size={16} />
             <span className="text-sm">{t("menu.notifications")}</span>
           </div>
-          <span className="text-text-muted text-xs">
-            {pushEnabled ? t("common.on") : ""}
-          </span>
+          {pushLoading ? (
+            <Loader2 className="animate-spin text-text-muted" size={16} />
+          ) : (
+            <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${pushEnabled ? "bg-brand-500" : "bg-surface-2"}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${pushEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+            </span>
+          )}
         </button>
-        {expandedSection === "notifications" && (
-          <div className="bg-surface-2/50 p-3 space-y-3 slide-in-top">
-            {!pushEnabled ? (
-              <div className="space-y-2">
-                <p className="text-text-muted text-xs px-1">{t("menu.pushHint")}</p>
-                <button
-                  onClick={handleEnablePush}
-                  disabled={pushLoading}
-                  className="w-full py-2 px-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm font-medium rounded-brand flex items-center justify-center gap-2 transition-colors"
-                >
-                  {pushLoading ? <Loader2 className="animate-spin" size={16} /> : <Bell size={16} />}
-                  {t("menu.enablePush")}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-text-muted text-xs px-1">{t("menu.pushActiveHint")}</p>
-                <button
-                  onClick={handleDisablePush}
-                  disabled={pushLoading}
-                  className="w-full py-1.5 px-3 bg-surface hover:bg-surface-2 disabled:opacity-50 text-text-muted text-xs rounded-brand flex items-center justify-center gap-2 transition-colors mt-1"
-                >
-                  {pushLoading ? <Loader2 className="animate-spin" size={14} /> : null}
-                  {t("menu.disablePush")}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>}
+      )}
 
 
       {/* Files */}
@@ -190,6 +162,15 @@ export default function MenuItems({
           <span className="text-sm">{t("menu.codespace")}</span>
         </button>
       )}
+
+      {/* Reload app */}
+      <button
+        onClick={() => { vibrate(); window.location.reload(); }}
+        className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+      >
+        <RefreshCw className="text-brand-500" size={16} />
+        <span className="text-sm">{t("menu.reload")}</span>
+      </button>
 
       {/* Logout */}
       {onLogout && (

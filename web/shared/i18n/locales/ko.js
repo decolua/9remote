@@ -74,6 +74,7 @@ export default {
     installApp: "앱 설치",
     codespace: "Codespace",
     logout: "로그아웃",
+    reload: "앱 새로고침",
     remoteDesktop: "원격 데스크톱",
     settings: "설정",
     enablePush: "푸시 알림 활성화",

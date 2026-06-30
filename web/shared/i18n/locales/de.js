@@ -74,6 +74,7 @@ export default {
     installApp: "App installieren",
     codespace: "Codespace",
     logout: "Abmelden",
+    reload: "App neu laden",
     remoteDesktop: "Remote-Desktop",
     settings: "Einstellungen",
     enablePush: "Push-Benachrichtigungen aktivieren",

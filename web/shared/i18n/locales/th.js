@@ -74,6 +74,7 @@ export default {
     installApp: "ติดตั้งแอป",
     codespace: "Codespace",
     logout: "ออกจากระบบ",
+    reload: "โหลดแอปใหม่",
     remoteDesktop: "รีโมตเดสก์ท็อป",
     settings: "การตั้งค่า",
     enablePush: "เปิดการแจ้งเตือนแบบ Push",

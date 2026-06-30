@@ -74,6 +74,7 @@ export default {
     installApp: "Cài đặt ứng dụng",
     codespace: "Codespace",
     logout: "Đăng xuất",
+    reload: "Tải lại ứng dụng",
     remoteDesktop: "Điều khiển từ xa",
     settings: "Cài đặt",
     enablePush: "Bật thông báo đẩy",

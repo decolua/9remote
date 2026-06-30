@@ -271,10 +271,10 @@ html.terminal-page body {
   top: -2px;
   left: 50%;
   transform: translateX(-50%);
-  width: 50%;
+  width: 80%;
   height: 5px;
-  background: radial-gradient(ellipse at center, var(--color-brand-500) 0%, color-mix(in srgb, var(--color-brand-500) 60%, transparent) 35%, transparent 75%);
-  filter: blur(3px);
+  background: radial-gradient(ellipse at center, var(--color-brand-500) 0%, color-mix(in srgb, var(--color-brand-500) 85%, transparent) 45%, transparent 80%);
+  filter: blur(2px);
   pointer-events: none;
   z-index: 2;
 }
@@ -285,10 +285,10 @@ html.terminal-page body {
   bottom: -2px;
   left: 50%;
   transform: translateX(-50%);
-  width: 50%;
+  width: 80%;
   height: 5px;
-  background: radial-gradient(ellipse at center, var(--color-brand-500) 0%, color-mix(in srgb, var(--color-brand-500) 60%, transparent) 35%, transparent 75%);
-  filter: blur(3px);
+  background: radial-gradient(ellipse at center, var(--color-brand-500) 0%, color-mix(in srgb, var(--color-brand-500) 85%, transparent) 45%, transparent 80%);
+  filter: blur(2px);
   pointer-events: none;
   z-index: 2;
 }

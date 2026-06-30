@@ -74,6 +74,7 @@ export default {
     installApp: "התקן אפליקציה",
     codespace: "Codespace",
     logout: "התנתק",
+    reload: "טען מחדש את האפליקציה",
     remoteDesktop: "שולחן עבודה מרוחק",
     settings: "הגדרות",
     enablePush: "הפעל התראות דחיפה",

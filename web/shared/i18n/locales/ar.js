@@ -74,6 +74,7 @@ export default {
     installApp: "تثبيت التطبيق",
     codespace: "Codespace",
     logout: "تسجيل الخروج",
+    reload: "إعادة تحميل التطبيق",
     remoteDesktop: "سطح المكتب البعيد",
     settings: "الإعدادات",
     enablePush: "تفعيل إشعارات الدفع",

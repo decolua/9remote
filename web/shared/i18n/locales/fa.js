@@ -74,6 +74,7 @@ export default {
     installApp: "نصب برنامه",
     codespace: "Codespace",
     logout: "خروج",
+    reload: "بارگذاری مجدد برنامه",
     remoteDesktop: "دسکتاپ از راه دور",
     settings: "تنظیمات",
     enablePush: "فعال‌سازی اعلان‌های پوش",
