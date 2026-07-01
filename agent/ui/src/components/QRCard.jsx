@@ -25,7 +25,7 @@ function IconBtn({ icon, onClick, title, danger }) {
   );
 }
 
-export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, onGenerateOneTimeKey, onRegenerateKey }) {
+export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, onGenerateOneTimeKey, onRegenerateKey, onStopTunnel }) {
   const canvasRef = useRef(null);
   const [countdown, setCountdown] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null); // "oneTime" | "permanent"
@@ -70,6 +70,15 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
           confirmLabel="Regenerate"
           confirmDanger
           onConfirm={() => { setPopup(null); onRegenerateKey?.(); }}
+          onCancel={() => setPopup(null)}
+        />
+      )}
+      {popup === "stop" && (
+        <ConfirmPopup
+          message="Stop tunnel? Remote clients will be disconnected."
+          confirmLabel="Stop"
+          confirmDanger
+          onConfirm={() => { setPopup(null); onStopTunnel?.(); }}
           onCancel={() => setPopup(null)}
         />
       )}
@@ -152,6 +161,19 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
           )}
           <IconBtn icon="autorenew" onClick={() => setPopup("regen")} title="Regenerate permanent key" danger />
         </div>
+        </div>
+
+        {/* Stop tunnel */}
+        <div className="w-full flex justify-center pt-5">
+          <button
+            onClick={() => setPopup("stop")}
+            title="Stop tunnel"
+            className="glass-btn flex items-center gap-1.5 px-3 h-7 text-xs font-medium"
+            style={{ color: "rgba(255,100,100,0.7)" }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>stop_circle</span>
+            Stop Tunnel
+          </button>
         </div>
 
       </div>

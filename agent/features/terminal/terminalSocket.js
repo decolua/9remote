@@ -130,23 +130,30 @@ export function setupTerminalSocket(io, apiKey) {
     }
   });
 
-  io.on("connection", (socket) => {
-    trackConnection();
+  // Expose serverInfo builder so the single connection handler can emit it.
+  setupTerminalSocket._buildServerInfo = buildServerInfo;
+}
 
-    socket.emit("serverInfo", buildServerInfo());
+// Per-socket terminal + remote handlers (called from the single connection handler,
+// AFTER the transport bus is ready so remote tiles never race pm.init()).
+export async function setupTerminalHandlers(socket, io, apiKey) {
+  trackConnection();
 
-    setupSessionHandlers(socket, io, sessions, groups, sessionGroups);
-    setupInputHandlers(socket, sessions);
-    setupPushHandlers(socket);
+  socket.emit("serverInfo", setupTerminalSocket._buildServerInfo?.());
 
-    // Attach remote desktop handlers on same socket if capable (permissions checked at invoke time)
-    if (isRemoteAvailable()) setupRemoteHandlers(socket, apiKey).catch((err) => {
+  setupSessionHandlers(socket, io, sessions, groups, sessionGroups);
+  setupInputHandlers(socket, sessions);
+  setupPushHandlers(socket);
+
+  // Remote desktop handlers on same socket if capable (permissions checked at invoke time)
+  if (isRemoteAvailable()) {
+    await setupRemoteHandlers(socket, apiKey).catch((err) => {
       console.error("❌ Failed to setup remote handlers:", err.message);
     });
+  }
 
-    socket.on("disconnect", (reason) => {
-      markSubscriptionDisconnected(socket.id);
-      trackDisconnection();
-    });
+  socket.on("disconnect", () => {
+    markSubscriptionDisconnected(socket.id);
+    trackDisconnection();
   });
 }

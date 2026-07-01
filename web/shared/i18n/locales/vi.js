@@ -326,7 +326,7 @@ export default {
     toolbarRectDesc: "Chế độ chọn vùng chữ nhật"
   },
   remoteControls: {
-    enterToSend: "Enter để gửi • Shift+Enter để xuống dòng",
+    enterToSend: "Shift+Enter để xuống dòng • Ctrl+Số để chuyển tab",
     typeToSend: "Nhập văn bản để gửi...",
     send: "Gửi",
     trackpadMode: "Chế độ trackpad",
@@ -410,7 +410,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Dán vào đây (Cmd+V)",
-    enterToSend: "Enter để gửi • Shift+Enter để xuống dòng",
+    enterToSend: "Shift+Enter để xuống dòng • Ctrl+Số để chuyển tab",
     typeCommand: "Nhập lệnh và gửi...",
     send: "Gửi",
     toggleExtraKeys: "Bật/tắt phím mở rộng",

@@ -64,6 +64,30 @@ export default function TerminalHeader({
   // Reliable focus+select on conditional mount (autoFocus is flaky)
   useEffect(() => { if (createModalOpen) requestAnimationFrame(() => { createInputRef.current?.focus(); createInputRef.current?.select(); }); }, [createModalOpen]);
   useEffect(() => { if (editingTabId) requestAnimationFrame(() => { tabInputRef.current?.focus(); tabInputRef.current?.select(); }); }, [editingTabId]);
+
+  // Ctrl+←/→ prev/next tab (wrap), Ctrl+1..9 jump tab N (9 = last if longer)
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e) => {
+      // Shortcuts active only while a text input/textarea is focused
+      const el = document.activeElement;
+      if (!el || (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA")) return;
+      if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      if (sessions.length < 2) return;
+      const idx = sessions.findIndex((s) => s.id === activeSessionId);
+      let target;
+      if (e.key === "ArrowRight") target = sessions[(idx + 1) % sessions.length];
+      else if (e.key === "ArrowLeft") target = sessions[(idx - 1 + sessions.length) % sessions.length];
+      else if (e.key >= "1" && e.key <= "9") target = sessions[Math.min(+e.key - 1, sessions.length - 1)];
+      else return;
+      e.preventDefault();
+      if (target && target.id !== activeSessionId) onSwitchSession?.(target.id);
+      // Double rAF keeps focus on input, beating pane focus
+      requestAnimationFrame(() => requestAnimationFrame(() => el.focus()));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isActive, sessions, activeSessionId, onSwitchSession]);
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
 
   // Close tab context menu on outside click / Escape

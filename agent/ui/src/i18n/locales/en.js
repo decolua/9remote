@@ -11,7 +11,7 @@ export default {
     switchGroup: "Switch group",
     newTerminal: "New terminal",
     send: "Send",
-    typeCommand: "Enter to send • Shift+Enter for new line",
+    typeCommand: "Shift+Enter for new line • Ctrl+Num to switch tab",
     deleteConfirm: "Delete terminal {name}?",
   },
   sessions: {

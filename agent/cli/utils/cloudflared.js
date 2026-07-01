@@ -48,7 +48,9 @@ const LEGACY_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 // Track intentional shutdown to suppress exit logs
 let isIntentionalShutdown = false;
 
-const GITHUB_BASE_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download";
+// Pin stable version — avoid "latest" renaming/breakage
+const CLOUDFLARED_VERSION = "2026.6.1";
+const GITHUB_BASE_URL = `https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}`;
 
 /**
  * Check internet reachability via a single TCP connect attempt.
@@ -136,7 +138,7 @@ async function scheduleRestart(arg, reason) {
 const PLATFORM_MAPPINGS = {
   darwin: {
     x64: "cloudflared-darwin-amd64.tgz",
-    arm64: "cloudflared-darwin-amd64.tgz"
+    arm64: "cloudflared-darwin-arm64.tgz"
   },
   win32: {
     x64: "cloudflared-windows-amd64.exe"
@@ -293,23 +295,25 @@ function fetchText(url) {
 
 // Verify downloaded cloudflared binary matches sha256 from official release manifest
 async function verifyCloudflaredSha256(downloadUrl, filePath) {
+  const filename = path.basename(downloadUrl);
+  let manifest;
+  // Soft verify: manifest unavailable (cloudflare no longer publishes it) → skip, trust HTTPS
   try {
-    const filename = path.basename(downloadUrl);
-    const manifestUrl = `${GITHUB_BASE_URL}/sha256sum.txt`;
-    const manifest = await fetchText(manifestUrl);
-    const line = manifest.split("\n").find((l) => l.includes(filename));
-    if (!line) {
-      logger.warn(`⚠️ No sha256 entry for ${filename}, skipping verify`);
-      return;
-    }
-    const expected = line.trim().split(/\s+/)[0];
-    const { createHash } = await import("crypto");
-    const actual = createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
-    if (actual !== expected) throw new Error(`SHA256 mismatch: expected ${expected}, got ${actual}`);
-    logger.info(`✓ cloudflared SHA256 verified`);
+    manifest = await fetchText(`${GITHUB_BASE_URL}/sha256sum.txt`);
   } catch (e) {
-    throw new Error(`Integrity check failed: ${e.message}`);
+    logger.warn(`⚠️ sha256 manifest unavailable (${e.message}), skipping verify`);
+    return;
   }
+  const line = manifest.split("\n").find((l) => l.includes(filename));
+  if (!line) {
+    logger.warn(`⚠️ No sha256 entry for ${filename}, skipping verify`);
+    return;
+  }
+  const expected = line.trim().split(/\s+/)[0];
+  const { createHash } = await import("crypto");
+  const actual = createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  if (actual !== expected) throw new Error(`Integrity check failed: SHA256 mismatch (expected ${expected}, got ${actual})`);
+  logger.info(`✓ cloudflared SHA256 verified`);
 }
 
 // Log patterns to filter cloudflared output

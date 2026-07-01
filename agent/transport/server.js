@@ -7,9 +7,9 @@ import { verifyLocalToken } from "../lib/localToken.js";
 import { ProtocolManager } from "./ProtocolManager.js";
 import { registerProtocol, unregisterProtocol } from "./broadcast.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
-import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
-import { setupRemoteSocket, checkRemoteAvailable } from "../features/remote/remoteSocket.js";
-import { setupFileExplorerSocket } from "../features/fileExplorer/fileExplorerSocket.js";
+import { setupTerminalSocket, setupTerminalHandlers } from "../features/terminal/terminalSocket.js";
+import { checkRemoteAvailable } from "../features/remote/remoteSocket.js";
+import { setupFileExplorerHandlers } from "../features/fileExplorer/fileExplorerSocket.js";
 import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey, pushUiEvent, setRemoteAvailable } from "../api/ui.js";
 import {
   loadApprovedDevices,
@@ -43,18 +43,24 @@ export function getIO() {
   return ioInstance;
 }
 
-/** Setup features on an approved socket */
-function setupSocketFeatures(socket) {
+/** Setup all per-socket features on an approved socket (single entry point).
+ * Order matters: transport bus MUST be ready before terminal/remote handlers so the
+ * first tile frame isn't dropped (black canvas). File + terminal + remote all live here. */
+async function setupSocketFeatures(socket) {
   // Clear one-time key if used
   if (socket.handshake.auth?.tempKey) {
     pushUiLog("One-time key used \u2014 clearing from UI");
     clearOneTimeKey();
   }
-  attachTransportBus(socket);
+  await attachTransportBus(socket);
+  setupFileExplorerHandlers(socket);
+  await setupTerminalHandlers(socket, ioInstance, loadApiKey());
 }
 
-/** Create connection-level PM and route socket.emit through it (DRY transport bus) */
-function attachTransportBus(socket) {
+/** Create connection-level PM and route socket.emit through it (DRY transport bus).
+ * Awaits pm.init() so the ws adapter is ready before tiles stream (else first frame
+ * is dropped by sendTiles while checksums are already marked sent → black canvas). */
+async function attachTransportBus(socket) {
   if (socket.data.protocol) return;
   const { webrtc, streaming } = REMOTE_CONFIG;
   const pm = new ProtocolManager(socket, {
@@ -70,8 +76,13 @@ function attachTransportBus(socket) {
   });
   socket.data.protocol = pm;
   registerProtocol(pm);
-  pm.init().then(() => pm.setupSignaling(socket)).catch((e) => console.error("[transport] pm init failed:", e.message));
   pm.attachAsBus(socket);
+  try {
+    await pm.init();
+    pm.setupSignaling(socket);
+  } catch (e) {
+    console.error("[transport] pm init failed:", e.message);
+  }
 }
 
 /** Approve a pending socket by socketId */
@@ -275,11 +286,8 @@ export async function startTransportServer(server) {
     }
   });
 
-  // Setup Terminal + Remote on same root namespace
+  // Init terminal broadcast + serverInfo builder (per-socket handlers wired in setupSocketFeatures)
   setupTerminalSocket(io, loadApiKey());
-
-  // Setup File Explorer (uses default namespace)
-  setupFileExplorerSocket(io);
 
   ioInstance = io;
   return io;

@@ -222,6 +222,12 @@ export function handleStart(req, res) {
   writeCmd("start-tunnel");
 }
 
+export function handleStopTunnel(req, res) {
+  jsonOk(res);
+  updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+  writeCmd("stop-tunnel");
+}
+
 export function handleShutdown(req, res) {
   jsonOk(res);
   updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });

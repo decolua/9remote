@@ -24,6 +24,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const activeTabRef = useRef(null);
   const createInputRef = useRef(null);
   const tabInputRef = useRef(null);
+  const textInputRef = useRef(null);
   const paneEls = useRef({});
 
   // Active session object (input bar target) — undefined when no active pane
@@ -123,6 +124,29 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const groupSessions = sessions.filter((s) => (s.groupId || null) === activeGroupId);
   const openedGroup = groupSessions.filter((s) => openedIds.includes(s.id));
   const multi = openedGroup.length > 1;
+
+  // Ctrl+←/→ prev/next tab (wrap), Ctrl+1..9 jump tab N (9 = last if longer)
+  useEffect(() => {
+    const onKey = (e) => {
+      // Shortcuts active only while the text input is focused
+      if (document.activeElement !== textInputRef.current) return;
+      if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      const list = groupSessions;
+      if (list.length < 2) return;
+      const idx = list.findIndex((s) => s.id === activeId);
+      let target;
+      if (e.key === "ArrowRight") target = list[(idx + 1) % list.length];
+      else if (e.key === "ArrowLeft") target = list[(idx - 1 + list.length) % list.length];
+      else if (e.key >= "1" && e.key <= "9") target = list[Math.min(+e.key - 1, list.length - 1)];
+      else return;
+      e.preventDefault();
+      if (target && target.id !== activeId) onSwitch?.(target.id);
+      // Double rAF keeps focus on input, beating pane term.focus()
+      requestAnimationFrame(() => requestAnimationFrame(() => textInputRef.current?.focus()));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [groupSessions, activeId, onSwitch]);
 
   const hasUngrouped = sessions.some((s) => !s.groupId);
   const groupOptions = [...groups, ...(hasUngrouped ? [UNGROUPED] : [])];
@@ -260,6 +284,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
         <div className="flex items-center gap-2 px-2 py-1.5 flex-shrink-0 relative z-10" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
           <div className="relative flex-1">
             <textarea
+              ref={textInputRef}
               value={textInput}
               rows={Math.min(2, (textInput.match(/\n/g) || []).length + 1)}
               onInput={(e) => setTextInput(e.target.value)}
@@ -271,8 +296,8 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 }
               }}
               placeholder={t("terminal.typeCommand")}
-              className="w-full px-3 py-1.5 pr-8 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-              style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}
+              className="term-input w-full px-3 py-1.5 pr-8 rounded-lg text-sm resize-none focus:outline-none"
+              style={{ background: "var(--surface-2)", color: "var(--text-main)" }}
             />
             {textInput && (
               <button

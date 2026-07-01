@@ -147,7 +147,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     startHandHold,
     releaseHandHold,
     handleCanvasInteraction,
-    handleCanvasDimensions
+    handleCanvasDimensions,
+    serverDimensionsRef
   } = useCanvas(socketEmitFunctions);
 
   const togglePointerMode = useCallback(() => {
@@ -306,16 +307,11 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     socket.on("screen-error", onScreenError);
     socket.on("remote:ready", onRemoteReady);
 
-    // Initial handshake on mount. stop-streaming first kills any leftover agent loop
-    // (two loops share isProcessing on one tileManager → permanent stall).
-    socket.emit("get-screen-dimensions");
-    socket.emit("stop-streaming");
-    const startTimer = setTimeout(() => {
-      socket.emit("start-streaming");
-    }, REMOTE_CONFIG.restreamDelay);
+    // Initial handshake on mount — agent may have emitted remote:ready before this
+    // component mounted (socket already connected via terminal) so listener missed it.
+    doRestream();
 
     return () => {
-      clearTimeout(startTimer);
       socket.emit("stop-streaming");
       socket.off("screen-dimensions", onScreenDimensions);
       socket.off("full-screen-data", onFullScreenData);
@@ -337,33 +333,28 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     return () => clearInterval(id);
   }, [streaming, connected, socketRef, requestScreenWithHashes]);
 
-  // Re-stream on WS reconnect: server-side socket is new → must re-emit start-streaming.
-  // Detect via socket.id change polled at the same cadence as hash-request (already running).
-  // Detect WS reconnect (socket.id change) OR a fresh mount that never rendered any
-  // tile (background-reconnect race) → re-handshake so the agent's new per-socket
-  // handlers start streaming and canvas repaints (fixes black canvas on re-entry).
-  const lastSocketIdRef = useRef(null);
+  // WS reconnect (new server socket) is handled by the agent's remote:ready event
+  // → onRemoteReady → doRestream. No socket.id polling needed.
+
+  // Canvas has no dimensions → tiles draw into a 0×0 canvas → black screen while input
+  // still works (mouse coords use %). Happens on re-entry: a fresh <canvas> mounts with
+  // width=0 and the screen-dimensions event may have already fired. Independent of
+  // `streaming` (dimensions must be applied regardless). Apply last known size, else ask
+  // the agent. Runs immediately then retries until the canvas is sized.
   useEffect(() => {
-    if (!connected || !socketRef?.current) { lastSocketIdRef.current = null; return; }
-    lastSocketIdRef.current = null; // null on mount → first poll forces a re-stream
-    const restream = (socket) => {
-      cleanupTiles();
-      socket.emit("get-screen-dimensions");
-      // start-streaming clears agent checksums + pushes a full frame on its own.
-      socket.emit("start-streaming");
+    if (!connected) return;
+    const ensureSized = () => {
+      const canvas = canvasRef.current;
+      if (!canvas || canvas.width > 0) return true;
+      const { width, height } = serverDimensionsRef.current || {};
+      if (width > 0) handleCanvasDimensions({ width, height }, renderedTilesRef);
+      else socketRef.current?.emit("get-screen-dimensions");
+      return false;
     };
-    const id = setInterval(() => {
-      const socket = socketRef.current;
-      const currentId = socket?.id;
-      if (!currentId) return;
-      const idChanged = lastSocketIdRef.current && currentId !== lastSocketIdRef.current;
-      // First poll after mount: re-stream if nothing rendered yet (stale/empty canvas)
-      const staleMount = !lastSocketIdRef.current && renderedTilesRef.current.size === 0;
-      lastSocketIdRef.current = currentId;
-      if (idChanged || staleMount) restream(socket);
-    }, REMOTE_CONFIG.hashRequestInterval);
+    if (ensureSized()) return;
+    const id = setInterval(() => { if (ensureSized()) clearInterval(id); }, REMOTE_CONFIG.restreamDelay);
     return () => clearInterval(id);
-  }, [connected, socketRef, cleanupTiles, renderedTilesRef]);
+  }, [connected, socketRef, canvasRef, serverDimensionsRef, handleCanvasDimensions, renderedTilesRef]);
 
   // Pause stream when tab hidden to save CPU + bandwidth
   useEffect(() => {

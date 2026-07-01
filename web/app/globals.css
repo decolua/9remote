@@ -264,31 +264,13 @@ html.terminal-page body {
   overflow: hidden !important;
 }
 
-/* Top-mid glow indicates focused terminal pane */
-.terminal-focus-glow::before {
-  content: "";
-  position: absolute;
-  top: -2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 80%;
-  height: 5px;
-  background: radial-gradient(ellipse at center, var(--color-brand-500) 0%, color-mix(in srgb, var(--color-brand-500) 85%, transparent) 45%, transparent 80%);
-  filter: blur(2px);
-  pointer-events: none;
-  z-index: 2;
-}
-
+/* Thin continuous brand glow ring around focused pane */
 .terminal-focus-glow::after {
   content: "";
   position: absolute;
-  bottom: -2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 80%;
-  height: 5px;
-  background: radial-gradient(ellipse at center, var(--color-brand-500) 0%, color-mix(in srgb, var(--color-brand-500) 85%, transparent) 45%, transparent 80%);
-  filter: blur(2px);
+  inset: 0;
+  border: 1px solid var(--color-brand-500);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-brand-500) 70%, transparent);
   pointer-events: none;
   z-index: 2;
 }

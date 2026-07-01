@@ -427,7 +427,7 @@ export default {
     toolbarRectDesc: "Rectangle selection mode"
   },
   remoteControls: {
-    enterToSend: "Enter to send • Shift+Enter for new line",
+    enterToSend: "Shift+Enter for new line • Ctrl+Num to switch tab",
     typeToSend: "Type text to send...",
     send: "Send",
     trackpadMode: "Trackpad mode",
@@ -511,7 +511,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Paste here (Cmd+V)",
-    enterToSend: "Enter to send • Shift+Enter for new line",
+    enterToSend: "Shift+Enter for new line • Ctrl+Num to switch tab",
     typeCommand: "Type command and send...",
     send: "Send",
     toggleExtraKeys: "Toggle extra keys",

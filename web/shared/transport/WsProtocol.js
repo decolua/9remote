@@ -27,6 +27,7 @@ export class WsProtocol extends BaseProtocol {
     this._retryScheduled = false;
     this._destroyed = false;
     this._blocked = false;
+    this._connecting = false;
     this._visibilityHandler = null;
   }
 
@@ -100,6 +101,15 @@ export class WsProtocol extends BaseProtocol {
   // ─── Internal ──────────────────────────────────────────────────────────────
 
   _connectInternal() {
+    // Guard concurrent connects — iOS wake fires online/visibility/disconnect together,
+    // each calling _forceReconnect → duplicate sockets → tiles stream to wrong socket (black canvas).
+    if (this._connecting || this._socket?.connected || this._destroyed) return;
+    this._connecting = true;
+    // Safety: iOS may suspend mid-connect so onSocket/onFail never fire → clear the flag
+    // after a grace window so future reconnects aren't permanently blocked.
+    clearTimeout(this._connectingTimer);
+    this._connectingTimer = setTimeout(() => { this._connecting = false; }, RETRY.interval);
+
     const adapterConfig = {
       tunnelUrl: this._auth.tunnelUrl,
       namespace: this._auth.namespace || "",
@@ -112,6 +122,10 @@ export class WsProtocol extends BaseProtocol {
 
     adapter.connect({
       onSocket: (socket, mode) => {
+        this._connecting = false;
+        clearTimeout(this._connectingTimer);
+        // Late-arriving duplicate — a socket already won the race; drop this one.
+        if (this._socket?.connected && this._socket !== socket) { try { socket.disconnect(); } catch {} return; }
         this._connectionMode = mode;
         this._socket = socket;
         this._retryAttempt = 0;
@@ -122,6 +136,8 @@ export class WsProtocol extends BaseProtocol {
         this._setState(ADAPTER_STATE.open);
       },
       onFail: () => {
+        this._connecting = false;
+        clearTimeout(this._connectingTimer);
         debugLog("transport", "[ws] connect FAIL → schedule retry");
         this._scheduleRetry();
       }

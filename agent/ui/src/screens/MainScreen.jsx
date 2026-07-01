@@ -538,7 +538,7 @@ function TunnelHealthBadge({ tunnelHealth, onResetTunnel }) {
 export default function MainScreen({
   step, stepDesc = "", healthCheck, tunnelHealth, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
-  onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [], onClearLogs,
+  onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey,   onRegenerateKey, logs = [], onClearLogs,
   theme, onToggleTheme,
   pendingDevice, onDeviceApprove, onDeviceReject,
   approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected, onDeviceLabel,
@@ -546,6 +546,7 @@ export default function MainScreen({
   autoStart = false, onAutoStartToggle,
   sleepInhibitMode = "never", sleepInhibitPresets = [], onSleepInhibitChange,
   sessions = [], onSessionDelete, onSessionRefresh,
+  onStopTunnel,
 }) {
   const { t } = useI18n();
   const [activeMenu, setActiveMenu] = useState(() => parsePath().menu);
@@ -712,6 +713,7 @@ export default function MainScreen({
                         tunnelUrl={tunnelUrl}
                         onGenerateOneTimeKey={onGenerateOneTimeKey}
                         onRegenerateKey={onRegenerateKey}
+                        onStopTunnel={onStopTunnel}
                       />
                     </div>
                     <div className="md:col-span-2 flex flex-col gap-4">

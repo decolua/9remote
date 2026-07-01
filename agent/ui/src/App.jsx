@@ -191,6 +191,10 @@ export default function App() {
     fetch("/api/ui/start", { method: "POST" }).catch(() => {});
   };
 
+  const handleStopTunnel = () => {
+    fetch("/api/ui/stop-tunnel", { method: "POST" }).catch(() => {});
+  };
+
   const handleShutdown = () => {
     fetch("/api/ui/shutdown", { method: "POST" }).catch(() => {});
     setMainState(defaultState);
@@ -374,6 +378,7 @@ export default function App() {
       onDesktopToggle={handleDesktopToggle}
       onStop={handleStop}
       onStart={handleStart}
+      onStopTunnel={handleStopTunnel}
       onShutdown={handleShutdown}
       onGenerateOneTimeKey={handleGenerateOneTimeKey}
       onRegenerateKey={handleRegenerateKey}

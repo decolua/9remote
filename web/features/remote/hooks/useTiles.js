@@ -35,6 +35,18 @@ function getBinWorker() {
   }
 }
 
+// iOS may suspend/kill the decode worker during a long background. On re-entry the old
+// worker no longer answers → pending decode promises hang → tiles never draw (black canvas).
+// Terminate it + drop pending so getBinWorker() spawns a fresh one on next tile.
+function resetBinWorker() {
+  if (_binWorker && _binWorker !== false) {
+    try { _binWorker.terminate(); } catch {}
+  }
+  _binWorker = null;
+  for (const resolve of _binPending.values()) { try { resolve(null); } catch {} }
+  _binPending.clear();
+}
+
 /**
  * Decode image blob to ImageBitmap off main thread (cross-browser).
  * Chrome: createImageBitmap(blob) is non-blocking.
@@ -313,6 +325,13 @@ export function useTiles(socketRef, streaming, canvasRef) {
     new Promise((resolve) => {
       _binPending.set(id, resolve);
       worker.postMessage({ buffer: ab, id, v }, [ab]);
+      // Guard against a silently-dead worker (iOS suspend) so a re-entry isn't stuck
+      // waiting forever for tiles that will never decode.
+      setTimeout(() => {
+        if (!_binPending.has(id)) return;
+        _binPending.delete(id);
+        resolve(null);
+      }, REMOTE_CONFIG.tileLoadTimeout);
     }).then((result) => {
       if (!result) return;
       if (v === 2) isRequestingRef.current = false;
@@ -385,6 +404,10 @@ export function useTiles(socketRef, streaming, canvasRef) {
     renderedTilesRef.current.clear();
     tileTimestampRef.current.clear();
     lastDataTimeRef.current = 0;
+    isRequestingRef.current = false;
+    // Kill the (possibly suspended) decode worker + drop orphan promises so a fresh one
+    // is spawned on the next tile batch — otherwise tiles never draw (black canvas).
+    resetBinWorker();
     if (rafIdRef.current) {
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;

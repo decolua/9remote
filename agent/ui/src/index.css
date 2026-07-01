@@ -260,31 +260,13 @@
 .xterm .xterm-helpers { z-index: 0 !important; }
 .xterm-helper-textarea { opacity: 0 !important; }
 
-/* Top-mid glow indicates focused terminal pane (web parity) */
-.terminal-focus-glow::before {
-  content: "";
-  position: absolute;
-  top: -2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 80%;
-  height: 5px;
-  background: radial-gradient(ellipse at center, var(--brand-500) 0%, rgba(var(--brand-rgb), 0.85) 45%, transparent 80%);
-  filter: blur(2px);
-  pointer-events: none;
-  z-index: 2;
-}
-
+/* Thin continuous brand glow ring around focused pane */
 .terminal-focus-glow::after {
   content: "";
   position: absolute;
-  bottom: -2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 80%;
-  height: 5px;
-  background: radial-gradient(ellipse at center, var(--brand-500) 0%, rgba(var(--brand-rgb), 0.85) 45%, transparent 80%);
-  filter: blur(2px);
+  inset: 0;
+  border: 1px solid var(--brand-500);
+  box-shadow: 0 0 6px rgba(var(--brand-rgb), 0.7);
   pointer-events: none;
   z-index: 2;
 }
@@ -335,3 +317,6 @@
 .card-del:hover { background: rgba(239,68,68,0.15); color: #ef4444; }
 .dashed-card { border: 1px dashed var(--border); color: var(--text-muted); transition: all 0.15s ease; }
 .dashed-card:hover { border-color: var(--brand-500); color: var(--brand-500); background: var(--brand-tint); }
+
+/* Terminal input — brand focus ring (web parity; tailwind brand color unavailable here) */
+.term-input:focus { box-shadow: 0 0 0 2px rgba(var(--brand-rgb), 0.4); }

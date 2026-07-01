@@ -1122,6 +1122,10 @@ export function useCanvas(socketEmitFunctions) {
 
   // Handle canvas dimensions from server
   const handleCanvasDimensions = useCallback((dimensions, renderedTilesRef) => {
+    // Persist BEFORE the canvas guard so a late-mounting canvas can still apply them
+    // (iOS may deliver dimensions before the <canvas> commits after a background purge).
+    serverDimensionsRef.current = { width: dimensions.width, height: dimensions.height };
+
     const canvas = canvasRef.current;
     const container = canvasContainerRef.current;
     if (!canvas || !container) return false;
@@ -1130,9 +1134,6 @@ export function useCanvas(socketEmitFunctions) {
 
     canvas.width = dimensions.width;
     canvas.height = dimensions.height;
-    
-    // Store server dimensions for recalculation on resize
-    serverDimensionsRef.current = { width: dimensions.width, height: dimensions.height };
 
     // Set once — survives canvas resize (width/height reset clears ctx state)
     const ctx = canvas.getContext("2d");
@@ -1230,6 +1231,7 @@ export function useCanvas(socketEmitFunctions) {
     startHandHold,
     releaseHandHold,
     handleCanvasInteraction,
-    handleCanvasDimensions
+    handleCanvasDimensions,
+    serverDimensionsRef
   };
 }

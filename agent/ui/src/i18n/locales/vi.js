@@ -11,7 +11,7 @@ export default {
     switchGroup: "Chuyển nhóm",
     newTerminal: "Terminal mới",
     send: "Gửi",
-    typeCommand: "Nhập lệnh…",
+    typeCommand: "Shift+Enter để xuống dòng • Ctrl+Số để chuyển tab",
     deleteConfirm: "Xóa terminal {name}?",
   },
   sessions: {
