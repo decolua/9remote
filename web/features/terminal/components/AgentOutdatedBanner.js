@@ -1,25 +1,42 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { AlertCircle, Copy, Check } from "@/shared/components/ui/Icon";
+import { AlertCircle, Copy, Check, RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { AGENT_UPDATE_COMMAND } from "@/shared/constants/API";
 
-// True only when both versions known and differ (hidden by default until mismatch)
+// Compare semver x.y.z; returns true when a < b
+function isVersionLower(a, b) {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) < (pb[i] || 0);
+  }
+  return false;
+}
+
+// True only when web build is older than agent (hidden until web < agent)
 export function isAgentOutdated(agentVersion, webVersion) {
-  return !!agentVersion && !!webVersion && agentVersion !== webVersion;
+  return !!agentVersion && !!webVersion && isVersionLower(webVersion, agentVersion);
 }
 
 export default function AgentOutdatedBanner({ agentVersion, className = "" }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
+  const [reloading, setReloading] = useState(false);
 
   const handleCopy = useCallback(() => {
     vibrate();
     navigator.clipboard.writeText(AGENT_UPDATE_COMMAND);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }, []);
+
+  const handleReload = useCallback(() => {
+    vibrate();
+    setReloading(true);
+    setTimeout(() => window.location.reload(), 400);
   }, []);
 
   return (
@@ -46,6 +63,15 @@ export default function AgentOutdatedBanner({ agentVersion, className = "" }) {
               {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
             </button>
           </div>
+          <button
+            onClick={handleReload}
+            disabled={reloading}
+            className="w-full mt-1 px-2 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 disabled:opacity-60 text-yellow-600 rounded flex items-center justify-center gap-1.5 transition-colors"
+            type="button"
+          >
+            <RefreshCw size={14} className={reloading ? "animate-spin" : ""} />
+            <span className="text-xs font-medium">{t("menu.reload")}</span>
+          </button>
         </div>
       </div>
     </div>

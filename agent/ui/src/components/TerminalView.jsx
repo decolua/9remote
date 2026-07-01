@@ -134,7 +134,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   return (
     <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "var(--bg-body)" }}>
       {/* Header — back + group selector + tabs + new (web TerminalHeader parity) */}
-      <div className="px-2 sm:px-4 pt-2 pb-1 flex items-center gap-2 flex-shrink-0 relative z-10">
+      <div className="px-2 sm:px-4 pt-2 pb-1 flex items-center gap-2 flex-shrink-0 relative z-20">
         <button
         onClick={onBack}
         title={t("terminal.backToSessions")}

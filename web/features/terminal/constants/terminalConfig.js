@@ -9,7 +9,7 @@ export const TERMINAL_OPTIONS = {
   cursorBlink: true,
   fontSize: 14,
   fontSizeMobile: 12,
-  fontFamily: '"SF Mono", "Cascadia Code", Menlo, Monaco, "Courier New", monospace',
+  fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", "Noto Sans Mono", Menlo, Monaco, "Courier New", monospace',
   scrollback: 10000,
   convertEol: true,
   allowProposedApi: true,
@@ -18,6 +18,17 @@ export const TERMINAL_OPTIONS = {
   smoothScrollDuration: 0,
   rescaleOverlappingGlyphs: true,
   minimumContrastRatio: 1
+};
+
+// Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
+export const TOUCH_SCROLL = {
+  lineHeight: 14, // px per line step
+  sensitivity: 1.5,
+  friction: 0.95,
+  minVelocity: 0.3,
+  wheelStepLines: 3, // max TUI wheel notches per scroll step
+  sgrUp: (x, y) => `\x1b[<64;${x};${y}M`,
+  sgrDown: (x, y) => `\x1b[<65;${x};${y}M`
 };
 
 // Real typing vs scroll/mouse: scroll in alt-screen apps emits arrow ESC seqs.

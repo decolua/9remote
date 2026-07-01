@@ -67,6 +67,7 @@ export default {
     language: "Ngôn ngữ",
     theme: "Giao diện",
     notifications: "Thông báo",
+    notificationsHint: "Báo khi Agent xong",
     files: "Tệp tin",
     sites: "Trang web",
     commandNotes: "Ghi chú lệnh",

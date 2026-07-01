@@ -226,9 +226,6 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     const onScreenDimensions = (dimensions) => {
       handleScreenDimensions(dimensions);
       handleCanvasDimensions(dimensions, renderedTilesRef);
-      setTimeout(() => {
-        socket.emit("request-screen-with-hashes", { tileHashes: [] });
-      }, 100);
     };
     const onFullScreenData = (data) => handleFullScreenData(data);
     const onTilesData = (data) => {
@@ -283,6 +280,23 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       handleTilesBinaryV2(buffer);
     };
 
+    // Fresh handshake: wipe stale client tiles/hashes then request a full frame.
+    // Reused on both mount and remote:ready (fired by agent after it (re)attaches
+    // handlers for a NEW socket post-reconnect — the reliable "agent is ready" signal,
+    // avoiding the race where start-streaming lands before addClient() on the agent).
+    const doRestream = () => {
+      cleanupTiles();
+      socket.emit("get-screen-dimensions");
+      // start-streaming alone clears agent checksums + pushes a full frame. Do NOT also
+      // emit request-screen-with-hashes: it races the stream loop, fills the agent's
+      // lastTileChecksums without delivering a full frame → agent thinks client is
+      // synced → only diffs sent → black canvas.
+      socket.emit("start-streaming");
+    };
+
+    // Agent (re)attached remote handlers on a new socket → reset everything fresh.
+    const onRemoteReady = () => doRestream();
+
     socket.on("screen-dimensions", onScreenDimensions);
     socket.on("full-screen-data", onFullScreenData);
     socket.on("tiles-data", onTilesData);
@@ -290,17 +304,14 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     socket.on("tiles-bin-v2", onTilesBinV2);
     socket.on("tiles-meta", onTilesMeta);
     socket.on("screen-error", onScreenError);
+    socket.on("remote:ready", onRemoteReady);
 
-    // Force fresh handshake: agent re-attaches remote handlers per new socket.id
-    // after a background WS reconnect, resetting canvas dims. Request dims FIRST so
-    // canvas width/height are set before any tile arrives (else black canvas).
+    // Initial handshake on mount. stop-streaming first kills any leftover agent loop
+    // (two loops share isProcessing on one tileManager → permanent stall).
     socket.emit("get-screen-dimensions");
-    // Stop any leftover agent loop first, then start fresh after a delay.
-    // Two overlapping loops share isProcessing on one tileManager → permanent stall.
     socket.emit("stop-streaming");
     const startTimer = setTimeout(() => {
       socket.emit("start-streaming");
-      socket.emit("request-screen-with-hashes", { tileHashes: [] });
     }, REMOTE_CONFIG.restreamDelay);
 
     return () => {
@@ -313,6 +324,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       socket.off("tiles-bin-v2", onTilesBinV2);
       socket.off("tiles-meta", onTilesMeta);
       socket.off("screen-error", onScreenError);
+      socket.off("remote:ready", onRemoteReady);
       cleanupTiles();
       if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);
     };
@@ -337,8 +349,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     const restream = (socket) => {
       cleanupTiles();
       socket.emit("get-screen-dimensions");
+      // start-streaming clears agent checksums + pushes a full frame on its own.
       socket.emit("start-streaming");
-      socket.emit("request-screen-with-hashes", { tileHashes: [] });
     };
     const id = setInterval(() => {
       const socket = socketRef.current;
@@ -361,8 +373,9 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       if (document.hidden) {
         socket.emit("stop-streaming");
       } else {
+        // start-streaming alone clears checksums + pushes a full frame. Emitting
+        // request-screen-with-hashes([]) here races the stream loop → black canvas.
         socket.emit("start-streaming");
-        socket.emit("request-screen-with-hashes", { tileHashes: [] });
       }
     };
     document.addEventListener("visibilitychange", onVisibility);

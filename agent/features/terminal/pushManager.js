@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import webpush from "web-push";
 import { PATHS, TOOL_LABELS } from "../../lib/constants.js";
+import { pushUiLog } from "../../api/ui.js";
 
 const VAPID_CONFIG_PATH = path.join(PATHS.CONFIG, "vapid.json");
 const PUSH_SUBS_PATH = path.join(PATHS.CONFIG, "push-subscriptions.json");
@@ -55,7 +56,7 @@ function savePushSubscriptions() {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(PUSH_SUBS_PATH, JSON.stringify(pushSubscriptions, null, 2), "utf8");
   } catch (e) {
-    console.error("Failed to save push subscriptions:", e.message);
+    pushUiLog(`Failed to save push subscriptions: ${e.message}`);
   }
 }
 
@@ -67,8 +68,24 @@ function getIdentifier(sub) {
 export function addPushSubscription(subscription, socketId) {
   const id = getIdentifier(subscription);
   pushSubscriptions = pushSubscriptions.filter(s => getIdentifier(s) !== id);
-  pushSubscriptions.push({ ...subscription, socketId, lastConnectedAt: Date.now() });
+  // hidden defaults false: a just-subscribed app is focused (won't push)
+  pushSubscriptions.push({ ...subscription, socketId, lastConnectedAt: Date.now(), hidden: false });
   savePushSubscriptions();
+}
+
+// Track app visibility per socket (from client visibilityChange) to gate push
+export function setSubscriptionHidden(socketId, hidden) {
+  for (const sub of pushSubscriptions) {
+    if (sub.socketId === socketId) sub.hidden = !!hidden;
+  }
+}
+
+// Latest connected subscription hidden? (used to decide push — focused app shouldn't push)
+export function isLatestSubscriptionHidden() {
+  const latest = pushSubscriptions
+    .filter((s) => !s.disconnectedAt)
+    .reduce((a, b) => (a?.lastConnectedAt ?? 0) >= (b?.lastConnectedAt ?? 0) ? a : b, null);
+  return !!latest?.hidden;
 }
 
 export function removePushSubscription(identifier) {
@@ -109,26 +126,20 @@ async function sendExpoPush(sub, toolName, notification) {
   });
   const result = await res.json();
   if (result.data?.status === "error") throw new Error(result.data.message);
-  console.log(`  ✅ Expo push sent to ${sub.token.slice(0, 30)}...`);
+  pushUiLog(`Expo push sent to ${sub.token.slice(0, 30)}...`);
 }
 
 export async function sendPushNotification(notification) {
   const toolName = TOOL_LABELS[notification.tool] || "AI";
-
-  console.log(`🔔 Sending push notification: ${notification.type} ${toolName}`);
 
   // Push only to the latest connected subscription
   const latest = pushSubscriptions.reduce((a, b) =>
     (a?.lastConnectedAt ?? 0) >= (b?.lastConnectedAt ?? 0) ? a : b
   , null);
 
-  if (!latest) {
-    console.log("📤 sendPush: no subscriptions");
-    return;
-  }
+  if (!latest) return;
 
   const id = getIdentifier(latest);
-  console.log(`📤 sendPush: total=${pushSubscriptions.length} target=${id.slice(0, 50)}...`);
 
   try {
     if (latest.type === "expo") {
@@ -140,10 +151,10 @@ export async function sendPushNotification(notification) {
         data: { url: "/workspace", type: notification.type }
       });
       await webpush.sendNotification({ endpoint: latest.endpoint, keys: latest.keys }, payload);
-      console.log(`  ✅ WebPush sent to ${latest.endpoint.slice(0, 50)}...`);
+      pushUiLog(`WebPush sent to ${latest.endpoint.slice(0, 50)}...`);
     }
   } catch (error) {
-    console.log(`  ❌ Push failed: ${error.statusCode || error.message}`);
+    pushUiLog(`Push failed: ${error.statusCode || error.message}`);
     const isExpired = error.statusCode === 410 || error.statusCode === 404 || error.message?.includes("DeviceNotRegistered");
     if (isExpired) {
       pushSubscriptions = pushSubscriptions.filter(s => getIdentifier(s) !== id);

@@ -67,6 +67,7 @@ export default {
     language: "Dil",
     theme: "Tema",
     notifications: "Bildirimler",
+    notificationsHint: "Notify when agent finishes",
     files: "Dosyalar",
     sites: "Siteler",
     commandNotes: "Komut Notları",

@@ -67,6 +67,7 @@ export default {
     language: "Bahasa",
     theme: "Tema",
     notifications: "Notifikasi",
+    notificationsHint: "Notify when agent finishes",
     files: "Berkas",
     sites: "Situs",
     commandNotes: "Catatan Perintah",

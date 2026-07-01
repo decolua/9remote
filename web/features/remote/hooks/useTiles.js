@@ -353,9 +353,14 @@ export function useTiles(socketRef, streaming, canvasRef) {
     if (!socketRef?.current || !streamingRef.current) return;
     if (isRequestingRef.current) return;
 
+    // No baseline yet → don't request. Empty hashes hit the agent's first-request path,
+    // which fills lastTileChecksums and races start-streaming's full frame → black canvas.
+    // start-streaming is responsible for the initial full frame; this is verify-only.
+    if (clientTileHashesRef.current.length === 0) return;
+
     // Skip if recently received data (server is actively pushing)
     const timeSinceLastData = Date.now() - lastDataTimeRef.current;
-    if (timeSinceLastData < REMOTE_CONFIG.lastDataThreshold && clientTileHashesRef.current.length > 0) {
+    if (timeSinceLastData < REMOTE_CONFIG.lastDataThreshold) {
       return;
     }
 

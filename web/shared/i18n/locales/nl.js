@@ -67,6 +67,7 @@ export default {
     language: "Taal",
     theme: "Thema",
     notifications: "Meldingen",
+    notificationsHint: "Notify when agent finishes",
     files: "Bestanden",
     sites: "Sites",
     commandNotes: "Commando-notities",

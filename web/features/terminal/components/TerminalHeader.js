@@ -89,6 +89,19 @@ export default function TerminalHeader({
     setTabMenu({ sessionId: session.id, x: e.clientX, y: e.clientY });
   };
 
+  // Long-press on touch → open same context menu (touch has no reliable contextmenu event)
+  const longPressRef = useRef(null);
+  const handleTabTouchStart = (e, session) => {
+    const touch = e.touches[0];
+    longPressRef.current = setTimeout(() => {
+      vibrate();
+      setTabMenu({ sessionId: session.id, x: touch.clientX, y: touch.clientY });
+    }, 500);
+  };
+  const clearTabLongPress = () => {
+    if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; }
+  };
+
   const startTabRename = (session) => {
     setEditingTabId(session.id);
     setEditTabName(session.name || "");
@@ -218,6 +231,9 @@ export default function TerminalHeader({
                   onSwitchSession?.(session.id);
                 }}
                 onContextMenu={(e) => handleTabContextMenu(e, session)}
+                onTouchStart={(e) => handleTabTouchStart(e, session)}
+                onTouchMove={clearTabLongPress}
+                onTouchEnd={clearTabLongPress}
                 className={`px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap ${
                   isActiveTab ? "border-brand-500 text-brand-500" : "border-transparent text-text-muted hover:text-text"
                 }`}

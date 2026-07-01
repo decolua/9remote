@@ -67,6 +67,7 @@ export default {
     language: "भाषा",
     theme: "थीम",
     notifications: "सूचनाएँ",
+    notificationsHint: "Notify when agent finishes",
     files: "फ़ाइलें",
     sites: "साइटें",
     commandNotes: "कमांड नोट्स",

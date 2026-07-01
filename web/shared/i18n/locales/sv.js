@@ -67,6 +67,7 @@ export default {
     language: "Språk",
     theme: "Tema",
     notifications: "Aviseringar",
+    notificationsHint: "Notify when agent finishes",
     files: "Filer",
     sites: "Webbplatser",
     commandNotes: "Kommandoanteckningar",

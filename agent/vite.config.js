@@ -15,7 +15,8 @@ export default defineConfig({
       "@shared": path.resolve(__dirname, "ui/src/lib"),
     },
   },
-  plugins: [preact(), obfuscator({ apply: "build", include: ["**/*.js"], options: browserPreset })],
+  // Obfuscate all UI code except @xterm — obfuscating xterm breaks alt-screen parsing (TUI apps blank)
+  plugins: [preact(), obfuscator({ apply: "build", include: ["**/*.js"], exclude: ["**/node_modules/@xterm/**"], options: browserPreset })],
   server: {
     port: 5173,
     proxy: {
@@ -33,5 +34,7 @@ export default defineConfig({
   build: {
     outDir: "../dist/ui",
     emptyOutDir: true,
+    // Minify breaks xterm.js alt-screen parsing (TUI apps like opencode won't render)
+    minify: false,
   },
 });

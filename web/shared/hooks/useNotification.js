@@ -60,22 +60,20 @@ export function useNotification(socketRef, connected) {
       const registration = await navigator.serviceWorker.ready;
       if (!registration.pushManager) return;
 
-      socketRef.current.emit("getVapidKey", async (vapidKey) => {
-        if (!vapidKey) return;
-        try {
-          let subscription = await registration.pushManager.getSubscription();
-          if (!subscription) {
-            subscription = await registration.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: vapidKey
-            });
-          }
-          socketRef.current.emit("pushSubscribe", subscription.toJSON());
-          subscriptionRef.current = subscription;
-        } catch (error) {
-          console.error("Push subscribe failed:", error);
-        }
-      });
+      // Await the socket callback so caller can rely on subscription being ready
+      const vapidKey = await new Promise((resolve) => socketRef.current.emit("getVapidKey", resolve));
+      if (!vapidKey) return;
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vapidKey
+        });
+      }
+      socketRef.current.emit("pushSubscribe", subscription.toJSON());
+      // Sync current visibility so server knows focus state immediately
+      socketRef.current.emit("visibilityChange", document.hidden);
+      subscriptionRef.current = subscription;
     } catch (error) {
       console.error("Push notification setup failed:", error);
     }
@@ -128,12 +126,7 @@ export function useNotification(socketRef, connected) {
     // Another client cleared a badge → re-fetch to stay in sync
     const handleNotificationCleared = () => fetchState();
 
-    // Respond to ack if app is focused (server uses this to decide push)
-    const handleAck = (notification, callback) => {
-      if (!document.hidden) callback("focused");
-    };
-
-    // Notify server when visibility changes (best effort)
+    // Notify server when visibility changes → server gates push on this (no ack round-trip)
     const handleVisibilityChange = () => {
       currentSocket.emit("visibilityChange", document.hidden);
     };
@@ -143,7 +136,6 @@ export function useNotification(socketRef, connected) {
 
     currentSocket.on("notificationState", handleNotificationState);
     currentSocket.on("chatNotification", handleChatNotification);
-    currentSocket.on("chatNotificationAck", handleAck);
     currentSocket.on("notificationCleared", handleNotificationCleared);
     currentSocket.on("connect", handleReconnect);
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -154,7 +146,6 @@ export function useNotification(socketRef, connected) {
     return () => {
       currentSocket.off("notificationState", handleNotificationState);
       currentSocket.off("chatNotification", handleChatNotification);
-      currentSocket.off("chatNotificationAck", handleAck);
       currentSocket.off("notificationCleared", handleNotificationCleared);
       currentSocket.off("connect", handleReconnect);
       document.removeEventListener("visibilitychange", handleVisibilityChange);

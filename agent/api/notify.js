@@ -5,7 +5,7 @@
 import { jsonOk, jsonErr } from "../lib/router.js";
 import { getIO } from "../transport/server.js";
 import { broadcast } from "../transport/broadcast.js";
-import { sendPushNotification, hasPushSubscriptions } from "../features/terminal/pushManager.js";
+import { sendPushNotification, hasPushSubscriptions, isLatestSubscriptionHidden } from "../features/terminal/pushManager.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
 
 const pushLastTime = {};
@@ -52,14 +52,12 @@ function dispatchNotify({ type, sessionId, tool }) {
   addNotification(sessionId, notification);
   broadcast(io, "chatNotification", notification);
 
-  // Type B — push to mobile app: only when a device has enabled push (subscribed) and app isn't focused
+  // Type B — push to mobile app: only when subscribed and app isn't focused (tracked via visibilityChange)
   if (!hasPushSubscriptions()) return;
+  if (!isLatestSubscriptionHidden()) return;
   const pushKey = `${tool}:${type}`;
   if (now - (pushLastTime[pushKey] || 0) < PUSH_RATE_LIMIT_MS) return;
   pushLastTime[pushKey] = now;
 
-  io.timeout(5000).emit("chatNotificationAck", notification, (err, responses) => {
-    const hasFocused = !err && responses && responses.length > 0;
-    if (!hasFocused) sendPushNotification(notification);
-  });
+  sendPushNotification(notification);
 }

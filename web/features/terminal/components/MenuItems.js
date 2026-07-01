@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
@@ -38,13 +38,18 @@ export default function MenuItems({
     window.matchMedia("(display-mode: standalone)").matches || isExpoWebView
   );
 
-  const [pushEnabled, setPushEnabled] = useState(() => {
-    if (typeof window === "undefined") return false;
-    if (window.ReactNativeWebView) return false;
-    if ("Notification" in window) return Notification.permission === "granted";
-    return false;
-  });
+  const [pushEnabled, setPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
+
+  // Source of truth = actual push subscription, not Notification.permission (can't be revoked via JS)
+  useEffect(() => {
+    if (typeof window === "undefined" || isExpoWebView) return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager?.getSubscription())
+      .then((sub) => setPushEnabled(!!sub))
+      .catch(() => {});
+  }, [isExpoWebView]);
 
   // Toggle push on/off; enable requests permission via subscribeToPush
   const handleTogglePush = useCallback(async () => {
@@ -56,9 +61,15 @@ export default function MenuItems({
       setPushEnabled(false);
     } else {
       await subscribeToPush?.();
-      const granted = isExpoWebView ||
-        (typeof Notification !== "undefined" && Notification.permission === "granted");
-      setPushEnabled(granted);
+      // Confirm via real subscription (Expo has no PushManager)
+      let enabled = isExpoWebView;
+      if (!isExpoWebView && "serviceWorker" in navigator && "PushManager" in window) {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          enabled = !!(await reg.pushManager?.getSubscription());
+        } catch { enabled = false; }
+      }
+      setPushEnabled(enabled);
     }
     setPushLoading(false);
   }, [pushEnabled, pushLoading, subscribeToPush, unsubscribeFromPush, isExpoWebView]);
@@ -74,7 +85,10 @@ export default function MenuItems({
         >
           <div className="flex items-center gap-2.5">
             <Bell className="text-brand-500" size={16} />
-            <span className="text-sm">{t("menu.notifications")}</span>
+            <div className="flex flex-col">
+              <span className="text-sm">{t("menu.notifications")}</span>
+              <span className="text-xs text-text-muted">{t("menu.notificationsHint")}</span>
+            </div>
           </div>
           {pushLoading ? (
             <Loader2 className="animate-spin text-text-muted" size={16} />

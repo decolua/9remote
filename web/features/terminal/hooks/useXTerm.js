@@ -6,7 +6,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
-import { TERMINAL_OPTIONS, isUserTyping } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL } from "@/features/terminal/constants/terminalConfig";
 
 // XTerm instance management hook
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
@@ -229,10 +229,25 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     let momentumId = null;
     let accumulated = 0;
 
-    const SENSITIVITY = 1.5;
-    const LINE_HEIGHT = 14;
-    const FRICTION = 0.95;
-    const MIN_VELOCITY = 0.3;
+    const SENSITIVITY = TOUCH_SCROLL.sensitivity;
+    const LINE_HEIGHT = TOUCH_SCROLL.lineHeight;
+    const FRICTION = TOUCH_SCROLL.friction;
+    const MIN_VELOCITY = TOUCH_SCROLL.minVelocity;
+
+    // Alt-buffer (TUI mouse-tracking) has no scrollback → send SGR wheel to app; else scroll local scrollback
+    const applyScroll = (lines) => {
+      const t = termRef.current;
+      if (!t) return;
+      if (t.buffer.active.type === "alternate") {
+        const x = Math.max(1, Math.ceil(t.cols / 2));
+        const y = Math.max(1, Math.ceil(t.rows / 2));
+        const seq = lines > 0 ? TOUCH_SCROLL.sgrDown(x, y) : TOUCH_SCROLL.sgrUp(x, y);
+        const n = Math.min(Math.abs(lines), TOUCH_SCROLL.wheelStepLines);
+        for (let i = 0; i < n; i++) socket.emit("input", { sessionId, data: seq });
+      } else {
+        t.scrollLines(lines);
+      }
+    };
 
     const stopMomentum = () => {
       if (momentumId) {
@@ -252,7 +267,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       accumulated += velocity;
       const lines = Math.trunc(accumulated / LINE_HEIGHT);
       if (lines !== 0) {
-        termRef.current.scrollLines(lines);
+        applyScroll(lines);
         accumulated -= lines * LINE_HEIGHT;
       }
 
@@ -279,7 +294,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       accumulated += deltaY;
       const lines = Math.trunc(accumulated / LINE_HEIGHT);
       if (lines !== 0) {
-        termRef.current.scrollLines(lines);
+        applyScroll(lines);
         accumulated -= lines * LINE_HEIGHT;
       }
 

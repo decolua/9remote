@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "2.0.26",
+  "version": "2.0.30",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "dist/server.cjs",
@@ -55,7 +55,7 @@
   },
   "optionalDependencies": {
     "@hurdlegroup/robotjs": "^0.12.1",
-    "node-pty": "^1.2.0-beta.7"
+    "node-pty": "1.2.0-beta.12"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.9.5",

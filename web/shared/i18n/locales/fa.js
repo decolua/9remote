@@ -67,6 +67,7 @@ export default {
     language: "زبان",
     theme: "پوسته",
     notifications: "اعلان‌ها",
+    notificationsHint: "Notify when agent finishes",
     files: "فایل‌ها",
     sites: "سایت‌ها",
     commandNotes: "یادداشت‌های دستور",

@@ -67,6 +67,7 @@ export default {
     language: "Language",
     theme: "Theme",
     notifications: "Notifications",
+    notificationsHint: "Notify when agent finishes",
     files: "Files",
     sites: "Sites",
     commandNotes: "Command Notes",

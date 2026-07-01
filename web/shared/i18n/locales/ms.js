@@ -67,6 +67,7 @@ export default {
     language: "Bahasa",
     theme: "Tema",
     notifications: "Pemberitahuan",
+    notificationsHint: "Notify when agent finishes",
     files: "Fail",
     sites: "Tapak",
     commandNotes: "Nota Arahan",
