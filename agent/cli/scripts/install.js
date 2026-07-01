@@ -20,7 +20,8 @@ function ensureRuntimeDir() {
 }
 
 function hasSystray2() {
-  return fs.existsSync(path.join(RUNTIME_MODULES, SYSTRAY_PKG, "package.json"));
+  const binName = process.platform === "darwin" ? "tray_darwin_release" : "tray_linux_release";
+  return fs.existsSync(path.join(RUNTIME_MODULES, SYSTRAY_PKG, "traybin", binName));
 }
 
 function chmodBin() {
@@ -33,6 +34,8 @@ function chmodBin() {
 function ensureTrayRuntime() {
   if (process.platform === "win32") return;
   ensureRuntimeDir();
+  // Purge legacy systray v1 cache so we never resolve the old binary after update
+  try { fs.rmSync(path.join(os.homedir(), ".cache", "node-systray"), { recursive: true, force: true }); } catch {}
   if (hasSystray2()) { chmodBin(); return; }
 
   console.log("⏳ Installing system tray (first run)...");

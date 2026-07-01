@@ -75,19 +75,14 @@ function buildMenu() {
  * Initialize system tray
  * @param {{ port: number, onQuit: () => void, onOpenUI: () => void }} options
  */
-/** Resolve systray2 (modern binary) from runtime dir, fallback to global */
+/** Resolve systray2 from runtime dir only — avoid legacy systray v1 cache */
 function resolveSystray() {
-  const candidates = [
-    path.join(RUNTIME_MODULES, "systray2"),
-    "systray2",
-  ];
-  for (const p of candidates) {
-    try {
-      const mod = require(p);
-      return mod.default?.default || mod.default || mod;
-    } catch {}
+  try {
+    const mod = require(path.join(RUNTIME_MODULES, "systray2"));
+    return mod.default?.default || mod.default || mod;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export async function initTray({ port, onQuit, onOpenUI }) {
@@ -100,7 +95,8 @@ export async function initTray({ port, onQuit, onOpenUI }) {
     // Ensure binary is executable (npm tarball sometimes strips +x)
     const binName = process.platform === "darwin" ? "tray_darwin_release" : "tray_linux_release";
     const binPath = path.join(RUNTIME_MODULES, "systray2", "traybin", binName);
-    try { if (fs.existsSync(binPath)) fs.chmodSync(binPath, 0o755); } catch {}
+    if (!fs.existsSync(binPath)) return null;
+    try { fs.chmodSync(binPath, 0o755); } catch {}
 
     trayState = { port, tunnelUrl: "", running: true };
     trayInstance = new SysTray({ menu: buildMenu(), debug: false, copyDir: true });

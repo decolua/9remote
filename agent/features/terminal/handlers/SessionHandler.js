@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 
 const MAX_BUFFER = 2 * 1024 * 1024;
+const JOIN_REPLAY_SIZE = 256 * 1024; // Replay only tail on join to avoid network burst
 const PERSISTENCE_MODE = "daemon";
 
 /**
@@ -200,7 +201,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     }
 
     if (session.buffer?.length > 0) {
-      socket.emit("output", { sessionId, data: Buffer.from(session.buffer.join(""), "utf-8") });
+      socket.emit("output", { sessionId, data: Buffer.from(session.buffer.join("").slice(-JOIN_REPLAY_SIZE), "utf-8") });
     }
     callback({ success: true, name: session.name, cwd: session.cwd });
   });

@@ -187,7 +187,8 @@ export async function startTransportServer(server) {
     allowUpgrades: true,
     pingTimeout: 60000,
     pingInterval: 25000,
-    maxHttpBufferSize: 1e8
+    maxHttpBufferSize: 1e8,
+    perMessageDeflate: { threshold: 1024 }
   });
 
   // Check remote availability at startup

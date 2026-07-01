@@ -30,6 +30,7 @@ const clients = new Set();
 
 // Constants
 const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB raw fallback per session
+const JOIN_REPLAY_SIZE = 256 * 1024; // Replay only tail on join to avoid network burst
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
 
 // Log file path — under ~/.9remote/logs/ for consistency with agent.log
@@ -258,8 +259,8 @@ function handleMessage(client, message) {
         send(client, { type: "joinResult", success: false, error: "Session not found", requestId: payload.requestId });
         return;
       }
-      // Replay raw buffered output
-      const history = session.buffer.length > 0 ? session.buffer.join("") : "";
+      // Replay only tail of buffered output to avoid network burst on join
+      const history = session.buffer.length > 0 ? session.buffer.join("").slice(-JOIN_REPLAY_SIZE) : "";
       if (history) {
         send(client, {
           type: "output",
