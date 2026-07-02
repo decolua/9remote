@@ -12,6 +12,7 @@ export function useSocket() {
   const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
   const [platform, setPlatform] = useState(null);
   const [agentVersion, setAgentVersion] = useState(null);
+  const [updateAvailable, setUpdateAvailable] = useState(null);
   const [approvalStatus, setApprovalStatus] = useState(null); // null | "pending" | "approved" | "rejected"
   const { getAuth } = useSessionStorage();
 
@@ -73,6 +74,7 @@ export function useSocket() {
       setRemoteAvailable(info.remoteAvailable);
       setPlatform(info.platform);
       setAgentVersion(info.version || null);
+      setUpdateAvailable(info.updateAvailable || null);
       if (info.isCodespaces) {
         setCodespaceInfo({ isCodespaces: info.isCodespaces, codespaceName: info.codespaceName });
       }
@@ -196,6 +198,22 @@ export function useSocket() {
     }
   }, [getAuth, codespaceInfo]);
 
+  // Trigger agent self-update; widen retry window so we survive restart
+  const triggerUpdate = useCallback(async () => {
+    const auth = getAuth();
+    if (!auth?.tunnelUrl || !auth?.apiKey) return false;
+    protocolRef.current?.setUpdating?.(true);
+    try {
+      const response = await fetch(`${auth.tunnelUrl}/api/update`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${auth.apiKey}` }
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }, [getAuth, protocolRef]);
+
   return {
     socket,
     socketRef,
@@ -212,6 +230,8 @@ export function useSocket() {
     codespaceStopping,
     platform,
     agentVersion,
+    updateAvailable,
+    triggerUpdate,
     groups,
     loadSessions,
     loadGroups,

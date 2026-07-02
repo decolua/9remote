@@ -84,6 +84,8 @@ export default {
     pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "الوكيل {version} قديم",
     versionMismatchHint: "قد لا تعمل بعض الميزات. شغّل:",
+    updateNow: "Update now",
+    updating: "Updating… reconnecting",
     version: "الإصدار"
   },
   workspace: {

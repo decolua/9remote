@@ -21,10 +21,17 @@ export function isAgentOutdated(agentVersion, webVersion) {
   return !!agentVersion && !!webVersion && isVersionLower(webVersion, agentVersion);
 }
 
-export default function AgentOutdatedBanner({ agentVersion, className = "" }) {
+export default function AgentOutdatedBanner({ agentVersion, updateAvailable = null, onUpdate, className = "" }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
+  const handleUpdate = useCallback(() => {
+    vibrate();
+    setUpdating(true);
+    onUpdate?.();
+  }, [onUpdate]);
 
   const handleCopy = useCallback(() => {
     vibrate();
@@ -50,6 +57,19 @@ export default function AgentOutdatedBanner({ agentVersion, className = "" }) {
           <p className="text-text-muted">
             {t("menu.versionMismatchHint")}
           </p>
+          {updateAvailable && onUpdate && (
+            <button
+              onClick={handleUpdate}
+              disabled={updating}
+              className="w-full px-2 py-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white rounded flex items-center justify-center gap-1.5 transition-colors"
+              type="button"
+            >
+              <RefreshCw size={14} className={updating ? "animate-spin" : ""} />
+              <span className="text-xs font-medium">
+                {updating ? t("menu.updating") : t("menu.updateNow")}
+              </span>
+            </button>
+          )}
           <div className="flex items-center gap-2 bg-surface px-2 py-1.5 rounded">
             <code className="flex-1 min-w-0 text-brand-500 text-xs font-mono break-all select-all">
               {AGENT_UPDATE_COMMAND}

@@ -193,18 +193,25 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
 }
 
 function UpdateBanner({ version }) {
+  const [updating, setUpdating] = useState(false);
   if (!version) return null;
-  const handleUpdate = () => fetch("/api/update", { method: "POST" }).catch(() => {});
+  const handleUpdate = () => {
+    setUpdating(true);
+    fetch("/api/update", { method: "POST" }).catch(() => {});
+  };
   return (
     <div className="px-5 py-2 flex items-center gap-2 border-b" style={{ background: "rgba(var(--brand-rgb),0.08)", borderColor: "rgba(var(--brand-rgb),0.2)" }}>
       <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "var(--brand-400)" }}>system_update</span>
-      <span className="text-xs flex-1" style={{ color: "var(--brand-400)" }}>Version {version} available</span>
+      <span className="text-xs flex-1" style={{ color: "var(--brand-400)" }}>
+        {updating ? "Updating… agent will restart" : `Version ${version} available`}
+      </span>
       <button
         onClick={handleUpdate}
-        className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-medium"
+        disabled={updating}
+        className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-medium disabled:opacity-50"
         style={{ background: "rgba(var(--brand-rgb),0.15)", color: "var(--brand-400)" }}
       >
-        Update
+        {updating ? "Updating…" : "Update"}
       </button>
     </div>
   );

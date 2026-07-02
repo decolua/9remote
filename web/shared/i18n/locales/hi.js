@@ -84,6 +84,8 @@ export default {
     pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} पुराना है",
     versionMismatchHint: "कुछ सुविधाएँ काम नहीं कर सकतीं। चलाएँ:",
+    updateNow: "Update now",
+    updating: "Updating… reconnecting",
     version: "संस्करण"
   },
   workspace: {

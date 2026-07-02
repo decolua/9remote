@@ -4,6 +4,11 @@ import os from "os";
 
 // Centralized filesystem layout for ~/.9remote
 // Group files by responsibility: logs / state / config
+const PACKAGE_NAME = "9remote";
+// Registry override for local testing (Verdaccio). Falls back to public npm.
+export const NPM_REGISTRY_URL = process.env.NREMOTE_REGISTRY || `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
+export const NPM_INSTALL_SPEC = `${PACKAGE_NAME}@latest`;
+
 const ROOT = path.join(os.homedir(), ".9remote");
 export const PATHS = {
   ROOT,

@@ -4,12 +4,13 @@ import { fileURLToPath } from "url";
 import { spawn, execSync } from "child_process";
 import path from "path";
 import os from "os";
-import { browserFetch } from "../../lib/constants.js";
+import { browserFetch, NPM_REGISTRY_URL, NPM_INSTALL_SPEC, PATHS } from "../../lib/constants.js";
 import { killAll as killAllPids, getPidsDir } from "./pids.js";
+import { getCliEntry, getNodeBin } from "./autostart.js";
+import { UPDATE } from "../config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_NAME = "9remote";
-const NPM_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const UPDATE_CHECK_TIMEOUT = 3000;
 const SAFETY_TIMEOUT = 8000;
 const SERVER_PORT = 2208;
@@ -68,9 +69,9 @@ function getCurrentVersion() {
     return __CLI_VERSION__;
   }
   
-  // Dev mode: read from package.json
+  // Dev mode: read from package.json (cli/utils → agent root is two levels up)
   try {
-    const packagePath = path.resolve(__dirname, "../package.json");
+    const packagePath = path.resolve(__dirname, "../../package.json");
     const packageJson = JSON.parse(readFileSync(packagePath, "utf-8"));
     return packageJson.version;
   } catch {
@@ -355,4 +356,161 @@ fi
         safeResolve(false);
       });
   });
+}
+
+// ── Web-triggered update ─────────────────────────────────────────────────────
+
+const LOCK_PATH = path.join(PATHS.STATE, UPDATE.lockFile);
+
+// Concurrent guard: skip if a fresh lock held by a live process exists (R6)
+function acquireUpdateLock() {
+  try {
+    if (existsSync(LOCK_PATH)) {
+      const { pid, ts } = JSON.parse(readFileSync(LOCK_PATH, "utf8"));
+      const fresh = Date.now() - ts < UPDATE.lockTtlMs;
+      let alive = false;
+      try { process.kill(pid, 0); alive = true; } catch {}
+      if (fresh && alive) return false;
+    }
+  } catch {}
+  try { writeFileSync(LOCK_PATH, JSON.stringify({ pid: process.pid, ts: Date.now() })); } catch {}
+  return true;
+}
+
+// Fetch latest version from registry; null on failure
+async function fetchLatestVersion() {
+  try {
+    const res = await browserFetch(NPM_REGISTRY_URL, { signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT) });
+    if (!res.ok) return null;
+    const { version } = await res.json();
+    return version || null;
+  } catch { return null; }
+}
+
+// Registry flag for npm inside the script (Verdaccio test). Empty on invalid/unset.
+function registryFlag() {
+  try {
+    if (process.env.NREMOTE_REGISTRY) return `--registry ${new URL(process.env.NREMOTE_REGISTRY).origin}`;
+  } catch {}
+  return "";
+}
+
+// Build the self-contained update script. Runs detached from the agent:
+// waits for agent to die → kills tracked PIDs (never ptyDaemon) → npm install
+// with retry → verifies version == latest → rolls back on mismatch → restarts.
+function buildUpdateScript({ currentVersion, latest, agentPid }) {
+  const pidsDir = getPidsDir();
+  const reg = registryFlag();
+  const nodeBin = getNodeBin();
+  const cliEntry = getCliEntry();
+  const lock = LOCK_PATH;
+
+  if (process.platform === "win32") {
+    const script = `@echo off
+echo Waiting for agent to exit...
+:waitloop
+tasklist /FI "PID eq ${agentPid}" 2>nul | find "${agentPid}" >nul
+if not errorlevel 1 (
+  timeout /t 1 /nobreak >nul
+  goto waitloop
+)
+
+rem Kill agent only (no /T) so its cloudflared child survives → tunnel URL kept
+if exist "${pidsDir}\\agent.pid" (
+  for /f %%P in ('type "${pidsDir}\\agent.pid"') do taskkill /F /PID %%P >nul 2>&1
+  del /f /q "${pidsDir}\\agent.pid" >nul 2>&1
+)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %%a >nul 2>&1
+timeout /t 3 /nobreak >nul
+
+set ATTEMPT=0
+:installloop
+set /a ATTEMPT+=1
+echo Installing (attempt %ATTEMPT%)...
+call npm install -g ${NPM_INSTALL_SPEC} --prefer-online ${reg}
+if %ERRORLEVEL% EQU 0 goto verify
+if %ATTEMPT% GEQ ${UPDATE.maxRetry} (
+  call npm install -g ${NPM_INSTALL_SPEC} --prefer-online --omit=optional ${reg}
+  goto verify
+)
+timeout /t 3 /nobreak >nul
+goto installloop
+
+:verify
+for /f %%V in ('"${nodeBin}" "${cliEntry}" --version 2^>nul') do set NEWVER=%%V
+if not "%NEWVER%"=="${latest}" (
+  echo Verify failed ^(got %NEWVER%, want ${latest}^), rolling back...
+  call npm install -g ${PACKAGE_NAME}@${currentVersion} --prefer-online ${reg}
+)
+del /f /q "${lock}" >nul 2>&1
+"${nodeBin}" "${cliEntry}" --tray --skip-update --adopt-tunnel
+`;
+    const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update.bat`);
+    writeFileSync(scriptPath, script);
+    // Quote scriptPath (path may contain spaces). Empty "" = start window title.
+    // `start "" /b` → job-breakaway so taskkill /T of the agent tree won't kill us (R1)
+    return { shellCmd: ["cmd.exe", ["/c", "start", "", "/b", `"${scriptPath}"`]], windowsVerbatim: true };
+  }
+
+  const script = `#!/bin/bash
+# Wait for agent to exit so it releases the cli.cjs file lock
+while kill -0 ${agentPid} 2>/dev/null; do sleep 1; done
+
+# Kill agent only — keep cloudflared alive so tunnel URL survives (never ptyDaemon)
+f="${pidsDir}/agent.pid"
+if [ -f "$f" ]; then
+  pid=$(cat "$f" 2>/dev/null)
+  [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+  rm -f "$f"
+fi
+lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true
+sleep 2
+
+attempt=0
+while [ $attempt -lt ${UPDATE.maxRetry} ]; do
+  attempt=$((attempt+1))
+  echo "Installing (attempt $attempt)..."
+  if npm install -g ${NPM_INSTALL_SPEC} --prefer-online ${reg}; then break; fi
+  if [ $attempt -eq ${UPDATE.maxRetry} ]; then
+    npm install -g ${NPM_INSTALL_SPEC} --prefer-online --omit=optional ${reg} || true
+  fi
+  sleep 3
+done
+
+# Verify version == latest; roll back if the new binary is broken/wrong (R2)
+# Take first line + strip ANSI escapes so trailing cursor codes don't corrupt compare
+NEWVER=$("${nodeBin}" "${cliEntry}" --version 2>/dev/null | head -1 | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tr -d '[:space:]')
+if [ "$NEWVER" != "${latest}" ]; then
+  echo "Verify failed (got $NEWVER, want ${latest}), rolling back to ${currentVersion}..."
+  npm install -g ${PACKAGE_NAME}@${currentVersion} --prefer-online ${reg} || true
+fi
+
+rm -f "${lock}"
+"${nodeBin}" "${cliEntry}" --tray --skip-update --adopt-tunnel
+`;
+  const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update.sh`);
+  writeFileSync(scriptPath, script, { mode: 0o755 });
+  return { shellCmd: ["sh", [scriptPath]], windowsVerbatim: false };
+}
+
+// Entry point for web-triggered update (called by cmdPoller on "update" command).
+export async function runWebUpdate() {
+  const currentVersion = getCurrentVersion();
+  if (!currentVersion) return false;
+  if (isRestrictedEnvironment()) return false;
+
+  const latest = await fetchLatestVersion();
+  if (!latest || !isNewerVersion(currentVersion, latest)) return false;
+
+  if (!acquireUpdateLock()) return false;
+
+  const { shellCmd, windowsVerbatim } = buildUpdateScript({ currentVersion, latest, agentPid: process.pid });
+
+  // Spawn detached BEFORE we exit; script waits for us to die then does the work.
+  // windowsVerbatimArguments keeps the quoted script path intact for `start`.
+  const child = spawn(shellCmd[0], shellCmd[1], { detached: true, stdio: "ignore", windowsVerbatimArguments: windowsVerbatim });
+  child.unref();
+
+  setTimeout(() => process.exit(0), 500);
+  return true;
 }

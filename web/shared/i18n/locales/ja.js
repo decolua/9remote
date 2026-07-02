@@ -84,6 +84,8 @@ export default {
     pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} は古いバージョンです",
     versionMismatchHint: "一部の機能が動作しない可能性があります。実行してください:",
+    updateNow: "Update now",
+    updating: "Updating… reconnecting",
     version: "バージョン"
   },
   workspace: {

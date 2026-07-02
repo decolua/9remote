@@ -84,6 +84,8 @@ export default {
     pushActiveHint: "Thông báo đẩy đang bật cho thiết bị này. Bạn sẽ được báo khi AI hoàn thành.",
     versionMismatch: "Agent {version} đã lỗi thời",
     versionMismatchHint: "Một số tính năng có thể không hoạt động. Chạy:",
+    updateNow: "Cập nhật ngay",
+    updating: "Đang cập nhật… kết nối lại",
     version: "Phiên bản"
   },
   workspace: {

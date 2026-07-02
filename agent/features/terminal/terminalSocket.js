@@ -5,7 +5,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import * as daemonClient from "./ptyDaemonClient.js";
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
-import { isRemoteReady, setRemoteReadyChangeHandler } from "../../api/ui.js";
+import { isRemoteReady, setRemoteReadyChangeHandler, getUpdateInfo } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
 import { listSavedBufferSessions, loadSessionMetadata, loadGroups, saveSessionMetadata } from "./ptyHelper.js";
 import { setupSessionHandlers } from "./handlers/SessionHandler.js";
@@ -119,19 +119,28 @@ export function setupTerminalSocket(io, apiKey) {
     remoteAvailable: isRemoteReady(),
     daemonMode: PERSISTENCE_MODE === "daemon" && daemonClient.isConnected(),
     platform: process.platform,
+    updateAvailable: getUpdateInfo(),
     ...getCodespaceInfo()
   });
 
-  // Broadcast fresh serverInfo to all approved clients when remote readiness changes
-  setRemoteReadyChangeHandler(() => {
+  const emitServerInfo = () => {
     const info = buildServerInfo();
     for (const socket of io.sockets.sockets.values()) {
       if (socket.data?.approved) socket.emit("serverInfo", info);
     }
-  });
+  };
 
-  // Expose serverInfo builder so the single connection handler can emit it.
+  // Broadcast fresh serverInfo when remote readiness changes
+  setRemoteReadyChangeHandler(emitServerInfo);
+
+  // Expose builder + broadcaster so connection handler + update checker can emit
   setupTerminalSocket._buildServerInfo = buildServerInfo;
+  setupTerminalSocket._emitServerInfo = emitServerInfo;
+}
+
+// Broadcast serverInfo to all approved clients (e.g. when an update is detected).
+export function broadcastServerInfo() {
+  setupTerminalSocket._emitServerInfo?.();
 }
 
 // Per-socket terminal + remote handlers (called from the single connection handler,

@@ -10,7 +10,7 @@ import { fileURLToPath } from "url";
 import chalk from "chalk";
 
 import { createRouter, jsonOk, jsonErr } from "./lib/router.js";
-import { STEP, browserFetch, PERMISSION_POLL_MS } from "./lib/constants.js";
+import { STEP, browserFetch, PERMISSION_POLL_MS, NPM_REGISTRY_URL } from "./lib/constants.js";
 import { initLogger, createLogger } from "./lib/logger.js";
 
 initLogger();
@@ -31,8 +31,10 @@ import {
   handleConnections, handleDesktopToggle, handleLogsGet,
   handlePermissionsGet, handlePermissionsRequest,
   handleAutoStartGet, handleAutoStartPost,
-  handleLocalToken,
+  handleLocalToken, handleUpdate, setUpdateInfo,
 } from "./api/ui.js";
+import { broadcastServerInfo } from "./features/terminal/terminalSocket.js";
+import { UPDATE } from "./cli/config.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove, handleSetLabel } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
@@ -45,7 +47,6 @@ import { REMOTE_CONFIG } from "./features/remote/REMOTE_CONFIG.js";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const IS_DEV = process.env.NODE_ENV === "development";
 const VITE_PORT = 5173;
-const NPM_REGISTRY_URL = "https://registry.npmjs.org/9remote/latest";
 
 const UI_DIST = existsSync(join(__dirname, "ui", "dist"))
   ? join(__dirname, "ui", "dist")
@@ -82,7 +83,11 @@ async function checkForUpdate(currentVersion) {
     const res = await browserFetch(NPM_REGISTRY_URL);
     if (!res.ok) return;
     const { version } = await res.json();
-    if (version && isNewerVersion(currentVersion, version)) pushUiEvent("updateAvailable", { version });
+    if (version && isNewerVersion(currentVersion, version)) {
+      setUpdateInfo({ version });
+      pushUiEvent("updateAvailable", { version });
+      broadcastServerInfo();
+    }
   } catch { /* non-critical */ }
 }
 
@@ -153,6 +158,7 @@ const ROUTES = [
   { path: "/api/ui/start",         method: "POST", handler: handleStart },
   { path: "/api/ui/stop-tunnel",   method: "POST", handler: handleStopTunnel },
   { path: "/api/ui/shutdown",      method: "POST", handler: handleShutdown },
+  { path: "/api/update",           method: "POST", handler: handleUpdate },
 
   // Key management (localhost-only)
   { path: "/api/key/one-time",     method: "POST", handler: handleOneTimeKey },
@@ -271,6 +277,7 @@ export async function startServer() {
       ? __CLI_VERSION__
       : JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
     checkForUpdate(version);
+    setInterval(() => checkForUpdate(version), UPDATE.checkIntervalMs);
   });
 
   // Graceful shutdown

@@ -84,6 +84,8 @@ export default {
     pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "El agente {version} está desactualizado",
     versionMismatchHint: "Algunas funciones pueden no funcionar. Ejecuta:",
+    updateNow: "Update now",
+    updating: "Updating… reconnecting",
     version: "Versión"
   },
   workspace: {

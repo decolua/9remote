@@ -84,6 +84,8 @@ export default {
     pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "نسخه Agent {version} قدیمی است",
     versionMismatchHint: "ممکن است برخی قابلیت‌ها کار نکنند. اجرا کنید:",
+    updateNow: "Update now",
+    updating: "Updating… reconnecting",
     version: "نسخه"
   },
   workspace: {

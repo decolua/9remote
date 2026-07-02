@@ -84,6 +84,8 @@ export default {
     pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agen {version} sudah lapuk",
     versionMismatchHint: "Beberapa ciri mungkin tidak berfungsi. Jalankan:",
+    updateNow: "Update now",
+    updating: "Updating… reconnecting",
     version: "Versi"
   },
   workspace: {

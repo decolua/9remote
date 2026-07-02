@@ -35,6 +35,15 @@ export const DELAYS = {
 
 export const TUI = { maxLogLines: 200, headerWidth: 44 };
 
+export const UPDATE = {
+  checkIntervalMs: 3600000,
+  maxRetry: 3,
+  retryDelayMs: 3000,
+  verifyTimeoutMs: 15000,
+  lockTtlMs: 300000,
+  lockFile: "update.lock",
+};
+
 export const URL_SYNC_DEBOUNCE_MS = 5000;
 export const HEALTH_FLAP_STABLE_CHECKS = 2;
 export const FAST_PROBE_TIMEOUT_MS = 30000;

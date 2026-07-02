@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import "../lib/loadEnv.js";
+import { getVersion } from "./session/key.js";
 import { initLogger } from "../lib/logger.js";
 import { stopRunningInstances } from "./utils/updateChecker.js";
 import { startUiMode } from "./modes/ui.js";
@@ -8,6 +9,13 @@ import { startTrayMode } from "./modes/tray.js";
 import { autoStartDev } from "./modes/auto.js";
 import { startupMenu } from "./modes/startup.js";
 import { runHeadlessCommand, printHelp } from "./modes/headless.js";
+
+// Print version early and exit clean (no logger/TUI ANSI) so update scripts can parse it
+const _vcmd = process.argv[2];
+if (_vcmd === "version" || _vcmd === "--version" || _vcmd === "-v") {
+  process.stdout.write(getVersion() + "\n");
+  process.exit(0);
+}
 
 initLogger();
 

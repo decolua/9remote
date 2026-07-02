@@ -84,6 +84,8 @@ export default {
     pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version}이(가) 구버전입니다",
     versionMismatchHint: "일부 기능이 작동하지 않을 수 있습니다. 다음을 실행하세요:",
+    updateNow: "Update now",
+    updating: "Updating… reconnecting",
     version: "버전"
   },
   workspace: {

@@ -42,7 +42,7 @@
     "xxhash-addon": "^2.1.0"
   },
   "dependencies": {
-    "9remote": "^2.0.20",
+    "9remote": "^2.0.34",
     "wrangler": "^4.73.0"
   }
 }

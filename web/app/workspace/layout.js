@@ -57,7 +57,7 @@ export default function WorkspaceLayout({ children }) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, retryStatus, approvalStatus, loadSessions, createSession, getShells, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, triggerUpdate, retryStatus, approvalStatus, loadSessions, createSession, getShells, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession } = useSocket();
   const [shells, setShells] = useState([]);
 
   useEffect(() => {
@@ -484,6 +484,8 @@ export default function WorkspaceLayout({ children }) {
             notifications={notifications}
             clearNotification={clearNotification}
             agentVersion={agentVersion}
+            updateAvailable={updateAvailable}
+            onUpdate={triggerUpdate}
             transport={transport}
             groups={groups}
             onCreateGroup={createGroup}

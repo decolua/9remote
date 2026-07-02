@@ -84,6 +84,8 @@ export default {
     pushActiveHint: "Push notifications are on for this device. You'll be alerted when AI completes tasks.",
     versionMismatch: "Agent {version} ล้าสมัยแล้ว",
     versionMismatchHint: "บางฟีเจอร์อาจไม่ทำงาน รัน:",
+    updateNow: "Update now",
+    updating: "Updating… reconnecting",
     version: "เวอร์ชัน"
   },
   workspace: {

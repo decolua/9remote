@@ -27,6 +27,7 @@ export class WsProtocol extends BaseProtocol {
     this._retryScheduled = false;
     this._destroyed = false;
     this._blocked = false;
+    this._updating = false;
     this._connecting = false;
     this._visibilityHandler = null;
   }
@@ -34,6 +35,16 @@ export class WsProtocol extends BaseProtocol {
   get socket() { return this._socket; }
   get connectionMode() { return this._connectionMode; }
   get blocked() { return this._blocked; }
+
+  /** Widen retry window during agent self-update; auto-clears on next successful connect. */
+  setUpdating(updating) {
+    this._updating = updating;
+    if (updating) {
+      this._maxAttempts = RETRY.updateReconnectMaxAttempts;
+      this._retryAttempt = 0;
+      debugLog("transport", `[ws] updating=true maxAttempts=${this._maxAttempts}`);
+    }
+  }
 
   /** Dev/test: prevent reconnect attempts. When unblocked, schedule retry immediately. */
   setBlocked(blocked) {
@@ -129,6 +140,7 @@ export class WsProtocol extends BaseProtocol {
         this._connectionMode = mode;
         this._socket = socket;
         this._retryAttempt = 0;
+        this._updating = false;
         this._maxAttempts = this._reconnectMaxAttempts;
         this._cancelRetry();
         this._attachSocketEvents(socket);

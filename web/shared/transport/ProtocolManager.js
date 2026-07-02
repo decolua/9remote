@@ -117,6 +117,11 @@ export class ProtocolManager {
     this._adapters.get("ws")?.setBlocked(blocked);
   }
 
+  /** Widen WS retry window while agent self-updates. */
+  setUpdating(updating) {
+    this._adapters.get("ws")?.setUpdating(updating);
+  }
+
   // ─── Public API ────────────────────────────────────────────────────────────
 
   on(event, handler) {

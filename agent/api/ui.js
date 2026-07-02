@@ -109,6 +109,11 @@ export function clearOneTimeKey() {
   updateUiState({ oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "" });
 }
 
+// Latest available update { version } or null — set by periodic check, read by serverInfo
+let updateInfo = null;
+export function getUpdateInfo() { return updateInfo; }
+export function setUpdateInfo(info) { updateInfo = info || null; }
+
 export function getDesktopEnabled() { return desktopEnabled; }
 
 export function setRemoteAvailable(value) { remoteAvailable = !!value; }
@@ -194,6 +199,7 @@ export function handleSseEvents(req, res) {
   res.write(`data: ${JSON.stringify({ type: "state", ...uiState })}\n\n`);
   res.write(`data: ${JSON.stringify({ type: "connections", connections: [...activeConnections.values()] })}\n\n`);
   res.write(`data: ${JSON.stringify({ type: "permissions", ...cachedPermissions, desktopEnabled })}\n\n`);
+  if (updateInfo) res.write(`data: ${JSON.stringify({ type: "updateAvailable", ...updateInfo })}\n\n`);
   sseClients.add(res);
   req.on("close", () => sseClients.delete(res));
 }
@@ -232,6 +238,12 @@ export function handleShutdown(req, res) {
   jsonOk(res);
   updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
   writeCmd("shutdown");
+}
+
+// Web triggers update; CLI process (cmdPoller) does the actual work, not the server
+export function handleUpdate(req, res) {
+  jsonOk(res);
+  writeCmd("update");
 }
 
 export function handleConnections(req, res) {

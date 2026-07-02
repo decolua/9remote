@@ -34,7 +34,7 @@ function isHeadlessLinux() {
 }
 
 // Resolve CLI entry by walking up from __dirname to find 9remote package.json, then read its bin
-function getCliEntry() {
+export function getCliEntry() {
   for (let dir = __dirname, prev = null; dir !== prev; prev = dir, dir = path.dirname(dir)) {
     const pkgPath = path.join(dir, "package.json");
     if (!existsSync(pkgPath)) continue;
@@ -52,7 +52,7 @@ function getCliEntry() {
   return path.resolve(__dirname, "..", "index.js");
 }
 
-function getNodeBin() {
+export function getNodeBin() {
   return process.execPath;
 }
 
