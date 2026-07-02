@@ -3,6 +3,7 @@
  */
 
 import { spawn } from "child_process";
+import readline from "readline";
 import fs from "fs";
 import path, { join } from "path";
 import os from "os";
@@ -23,6 +24,19 @@ const ICO_CANDIDATES = [
   path.join(__dirname, "assets", "trayIcon.ico"),           // dev: agent/cli/utils/assets/
   path.join(__dirname, "..", "assets", "trayIcon.ico"),      // bundled: agent/dist/assets/
 ];
+
+// PowerShell tray script — resolved across dev + bundled layouts
+const PS1_CANDIDATES = [
+  path.join(__dirname, "assets", "tray.ps1"),                // dev: agent/cli/utils/assets/
+  path.join(__dirname, "..", "assets", "tray.ps1"),          // bundled: agent/dist/assets/
+];
+
+function resolveExisting(candidates) {
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch {}
+  }
+  return null;
+}
 
 function getIconBase64() {
   if (process.platform === "win32") {
@@ -85,18 +99,73 @@ function resolveSystray() {
   }
 }
 
+// Windows tray via PowerShell NotifyIcon — zero binary dep, AV-safe (R: no systray2 .exe)
+function initWinTray({ port, onQuit, onOpenUI }) {
+  const iconPath = resolveExisting(ICO_CANDIDATES);
+  const scriptPath = resolveExisting(PS1_CANDIDATES);
+  if (!iconPath || !scriptPath) return null;
+
+  let ps;
+  try {
+    ps = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+        "-InputFormat", "Text", "-OutputFormat", "Text",
+        "-File", scriptPath, "-IconPath", iconPath, "-Tooltip", `9Remote - Port ${port}`],
+      { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }
+    );
+  } catch { return null; }
+
+  const send = (cmd) => { try { if (ps.stdin.writable) ps.stdin.write(`${JSON.stringify(cmd)}\n`, "utf8"); } catch {} };
+
+  const rl = readline.createInterface({ input: ps.stdout });
+  rl.on("line", (line) => {
+    try {
+      const evt = JSON.parse(line);
+      if (evt.type !== "click") return;
+      if (evt.index === 0) onOpenUI?.();
+      else if (evt.index === 1) { onQuit?.(); killTray(); setTimeout(() => process.exit(0), 500); }
+    } catch {}
+  });
+  ps.on("error", () => {});
+  ps.stderr.on("data", () => {});
+
+  ["Open Web UI", "Shutdown"].forEach((title, index) =>
+    send({ action: "add-item", index, title, enabled: true }));
+
+  return {
+    _isWin: true,
+    _setTooltip(text) { send({ action: "set-tooltip", text }); },
+    sendAction() {},
+    kill() {
+      try { send({ action: "kill" }); } catch {}
+      setTimeout(() => { try { if (ps && !ps.killed) ps.kill(); } catch {} }, 300);
+    },
+  };
+}
+
 export async function initTray({ port, onQuit, onOpenUI }) {
   if (!isTraySupported()) return null;
+
+  // Windows: PowerShell NotifyIcon (no binary). Mac/Linux: systray2 Go binary.
+  if (process.platform === "win32") {
+    trayState = { port, tunnelUrl: "", running: true };
+    trayInstance = initWinTray({ port, onQuit, onOpenUI });
+    return trayInstance;
+  }
 
   try {
     const SysTray = resolveSystray();
     if (!SysTray) return null;
 
     // Ensure binary is executable (npm tarball sometimes strips +x)
-    const binName = process.platform === "darwin" ? "tray_darwin_release" : "tray_linux_release";
+    const binByPlatform = { darwin: "tray_darwin_release", win32: "tray_windows_release.exe", linux: "tray_linux_release" };
+    const binName = binByPlatform[process.platform];
+    if (!binName) return null;
     const binPath = path.join(RUNTIME_MODULES, "systray2", "traybin", binName);
     if (!fs.existsSync(binPath)) return null;
-    try { fs.chmodSync(binPath, 0o755); } catch {}
+    // Windows .exe needs no chmod; POSIX tarball sometimes strips +x
+    if (process.platform !== "win32") { try { fs.chmodSync(binPath, 0o755); } catch {} }
 
     trayState = { port, tunnelUrl: "", running: true };
     trayInstance = new SysTray({ menu: buildMenu(), debug: false, copyDir: true });
@@ -133,6 +202,11 @@ export function updateTrayTooltip({ tunnelUrl, running } = {}) {
   if (tunnelUrl !== undefined) trayState.tunnelUrl = tunnelUrl;
   if (running !== undefined) trayState.running = running;
   if (!trayInstance) return;
+  // Windows PS tray: tooltip-only IPC (no full menu rebuild)
+  if (trayInstance._isWin) {
+    trayInstance._setTooltip?.(buildTooltip());
+    return;
+  }
   try {
     trayInstance.sendAction({
       type: "update-menu",

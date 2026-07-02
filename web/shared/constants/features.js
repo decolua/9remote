@@ -7,4 +7,6 @@ export const FEATURES = {
 export const BEHAVIOR = {
   retry: { interval: 2000, maxAttempts: 15, savedKeyMaxAttempts: 3, reconnectMaxAttempts: 15, updateReconnectMaxAttempts: 45 },
   reconnect: { fastFailThreshold: 3 },
+  // Self-update modal: estimated phase thresholds (elapsed seconds) + hard timeout
+  update: { installingAt: 4, restartingAt: 15, timeoutSec: 90 },
 };

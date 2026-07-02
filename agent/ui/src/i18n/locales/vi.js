@@ -33,6 +33,12 @@ export default {
     logs: "Nhật ký",
     logsDesc: "Hoạt động và chẩn đoán máy chủ",
   },
+  recent: {
+    title: "Gần đây",
+    replied: "Agent đã trả lời",
+    needsInput: "Cần bạn phản hồi",
+    dismiss: "Xóa",
+  },
   header: {
     documentation: "Tài liệu",
     reset: "Đặt lại tunnel và kết nối lại thiết bị",

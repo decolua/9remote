@@ -7,7 +7,7 @@ import readline from "readline";
 import http from "http";
 import { openPermissionPane } from "./permissions.js";
 import { computeDelay } from "./backoff.js";
-import { RETRY_CONFIG } from "../../lib/constants.js";
+import { RETRY_CONFIG, NPM_INSTALL_SPEC } from "../../lib/constants.js";
 
 export { openPermissionPane };
 
@@ -56,7 +56,7 @@ export function getBannerText(currentVersion, latestVersion = null) {
 
   if (latestVersion) {
     lines.push(center(`⬆  New version v${latestVersion} available!`, (s) => C.yellow + C.bold + s + C.reset));
-    lines.push(center(`Run: npm i -g 9remote@latest`, (s) => C.dim + s + C.reset));
+    lines.push(center(`Run: npm i -g ${NPM_INSTALL_SPEC}`, (s) => C.dim + s + C.reset));
     lines.push(line());
   }
 

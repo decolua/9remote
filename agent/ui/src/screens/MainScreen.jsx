@@ -8,6 +8,7 @@ import { useSessions } from "../lib/terminalSocket";
 import { updateTitle } from "../lib/titleMarquee";
 import { useI18n } from "../i18n";
 import { SUPPORTED_LOCALES } from "../i18n/config";
+import { UPDATE_UI } from "../lib/constants";
 
 const HELP_URL = "https://docs.9remote.cc/";
 
@@ -20,6 +21,19 @@ const MENU = [
 
 const DEFAULT_MENU = "connection";
 const TERMINALS_MENU = "terminals";
+
+// Recent activity — AI tool → brand logo svg (public/agents/). type "stop"=replied, else needs input
+const AGENT_ICON = { claude: "/agents/claude.svg", codex: "/agents/codex.svg", gemini: "/agents/gemini.svg", opencode: "/agents/opencode.svg" };
+const RECENT_LIMIT = 6;
+
+// Compact relative time (e.g. "now", "3m", "2h", "1d")
+const timeAgo = (ts) => {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+};
 
 // Parse URL pathname → { menu, sessionId } (sessionId only under /terminals/:id)
 const parsePath = () => {
@@ -192,27 +206,76 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
   );
 }
 
+// Phase → { text builder, icon, spinning } — config-driven UI states
+const UPDATE_PHASES = {
+  idle:       { icon: "system_update", spin: false, text: (v) => `Version ${v} available` },
+  confirm:    { icon: "system_update", spin: false, text: () => "Update 9remote? Restarts connection (~1 min)" },
+  updating:   { icon: "progress_activity", spin: true, text: (v, s) => `Updating… ${s}s` },
+  restarting: { icon: "restart_alt", spin: true, text: (v, s) => `Updating 9remote… ${s}s` },
+  ready:      { icon: "check_circle", spin: false, text: () => "Updated! Reloading…" },
+  timeout:    { icon: "warning", spin: false, text: () => "Taking longer than expected" },
+};
+
 function UpdateBanner({ version }) {
-  const [updating, setUpdating] = useState(false);
+  const [phase, setPhase] = useState("idle");
+  const [seconds, setSeconds] = useState(0);
+
+  // Drives elapsed counter + polls /api/state to detect agent restart, then reloads.
+  // Transition: updating → (fetch fails = agent died) restarting → (fetch ok again) ready → reload
+  useEffect(() => {
+    if (phase !== "updating" && phase !== "restarting") return;
+    const startedAt = Date.now();
+    let diedOnce = false;
+    const tick = setInterval(() => setSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    let poll;
+    const startPoll = () => {
+      poll = setInterval(async () => {
+        if (Date.now() - startedAt > UPDATE_UI.timeoutMs) { setPhase("timeout"); clearInterval(poll); return; }
+        try {
+          const res = await fetch("/api/ui/state", { cache: "no-store" });
+          if (!res.ok) throw new Error();
+          if (diedOnce) { setPhase("ready"); clearInterval(poll); setTimeout(() => location.reload(), 600); }
+        } catch {
+          diedOnce = true;
+          setPhase("restarting");
+        }
+      }, UPDATE_UI.pollMs);
+    };
+    const delay = setTimeout(startPoll, UPDATE_UI.startDelayMs);
+    return () => { clearInterval(tick); clearInterval(poll); clearTimeout(delay); };
+  }, [phase === "updating" || phase === "restarting"]);
+
   if (!version) return null;
-  const handleUpdate = () => {
-    setUpdating(true);
+
+  const handleConfirm = () => {
+    setPhase("updating");
     fetch("/api/update", { method: "POST" }).catch(() => {});
   };
+
+  const p = UPDATE_PHASES[phase];
+  const busy = phase !== "idle" && phase !== "timeout";
+  // Time-estimated progress (update runs detached → no real %)
+  const progress = phase === "ready" ? 100 : Math.min((seconds * 1000 / UPDATE_UI.timeoutMs) * 100, 95);
   return (
-    <div className="px-5 py-2 flex items-center gap-2 border-b" style={{ background: "rgba(var(--brand-rgb),0.08)", borderColor: "rgba(var(--brand-rgb),0.2)" }}>
-      <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "var(--brand-400)" }}>system_update</span>
-      <span className="text-xs flex-1" style={{ color: "var(--brand-400)" }}>
-        {updating ? "Updating… agent will restart" : `Version ${version} available`}
-      </span>
-      <button
-        onClick={handleUpdate}
-        disabled={updating}
-        className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-medium disabled:opacity-50"
-        style={{ background: "rgba(var(--brand-rgb),0.15)", color: "var(--brand-400)" }}
-      >
-        {updating ? "Updating…" : "Update"}
-      </button>
+    <div className="relative px-5 py-2 flex items-center gap-2 border-b" style={{ background: "rgba(var(--brand-rgb),0.08)", borderColor: "rgba(var(--brand-rgb),0.2)" }}>
+      <span className={`material-symbols-outlined text-sm flex-shrink-0 ${p.spin ? "animate-spin" : ""}`} style={{ color: "var(--brand-400)" }}>{p.icon}</span>
+      <span className="text-xs flex-1" style={{ color: "var(--brand-400)" }}>{p.text(version, seconds)}</span>
+      {phase === "idle" && (
+        <button onClick={() => setPhase("confirm")} className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-medium" style={{ background: "rgba(var(--brand-rgb),0.15)", color: "var(--brand-400)" }}>Update</button>
+      )}
+      {phase === "confirm" && (
+        <>
+          <button onClick={handleConfirm} className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-medium" style={{ background: "rgba(var(--brand-rgb),0.15)", color: "var(--brand-400)" }}>Confirm</button>
+          <button onClick={() => setPhase("idle")} className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-medium" style={{ background: "rgba(255,255,255,0.08)", color: "var(--text-muted)" }}>Cancel</button>
+        </>
+      )}
+      {phase === "timeout" && (
+        <button onClick={() => location.reload()} className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-medium" style={{ background: "rgba(var(--brand-rgb),0.15)", color: "var(--brand-400)" }}>Reload</button>
+      )}
+      {busy && <span className="text-xs flex-shrink-0" style={{ color: "var(--brand-400)", opacity: 0.6 }}>{seconds}s</span>}
+      {busy && (
+        <div className="absolute left-0 bottom-0 h-0.5 transition-all duration-1000 ease-linear" style={{ width: `${progress}%`, background: "var(--brand-400)" }} />
+      )}
     </div>
   );
 }
@@ -458,10 +521,55 @@ function MenuAction({ icon, label, danger, onClick }) {
   );
 }
 
+/** Recent agent activity — sessions whose AI just finished/needs input (bottom of sidebar) */
+function RecentActivity({ notifications, sessions, onSelect, onDismiss, t }) {
+  const items = Object.values(notifications || {})
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    .slice(0, RECENT_LIMIT);
+  if (!items.length) return null;
+  const nameOf = (id) => sessions.find((s) => s.id === id)?.name || id.slice(0, 8);
+  return (
+    <div className="px-4 py-3 border-t select-none" style={{ borderColor: "var(--border-subtle)" }}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide px-1 mb-1.5" style={{ color: "var(--text-muted)" }}>{t("recent.title")}</p>
+      <div className="flex flex-col gap-0.5">
+        {items.map((n) => (
+          <div
+            key={n.sessionId}
+            onClick={() => onSelect(n.sessionId)}
+            className="group w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-all text-left cursor-pointer"
+            style={{ color: "var(--text-muted)" }}
+            title={nameOf(n.sessionId)}
+          >
+            {AGENT_ICON[n.tool] ? (
+              <img src={AGENT_ICON[n.tool]} alt={n.tool} className="w-4 h-4 flex-shrink-0" />
+            ) : (
+              <span className="material-symbols-outlined text-[16px] flex-shrink-0" style={{ color: "var(--brand-400)" }}>smart_toy</span>
+            )}
+            <span className="flex-1 min-w-0">
+              <span className="block text-[12px] font-medium truncate" style={{ color: "var(--text-main)" }}>{nameOf(n.sessionId)}</span>
+              <span className="block text-[10px] truncate">{n.type === "stop" ? t("recent.replied") : t("recent.needsInput")}</span>
+            </span>
+            <span className="text-[10px] flex-shrink-0 group-hover:hidden">{timeAgo(n.timestamp)}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDismiss(n.sessionId); }}
+              title={t("recent.dismiss")}
+              className="material-symbols-outlined text-[16px] flex-shrink-0 hidden group-hover:block"
+              style={{ color: "var(--text-muted)" }}
+            >
+              close
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Primary left navigation — logo top, menu mid, controls bottom (9router pattern) */
-function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onResetTunnel, onClose }) {
+function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onResetTunnel, onClose, notifications, sessions = [], onSelectSession, onDismissRecent }) {
   const { t } = useI18n();
   const handleSelect = (id) => { onSelect(id); onClose?.(); };
+  const handleSelectSession = (id) => { onSelectSession?.(id); onClose?.(); };
   return (
     <aside className="flex flex-col sidebar w-64 flex-shrink-0 h-full">
       {/* Brand */}
@@ -496,6 +604,8 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
           );
         })}
       </nav>
+
+      <RecentActivity notifications={notifications} sessions={sessions} onSelect={handleSelectSession} onDismiss={onDismissRecent} t={t} />
     </aside>
   );
 }
@@ -651,6 +761,9 @@ export default function MainScreen({
 
   const currentMenu = MENU.find((m) => m.id === activeMenu);
 
+  // Recent activity click → jump to terminals, open that session, clear its badge
+  const openRecent = (sessionId) => { navigateMenu(TERMINALS_MENU); term.clearFinished(sessionId); openSession(sessionId); };
+
   return (
     <div className="h-full w-full flex overflow-hidden" style={{ background: "var(--bg-body)" }}>
       {/* Sidebar — desktop */}
@@ -662,6 +775,10 @@ export default function MainScreen({
           isReady={isReady}
           tunnelHealth={tunnelHealth}
           onResetTunnel={() => setShowDisconnectConfirm(true)}
+          notifications={term.notifications}
+          sessions={term.sessions}
+          onSelectSession={openRecent}
+          onDismissRecent={term.dismissRecent}
         />
       </div>
 
@@ -678,6 +795,10 @@ export default function MainScreen({
           tunnelHealth={tunnelHealth}
           onResetTunnel={() => setShowDisconnectConfirm(true)}
           onClose={() => setSidebarOpen(false)}
+          notifications={term.notifications}
+          sessions={term.sessions}
+          onSelectSession={openRecent}
+          onDismissRecent={term.dismissRecent}
         />
       </div>
 

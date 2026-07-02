@@ -11,6 +11,10 @@ const DATA_DIR = path.join(os.homedir(), ".9remote");
 const RUNTIME_DIR = path.join(DATA_DIR, "runtime");
 const RUNTIME_MODULES = path.join(RUNTIME_DIR, "node_modules");
 
+// Tray binary name per platform (systray2 traybin)
+const TRAY_BIN = { darwin: "tray_darwin_release", win32: "tray_windows_release.exe", linux: "tray_linux_release" };
+function trayBinName() { return TRAY_BIN[process.platform]; }
+
 function ensureRuntimeDir() {
   if (!fs.existsSync(RUNTIME_DIR)) fs.mkdirSync(RUNTIME_DIR, { recursive: true });
   const pkgPath = path.join(RUNTIME_DIR, "package.json");
@@ -20,19 +24,18 @@ function ensureRuntimeDir() {
 }
 
 function hasSystray2() {
-  const binName = process.platform === "darwin" ? "tray_darwin_release" : "tray_linux_release";
-  return fs.existsSync(path.join(RUNTIME_MODULES, SYSTRAY_PKG, "traybin", binName));
+  const binName = trayBinName();
+  return !!binName && fs.existsSync(path.join(RUNTIME_MODULES, SYSTRAY_PKG, "traybin", binName));
 }
 
 function chmodBin() {
   if (process.platform === "win32") return;
-  const binName = process.platform === "darwin" ? "tray_darwin_release" : "tray_linux_release";
+  const binName = trayBinName();
   const binPath = path.join(RUNTIME_MODULES, SYSTRAY_PKG, "traybin", binName);
   try { if (fs.existsSync(binPath)) fs.chmodSync(binPath, 0o755); } catch {}
 }
 
 function ensureTrayRuntime() {
-  if (process.platform === "win32") return;
   ensureRuntimeDir();
   // Purge legacy systray v1 cache so we never resolve the old binary after update
   try { fs.rmSync(path.join(os.homedir(), ".cache", "node-systray"), { recursive: true, force: true }); } catch {}

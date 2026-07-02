@@ -86,6 +86,17 @@ export default {
     versionMismatchHint: "일부 기능이 작동하지 않을 수 있습니다. 다음을 실행하세요:",
     updateNow: "Update now",
     updating: "Updating… reconnecting",
+    webReloadTitle: "New web version available",
+    webReloadHint: "Reload to get the latest interface.",
+    reloadWeb: "Reload",
+    updateAvailableTitle: "Agent update available",
+    updateStarting: "Starting update…",
+    updateInstalling: "Installing new version…",
+    updateTimeout: "Update is taking too long",
+    updateTimeoutHint: "Reload manually if it doesn't recover.",
+    updateRestarting: "Restarting agent…",
+    updateReconnecting: "Reconnecting…",
+    updateDone: "Updated! Reloading…",
     version: "버전"
   },
   workspace: {

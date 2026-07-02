@@ -2,7 +2,7 @@
 import { Server } from "socket.io";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { PATHS, LOCAL_UI_ORIGINS } from "../lib/constants.js";
+import { PATHS, LOCAL_UI_ORIGINS, LOCAL_UI_DEVICE_ID } from "../lib/constants.js";
 import { verifyLocalToken } from "../lib/localToken.js";
 import { ProtocolManager } from "./ProtocolManager.js";
 import { registerProtocol, unregisterProtocol } from "./broadcast.js";
@@ -222,6 +222,13 @@ export async function startTransportServer(server) {
       pushUiLog("Local UI connected — trusted (token)");
       setupSocketFeatures(socket);
       return; // do not track in Clients list
+    }
+
+    // Reserved local-ui deviceId that failed trust check → spoof attempt, reject.
+    if (deviceId === LOCAL_UI_DEVICE_ID) {
+      pushUiLog(`Rejected untrusted local-ui socket from ${ip}`);
+      socket.disconnect(true);
+      return;
     }
 
     trackConnection(socket.id, ip, deviceId);

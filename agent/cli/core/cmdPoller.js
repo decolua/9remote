@@ -2,10 +2,9 @@ import { browserFetch, SERVER_PORT, STEP } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("cmd");
-import { readAndClearCmd, loadKey, saveKey, saveState } from "../utils/state.js";
+import { readAndClearCmd, loadKey, saveKey } from "../utils/state.js";
 import { stopTunnelHealthWatchdog, updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import { ensureCloudflared } from "../utils/cloudflared.js";
-import { readPid } from "../utils/pids.js";
 import { updateTrayTooltip } from "../utils/tray.js";
 import { getConsistentMachineId } from "../utils/machineId.js";
 import { generateApiKeyWithMachine, maskApiKey } from "../utils/apiKey.js";
@@ -83,7 +82,6 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     await setStep(STEP.TUNNELING);
     const onUrlUpdate = async (newUrl) => {
       await updateTunnelUrl(apiKey, newUrl);
-      saveState({ apiKey, tunnelUrl: newUrl, tunnelPid: readPid("cloudflared") });
       await pushUiState({ tunnelUrl: newUrl });
       updateTunnelHealthUrl(newUrl);
     };
@@ -99,7 +97,6 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     if (!tunnelOk) logger.warn("⚠️  Tunnel health check timed out, proceeding anyway...");
 
     await updateTunnelUrl(apiKey, result.tunnelUrl);
-    saveState({ apiKey, tunnelUrl: result.tunnelUrl, tunnelPid: result.child?.pid });
     updateTrayTooltip({ tunnelUrl: result.tunnelUrl, running: true });
 
     await new Promise((r) => setTimeout(r, DELAYS.postReadyHoldMs));

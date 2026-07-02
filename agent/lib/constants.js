@@ -4,7 +4,8 @@ import os from "os";
 
 // Centralized filesystem layout for ~/.9remote
 // Group files by responsibility: logs / state / config
-const PACKAGE_NAME = "9remote";
+// Build-time injected name (__PKG_NAME__) wins; env override for source runs; default 9remote
+export const PACKAGE_NAME = (typeof __PKG_NAME__ !== "undefined" && __PKG_NAME__) || process.env.NREMOTE_PKG || "9remote";
 // Registry override for local testing (Verdaccio). Falls back to public npm.
 export const NPM_REGISTRY_URL = process.env.NREMOTE_REGISTRY || `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 export const NPM_INSTALL_SPEC = `${PACKAGE_NAME}@latest`;
@@ -49,6 +50,9 @@ export const SERVER_PORT = 2208;
 
 // Vite dev server port (dev-mode UI origin)
 export const VITE_DEV_PORT = 5173;
+
+// Reserved deviceId for the trusted local UI — never persisted/tracked as a client.
+export const LOCAL_UI_DEVICE_ID = "local-ui";
 
 // Allowed origins for the localhost UI (token endpoint + socket trust guard).
 // A malicious cross-origin page sends a different Origin → rejected.

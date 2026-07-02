@@ -2,11 +2,15 @@ import { getVapidPublicKey, addPushSubscription, removePushSubscription, markSub
 // enableToolHook/getHookStatus kept for reference (hooks auto-enabled on startup, not toggled by clients)
 import { addNotification, clearNotification, getNotifications } from "../notificationManager.js";
 import { getAutoStartStatus, setAutoStart, isCodespaces } from "../codespaceManager.js";
+import { writeCmd } from "../../../cli/utils/state.js";
 
 export function setupPushHandlers(socket) {
   socket.on("getNotificationState", () => {
     socket.emit("notificationState", getNotifications());
   });
+
+  // Trigger agent self-update via socket (authenticated, no HTTP through tunnel)
+  socket.on("requestUpdate", () => writeCmd("update"));
 
   socket.on("clearNotification", (sessionId) => {
     if (sessionId) {

@@ -198,21 +198,14 @@ export function useSocket() {
     }
   }, [getAuth, codespaceInfo]);
 
-  // Trigger agent self-update; widen retry window so we survive restart
-  const triggerUpdate = useCallback(async () => {
-    const auth = getAuth();
-    if (!auth?.tunnelUrl || !auth?.apiKey) return false;
+  // Trigger agent self-update via socket (authenticated, survives tunnel restart)
+  const triggerUpdate = useCallback(() => {
+    const sock = socketRef.current;
+    if (!sock?.connected) return false;
     protocolRef.current?.setUpdating?.(true);
-    try {
-      const response = await fetch(`${auth.tunnelUrl}/api/update`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${auth.apiKey}` }
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }, [getAuth, protocolRef]);
+    sock.emit("requestUpdate");
+    return true;
+  }, [socketRef, protocolRef]);
 
   return {
     socket,

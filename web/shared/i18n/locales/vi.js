@@ -86,6 +86,17 @@ export default {
     versionMismatchHint: "Một số tính năng có thể không hoạt động. Chạy:",
     updateNow: "Cập nhật ngay",
     updating: "Đang cập nhật… kết nối lại",
+    webReloadTitle: "Có bản giao diện mới",
+    webReloadHint: "Tải lại để cập nhật giao diện mới nhất.",
+    reloadWeb: "Tải lại",
+    updateAvailableTitle: "Có bản cập nhật agent",
+    updateStarting: "Đang bắt đầu cập nhật…",
+    updateInstalling: "Đang cài bản mới…",
+    updateTimeout: "Cập nhật quá lâu",
+    updateTimeoutHint: "Tải lại thủ công nếu không phục hồi.",
+    updateRestarting: "Đang khởi động lại agent…",
+    updateReconnecting: "Đang kết nối lại…",
+    updateDone: "Đã cập nhật! Đang tải lại…",
     version: "Phiên bản"
   },
   workspace: {

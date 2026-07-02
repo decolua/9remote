@@ -33,7 +33,7 @@ import {
   handleAutoStartGet, handleAutoStartPost,
   handleLocalToken, handleUpdate, setUpdateInfo,
 } from "./api/ui.js";
-import { broadcastServerInfo } from "./features/terminal/terminalSocket.js";
+import { broadcastServerInfo, setConnectCheckHandler } from "./features/terminal/terminalSocket.js";
 import { UPDATE } from "./cli/config.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove, handleSetLabel } from "./api/device.js";
@@ -89,6 +89,15 @@ async function checkForUpdate(currentVersion) {
       broadcastServerInfo();
     }
   } catch { /* non-critical */ }
+}
+
+// Re-check on web connect, debounced so many tabs/reconnects don't spam the registry
+let lastConnectCheckAt = 0;
+function checkForUpdateOnConnect(currentVersion) {
+  const now = Date.now();
+  if (now - lastConnectCheckAt < UPDATE.connectCheckDebounceMs) return;
+  lastConnectCheckAt = now;
+  checkForUpdate(currentVersion);
 }
 
 // ── Codespace handler ────────────────────────────────────────
@@ -278,6 +287,7 @@ export async function startServer() {
       : JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
     checkForUpdate(version);
     setInterval(() => checkForUpdate(version), UPDATE.checkIntervalMs);
+    setConnectCheckHandler(() => checkForUpdateOnConnect(version));
   });
 
   // Graceful shutdown

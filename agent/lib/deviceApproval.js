@@ -4,7 +4,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { PATHS } from "./constants.js";
+import { PATHS, LOCAL_UI_DEVICE_ID } from "./constants.js";
 import { readSettings, writeSettings } from "./settings.js";
 
 const STATE_DIR = PATHS.CONFIG;
@@ -37,6 +37,8 @@ export function loadApprovedDevices() {
       } else {
         approvedDevices = new Map(Object.entries(data));
       }
+      // Drop reserved local-ui id from legacy files (never a real client)
+      if (approvedDevices.delete(LOCAL_UI_DEVICE_ID)) saveApprovedDevices();
     }
   } catch {
     approvedDevices = new Map();
@@ -56,7 +58,7 @@ export function isDeviceApproved(deviceId) {
 }
 
 export function approveDevice(deviceId) {
-  if (!deviceId) return;
+  if (!deviceId || deviceId === LOCAL_UI_DEVICE_ID) return;
   approvedDevices.set(deviceId, { approvedAt: new Date().toISOString() });
   saveApprovedDevices();
 }

@@ -1,16 +1,15 @@
 import chalk from "chalk";
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "fs";
 import { fileURLToPath } from "url";
 import { spawn, execSync } from "child_process";
 import path from "path";
 import os from "os";
-import { browserFetch, NPM_REGISTRY_URL, NPM_INSTALL_SPEC, PATHS } from "../../lib/constants.js";
+import { browserFetch, NPM_REGISTRY_URL, NPM_INSTALL_SPEC, PACKAGE_NAME, PATHS } from "../../lib/constants.js";
 import { killAll as killAllPids, getPidsDir } from "./pids.js";
 import { getCliEntry, getNodeBin } from "./autostart.js";
 import { UPDATE } from "../config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PACKAGE_NAME = "9remote";
 const UPDATE_CHECK_TIMEOUT = 3000;
 const SAFETY_TIMEOUT = 8000;
 const SERVER_PORT = 2208;
@@ -404,65 +403,120 @@ function buildUpdateScript({ currentVersion, latest, agentPid }) {
   const nodeBin = getNodeBin();
   const cliEntry = getCliEntry();
   const lock = LOCK_PATH;
+  const logPath = path.join(PATHS.LOGS, "update.log");
+  const logDir = PATHS.LOGS;
+  try { mkdirSync(logDir, { recursive: true }); } catch {} // ensure log dir exists for redirect
+  // Shared npm flags: prefer-online (revalidate cache), skip audit/fund round-trips
+  const npmFlags = `--prefer-online --no-audit --no-fund ${reg}`.trim();
 
   if (process.platform === "win32") {
+    const restartVbsPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-restart.vbs`);
+    // Batch self-appends to LOG on every step (no VBS redirect needed → log always written).
+    // L() = timestamped log line helper via a :log subroutine.
     const script = `@echo off
-echo Waiting for agent to exit...
+setlocal EnableDelayedExpansion
+set "LOG=${logPath}"
+set "NODE=${nodeBin}"
+set "CLI=${cliEntry}"
+call :log "=== update start (pid ${agentPid}, ${currentVersion} -> ${latest}) ==="
+
+call :log "waiting for agent to exit..."
 :waitloop
 tasklist /FI "PID eq ${agentPid}" 2>nul | find "${agentPid}" >nul
 if not errorlevel 1 (
   timeout /t 1 /nobreak >nul
   goto waitloop
 )
+call :log "agent exited"
 
-rem Kill agent only (no /T) so its cloudflared child survives → tunnel URL kept
-if exist "${pidsDir}\\agent.pid" (
-  for /f %%P in ('type "${pidsDir}\\agent.pid"') do taskkill /F /PID %%P >nul 2>&1
-  del /f /q "${pidsDir}\\agent.pid" >nul 2>&1
+for %%N in (cloudflared agent) do (
+  if exist "${pidsDir}\\%%N.pid" (
+    for /f %%P in ('type "${pidsDir}\\%%N.pid"') do taskkill /F /T /PID %%P >nul 2>&1
+    del /f /q "${pidsDir}\\%%N.pid" >nul 2>&1
+  )
 )
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %%a >nul 2>&1
+call :log "killed tracked processes, waiting for file locks..."
 timeout /t 3 /nobreak >nul
 
 set ATTEMPT=0
 :installloop
 set /a ATTEMPT+=1
-echo Installing (attempt %ATTEMPT%)...
-call npm install -g ${NPM_INSTALL_SPEC} --prefer-online ${reg}
-if %ERRORLEVEL% EQU 0 goto verify
-if %ATTEMPT% GEQ ${UPDATE.maxRetry} (
-  call npm install -g ${NPM_INSTALL_SPEC} --prefer-online --omit=optional ${reg}
+call :log "npm install attempt !ATTEMPT!..."
+call npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} >> "%LOG%" 2>&1
+if !ERRORLEVEL! EQU 0 goto verify
+call :log "attempt !ATTEMPT! failed (exit !ERRORLEVEL!)"
+if !ATTEMPT! GEQ ${UPDATE.maxRetry} (
+  call :log "final attempt with --omit=optional"
+  call npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional >> "%LOG%" 2>&1
   goto verify
 )
 timeout /t 3 /nobreak >nul
 goto installloop
 
 :verify
-for /f %%V in ('"${nodeBin}" "${cliEntry}" --version 2^>nul') do set NEWVER=%%V
-if not "%NEWVER%"=="${latest}" (
-  echo Verify failed ^(got %NEWVER%, want ${latest}^), rolling back...
-  call npm install -g ${PACKAGE_NAME}@${currentVersion} --prefer-online ${reg}
+set "NEWVER="
+set "VERFILE=%TEMP%\\${PACKAGE_NAME}-ver.txt"
+call :log "verify: running \\"%NODE%\\" \\"%CLI%\\" --version"
+"%NODE%" "%CLI%" --version > "%VERFILE%" 2>>"%LOG%"
+call :log "verify: node exit !ERRORLEVEL!"
+REM Read first line + strip surrounding whitespace/CR via for/f tokens
+for /f "usebackq tokens=* delims= " %%V in ("%VERFILE%") do (
+  set "NEWVER=%%V"
+  goto :gotver
+)
+:gotver
+del /f /q "%VERFILE%" >nul 2>&1
+REM Trim any trailing CR that survived (set /p style leftovers)
+if defined NEWVER set "NEWVER=!NEWVER: =!"
+call :log "verify: got [!NEWVER!], want [${latest}]"
+if "!NEWVER!"=="${latest}" (
+  call :log "verify OK -> ${latest} installed"
+) else (
+  call :log "verify FAILED (got [!NEWVER!]) -> rolling back to ${currentVersion}"
+  call npm install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} >> "%LOG%" 2>&1
+  call :log "rollback done (exit !ERRORLEVEL!)"
 )
 del /f /q "${lock}" >nul 2>&1
-"${nodeBin}" "${cliEntry}" --tray --skip-update --adopt-tunnel
+
+call :log "relaunching agent: \\"%NODE%\\" \\"%CLI%\\" --tray --skip-update --start"
+wscript "${restartVbsPath}"
+call :log "=== update done ==="
+exit /b 0
+
+:log
+echo [%date% %time%] %~1>> "%LOG%"
+exit /b 0
 `;
     const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update.bat`);
     writeFileSync(scriptPath, script);
-    // Quote scriptPath (path may contain spaces). Empty "" = start window title.
-    // `start "" /b` → job-breakaway so taskkill /T of the agent tree won't kill us (R1)
-    return { shellCmd: ["cmd.exe", ["/c", "start", "", "/b", `"${scriptPath}"`]], windowsVerbatim: true };
+    // Restart launcher: node agent is NOT a child of the batch, keeps running after .bat exits.
+    // Run window style 0 = invisible; False = don't wait.
+    writeFileSync(
+      restartVbsPath,
+      `CreateObject("WScript.Shell").Run "\"\"%NODE%\"\" \"\"%CLI%\"\" --tray --skip-update --start", 0, False`
+        .replace("%NODE%", nodeBin).replace("%CLI%", cliEntry) + "\n"
+    );
+    // Launch .bat fully hidden + detached via VBS (window style 0 = no console flash).
+    const vbsPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update.vbs`);
+    writeFileSync(vbsPath, `CreateObject("WScript.Shell").Run "cmd /c ""${scriptPath}""", 0, False\n`);
+    return { shellCmd: ["wscript.exe", [vbsPath]], windowsVerbatim: false };
   }
 
   const script = `#!/bin/bash
+exec > "${logPath}" 2>&1
 # Wait for agent to exit so it releases the cli.cjs file lock
 while kill -0 ${agentPid} 2>/dev/null; do sleep 1; done
 
-# Kill agent only — keep cloudflared alive so tunnel URL survives (never ptyDaemon)
-f="${pidsDir}/agent.pid"
-if [ -f "$f" ]; then
-  pid=$(cat "$f" 2>/dev/null)
-  [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
-  rm -f "$f"
-fi
+# Kill tracked PIDs only (never ptyDaemon → sessions survive)
+for name in cloudflared agent; do
+  f="${pidsDir}/\${name}.pid"
+  if [ -f "$f" ]; then
+    pid=$(cat "$f" 2>/dev/null)
+    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+    rm -f "$f"
+  fi
+done
 lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true
 sleep 2
 
@@ -470,9 +524,9 @@ attempt=0
 while [ $attempt -lt ${UPDATE.maxRetry} ]; do
   attempt=$((attempt+1))
   echo "Installing (attempt $attempt)..."
-  if npm install -g ${NPM_INSTALL_SPEC} --prefer-online ${reg}; then break; fi
+  if npm install -g ${NPM_INSTALL_SPEC} ${npmFlags}; then break; fi
   if [ $attempt -eq ${UPDATE.maxRetry} ]; then
-    npm install -g ${NPM_INSTALL_SPEC} --prefer-online --omit=optional ${reg} || true
+    npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional || true
   fi
   sleep 3
 done
@@ -482,11 +536,11 @@ done
 NEWVER=$("${nodeBin}" "${cliEntry}" --version 2>/dev/null | head -1 | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tr -d '[:space:]')
 if [ "$NEWVER" != "${latest}" ]; then
   echo "Verify failed (got $NEWVER, want ${latest}), rolling back to ${currentVersion}..."
-  npm install -g ${PACKAGE_NAME}@${currentVersion} --prefer-online ${reg} || true
+  npm install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} || true
 fi
 
 rm -f "${lock}"
-"${nodeBin}" "${cliEntry}" --tray --skip-update --adopt-tunnel
+"${nodeBin}" "${cliEntry}" --tray --skip-update --start
 `;
   const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update.sh`);
   writeFileSync(scriptPath, script, { mode: 0o755 });
@@ -508,7 +562,7 @@ export async function runWebUpdate() {
 
   // Spawn detached BEFORE we exit; script waits for us to die then does the work.
   // windowsVerbatimArguments keeps the quoted script path intact for `start`.
-  const child = spawn(shellCmd[0], shellCmd[1], { detached: true, stdio: "ignore", windowsVerbatimArguments: windowsVerbatim });
+  const child = spawn(shellCmd[0], shellCmd[1], { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: windowsVerbatim });
   child.unref();
 
   setTimeout(() => process.exit(0), 500);

@@ -143,11 +143,16 @@ export function broadcastServerInfo() {
   setupTerminalSocket._emitServerInfo?.();
 }
 
+// Registered by index.js — invoked on each web connect to re-check for updates (debounced there)
+let onConnectCheck = null;
+export function setConnectCheckHandler(fn) { onConnectCheck = fn; }
+
 // Per-socket terminal + remote handlers (called from the single connection handler,
 // AFTER the transport bus is ready so remote tiles never race pm.init()).
 export async function setupTerminalHandlers(socket, io, apiKey) {
   trackConnection();
 
+  onConnectCheck?.();
   socket.emit("serverInfo", setupTerminalSocket._buildServerInfo?.());
 
   setupSessionHandlers(socket, io, sessions, groups, sessionGroups);

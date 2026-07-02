@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { AlertCircle, Copy, Check, RefreshCw } from "@/shared/components/ui/Icon";
+import { AlertCircle, RefreshCw, Download } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { AGENT_UPDATE_COMMAND } from "@/shared/constants/API";
 
 // Compare semver x.y.z; returns true when a < b
 function isVersionLower(a, b) {
@@ -21,79 +20,47 @@ export function isAgentOutdated(agentVersion, webVersion) {
   return !!agentVersion && !!webVersion && isVersionLower(webVersion, agentVersion);
 }
 
+// Compact single-row banner. Two distinct states:
+//   updateAvailable → agent has newer npm release → "Update" button (triggers self-update)
+//   else (web < agent) → web build is stale → "Reload" button (refresh page)
 export default function AgentOutdatedBanner({ agentVersion, updateAvailable = null, onUpdate, className = "" }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  const [reloading, setReloading] = useState(false);
-  const [updating, setUpdating] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const handleUpdate = useCallback(() => {
     vibrate();
-    setUpdating(true);
+    setBusy(true);
     onUpdate?.();
   }, [onUpdate]);
 
-  const handleCopy = useCallback(() => {
-    vibrate();
-    navigator.clipboard.writeText(AGENT_UPDATE_COMMAND);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, []);
-
   const handleReload = useCallback(() => {
     vibrate();
-    setReloading(true);
+    setBusy(true);
     setTimeout(() => window.location.reload(), 400);
   }, []);
 
+  const isUpdate = !!(updateAvailable && onUpdate);
+  const version = isUpdate ? updateAvailable.version : agentVersion;
+  const title = isUpdate ? t("menu.updateAvailableTitle") : t("menu.webReloadTitle");
+  const btnLabel = isUpdate ? t("menu.updateNow") : t("menu.reloadWeb");
+  const Icon = isUpdate ? Download : RefreshCw;
+
   return (
-    <div className={`p-3 bg-yellow-500/15 border border-yellow-500/40 rounded-brand-lg ${className}`}>
-      <div className="flex items-start gap-2">
-        <AlertCircle className="text-yellow-600 shrink-0 mt-0.5" size={16} />
-        <div className="text-xs space-y-1.5 min-w-0 flex-1">
-          <p className="text-yellow-600 font-semibold">
-            {t("menu.versionMismatch", { version: agentVersion ? `v${agentVersion}` : "?" })}
-          </p>
-          <p className="text-text-muted">
-            {t("menu.versionMismatchHint")}
-          </p>
-          {updateAvailable && onUpdate && (
-            <button
-              onClick={handleUpdate}
-              disabled={updating}
-              className="w-full px-2 py-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white rounded flex items-center justify-center gap-1.5 transition-colors"
-              type="button"
-            >
-              <RefreshCw size={14} className={updating ? "animate-spin" : ""} />
-              <span className="text-xs font-medium">
-                {updating ? t("menu.updating") : t("menu.updateNow")}
-              </span>
-            </button>
-          )}
-          <div className="flex items-center gap-2 bg-surface px-2 py-1.5 rounded">
-            <code className="flex-1 min-w-0 text-brand-500 text-xs font-mono break-all select-all">
-              {AGENT_UPDATE_COMMAND}
-            </code>
-            <button
-              onClick={handleCopy}
-              className="shrink-0 p-1 text-text-muted hover:text-brand-500 transition-colors"
-              title={copied ? t("common.copied") : t("common.copy")}
-              type="button"
-            >
-              {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
-            </button>
-          </div>
-          <button
-            onClick={handleReload}
-            disabled={reloading}
-            className="w-full mt-1 px-2 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 disabled:opacity-60 text-yellow-600 rounded flex items-center justify-center gap-1.5 transition-colors"
-            type="button"
-          >
-            <RefreshCw size={14} className={reloading ? "animate-spin" : ""} />
-            <span className="text-xs font-medium">{t("menu.reload")}</span>
-          </button>
-        </div>
+    <div className={`px-3 py-2 bg-brand-500/10 border border-brand-500/30 rounded-brand-lg flex items-center gap-2.5 ${className}`}>
+      <Icon size={16} className="text-brand-500 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <span className="text-xs font-medium text-text">{title}</span>
+        {version && <span className="text-xs text-text-muted ml-1.5">v{version}</span>}
       </div>
+      <button
+        onClick={isUpdate ? handleUpdate : handleReload}
+        disabled={busy}
+        className="shrink-0 px-3 py-1 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-xs font-medium rounded-brand flex items-center gap-1.5 transition-colors"
+        type="button"
+      >
+        <Icon size={13} className={busy ? "animate-spin" : ""} />
+        {btnLabel}
+      </button>
     </div>
   );
 }

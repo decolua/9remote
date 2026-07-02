@@ -5,13 +5,13 @@
  * Linux  → ~/.config/autostart/*.desktop
  */
 
-import { execFile, execFileSync } from "child_process";
+import { execFile, execFileSync, spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync } from "fs";
 import { join } from "path";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
-import { PATHS as APP_PATHS } from "../../lib/constants.js";
+import { PATHS as APP_PATHS, PACKAGE_NAME } from "../../lib/constants.js";
 
 const AUTOSTART_LOG = join(APP_PATHS.LOGS, "autostart.log");
 
@@ -40,8 +40,8 @@ export function getCliEntry() {
     if (!existsSync(pkgPath)) continue;
     try {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-      if (pkg.name !== "9remote") continue;
-      const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.["9remote"];
+      if (pkg.name !== PACKAGE_NAME) continue;
+      const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.[PACKAGE_NAME];
       if (bin) {
         const resolved = path.resolve(dir, bin);
         if (existsSync(resolved)) return resolved;
@@ -49,11 +49,41 @@ export function getCliEntry() {
     } catch {}
     break;
   }
-  return path.resolve(__dirname, "..", "index.js");
+  // Fallback: the actual entry file this process was launched with
+  return process.argv[1] || path.resolve(__dirname, "..", "index.js");
 }
 
 export function getNodeBin() {
   return process.execPath;
+}
+
+/**
+ * Spawn the agent fully detached and hidden (no console flash).
+ * Windows: node.exe is a console app — even windowsHide flashes a window when
+ * launched from a TTY. A VBScript .Run(..., 0, False) launches it with window
+ * style 0 (invisible) and detached, so nothing flashes. Mac/Linux: plain detached spawn.
+ * @param {string[]} args - CLI args (e.g. ["--tray", "--start"])
+ * @returns {number|null} spawned pid (null on Windows — VBS is fire-and-forget)
+ */
+export function spawnHidden(args) {
+  const nodeBin = getNodeBin();
+  const cliEntry = getCliEntry();
+
+  if (process.platform === "win32") {
+    const argStr = args.join(" ");
+    const vbsPath = join(os.tmpdir(), `${PACKAGE_NAME}-launch.vbs`);
+    writeFileSync(
+      vbsPath,
+      `CreateObject("WScript.Shell").Run "\"\"${nodeBin}\"\" \"\"${cliEntry}\"\" ${argStr}", 0, False\n`
+    );
+    const child = execFile("wscript.exe", [vbsPath], { windowsHide: true });
+    child.unref?.();
+    return null;
+  }
+
+  const child = spawn(nodeBin, [cliEntry, ...args], { detached: true, stdio: "ignore" });
+  child.unref();
+  return child.pid || null;
 }
 
 // Build PATH env covering system + node bin dir so child spawns (cloudflared, node) work under launchd

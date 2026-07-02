@@ -22,6 +22,9 @@ const VERSION = JSON.parse(
   fs.readFileSync(path.join(SERVER_DIR, "package.json"), "utf-8")
 ).version;
 
+// Package name override for beta/test builds (NREMOTE_PKG=9remote-beta)
+const PKG_NAME = process.env.NREMOTE_PKG || "9remote";
+
 function run(cmd, cwd = ROOT) {
   console.log(`> ${cmd}`);
   execSync(cmd, { stdio: "inherit", cwd });
@@ -50,6 +53,7 @@ const baseConfig = {
   define: {
     "import.meta.url": "__importMetaUrl",
     "__CLI_VERSION__": JSON.stringify(VERSION),
+    "__PKG_NAME__": JSON.stringify(PKG_NAME),
   },
 };
 
@@ -144,7 +148,21 @@ async function build() {
   // obfuscateFile(path.join(DIST_DIR, "install.cjs"));
 
   console.log("\n📦 Creating npm package...");
-  run("npm pack", SERVER_DIR);
+  // Temporarily rewrite name + bin for beta/test builds, restore after pack
+  const pkgPath = path.join(SERVER_DIR, "package.json");
+  const pkgRaw = fs.readFileSync(pkgPath, "utf-8");
+  if (PKG_NAME !== "9remote") {
+    const pkg = JSON.parse(pkgRaw);
+    pkg.name = PKG_NAME;
+    pkg.bin = { [PKG_NAME]: "./dist/cli.cjs" };
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+    console.log(`📛 Package name → ${PKG_NAME}`);
+  }
+  try {
+    run("npm pack", SERVER_DIR);
+  } finally {
+    if (PKG_NAME !== "9remote") fs.writeFileSync(pkgPath, pkgRaw);
+  }
 
   // Move .tgz to root
   const tgzFiles = fs.readdirSync(SERVER_DIR).filter((f) => f.endsWith(".tgz"));

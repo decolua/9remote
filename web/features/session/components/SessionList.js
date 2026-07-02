@@ -302,9 +302,9 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                         {groupSessions.map((session) => (
                           <div
                             key={session.id}
-                            className={`relative bg-surface border border-border-subtle rounded-brand-lg p-3 flex items-center justify-between transition-all duration-150 ease-out ${
-                              connected ? "hover:bg-surface-2" : "opacity-50"
-                            }`}
+                            className={`relative overflow-hidden bg-surface border border-border-subtle rounded-brand-lg p-3 flex items-center justify-between transition-all duration-150 ease-out ${
+                              notifications[session.id] ? "terminal-done-border" : ""
+                            } ${connected ? "hover:bg-surface-2" : "opacity-50"}`}
                           >
                             <div
                               className={`flex-1 flex items-center gap-3 ${connected && editingId !== session.id ? "cursor-pointer" : "cursor-default"}`}

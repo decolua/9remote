@@ -33,6 +33,12 @@ export default {
     logs: "Logs",
     logsDesc: "Server activity and diagnostics",
   },
+  recent: {
+    title: "Recent",
+    replied: "Agent replied",
+    needsInput: "Needs your input",
+    dismiss: "Dismiss",
+  },
   header: {
     settings: "Settings",
     language: "Language",

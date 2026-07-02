@@ -25,6 +25,7 @@ const FileEditor = dynamic(() => import("@/features/fileExplorer/components/File
 const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPanel"), { ssr: false });
 const FileWorkspaceDesktop = dynamic(() => import("@/features/fileExplorer/components/FileWorkspaceDesktop"), { ssr: false });
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
+import UpdateModal from "@/shared/components/ui/UpdateModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
 import { useI18n } from "@/shared/i18n";
@@ -59,6 +60,22 @@ export default function WorkspaceLayout({ children }) {
   const { getAuth } = useSessionStorage();
   const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, triggerUpdate, retryStatus, approvalStatus, loadSessions, createSession, getShells, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession } = useSocket();
   const [shells, setShells] = useState([]);
+  const [updating, setUpdating] = useState(false);
+
+  // Run the actual update: drive UpdateModal + suppress ConnectionModal during restart
+  const doUpdate = useCallback(() => {
+    if (triggerUpdate()) setUpdating(true);
+  }, [triggerUpdate]);
+
+  // Ask for confirmation before self-update (restarts connection, ~1 min)
+  const handleUpdate = useCallback(() => {
+    setConfirmDialog({
+      isOpen: true,
+      title: t("menu.updateConfirmTitle"),
+      message: t("menu.updateConfirmMessage"),
+      onConfirm: doUpdate,
+    });
+  }, [doUpdate, t]);
 
   useEffect(() => {
     if (!connected) return;
@@ -485,7 +502,7 @@ export default function WorkspaceLayout({ children }) {
             clearNotification={clearNotification}
             agentVersion={agentVersion}
             updateAvailable={updateAvailable}
-            onUpdate={triggerUpdate}
+            onUpdate={handleUpdate}
             transport={transport}
             groups={groups}
             onCreateGroup={createGroup}
@@ -693,8 +710,11 @@ export default function WorkspaceLayout({ children }) {
           </div>
         )}
 
-        {/* Connection Modal - overlay when retrying/failed */}
-        <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} onLogout={handleDisconnect} />
+        {/* Connection Modal - overlay when retrying/failed (suppressed during self-update) */}
+        {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} onLogout={handleDisconnect} />}
+
+        {/* Update Modal - progress overlay during agent self-update */}
+        <UpdateModal open={updating} connected={connected} />
 
         {/* Global Slide Menu - single instance at page level */}
         <SlideMenu />

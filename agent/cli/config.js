@@ -37,6 +37,7 @@ export const TUI = { maxLogLines: 200, headerWidth: 44 };
 
 export const UPDATE = {
   checkIntervalMs: 3600000,
+  connectCheckDebounceMs: 900000, // 15 min — throttle re-check on web connect
   maxRetry: 3,
   retryDelayMs: 3000,
   verifyTimeoutMs: 15000,

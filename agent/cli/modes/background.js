@@ -1,18 +1,15 @@
-import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 import chalk from "chalk";
 import { SERVER_PORT } from "../../lib/constants.js";
 import { LOG_FILE_PATH } from "../../lib/logger.js";
 import { writePid } from "../utils/pids.js";
 import { writeCmd } from "../utils/state.js";
 import { openBrowser } from "../utils/tray.js";
+import { spawnHidden } from "../utils/autostart.js";
 import { isServerRunning } from "../core/localApi.js";
 import { killProcessOnPort } from "../core/lifecycle.js";
 import { POLL, DELAYS } from "../config.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function launchBackground() {
   const uiUrl = `http://localhost:${SERVER_PORT}`;
@@ -23,31 +20,19 @@ export async function launchBackground() {
     await new Promise((r) => setTimeout(r, 500));
   }
 
-  // Bundle: respawn current cli.cjs ; Dev: agent/cli/index.js
-  const scriptPath = typeof __CLI_VERSION__ !== "undefined"
-    ? process.argv[1]
-    : path.resolve(__dirname, "..", "index.js");
-  const bgArgs = [scriptPath, "--tray"];
-
+  const trayArgs = ["--tray"];
   const themeArg = process.argv.find((a) => a.startsWith("--theme="));
-  if (themeArg) bgArgs.push(themeArg);
+  if (themeArg) trayArgs.push(themeArg);
 
   const logPath = LOG_FILE_PATH;
   try { fs.mkdirSync(path.dirname(logPath), { recursive: true }); } catch {}
 
   let bgPid = null;
 
-  // Child writes to logger directly (file). Ignore child stdio to avoid raw mirror in log file.
+  // Spawn fully hidden (no console flash on Windows). Agent self-writes its PID in tray mode.
   try {
-    const bg = spawn(process.execPath, bgArgs, {
-      detached: true,
-      windowsHide: true,
-      stdio: "ignore",
-      env: { ...process.env },
-    });
-    bg.unref();
-    bgPid = bg.pid;
-    if (bg.pid) writePid("agent", bg.pid);
+    bgPid = spawnHidden(trayArgs);
+    if (bgPid) writePid("agent", bgPid);
   } catch (err) {
     console.log(chalk.red(`\n❌ Failed to launch background: ${err.message}`));
     process.exit(1);

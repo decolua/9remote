@@ -583,26 +583,6 @@ export function killCloudflared() {
 }
 
 /**
- * Adopt an orphan quick-tunnel that survived an update (kept alive by design).
- * We only have its PID + last URL (no child handle), so we re-arm the liveness
- * watchdog: if the orphan dies, restartCallback spawns a fresh tunnel.
- * Returns a pseudo-ref whose .kill() delegates to killCloudflared (PID-based),
- * so Stop/Restart/Shutdown buttons keep working.
- */
-export function adoptTunnel(url, onRestart) {
-  const pid = readPid("cloudflared");
-  if (!pid || !isAlive(pid)) return null;
-  activeTunnelUrl = url || null;
-  currentRestartArg = SERVER_PORT;
-  tunnelReadyAt = Date.now();
-  isIntentionalShutdown = false;
-  if (onRestart) restartCallback = onRestart;
-  startNetworkMonitor();
-  logger.info(`✅ Adopted tunnel pid=${pid} url=${url || "(unknown)"}`);
-  return { pid, adopted: true, kill: () => killCloudflared() };
-}
-
-/**
  * Reset restart counter and stop network monitor
  */
 export function resetRestartCounter() {

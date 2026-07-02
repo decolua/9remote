@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "preact/hooks";
 import { io } from "socket.io-client";
+import { LOCAL_UI_DEVICE_ID } from "./constants";
 
 // Single same-origin socket for the local UI.
 // Trusted via ephemeral local token (mem-only on server) — resists CSWSH.
@@ -9,12 +10,12 @@ function getSocket() {
     socketSingleton = io({
       transports: ["websocket"],
       autoConnect: false,
-      auth: { deviceId: "local-ui" },
+      auth: { deviceId: LOCAL_UI_DEVICE_ID },
     });
     // Fetch local token (loopback + same-origin guarded), then connect
     fetch("/api/local-token")
       .then((r) => r.json())
-      .then((d) => { socketSingleton.auth = { deviceId: "local-ui", localToken: d.localToken }; })
+      .then((d) => { socketSingleton.auth = { deviceId: LOCAL_UI_DEVICE_ID, localToken: d.localToken }; })
       .catch(() => {})
       .finally(() => socketSingleton.connect());
   }
@@ -29,6 +30,8 @@ export function useSessions() {
   const [groups, setGroups] = useState([]);
   // Badge state as a Set of sessionId (web equivalent: `notifications` object in web/shared/hooks/useNotification.js)
   const [finishedIds, setFinishedIds] = useState(() => new Set());
+  // Full notification payloads keyed by sessionId ({ tool, type, timestamp }) — drives Recent activity list
+  const [notifications, setNotifications] = useState(() => ({}));
 
   const refresh = () => {
     socket.emit("getSessions", (list) => setSessions(Array.isArray(list) ? list : []));
@@ -42,10 +45,10 @@ export function useSessions() {
     const onDisconnect = () => setConnected(false);
     const onChanged = () => refreshRef.current();
     // Terminal command finished (AI hook) → mark session badge
-    const onFinish = (n) => { if (n?.sessionId) setFinishedIds((p) => new Set(p).add(n.sessionId)); };
-    // Restore badge state from agent (source of truth) on connect/reload
-    const onState = (state) => setFinishedIds(new Set(Object.keys(state || {})));
-    // Another client cleared a badge → mirror locally
+    const onFinish = (n) => { if (n?.sessionId) { setFinishedIds((p) => new Set(p).add(n.sessionId)); setNotifications((p) => ({ ...p, [n.sessionId]: n })); } };
+    // Restore badge state from agent on connect/reload. Merge into Recent (history), never drop existing entries.
+    const onState = (state) => { const s = state || {}; setFinishedIds(new Set(Object.keys(s))); setNotifications((p) => ({ ...p, ...s })); };
+    // Another client cleared a badge → mirror badge only, keep it in Recent
     const onCleared = (sessionId) => setFinishedIds((p) => { if (!p.has(sessionId)) return p; const n = new Set(p); n.delete(sessionId); return n; });
     const syncState = () => { onConnect(); socket.emit("getNotificationState"); };
 
@@ -78,6 +81,9 @@ export function useSessions() {
     socket.emit("clearNotification", sessionId);
   };
 
+  // Remove a Recent activity entry (manual dismiss, local only)
+  const dismissRecent = (sessionId) => setNotifications((p) => { if (!p[sessionId]) return p; const n = { ...p }; delete n[sessionId]; return n; });
+
   const createSession = (groupId, cb, name) => socket.emit("createSession", { groupId: groupId || null, name: name || null }, (r) => { refresh(); cb?.(r); });
   const deleteSession = (sessionId) => socket.emit("deleteSession", sessionId, () => refresh());
   const renameSession = (sessionId, name) => socket.emit("renameSession", { sessionId, name }, () => refresh());
@@ -85,7 +91,7 @@ export function useSessions() {
   const renameGroup = (groupId, name) => socket.emit("renameGroup", { groupId, name }, () => refresh());
   const deleteGroup = (groupId) => socket.emit("deleteGroup", { groupId }, () => refresh());
 
-  return { socket, connected, sessions, groups, finishedIds, clearFinished, refresh, createSession, deleteSession, renameSession, createGroup, renameGroup, deleteGroup };
+  return { socket, connected, sessions, groups, finishedIds, notifications, clearFinished, dismissRecent, refresh, createSession, deleteSession, renameSession, createGroup, renameGroup, deleteGroup };
 }
 
 export { getSocket };

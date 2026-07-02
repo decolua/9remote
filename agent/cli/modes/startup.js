@@ -5,6 +5,7 @@ import { getVersion } from "../session/key.js";
 import { launchBackground } from "./background.js";
 import { tuiMode } from "./tui.js";
 import { COLORS, TUI } from "../config.js";
+import { NPM_INSTALL_SPEC } from "../../lib/constants.js";
 
 export async function startupMenu() {
   const version = getVersion();
@@ -30,7 +31,7 @@ export async function startupMenu() {
     console.log(COLORS.orange("\n" + "═".repeat(w)));
     console.log(chalk.gray("  ✓ Stopped running instances\n"));
     console.log(chalk.yellow("  ⬆  Run this command to update:\n"));
-    console.log(chalk.white.bold(`     npm i -g 9remote@latest\n`));
+    console.log(chalk.white.bold(`     npm i -g ${NPM_INSTALL_SPEC}\n`));
     console.log(COLORS.orange("═".repeat(w)) + "\n");
     process.exit(0);
   } else if (action === "ui") {
