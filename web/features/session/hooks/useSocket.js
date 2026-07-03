@@ -13,6 +13,7 @@ export function useSocket() {
   const [platform, setPlatform] = useState(null);
   const [agentVersion, setAgentVersion] = useState(null);
   const [updateAvailable, setUpdateAvailable] = useState(null);
+  const [canSelfUpdate, setCanSelfUpdate] = useState(false);
   const [approvalStatus, setApprovalStatus] = useState(null); // null | "pending" | "approved" | "rejected"
   const { getAuth } = useSessionStorage();
 
@@ -75,6 +76,7 @@ export function useSocket() {
       setPlatform(info.platform);
       setAgentVersion(info.version || null);
       setUpdateAvailable(info.updateAvailable || null);
+      setCanSelfUpdate(!!info.canSelfUpdate);
       if (info.isCodespaces) {
         setCodespaceInfo({ isCodespaces: info.isCodespaces, codespaceName: info.codespaceName });
       }
@@ -224,6 +226,7 @@ export function useSocket() {
     platform,
     agentVersion,
     updateAvailable,
+    canSelfUpdate,
     triggerUpdate,
     groups,
     loadSessions,

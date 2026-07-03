@@ -31,6 +31,13 @@ export const TOUCH_SCROLL = {
   sgrDown: (x, y) => `\x1b[<65;${x};${y}M`
 };
 
+// Swipe-to-switch-tab thresholds (mobile)
+export const SWIPE_TAB = {
+  minDistance: 60, // px min horizontal travel
+  ratio: 1.5, // |dx| must exceed |dy| * ratio (horizontal intent)
+  maxDuration: 500 // ms max, faster = a swipe not a drag
+};
+
 // Real typing vs scroll/mouse: scroll in alt-screen apps emits arrow ESC seqs.
 // Treat data starting with ESC (0x1b) as non-typing so badges survive scrolling.
 export const isUserTyping = (d) => !!d && d.charCodeAt(0) !== 0x1b;

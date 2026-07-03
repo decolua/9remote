@@ -38,6 +38,7 @@ export default {
     replied: "Agent đã trả lời",
     needsInput: "Cần bạn phản hồi",
     dismiss: "Xóa",
+    empty: "Chưa có hoạt động nào",
   },
   header: {
     documentation: "Tài liệu",
@@ -45,5 +46,29 @@ export default {
     shutdown: "Tắt 9Remote (dừng máy chủ, đóng tunnel và thoát)",
     lightMode: "Chuyển sang giao diện sáng",
     darkMode: "Chuyển sang giao diện tối",
+  },
+  remote: {
+    controlScreen: "Điều khiển màn hình, chuột & bàn phím",
+    screenRecording: "Ghi màn hình",
+    captureScreen: "Cho phép xem màn hình",
+    accessibility: "Trợ năng",
+    controlMouseKeyboard: "Điều khiển chuột & bàn phím",
+    launchOnStartup: "Khởi chạy cùng hệ thống",
+    launchDesc: "Chạy nền khi bạn đăng nhập",
+    disabledStart: "Đã tắt — khởi chạy thủ công",
+    preventSleep: "Giữ máy thức",
+    blockSleep: "Chặn hệ thống ngủ để mạng luôn hoạt động",
+  },
+  clients: {
+    autoApprove: "Tự động duyệt thiết bị mới",
+    anyDevice: "Mọi thiết bị mới kết nối không cần duyệt",
+    requireManual: "Yêu cầu duyệt thủ công cho thiết bị mới",
+  },
+  connection: {
+    scanToSignIn: "Quét mã QR hoặc mở liên kết để đăng nhập",
+    oneTimeKey: "Khóa một lần",
+    oneTimeDesc: "Dùng một lần · hết hạn",
+    permanentKey: "Khóa vĩnh viễn",
+    permanentDesc: "Tái sử dụng · không hết hạn",
   },
 };

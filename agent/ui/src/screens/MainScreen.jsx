@@ -185,11 +185,11 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
 
       {/* Startup */}
       <div className="flex flex-col border-t pt-2" style={{ borderColor: "var(--border)" }}>
-        <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Startup</p>
+        <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>{t("remote.startup")}</p>
         <ToggleRow
           icon="power_settings_new"
-          label="Launch on system startup"
-          desc={autoStart ? "Runs in background when you log in" : "Disabled — start manually"}
+          label={t("remote.launchOnStartup")}
+          desc={autoStart ? t("remote.launchDesc") : t("remote.disabledStart")}
           value={!!autoStart}
           onToggle={onAutoStartToggle}
         />
@@ -526,12 +526,14 @@ function RecentActivity({ notifications, sessions, onSelect, onDismiss, t }) {
   const items = Object.values(notifications || {})
     .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
     .slice(0, RECENT_LIMIT);
-  if (!items.length) return null;
   const nameOf = (id) => sessions.find((s) => s.id === id)?.name || id.slice(0, 8);
   return (
-    <div className="px-4 py-3 border-t select-none" style={{ borderColor: "var(--border-subtle)" }}>
-      <p className="text-[10px] font-semibold uppercase tracking-wide px-1 mb-1.5" style={{ color: "var(--text-muted)" }}>{t("recent.title")}</p>
-      <div className="flex flex-col gap-0.5">
+    <div className="flex flex-col min-h-0 flex-shrink px-4 py-3 border-t select-none" style={{ borderColor: "var(--border-subtle)" }}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide px-1 mb-1.5 flex-shrink-0" style={{ color: "var(--text-muted)" }}>{t("recent.title")}</p>
+      {!items.length ? (
+        <p className="text-[11px] px-1 py-2" style={{ color: "var(--text-muted)" }}>{t("recent.empty")}</p>
+      ) : (
+      <div className="flex flex-col gap-0.5 min-h-0 overflow-y-auto">
         {items.map((n) => (
           <div
             key={n.sessionId}
@@ -561,6 +563,7 @@ function RecentActivity({ notifications, sessions, onSelect, onDismiss, t }) {
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
@@ -815,7 +818,7 @@ export default function MainScreen({
           onShutdown={() => setShowShutdownConfirm(true)}
           onMenuClick={() => setSidebarOpen(true)}
         />
-        <UpdateBanner version={updateVersion} />
+        {!isConnecting && <UpdateBanner version={updateVersion} />}
         <div className="flex-1 overflow-y-auto p-6 lg:p-10">
           <div className="max-w-7xl mx-auto flex flex-col gap-4">
               {activeMenu === "connection" && isStopped && (
@@ -870,9 +873,9 @@ export default function MainScreen({
                           {autoApprove ? "lock_open" : "lock"}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium" style={{ color: "var(--text-main)" }}>Auto-approve new devices</p>
+                          <p className="text-xs font-medium" style={{ color: "var(--text-main)" }}>{t("clients.autoApprove")}</p>
                           <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>
-                            {autoApprove ? "Any new device connects without approval" : "Require manual approval for new devices"}
+                            {autoApprove ? t("clients.anyDevice") : t("clients.requireManual")}
                           </p>
                         </div>
                         <button

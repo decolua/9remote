@@ -38,6 +38,7 @@ export default {
     replied: "Agent replied",
     needsInput: "Needs your input",
     dismiss: "Dismiss",
+    empty: "No recent activity",
   },
   header: {
     settings: "Settings",
@@ -107,6 +108,11 @@ export default {
     startTunnel: "Start the tunnel to get a QR code and connect your devices from anywhere.",
     connect: "Connect",
     connecting: "Connecting…",
+    scanToSignIn: "Scan QR or open link to sign in",
+    oneTimeKey: "One-Time Key",
+    oneTimeDesc: "Single use · expires",
+    permanentKey: "Permanent Key",
+    permanentDesc: "Reusable · no expiry",
     features: {
       terminal: "Terminal",
       fullShell: "Full shell access",

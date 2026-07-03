@@ -20,10 +20,13 @@ export function isAgentOutdated(agentVersion, webVersion) {
   return !!agentVersion && !!webVersion && isVersionLower(webVersion, agentVersion);
 }
 
-// Compact single-row banner. Two distinct states:
-//   updateAvailable → agent has newer npm release → "Update" button (triggers self-update)
+const MANUAL_UPDATE_CMD = "npm i -g 9remote@latest";
+
+// Compact single-row banner. Three distinct states:
+//   updateAvailable + canSelfUpdate → "Update" button (triggers self-update)
+//   updateAvailable + !canSelfUpdate → old agent: show manual `npm i -g` command (no button)
 //   else (web < agent) → web build is stale → "Reload" button (refresh page)
-export default function AgentOutdatedBanner({ agentVersion, updateAvailable = null, onUpdate, className = "" }) {
+export default function AgentOutdatedBanner({ agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, className = "" }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
 
@@ -38,6 +41,22 @@ export default function AgentOutdatedBanner({ agentVersion, updateAvailable = nu
     setBusy(true);
     setTimeout(() => window.location.reload(), 400);
   }, []);
+
+  // Old agent has an update but can't self-update → guide manual npm install
+  const isManual = !!(updateAvailable && !canSelfUpdate);
+  if (isManual) {
+    return (
+      <div className={`px-3 py-2 bg-brand-500/10 border border-brand-500/30 rounded-brand-lg flex items-center gap-2.5 ${className}`}>
+        <Download size={16} className="text-brand-500 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <span className="text-xs font-medium text-text">{t("menu.updateAvailableTitle")}</span>
+          {updateAvailable.version && <span className="text-xs text-text-muted ml-1.5">v{updateAvailable.version}</span>}
+          <div className="text-xs text-text-muted mt-0.5">{t("menu.versionMismatchHint")}</div>
+        </div>
+        <code className="shrink-0 px-2 py-1 bg-black/30 text-brand-400 text-xs rounded font-mono">{MANUAL_UPDATE_CMD}</code>
+      </div>
+    );
+  }
 
   const isUpdate = !!(updateAvailable && onUpdate);
   const version = isUpdate ? updateAvailable.version : agentVersion;

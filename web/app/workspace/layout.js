@@ -13,6 +13,7 @@ import { useNotification } from "@/shared/hooks/useNotification";
 import { updateTitle } from "@/shared/utils/titleMarquee";
 import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "@/features/terminal/constants/terminalConfig";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
+import { useSwipeTab } from "@/features/terminal/hooks/useSwipeTab";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
 
 const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
@@ -58,7 +59,7 @@ export default function WorkspaceLayout({ children }) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, triggerUpdate, retryStatus, approvalStatus, loadSessions, createSession, getShells, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, retryStatus, approvalStatus, loadSessions, createSession, getShells, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession } = useSocket();
   const [shells, setShells] = useState([]);
   const [updating, setUpdating] = useState(false);
 
@@ -95,6 +96,7 @@ export default function WorkspaceLayout({ children }) {
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false
   );
+  const bindSwipeTab = useSwipeTab();
   useEffect(() => {
     let timerId = 0;
     const check = () => {
@@ -502,6 +504,7 @@ export default function WorkspaceLayout({ children }) {
             clearNotification={clearNotification}
             agentVersion={agentVersion}
             updateAvailable={updateAvailable}
+            canSelfUpdate={canSelfUpdate}
             onUpdate={handleUpdate}
             transport={transport}
             groups={groups}
@@ -558,7 +561,15 @@ export default function WorkspaceLayout({ children }) {
               />
 
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
-              <div className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-border" : "relative"}`}>
+              <div
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-border" : "relative"}`}
+                {...bindSwipeTab({
+                  enabled: !isDesktop,
+                  sessionIds: groupOpenedSessions,
+                  activeSessionId,
+                  onSwitch: handleSelectSession
+                })}
+              >
                 {groupOpenedSessions.map((sessionId) => {
                   const isFocused = sessionId === activeSessionId;
                   const isVisible = isDesktop || isFocused;

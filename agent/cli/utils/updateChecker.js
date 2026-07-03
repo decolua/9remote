@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { fileURLToPath } from "url";
 import { spawn, execSync } from "child_process";
 import path from "path";
@@ -403,31 +403,22 @@ function buildUpdateScript({ currentVersion, latest, agentPid }) {
   const nodeBin = getNodeBin();
   const cliEntry = getCliEntry();
   const lock = LOCK_PATH;
-  const logPath = path.join(PATHS.LOGS, "update.log");
-  const logDir = PATHS.LOGS;
-  try { mkdirSync(logDir, { recursive: true }); } catch {} // ensure log dir exists for redirect
   // Shared npm flags: prefer-online (revalidate cache), skip audit/fund round-trips
   const npmFlags = `--prefer-online --no-audit --no-fund ${reg}`.trim();
 
   if (process.platform === "win32") {
     const restartVbsPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-restart.vbs`);
-    // Batch self-appends to LOG on every step (no VBS redirect needed → log always written).
-    // L() = timestamped log line helper via a :log subroutine.
     const script = `@echo off
 setlocal EnableDelayedExpansion
-set "LOG=${logPath}"
 set "NODE=${nodeBin}"
 set "CLI=${cliEntry}"
-call :log "=== update start (pid ${agentPid}, ${currentVersion} -> ${latest}) ==="
 
-call :log "waiting for agent to exit..."
 :waitloop
 tasklist /FI "PID eq ${agentPid}" 2>nul | find "${agentPid}" >nul
 if not errorlevel 1 (
   timeout /t 1 /nobreak >nul
   goto waitloop
 )
-call :log "agent exited"
 
 for %%N in (cloudflared agent) do (
   if exist "${pidsDir}\\%%N.pid" (
@@ -436,19 +427,15 @@ for %%N in (cloudflared agent) do (
   )
 )
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %%a >nul 2>&1
-call :log "killed tracked processes, waiting for file locks..."
 timeout /t 3 /nobreak >nul
 
 set ATTEMPT=0
 :installloop
 set /a ATTEMPT+=1
-call :log "npm install attempt !ATTEMPT!..."
-call npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} >> "%LOG%" 2>&1
+call npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} >nul 2>&1
 if !ERRORLEVEL! EQU 0 goto verify
-call :log "attempt !ATTEMPT! failed (exit !ERRORLEVEL!)"
 if !ATTEMPT! GEQ ${UPDATE.maxRetry} (
-  call :log "final attempt with --omit=optional"
-  call npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional >> "%LOG%" 2>&1
+  call npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional >nul 2>&1
   goto verify
 )
 timeout /t 3 /nobreak >nul
@@ -457,9 +444,7 @@ goto installloop
 :verify
 set "NEWVER="
 set "VERFILE=%TEMP%\\${PACKAGE_NAME}-ver.txt"
-call :log "verify: running \\"%NODE%\\" \\"%CLI%\\" --version"
-"%NODE%" "%CLI%" --version > "%VERFILE%" 2>>"%LOG%"
-call :log "verify: node exit !ERRORLEVEL!"
+"%NODE%" "%CLI%" --version > "%VERFILE%" 2>nul
 REM Read first line + strip surrounding whitespace/CR via for/f tokens
 for /f "usebackq tokens=* delims= " %%V in ("%VERFILE%") do (
   set "NEWVER=%%V"
@@ -467,25 +452,13 @@ for /f "usebackq tokens=* delims= " %%V in ("%VERFILE%") do (
 )
 :gotver
 del /f /q "%VERFILE%" >nul 2>&1
-REM Trim any trailing CR that survived (set /p style leftovers)
 if defined NEWVER set "NEWVER=!NEWVER: =!"
-call :log "verify: got [!NEWVER!], want [${latest}]"
-if "!NEWVER!"=="${latest}" (
-  call :log "verify OK -> ${latest} installed"
-) else (
-  call :log "verify FAILED (got [!NEWVER!]) -> rolling back to ${currentVersion}"
-  call npm install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} >> "%LOG%" 2>&1
-  call :log "rollback done (exit !ERRORLEVEL!)"
+if not "!NEWVER!"=="${latest}" (
+  call npm install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} >nul 2>&1
 )
 del /f /q "${lock}" >nul 2>&1
 
-call :log "relaunching agent: \\"%NODE%\\" \\"%CLI%\\" --tray --skip-update --start"
 wscript "${restartVbsPath}"
-call :log "=== update done ==="
-exit /b 0
-
-:log
-echo [%date% %time%] %~1>> "%LOG%"
 exit /b 0
 `;
     const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update.bat`);
@@ -504,7 +477,6 @@ exit /b 0
   }
 
   const script = `#!/bin/bash
-exec > "${logPath}" 2>&1
 # Wait for agent to exit so it releases the cli.cjs file lock
 while kill -0 ${agentPid} 2>/dev/null; do sleep 1; done
 

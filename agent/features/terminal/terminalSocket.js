@@ -120,6 +120,7 @@ export function setupTerminalSocket(io, apiKey) {
     daemonMode: PERSISTENCE_MODE === "daemon" && daemonClient.isConnected(),
     platform: process.platform,
     updateAvailable: getUpdateInfo(),
+    canSelfUpdate: true, // this build ships the web-triggered self-update flow
     ...getCodespaceInfo()
   });
 

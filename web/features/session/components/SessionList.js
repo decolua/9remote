@@ -13,7 +13,7 @@ import AgentOutdatedBanner, { isAgentOutdated } from "@/features/terminal/compon
 
 const UNGROUPED_KEY = "ungrouped";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion, updateAvailable = null, onUpdate, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup }) {
   const { t } = useI18n();
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
@@ -243,9 +243,9 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
 
       {/* Content */}
       <div className="flex-1 p-4 sm:p-6 overflow-auto modal-scrollable">
-        {/* Agent outdated warning — show when web outdated or agent update available */}
-        {(isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || updateAvailable) && (
-          <AgentOutdatedBanner agentVersion={agentVersion} updateAvailable={updateAvailable} onUpdate={onUpdate} className="mb-6" />
+        {/* Agent outdated warning — only when connected (update is meaningless mid-connect) */}
+        {connected && (isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || updateAvailable) && (
+          <AgentOutdatedBanner agentVersion={agentVersion} updateAvailable={updateAvailable} canSelfUpdate={canSelfUpdate} onUpdate={onUpdate} className="mb-6" />
         )}
         {/* Sessions grouped accordion — create via inline dashed cards */}
         {(
