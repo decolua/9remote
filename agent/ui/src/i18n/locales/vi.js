@@ -41,13 +41,18 @@ export default {
     empty: "Chưa có hoạt động nào",
   },
   header: {
+    settings: "Cài đặt",
+    language: "Ngôn ngữ",
     documentation: "Tài liệu",
     reset: "Đặt lại tunnel và kết nối lại thiết bị",
+    resetShort: "Đặt lại",
     shutdown: "Tắt 9Remote (dừng máy chủ, đóng tunnel và thoát)",
+    shutdownShort: "Tắt",
     lightMode: "Chuyển sang giao diện sáng",
     darkMode: "Chuyển sang giao diện tối",
   },
   remote: {
+    remoteDesktop: "Điều khiển từ xa",
     controlScreen: "Điều khiển màn hình, chuột & bàn phím",
     screenRecording: "Ghi màn hình",
     captureScreen: "Cho phép xem màn hình",
