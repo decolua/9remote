@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import Button from "@/shared/components/ui/Button";
 import {
-  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft
+  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff
 } from "@/shared/components/ui/Icon";
+import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
+import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import { vibrate } from "@/shared/utils/vibration";
 import {
   REMOTE_CONFIG,
@@ -76,10 +78,42 @@ export default function RemoteControls({
   onClose,
   onDesktopSwitch
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { isIosPwa } = useDeviceInfo();
-  const rowClass = "flex gap-1.5 overflow-auto scroll-thin-x py-0.5 pr-2 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center rounded-lg";
   const panelInputRef = useRef(null);
+  // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
+  const [voiceLang, setVoiceLang] = useVoiceLang(locale);
+  const [voiceLangOpen, setVoiceLangOpen] = useState(false);
+  const voice = useVoiceInput({
+    lang: localeToSpeechLang(voiceLang),
+    onText: (txt) => {
+      onTextInputChange(txt);
+      // Keep caret at end + scroll so the user follows the incoming transcript.
+      const el = panelInputRef.current;
+      if (el) requestAnimationFrame(() => {
+        try { el.selectionStart = el.selectionEnd = el.value.length; } catch {}
+        el.scrollTop = el.scrollHeight;
+      });
+    },
+  });
+  // Auto-grow textarea from 1 row up to a max (portrait); landscape uses a fixed tall box via CSS.
+  useEffect(() => {
+    const el = panelInputRef.current;
+    if (!el || window.matchMedia("(orientation: landscape)").matches) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 72)}px`;
+  }, [textInputValue]);
+  const toggleVoice = () => {
+    if (voice.listening) { voice.stop(); return; }
+    // Hide the native/soft keyboard while dictating.
+    document.activeElement?.blur();
+    voice.start(textInputValue);
+  };
+  const sendText = () => {
+    if (voice.listening) voice.stop();
+    v(onSendText, streaming);
+  };
+  const rowClass = "flex gap-1.5 overflow-auto scroll-thin-x py-0.5 pr-2 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center rounded-lg";
   const [showExtra, setShowExtra] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
 
@@ -173,36 +207,75 @@ export default function RemoteControls({
         }}
       />
 
-      <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} px-2 py-1 gap-2 landscape:order-last`}>
-        <textarea
-          ref={panelInputRef}
-          rows={Math.min(2, (textInputValue.match(/\n/g) || []).length + 1)}
-          value={textInputValue}
-          onChange={(e) => onTextInputChange(e.target.value)}
-          onFocus={onTextInputFocus}
-          onKeyDown={(e) => {
-            if (inputMode === "mouse" && e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (streaming) v(onSendText, streaming);
-            }
-          }}
-          placeholder={inputMode === "mouse" ? t("remoteControls.enterToSend") : t("remoteControls.typeToSend")}
-          autoCapitalize="off"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          data-lpignore="true"
-          data-1p-ignore="true"
-          data-form-type="other"
-          name="remote-batch-input"
-          className="w-full px-3 py-1.5 bg-surface-2 rounded text-text text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none landscape:h-32"
-          disabled={!streaming}
-        />
+      <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} relative z-30 px-2 py-1 gap-2 items-end landscape:order-last`}>
+        <div className="relative flex-1">
+          <textarea
+            ref={panelInputRef}
+            rows={1}
+            value={textInputValue}
+            onChange={(e) => onTextInputChange(e.target.value)}
+            onFocus={onTextInputFocus}
+            onKeyDown={(e) => {
+              if (inputMode === "mouse" && e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (streaming) sendText();
+              }
+            }}
+            placeholder={inputMode === "mouse" ? t("remoteControls.enterToSend") : t("remoteControls.typeToSend")}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-form-type="other"
+            name="remote-batch-input"
+            className="block w-full px-3 py-2 pr-8 bg-surface-2 rounded text-text text-sm placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none overflow-y-auto landscape:!h-32"
+            disabled={!streaming}
+          />
+          {textInputValue && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onTextInputChange(""); panelInputRef.current?.focus(); }}
+              title={t("voice.clear")}
+              className="absolute right-1.5 top-1.5 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        {voice.supported && (
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setVoiceLangOpen(true)}
+              title={t("voice.language")}
+              className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1 rounded-brand bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
+            >
+              {voiceLang}
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={toggleVoice}
+              disabled={!streaming}
+              title={voice.error === "not-allowed" || voice.error === "service-not-allowed" ? t("voice.denied") : t("voice.dictate")}
+              className={`h-9 w-9 flex items-center justify-center rounded-full transition-all duration-150 ease-out disabled:opacity-40 ${
+                voice.listening ? "bg-red-500/90 text-white animate-pulse" : voice.error ? "bg-surface-2 text-red-400" : "bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text"
+              }`}
+            >
+              {voice.listening ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
+          </div>
+        )}
         <Button
           variant="primary"
           size="sm"
+          className="!px-2.5 shrink-0"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => v(onSendText, streaming)}
+          onClick={sendText}
           disabled={!streaming}
         >
           {textInputValue.trim() ? t("remoteControls.send") : <CornerDownLeft size={16} strokeWidth={2.5} />}
@@ -333,6 +406,12 @@ export default function RemoteControls({
           { id: "bottom", label: t("remoteControls.bottomRow"), hook: bottomCustom, excludeIds: [REMOTE_PINNED_KEY_ID] },
           { id: "extra", label: t("remoteControls.extraPanel"), hook: extraCustom }
         ]}
+      />
+      <VoiceLangModal
+        isOpen={voiceLangOpen}
+        value={voiceLang}
+        onSelect={setVoiceLang}
+        onClose={() => setVoiceLangOpen(false)}
       />
     </div>
   );

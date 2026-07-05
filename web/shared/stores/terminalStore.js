@@ -15,6 +15,13 @@ export const useTerminalStore = create(
       activeGroupId: null,
       setActiveGroupId: (groupId) => set({ activeGroupId: groupId }),
 
+      // Unsent MobileKeyboard draft text, keyed by sessionId. Lives here (not in the
+      // component) so it survives MobileKeyboard unmounting when switching to remote/etc.
+      drafts: {},
+      setDraft: (sessionId, text) => set((state) => ({
+        drafts: { ...state.drafts, [sessionId]: text }
+      })),
+
       // Collapsed accordion groups in SessionList (key by groupId, "ungrouped" for null)
       collapsedGroups: {},
       toggleGroup: (key) => set((state) => ({
@@ -40,9 +47,13 @@ export const useTerminalStore = create(
           : [...state.openedSessions, sessionId]
       })),
       
-      removeOpenedSession: (sessionId) => set((state) => ({
-        openedSessions: state.openedSessions.filter(id => id !== sessionId)
-      })),
+      removeOpenedSession: (sessionId) => set((state) => {
+        const { [sessionId]: _, ...drafts } = state.drafts;
+        return {
+          openedSessions: state.openedSessions.filter(id => id !== sessionId),
+          drafts
+        };
+      }),
       
       clearOpenedSessions: () => set({ openedSessions: [] }),
       

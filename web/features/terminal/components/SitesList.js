@@ -72,15 +72,20 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
         console.error("[SitesList] tunnelUrl is missing");
         return;
       }
+      console.log("[SitesList] fetching", `${tunnelUrl}/api/local-sites`, "apiKey?", !!apiKey);
       const response = await fetch(`${tunnelUrl}/api/local-sites`, {
         headers: {
           "Authorization": `Bearer ${apiKey}`
         }
       });
+      console.log("[SitesList] status", response.status);
       if (response.ok) {
         const data = await response.json();
+        console.log("[SitesList] got", data.length, "sites");
         setCurrentSites(data);
         setCachedSites(data); // Cache to store
+      } else {
+        console.error("[SitesList] non-ok:", response.status, await response.text().catch(() => ""));
       }
     } catch (error) {
       console.error("Failed to load local sites:", error);

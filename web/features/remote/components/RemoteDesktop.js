@@ -143,6 +143,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     scrollLock,
     getCanvasCoordinates,
     resetZoom,
+    panForKeyboard,
     centerVirtualCursor,
     startHandHold,
     releaseHandHold,
@@ -183,6 +184,47 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     handleDirectInputChange,
     emitKeyWithActiveModifiers
   } = useInput(socketEmitFunctions);
+
+  // On-screen keyboard shrinks the viewport from the bottom; at zoom>1 that can
+  // hide the spot the user just tapped. A fixed timeout fired too early — the
+  // container hadn't reflowed to the shrunk --app-height yet, so panForKeyboard
+  // read the stale (tall) height and did nothing (pan only kicked in later on an
+  // unrelated re-clamp, e.g. a mouse move). Instead poll clientHeight via rAF until
+  // it actually changes, THEN pan — no timing guesswork.
+  // Latest focus point (server px) to keep visible when the keyboard opens: the
+  // virtual cursor in trackpad mode, else null (panForKeyboard falls back to the
+  // last tapped point). Mirrored into a ref because the rAF callback below runs
+  // async and would otherwise close over a stale cursor.
+  const focusPxRef = useRef(null);
+  useEffect(() => {
+    focusPxRef.current = pointerMode === "trackpad" ? virtualCursor : null;
+  }, [pointerMode, virtualCursor]);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let prevVVH = vv.height;
+    let raf = 0;
+    const onResize = () => {
+      const shrank = vv.height < prevVVH;
+      prevVVH = vv.height;
+      const container = canvasContainerRef.current;
+      if (!container) return;
+      const startH = container.clientHeight;
+      cancelAnimationFrame(raf);
+      let tries = 0;
+      const wait = () => {
+        // clientHeight changed → reflow done, safe to read. Bail after ~30 frames.
+        if (container.clientHeight !== startH || tries++ > 30) {
+          panForKeyboard(shrank, focusPxRef.current);
+          return;
+        }
+        raf = requestAnimationFrame(wait);
+      };
+      raf = requestAnimationFrame(wait);
+    };
+    vv.addEventListener("resize", onResize);
+    return () => { cancelAnimationFrame(raf); vv.removeEventListener("resize", onResize); };
+  }, [canvasContainerRef, panForKeyboard]);
 
   // Unified key emit — merges sticky UI modifiers with combo's own modifiers.
   const emitKeyDirect = useCallback((key, comboModifiers = []) => {

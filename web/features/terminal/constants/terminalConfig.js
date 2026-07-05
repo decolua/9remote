@@ -31,6 +31,13 @@ export const TOUCH_SCROLL = {
   sgrDown: (x, y) => `\x1b[<65;${x};${y}M`
 };
 
+// Long-press to select text (mobile). Word under finger, drag to extend.
+export const TOUCH_SELECT = {
+  longPressMs: 450, // hold duration to enter select mode
+  moveTolerance: 10, // px finger jitter before it counts as scroll (cancels long-press)
+  wordChars: /[A-Za-z0-9._\-/~:@]/ // chars grouped as one "word"
+};
+
 // Swipe-to-switch-tab thresholds (mobile)
 export const SWIPE_TAB = {
   minDistance: 60, // px min horizontal travel

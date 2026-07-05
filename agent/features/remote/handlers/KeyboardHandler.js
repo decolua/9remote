@@ -38,9 +38,15 @@ export class KeyboardHandler {
         let key = data.key;
         const modifier = data.modifier || [];
         if (key.length === 1) {
-          robot.keyTap(key, modifier);
-          for (const m of modifier) {
-            robot.keyToggle(m, "up");
+          // ctrl/alt/cmd combos (not shift) → keyTap. robotjs keyTap can't produce
+          // uppercase or shifted symbols on its own (throws on "A"/"!"), so a plain
+          // char — even with shift — goes through typeString which types it verbatim.
+          const hard = modifier.filter((m) => m !== "shift");
+          if (hard.length > 0) {
+            robot.keyTap(key.toLowerCase(), modifier);
+            for (const m of modifier) robot.keyToggle(m, "up");
+          } else {
+            robot.typeString(key);
           }
         } else {
           // Normalize common aliases → robotjs key names. All branches MUST pass

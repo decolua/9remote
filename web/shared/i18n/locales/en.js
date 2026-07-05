@@ -597,5 +597,16 @@ export default {
     stopHint: "Stop to save usage",
     restartHint: "To restart, go to GitHub",
     unknown: "Unknown"
+  },
+  history: {
+    title: "Command history",
+    empty: "No commands yet",
+    clearAll: "Clear all"
+  },
+  voice: {
+    dictate: "Voice input",
+    language: "Voice language",
+    clear: "Clear",
+    denied: "Microphone blocked — allow mic access in your browser settings"
   }
 };

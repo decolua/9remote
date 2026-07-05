@@ -175,17 +175,31 @@ export function useInput(socketEmitFunctions) {
       socketEmitFunctions.emitKeyPress?.("enter", []);
       return;
     }
-    socketEmitFunctions.emitTypeText(textInputValue);
+    // Only refocus (which re-opens the soft keyboard) if the input was focused when sending.
+    const wasFocused = document.activeElement === textInputRef.current;
+    socketEmitFunctions.emitTypeText(textInputValue); // type text only, no Enter
     setTextInputValue("");
-  }, [textInputValue, socketEmitFunctions]);
+    if (wasFocused) textInputRef.current?.focus();
+  }, [textInputValue, socketEmitFunctions, textInputRef]);
 
-  // Android IME fallback for direct mode. Android keyboards insert characters
-  // via input events instead of keydown (event.key="Unidentified"). When the
-  // hidden input value grows, emit the new characters as typed text and clear.
+  // Direct mode (real mobile keyboard): Android IMEs insert chars via input events,
+  // not keydown (event.key="Unidentified"), so onChange fires per keystroke. The agent
+  // throttles "type-text" to one event / 100ms and DROPS the rest, so sending each
+  // char immediately loses fast typing. Buffer chars and flush the whole batch after
+  // a short idle so a burst becomes a single emit.
+  const directBufRef = useRef("");
+  const directTimerRef = useRef(null);
   const handleDirectInputChange = useCallback((value, streaming) => {
     if (!streaming || !value || !socketEmitFunctions?.emitTypeText) return;
-    socketEmitFunctions.emitTypeText(value);
+    directBufRef.current += value;
     setTextInputValue("");
+    if (directTimerRef.current) clearTimeout(directTimerRef.current);
+    directTimerRef.current = setTimeout(() => {
+      const text = directBufRef.current;
+      directBufRef.current = "";
+      directTimerRef.current = null;
+      if (text) socketEmitFunctions.emitTypeText(text);
+    }, 150);
   }, [socketEmitFunctions]);
 
   // Emit a key with currently active sticky modifiers applied, then clear them.

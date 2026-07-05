@@ -136,6 +136,25 @@ export default function WorkspaceLayout({ children }) {
   // Current view is top of stack
   const currentView = viewStack[viewStack.length - 1];
 
+  // Enable slide animation only after settled in terminal view (avoids slide-through when entering from list)
+  const [swipeAnimEnabled, setSwipeAnimEnabled] = useState(false);
+  useEffect(() => {
+    if (currentView.type !== "terminal") return setSwipeAnimEnabled(false);
+    const id = requestAnimationFrame(() => setSwipeAnimEnabled(true));
+    return () => cancelAnimationFrame(id);
+  }, [currentView.type]);
+  // Slide direction for mobile tab switch ("", "term-slide-left", "term-slide-right")
+  const prevActiveRef = useRef(null);
+  const [slideClass, setSlideClass] = useState("");
+  useEffect(() => {
+    const active = currentView.type === "terminal" ? currentView.sessionId : null;
+    const prev = prevActiveRef.current;
+    prevActiveRef.current = active;
+    if (!swipeAnimEnabled || !active || !prev || active === prev) return setSlideClass("");
+    const ids = openedSessions;
+    setSlideClass(ids.indexOf(active) > ids.indexOf(prev) ? "term-slide-right" : "term-slide-left");
+  }, [currentView, swipeAnimEnabled, openedSessions]);
+
   // Sync URL <-> viewStack (deep-link, F5, back/forward)
   useRouteSync(hydrated);
 
@@ -580,7 +599,7 @@ export default function WorkspaceLayout({ children }) {
                       className={
                         isDesktop
                           ? "flex-1 h-full"
-                          : `absolute inset-0 ${isFocused ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`
+                          : `absolute inset-0 ${isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
                       }
                       style={isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
                     >

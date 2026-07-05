@@ -31,6 +31,8 @@ export function buildShellEnv() {
   const user = os.userInfo().username;
   const shell = getDefaultShell();
   const env = { ...process.env };
+  // Don't leak 9remote's internal PORT=2208 into user shells (breaks their npm run dev)
+  delete env.PORT;
 
   Object.assign(env, {
     HOME: home,

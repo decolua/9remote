@@ -65,12 +65,12 @@ export default {
     preventSleep: "Prevent sleep",
     blockSleep: "Block system sleep so the network stays alive",
     sleepModes: {
-      "30m": "Off after 30 min idle",
-      "1h": "Off after 1 hour idle",
-      "2h": "Off after 2 hours idle",
-      "4h": "Off after 4 hours idle",
-      "24h": "Off after 24 hours idle",
-      "never": "Never off",
+      "30m": "Stop after 30 min idle",
+      "1h": "Stop after 1 hr idle",
+      "2h": "Stop after 2 hrs idle",
+      "4h": "Stop after 4 hrs idle",
+      "24h": "Stop after 24 hrs idle",
+      "never": "Always block sleep",
     },
   },
   clients: {

@@ -159,6 +159,14 @@
   }
 }
 
+/* Mobile tab switch: active pane slides in from swipe direction (one-shot) */
+@keyframes termSlideFromLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+.term-slide-left { animation: termSlideFromLeft 300ms ease-out; }
+.term-slide-right { animation: slideInFromRight 300ms ease-out; }
+
 .slide-in-right {
   animation: slideInFromRight 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }

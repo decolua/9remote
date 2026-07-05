@@ -2,14 +2,12 @@
 
 import { useEffect, useRef, memo, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { detectSelectionType } from "@/features/terminal/components/SelectionActionButton";
-import { parseFilePathWithLine } from "@/features/terminal/utils/linkDetector";
+import SelectionActionButton from "@/features/terminal/components/SelectionActionButton";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { ChevronDown } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 
@@ -32,14 +30,15 @@ function TerminalPane({
   const { t } = useI18n();
   const { theme } = useTheme();
   const containerRef = useRef(null);
-  const longPressTimer = useRef(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [selection, setSelection] = useState(null); // { text, x, y } from long-press select
 
   const { pushView } = useTerminalStore();
-  const inputMode = useInputMode();
 
   const { termRef, cwdRef, termReady, doResize, focus, stopMomentum } = useXTerm({
-    socket, sessionId, theme, isVisible, isFocused, containerRef, onInput: clearNotification
+    socket, sessionId, theme, isVisible, isFocused, containerRef,
+    onInput: clearNotification,
+    onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
 
   // Expose pane API (focus, resize) to parent for MobileKeyboard callbacks
@@ -64,17 +63,6 @@ function TerminalPane({
       return;
     }
     onPasteFallback?.();
-  };
-
-  const handleTouchStart = () => {
-    longPressTimer.current = setTimeout(handleLongPressPaste, 500);
-  };
-
-  const handleTouchEnd = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
   };
 
   // Track scroll position to show/hide scroll-to-bottom button
@@ -108,47 +96,6 @@ function TerminalPane({
     termRef.current.scrollToBottom();
   };
 
-  // Terminal selection - auto open file/URL on selection
-  // Only on touch devices (mobile/tablet) where "tap to select" is the natural UX.
-  // On desktop/PC, selecting text = copy intent → must NOT auto-open (annoying bug).
-  useEffect(() => {
-    if (!termRef.current || !isVisible || !socket) return;
-    if (inputMode !== "touch") return;
-
-    const term = termRef.current;
-
-    const handleSelectionChange = async () => {
-      const selection = term.getSelection();
-      if (!selection || selection.trim().length === 0) return;
-
-      const detected = detectSelectionType(selection);
-
-      if (detected.isUrl) {
-        term.clearSelection();
-        window.open(detected.match, "_blank");
-        return;
-      }
-
-      if (detected.isFile) {
-        const { path, line, column } = parseFilePathWithLine(detected.match);
-        term.clearSelection();
-
-        let finalPath = path;
-        if (!path.startsWith("/") && cwdRef.current) {
-          finalPath = `${cwdRef.current}/${path}`;
-        }
-
-        if (termRef.current) termRef.current.focus();
-        setTimeout(() => {
-          pushView({ type: "editor", path: finalPath, line, column });
-        }, 50);
-      }
-    };
-
-    const disposable = term.onSelectionChange(handleSelectionChange);
-    return () => disposable.dispose();
-  }, [termRef, isVisible, socket, sessionId, pushView, cwdRef, inputMode]);
-
   // Click pane → request activation from parent
   const handlePaneClick = () => {
     if (!isFocused) onActivate?.(sessionId);
@@ -164,15 +111,31 @@ function TerminalPane({
       className={`h-full w-full flex flex-col overflow-hidden relative ${focusClass}`}
       style={{ background: currentTheme.background }}
       onMouseDown={handlePaneClick}
-      onTouchStart={(e) => { handlePaneClick(); handleTouchStart(e); }}
+      onTouchStart={() => handlePaneClick()}
     >
       <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden relative">
         <div
           ref={containerRef}
           className="xterm-screen w-full h-full rounded-sm overflow-hidden px-1 py-0.5 "
-          onTouchEnd={handleTouchEnd}
-          onTouchMove={handleTouchEnd}
         />
+
+        {selection && (
+          <SelectionActionButton
+            text={selection.text}
+            position={selection}
+            onOpenFile={(path, line, column) => {
+              let finalPath = path;
+              if (!path.startsWith("/") && cwdRef.current) {
+                finalPath = `${cwdRef.current}/${path}`;
+              }
+              focus();
+              pushView({ type: "editor", path: finalPath, line, column });
+            }}
+            onOpenUrl={(url) => window.open(url, "_blank")}
+            onCopy={(txt) => { try { navigator.clipboard?.writeText(txt); } catch {} }}
+            onClose={() => { termRef.current?.clearSelection(); setSelection(null); }}
+          />
+        )}
 
         {showScrollButton && (
           <button

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 // Remote Desktop Canvas component - handles screen rendering
@@ -58,13 +58,19 @@ export default function RemoteCanvas({
 
   // Wheel event: attach via useEffect with { passive: false } so we can call
   // preventDefault() (React's onWheel is always passive and cannot preventDefault).
+  // Read onWheel through a ref so the listener attaches ONCE — onWheel is a fresh
+  // function every render (createInteractionHandler), and re-attaching per render
+  // leaves gaps during zoom/scroll bursts where a wheel event slips through
+  // un-prevented → browser shows the all-scroll (4-way arrow) cursor + native scroll.
+  const onWheelRef = useRef(onWheel);
+  useEffect(() => { onWheelRef.current = onWheel; }, [onWheel]);
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !onWheel) return;
-    const handler = (e) => onWheel(e);
+    if (!canvas) return;
+    const handler = (e) => onWheelRef.current?.(e);
     canvas.addEventListener("wheel", handler, { passive: false });
     return () => canvas.removeEventListener("wheel", handler);
-  }, [canvasRef, onWheel]);
+  }, [canvasRef]);
 
   // Auto-focus canvas on PC mode so physical keyboard keys are received immediately
   // without the user having to click the canvas first.

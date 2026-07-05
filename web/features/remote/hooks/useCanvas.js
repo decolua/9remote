@@ -27,6 +27,9 @@ export function useCanvas(socketEmitFunctions) {
   const touchStartPosRef = useRef({ x: 0, y: 0 });
   const lastClickTimeRef = useRef(0);
   const lastClickPosRef = useRef({ x: 0, y: 0 });
+  // Last interaction point in SERVER canvas pixels — used to keep the spot the
+  // user just touched visible when the on-screen keyboard opens (auto-pan).
+  const lastInteractPxRef = useRef({ x: 0, y: 0 });
   
   // Store server dimensions for recalculation on resize
   const serverDimensionsRef = useRef({ width: 0, height: 0 });
@@ -128,14 +131,61 @@ export function useCanvas(socketEmitFunctions) {
     const y = clientY - containerRect.top;
     const size = Math.max(5, Math.min(15, 7.5 * canvasZoom));
 
+    // Record interaction point in server pixels (zoom-independent) for keyboard auto-pan.
+    const totalScale = fitScale * canvasZoom;
+    if (totalScale > 0) {
+      lastInteractPxRef.current = {
+        x: (x - canvasPan.x) / totalScale,
+        y: (y - canvasPan.y) / totalScale
+      };
+    }
+
     setClickIndicator({ x, y, size });
     setTimeout(() => setClickIndicator(null), 500);
-  }, [canvasZoom]);
+  }, [canvasZoom, fitScale, canvasPan]);
 
   const resetZoom = useCallback(() => {
     setCanvasZoom(1);
     setCanvasPan({ x: 0, y: 0 });
   }, []);
+
+  // Keyboard auto-pan: when the on-screen keyboard opens the container shrinks
+  // from the bottom (--app-height follows visualViewport). At zoom>1 the point of
+  // interest can fall behind the keyboard. Re-pan so that point sits ~1/3 down the
+  // (now shorter) visible area. On close, re-clamp to a valid pan.
+  // targetPx: point to keep visible, in server px. Trackpad mode passes the virtual
+  // cursor; other modes fall back to the last tapped point. Without it we can't know
+  // where the user is looking (this was the bug — it used the tap point in trackpad
+  // mode where the cursor had since moved, so it appeared to do nothing).
+  const panForKeyboard = useCallback((active, targetPx) => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    const totalScale = fitScale * canvasZoom;
+    if (totalScale <= 0) return;
+
+    const focus = targetPx || lastInteractPxRef.current;
+    const displayW = baseCanvasSize.width * canvasZoom;
+    const displayH = baseCanvasSize.height * canvasZoom;
+    const maxPanX = Math.min(0, container.clientWidth - displayW);
+    const maxPanY = Math.min(0, container.clientHeight - displayH);
+
+    setCanvasPan(prev => {
+      if (!active || canvasZoom <= 1) {
+        // Just re-clamp — container grew back, keep pan valid.
+        return {
+          x: Math.max(maxPanX, Math.min(0, prev.x)),
+          y: Math.max(maxPanY, Math.min(0, prev.y))
+        };
+      }
+      // Place focus point at ~1/3 down the visible area.
+      const targetY = container.clientHeight / 3;
+      const newPanY = targetY - focus.y * totalScale;
+      return {
+        x: Math.max(maxPanX, Math.min(0, prev.x)),
+        y: Math.max(maxPanY, Math.min(0, newPanY))
+      };
+    });
+  }, [canvasContainerRef, fitScale, canvasZoom, baseCanvasSize]);
 
   // Cancel long-press timer
   const cancelLongPress = useCallback(() => {
@@ -507,6 +557,22 @@ export function useCanvas(socketEmitFunctions) {
     // Prevents virtual cursor from jumping when user lifts one of two fingers mid-gesture.
     if (event.type.startsWith("touch") && event.touches?.length >= 2) {
       multiTouchLatchRef.current = true;
+      // Second finger takes over → cancel any pending/active 1-finger long-press
+      // (scroll-lock + hand-hold). Otherwise the timer fires mid-zoom/scroll and
+      // scroll-lock hijacks the 2-finger gesture. Cancel hard, don't hand back.
+      if (scrollLongPressTimerRef.current) {
+        clearTimeout(scrollLongPressTimerRef.current);
+        scrollLongPressTimerRef.current = null;
+      }
+      if (scrollLockRef.current) {
+        scrollLockRef.current = false;
+        setScrollLock(false);
+        edgeScrollAccumRef.current = { x: 0, y: 0 };
+      }
+      if (handLongPressTimerRef.current) {
+        clearTimeout(handLongPressTimerRef.current);
+        handLongPressTimerRef.current = null;
+      }
     }
 
     // ── Virtual trackpad branch (Jump Desktop style) ─────────────────────
@@ -1227,6 +1293,7 @@ export function useCanvas(socketEmitFunctions) {
     scrollLock,
     getCanvasCoordinates,
     resetZoom,
+    panForKeyboard,
     centerVirtualCursor,
     startHandHold,
     releaseHandHold,

@@ -67,9 +67,12 @@ function getIdentifier(sub) {
 
 export function addPushSubscription(subscription, socketId) {
   const id = getIdentifier(subscription);
+  // Preserve prior visibility: a re-subscribe on reconnect must not reset a
+  // backgrounded app to "focused" (which would swallow its push). The client
+  // re-sends visibilityChange separately when it actually knows focus state.
+  const prev = pushSubscriptions.find(s => getIdentifier(s) === id);
   pushSubscriptions = pushSubscriptions.filter(s => getIdentifier(s) !== id);
-  // hidden defaults false: a just-subscribed app is focused (won't push)
-  pushSubscriptions.push({ ...subscription, socketId, lastConnectedAt: Date.now(), hidden: false });
+  pushSubscriptions.push({ ...subscription, socketId, lastConnectedAt: Date.now(), hidden: prev?.hidden ?? false });
   savePushSubscriptions();
 }
 
@@ -80,12 +83,19 @@ export function setSubscriptionHidden(socketId, hidden) {
   }
 }
 
-// Latest connected subscription hidden? (used to decide push — focused app shouldn't push)
-export function isLatestSubscriptionHidden() {
-  const latest = pushSubscriptions
-    .filter((s) => !s.disconnectedAt)
-    .reduce((a, b) => (a?.lastConnectedAt ?? 0) >= (b?.lastConnectedAt ?? 0) ? a : b, null);
-  return !!latest?.hidden;
+// Should we push to mobile? Push whenever the app isn't actively foregrounded.
+// WebPush/Expo delivery does NOT need a live socket — the push service wakes the
+// app even when the PWA is fully closed. So "disconnected" means "not focused" =
+// exactly when a push is wanted. Only skip when the latest sub is connected AND focused.
+// ponytail: picks the single latest sub (by lastConnectedAt); doesn't dedup across devices.
+// Upgrade path: push to every sub that's disconnected-or-hidden when multi-device is needed.
+export function shouldPush() {
+  const latest = pushSubscriptions.reduce(
+    (a, b) => ((a?.lastConnectedAt ?? 0) >= (b?.lastConnectedAt ?? 0) ? a : b),
+    null
+  );
+  if (!latest) return false;
+  return latest.disconnectedAt != null || !!latest.hidden;
 }
 
 export function removePushSubscription(identifier) {
@@ -169,9 +179,4 @@ loadPushSubscriptions();
 
 export function getVapidPublicKey() {
   return vapidKeys.publicKey;
-}
-
-// True only when a device is actively connected — gate for sending push (disconnected app shouldn't push)
-export function hasPushSubscriptions() {
-  return pushSubscriptions.some((s) => !s.disconnectedAt);
 }

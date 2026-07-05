@@ -6,12 +6,13 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
-import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL } from "@/features/terminal/constants/terminalConfig";
+import { vibrate } from "@/shared/utils/vibration";
+import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT } from "@/features/terminal/constants/terminalConfig";
 
 // XTerm instance management hook
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
-export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, containerRef, onInput }) {
+export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, containerRef, onInput, onSelectionMade }) {
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const inputHandlerRef = useRef(null);
@@ -19,6 +20,8 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   const doResizeRef = useRef(null);
   const stopMomentumRef = useRef(null);
   const cwdRef = useRef(null); // Track current working directory
+  const onSelectionMadeRef = useRef(onSelectionMade);
+  useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
   const [termReady, setTermReady] = useState(false);
 
   // Resize with debounce singleton - uses rAF to ensure layout is stable
@@ -36,7 +39,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   }, [socket, sessionId]);
 
   // Keep ref updated for use in useEffect without stale closure
-  doResizeRef.current = doResize;
+  useEffect(() => { doResizeRef.current = doResize; }, [doResize]);
 
   // Initialize XTerm instance
   useEffect(() => {
@@ -275,18 +278,85 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       momentumId = requestAnimationFrame(doMomentum);
     };
 
+    // --- Long-press text selection (mobile) ---
+    let longPressTimer = null;
+    let selecting = false;
+    let selStart = null; // {col, row} absolute buffer coords
+    let startX = 0, startY = 0, curX = 0, curY = 0, moved = false;
+
+    // Map viewport pixel → absolute buffer cell (accounts for scrollback offset).
+    const touchToCell = (clientX, clientY) => {
+      const t = termRef.current;
+      const rect = xtermScreen.getBoundingClientRect();
+      const cellW = rect.width / t.cols;
+      const cellH = rect.height / t.rows;
+      const col = Math.max(0, Math.min(t.cols - 1, Math.floor((clientX - rect.left) / cellW)));
+      const vRow = Math.max(0, Math.min(t.rows - 1, Math.floor((clientY - rect.top) / cellH)));
+      return { col, row: t.buffer.active.viewportY + vRow };
+    };
+
+    const selectWordAt = ({ col, row }) => {
+      const t = termRef.current;
+      const line = t.buffer.active.getLine(row);
+      if (!line) return;
+      const text = line.translateToString(false);
+      const isWord = (c) => c && TOUCH_SELECT.wordChars.test(c);
+      if (!isWord(text[col])) { t.select(col, row, 1); return; }
+      let start = col, end = col;
+      while (start > 0 && isWord(text[start - 1])) start--;
+      while (end < text.length - 1 && isWord(text[end + 1])) end++;
+      t.select(start, row, end - start + 1);
+    };
+
+    const extendSelection = (cell) => {
+      const t = termRef.current;
+      if (cell.row === selStart.row) {
+        const min = Math.min(cell.col, selStart.col);
+        t.select(min, cell.row, Math.abs(cell.col - selStart.col) + 1);
+      } else {
+        t.selectLines(Math.min(cell.row, selStart.row), Math.max(cell.row, selStart.row));
+      }
+    };
+
     const handleTouchStart = (e) => {
       stopMomentum();
-      lastY = e.touches[0].clientY;
+      const touch = e.touches[0];
+      lastY = touch.clientY;
+      startX = curX = touch.clientX;
+      startY = curY = touch.clientY;
       lastTime = Date.now();
       velocity = 0;
       accumulated = 0;
+      selecting = false;
+      moved = false;
+      termRef.current?.clearSelection();
+      longPressTimer = setTimeout(() => {
+        if (moved || !termRef.current) return;
+        selecting = true;
+        vibrate();
+        selStart = touchToCell(startX, startY);
+        selectWordAt(selStart);
+      }, TOUCH_SELECT.longPressMs);
     };
 
     const handleTouchMove = (e) => {
       if (!termRef.current) return;
+      const touch = e.touches[0];
+      curX = touch.clientX;
+      curY = touch.clientY;
 
-      const currentY = e.touches[0].clientY;
+      if (!moved && Math.hypot(curX - startX, curY - startY) > TOUCH_SELECT.moveTolerance) {
+        moved = true;
+        if (!selecting) clearTimeout(longPressTimer); // it's a scroll, not a long-press
+      }
+
+      if (selecting) {
+        e.preventDefault();
+        extendSelection(touchToCell(curX, curY));
+        return;
+      }
+
+      const currentY = touch.clientY;
       const currentTime = Date.now();
       const deltaY = (lastY - currentY) * SENSITIVITY;
       const deltaTime = currentTime - lastTime || 1;
@@ -304,17 +374,25 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     };
 
     const handleTouchEnd = () => {
+      clearTimeout(longPressTimer);
+      if (selecting) {
+        selecting = false;
+        const sel = termRef.current?.getSelection();
+        if (sel && sel.trim()) onSelectionMadeRef.current?.(sel, { x: curX, y: curY });
+        return;
+      }
       if (Math.abs(velocity) > MIN_VELOCITY) {
         momentumId = requestAnimationFrame(doMomentum);
       }
     };
 
     xtermScreen.addEventListener("touchstart", handleTouchStart, { passive: true });
-    xtermScreen.addEventListener("touchmove", handleTouchMove, { passive: true });
+    xtermScreen.addEventListener("touchmove", handleTouchMove, { passive: false });
     xtermScreen.addEventListener("touchend", handleTouchEnd, { passive: true });
 
     return () => {
       stopMomentum();
+      clearTimeout(longPressTimer);
       xtermScreen.removeEventListener("touchstart", handleTouchStart);
       xtermScreen.removeEventListener("touchmove", handleTouchMove);
       xtermScreen.removeEventListener("touchend", handleTouchEnd);

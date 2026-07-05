@@ -10,23 +10,63 @@ import {
   BUTTON_STYLES
 } from "@/features/terminal/constants/terminalConfig";
 import { vibrate } from "@/shared/utils/vibration";
-import { Paperclip, Settings, MoreHorizontal, X, CornerDownLeft } from "@/shared/components/ui/Icon";
+import { Paperclip, Settings, MoreHorizontal, X, CornerDownLeft, Mic, MicOff, History } from "@/shared/components/ui/Icon";
+import CommandHistoryModal from "@/shared/components/ui/CommandHistoryModal";
+import { useHistoryStore } from "@/shared/stores/historyStore";
+import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
+import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput }) => {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showTextPanel, setShowTextPanel] = useState(true);
-  const [textInput, setTextInput] = useState("");
+  // Draft text lives in the store keyed by sessionId so it survives this component
+  // unmounting (e.g. switching to remote view and back).
+  const textInput = useTerminalStore((s) => s.drafts[sessionId] ?? "");
+  const setDraft = useTerminalStore((s) => s.setDraft);
+  const setTextInput = useCallback((v) => {
+    setDraft(sessionId, typeof v === "function" ? v(useTerminalStore.getState().drafts[sessionId] ?? "") : v);
+  }, [setDraft, sessionId]);
   const [isMobile, setIsMobile] = useState(false);
   const [showPasteInput, setShowPasteInput] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const addCommand = useHistoryStore((s) => s.addCommand);
   const textInputRef = useRef(null);
   const pasteInputRef = useRef(null);
+
+  // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
+  const [voiceLang, setVoiceLang] = useVoiceLang(locale);
+  const [voiceLangOpen, setVoiceLangOpen] = useState(false);
+  const voice = useVoiceInput({
+    lang: localeToSpeechLang(voiceLang),
+    onText: (txt) => {
+      setTextInput(txt);
+      const el = textInputRef.current;
+      if (el) requestAnimationFrame(() => {
+        try { el.selectionStart = el.selectionEnd = el.value.length; } catch {}
+        el.scrollTop = el.scrollHeight;
+      });
+    },
+  });
+  // Auto-grow textarea from 1 row up to a max, then scroll internally.
+  useEffect(() => {
+    const el = textInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 72)}px`;
+  }, [textInput]);
+  const toggleVoice = () => {
+    if (voice.listening) { voice.stop(); return; }
+    document.activeElement?.blur(); // hide soft keyboard while dictating
+    voice.start(textInput);
+  };
 
   const { isIosPwa } = useDeviceInfo();
   const inputMode = useInputMode();
@@ -231,13 +271,19 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
   const sendTextBatch = () => {
     vibrate(15);
+    if (voice.listening) voice.stop();
     if (!socket || !sessionId) return;
-    // Empty input → send single Enter (\r); otherwise send raw text
-    const data = textInput === "" ? "\r" : textInput;
+    // Only pull the keyboard back up if the input was already focused when sending.
+    const wasFocused = document.activeElement === textInputRef.current;
+    // Read the live DOM value: preventDefault on the Send button can leave the
+    // last IME-composed char uncommitted to state, causing dropped sends.
+    const text = textInputRef.current?.value ?? textInput;
+    // Send text followed by Enter to execute (empty input → lone Enter).
+    const data = text === "" ? "\r" : text + "\r";
     onInput?.(sessionId);
     socket.emit("input", { sessionId, data });
-    if (textInput !== "") setTextInput("");
-    textInputRef.current?.focus();
+    if (text !== "") { addCommand(text); setTextInput(""); }
+    if (wasFocused) textInputRef.current?.focus();
   };
 
   const handleFileUpload = async (event) => {
@@ -350,42 +396,76 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Text Input Panel */}
       <div
-        className={`overflow-hidden transition-all duration-300 bg-bg ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}
+        className={`transition-all duration-300 bg-bg ${voice.listening ? "overflow-visible" : "overflow-hidden"} ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}
       >
-        <div className="p-2 flex gap-2 items-center">
+        <div className="p-2 flex gap-2 items-end">
           <label className="px-3 py-2 bg-surface-2 hover:bg-surface-3 text-sm font-medium rounded transition-all duration-150 ease-out flex items-center gap-1 cursor-pointer flex-shrink-0">
             <Paperclip size={16} className="text-orange-500/70" />
             <input type="file" onChange={handleFileUpload} className="hidden" accept="*/*" />
           </label>
 
-          <textarea
-            ref={textInputRef}
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (hasPhysicalKeyboard && e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                sendTextBatch();
-              }
-            }}
-            placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend") : t("mobileKeyboard.typeCommand")}
-            rows={Math.min(2, (textInput.match(/\n/g) || []).length + 1)}
-            className="w-full px-3 py-1.5 pr-8 bg-surface-2 rounded text-text text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none"
-          />
-          {textInput && (
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { setTextInput(""); textInputRef.current?.focus(); }}
-              className="absolute right-2 top-2 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors"
-            >
-              ×
-            </button>
+          <div className="relative flex-1">
+            <textarea
+              ref={textInputRef}
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (hasPhysicalKeyboard && e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendTextBatch();
+                }
+              }}
+              placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend") : t("mobileKeyboard.typeCommand")}
+              rows={1}
+              className="block w-full px-3 py-2 pr-8 bg-surface-2 rounded text-text text-sm placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none overflow-y-auto"
+            />
+            {textInput ? (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setTextInput(""); textInputRef.current?.focus(); }}
+                title={t("voice.clear")}
+                className="absolute right-1.5 top-1.5 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors"
+              >
+                <X size={14} />
+              </button>
+            ) : (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setShowHistory(true)}
+                title={t("history.title")}
+                className="absolute right-1.5 top-1.5 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors"
+              >
+                <History size={14} />
+              </button>
+            )}
+          </div>
+          {voice.supported && (
+            <div className="relative flex-shrink-0">
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setVoiceLangOpen(true)}
+                title={t("voice.language")}
+                className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1 rounded bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
+              >
+                {voiceLang}
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={toggleVoice}
+                title={voice.error === "not-allowed" || voice.error === "service-not-allowed" ? t("voice.denied") : t("voice.dictate")}
+                className={`h-9 w-9 flex items-center justify-center rounded-full transition-all duration-200 ${
+                  voice.listening ? "bg-red-500/90 text-white animate-pulse" : voice.error ? "bg-surface-2 text-red-400" : "bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text"
+                }`}
+              >
+                {voice.listening ? <MicOff size={18} /> : <Mic size={18} />}
+              </button>
+            </div>
           )}
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={sendTextBatch}
-                  disabled={false}
-                  className="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[72px] flex items-center justify-center"
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={sendTextBatch}
+            disabled={false}
+            className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[56px] flex items-center justify-center"
           >
             {textInput.trim() ? t("mobileKeyboard.send") : <CornerDownLeft size={16} strokeWidth={2.5} />}
           </button>
@@ -442,6 +522,17 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
           { id: "basic", label: t("mobileKeyboard.mainBar"), hook: basicCustom, excludeIds: [TERMINAL_PINNED_KEY_ID] },
           { id: "extra", label: t("mobileKeyboard.extraPanel"), hook: extraCustom }
         ]}
+      />
+      <VoiceLangModal
+        isOpen={voiceLangOpen}
+        value={voiceLang}
+        onSelect={setVoiceLang}
+        onClose={() => setVoiceLangOpen(false)}
+      />
+      <CommandHistoryModal
+        isOpen={showHistory}
+        onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
+        onClose={() => setShowHistory(false)}
       />
     </div>
   );
