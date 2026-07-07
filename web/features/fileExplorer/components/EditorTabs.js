@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Icon, { X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
-import { LANGUAGE_MAP, FILE_ICON_NAMES } from "../constants/fileExplorer.js";
+import { LANGUAGE_MAP, FILE_ICON_NAMES, isDiffPath, parseDiffPath } from "../constants/fileExplorer.js";
 
 function getFileIconName(filePath) {
   const ext = "." + filePath.split(".").pop()?.toLowerCase();
@@ -44,8 +44,10 @@ export default function EditorTabs({ openedFiles, activeFile, dirtyFiles, onActi
       {openedFiles.map((path) => {
         const isActive = path === activeFile;
         const isDirty = dirtyFiles?.has(path);
-        const fileName = path.split("/").pop();
-        const iconName = getFileIconName(path);
+        const diff = isDiffPath(path);
+        const realPath = diff ? parseDiffPath(path).absPath : path;
+        const fileName = diff ? `${realPath.split("/").pop()} (diff)` : realPath.split("/").pop();
+        const iconName = getFileIconName(realPath);
         return (
           <div
             key={path}

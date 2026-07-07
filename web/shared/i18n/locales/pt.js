@@ -436,6 +436,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "Rolar até o final",
+    changedFiles: "Changed files",
     pasteOrType: "Cole ou digite aqui",
     paste: "Colar"
   },

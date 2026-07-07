@@ -437,6 +437,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "En alta kaydır",
+    changedFiles: "Changed files",
     pasteOrType: "Buraya yapıştır veya yaz",
     paste: "Yapıştır"
   },

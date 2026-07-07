@@ -8,7 +8,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT } from "@/features/terminal/constants/terminalConfig";
-import { detectLinks } from "@/features/terminal/utils/linkDetector";
+// import { detectLinks } from "@/features/terminal/utils/linkDetector";
 
 // XTerm instance management hook
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
@@ -21,6 +21,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   const doResizeRef = useRef(null);
   const stopMomentumRef = useRef(null);
   const cwdRef = useRef(null); // Track current working directory
+  const [cwd, setCwd] = useState(null); // Reactive cwd for toolbar UI
   const decoderRef = useRef(null); // Reused TextDecoder for binary output
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
@@ -64,16 +65,16 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
     term.open(containerRef.current);
 
-    // File/URL link provider: detect per-line, xterm handles highlight + click
-    term.registerLinkProvider({
-      provideLinks: (bufferLineNumber, cb) => {
-        const buffer = term.buffer.active;
-        const line = buffer.getLine(bufferLineNumber - 1);
-        if (!line) { cb([]); return; }
-        const links = detectLinks(line.translateToString(true), bufferLineNumber, cwdRef.current);
-        cb(links.map((l) => ({ range: l.range, activate: l.activate })));
-      },
-    });
+    // File/URL link provider: temporarily disabled (inaccurate resolve), re-enable later
+    // term.registerLinkProvider({
+    //   provideLinks: (bufferLineNumber, cb) => {
+    //     const buffer = term.buffer.active;
+    //     const line = buffer.getLine(bufferLineNumber - 1);
+    //     if (!line) { cb([]); return; }
+    //     const links = detectLinks(line.translateToString(true), bufferLineNumber, cwdRef.current);
+    //     cb(links.map((l) => ({ range: l.range, activate: l.activate })));
+    //   },
+    // });
 
     // WebGL addon loaded after joinSession to avoid blank screen
     let webglAddon = null;
@@ -126,7 +127,9 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
         // Gate OSC7 scan — skip regex unless an escape sequence is present
         const osc7Match = text.indexOf("\x1b") !== -1 ? text.match(/\x1b\]7;file:\/\/[^\/]*(.+?)\x07/) : null;
         if (osc7Match && osc7Match[1]) {
-          cwdRef.current = decodeURIComponent(osc7Match[1]);
+          const next = decodeURIComponent(osc7Match[1]);
+          cwdRef.current = next;
+          setCwd(next);
         }
       }
       
@@ -144,7 +147,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     const doJoinSession = (isRejoin = false) => {
       socket.emit("joinSession", sessionId, (result) => {
         if (result.success) {
-          if (result.cwd) cwdRef.current = result.cwd;
+          if (result.cwd) { cwdRef.current = result.cwd; setCwd(result.cwd); }
           setTimeout(() => {
             // Temporary: disable WebGL renderer for blurry-text verification on mobile devices.
             // loadWebGL();
@@ -420,6 +423,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   return {
     termRef,
     cwdRef, // Expose cwd for file path resolution
+    cwd, // Reactive cwd for toolbar UI
     termReady,
     doResize,
     focus: () => termRef.current?.focus(),

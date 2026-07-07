@@ -437,6 +437,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "Прокрутить вниз",
+    changedFiles: "Changed files",
     pasteOrType: "Вставьте или введите здесь",
     paste: "Вставить"
   },

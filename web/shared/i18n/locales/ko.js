@@ -437,6 +437,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "맨 아래로 스크롤",
+    changedFiles: "Changed files",
     pasteOrType: "여기에 붙여넣기 또는 입력",
     paste: "붙여넣기"
   },

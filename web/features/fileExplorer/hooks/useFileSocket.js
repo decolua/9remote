@@ -100,6 +100,17 @@ export function useFileSocket(socketRef) {
     });
   }, [socketRef]);
 
+  // Git changed-file count only (badge) - avoids transferring the full file list
+  const gitChangedCount = useCallback((repoPath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("gitChangedCount", { repoPath }, resolve);
+    });
+  }, [socketRef]);
+
   // Git file status - check single file
   const gitFileStatus = useCallback((repoPath, filePath) => {
     return new Promise((resolve) => {
@@ -314,6 +325,7 @@ export function useFileSocket(socketRef) {
     deleteItem,
     renameItem,
     gitStatus,
+    gitChangedCount,
     gitFileStatus,
     gitDiff,
     gitDiscard,

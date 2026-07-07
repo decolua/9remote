@@ -538,6 +538,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "גלול לתחתית",
+    changedFiles: "Changed files",
     pasteOrType: "הדבק או הקלד כאן",
     paste: "הדבק"
   },

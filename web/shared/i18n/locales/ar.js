@@ -538,6 +538,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "التمرير إلى الأسفل",
+    changedFiles: "Changed files",
     pasteOrType: "الصق أو اكتب هنا",
     paste: "لصق"
   },

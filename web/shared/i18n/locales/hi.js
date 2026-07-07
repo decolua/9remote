@@ -538,6 +538,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "नीचे तक स्क्रॉल करें",
+    changedFiles: "Changed files",
     pasteOrType: "यहाँ पेस्ट करें या टाइप करें",
     paste: "पेस्ट"
   },

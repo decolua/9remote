@@ -437,6 +437,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "Gulir ke bawah",
+    changedFiles: "Changed files",
     pasteOrType: "Tempel atau ketik di sini",
     paste: "Tempel"
   },

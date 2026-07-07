@@ -437,6 +437,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "Cuộn xuống cuối",
+    changedFiles: "Changed files",
     pasteOrType: "Dán hoặc nhập tại đây",
     paste: "Dán"
   },

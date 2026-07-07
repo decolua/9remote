@@ -437,6 +437,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "滚动到底部",
+    changedFiles: "Changed files",
     pasteOrType: "在此粘贴或输入",
     paste: "粘贴"
   },

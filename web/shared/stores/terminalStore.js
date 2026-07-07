@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { MAX_LIVE_PANES } from "@/features/terminal/constants/terminalConfig";
 
 // Terminal UI state store - persisted to sessionStorage
 export const useTerminalStore = create(
@@ -14,6 +15,15 @@ export const useTerminalStore = create(
       // Active group for terminal-view tab filtering (null = Ungrouped)
       activeGroupId: null,
       setActiveGroupId: (groupId) => set({ activeGroupId: groupId }),
+
+      // LRU of session ids kept mounted (alive) across group switches. Not persisted.
+      livePanes: [],
+      // Mark session(s) as recently used; keep at most MAX_LIVE_PANES (evict oldest)
+      touchLivePane: (sessionIds) => set((state) => {
+        const ids = Array.isArray(sessionIds) ? sessionIds : [sessionIds];
+        const next = [...state.livePanes.filter(id => !ids.includes(id)), ...ids];
+        return { livePanes: next.slice(-MAX_LIVE_PANES) };
+      }),
 
       // Unsent MobileKeyboard draft text, keyed by sessionId. Lives here (not in the
       // component) so it survives MobileKeyboard unmounting when switching to remote/etc.
@@ -51,11 +61,12 @@ export const useTerminalStore = create(
         const { [sessionId]: _, ...drafts } = state.drafts;
         return {
           openedSessions: state.openedSessions.filter(id => id !== sessionId),
+          livePanes: state.livePanes.filter(id => id !== sessionId),
           drafts
         };
       }),
       
-      clearOpenedSessions: () => set({ openedSessions: [] }),
+      clearOpenedSessions: () => set({ openedSessions: [], livePanes: [] }),
       
       // Get current view
       getCurrentView: () => {
@@ -76,6 +87,7 @@ export const useTerminalStore = create(
       reset: () => set({
         viewStack: [{ type: "list" }],
         openedSessions: [],
+        livePanes: [],
         activeGroupId: null
       })
     }),

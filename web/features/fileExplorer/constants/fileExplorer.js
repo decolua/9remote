@@ -74,6 +74,19 @@ export const GIT_STATUS_COLORS = {
 
 export const AUTO_SAVE_DELAY = 3000; // 3 seconds
 
+// Git diff: side-by-side (VSCode-like) at/above this width, unified below
+export const DIFF_SIDE_BY_SIDE_BREAKPOINT = 768;
+
+// Virtual tab for git diff view: `git-diff:<status>:<absPath>`
+export const DIFF_TAB_PREFIX = "git-diff:";
+export const makeDiffPath = (status, absPath) => `${DIFF_TAB_PREFIX}${status}:${absPath}`;
+export const isDiffPath = (p) => typeof p === "string" && p.startsWith(DIFF_TAB_PREFIX);
+export const parseDiffPath = (p) => {
+  const rest = p.slice(DIFF_TAB_PREFIX.length);
+  const i = rest.indexOf(":");
+  return { status: rest.slice(0, i), absPath: rest.slice(i + 1) };
+};
+
 // VSCode-like layout constants
 export const SIDEBAR_DEFAULT_WIDTH = 18; // percent
 export const SIDEBAR_MIN_WIDTH = 12;

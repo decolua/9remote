@@ -437,6 +437,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "Scroll naar beneden",
+    changedFiles: "Changed files",
     pasteOrType: "Plak of typ hier",
     paste: "Plakken"
   },

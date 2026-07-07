@@ -1,13 +1,35 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
-import { GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, DIFF_SIDE_BY_SIDE_BREAKPOINT } from "../constants/fileExplorer.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { ChevronLeft, Eye, Trash2, RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+
+// Parse unified diff text into flat rows for the mobile (no-table) renderer
+function parseUnifiedDiff(text) {
+  const rows = [];
+  let oldLn = 0, newLn = 0;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("new file") || line.startsWith("deleted file") || line.startsWith("--- ") || line.startsWith("+++ ")) {
+      if (line.startsWith("diff --git")) rows.push({ type: "file", text: line.replace("diff --git a/", "").split(" b/")[0] });
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      const m = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (m) { oldLn = parseInt(m[1], 10); newLn = parseInt(m[2], 10); }
+      rows.push({ type: "hunk", text: line });
+      continue;
+    }
+    if (line.startsWith("+")) rows.push({ type: "add", text: line.slice(1), newLn: newLn++ });
+    else if (line.startsWith("-")) rows.push({ type: "del", text: line.slice(1), oldLn: oldLn++ });
+    else rows.push({ type: "ctx", text: line.slice(1), oldLn: oldLn++, newLn: newLn++ });
+  }
+  return rows;
+}
 
 export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) {
   const { t } = useI18n();
@@ -115,22 +137,35 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
     onOpenFile?.(fullPath);
   }, [workspace, onOpenFile]);
 
-  // Render diff with diff2html - use ref for stable reference
-  const diffContainerRef = useCallback((node) => {
-    if (!node || activeTab !== "diff" || !diff || diffLoading) return;
+  // Track viewport: desktop => diff2html side-by-side (VSCode-like); mobile => custom unified rows
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia(`(min-width: ${DIFF_SIDE_BY_SIDE_BREAKPOINT}px)`);
+    const apply = () => setIsDesktop(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
+  // Desktop diff2html renderer (side-by-side)
+  const diffContainerRef = useCallback((node) => {
+    if (!node || activeTab !== "diff" || !diff || diffLoading || !isDesktop) return;
     try {
       const diff2htmlUi = new Diff2HtmlUI(node, diff, {
         drawFileList: false,
-        matching: "lines",
-        outputFormat: "line-by-line",
+        matching: "words",
+        outputFormat: "side-by-side",
         renderNothingWhenEmpty: false
       });
       diff2htmlUi.draw();
     } catch {
       node.innerHTML = `<pre class="text-text-muted p-4">${diff || t("git.noChanges")}</pre>`;
     }
-  }, [activeTab, diff, diffLoading, t]);
+  }, [activeTab, diff, diffLoading, isDesktop, t]);
+
+  // Mobile: parse unified diff into flat rows (no table) for readable full-width display
+  const diffRows = useMemo(() => (isDesktop || !diff ? [] : parseUnifiedDiff(diff)), [isDesktop, diff]);
 
   const groupedFiles = {
     modified: statusFiles.filter(f => f.status === "M"),
@@ -266,7 +301,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-auto modal-scrollable">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollable">
         {activeTab === "status" ? (
           statusLoading ? (
             <div className="flex items-center justify-center h-32 text-text-muted">
@@ -319,7 +354,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
             )}
           </div>
         ) : (
-          <div className="p-4">
+          <div className="p-4 min-w-0">
             {/* File selector and discard button */}
             {statusFiles.length > 0 && (
               <div className="flex gap-2 mb-4">
@@ -332,7 +367,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                       loadDiff(file.path, file.status);
                     }
                   }}
-                  className="flex-1 px-3 py-2 bg-surface-2 rounded text-text focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all duration-150 ease-out"
+                  className="flex-1 min-w-0 px-3 py-2 bg-surface-2 rounded text-text focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all duration-150 ease-out"
                 >
                   {statusFiles.map(file => (
                     <option key={file.path} value={file.path}>
@@ -358,87 +393,84 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                 {t("common.loading")}
               </div>
             ) : diff ? (
-              <div 
-                ref={diffContainerRef}
-                className="diff-dark-theme bg-surface rounded overflow-hidden text-sm"
-              />
+              isDesktop ? (
+                <div
+                  ref={diffContainerRef}
+                  className="diff-dark-theme bg-surface rounded overflow-hidden text-sm"
+                />
+              ) : (
+                <div className="diff-mobile w-full max-w-full rounded-lg overflow-hidden border border-border bg-surface font-mono text-[12.5px] leading-[1.6]">
+                  {diffRows.map((row, i) => {
+                    if (row.type === "file") return <div key={i} className="px-3 py-2 bg-surface-2 text-text font-semibold break-all">{row.text}</div>;
+                    if (row.type === "hunk") return <div key={i} className="px-3 py-1 bg-surface-2/60 text-text-muted select-none break-all">{row.text}</div>;
+                    const gutter = row.type === "add" ? row.newLn : row.type === "del" ? row.oldLn : row.newLn;
+                    // Semantic tinted bg via theme tokens; text stays `text-text` for contrast in light+dark
+                    const bg = row.type === "add" ? "bg-[rgba(var(--success-rgb),0.14)]" : row.type === "del" ? "bg-[rgba(var(--danger-rgb),0.14)]" : "";
+                    const signColor = row.type === "add" ? "text-[var(--success)]" : row.type === "del" ? "text-[var(--danger)]" : "text-text-subtle";
+                    const sign = row.type === "add" ? "+" : row.type === "del" ? "-" : " ";
+                    return (
+                      <div key={i} className={`flex ${bg}`}>
+                        <span className="shrink-0 w-9 px-1 text-right text-text-subtle bg-black/5 select-none">{gutter}</span>
+                        <span className={`shrink-0 w-4 text-center font-bold ${signColor} select-none`}>{sign}</span>
+                        <span className="flex-1 min-w-0 pr-2 whitespace-pre-wrap break-words text-text">{row.text || "\u00A0"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
             ) : (
               <div className="flex items-center justify-center h-32 text-text-muted">
                 {t("git.noChanges")}
               </div>
             )}
             <style jsx global>{`
-              .diff-dark-theme .d2h-wrapper {
-                background: transparent;
+              /* Desktop diff2html — themed via app tokens (adapts to light/dark) */
+              .diff-dark-theme .d2h-wrapper { background: transparent; }
+              .diff-dark-theme .d2h-file-wrapper {
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                overflow: hidden;
+                margin-bottom: 12px;
               }
               .diff-dark-theme .d2h-file-header {
-                background: #334155;
-                color: #f1f5f9;
-                border-bottom: 1px solid #475569;
+                background: var(--surface-2);
+                color: var(--text);
+                border-bottom: 1px solid var(--border);
+                padding: 8px 12px;
               }
-              .diff-dark-theme .d2h-file-name {
-                color: #f1f5f9;
+              .diff-dark-theme .d2h-file-name { color: var(--text); }
+              .diff-dark-theme .d2h-diff-table {
+                font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+                font-size: 12.5px;
+                line-height: 1.55;
               }
-              .diff-dark-theme .d2h-code-line {
-                background: #1e293b;
-              }
-              .diff-dark-theme .d2h-code-line-ctn {
-                color: #e2e8f0;
-              }
-              .diff-dark-theme .d2h-code-linenumber {
-                background: #334155;
-                color: #94a3b8;
-                border-right: 1px solid #475569;
+              .diff-dark-theme .d2h-code-line,
+              .diff-dark-theme .d2h-code-side-line { background: var(--surface); padding: 0 8px; }
+              .diff-dark-theme .d2h-code-line-ctn { color: var(--text); }
+              .diff-dark-theme .d2h-code-linenumber,
+              .diff-dark-theme .d2h-code-side-linenumber {
+                background: var(--surface-2);
+                color: var(--text-subtle);
+                border-right: 1px solid var(--border);
                 position: static !important;
               }
-              /* Deleted lines - red */
-              .diff-dark-theme .d2h-del {
-                background: rgba(239, 68, 68, 0.2) !important;
-                border-color: rgba(239, 68, 68, 0.4);
-              }
-              .diff-dark-theme .d2h-del .d2h-code-line-ctn {
-                color: #fca5a5;
-              }
-              .diff-dark-theme .d2h-del .d2h-code-linenumber {
-                background: rgba(239, 68, 68, 0.3);
-                color: #fca5a5;
-              }
-              /* Added lines - green */
-              .diff-dark-theme .d2h-ins {
-                background: rgba(34, 197, 94, 0.2) !important;
-                border-color: rgba(34, 197, 94, 0.4);
-              }
-              .diff-dark-theme .d2h-ins .d2h-code-line-ctn {
-                color: #86efac;
-              }
-              .diff-dark-theme .d2h-ins .d2h-code-linenumber {
-                background: rgba(34, 197, 94, 0.3);
-                color: #86efac;
-              }
-              /* Inline changes highlight */
-              .diff-dark-theme del {
-                background: rgba(239, 68, 68, 0.4);
-                color: #fecaca;
-                text-decoration: none;
-              }
-              .diff-dark-theme ins {
-                background: rgba(34, 197, 94, 0.4);
-                color: #bbf7d0;
-                text-decoration: none;
-              }
-              /* Info and context */
-              .diff-dark-theme .d2h-info {
-                background: #334155;
-                color: #94a3b8;
-                border-color: #475569;
-              }
-              .diff-dark-theme .d2h-code-side-line {
-                border-left-color: #475569;
-              }
-              /* Empty placeholder */
-              .diff-dark-theme .d2h-code-side-emptyplaceholder {
-                background: #1e293b;
-              }
+              /* Deleted lines */
+              .diff-dark-theme .d2h-del { background: rgba(var(--danger-rgb), 0.12) !important; border-color: rgba(var(--danger-rgb), 0.3); }
+              .diff-dark-theme .d2h-del .d2h-code-line-ctn { color: var(--text); }
+              .diff-dark-theme .d2h-del .d2h-code-linenumber { background: rgba(var(--danger-rgb), 0.16); color: var(--danger); }
+              /* Added lines */
+              .diff-dark-theme .d2h-ins { background: rgba(var(--success-rgb), 0.12) !important; border-color: rgba(var(--success-rgb), 0.3); }
+              .diff-dark-theme .d2h-ins .d2h-code-line-ctn { color: var(--text); }
+              .diff-dark-theme .d2h-ins .d2h-code-linenumber { background: rgba(var(--success-rgb), 0.16); color: var(--success); }
+              /* Inline word-level highlight */
+              .diff-dark-theme del { background: rgba(var(--danger-rgb), 0.32); color: var(--text); text-decoration: none; border-radius: 2px; }
+              .diff-dark-theme ins { background: rgba(var(--success-rgb), 0.32); color: var(--text); text-decoration: none; border-radius: 2px; }
+              /* Hunk info / context */
+              .diff-dark-theme .d2h-info { background: var(--surface-2); color: var(--text-muted); border-color: var(--border); }
+              .diff-dark-theme .d2h-code-side-line { border-left-color: var(--border); }
+              .diff-dark-theme .d2h-code-side-emptyplaceholder,
+              .diff-dark-theme .d2h-emptyplaceholder { background: var(--surface-2); }
+              .diff-dark-theme .d2h-file-side-diff { overflow-x: auto; }
             `}</style>
           </div>
         )}

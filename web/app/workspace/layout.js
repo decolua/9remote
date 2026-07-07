@@ -49,6 +49,8 @@ export default function WorkspaceLayout({ children }) {
     removeOpenedSession,
     activeGroupId,
     setActiveGroupId,
+    livePanes,
+    touchLivePane,
     reset: resetStore
   } = useTerminalStore();
 
@@ -295,8 +297,10 @@ export default function WorkspaceLayout({ children }) {
     const selected = sessions.find(s => s.id === sessionId);
     const groupId = selected?.groupId || null;
     setActiveGroupId(groupId);
-    sessions.filter(s => (s.groupId || null) === groupId).forEach(s => addOpenedSession(s.id));
+    const groupIds = sessions.filter(s => (s.groupId || null) === groupId).map(s => s.id);
+    groupIds.forEach(id => addOpenedSession(id));
     addOpenedSession(sessionId);
+    touchLivePane([...groupIds, sessionId]); // Keep this group's panes alive (LRU)
     clearNotification?.(sessionId); // Clear badge on switching into a session (B)
 
     if (currentView.type === "terminal") {
@@ -306,7 +310,7 @@ export default function WorkspaceLayout({ children }) {
     } else {
       pushView({ type: "terminal", sessionId });
     }
-  }, [sessions, addOpenedSession, setActiveGroupId, currentView, viewStack, setViewStack, pushView, clearNotification]);
+  }, [sessions, addOpenedSession, touchLivePane, setActiveGroupId, currentView, viewStack, setViewStack, pushView, clearNotification]);
 
   // Deep-link from push notification tap (SW postMessage): open the right terminal
   useEffect(() => {
@@ -340,13 +344,14 @@ export default function WorkspaceLayout({ children }) {
     setActiveGroupId(groupId);
     const groupSessions = sessions.filter(s => (s.groupId || null) === groupId);
     groupSessions.forEach(s => addOpenedSession(s.id));
+    touchLivePane(groupSessions.map(s => s.id)); // Keep this group's panes alive (LRU)
     const first = groupSessions[0];
     if (first) {
       const newStack = [...viewStack];
       newStack[newStack.length - 1] = { type: "terminal", sessionId: first.id };
       setViewStack(newStack);
     }
-  }, [sessions, setActiveGroupId, addOpenedSession, viewStack, setViewStack]);
+  }, [sessions, setActiveGroupId, addOpenedSession, touchLivePane, viewStack, setViewStack]);
 
   // Create session from FileExplorer bottom panel - stay in current view
   const handleCreateSessionInline = useCallback((onCreated) => {
@@ -547,9 +552,11 @@ export default function WorkspaceLayout({ children }) {
         {openedSessions.length > 0 && (() => {
           const isTerminalView = currentView.type === "terminal";
           const activeSessionId = isTerminalView ? currentView.sessionId : null;
-          // Only render panes belonging to the active group (tabs are filtered the same way)
+          // Active-group panes drive tabs/visibility; LRU union stays mounted (no remount on group switch)
           const groupSessionIds = new Set(sessions.filter(s => (s.groupId || null) === activeGroupId).map(s => s.id));
           const groupOpenedSessions = openedSessions.filter(sid => groupSessionIds.has(sid));
+          const liveSet = new Set([...groupOpenedSessions, ...livePanes.filter(sid => openedSessions.includes(sid))]);
+          const renderedSessions = openedSessions.filter(sid => liveSet.has(sid));
           return (
             <div
               className={`absolute inset-0 transition-all duration-150 ease-out flex flex-col ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
@@ -598,19 +605,23 @@ export default function WorkspaceLayout({ children }) {
                   onSwitch: handleSelectSession
                 })}
               >
-                {groupOpenedSessions.map((sessionId) => {
+                {renderedSessions.map((sessionId) => {
+                  const inActiveGroup = groupSessionIds.has(sessionId);
                   const isFocused = sessionId === activeSessionId;
-                  const isVisible = isDesktop || isFocused;
+                  const isVisible = inActiveGroup && (isDesktop || isFocused);
+                  // Panes outside active group stay mounted (LRU) but fully hidden
                   return (
                     <div
                       key={sessionId}
                       ref={(el) => registerPaneElement(sessionId, el)}
                       className={
-                        isDesktop
+                        !inActiveGroup
+                          ? "hidden"
+                          : isDesktop
                           ? "flex-1 h-full"
                           : `absolute inset-0 ${isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
                       }
-                      style={isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
+                      style={inActiveGroup && isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
                     >
                       <TerminalPane
                         socket={socket}
@@ -624,6 +635,7 @@ export default function WorkspaceLayout({ children }) {
                         showFocusBorder={isDesktop && groupOpenedSessions.length > 1}
                         notifications={notifications}
                         clearNotification={clearNotification}
+                        fileSocket={fileSocket}
                       />
                     </div>
                   );

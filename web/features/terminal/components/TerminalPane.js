@@ -5,11 +5,12 @@ import "@xterm/xterm/css/xterm.css";
 import SelectionActionButton from "@/features/terminal/components/SelectionActionButton";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES } from "@/features/terminal/constants/themes";
-import { ChevronDown } from "@/shared/components/ui/Icon";
+import { ChevronDown, Folder, GitBranch } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import { WATCH_DEBOUNCE_MS, MAX_CHANGED_BADGE } from "@/features/terminal/constants/terminalConfig";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
@@ -26,16 +27,18 @@ function TerminalPane({
   showFocusBorder = false,
   notifications = {},
   clearNotification,
+  fileSocket,
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
   const containerRef = useRef(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [selection, setSelection] = useState(null); // { text, x, y } from long-press select
+  const [changedCount, setChangedCount] = useState(0);
 
   const { pushView } = useTerminalStore();
 
-  const { termRef, cwdRef, termReady, doResize, focus, stopMomentum } = useXTerm({
+  const { termRef, cwdRef, cwd, termReady, doResize, focus, stopMomentum } = useXTerm({
     socket, sessionId, theme, isVisible, isFocused, containerRef,
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
@@ -97,6 +100,31 @@ function TerminalPane({
     };
   }, [termRef, termReady, isVisible]);
 
+  // Watch cwd + track changed-files count via git status (debounced on fs events)
+  useEffect(() => {
+    if (!cwd || !fileSocket || !socket) return;
+    let timer = null;
+    // Keep last count on transient failures (reconnect/not-a-repo race); only update on success
+    const refresh = async () => {
+      const res = await fileSocket.gitChangedCount(cwd);
+      if (res?.success) setChangedCount(res.count || 0);
+    };
+    const onFileChange = () => {
+      clearTimeout(timer);
+      timer = setTimeout(refresh, WATCH_DEBOUNCE_MS);
+    };
+    fileSocket.watchDir(cwd);
+    socket.on("fileChange", onFileChange);
+    refresh();
+    return () => {
+      clearTimeout(timer);
+      socket.off("fileChange", onFileChange);
+      fileSocket.unwatchDir(cwd);
+    };
+  }, [cwd, fileSocket, socket]);
+
+  const badgeLabel = changedCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changedCount;
+
   const handleScrollToBottom = () => {
     if (!termRef.current) return;
     vibrate();
@@ -126,6 +154,34 @@ function TerminalPane({
           ref={containerRef}
           className="xterm-screen w-full h-full rounded-sm overflow-hidden px-1 py-0.5 "
         />
+
+        {cwd && isFocused && changedCount > 0 && (
+          <div className="absolute top-2 right-2 z-50 flex flex-col gap-2">
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); vibrate(); pushView({ type: "files", workspace: cwd, currentPath: cwd }); }}
+              className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+              title={t("terminalPane.openFolder")}
+            >
+              <Folder size={16} />
+            </button>
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); vibrate(); pushView({ type: "git", workspace: cwd }); }}
+              className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+              title={t("terminalPane.changedFiles")}
+            >
+              <GitBranch size={16} />
+              {changedCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
+                  {badgeLabel}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
 
         {selection && (
           <SelectionActionButton

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, makeDiffPath } from "../constants/fileExplorer.js";
 
 const SECTION_CHANGES = "changes";
 const SECTION_UNTRACKED = "untracked";
@@ -145,7 +145,7 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile }) {
       <div
         key={`${file.status}-${file.path}`}
         className="group flex items-center gap-1 px-2 py-1 hover:bg-surface-2 cursor-pointer"
-        onClick={() => { vibrate(); onOpenFile?.(joinPath(workspace, file.path)); }}
+        onClick={() => { vibrate(); onOpenFile?.(makeDiffPath(file.status, file.path)); }}
       >
         <span className={`w-3 text-center text-[11px] font-mono ${colorClass}`}>{file.status}</span>
         <span className="truncate text-xs text-text">{basename(file.path)}</span>

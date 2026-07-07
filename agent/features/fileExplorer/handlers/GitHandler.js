@@ -79,6 +79,19 @@ export function setupGitHandlers(socket) {
     }
   });
 
+  // Lightweight: only the count of changed files (badge), avoids sending the full list
+  socket.on("gitChangedCount", ({ repoPath }, callback) => {
+    try {
+      const result = execSync("git status --porcelain", {
+        cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true
+      });
+      const count = result.trim() ? result.trim().split("\n").length : 0;
+      callback({ success: true, count });
+    } catch {
+      callback({ success: false, error: "Not a git repository or git not available" });
+    }
+  });
+
   socket.on("gitFileStatus", ({ repoPath, filePath }, callback) => {
     try {
       const relativePath = path.relative(repoPath, filePath);

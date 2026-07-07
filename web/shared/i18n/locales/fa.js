@@ -538,6 +538,7 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "اسکرول به پایین",
+    changedFiles: "Changed files",
     pasteOrType: "اینجا بچسبانید یا تایپ کنید",
     paste: "چسباندن"
   },

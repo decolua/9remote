@@ -543,6 +543,8 @@ export default {
   },
   terminalPane: {
     scrollToBottom: "Scroll to bottom",
+    openFolder: "Open folder",
+    changedFiles: "Changed files",
     pasteOrType: "Paste or type here",
     paste: "Paste"
   },

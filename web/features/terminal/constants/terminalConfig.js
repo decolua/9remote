@@ -3,6 +3,11 @@
 // Layout breakpoints and sizing
 export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
 export const PANE_MIN_WIDTH = 500; // px, min width per terminal pane on desktop
+export const MAX_LIVE_PANES = 12; // Max mounted XTerm panes kept alive (LRU); caps RAM
+
+// Per-terminal folder/changed-files toolbar
+export const WATCH_DEBOUNCE_MS = 400; // Debounce gitStatus refresh on file changes
+export const MAX_CHANGED_BADGE = 20; // Cap changed-count badge; above shows "20+"
 
 // XTerm.js default options
 export const TERMINAL_OPTIONS = {
