@@ -337,16 +337,18 @@ export function setupFileHandlers(socket) {
     }
   });
 
+  // Ref-counted per path: multiple panes share one chokidar watcher; closed only when last unwatches
   const watchers = new Map();
 
   socket.on("watchDir", ({ dirPath }, callback) => {
     try {
       if (!dirPath || !fs.existsSync(dirPath)) return callback({ success: false, error: "Directory not found" });
-      if (watchers.has(dirPath)) return callback({ success: true });
+      const existing = watchers.get(dirPath);
+      if (existing) { existing.count++; return callback({ success: true }); }
       const w = chokidar.watch(dirPath, { depth: 0, ignoreInitial: true, persistent: true, ignored: (p) => IGNORED_DIRS.includes(path.basename(p)) });
       const emit = (type) => (p) => socket.emit("fileChange", { type, path: p });
       w.on("add", emit("add")).on("change", emit("change")).on("unlink", emit("unlink")).on("addDir", emit("addDir")).on("unlinkDir", emit("unlinkDir"));
-      watchers.set(dirPath, w);
+      watchers.set(dirPath, { w, count: 1 });
       callback({ success: true });
     } catch (error) {
       callback({ success: false, error: error.message });
@@ -355,8 +357,8 @@ export function setupFileHandlers(socket) {
 
   socket.on("unwatchDir", ({ dirPath }, callback) => {
     try {
-      const w = watchers.get(dirPath);
-      if (w) { w.close(); watchers.delete(dirPath); }
+      const entry = watchers.get(dirPath);
+      if (entry && --entry.count <= 0) { entry.w.close(); watchers.delete(dirPath); }
       callback({ success: true });
     } catch (error) {
       callback({ success: false, error: error.message });
@@ -364,7 +366,7 @@ export function setupFileHandlers(socket) {
   });
 
   socket.once("disconnect", () => {
-    for (const w of watchers.values()) { try { w.close(); } catch {} }
+    for (const { w } of watchers.values()) { try { w.close(); } catch {} }
     watchers.clear();
   });
 
