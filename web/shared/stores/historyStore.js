@@ -5,12 +5,24 @@ import { persist } from "zustand/middleware";
 
 const MAX_HISTORY = 50;
 
+// Auto-suggest a short alias from a command: first letter of each word.
+// "npm run dev" -> "nrd", "git status" -> "gs". Dedup against existing aliases.
+const suggestAlias = (cmd, taken = []) => {
+  const words = cmd.trim().split(/\s+/).filter(Boolean);
+  let base = words.map((w) => w[0]).join("").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!base) return "";
+  let alias = base;
+  let n = 2;
+  while (taken.includes(alias)) alias = `${base}${n++}`;
+  return alias;
+};
+
 // Global terminal command history, persisted to localStorage (survives tab close).
 // Newest-first, dedups the most recent entry so repeated sends don't stack.
-// Pinned commands (snippets) are user-kept, shown in a separate top section.
+// Pinned commands (snippets) are user-kept objects {cmd, alias}, shown in a separate top section.
 export const useHistoryStore = create(
   persist(
-    (set) => ({
+    (set, get) => ({
       history: [],
       pinned: [],
 
@@ -22,20 +34,48 @@ export const useHistoryStore = create(
 
       removeCommand: (cmd) => set((state) => ({
         history: state.history.filter((c) => c !== cmd),
-        pinned: state.pinned.filter((c) => c !== cmd)
+        pinned: state.pinned.filter((s) => s.cmd !== cmd)
       })),
 
       togglePin: (cmd) => set((state) => {
         const text = cmd.trim();
         if (!text) return state;
-        const isPinned = state.pinned.includes(text);
-        return { pinned: isPinned ? state.pinned.filter((c) => c !== text) : [text, ...state.pinned] };
+        const isPinned = state.pinned.some((s) => s.cmd === text);
+        if (isPinned) return { pinned: state.pinned.filter((s) => s.cmd !== text) };
+        const alias = suggestAlias(text, state.pinned.map((s) => s.alias));
+        return { pinned: [{ cmd: text, alias }, ...state.pinned] };
       }),
+
+      // Update an existing snippet's cmd and/or alias, keeping its position.
+      setSnippet: (oldCmd, next) => set((state) => ({
+        pinned: state.pinned.map((s) =>
+          s.cmd === oldCmd ? { cmd: (next.cmd ?? s.cmd).trim(), alias: (next.alias ?? s.alias).trim() } : s
+        )
+      })),
+
+      // Expand a bare alias to its command. Only when the whole input equals an alias.
+      resolveAlias: (text) => {
+        const trimmed = text.trim();
+        const hit = get().pinned.find((s) => s.alias && s.alias === trimmed);
+        return hit ? hit.cmd : text;
+      },
 
       clearHistory: () => set({ history: [] })
     }),
     {
       name: "terminal-command-history",
+      version: 1,
+      migrate: (state, version) => {
+        if (version < 1 && state?.pinned) {
+          const taken = [];
+          state.pinned = state.pinned.map((cmd) => {
+            const alias = suggestAlias(cmd, taken);
+            taken.push(alias);
+            return { cmd, alias };
+          });
+        }
+        return state;
+      },
       storage: {
         getItem: (name) => {
           if (typeof window === "undefined") return null;

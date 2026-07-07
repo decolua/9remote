@@ -454,7 +454,7 @@ export default function ExplorerPanel({
             if (!data) return;
             try { handleMoveTo(JSON.parse(data), file.path); } catch {}
           }}
-          className={`group flex items-center gap-1 pr-2 py-1 cursor-pointer select-none text-sm ${
+          className={`group flex items-center gap-1 pr-2 py-0.5 cursor-pointer select-none text-sm ${
             isDragOver ? "bg-brand-500/30 ring-1 ring-brand-500" :
             isActive || isSelected ? "bg-brand-500/20" : "hover:bg-surface-2"
           }`}

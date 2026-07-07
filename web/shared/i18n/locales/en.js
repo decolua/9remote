@@ -610,7 +610,12 @@ export default {
     snippets: "Snippets",
     history: "History",
     pin: "Pin as snippet",
-    unpin: "Unpin"
+    unpin: "Unpin",
+    editSnippet: "Edit snippet",
+    aliasLabel: "Alias",
+    aliasHint: "Type this shortcut then send to run the command",
+    commandLabel: "Command",
+    aliasPlaceholder: "e.g. nrd",
   },
   voice: {
     dictate: "Voice input",

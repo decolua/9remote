@@ -7,6 +7,7 @@ import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen, Eye, EyeOff } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import { STORAGE_KEYS } from "../constants/fileExplorer.js";
 
 export default function FileExplorer({ 
   workspace, 
@@ -33,7 +34,10 @@ export default function FileExplorer({
   const [renameModal, setRenameModal] = useState(null);
   const [hasGit, setHasGit] = useState(false);
   const [gitStatusMap, setGitStatusMap] = useState({});
-  const [showHidden, setShowHidden] = useState(false);
+  const [showHidden, setShowHidden] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(STORAGE_KEYS.showHidden) === "1";
+  });
   
   // Search state
   const [showSearch, setShowSearch] = useState(false);
@@ -153,8 +157,9 @@ export default function FileExplorer({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace, initialPath, isBrowsing]); // Removed loadFiles, checkGit from deps to prevent loop
 
-  // Reload when toggle hidden files
+  // Reload + persist when toggle hidden files
   useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEYS.showHidden, showHidden ? "1" : "0");
     if (currentPath) loadFiles(currentPath);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHidden]);

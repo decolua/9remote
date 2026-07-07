@@ -99,7 +99,7 @@ export default function FileTree({
         return (
           <div
             key={file.path}
-            className={`w-full px-4 py-3 flex items-center gap-3 border-b border-border hover:bg-surface-2 transition ${
+            className={`w-full px-4 py-2 flex items-center gap-3 border-b border-border hover:bg-surface-2 transition ${
               selectedPath === file.path ? "bg-surface-2" : ""
             }`}
           >

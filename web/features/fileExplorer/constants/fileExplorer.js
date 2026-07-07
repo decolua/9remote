@@ -112,7 +112,8 @@ export const STORAGE_KEYS = {
   editorFontSize: "fileExplorer.editorFontSize",
   wordWrap: "fileExplorer.wordWrap",
   autoSaveMode: "fileExplorer.autoSaveMode",
-  expandedFolders: "fileExplorer.expandedFolders"
+  expandedFolders: "fileExplorer.expandedFolders",
+  showHidden: "fileExplorer.showHidden"
 };
 
 // Activity panels

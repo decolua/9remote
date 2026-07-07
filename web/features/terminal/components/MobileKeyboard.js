@@ -38,6 +38,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   const [showCustomize, setShowCustomize] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const addCommand = useHistoryStore((s) => s.addCommand);
+  const resolveAlias = useHistoryStore((s) => s.resolveAlias);
   const textInputRef = useRef(null);
   const pasteInputRef = useRef(null);
 
@@ -278,7 +279,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     // Blur to force-commit pending IME composition before reading value,
     // otherwise the last composed char may be missing → inconsistent sends.
     if (wasFocused) textInputRef.current?.blur();
-    const text = textInputRef.current?.value ?? textInput;
+    const raw = textInputRef.current?.value ?? textInput;
+    // Expand a bare snippet alias (e.g. "nrd" -> "npm run dev") before sending.
+    const text = resolveAlias(raw);
     onInput?.(sessionId);
     if (text === "") {
       socket.emit("input", { sessionId, data: "\r" });
