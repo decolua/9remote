@@ -1,7 +1,7 @@
 "use client";
 
 import { Trash2, ArrowUp, ArrowDown } from "@/shared/components/ui/Icon";
-import { SESSION_SORT_FIELDS, SESSION_ONLINE_THRESHOLD_MS } from "../constants";
+import { SESSION_SORT_FIELDS, SESSION_ONLINE_THRESHOLD_MS, LOYALTY_TIERS } from "../constants";
 
 const COLUMNS = [
   { key: "machineId", label: "Machine ID", sortable: true },
@@ -24,6 +24,38 @@ function isOnline(session) {
 function formatTime(value) {
   if (!value) return "-";
   try { return new Date(value + "Z").toLocaleString(); } catch { return value; }
+}
+
+// Classify user loyalty by session age (lastAccessAt - createdAt)
+function getLoyalty(session) {
+  const fallback = { tier: LOYALTY_TIERS[LOYALTY_TIERS.length - 1], ageMs: null };
+  if (!session?.createdAt || !session?.lastAccessAt) return fallback;
+  const ageMs = new Date(session.lastAccessAt + "Z").getTime() - new Date(session.createdAt + "Z").getTime();
+  const tier = LOYALTY_TIERS.find((t) => ageMs >= t.minMs) || fallback.tier;
+  return { tier, ageMs };
+}
+
+// Human-readable duration: "7d 3h" / "2h 15m" / "3m" / "<1m"
+function formatDuration(ms) {
+  if (ms == null || ms < 0) return "-";
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "<1m";
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  const min = m % 60;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${min}m`;
+  return `${min}m`;
+}
+
+function LoyaltyBadge({ session }) {
+  const { tier, ageMs } = getLoyalty(session);
+  return (
+    <div className="flex flex-col">
+      <span className={`font-medium ${tier.color}`}>{tier.label}</span>
+      <span className="text-text-subtle text-xs">{formatDuration(ageMs)}</span>
+    </div>
+  );
 }
 
 export default function SessionTable({ items, sortBy, order, onSortChange, onDelete, canDelete }) {
@@ -77,6 +109,7 @@ export default function SessionTable({ items, sortBy, order, onSortChange, onDel
               )}
             </div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+              <div className="text-text-muted">Loyalty</div><div><LoyaltyBadge session={s} /></div>
               <div className="text-text-muted">Short ID</div><div>{s.shortId || "-"}</div>
               <div className="text-text-muted">Public IP</div><div>{s.publicIp || "-"}</div>
               <div className="text-text-muted">Local IP</div><div>{s.localIp || "-"}</div>
@@ -94,6 +127,7 @@ export default function SessionTable({ items, sortBy, order, onSortChange, onDel
           <thead className="bg-surface-2">
             <tr>
               <th className="px-3 py-2 text-left text-text-muted font-medium">Status</th>
+              <th className="px-3 py-2 text-left text-text-muted font-medium">Loyalty</th>
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
@@ -111,14 +145,15 @@ export default function SessionTable({ items, sortBy, order, onSortChange, onDel
           </thead>
           <tbody>
             {items.length === 0 && (
-              <tr><td colSpan={COLUMNS.length + 2} className="px-3 py-8 text-center text-text-muted">No sessions</td></tr>
+              <tr><td colSpan={COLUMNS.length + 3} className="px-3 py-8 text-center text-text-muted">No sessions</td></tr>
             )}
             {items.map((s) => (
               <tr key={s.machineId} className="border-t border-border-subtle hover:bg-surface-2/50">
-                <td className="px-3 py-2">
-                  <span className={`inline-block w-2 h-2 rounded-full ${isOnline(s) ? "bg-success" : "bg-text-subtle"}`}></span>
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">{s.machineId}</td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-block w-2 h-2 rounded-full ${isOnline(s) ? "bg-success" : "bg-text-subtle"}`}></span>
+                  </td>
+                  <td className="px-3 py-2"><LoyaltyBadge session={s} /></td>
+                  <td className="px-3 py-2 font-mono text-xs">{s.machineId}</td>
                 <td className="px-3 py-2">{s.shortId || "-"}</td>
                 <td className="px-3 py-2">{s.publicIp || "-"}</td>
                 <td className="px-3 py-2">{s.localIp || "-"}</td>

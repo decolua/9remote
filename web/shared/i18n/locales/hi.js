@@ -68,7 +68,7 @@ export default {
     theme: "थीम",
     notifications: "सूचनाएँ",
     notificationsHint: "Notify when agent finishes",
-    files: "फ़ाइलें",
+    files: "File Explorer",
     sites: "साइटें",
     commandNotes: "कमांड नोट्स",
     community: "समुदाय",

@@ -68,7 +68,7 @@ export default {
     theme: "主题",
     notifications: "通知",
     notificationsHint: "Notify when agent finishes",
-    files: "文件",
+    files: "File Explorer",
     sites: "站点",
     commandNotes: "命令笔记",
     community: "社区",

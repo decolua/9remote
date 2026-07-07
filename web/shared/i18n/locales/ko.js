@@ -68,7 +68,7 @@ export default {
     theme: "테마",
     notifications: "알림",
     notificationsHint: "Notify when agent finishes",
-    files: "파일",
+    files: "File Explorer",
     sites: "사이트",
     commandNotes: "명령어 노트",
     community: "커뮤니티",

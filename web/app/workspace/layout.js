@@ -308,7 +308,16 @@ export default function WorkspaceLayout({ children }) {
     }
   }, [sessions, addOpenedSession, setActiveGroupId, currentView, viewStack, setViewStack, pushView, clearNotification]);
 
-  // Quick-create from terminal header "+" button - create in active group, auto-switch focus.
+  // Deep-link from push notification tap (SW postMessage): open the right terminal
+  useEffect(() => {
+    const onMessage = (e) => {
+      if (e.data?.type !== "NOTIFICATION_CLICK") return;
+      const sid = new URLSearchParams(new URL(e.data.url || "", location.origin).search).get("t");
+      if (sid) handleSelectSession(sid);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [handleSelectSession]);
   // Keep activeGroupId unchanged (new session belongs to it); don't call handleSelectSession
   // because the session isn't in `sessions` yet (loadSessions is async) → would reset group.
   const handleQuickCreateSession = useCallback((shellId) => {

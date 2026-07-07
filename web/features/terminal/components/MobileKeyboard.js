@@ -275,14 +275,21 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     if (!socket || !sessionId) return;
     // Only pull the keyboard back up if the input was already focused when sending.
     const wasFocused = document.activeElement === textInputRef.current;
-    // Read the live DOM value: preventDefault on the Send button can leave the
-    // last IME-composed char uncommitted to state, causing dropped sends.
+    // Blur to force-commit pending IME composition before reading value,
+    // otherwise the last composed char may be missing → inconsistent sends.
+    if (wasFocused) textInputRef.current?.blur();
     const text = textInputRef.current?.value ?? textInput;
-    // Send text followed by Enter to execute (empty input → lone Enter).
-    const data = text === "" ? "\r" : text + "\r";
     onInput?.(sessionId);
-    socket.emit("input", { sessionId, data });
-    if (text !== "") { addCommand(text); setTextInput(""); }
+    if (text === "") {
+      socket.emit("input", { sessionId, data: "\r" });
+    } else {
+      // Send text first, then Enter after a short delay so PTY reliably
+      // receives both (mobile/IME may otherwise drop the Enter).
+      socket.emit("input", { sessionId, data: text });
+      setTimeout(() => socket.emit("input", { sessionId, data: "\r" }), 40);
+      addCommand(text);
+      setTextInput("");
+    }
     if (wasFocused) textInputRef.current?.focus();
   };
 
@@ -441,14 +448,16 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
           </div>
           {voice.supported && (
             <div className="relative flex-shrink-0">
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setVoiceLangOpen(true)}
-                title={t("voice.language")}
-                className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1 rounded bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
-              >
-                {voiceLang}
-              </button>
+              {voice.listening && (
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setVoiceLangOpen(true)}
+                  title={t("voice.language")}
+                  className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1 rounded bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
+                >
+                  {voiceLang}
+                </button>
+              )}
               <button
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={toggleVoice}

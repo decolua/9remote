@@ -6,6 +6,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
 import AgentOutdatedBanner, { isAgentOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
+import UpgradeButton from "@/features/terminal/components/UpgradeButton";
 
 export default function MenuItems({
   onRemote,
@@ -154,6 +155,9 @@ export default function MenuItems({
           <span className="text-sm">{t("menu.community")}</span>
         </button>
       )}
+
+      {/* IAP upgrade — mobile app only (web flow is separate) */}
+      <UpgradeButton />
 
       {/* Install App - hide when running as PWA or native app */}
       {!isApp && onInstallApp && (

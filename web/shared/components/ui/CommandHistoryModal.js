@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { X, History, Trash2 } from "@/shared/components/ui/Icon";
+import { X, History, Trash2, Pin } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useHistoryStore } from "@/shared/stores/historyStore";
@@ -10,11 +10,15 @@ import { useHistoryStore } from "@/shared/stores/historyStore";
 export default function CommandHistoryModal({ isOpen, onSelect, onClose }) {
   const { t } = useI18n();
   const history = useHistoryStore((s) => s.history);
+  const pinned = useHistoryStore((s) => s.pinned);
   const removeCommand = useHistoryStore((s) => s.removeCommand);
   const clearHistory = useHistoryStore((s) => s.clearHistory);
+  const togglePin = useHistoryStore((s) => s.togglePin);
 
   useEffect(() => {
     if (!isOpen) return;
+    // Hide mobile keyboard by blurring whatever input had focus
+    document.activeElement?.blur?.();
     const handleEscape = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
@@ -58,33 +62,76 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose }) {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto modal-scrollable p-3">
-          {history.length === 0 ? (
+          {pinned.length === 0 && history.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-muted">
               <History size={32} className="opacity-50" />
               <span className="text-sm">{t("history.empty")}</span>
             </div>
           ) : (
-            <div className="flex flex-col gap-1">
-              {history.map((cmd) => (
-                <div
-                  key={cmd}
-                  className="group flex items-center gap-2 rounded-brand hover:bg-surface-2 transition-all duration-150 ease-out"
-                >
-                  <button
-                    onClick={() => handleSelect(cmd)}
-                    className="flex-1 min-w-0 px-3 py-2.5 text-left text-sm text-text font-mono truncate"
-                  >
-                    {cmd}
-                  </button>
-                  <button
-                    onClick={() => { vibrate(); removeCommand(cmd); }}
-                    className="flex-shrink-0 p-2 mr-1 text-text-muted hover:text-text rounded-brand transition-colors"
-                    aria-label={t("common.delete")}
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              ))}
+            <div className="flex flex-col gap-0">
+              {pinned.length > 0 && (
+                <>
+                  <div className="px-3 pt-1 pb-0.5 text-xs font-semibold uppercase tracking-wide text-text-muted">{t("history.snippets")}</div>
+                  {pinned.map((cmd) => (
+                    <div
+                      key={`p-${cmd}`}
+                      className="group flex items-center gap-2 rounded-brand hover:bg-surface-2 transition-all duration-150 ease-out"
+                    >
+                      <button
+                        onClick={() => handleSelect(cmd)}
+                        className="flex-1 min-w-0 px-3 py-1 text-left text-sm text-text font-mono truncate"
+                      >
+                        {cmd}
+                      </button>
+                      <button
+                        onClick={() => { vibrate(); togglePin(cmd); }}
+                        className="flex-shrink-0 p-2 mr-1 text-brand-500 hover:text-brand-400 rounded-brand transition-colors"
+                        aria-label={t("history.unpin")}
+                      >
+                        <Pin size={16} fill="currentColor" />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="h-px bg-border/40 my-1" />
+                </>
+              )}
+              {history.length > 0 && (
+                <>
+                  {pinned.length > 0 && (
+                    <div className="px-3 pt-0.5 pb-0.5 text-xs font-semibold uppercase tracking-wide text-text-muted">{t("history.history")}</div>
+                  )}
+                  {history.map((cmd) => {
+                    const isPinned = pinned.includes(cmd);
+                    return (
+                      <div
+                        key={cmd}
+                        className="group flex items-center gap-2 rounded-brand hover:bg-surface-2 transition-all duration-150 ease-out"
+                      >
+                        <button
+                          onClick={() => handleSelect(cmd)}
+                          className="flex-1 min-w-0 px-3 py-1 text-left text-sm text-text font-mono truncate"
+                        >
+                          {cmd}
+                        </button>
+                        <button
+                          onClick={() => { vibrate(); togglePin(cmd); }}
+                          className={`flex-shrink-0 p-2 rounded-brand transition-colors ${isPinned ? "text-brand-500 hover:text-brand-400" : "text-text-muted hover:text-text opacity-0 group-hover:opacity-100"}`}
+                          aria-label={isPinned ? t("history.unpin") : t("history.pin")}
+                        >
+                          <Pin size={16} fill={isPinned ? "currentColor" : "none"} />
+                        </button>
+                        <button
+                          onClick={() => { vibrate(); removeCommand(cmd); }}
+                          className="flex-shrink-0 p-2 mr-1 text-text-muted hover:text-text rounded-brand transition-colors opacity-0 group-hover:opacity-100"
+                          aria-label={t("common.delete")}
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </div>
           )}
         </div>

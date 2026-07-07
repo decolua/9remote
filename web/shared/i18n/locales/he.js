@@ -68,7 +68,7 @@ export default {
     theme: "ערכת נושא",
     notifications: "התראות",
     notificationsHint: "Notify when agent finishes",
-    files: "קבצים",
+    files: "File Explorer",
     sites: "אתרים",
     commandNotes: "הערות פקודות",
     community: "קהילה",

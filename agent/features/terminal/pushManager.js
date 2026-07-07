@@ -79,7 +79,11 @@ export function addPushSubscription(subscription, socketId) {
 // Track app visibility per socket (from client visibilityChange) to gate push
 export function setSubscriptionHidden(socketId, hidden) {
   for (const sub of pushSubscriptions) {
-    if (sub.socketId === socketId) sub.hidden = !!hidden;
+    if (sub.socketId === socketId) {
+      sub.hidden = !!hidden;
+      // Visible = app alive: clear stale disconnect from a transient socket drop
+      if (!hidden) sub.disconnectedAt = null;
+    }
   }
 }
 
@@ -127,7 +131,7 @@ async function sendExpoPush(sub, toolName, notification) {
     sound: "default",
     title: notification.type === "stop" ? `${toolName} ✅` : `${toolName} 🔔`,
     body: notification.type === "stop" ? `${toolName} completed the task` : `${toolName} needs your input`,
-    data: { url: "/workspace", type: notification.type }
+    data: { url: `/workspace?t=${notification.sessionId}`, sessionId: notification.sessionId, type: notification.type }
   };
   const res = await fetch("https://exp.host/--/api/v2/push/send", {
     method: "POST",
@@ -158,7 +162,7 @@ export async function sendPushNotification(notification) {
       const payload = JSON.stringify({
         title: notification.type === "stop" ? `${toolName} ✅` : `${toolName} 🔔`,
         body: notification.type === "stop" ? `${toolName} completed the task` : `${toolName} needs your input`,
-        data: { url: "/workspace", type: notification.type }
+        data: { url: `/workspace?t=${notification.sessionId}`, sessionId: notification.sessionId, type: notification.type }
       });
       await webpush.sendNotification({ endpoint: latest.endpoint, keys: latest.keys }, payload);
       pushUiLog(`WebPush sent to ${latest.endpoint.slice(0, 50)}...`);

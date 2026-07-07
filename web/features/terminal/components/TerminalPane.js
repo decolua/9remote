@@ -78,11 +78,19 @@ function TerminalPane({
       setShowScrollButton(scrollDistance > MIN_SCROLL_THRESHOLD);
     };
 
+    // Coalesce rapid writes into one check per frame (avoids re-render storm on heavy output)
+    let rafId = null;
+    const checkScrollPositionRaf = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => { rafId = null; checkScrollPosition(); });
+    };
+
     checkScrollPosition();
-    const disposable = term.onScroll(checkScrollPosition);
-    const dataDisposable = term.onWriteParsed(checkScrollPosition);
+    const disposable = term.onScroll(checkScrollPositionRaf);
+    const dataDisposable = term.onWriteParsed(checkScrollPositionRaf);
 
     return () => {
+      if (rafId) cancelAnimationFrame(rafId);
       disposable.dispose();
       dataDisposable.dispose();
       setShowScrollButton(false);

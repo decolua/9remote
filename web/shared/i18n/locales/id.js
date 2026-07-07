@@ -68,7 +68,7 @@ export default {
     theme: "Tema",
     notifications: "Notifikasi",
     notificationsHint: "Notify when agent finishes",
-    files: "Berkas",
+    files: "File Explorer",
     sites: "Situs",
     commandNotes: "Catatan Perintah",
     community: "Komunitas",

@@ -8,6 +8,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT } from "@/features/terminal/constants/terminalConfig";
+import { detectLinks } from "@/features/terminal/utils/linkDetector";
 
 // XTerm instance management hook
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
@@ -20,6 +21,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   const doResizeRef = useRef(null);
   const stopMomentumRef = useRef(null);
   const cwdRef = useRef(null); // Track current working directory
+  const decoderRef = useRef(null); // Reused TextDecoder for binary output
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
   const [termReady, setTermReady] = useState(false);
@@ -49,7 +51,6 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     const term = new XTerm({
       ...TERMINAL_OPTIONS,
       fontSize: window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize,
-      fontFamily: TERMINAL_OPTIONS.fontFamily,
       theme: THEMES[theme] || THEMES.dark
     });
 
@@ -62,6 +63,17 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     fitAddonRef.current = fitAddon;
 
     term.open(containerRef.current);
+
+    // File/URL link provider: detect per-line, xterm handles highlight + click
+    term.registerLinkProvider({
+      provideLinks: (bufferLineNumber, cb) => {
+        const buffer = term.buffer.active;
+        const line = buffer.getLine(bufferLineNumber - 1);
+        if (!line) { cb([]); return; }
+        const links = detectLinks(line.translateToString(true), bufferLineNumber, cwdRef.current);
+        cb(links.map((l) => ({ range: l.range, activate: l.activate })));
+      },
+    });
 
     // WebGL addon loaded after joinSession to avoid blank screen
     let webglAddon = null;
@@ -110,8 +122,9 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       
       // Parse OSC 7 sequence to track working directory
       if (typeof data === "string" || data instanceof Uint8Array) {
-        const text = typeof data === "string" ? data : String.fromCharCode.apply(null, data);
-        const osc7Match = text.match(/\x1b\]7;file:\/\/[^\/]*(.+?)\x07/);
+        const text = typeof data === "string" ? data : (decoderRef.current ??= new TextDecoder()).decode(data);
+        // Gate OSC7 scan — skip regex unless an escape sequence is present
+        const osc7Match = text.indexOf("\x1b") !== -1 ? text.match(/\x1b\]7;file:\/\/[^\/]*(.+?)\x07/) : null;
         if (osc7Match && osc7Match[1]) {
           cwdRef.current = decodeURIComponent(osc7Match[1]);
         }
@@ -284,10 +297,13 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     let selStart = null; // {col, row} absolute buffer coords
     let startX = 0, startY = 0, curX = 0, curY = 0, moved = false;
 
+    // Cached during select drag so touchToCell skips getBoundingClientRect() per frame (avoids reflow)
+    let selRect = null;
+
     // Map viewport pixel → absolute buffer cell (accounts for scrollback offset).
     const touchToCell = (clientX, clientY) => {
       const t = termRef.current;
-      const rect = xtermScreen.getBoundingClientRect();
+      const rect = selRect || xtermScreen.getBoundingClientRect();
       const cellW = rect.width / t.cols;
       const cellH = rect.height / t.rows;
       const col = Math.max(0, Math.min(t.cols - 1, Math.floor((clientX - rect.left) / cellW)));
@@ -334,6 +350,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
         if (moved || !termRef.current) return;
         selecting = true;
         vibrate();
+        selRect = xtermScreen.getBoundingClientRect();
         selStart = touchToCell(startX, startY);
         selectWordAt(selStart);
       }, TOUCH_SELECT.longPressMs);
@@ -375,6 +392,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
     const handleTouchEnd = () => {
       clearTimeout(longPressTimer);
+      selRect = null;
       if (selecting) {
         selecting = false;
         const sel = termRef.current?.getSelection();

@@ -68,7 +68,7 @@ export default {
     theme: "テーマ",
     notifications: "通知",
     notificationsHint: "Notify when agent finishes",
-    files: "ファイル",
+    files: "File Explorer",
     sites: "サイト",
     commandNotes: "コマンドメモ",
     community: "コミュニティ",

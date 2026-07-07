@@ -81,6 +81,12 @@ export const useTerminalStore = create(
     }),
     {
       name: "terminal-ui-state",
+      partialize: (state) => ({
+        viewStack: state.viewStack,
+        openedSessions: state.openedSessions,
+        activeGroupId: state.activeGroupId,
+        collapsedGroups: state.collapsedGroups
+      }),
       storage: {
         getItem: (name) => {
           if (typeof window === "undefined") return null;

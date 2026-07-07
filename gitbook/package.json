@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "lucide-react": "^0.563.0",
-    "next": "16.1.1",
+    "next": "16.2.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^9.0.1",
@@ -21,7 +21,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.18.0",
+    "@opennextjs/cloudflare": "latest",
     "@tailwindcss/postcss": "^4",
     "tailwindcss": "^4"
   }

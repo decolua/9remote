@@ -68,7 +68,7 @@ export default {
     theme: "السمة",
     notifications: "الإشعارات",
     notificationsHint: "Notify when agent finishes",
-    files: "الملفات",
+    files: "File Explorer",
     sites: "المواقع",
     commandNotes: "ملاحظات الأوامر",
     community: "المجتمع",

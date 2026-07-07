@@ -58,6 +58,8 @@ export const {
   Sparkles,
   Globe,
   Palette,
+  Crown,
+  CheckCircle2,
   GitBranch,
   FolderPlus,
   FilePlus,

@@ -21,7 +21,7 @@ function evictOldestCacheEntry() {
  * @param {number} bufferLineNumber - The buffer line number (y coordinate)
  * @returns {Array} Array of link objects with range, text, and activate function
  */
-export function detectLinks(lineText, bufferLineNumber) {
+export function detectLinks(lineText, bufferLineNumber, cwd) {
   // Early exit: skip lines without potential link characters
   if (!/[:/.]/.test(lineText)) {
     return [];
@@ -58,7 +58,7 @@ export function detectLinks(lineText, bufferLineNumber) {
         end: { x: startCol + text.length, y: bufferLineNumber }
       },
       text,
-      activate: () => handleLinkClick({ type, text }),
+      activate: () => handleLinkClick({ type, text }, cwd),
       decorations: {
         pointerCursor: true,
         underline: true
@@ -127,7 +127,7 @@ export function detectLinks(lineText, bufferLineNumber) {
         end: { x: startCol + text.length, y: bufferLineNumber }
       },
       text,
-      activate: () => handleLinkClick({ type: LINK_TYPES.FILE_ABSOLUTE, text }),
+      activate: () => handleLinkClick({ type: LINK_TYPES.FILE_ABSOLUTE, text }, cwd),
       decorations: {
         pointerCursor: true,
         underline: true
@@ -149,7 +149,7 @@ export function detectLinks(lineText, bufferLineNumber) {
         end: { x: startCol + text.length, y: bufferLineNumber }
       },
       text,
-      activate: () => handleLinkClick({ type: LINK_TYPES.FILE_RELATIVE, text }),
+      activate: () => handleLinkClick({ type: LINK_TYPES.FILE_RELATIVE, text }, cwd),
       decorations: {
         pointerCursor: true,
         underline: true
@@ -174,7 +174,7 @@ export function detectLinks(lineText, bufferLineNumber) {
         end: { x: startCol + path.length, y: bufferLineNumber }
       },
       text: path,
-      activate: () => handleLinkClick({ type, text: path }),
+      activate: () => handleLinkClick({ type, text: path }, cwd),
       decorations: {
         pointerCursor: true,
         underline: true
@@ -234,27 +234,26 @@ export function parseFilePathWithLine(text) {
  * Handle link click action based on link type
  * @param {Object} link - Link object with type and text
  */
-export function handleLinkClick(link) {
+export function handleLinkClick(link, cwd) {
   const { type, text } = link;
-  
+
   if (type === LINK_TYPES.WEB) {
     window.open(text, "_blank");
     return;
   }
-  
+
   const { path, line, column } = parseFilePathWithLine(text);
-  
+
   if (type === LINK_TYPES.FILE_ABSOLUTE) {
     const { pushView } = useTerminalStore.getState();
     pushView({ type: "editor", path, line, column });
     return;
   }
-  
+
   if (type === LINK_TYPES.FILE_RELATIVE) {
-    // Note: Relative paths from link provider fallback to current implementation
-    // Double-click in Terminal.js will use actual terminal cwd
-    console.warn("Relative path from link provider - may not be accurate");
     const { pushView } = useTerminalStore.getState();
-    pushView({ type: "editor", path, line, column });
+    // Resolve relative path against terminal cwd when available
+    const resolved = cwd && !path.startsWith("/") ? `${cwd.replace(/\/$/, "")}/${path}` : path;
+    pushView({ type: "editor", path: resolved, line, column });
   }
 }

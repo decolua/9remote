@@ -249,15 +249,16 @@ export default function TerminalHeader({
               <button
                 key={session.id}
                 ref={isActiveTab ? activeTabRef : null}
-                onMouseDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => { if (editingTabId !== session.id) e.preventDefault(); }}
                 onClick={() => {
+                  if (editingTabId === session.id) return;
                   vibrate();
                   onSwitchSession?.(session.id);
                 }}
                 onContextMenu={(e) => handleTabContextMenu(e, session)}
-                onTouchStart={(e) => handleTabTouchStart(e, session)}
-                onTouchMove={clearTabLongPress}
-                onTouchEnd={clearTabLongPress}
+                onTouchStart={(e) => { if (editingTabId === session.id) return; handleTabTouchStart(e, session); }}
+                onTouchMove={editingTabId === session.id ? undefined : clearTabLongPress}
+                onTouchEnd={editingTabId === session.id ? undefined : clearTabLongPress}
                 className={`px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap ${
                   isActiveTab ? "border-brand-500 text-brand-500" : "border-transparent text-text-muted hover:text-text"
                 }`}

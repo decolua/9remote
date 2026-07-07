@@ -68,7 +68,7 @@ export default {
     theme: "Motyw",
     notifications: "Powiadomienia",
     notificationsHint: "Notify when agent finishes",
-    files: "Pliki",
+    files: "File Explorer",
     sites: "Strony",
     commandNotes: "Notatki poleceń",
     community: "Społeczność",

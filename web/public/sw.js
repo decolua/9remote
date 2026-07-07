@@ -29,28 +29,33 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("push", (event) => {
   if (!event.data) return;
 
-  try {
-    const data = event.data.json();
-    const title = data.title || "9Remote";
-    const options = {
-      body: data.body || "Notification",
-      icon: "/icon-192.svg",
-      badge: "/icon-192.svg",
-      data: data.data || { url: "/workspace" },
-      vibrate: [200, 100, 200],
-      tag: "9remote-notification",
-      renotify: true
-    };
+  event.waitUntil(
+    (async () => {
+      // Skip when a PWA window is focused — backstop against stale server focus state
+      const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      if (clientList.some((c) => c.visibilityState === "visible")) return;
 
-    event.waitUntil(
-      self.registration.showNotification(title, options)
-    );
-  } catch (error) {
-    console.error("Push event error:", error);
-  }
+      try {
+        const data = event.data.json();
+        const title = data.title || "9Remote";
+        const options = {
+          body: data.body || "Notification",
+          icon: "/icon-192.svg",
+          badge: "/icon-192.svg",
+          data: data.data || { url: "/workspace" },
+          vibrate: [200, 100, 200],
+          tag: "9remote-notification",
+          renotify: true
+        };
+        await self.registration.showNotification(title, options);
+      } catch (error) {
+        console.error("Push event error:", error);
+      }
+    })()
+  );
 });
 
-// Notification click - open/focus the app
+// Notification click - focus any same-origin client and deep-link into it
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
@@ -58,13 +63,14 @@ self.addEventListener("notificationclick", (event) => {
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
-      // Focus existing window if found
+      // Focus any existing same-origin client to preserve auth/state
       for (const client of clientList) {
-        if (client.url.includes("/workspace") && "focus" in client) {
+        if ("focus" in client) {
+          client.postMessage({ type: "NOTIFICATION_CLICK", url });
           return client.focus();
         }
       }
-      // Open new window
+      // No existing client — open a new one
       return self.clients.openWindow(url);
     })
   );

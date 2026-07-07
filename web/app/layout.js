@@ -33,8 +33,7 @@ export const metadata = {
     apple: [
       { url: "/icon-192.svg", sizes: "192x192", type: "image/svg+xml" }
     ]
-  },
-  themeColor: "#121212"
+  }
 };
 
 export const viewport = {
@@ -53,28 +52,16 @@ const themeInitScript = `(function(){try{var t=localStorage.getItem("${STORAGE_K
 export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').catch(function(err) {
-                    console.log('SW registration failed:', err);
-                  });
-                });
-              }
-            `
-          }}
-        />
-      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <script key="theme-init" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script
+          key="sw-register"
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(e){console.log('SW registration failed:',e);});});}`
+          }}
+        />
         <ThemeProvider>{children}</ThemeProvider>
         {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
       </body>

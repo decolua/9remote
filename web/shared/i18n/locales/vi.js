@@ -68,7 +68,7 @@ export default {
     theme: "Giao diện",
     notifications: "Thông báo",
     notificationsHint: "Báo khi Agent xong",
-    files: "Tệp tin",
+    files: "File Explorer",
     sites: "Trang web",
     commandNotes: "Ghi chú lệnh",
     community: "Cộng đồng",

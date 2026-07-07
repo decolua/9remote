@@ -100,7 +100,11 @@ export function useNotification(socketRef, connected) {
         const registration = await navigator.serviceWorker.ready;
         if (!registration.pushManager) return;
         const subscription = await registration.pushManager.getSubscription();
-        if (subscription) currentSocket.emit("pushSubscribe", subscription.toJSON());
+        if (subscription) {
+          currentSocket.emit("pushSubscribe", subscription.toJSON());
+          // Re-sync focus state — addPushSubscription keeps stale hidden flag otherwise
+          currentSocket.emit("visibilityChange", document.hidden);
+        }
       } catch (e) { /* ignore */ }
     })();
   }, [socketRef, connected, isExpoWebView]);

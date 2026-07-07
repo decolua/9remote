@@ -68,11 +68,14 @@ export default {
     theme: "Theme",
     notifications: "Notifications",
     notificationsHint: "Notify when agent finishes",
-    files: "Files",
+    files: "File Explorer",
     sites: "Sites",
     commandNotes: "Command Notes",
     community: "Community",
     installApp: "Install App",
+    upgrade: "Upgrade",
+    upgradeExpires: "Expires",
+    upgradeRestore: "Restore Purchases",
     codespace: "Codespace",
     logout: "Logout",
     reload: "Reload App",
@@ -601,7 +604,11 @@ export default {
   history: {
     title: "Command history",
     empty: "No commands yet",
-    clearAll: "Clear all"
+    clearAll: "Clear all",
+    snippets: "Snippets",
+    history: "History",
+    pin: "Pin as snippet",
+    unpin: "Unpin"
   },
   voice: {
     dictate: "Voice input",

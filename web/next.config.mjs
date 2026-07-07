@@ -12,13 +12,13 @@ initOpenNextCloudflareForDev();
 
 const nextConfig = {
   reactStrictMode: false,
-  // Monorepo root — fixes Turbopack standalone build (used by opennextjs-cloudflare)
-  // failing to resolve hoisted deps (zustand/middleware, highlight.js/*, styled-jsx/style).
+  // Monorepo root — outputFileTracingRoot is needed for both Webpack and Turbopack
+  // standalone builds (used by opennextjs-cloudflare) to resolve hoisted deps
+  // (zustand/middleware, highlight.js/*, styled-jsx/style).
   // See vercel/next.js#88844. Requires post-build step to flatten
   // .next/standalone/web/* → .next/standalone/* for opennextjs-cloudflare.
-  turbopack: {
-    root: monorepoRoot,
-  },
+  // Turbopack disabled — bug vercel/next.js#88844: useContext/useState null on
+  // prerender of error/not-found pages under monorepo root.
   outputFileTracingRoot: monorepoRoot,
   images: {
     unoptimized: true

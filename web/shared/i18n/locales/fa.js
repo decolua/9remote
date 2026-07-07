@@ -68,7 +68,7 @@ export default {
     theme: "پوسته",
     notifications: "اعلان‌ها",
     notificationsHint: "Notify when agent finishes",
-    files: "فایل‌ها",
+    files: "File Explorer",
     sites: "سایت‌ها",
     commandNotes: "یادداشت‌های دستور",
     community: "انجمن",

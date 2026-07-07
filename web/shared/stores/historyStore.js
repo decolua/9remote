@@ -7,10 +7,12 @@ const MAX_HISTORY = 50;
 
 // Global terminal command history, persisted to localStorage (survives tab close).
 // Newest-first, dedups the most recent entry so repeated sends don't stack.
+// Pinned commands (snippets) are user-kept, shown in a separate top section.
 export const useHistoryStore = create(
   persist(
     (set) => ({
       history: [],
+      pinned: [],
 
       addCommand: (cmd) => set((state) => {
         const text = cmd.trim();
@@ -19,8 +21,16 @@ export const useHistoryStore = create(
       }),
 
       removeCommand: (cmd) => set((state) => ({
-        history: state.history.filter((c) => c !== cmd)
+        history: state.history.filter((c) => c !== cmd),
+        pinned: state.pinned.filter((c) => c !== cmd)
       })),
+
+      togglePin: (cmd) => set((state) => {
+        const text = cmd.trim();
+        if (!text) return state;
+        const isPinned = state.pinned.includes(text);
+        return { pinned: isPinned ? state.pinned.filter((c) => c !== text) : [text, ...state.pinned] };
+      }),
 
       clearHistory: () => set({ history: [] })
     }),

@@ -247,15 +247,17 @@ export default function RemoteControls({
         </div>
         {voice.supported && (
           <div className="relative shrink-0">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setVoiceLangOpen(true)}
-              title={t("voice.language")}
-              className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1 rounded-brand bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
-            >
-              {voiceLang}
-            </button>
+            {voice.listening && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setVoiceLangOpen(true)}
+                title={t("voice.language")}
+                className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1 rounded-brand bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
+              >
+                {voiceLang}
+              </button>
+            )}
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
