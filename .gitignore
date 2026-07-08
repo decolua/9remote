@@ -90,3 +90,4 @@ web/wrangler.toml
 ./source
 web/graphify-out/*
 agent/graphify-out/*
+.devloop/

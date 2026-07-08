@@ -13,6 +13,20 @@ import { remoteLog } from "./utils/remoteLog.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Run async fn over items with bounded concurrency, preserving output order
+export async function mapLimit(items, limit, fn) {
+  const ret = new Array(items.length);
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      ret[idx] = await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return ret;
+}
+
 export class TileManager {
   constructor(robot) {
     this.robot = robot;
@@ -244,13 +258,13 @@ export class TileManager {
 
       // First frame - extract and send all tiles (within focus set)
       if (this.lastTileChecksums.size === 0) {
-        const tilePromises = [];
+        const indices = [];
         for (let i = 0; i < this.totalTiles; i++) {
           if (activeSet && !activeSet.has(i)) continue;
           this.lastTileChecksums.set(i, currentTileHashes.get(i));
-          tilePromises.push(this.processTileAsync(screenData, i));
+          indices.push(i);
         }
-        const results = await Promise.all(tilePromises);
+        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
         changedTiles.push(...results);
         this._recordFrame(tStart, tCaptureEnd, tChecksumEnd, changedTiles, screenData);
         return { tiles: changedTiles, currentHashes };
@@ -271,19 +285,16 @@ export class TileManager {
 
       if (changePercentage > this.changeThreshold) {
         // Full refresh - extract all tiles (within focus set)
-        const tilePromises = [];
+        const indices = [];
         for (let i = 0; i < this.totalTiles; i++) {
           if (activeSet && !activeSet.has(i)) continue;
-          tilePromises.push(this.processTileAsync(screenData, i));
+          indices.push(i);
         }
-        const results = await Promise.all(tilePromises);
+        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
         // Only extract changed tiles (lazy extraction benefit)
-        const tilePromises = changedTileIndices.map(i =>
-          this.processTileAsync(screenData, i)
-        );
-        const results = await Promise.all(tilePromises);
+        const results = await mapLimit(changedTileIndices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
         changedTiles.push(...results);
       }
 
@@ -433,12 +444,11 @@ export class TileManager {
         raw = Buffer.from(buffer);
         bgraToRgbaInPlace(raw);
       }
-      const resized = await sharp(raw, { raw: { width, height, channels } })
+      // Single pipeline: resize + JPEG encode in one pass (avoids second sharp instance)
+      return sharp(raw, { raw: { width, height, channels } })
         .resize(targetW, targetH, { kernel: "lanczos3", fastShrinkOnLoad: false })
-        .raw()
+        .jpeg({ quality: this.compressionQuality })
         .toBuffer();
-      // Buffer is now RGBA regardless of source — tell encoder via override.
-      return encodeJpeg(resized, targetW, targetH, 4, this.compressionQuality, "rgba");
     }
     return encodeJpeg(buffer, width, height, 4, this.compressionQuality);
   }
@@ -569,12 +579,12 @@ export class TileManager {
 
       if (!clientTileHashes || clientTileHashes.length === 0) {
         // First request - extract all tiles (within focus set)
-        const tilePromises = [];
+        const indices = [];
         for (let i = 0; i < this.totalTiles; i++) {
           if (activeSet && !activeSet.has(i)) continue;
-          tilePromises.push(this.processTileAsync(screenData, i));
+          indices.push(i);
         }
-        const results = await Promise.all(tilePromises);
+        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
         changedTiles.push(...results);
         return { tiles: changedTiles, currentHashes: Array.from(currentTileHashes.values()) };
       }
@@ -591,19 +601,16 @@ export class TileManager {
 
       if (changePercentage > this.changeThreshold) {
         // Full refresh - extract all tiles (within focus set)
-        const tilePromises = [];
+        const indices = [];
         for (let i = 0; i < this.totalTiles; i++) {
           if (activeSet && !activeSet.has(i)) continue;
-          tilePromises.push(this.processTileAsync(screenData, i));
+          indices.push(i);
         }
-        const results = await Promise.all(tilePromises);
+        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
         // Only extract changed tiles (lazy extraction benefit)
-        const tilePromises = changedTileIndices.map(i =>
-          this.processTileAsync(screenData, i)
-        );
-        const results = await Promise.all(tilePromises);
+        const results = await mapLimit(changedTileIndices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
         changedTiles.push(...results);
       }
 

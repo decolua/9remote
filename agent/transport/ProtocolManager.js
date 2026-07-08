@@ -32,6 +32,7 @@ export class ProtocolManager {
     this._wsChunkSize = config.wsChunkSize;
     this._dcChunkSize = config.dcChunkSize;
     this._dcMaxTilesPerFrame = config.dcMaxTilesPerFrame;
+    this._maxControlBuffer = config.maxControlBuffer;
 
     this._adapters = new Map();
     this._listeners = new Map();
@@ -164,10 +165,17 @@ export class ProtocolManager {
     return candidates[0] || null;
   }
 
+  // True if any adapter is ready to carry control or binary (broadcast gate)
+  hasReadyAdapter() {
+    return Boolean(this._pickAdapter(CHANNELS.control) || this._pickAdapter(CHANNELS.binary));
+  }
+
   _sendControl(event, args, ackId) {
     const adapter = this._pickAdapter(CHANNELS.control);
     if (!adapter) {
       this._buffer.push({ event, args, ackId });
+      // Bound buffer — drop oldest when no adapter ready for too long
+      if (this._buffer.length > this._maxControlBuffer) this._buffer.shift();
       return;
     }
     if (adapter.constructor.id === "rtc") {

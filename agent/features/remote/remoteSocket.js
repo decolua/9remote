@@ -2,6 +2,7 @@ import { unregisterProtocol } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
 import { ADAPTER_STATE } from "../../lib/transportConstants.js";
 import { wakeDisplay } from "../../lib/displayWaker.js";
+import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 
 const logger = createLogger("remote");
 
@@ -37,6 +38,11 @@ export async function checkRemoteAvailable() {
 
 export function isRemoteAvailable() {
   return remoteAvailable === true;
+}
+
+// Expose active client map for system stats (RAM monitor UI)
+export function getResourceManager() {
+  return resourceManager;
 }
 
 let robot = null;
@@ -99,13 +105,14 @@ export async function setupRemoteHandlers(socket, apiKey) {
     resourceManager.startResourceMonitoring();
   }
 
-  const clientApiKey = socket.handshake.auth?.apiKey;
-  const tileManager = new TileManager(robot);
-  resourceManager.addClient(socket.id, { tileManager, screenInterval: null, authenticated: true, apiKey: clientApiKey });
-
   // Reuse connection-level PM created in transport/server.js
   const protocol = socket.data.protocol;
   if (!protocol) { socket.emit("remote:unavailable"); return; }
+
+  const clientApiKey = socket.handshake.auth?.apiKey;
+  const tileManager = new TileManager(robot);
+  resourceManager.addClient(socket.id, { tileManager, protocol, screenInterval: null, authenticated: true, apiKey: clientApiKey });
+
   socket.data.remoteAttached = true;
 
   // Wake display on every remote action (mouse/key/screen) — throttled internally
@@ -117,14 +124,24 @@ export async function setupRemoteHandlers(socket, apiKey) {
   // WS rớt + RTC ready → giữ vô hạn, cleanup khi RTC tự closed.
   // RTC chưa ready → cleanup ngay (giữ retry behavior cũ).
   socket.on("disconnect", () => {
+    const rtc = protocol._adapters?.get("rtc");
+    let cleaned = false;
+    let fallbackTimer = null;
+    let onState = null;
     const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+      if (rtc && onState) rtc.off("stateChange", onState);
       resourceManager.removeClient(socket.id);
       protocol.close();
       unregisterProtocol(protocol);
     };
-    const rtc = protocol._adapters?.get("rtc");
     if (!rtc?.ready) return cleanup();
-    rtc.on("stateChange", (s) => { if (s === ADAPTER_STATE.closed) cleanup(); });
+    // WS dropped but RTC alive → keep session; cleanup on RTC death or grace timeout
+    onState = (s) => { if (s === ADAPTER_STATE.closed) cleanup(); };
+    rtc.on("stateChange", onState);
+    fallbackTimer = setTimeout(cleanup, REMOTE_CONFIG.resourceManagement.disconnectGraceMs);
   });
 
   socket.emit("remote:ready");

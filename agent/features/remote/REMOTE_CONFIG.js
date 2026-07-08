@@ -19,6 +19,8 @@ export const REMOTE_CONFIG = {
     inputFormat: platformCfg.inputFormat, // "bgra" | "rgba" — source color order
     tileSize: platformCfg.tileSize,
     jpegQuality: 50,
+    // Bound parallel tile encodes — caps peak sharp instances / RAM per frame
+    tileConcurrency: 6,
     // Output scale — downscale captured buffer before tiling/encoding.
     // 1.0 = native (no scale), 0.75 = 75%, 0.5 = 50%. Saves bandwidth + CPU.
     // Applied via sharp resize once per frame on the full screen buffer.
@@ -51,6 +53,8 @@ export const REMOTE_CONFIG = {
     dcMaxMessageSize: 65536,
     // Max buffered bytes before skipping frame — ~1 frame worth at typical quality
     dcBufferThreshold: 65536,
+    // Grace before closing RTC on ICE "disconnected" (transient network lag)
+    iceDisconnectGraceMs: 6000,
     // DataChannel chunk size (tiles per message) — keep under 64KB
     dcChunkSize: 8,
     // Max tiles per DC frame — split into batches if exceeded
@@ -60,7 +64,9 @@ export const REMOTE_CONFIG = {
     dcReliable: true,
     dcOrdered: false,
     // Answer SDP timeout
-    answerTimeout: 10000
+    answerTimeout: 10000,
+    // Max buffered control messages while no adapter ready (bound reconnect window)
+    maxControlBuffer: 500
   },
   // Robot settings
   robotSettings: {
@@ -82,7 +88,9 @@ export const REMOTE_CONFIG = {
     memoryCheckInterval: 60000,
     memoryWarningThreshold: 1000,
     maxTimersPerClient: 100,
-    maxChunkTimersPerClient: 50
+    maxChunkTimersPerClient: 50,
+    // WS drop + RTC not closed after this → force cleanup (fallback)
+    disconnectGraceMs: 30000
   },
 
   // Streaming - adaptive intervals

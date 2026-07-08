@@ -7,6 +7,10 @@ import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
 
 const jpegTurbo = jpegTurboModule.default || jpegTurboModule;
 
+// libvips holds RAM via malloc arena — disable cache, single-thread (tiles already parallel)
+sharp.cache(false);
+sharp.concurrency(1);
+
 function turboFormat(format) {
   return format === "bgra" ? jpegTurbo.FORMAT_BGRA : jpegTurbo.FORMAT_RGBA;
 }

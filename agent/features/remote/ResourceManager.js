@@ -1,5 +1,6 @@
 // Resource Manager for Remote Desktop
 import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
+import { unregisterProtocol } from "../../transport/broadcast.js";
 
 export class ResourceManager {
   constructor() {
@@ -90,6 +91,12 @@ export class ResourceManager {
         clientData.tileManager.clearMemory();
         clientData.tileManager.cleanup();
         clientData.tileManager.reset();
+      }
+
+      // Release the PeerConnection + drop PM from broadcast Set (GC root)
+      if (clientData?.protocol) {
+        clientData.protocol.close();
+        unregisterProtocol(clientData.protocol);
       }
     } catch (error) {
       console.error(`Error cleaning up ${socketId}:`, error.message);

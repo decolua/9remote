@@ -40,6 +40,7 @@ import { handleApprove, handleReject, handlePending, handleApproved, handleRemov
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
 import { handleSleepInhibitGet, handleSleepInhibitPost } from "./api/sleepInhibit.js";
 import { handleSessionsList, handleSessionDelete } from "./api/sessions.js";
+import { handleSystemStats } from "./api/system.js";
 import * as sleepInhibitor from "./lib/sleepInhibitor.js";
 import { loadSettings } from "./cli/utils/state.js";
 import { REMOTE_CONFIG } from "./features/remote/REMOTE_CONFIG.js";
@@ -168,6 +169,7 @@ const ROUTES = [
   { path: "/api/ui/stop-tunnel",   method: "POST", handler: handleStopTunnel },
   { path: "/api/ui/shutdown",      method: "POST", handler: handleShutdown },
   { path: "/api/update",           method: "POST", handler: handleUpdate },
+  { path: "/api/system/stats",     method: "GET",  handler: handleSystemStats },
 
   // Key management (localhost-only)
   { path: "/api/key/one-time",     method: "POST", handler: handleOneTimeKey },

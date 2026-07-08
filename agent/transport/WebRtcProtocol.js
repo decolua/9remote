@@ -67,6 +67,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._remoteSet = false;
     this._pendingCandidates = [];
     this._signaling = null;
+    this._iceGraceTimer = null;
   }
 
   /**
@@ -113,7 +114,10 @@ export class WebRtcProtocol extends BaseProtocol {
         // payload may be array of chunks or single Buffer
         const chunks = Array.isArray(payload) ? payload : [payload];
         const max = this._ctx.profile?.rtc?.dcMaxMessageSize ?? 65536;
+        const bufThreshold = REMOTE_CONFIG.webrtc.dcBufferThreshold;
         for (const chunk of chunks) {
+          // Backpressure — drop frame if SCTP send queue is congested
+          if (this._dcBinary.bufferedAmount() > bufThreshold) return true;
           if (chunk.length <= max) this._dcBinary.sendMessageBinary(chunk);
         }
         return true;
@@ -155,9 +159,28 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcBinary = null;
     this._remoteSet = false;
     this._pendingCandidates = [];
+    if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
 
     const socketId = this._ctx?.auth?.socketId || "anon";
     const pc = new PeerConnection(`peer-${socketId}`, { iceServers: this._iceServers });
+
+    // ICE lifecycle — close on real death; grace-debounce transient "disconnected"
+    this._pcState = "new";
+    pc.onStateChange((state) => {
+      this._pcState = state;
+      if (state === "failed" || state === "closed") {
+        if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
+        this._setState(ADAPTER_STATE.closed);
+      } else if (state === "disconnected") {
+        if (this._iceGraceTimer) return;
+        this._iceGraceTimer = setTimeout(() => {
+          this._iceGraceTimer = null;
+          if (this._pcState !== "connected") this._setState(ADAPTER_STATE.closed);
+        }, REMOTE_CONFIG.webrtc.iceDisconnectGraceMs);
+      } else if (state === "connected") {
+        if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
+      }
+    });
 
     pc.onDataChannel((dc) => {
       const label = dc.getLabel?.() || "";
@@ -216,6 +239,7 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   _cleanupPeer() {
+    if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
     try { this._pc?.close(); } catch {}
     this._pc = null;
     this._dcControl = null;

@@ -133,6 +133,8 @@ export class ScreenHandler {
         clearTimeout(clientData.streamingTimeout);
         clientData.streamingTimeout = null;
       }
+      // Release screen buffers while idle — first frame after restart is full refresh
+      clientData.tileManager?.clearMemory?.();
       remoteLog.lifecycle("⏹️ Remote streaming stopped");
     });
 

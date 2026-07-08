@@ -4,6 +4,7 @@ import QRCard from "../components/QRCard";
 import ConfirmPopup from "../components/ConfirmPopup";
 import SessionList from "../components/SessionList";
 import TerminalView from "../components/TerminalView";
+import SystemPane from "../components/SystemPane";
 import { useSessions } from "../lib/terminalSocket";
 import { updateTitle } from "../lib/titleMarquee";
 import { useI18n } from "../i18n";
@@ -17,6 +18,7 @@ const MENU = [
   { id: "connection", label: "Connection", icon: "hub", desc: "Pair devices and manage your secure tunnel" },
   { id: "terminals", label: "Terminals", icon: "terminal", desc: "Live terminal sessions running on this host" },
   { id: "logs", label: "Logs", icon: "description", desc: "Server activity and diagnostics" },
+  { id: "system", label: "System", icon: "monitor_heart", desc: "RAM, CPU and agent process stats" },
 ];
 
 const DEFAULT_MENU = "connection";
@@ -944,6 +946,12 @@ export default function MainScreen({
                         <div ref={logEndRef} />
                       </div>
                     )}
+                  </div>
+                )}
+
+                {activeMenu === "system" && (
+                  <div className="flex-1 flex flex-col">
+                    <SystemPane />
                   </div>
                 )}
           </div>

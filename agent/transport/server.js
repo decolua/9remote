@@ -72,6 +72,7 @@ async function attachTransportBus(socket) {
     dcChunkSize: webrtc.dcChunkSize,
     dcMaxTilesPerFrame: webrtc.dcMaxTilesPerFrame,
     answerTimeout: webrtc.answerTimeout,
+    maxControlBuffer: webrtc.maxControlBuffer,
     wsChunkSize: streaming.chunkSize
   });
   socket.data.protocol = pm;
