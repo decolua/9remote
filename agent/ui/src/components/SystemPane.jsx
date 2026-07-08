@@ -48,10 +48,10 @@ function StatRow({ icon, label, value, sub, pct, barColor }) {
 
 function SectionCard({ icon, title, children, t }) {
   return (
-    <div className="glass-card conn-card p-4 flex flex-col gap-1">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--brand-400)" }}>{icon}</span>
-        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-main)" }}>{title}</p>
+    <div className="card-elev p-5 flex flex-col gap-1">
+      <div className="flex items-center gap-2.5 mb-2.5">
+        <span className="material-symbols-outlined flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0" style={{ fontSize: 18, color: "var(--brand-500)", background: "var(--brand-tint)" }}>{icon}</span>
+        <p className="text-[13px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>{title}</p>
       </div>
       {children}
     </div>
@@ -96,7 +96,7 @@ export default function SystemPane() {
   const heapWarn = agent.memory.heapUsedMB > (remote.memoryWarningThresholdMB || 1000);
 
   return (
-    <div className="flex flex-col gap-4 max-w-2xl mx-auto w-full">
+    <div className="flex flex-col gap-5 max-w-2xl mx-auto w-full">
       <SectionCard icon="memory" title={t("system.agent") || "Agent"}>
         <StatRow icon="tag" label="Version" value={agent.version || "--"} sub={`${agent.nodeVersion} · PID ${agent.pid}`} />
         <StatRow icon="schedule" label={t("system.uptime") || "Uptime"} value={fmtUptime(agent.uptimeSec)} />
@@ -106,7 +106,7 @@ export default function SystemPane() {
           value={fmtBytes(agent.memory.heapUsedMB)}
           sub={`${t("system.heapTotal") || "total"} ${fmtBytes(agent.memory.heapTotalMB)} · ${t("system.external") || "external"} ${fmtBytes(agent.memory.externalMB)}`}
           pct={heapPct}
-          barColor={heapWarn ? "#dc3545" : "var(--brand-500)"}
+          barColor={heapWarn ? "var(--danger)" : "var(--brand-500)"}
         />
         <StatRow
           icon="developer_board"
@@ -114,7 +114,7 @@ export default function SystemPane() {
           value={fmtBytes(agent.memory.rssMB)}
           sub={`${t("system.ofOsTotal") || "of OS"} ${fmtBytes(os.totalMemMB)}`}
           pct={rssPct}
-          barColor="#a855f7"
+          barColor="var(--info)"
         />
       </SectionCard>
 
@@ -134,7 +134,7 @@ export default function SystemPane() {
           value={fmtBytes(os.freeMemMB)}
           sub={`${t("system.ofOsTotal") || "of"} ${fmtBytes(os.totalMemMB)}`}
           pct={freeMemPct}
-          barColor="#4ade80"
+          barColor="var(--success)"
         />
       </SectionCard>
 

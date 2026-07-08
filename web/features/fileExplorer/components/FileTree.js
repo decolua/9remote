@@ -99,17 +99,17 @@ export default function FileTree({
         return (
           <div
             key={file.path}
-            className={`w-full px-4 py-2 flex items-center gap-3 border-b border-border hover:bg-surface-2 transition ${
+            className={`w-full px-4 py-1.5 flex items-center gap-2.5 border-b border-border hover:bg-surface-2 transition ${
               selectedPath === file.path ? "bg-surface-2" : ""
             }`}
           >
             <button
               onClick={() => { vibrate(); file.type === "folder" ? onFolderClick(file) : onFileClick(file); }}
-              className="flex-1 flex items-center gap-3 text-left min-w-0"
+              className="flex-1 flex items-center gap-2.5 text-left min-w-0"
             >
               <span className="flex-shrink-0">{getFileIcon(file)}</span>
               <div className="flex-1 min-w-0">
-                <div className={`truncate ${statusColor || "text-text"}`}>
+                <div className={`truncate text-sm ${statusColor || "text-text"}`}>
                   {file.name}
                   {gitStatus && gitStatus !== "folder-changed" && (
                     <span className="ml-2 text-xs opacity-70">[{gitStatus}]</span>

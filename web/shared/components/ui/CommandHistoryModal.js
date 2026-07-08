@@ -8,14 +8,15 @@ import { useHistoryStore } from "@/shared/stores/historyStore";
 import SnippetEditModal from "./SnippetEditModal";
 
 // Command history picker. Tap a row → fill the input (no auto-send).
-export default function CommandHistoryModal({ isOpen, onSelect, onClose }) {
+// `store` lets each scope (terminal / remote) pass its own history store.
+export default function CommandHistoryModal({ isOpen, onSelect, onClose, store = useHistoryStore }) {
   const { t } = useI18n();
-  const history = useHistoryStore((s) => s.history);
-  const pinned = useHistoryStore((s) => s.pinned);
-  const removeCommand = useHistoryStore((s) => s.removeCommand);
-  const clearHistory = useHistoryStore((s) => s.clearHistory);
-  const togglePin = useHistoryStore((s) => s.togglePin);
-  const setSnippet = useHistoryStore((s) => s.setSnippet);
+  const history = store((s) => s.history);
+  const pinned = store((s) => s.pinned);
+  const removeCommand = store((s) => s.removeCommand);
+  const clearHistory = store((s) => s.clearHistory);
+  const togglePin = store((s) => s.togglePin);
+  const setSnippet = store((s) => s.setSnippet);
   const [editing, setEditing] = useState(null);
 
   useEffect(() => {

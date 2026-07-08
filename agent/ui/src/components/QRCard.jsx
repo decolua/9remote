@@ -85,7 +85,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
         />
       )}
 
-      <div className="glass-card conn-card p-4 flex flex-col items-center gap-4 h-full">
+      <div className="card-elev p-5 flex flex-col items-center gap-4 h-full">
 
         {/* QR */}
         <div className="w-44 h-44 rounded-xl overflow-hidden bg-white p-2 flex items-center justify-center flex-shrink-0">

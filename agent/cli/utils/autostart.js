@@ -290,3 +290,45 @@ export async function setAutoStart(enabled) {
   } catch {}
   return false;
 }
+
+// Rewrite existing autostart entry ONLY if enabled and content drifted (path/args changed after update).
+// No-op when disabled or already up-to-date — avoids rewriting on every boot.
+export async function refreshAutoStart() {
+  try {
+    if (!(await isAutoStartEnabled())) return false;
+
+    if (process.platform === "darwin") {
+      const desired = buildPlist(getNodeBin(), getCliEntry());
+      const current = existsSync(PATHS.darwin) ? readFileSync(PATHS.darwin, "utf8") : "";
+      if (current === desired) return false;
+      writeFileSync(PATHS.darwin, desired);
+      return true;
+    }
+
+    if (process.platform === "win32") {
+      const desired = buildWinCommand();
+      const { ok, stdout } = await regRun([
+        "QUERY", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/V", APP_NAME,
+      ]);
+      if (ok && stdout.includes(desired)) return false;
+      return await enableWin();
+    }
+
+    if (process.platform === "linux") {
+      if (existsSync(PATHS.linuxSystemd)) {
+        const desired = buildSystemdUnit();
+        if (readFileSync(PATHS.linuxSystemd, "utf8") === desired) return false;
+        writeFileSync(PATHS.linuxSystemd, desired);
+        systemctlUser(["daemon-reload"]);
+        return true;
+      }
+      if (existsSync(PATHS.linux)) {
+        const desired = buildDesktopFile();
+        if (readFileSync(PATHS.linux, "utf8") === desired) return false;
+        writeFileSync(PATHS.linux, desired);
+        return true;
+      }
+    }
+  } catch {}
+  return false;
+}

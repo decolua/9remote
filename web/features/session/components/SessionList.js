@@ -1,19 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import SitesList from "@/features/terminal/components/SitesList";
-import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap, Plus, FolderPlus, X, Folder } from "@/shared/components/ui/Icon";
+import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap, Plus, FolderPlus, X, Folder, GripVertical } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import AgentOutdatedBanner, { isAgentOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
+import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 
 const UNGROUPED_KEY = "ungrouped";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup, onReorderSession }) {
   const { t } = useI18n();
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
@@ -26,6 +26,64 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   const [newGroupName, setNewGroupName] = useState("");
   const [terminalModal, setTerminalModal] = useState({ open: false, groupId: null });
   const [newTerminalName, setNewTerminalName] = useState("");
+
+  // Pointer-based drag reorder (mobile-first). Long-press on grip handle activates drag.
+  const [drag, setDrag] = useState(null); // { groupId, ids, fromIdx, overIdx }
+  const dragRef = useRef(null);
+  const pressTimer = useRef(null);
+
+  const clearPress = () => { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; } };
+
+  const startDrag = (groupId, ids, fromIdx) => {
+    vibrate();
+    const state = { groupId, ids, fromIdx, overIdx: fromIdx };
+    dragRef.current = state;
+    setDrag(state);
+  };
+
+  const onGripPointerDown = (e, groupId, ids, fromIdx) => {
+    if (!connected || ids.length < 2) return;
+    e.stopPropagation();
+    clearPress();
+    pressTimer.current = setTimeout(() => startDrag(groupId, ids, fromIdx), 180);
+  };
+
+  useEffect(() => {
+    if (!drag) return;
+    const findIdx = (x, y) => {
+      const el = document.elementFromPoint(x, y)?.closest("[data-session-card]");
+      if (!el) return null;
+      const i = Number(el.getAttribute("data-card-idx"));
+      return Number.isNaN(i) ? null : i;
+    };
+    const onMove = (e) => {
+      const p = e.touches ? e.touches[0] : e;
+      const i = findIdx(p.clientX, p.clientY);
+      if (i == null || i === dragRef.current.overIdx) return;
+      dragRef.current = { ...dragRef.current, overIdx: i };
+      setDrag(dragRef.current);
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      if (d && d.fromIdx !== d.overIdx) {
+        const ids = [...d.ids];
+        const [moved] = ids.splice(d.fromIdx, 1);
+        ids.splice(d.overIdx, 0, moved);
+        onReorderSession?.(ids);
+        vibrate();
+      }
+      dragRef.current = null;
+      setDrag(null);
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [drag, onReorderSession]);
 
   // Slide menu store
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
@@ -244,8 +302,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       {/* Content */}
       <div className="flex-1 p-4 sm:p-6 overflow-auto modal-scrollable">
         {/* Agent outdated warning — only when connected (update is meaningless mid-connect) */}
-        {connected && (isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || updateAvailable) && (
-          <AgentOutdatedBanner agentVersion={agentVersion} updateAvailable={updateAvailable} canSelfUpdate={canSelfUpdate} onUpdate={onUpdate} className="mb-6" />
+        {connected && (isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || isWebOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || updateAvailable) && (
+          <AgentOutdatedBanner agentVersion={agentVersion} webVersion={process.env.NEXT_PUBLIC_SERVER_VERSION} updateAvailable={updateAvailable} canSelfUpdate={canSelfUpdate} onUpdate={onUpdate} className="mb-6" />
         )}
         {/* Sessions grouped accordion — create via inline dashed cards */}
         {(
@@ -299,16 +357,33 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
 
                   {/* Cards */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                        {groupSessions.map((session) => (
+                        {groupSessions.map((session, cardIdx) => {
+                          const isDragging = drag?.groupId === section.id && drag.fromIdx === cardIdx;
+                          const isDragOver = drag?.groupId === section.id && drag.overIdx === cardIdx && drag.fromIdx !== cardIdx;
+                          const groupIds = groupSessions.map((s) => s.id);
+                          return (
                           <div
                             key={session.id}
-                            className={`relative overflow-hidden bg-surface border border-border-subtle rounded-brand-lg p-3 flex items-center justify-between transition-all duration-150 ease-out ${
-                              notifications[session.id] ? "terminal-done-border" : ""
-                            } ${connected ? "hover:bg-surface-2" : "opacity-50"}`}
+                            data-session-card
+                            data-card-idx={cardIdx}
+                            className={`relative overflow-hidden bg-surface border rounded-brand-lg p-3 flex items-center justify-between transition-all duration-150 ease-out ${
+                              notifications[session.id] ? "terminal-done-border" : "border-border-subtle"
+                            } ${isDragging ? "opacity-40" : ""} ${isDragOver ? "border-brand-500 ring-2 ring-brand-500/40" : ""} ${connected && !drag ? "hover:bg-surface-2" : ""} ${!connected ? "opacity-50" : ""}`}
                           >
+                            {connected && groupSessions.length > 1 && (
+                              <div
+                                className="flex-shrink-0 -ml-1 mr-1 p-1 text-text-muted hover:text-text touch-none cursor-grab active:cursor-grabbing"
+                                onPointerDown={(e) => onGripPointerDown(e, section.id, groupIds, cardIdx)}
+                                onPointerUp={clearPress}
+                                onPointerLeave={clearPress}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <GripVertical size={18} />
+                              </div>
+                            )}
                             <div
-                              className={`flex-1 flex items-center gap-3 ${connected && editingId !== session.id ? "cursor-pointer" : "cursor-default"}`}
-                              onClick={() => { if (connected && editingId !== session.id) { vibrate(); onSelect(session.id); } }}
+                              className={`flex-1 flex items-center gap-3 ${connected && editingId !== session.id && !drag ? "cursor-pointer" : "cursor-default"}`}
+                              onClick={() => { if (connected && editingId !== session.id && !drag) { vibrate(); onSelect(session.id); } }}
                             >
                               <div className="p-2 bg-brand-500/10 rounded-brand flex-shrink-0">
                                 <Terminal className="text-brand-500" size={20} />
@@ -357,7 +432,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                               </button>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                         {/* Inline dashed card to add a terminal into this group */}
                         <button
                           onClick={() => { vibrate(); setNewTerminalName(suggestTerminalName(section.id)); setTerminalModal({ open: true, groupId: section.id }); }}

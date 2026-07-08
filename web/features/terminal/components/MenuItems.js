@@ -5,7 +5,7 @@ import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText,
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
-import AgentOutdatedBanner, { isAgentOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
+import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import UpgradeButton from "@/features/terminal/components/UpgradeButton";
 
 export default function MenuItems({
@@ -31,7 +31,7 @@ export default function MenuItems({
   const { t } = useI18n();
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
-  const isOutdated = isAgentOutdated(agentVersion, webVersion);
+  const isOutdated = isAgentOutdated(agentVersion, webVersion) || isWebOutdated(agentVersion, webVersion);
 
   // Treat native WebView (Expo) the same as PWA for UI gating
   const isExpoWebView = typeof window !== "undefined" && !!window.ReactNativeWebView;
@@ -202,7 +202,7 @@ export default function MenuItems({
       )}
 
       {/* Version mismatch warning */}
-      {isOutdated && <AgentOutdatedBanner agentVersion={agentVersion} className="mt-3" />}
+      {isOutdated && <AgentOutdatedBanner agentVersion={agentVersion} webVersion={webVersion} className="mt-3" />}
 
       {/* Version + connection mode */}
       <div className="flex items-center justify-end gap-2 mt-4 mr-1">

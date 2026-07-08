@@ -91,3 +91,5 @@ web/wrangler.toml
 web/graphify-out/*
 agent/graphify-out/*
 .devloop/
+
+.handoff/

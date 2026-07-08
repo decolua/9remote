@@ -59,7 +59,7 @@ let keyboardHandler = null;
 let screenHandler = null;
 
 async function loadRemoteModules() {
-  if (robot) return true;
+  if (robot && TileManager && ResourceManager) return true;
   try {
     const robotModule = await import("@hurdlegroup/robotjs");
     robot = robotModule.default || robotModule;

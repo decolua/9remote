@@ -5,7 +5,8 @@ import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import { GIT_STATUS_COLORS, DIFF_SIDE_BY_SIDE_BREAKPOINT } from "../constants/fileExplorer.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { ChevronLeft, Eye, Trash2, RefreshCw } from "@/shared/components/ui/Icon";
+import GitActionsModal from "./GitActionsModal.js";
+import { ChevronLeft, Eye, Trash2, RefreshCw, GitBranch } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 
@@ -43,6 +44,8 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
   const [diff, setDiff] = useState("");
   const [diffLoaded, setDiffLoaded] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false });
+  const [branch, setBranch] = useState("");
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   // Load git status
   const loadStatus = useCallback(async () => {
@@ -56,6 +59,8 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
     } else {
       setError(result.error);
     }
+
+    fileSocket.gitBranch(workspace).then((r) => { if (r?.success) setBranch(r.branch); });
 
     setStatusLoading(false);
   }, [workspace, fileSocket]);
@@ -250,7 +255,16 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-text text-lg font-semibold">{t("git.title")}</h1>
+        <h1 className="text-text text-lg font-semibold truncate">
+          {t("git.title")}{branch ? <span className="text-text-muted font-normal"> · {branch}</span> : null}
+        </h1>
+        <button
+          onClick={() => { vibrate(); setActionsOpen(true); }}
+          className="ml-auto p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-200"
+          title={t("git.gitActions")}
+        >
+          <GitBranch className="w-5 h-5" />
+        </button>
         <button
           onClick={() => {
             vibrate();
@@ -260,7 +274,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
               loadDiff(selectedFile, selectedFileStatus);
             }
           }}
-          className="ml-auto p-2 bg-surface-2 hover:bg-surface-2 text-text rounded-brand transition-all duration-200"
+          className="p-2 bg-surface-2 hover:bg-surface-2 text-text rounded-brand transition-all duration-200"
           title={t("common.refresh")}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -484,6 +498,16 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
         title={confirmDialog.title}
         message={confirmDialog.message}
       />
+      {actionsOpen && (
+        <GitActionsModal
+          workspace={workspace}
+          fileSocket={fileSocket}
+          branch={branch}
+          changedCount={statusFiles.length}
+          onDone={loadStatus}
+          onClose={() => setActionsOpen(false)}
+        />
+      )}
     </div>
   );
 }

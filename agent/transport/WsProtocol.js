@@ -46,6 +46,10 @@ export class WsProtocol extends BaseProtocol {
       return true;
     }
     if (channel === CHANNELS.binary) {
+      // Skip when client is backpressured (transport not writable) to avoid
+      // unbounded writeBuffer growth; caller keeps old hash and retries next frame.
+      const transport = this._socket.conn?.transport;
+      if (transport && transport.writable === false) return false;
       emit("tiles-bin-v2", payload);
       return true;
     }

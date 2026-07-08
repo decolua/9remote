@@ -1,10 +1,10 @@
 // Remote Desktop Server Configuration
 
 // Per-OS optimal libs based on benchmark (see benchmark/RESULT.md)
-// darwin: robotjs + jpeg-turbo (BGRA native, SIMD NEON, 3x faster than sharp)
+// darwin: node-screenshots async (robotjs leaks native CGImageRef on Mac)
 // win32:  node-screenshots DXGI GPU + sharp (RGBA, AVX2 prebuilt optimal)
 const PLATFORM_DEFAULTS = {
-  darwin: { capture: "robotjs", encoder: "sharp", tileSize: 128, inputFormat: "bgra" },
+  darwin: { capture: "nodeScreenshots", encoder: "sharp", tileSize: 128, inputFormat: "rgba" },
   win32: { capture: "nodeScreenshots", encoder: "sharp", tileSize: 256, inputFormat: "rgba" },
   linux: { capture: "nodeScreenshots", encoder: "sharp", tileSize: 256, inputFormat: "rgba" }
 };
@@ -18,6 +18,10 @@ export const REMOTE_CONFIG = {
     encoder: platformCfg.encoder,         // "sharp" | "jpegTurbo"
     inputFormat: platformCfg.inputFormat, // "bgra" | "rgba" — source color order
     tileSize: platformCfg.tileSize,
+    // Tile output codec — "webp" (smaller ~⅓ size, faster at effort 0) | "jpeg"
+    // Web client sniffs magic bytes, so it decodes either regardless of agent version.
+    tileFormat: "webp",
+    webpEffort: 0,
     jpegQuality: 50,
     // Bound parallel tile encodes — caps peak sharp instances / RAM per frame
     tileConcurrency: 6,
@@ -37,7 +41,9 @@ export const REMOTE_CONFIG = {
       { minEffective: 0.4, outputScale: 0.80, jpegQuality: 52 },
       { minEffective: 0,   outputScale: 0.65, jpegQuality: 45 }
     ],
-    tierHysteresis: 0.05
+    tierHysteresis: 0.05,
+    // Tile change-detection sampling — denser grid catches thin caret (1-2px)
+    checksumSampling: { rowStep: 3, colStep: 8 }
   },
 
   // WebRTC transport config

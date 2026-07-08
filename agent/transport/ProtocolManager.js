@@ -39,6 +39,9 @@ export class ProtocolManager {
     this._buffer = [];
     this._rtcSignalingHandler = null;
     this._sigListeners = null;
+    // Round-robin chunk start offset — rotates each frame so tiles dropped by
+    // backpressure (always at the tail) get prioritized on the next frame.
+    this._chunkOffset = 0;
   }
 
   get type() {
@@ -72,10 +75,13 @@ export class ProtocolManager {
     this._sendControl(event, args);
   }
 
-  /** Tiles: prefer binary channel via RTC if ready, else WS chunked. */
+  /**
+   * Tiles: prefer binary channel via RTC if ready, else WS chunked.
+   * Returns array of tiles actually sent (WS may drop chunks under backpressure).
+   */
   sendTiles(payload, encodeBatch) {
     const { tiles, timestamp } = payload;
-    if (!tiles?.length) return;
+    if (!tiles?.length) return [];
 
     const adapter = this._pickAdapter(CHANNELS.binary);
     const frameTs = timestamp ?? Date.now();
@@ -86,10 +92,10 @@ export class ProtocolManager {
         chunks.push(encodeBatch(tiles.slice(i, i + this._dcChunkSize), frameTs));
       }
       adapter.send(CHANNELS.binary, chunks);
-      return;
+      return tiles;
     }
     // WS path — chunked binary emit
-    this._emitTilesChunked(tiles, frameTs);
+    return this._emitTilesChunked(tiles, frameTs);
   }
 
   close() {
@@ -119,14 +125,27 @@ export class ProtocolManager {
 
   // ─── Internal ──────────────────────────────────────────────────────────────
 
+  // Returns tiles actually sent; stops on first dropped chunk (backpressure)
+  // so remaining tiles keep old hash and retry next frame.
+  // Round-robin start offset rotates each frame so tiles at the tail (dropped
+  // by backpressure) get sent first on the next frame instead of being starved.
   _emitTilesChunked(tiles, frameTs) {
     const ws = this._adapters.get("ws");
-    if (!ws?.ready) return;
+    if (!ws?.ready) return [];
     const size = this._wsChunkSize;
-    for (let i = 0; i < tiles.length; i += size) {
-      const chunk = tiles.slice(i, i + size);
-      ws.send(CHANNELS.binary, encodeTilesBatch(chunk, frameTs));
+    const n = tiles.length;
+    const start = n > size ? this._chunkOffset % n : 0;
+    if (n > size) this._chunkOffset = (start + size) % n;
+    const sent = [];
+    for (let i = 0; i < n; i += size) {
+      const chunk = [];
+      for (let j = 0; j < size && i + j < n; j++) {
+        chunk.push(tiles[(start + i + j) % n]);
+      }
+      if (ws.send(CHANNELS.binary, encodeTilesBatch(chunk, frameTs)) === false) break;
+      sent.push(...chunk);
     }
+    return sent;
   }
 
   _buildCtx(adapterId) {

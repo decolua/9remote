@@ -76,6 +76,7 @@ export const {
   Smartphone,
   MoreVertical,
   MoreHorizontal,
+  GripVertical,
   QrCode,
   Send,
   SendHorizontal,

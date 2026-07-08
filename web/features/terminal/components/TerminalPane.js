@@ -155,7 +155,7 @@ function TerminalPane({
           className="xterm-screen w-full h-full rounded-sm overflow-hidden px-1 py-0.5 "
         />
 
-        {cwd && isFocused && changedCount > 0 && (
+        {cwd && isFocused && (
           <div className="absolute top-2 right-2 z-50 flex flex-col gap-2">
             <button
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -166,20 +166,20 @@ function TerminalPane({
             >
               <Folder size={16} />
             </button>
-            <button
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); vibrate(); pushView({ type: "git", workspace: cwd }); }}
-              className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
-              title={t("terminalPane.changedFiles")}
-            >
-              <GitBranch size={16} />
-              {changedCount > 0 && (
+            {changedCount > 0 && (
+              <button
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); vibrate(); pushView({ type: "git", workspace: cwd }); }}
+                className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+                title={t("terminalPane.changedFiles")}
+              >
+                <GitBranch size={16} />
                 <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
                   {badgeLabel}
                 </span>
-              )}
-            </button>
+              </button>
+            )}
           </div>
         )}
 

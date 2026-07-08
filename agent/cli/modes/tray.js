@@ -6,12 +6,16 @@ import { isServerRunning, pushUiState } from "../core/localApi.js";
 import { startServerWithRestart, setupExitHandler, shutdownAll } from "../core/lifecycle.js";
 import { setupCmdPoller } from "../core/cmdPoller.js";
 import { ensureKeyData } from "../session/key.js";
+import { refreshAutoStart } from "../utils/autostart.js";
 import { SERVER_PORT } from "../../lib/constants.js";
 import { DELAYS } from "../config.js";
 
 export async function startTrayMode() {
   // Record PID — this process holds dist/cli.cjs open; updater needs to kill it
   writePid("agent", process.pid);
+
+  // Self-heal autostart entry after update: rewrite only if path/args drifted (no-op otherwise)
+  refreshAutoStart().catch(() => {});
 
   const keyData = await ensureKeyData();
 

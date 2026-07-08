@@ -25,13 +25,14 @@ export function bgraToRgbaInPlace(buf) {
 }
 
 export async function encodeJpeg(buffer, width, height, channels = 4, quality, formatOverride) {
-  const { encoder, inputFormat, jpegQuality } = REMOTE_CONFIG.pipeline;
+  const { encoder, inputFormat, jpegQuality, tileFormat, webpEffort } = REMOTE_CONFIG.pipeline;
   // Caller-supplied quality overrides config default (adaptive profile)
   const q = quality ?? jpegQuality;
   // formatOverride lets caller pass pre-swapped RGBA buffer (e.g. per-tile resize)
   const fmt = formatOverride ?? inputFormat;
 
-  if (encoder === "jpegTurbo") {
+  // jpeg-turbo only encodes JPEG; WebP always routes through sharp
+  if (encoder === "jpegTurbo" && tileFormat !== "webp") {
     return jpegTurbo.compressSync(buffer, {
       width,
       height,
@@ -47,7 +48,8 @@ export async function encodeJpeg(buffer, width, height, channels = 4, quality, f
     input = Buffer.from(buffer);
     bgraToRgbaInPlace(input);
   }
-  return sharp(input, { raw: { width, height, channels } })
-    .jpeg({ quality: q })
-    .toBuffer();
+  const pipeline = sharp(input, { raw: { width, height, channels } });
+  return tileFormat === "webp"
+    ? pipeline.webp({ quality: q, effort: webpEffort }).toBuffer()
+    : pipeline.jpeg({ quality: q }).toBuffer();
 }

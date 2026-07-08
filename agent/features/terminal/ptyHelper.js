@@ -148,24 +148,24 @@ export function saveSessionMetadata(sessions) {
 // Terminal groups persistence (agent-managed)
 // ============================================
 
-// Returns { groups: [{id,name,createdAt}], sessionGroups: { sessionId: groupId } }
+// Returns { groups: [{id,name,createdAt}], sessionGroups: { sessionId: groupId }, sessionOrder: [sessionId] }
 export function loadGroups() {
   try {
     if (fs.existsSync(GROUPS_FILE)) {
       const data = JSON.parse(fs.readFileSync(GROUPS_FILE, "utf8"));
-      return { groups: data.groups || [], sessionGroups: data.sessionGroups || {} };
+      return { groups: data.groups || [], sessionGroups: data.sessionGroups || {}, sessionOrder: data.sessionOrder || [] };
     }
   } catch (error) {
     console.log("⚠️  Failed to load groups:", error.message);
   }
-  return { groups: [], sessionGroups: {} };
+  return { groups: [], sessionGroups: {}, sessionOrder: [] };
 }
 
-export function saveGroups(groups, sessionGroups) {
+export function saveGroups(groups, sessionGroups, sessionOrder = []) {
   try {
     const dir = path.dirname(GROUPS_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const data = { groups: Array.from(groups.values()), sessionGroups };
+    const data = { groups: Array.from(groups.values()), sessionGroups, sessionOrder };
     fs.writeFileSync(GROUPS_FILE, JSON.stringify(data, null, 2), "utf8");
   } catch (error) {
     console.log("⚠️  Failed to save groups:", error.message);

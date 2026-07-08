@@ -27,6 +27,8 @@ export function encodeTilesBatch(tiles, timestamp) {
 }
 
 import { remoteLog } from "../utils/remoteLog.js";
+import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
+import { pushUiLog } from "../../../api/ui.js";
 
 export class ScreenHandler {
   constructor(resourceManager, screenUpdateHelper) {
@@ -80,6 +82,9 @@ export class ScreenHandler {
       }
 
       remoteLog.lifecycle("🚀 Remote streaming started");
+      // Surface active tile codec in /logs to verify WebP is live (once per stream start)
+      const { tileFormat, webpEffort, jpegQuality } = REMOTE_CONFIG.pipeline;
+      pushUiLog(`🖼️ Remote stream codec: ${tileFormat.toUpperCase()}${tileFormat === "webp" ? ` (effort=${webpEffort})` : ""} q=${jpegQuality}`);
       clientData.idleFrameCount = 0;
       clientData.isStreaming = true;
       // Bump generation so any leftover loop self-exits (prevents 2 loops sharing isProcessing)
@@ -105,10 +110,11 @@ export class ScreenHandler {
           const frameStart = performance.now();
           const result = await clientData.tileManager.detectChangedTilesWithHashes();
 
-          if (result.tiles.length > 0 && socket.connected) {
-            protocol.sendTiles({ tiles: result.tiles, timestamp: Date.now(), currentHashes: result.currentHashes }, encodeTilesBatch);
-            clientData.idleFrameCount = 0;
-          } else {
+            if (result.tiles.length > 0 && socket.connected) {
+              const sent = protocol.sendTiles({ tiles: result.tiles, timestamp: Date.now(), currentHashes: result.currentHashes }, encodeTilesBatch);
+              clientData.tileManager.commitHashes(sent || []);
+              clientData.idleFrameCount = 0;
+            } else {
             clientData.idleFrameCount++;
           }
 
@@ -133,10 +139,10 @@ export class ScreenHandler {
         clearTimeout(clientData.streamingTimeout);
         clientData.streamingTimeout = null;
       }
-      // Release screen buffers while idle — first frame after restart is full refresh
-      clientData.tileManager?.clearMemory?.();
-      remoteLog.lifecycle("⏹️ Remote streaming stopped");
-    });
+    // Release screen buffers while idle — first frame after restart is full refresh
+    clientData.tileManager?.clearMemory?.();
+    remoteLog.lifecycle("⏹️ Remote streaming stopped");
+  });
 
     socket.on("get-screen-dimensions", requireAuth(async () => {
       const clientData = this.resourceManager.getClient(socket.id);

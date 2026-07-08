@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { MODIFIER_MAP, SPECIAL_KEYS, REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
+import { useRemoteHistoryStore } from "@/shared/stores/historyStore";
 
 export function useInput(socketEmitFunctions) {
   const [textInputValue, setTextInputValue] = useState("");
@@ -168,6 +169,8 @@ export function useInput(socketEmitFunctions) {
     }
   }, []);
 
+  const addCommand = useRemoteHistoryStore((s) => s.addCommand);
+
   const sendTextInput = useCallback((streaming) => {
     if (!streaming || !socketEmitFunctions?.emitTypeText) return;
     // Empty input → send lone Enter; otherwise type the buffered text
@@ -178,9 +181,10 @@ export function useInput(socketEmitFunctions) {
     // Only refocus (which re-opens the soft keyboard) if the input was focused when sending.
     const wasFocused = document.activeElement === textInputRef.current;
     socketEmitFunctions.emitTypeText(textInputValue); // type text only, no Enter
+    addCommand(textInputValue);
     setTextInputValue("");
     if (wasFocused) textInputRef.current?.focus();
-  }, [textInputValue, socketEmitFunctions, textInputRef]);
+  }, [textInputValue, socketEmitFunctions, textInputRef, addCommand]);
 
   // Direct mode (real mobile keyboard): Android IMEs insert chars via input events,
   // not keydown (event.key="Unidentified"), so onChange fires per keystroke. The agent
@@ -327,6 +331,7 @@ export function useInput(socketEmitFunctions) {
       event.preventDefault();
       if (textInputValue.trim()) {
         socketEmitFunctions.emitTypeText(textInputValue);
+        addCommand(textInputValue);
         setTextInputValue("");
       }
       return;
@@ -354,7 +359,7 @@ export function useInput(socketEmitFunctions) {
       setModifierKeys({ ctrl: false, cmd: false, alt: false, shift: false });
       setTextInputValue("");
     }
-  }, [modifierKeys, textInputValue, socketEmitFunctions]);
+  }, [modifierKeys, textInputValue, socketEmitFunctions, addCommand]);
 
   return {
     textInputValue,

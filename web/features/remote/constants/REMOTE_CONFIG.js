@@ -113,7 +113,9 @@ export const REMOTE_KEY_POOL = [
   { id: "tab", label: "Tab", key: "tab", type: "key" },
   { id: "enter", label: "↵", key: "enter", type: "key", primary: true },
   { id: "backspace", label: "⌫", key: "backspace", type: "key" },
-  { id: "undo", label: "Undo", key: "z", modifiers: ["control"], type: "combo" },
+  // osAdaptive: control→command on macOS host (⌘Z/⌘V/... are the mac editing combos)
+  { id: "undo", label: "Undo", key: "z", modifiers: ["control"], type: "combo", osAdaptive: true },
+  { id: "redo", label: "Redo", key: "z", modifiers: ["control", "shift"], type: "combo", osAdaptive: true },
   // Arrows
   { id: "up", label: "↑", key: "up", type: "arrow" },
   { id: "down", label: "↓", key: "down", type: "arrow" },
@@ -146,10 +148,9 @@ export const REMOTE_KEY_POOL = [
   { id: "altF4", label: "Alt+F4", key: "f4", modifiers: ["alt"], type: "combo" },
   { id: "winKey", label: "Win", key: "command", type: "key" },
   { id: "printScreen", label: "PrtSc", key: "printscreen", type: "key" },
-  { id: "copy", label: "Copy", key: "c", modifiers: ["control"], type: "combo" },
-  { id: "paste", label: "Paste", key: "v", modifiers: ["control"], type: "combo" },
-  { id: "cut", label: "Cut", key: "x", modifiers: ["control"], type: "combo" },
-  { id: "selectAll", label: "All", key: "a", modifiers: ["control"], type: "combo" },
+  { id: "paste", label: "Paste", key: "v", modifiers: ["control"], type: "combo", osAdaptive: true },
+  { id: "cut", label: "Cut", key: "x", modifiers: ["control"], type: "combo", osAdaptive: true },
+  { id: "selectAll", label: "All", key: "a", modifiers: ["control"], type: "combo", osAdaptive: true },
   // Virtual desktop / Spaces switcher
   { id: "desktopPrev", label: "◀ Desk", type: "desktop", direction: "prev" },
   { id: "desktopNext", label: "Desk ▶", type: "desktop", direction: "next" },

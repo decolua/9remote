@@ -29,6 +29,7 @@ const sessions = new Map();
 // Agent-managed groups (single source of truth, persisted to JSON)
 const groups = new Map();            // groupId -> { id, name, createdAt }
 const sessionGroups = {};            // sessionId -> groupId
+const sessionOrder = [];             // ordered sessionIds (drag reorder within group)
 
 // Merge live daemon sessions with persisted metadata.
 // Daemon-known sessions are live; metadata-only ones survived a daemon respawn → mark needsRespawn.
@@ -63,6 +64,7 @@ export async function initializeTerminal() {
   const saved = loadGroups();
   for (const g of saved.groups) groups.set(g.id, g);
   Object.assign(sessionGroups, saved.sessionGroups);
+  sessionOrder.push(...saved.sessionOrder);
 
   // Backfill scrollback env for users who enabled Claude hook before the fix
   try { reconcileClaudeEnv(); } catch {}
@@ -156,7 +158,7 @@ export async function setupTerminalHandlers(socket, io, apiKey) {
   onConnectCheck?.();
   socket.emit("serverInfo", setupTerminalSocket._buildServerInfo?.());
 
-  setupSessionHandlers(socket, io, sessions, groups, sessionGroups);
+  setupSessionHandlers(socket, io, sessions, groups, sessionGroups, sessionOrder);
   setupInputHandlers(socket, sessions);
   setupPushHandlers(socket);
 

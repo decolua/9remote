@@ -7,12 +7,14 @@ import {
   TERMINAL_DEFAULT_BASIC,
   TERMINAL_DEFAULT_EXTRA,
   TERMINAL_PINNED_KEY_ID,
-  BUTTON_STYLES
+  BUTTON_STYLES,
+  COMMON_COMMANDS
 } from "@/features/terminal/constants/terminalConfig";
 import { vibrate } from "@/shared/utils/vibration";
 import { Paperclip, Settings, MoreHorizontal, X, CornerDownLeft, Mic, MicOff, History } from "@/shared/components/ui/Icon";
 import CommandHistoryModal from "@/shared/components/ui/CommandHistoryModal";
-import { useHistoryStore } from "@/shared/stores/historyStore";
+import CommandSuggestions from "@/shared/components/ui/CommandSuggestions";
+import { useTerminalHistoryStore } from "@/shared/stores/historyStore";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
@@ -37,8 +39,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   const [showPasteInput, setShowPasteInput] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const addCommand = useHistoryStore((s) => s.addCommand);
-  const resolveAlias = useHistoryStore((s) => s.resolveAlias);
+  const addCommand = useTerminalHistoryStore((s) => s.addCommand);
+  const resolveAlias = useTerminalHistoryStore((s) => s.resolveAlias);
   const textInputRef = useRef(null);
   const pasteInputRef = useRef(null);
 
@@ -406,7 +408,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Text Input Panel */}
       <div
-        className={`transition-all duration-300 bg-bg ${voice.listening ? "overflow-visible" : "overflow-hidden"} ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}
+        className={`transition-all duration-300 bg-bg ${voice.listening || showTextPanel ? "overflow-visible" : "overflow-hidden"} ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}
       >
         <div className="p-2 flex gap-2 items-end">
           <label className="px-3 py-2 bg-surface-2 hover:bg-surface-3 text-sm font-medium rounded transition-all duration-150 ease-out flex items-center gap-1 cursor-pointer flex-shrink-0">
@@ -415,6 +417,13 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
           </label>
 
           <div className="relative flex-1">
+            <CommandSuggestions
+              value={textInput}
+              store={useTerminalHistoryStore}
+              commonCommands={COMMON_COMMANDS}
+              isMobile={isMobile}
+              onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
+            />
             <textarea
               ref={textInputRef}
               value={textInput}

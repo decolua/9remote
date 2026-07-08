@@ -17,10 +17,11 @@ const suggestAlias = (cmd, taken = []) => {
   return alias;
 };
 
-// Global terminal command history, persisted to localStorage (survives tab close).
+// Command-history store factory, persisted to localStorage (survives tab close).
 // Newest-first, dedups the most recent entry so repeated sends don't stack.
 // Pinned commands (snippets) are user-kept objects {cmd, alias}, shown in a separate top section.
-export const useHistoryStore = create(
+// One store per scope (terminal / remote) so their histories stay independent.
+const createHistoryStore = (storageName) => create(
   persist(
     (set, get) => ({
       history: [],
@@ -63,7 +64,7 @@ export const useHistoryStore = create(
       clearHistory: () => set({ history: [] })
     }),
     {
-      name: "terminal-command-history",
+      name: storageName,
       version: 1,
       migrate: (state, version) => {
         if (version < 1 && state?.pinned) {
@@ -94,3 +95,9 @@ export const useHistoryStore = create(
     }
   )
 );
+
+// Terminal keeps the legacy storage key so existing history/snippets survive.
+export const useHistoryStore = createHistoryStore("terminal-command-history");
+export const useTerminalHistoryStore = useHistoryStore;
+// Remote desktop input has its own independent history.
+export const useRemoteHistoryStore = createHistoryStore("remote-input-history");

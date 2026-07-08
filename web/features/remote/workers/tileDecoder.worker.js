@@ -35,7 +35,7 @@ async function decodeBatch(buffer, id, v = 1) {
   if (_supportsBitmap) {
     const bitmaps = await Promise.all(
       tileMetas.map(t =>
-        createImageBitmap(new Blob([t.imageBuffer], { type: "image/jpeg" }))
+        createImageBitmap(new Blob([t.imageBuffer]))
           .catch(() => null)
       )
     );

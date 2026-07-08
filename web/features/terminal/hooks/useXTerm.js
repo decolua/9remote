@@ -124,8 +124,11 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       // Parse OSC 7 sequence to track working directory
       if (typeof data === "string" || data instanceof Uint8Array) {
         const text = typeof data === "string" ? data : (decoderRef.current ??= new TextDecoder()).decode(data);
-        // Gate OSC7 scan — skip regex unless an escape sequence is present
-        const osc7Match = text.indexOf("\x1b") !== -1 ? text.match(/\x1b\]7;file:\/\/[^\/]*(.+?)\x07/) : null;
+        // Gate OSC7 scan — skip regex unless an escape sequence is present.
+        // Match BEL (bash) and ST (zsh) terminators; take the last match when a chunk carries several prompts.
+        const osc7Match = text.indexOf("\x1b") !== -1
+          ? [...text.matchAll(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)(?:\x07|\x1b\\)/g)].pop()
+          : null;
         if (osc7Match && osc7Match[1]) {
           const next = decodeURIComponent(osc7Match[1]);
           cwdRef.current = next;

@@ -8,8 +8,8 @@
 
 /* Design tokens — synced with web/app/globals.css */
 :root {
-  --radius-brand: 10px;
-  --radius-brand-lg: 14px;
+  --radius-brand: 12px;
+  --radius-brand-lg: 18px;
 }
 
 /* Light theme — GitBook-style softer brand (web light) */
@@ -34,6 +34,20 @@
   --glass-hover: rgba(255, 255, 255, 0.8);
   --grid-opacity: 0.08;
   --header-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --surface-3: #E7E7E9;
+  --text-subtle: #9CA3AF;
+  --success: #10B981;
+  --success-rgb: 16, 185, 129;
+  --danger: #CF222E;
+  --danger-rgb: 207, 34, 46;
+  --warn: #D97706;
+  --warn-rgb: 217, 119, 6;
+  --info: #7C3AED;
+  --shadow-soft: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-elev:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 16px 44px -12px rgba(15, 23, 42, 0.16);
 }
 
 /* Dark theme — Claude-like neutral warm dark (web default) */
@@ -58,6 +72,20 @@
   --glass-hover: rgba(48, 48, 48, 0.8);
   --grid-opacity: 0.04;
   --header-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --surface-3: #3A3A3A;
+  --text-subtle: #6B7280;
+  --success: #22C55E;
+  --success-rgb: 34, 197, 94;
+  --danger: #EF4444;
+  --danger-rgb: 239, 68, 68;
+  --warn: #F59E0B;
+  --warn-rgb: 245, 158, 11;
+  --info: #A855F7;
+  --shadow-soft: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-elev:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    0 20px 56px -12px rgba(0, 0, 0, 0.7);
 }
 
 @layer base {
@@ -123,6 +151,25 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-brand);
     transition: background-color 0.3s ease, border-color 0.3s ease;
+  }
+
+  /* Elevated cards — soft shadow, no flat border (web parity) */
+  .card-soft {
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+    border-radius: var(--radius-brand-lg);
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .card-elev {
+    background: var(--surface);
+    box-shadow: var(--shadow-elev);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-brand-lg);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+  .card-elev:hover {
+    border-color: var(--border);
   }
 
   /* Glass card — kept for backward compat */

@@ -42,15 +42,18 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
 
 // sessions ref is passed in from terminalSocket to keep single source of truth.
 // groups (Map) + sessionGroups (object) are agent-managed and persisted to JSON.
-export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups) {
-  // Persist current groups + session->group map
-  const persistGroups = () => saveGroups(groups, sessionGroups);
+export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups, sessionOrder = []) {
+  // Persist current groups + session->group map + session order
+  const persistGroups = () => saveGroups(groups, sessionGroups, sessionOrder);
 
   socket.on("getSessions", (callback) => {
     const list = [];
     for (const [id, session] of sessions) {
       list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false, shellId: session.shellId, shellLabel: session.shellLabel, groupId: sessionGroups[id] || null });
     }
+    // Sort by persisted order; unranked ids (new sessions) fall to the end, stable
+    const rank = new Map(sessionOrder.map((id, i) => [id, i]));
+    list.sort((a, b) => (rank.has(a.id) ? rank.get(a.id) : Infinity) - (rank.has(b.id) ? rank.get(b.id) : Infinity));
     callback(list);
   });
 
@@ -110,6 +113,20 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     persistGroups();
     broadcast(io, "groupsChanged");
     callback({ success: true });
+  });
+
+  // Reorder sessions within a group. orderedIds = desired order of that group's sessions.
+  socket.on("reorderSession", ({ orderedIds }, callback) => {
+    if (!Array.isArray(orderedIds)) return callback?.({ success: false, error: "orderedIds required" });
+    const moving = new Set(orderedIds);
+    // Rebuild global order: keep others in place, splice the group's ids into their first slot
+    const rest = sessionOrder.filter((id) => !moving.has(id));
+    const others = [...sessions.keys()].filter((id) => !moving.has(id) && !rest.includes(id));
+    sessionOrder.length = 0;
+    sessionOrder.push(...rest, ...others, ...orderedIds);
+    persistGroups();
+    broadcast(io, "groupsChanged");
+    callback?.({ success: true });
   });
 
   socket.on("createSession", async ({ name, shellId, groupId }, callback) => {

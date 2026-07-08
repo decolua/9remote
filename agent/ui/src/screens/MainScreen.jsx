@@ -18,7 +18,6 @@ const MENU = [
   { id: "connection", label: "Connection", icon: "hub", desc: "Pair devices and manage your secure tunnel" },
   { id: "terminals", label: "Terminals", icon: "terminal", desc: "Live terminal sessions running on this host" },
   { id: "logs", label: "Logs", icon: "description", desc: "Server activity and diagnostics" },
-  { id: "system", label: "System", icon: "monitor_heart", desc: "RAM, CPU and agent process stats" },
 ];
 
 const DEFAULT_MENU = "connection";
@@ -54,29 +53,35 @@ const getPermissionMeta = (t) => ({
   accessibility:   { label: t("remote.accessibility"),    icon: "accessibility_new",  desc: t("remote.controlMouseKeyboard") },
 });
 
+/** Reusable pill switch — single source for all on/off toggles */
+function Toggle({ on, onClick, activeColor = "var(--brand-500)", title, disabled }) {
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={title}
+      className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
+      style={{ background: on ? activeColor : "var(--border)", opacity: disabled ? 0.5 : 1, cursor: disabled ? "not-allowed" : "pointer" }}
+    >
+      <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
+        style={{ left: on ? "calc(100% - 22px)" : "2px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+    </button>
+  );
+}
+
 /** Single permission row */
 function PermissionRow({ type, granted, onRequest, t }) {
   const meta = getPermissionMeta(t)[type] || { label: type, icon: "security", desc: "" };
   return (
     <div className="flex items-center gap-2 py-2">
-      <span className={`material-symbols-outlined flex-shrink-0 ${granted ? "text-green-400" : ""}`} style={{ fontSize: 18, color: granted ? undefined : "var(--text-muted)" }}>
+      <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 18, color: granted ? "var(--success)" : "var(--text-muted)" }}>
         {granted ? "check_circle" : "cancel"}
       </span>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium" style={{ color: granted ? "var(--text-main)" : "var(--text-muted)" }}>{meta.label}</p>
         <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>{meta.desc}</p>
       </div>
-      {!granted && (
-        <button
-          onClick={() => onRequest(type)}
-          title="Click to grant permission"
-          className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
-          style={{ background: "var(--border)", cursor: "pointer" }}
-        >
-          <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
-            style={{ left: "2px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-        </button>
-      )}
+      {!granted && <Toggle on={false} onClick={() => onRequest(type)} title="Click to grant permission" />}
     </div>
   );
 }
@@ -126,14 +131,7 @@ function ToggleRow({ icon, label, desc, value, onToggle, activeColor = "var(--br
         <p className="text-xs font-medium" style={{ color: "var(--text-main)" }}>{label}</p>
         <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>{desc}</p>
       </div>
-      <button
-        onClick={onToggle}
-        className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
-        style={{ background: value ? activeColor : "var(--border)", cursor: "pointer" }}
-      >
-        <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
-          style={{ left: value ? "calc(100% - 22px)" : "2px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-      </button>
+      <Toggle on={value} onClick={onToggle} activeColor={activeColor} />
     </div>
   );
 }
@@ -145,7 +143,7 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
   const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
   const toggleDisabled = !canEnableDesktop && !desktopEnabled;
   return (
-    <div className="glass-card conn-card p-4 flex flex-col gap-3">
+    <div className="card-elev p-5 flex flex-col gap-3">
       {/* Desktop block: row + permissions cùng group */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-3">
@@ -160,16 +158,7 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>{t("remote.controlScreen")}</p>
           </div>
           {/* Toggle — disabled until all permissions granted */}
-          <button
-            onClick={toggleDisabled ? undefined : onDesktopToggle}
-            disabled={toggleDisabled}
-            title={toggleDisabled ? t("dialogs.grantPermissions") : ""}
-            className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
-            style={{ background: desktopEnabled ? "var(--brand-500)" : "var(--border)", opacity: toggleDisabled ? 0.5 : 1, cursor: toggleDisabled ? "not-allowed" : "pointer" }}
-          >
-            <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
-              style={{ left: desktopEnabled ? "calc(100% - 22px)" : "2px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-          </button>
+          <Toggle on={desktopEnabled} onClick={onDesktopToggle} disabled={toggleDisabled} title={toggleDisabled ? t("dialogs.grantPermissions") : ""} />
         </div>
 
         <div className="grid grid-cols-2 gap-2 pl-12">
@@ -326,9 +315,9 @@ function mergeClients(approvedDevices, connections, rejectedDevices = []) {
 }
 
 const STATUS_META = {
-  online:  { color: "#4ade80", icon: "wifi",          title: "Online" },
-  offline: { color: "var(--text-muted)", icon: "wifi_off",      title: "Offline" },
-  pending: { color: "#f59e0b", icon: "hourglass_top", title: "Pending approval" },
+  online:  { color: "var(--success)", bg: "rgba(var(--success-rgb),0.15)", icon: "wifi",          title: "Online" },
+  offline: { color: "var(--text-muted)", bg: "var(--surface-2)",          icon: "wifi_off",       title: "Offline" },
+  pending: { color: "var(--warn)", bg: "rgba(var(--warn-rgb),0.15)",       icon: "hourglass_top",  title: "Pending approval" },
 };
 
 function ClientItem({ client, onRemove, onApprove, onLabel }) {
@@ -348,8 +337,8 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
   return (
     <div className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor: "var(--border)" }}>
       <span
-        className="material-symbols-outlined flex-shrink-0"
-        style={{ fontSize: 18, color: meta.color }}
+        className="material-symbols-outlined flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0"
+        style={{ fontSize: 18, color: meta.color, background: meta.bg }}
         title={meta.title}
       >
         {meta.icon}
@@ -374,7 +363,7 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
         <button
           onClick={() => onApprove?.(client)}
           className="flex-shrink-0 text-xs px-2 py-1 rounded-lg font-medium"
-          style={{ background: "rgba(74,222,128,0.15)", color: "#4ade80" }}
+          style={{ background: "rgba(var(--success-rgb),0.15)", color: "var(--success)" }}
           title="Approve this device"
         >
           Approve
@@ -383,7 +372,7 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
       <button
         onClick={() => onRemove(client)}
         className="flex-shrink-0 text-xs px-2 py-1 rounded-lg font-medium"
-        style={{ background: "rgba(220,53,69,0.15)", color: "#dc3545" }}
+        style={{ background: "rgba(var(--danger-rgb),0.15)", color: "var(--danger)" }}
         title="Disconnect and remove this device"
       >
         {actionLabel}
@@ -393,9 +382,9 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
 }
 
 const TUNNEL_HEALTH_META = {
-  healthy:     { color: "#4ade80",          label: "Healthy",     dot: "bg-green-400" },
-  unreachable: { color: "#dc3545",          label: "Offline",     dot: "bg-red-500" },
-  unknown:     { color: "var(--text-muted)", label: "Checking...", dot: "bg-gray-400" },
+  healthy:     { color: "var(--success)",    label: "Healthy",     dot: "var(--success)" },
+  unreachable: { color: "var(--danger)",     label: "Offline",     dot: "var(--danger)" },
+  unknown:     { color: "var(--text-muted)", label: "Checking...", dot: "var(--text-muted)" },
 };
 
 /** Header icon-only button — uses native tooltip for clarity */
@@ -517,7 +506,7 @@ function LanguageModal({ onClose }) {
 /** Single dropdown action row */
 function MenuAction({ icon, label, danger, onClick }) {
   return (
-    <button onClick={onClick} className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act" style={{ color: danger ? "#dc3545" : "var(--text-main)" }}>
+    <button onClick={onClick} className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act" style={{ color: danger ? "var(--danger)" : "var(--text-main)" }}>
       <span className="material-symbols-outlined text-base">{icon}</span> {label}
     </button>
   );
@@ -578,13 +567,13 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
   return (
     <aside className="flex flex-col sidebar w-64 flex-shrink-0 h-full">
       {/* Brand */}
-      <div className="flex items-center gap-3 px-5 py-4">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "var(--brand-500)" }}>
-          <span className="material-symbols-outlined text-white text-base">terminal</span>
+      <div className="flex items-center gap-3 px-5 py-5">
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "linear-gradient(135deg, var(--brand-400), var(--brand-600))", boxShadow: "0 4px 14px rgba(var(--brand-rgb),0.4)" }}>
+          <span className="material-symbols-outlined text-white text-lg">terminal</span>
         </div>
         <div className="flex flex-col leading-tight">
           <span className="brand-text text-xs">9Remote</span>
-          {version && <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>v{version}</span>}
+          {version && <span className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>v{version}</span>}
         </div>
       </div>
 
@@ -598,13 +587,14 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
             <button
               key={m.id}
               onClick={() => handleSelect(m.id)}
-              className="group w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left"
+              className={`group relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${isActive ? "" : "card-act"}`}
               style={isActive
                 ? { background: "var(--brand-tint)", color: "var(--brand-500)" }
                 : { color: "var(--text-muted)" }}
             >
-              <span className={`material-symbols-outlined text-[18px] ${isActive ? "fill-1" : ""}`}>{m.icon}</span>
-              <span className="text-[13px] font-medium">{t(`menu.${m.id}`)}</span>
+              {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-full" style={{ background: "var(--brand-500)" }} />}
+              <span className={`material-symbols-outlined text-[19px] ${isActive ? "fill-1" : ""}`}>{m.icon}</span>
+              <span className={`text-[13px] ${isActive ? "font-semibold" : "font-medium"}`}>{t(`menu.${m.id}`)}</span>
             </button>
           );
         })}
@@ -619,15 +609,15 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
 function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown, onMenuClick }) {
   const { t } = useI18n();
   return (
-    <header className="shrink-0 flex items-center justify-between gap-3 px-6 lg:px-10 pt-4 pb-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
-      <div className="flex items-center gap-2 min-w-0">
+    <header className="shrink-0 flex items-center justify-between gap-3 px-6 lg:px-10 pt-5 pb-4 border-b" style={{ borderColor: "var(--border-subtle)" }}>
+      <div className="flex items-center gap-3 min-w-0">
         <button onClick={onMenuClick} className="md:hidden glass-btn w-8 h-8 flex items-center justify-center flex-shrink-0" style={{ color: "var(--text-muted)" }} aria-label="Open menu">
           <span className="material-symbols-outlined text-lg">menu</span>
         </button>
-        <span className="material-symbols-outlined text-xl" style={{ color: "var(--brand-500)" }}>{menu?.icon}</span>
+        <span className="material-symbols-outlined text-[22px] flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0" style={{ color: "var(--brand-500)", background: "var(--brand-tint)" }}>{menu?.icon}</span>
         <div className="min-w-0">
-          <h1 className="text-lg lg:text-xl font-semibold tracking-tight truncate" style={{ color: "var(--text-main)" }}>{menu ? t(`menu.${menu.id}`) : ""}</h1>
-          {menu && <p className="hidden lg:block text-xs truncate" style={{ color: "var(--text-muted)" }}>{t(`menu.${menu.id}Desc`)}</p>}
+          <h1 className="text-xl lg:text-2xl font-bold tracking-tight truncate" style={{ color: "var(--text-main)" }}>{menu ? t(`menu.${menu.id}`) : ""}</h1>
+          {menu && <p className="hidden lg:block text-xs truncate mt-0.5" style={{ color: "var(--text-muted)" }}>{t(`menu.${menu.id}Desc`)}</p>}
         </div>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
@@ -651,7 +641,7 @@ function TunnelHealthBadge({ tunnelHealth, onResetTunnel }) {
       className="inline-flex items-center justify-center gap-1.5 px-3 h-7 rounded-full glass-btn card-act"
       title={`Tunnel ${meta.label} · last check ${time}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: meta.dot }} />
       <span className="text-[11px] font-medium" style={{ color: meta.color }}>{meta.label}</span>
     </button>
   );
@@ -864,10 +854,16 @@ export default function MainScreen({
                       />
 
                       {/* Clients (merged devices + live connections) */}
-                      <div className="glass-card conn-card p-4 flex flex-col gap-1">
-                      <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
-                        Clients{clients.length > 0 ? ` (${onlineCount}/${clients.length} online)` : ""}
-                      </p>
+                      <div className="card-elev p-5 flex flex-col gap-1">
+                      <div className="flex items-center gap-2.5 mb-2.5">
+                        <span className="material-symbols-outlined flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0" style={{ fontSize: 18, color: "var(--brand-500)", background: "var(--brand-tint)" }}>devices</span>
+                        <p className="text-[13px] font-bold tracking-tight flex-1" style={{ color: "var(--text-main)" }}>Clients</p>
+                        {clients.length > 0 && (
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(var(--success-rgb),0.15)", color: "var(--success)" }}>
+                            {onlineCount}/{clients.length} online
+                          </span>
+                        )}
+                      </div>
 
                       {/* Auto-approve toggle */}
                       <div className="flex items-center gap-3 py-2 border-b" style={{ borderColor: "var(--border)" }}>
@@ -880,15 +876,7 @@ export default function MainScreen({
                             {autoApprove ? t("clients.anyDevice") : t("clients.requireManual")}
                           </p>
                         </div>
-                        <button
-                          onClick={onAutoApproveToggle}
-                          title={autoApprove ? "Disable auto-approve" : "Enable auto-approve"}
-                          className="flex-shrink-0 w-11 h-6 rounded-full transition-all relative"
-                          style={{ background: autoApprove ? "var(--brand-500)" : "var(--border)", cursor: "pointer" }}
-                        >
-                          <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
-                            style={{ left: autoApprove ? "calc(100% - 22px)" : "2px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-                        </button>
+                        <Toggle on={autoApprove} onClick={onAutoApproveToggle} title={autoApprove ? "Disable auto-approve" : "Enable auto-approve"} />
                       </div>
 
                       {clients.length === 0 ? (
@@ -1005,7 +993,7 @@ export default function MainScreen({
 
       {pendingDevice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
-          <div className="glass-card p-5 flex flex-col gap-4 w-80">
+          <div className="card-elev p-5 flex flex-col gap-4 w-80">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined" style={{ color: "var(--brand-500)", fontSize: 24 }}>devices</span>
               <span className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>New Device Connection</span>

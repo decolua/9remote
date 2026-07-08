@@ -13,14 +13,17 @@ import { remoteLog } from "./utils/remoteLog.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Run async fn over items with bounded concurrency, preserving output order
+// Run async fn over items with bounded concurrency, preserving output order.
+// fn receives (item, index, slotId) — slotId is stable per worker (0..limit-1),
+// letting callers reuse per-slot scratch buffers safely (each slot runs serially).
 export async function mapLimit(items, limit, fn) {
   const ret = new Array(items.length);
   let i = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+  const width = Math.min(limit, items.length);
+  const workers = Array.from({ length: width }, async (_, slotId) => {
     while (i < items.length) {
       const idx = i++;
-      ret[idx] = await fn(items[idx], idx);
+      ret[idx] = await fn(items[idx], idx, slotId);
     }
   });
   await Promise.all(workers);
@@ -57,6 +60,15 @@ export class TileManager {
     this.activeTileSet = null;
     // Focus effectiveness stats — aggregated per N frames
     this.focusStats = { frames: 0, scanned: 0, changed: 0, bytes: 0 };
+
+    // Per-slot scratch buffers (reused across frames to cut malloc churn).
+    // One buffer per concurrency slot — each slot runs serially so no data race.
+    // Sized to the largest tile (tileSize² × 4 channels). Lazily allocated.
+    this._scratchExtract = [];
+    this._scratchSwap = [];
+    // Prefetch: capture frame N+1 starts while frame N is still encoding.
+    // Holds a Promise resolving to next screenData, cutting capture latency off the critical path.
+    this._prefetchCapture = null;
 
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
@@ -217,6 +229,22 @@ export class TileManager {
     return this.sharedScreenCache;
   }
 
+  // Streaming capture with prefetch: frame N+1 is captured in parallel with
+  // encode of frame N. First call falls back to synchronous capture.
+  async getCaptureForStreaming() {
+    if (!this._prefetchCapture) {
+      // First frame — capture synchronously, then kick off prefetch for next
+      const data = await this.captureFullScreen();
+      this._prefetchCapture = this.captureFullScreen();
+      return data;
+    }
+    // Await the prefetched capture (started during previous frame's encode)
+    const data = await this._prefetchCapture;
+    // Immediately start capturing the next frame while we go encode this one
+    this._prefetchCapture = this.captureFullScreen();
+    return data;
+  }
+
   clearScreenCache() {
     // Intentionally empty
   }
@@ -230,12 +258,12 @@ export class TileManager {
     if (this.isProcessing) return { tiles: [], currentHashes: Array.from(this.lastTileChecksums.values()) };
     this.isProcessing = true;
 
-    // Metrics: stage timers (performance.now() returns 0 when disabled)
+    // Metrics: stage timers (performance.now() returns 0 when enabled)
     const tStart = this.metrics.now();
     let tCaptureEnd = tStart, tChecksumEnd = tStart;
 
     try {
-      const screenData = await this.getSharedScreenCapture();
+      const screenData = await this.getCaptureForStreaming();
       tCaptureEnd = this.metrics.now();
 
       const changedTiles = [];
@@ -257,27 +285,26 @@ export class TileManager {
       const currentHashes = Array.from(currentTileHashes.values());
 
       // First frame - extract and send all tiles (within focus set)
+      // Hash NOT committed here; committed only after tiles are actually sent (commitHashes)
       if (this.lastTileChecksums.size === 0) {
         const indices = [];
         for (let i = 0; i < this.totalTiles; i++) {
           if (activeSet && !activeSet.has(i)) continue;
-          this.lastTileChecksums.set(i, currentTileHashes.get(i));
           indices.push(i);
         }
-        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
+        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, (i, _idx, slot) => this.processTileAsync(screenData, i, null, currentTileHashes.get(i), slot));
         changedTiles.push(...results);
         this._recordFrame(tStart, tCaptureEnd, tChecksumEnd, changedTiles, screenData);
         return { tiles: changedTiles, currentHashes };
       }
 
-      // Find changed tiles by comparing hashes
+      // Find changed tiles by comparing hashes (hash committed later via commitHashes)
       for (let i = 0; i < this.totalTiles; i++) {
         if (activeSet && !activeSet.has(i)) continue;
         const checksum = currentTileHashes.get(i);
         const lastChecksum = this.lastTileChecksums.get(i);
         if (checksum !== lastChecksum) {
           changedTileIndices.push(i);
-          this.lastTileChecksums.set(i, checksum);
         }
       }
 
@@ -290,24 +317,15 @@ export class TileManager {
           if (activeSet && !activeSet.has(i)) continue;
           indices.push(i);
         }
-        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
+        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, (i, _idx, slot) => this.processTileAsync(screenData, i, null, currentTileHashes.get(i), slot));
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
         // Only extract changed tiles (lazy extraction benefit)
-        const results = await mapLimit(changedTileIndices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
+        const results = await mapLimit(changedTileIndices, REMOTE_CONFIG.pipeline.tileConcurrency, (i, _idx, slot) => this.processTileAsync(screenData, i, null, currentTileHashes.get(i), slot));
         changedTiles.push(...results);
       }
 
       this._recordFrame(tStart, tCaptureEnd, tChecksumEnd, changedTiles, screenData);
-
-      // if (changedTiles.length > 0) {
-      //   const sizes = changedTiles.map(t => t.imageBuffer.length);
-      //   const total = sizes.reduce((a, b) => a + b, 0);
-      //   const avg = total / sizes.length;
-      //   const min = Math.min(...sizes);
-      //   const max = Math.max(...sizes);
-      //   console.log(`[Stream] ${changedTiles.length} tiles | avg ${(avg / 1024).toFixed(1)}KB | min ${(min / 1024).toFixed(1)}KB | max ${(max / 1024).toFixed(1)}KB | total ${(total / 1024).toFixed(1)}KB`);
-      // }
 
       return { tiles: changedTiles, currentHashes };
     } finally {
@@ -315,10 +333,10 @@ export class TileManager {
     }
   }
 
-  async processTileAsync(screenData, tileIndex, cachedTileData = null) {
-    const tileData = cachedTileData || this.extractTile(screenData, tileIndex);
+  async processTileAsync(screenData, tileIndex, cachedTileData = null, hashOverride = null, slotId = null) {
+    const tileData = cachedTileData || this.extractTile(screenData, tileIndex, slotId);
     // Don't overwrite checksum here - detectChangedTilesWithHashes already updated it correctly
-    const imageBuffer = await this.compressTileImage(tileData.buffer, tileData.width, tileData.height);
+    const imageBuffer = await this.compressTileImage(tileData.buffer, tileData.width, tileData.height, slotId);
     const { row, col } = this.getTilePosition(tileIndex);
 
     return {
@@ -329,10 +347,16 @@ export class TileManager {
       width: tileData.width,
       height: tileData.height,
       imageBuffer,
-      hash: this.lastTileChecksums.get(tileIndex) ?? 0,
+      hash: hashOverride ?? this.lastTileChecksums.get(tileIndex) ?? 0,
       timestamp: Date.now(),
       frameCount: this.frameCount
     };
+  }
+
+  // Commit sent tiles' hashes so next frame won't resend them.
+  // Tiles dropped (not sent) keep old hash and are retried next interval.
+  commitHashes(sentTiles) {
+    for (const t of sentTiles) this.lastTileChecksums.set(t.tileIndex, t.hash);
   }
 
   // Calculate checksum directly from screenData without extracting tile
@@ -348,18 +372,17 @@ export class TileManager {
     const screenRowBytes = screenData.width * channels;
 
     let sum = 0;
-    const sampleStep = 16; // Sample every 16 pixels for speed
-    // Hexagonal pattern: even rows start at 0, odd rows start at 8.
-    // Covers pixels missed by a square grid while keeping checksum stable.
+    const { rowStep, colStep } = REMOTE_CONFIG.pipeline.checksumSampling;
 
-    for (let y = 0; y < tileHeight; y += 4) {
-      const offsetX = ((y >> 2) & 1) * 8;
+    for (let y = 0; y < tileHeight; y += rowStep) {
       const rowOffset = (startY + y) * screenRowBytes + startX * channels;
-      for (let x = offsetX; x < tileWidth; x += sampleStep) {
+      for (let x = 0; x < tileWidth; x += colStep) {
         const offset = rowOffset + x * channels;
-        sum += screenData.buffer[offset];
-        sum ^= screenData.buffer[offset + 1];
-        sum += screenData.buffer[offset + 2] << 1;
+        // Position-weighted: prevents thin-caret pixel deltas cancelling out
+        const w = x + 1;
+        sum = (sum + screenData.buffer[offset] * w) >>> 0;
+        sum ^= screenData.buffer[offset + 1] << 1;
+        sum = (sum + screenData.buffer[offset + 2] * w) >>> 0;
         sum ^= screenData.buffer[offset + 3] << 2;
       }
     }
@@ -403,7 +426,18 @@ export class TileManager {
     };
   }
 
-  extractTile(screenData, tileIndex) {
+  // Get a reusable scratch buffer of exact size for a concurrency slot.
+  // pool: this._scratchExtract | this._scratchSwap. Grows buffer if too small.
+  _getScratch(pool, slotId, size) {
+    let buf = pool[slotId];
+    if (!buf || buf.length < size) {
+      buf = Buffer.allocUnsafe(size);
+      pool[slotId] = buf;
+    }
+    return buf.subarray(0, size);
+  }
+
+  extractTile(screenData, tileIndex, slotId = null) {
     const { row, col } = this.getTilePosition(tileIndex);
     const startX = col * this.tileSize;
     const startY = row * this.tileSize;
@@ -413,8 +447,12 @@ export class TileManager {
     const tileHeight = endY - startY;
     const channels = screenData.channels;
     const rowBytes = tileWidth * channels;
+    const size = tileWidth * tileHeight * channels;
 
-    const tileBuffer = Buffer.alloc(tileWidth * tileHeight * channels);
+    // Reuse per-slot scratch when slotId given (streaming path); else fresh alloc
+    const tileBuffer = slotId === null
+      ? Buffer.allocUnsafe(size)
+      : this._getScratch(this._scratchExtract, slotId, size);
 
     // Copy row by row using Buffer.copy (much faster than pixel loop)
     for (let y = 0; y < tileHeight; y++) {
@@ -426,7 +464,7 @@ export class TileManager {
     return { buffer: tileBuffer, width: tileWidth, height: tileHeight, channels, tileIndex, x: startX, y: startY };
   }
 
-  async compressTileImage(buffer, width, height) {
+  async compressTileImage(buffer, width, height, slotId = null) {
     // Adaptive per-tile downscale: when scaleFactor < 1, resize raw RGBA/BGRA
     // tile buffer before JPEG encode. Tile header still reports original
     // width/height (canvas-space), so client drawImage() stretches the smaller
@@ -441,14 +479,24 @@ export class TileManager {
       let raw = buffer;
       let channels = 4;
       if (inputFormat === "bgra") {
-        raw = Buffer.from(buffer);
+        // Reuse per-slot scratch to avoid a fresh copy per tile (cuts churn).
+        // sharp reads raw lazily, but each slot runs serially so scratch is
+        // free again only after the previous tile's toBuffer() resolved.
+        if (slotId === null) {
+          raw = Buffer.from(buffer);
+        } else {
+          raw = this._getScratch(this._scratchSwap, slotId, buffer.length);
+          buffer.copy(raw);
+        }
         bgraToRgbaInPlace(raw);
       }
-      // Single pipeline: resize + JPEG encode in one pass (avoids second sharp instance)
-      return sharp(raw, { raw: { width, height, channels } })
-        .resize(targetW, targetH, { kernel: "lanczos3", fastShrinkOnLoad: false })
-        .jpeg({ quality: this.compressionQuality })
-        .toBuffer();
+      // Single pipeline: resize + encode in one pass (avoids second sharp instance)
+      const { tileFormat, webpEffort } = REMOTE_CONFIG.pipeline;
+      const resized = sharp(raw, { raw: { width, height, channels } })
+        .resize(targetW, targetH, { kernel: "lanczos3", fastShrinkOnLoad: false });
+      return tileFormat === "webp"
+        ? resized.webp({ quality: this.compressionQuality, effort: webpEffort }).toBuffer()
+        : resized.jpeg({ quality: this.compressionQuality }).toBuffer();
     }
     return encodeJpeg(buffer, width, height, 4, this.compressionQuality);
   }
@@ -625,6 +673,12 @@ export class TileManager {
     this.sharedScreenCache = null;
     this.lastCaptureTime = 0;
     this.lastTileChecksums.clear();
+    // Release reusable scratch buffers so idle sessions don't hold RAM
+    this._scratchExtract = [];
+    this._scratchSwap = [];
+    this._traceFrames = 50; // Reset trace limit for next stream start
+    // Cancel any in-flight prefetched capture so it doesn't hold RAM while idle
+    this._prefetchCapture = null;
   }
 
   reset() {

@@ -155,6 +155,11 @@ export function useSocket() {
     socketRef.current?.emit("moveSession", { sessionId, groupId }, (result) => { if (result?.success) loadSessions(); callback?.(result); });
   }, [socketRef, loadSessions]);
 
+  // Reorder sessions within a group; orderedIds = desired order of that group's sessions
+  const reorderSession = useCallback((orderedIds, callback) => {
+    socketRef.current?.emit("reorderSession", { orderedIds }, (result) => { if (result?.success) loadSessions(); callback?.(result); });
+  }, [socketRef, loadSessions]);
+
   // Fetch available shells from agent
   const getShells = useCallback((callback) => {
     if (!socketRef.current) return;
@@ -239,6 +244,7 @@ export function useSocket() {
     renameGroup,
     deleteGroup,
     moveSession,
+    reorderSession,
     stopCodespace
   };
 }

@@ -1,5 +1,36 @@
 // Terminal configuration constants
 
+// Common shell commands offered as inline suggestions (terminal only).
+// Curated from tldr-pages / Fig common CLIs. Ordered short→long within a family
+// so ranking surfaces the base command first, then longer variants as you type.
+// Destructive commands (rm -rf, kill -9, git reset --hard, killall) are omitted on purpose.
+export const COMMON_COMMANDS = [
+  // git
+  "git status", "git add .", "git commit -m \"\"", "git push", "git pull", "git fetch",
+  "git diff", "git log --oneline", "git branch", "git checkout", "git checkout -b",
+  "git switch", "git stash", "git stash pop", "git merge", "git rebase", "git clone",
+  "git remote -v", "git restore", "git cherry-pick", "git tag",
+  // npm / yarn / pnpm / bun
+  "npm install", "npm ci", "npm run dev", "npm run build", "npm run start", "npm run test",
+  "npm run lint", "npm outdated", "npm update", "npx", "pnpm install", "pnpm dev",
+  "pnpm build", "yarn", "yarn dev", "bun install", "bun run dev",
+  // navigation / filesystem
+  "cd ..", "cd ~", "cd -", "ls", "ls -la", "ll", "pwd", "mkdir -p", "cp -r", "mv",
+  "cat", "less", "touch", "tree", "find . -name", "du -sh", "chmod +x", "ln -s",
+  // search / text
+  "grep -rn", "grep -i", "sed -i", "awk", "sort", "uniq -c", "wc -l", "head", "tail -f",
+  // process / system
+  "ps aux", "top", "htop", "df -h", "free -h", "uname -a", "whoami", "uptime",
+  "lsof -i", "netstat -tlnp", "env", "export", "history", "which",
+  // network
+  "curl", "wget", "ping", "ssh", "scp", "rsync -av",
+  // docker
+  "docker ps", "docker ps -a", "docker images", "docker logs -f", "docker exec -it",
+  "docker compose up -d", "docker compose down", "docker build -t",
+  // misc
+  "clear", "sudo", "code .", "vim", "nano", "python3", "node", "make"
+];
+
 // Layout breakpoints and sizing
 export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
 export const PANE_MIN_WIDTH = 500; // px, min width per terminal pane on desktop

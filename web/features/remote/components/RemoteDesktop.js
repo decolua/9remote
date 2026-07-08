@@ -21,15 +21,16 @@ import { useI18n } from "@/shared/i18n";
 const STORAGE_KEYS = {
   pointerMode: "remoteDesktop.pointerMode",
   showTextPanel: "remoteDesktop.showTextPanel",
-  handMode: "remoteDesktop.handMode"
+  handMode: "remoteDesktop.handMode",
+  keyboard: "remoteDesktop.keyboard"
 };
 
-export default function RemoteDesktop({ onClose, socketRef, protocolRef, connected, transport }) {
+export default function RemoteDesktop({ onClose, socketRef, protocolRef, connected, transport, hostPlatform }) {
   const { t } = useI18n();
   const [showHelp, setShowHelp] = useState(false);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
   const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, true);
-  const [keyboardOn, setKeyboardOn] = useState(false);
+  const [keyboardOn, setKeyboardOn] = usePersistedState(STORAGE_KEYS.keyboard, false);
   const [pointerMode, setPointerMode] = usePersistedState(STORAGE_KEYS.pointerMode, REMOTE_CONFIG.pointerMode);
   const [handMode, setHandMode] = usePersistedState(STORAGE_KEYS.handMode, false);
 
@@ -118,6 +119,16 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     else textInputRef.current?.blur();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keyboardOn]);
+
+  // Auto-focus hidden sink once when stream is ready and keyboard was left on (persisted).
+  // Best-effort: desktop opens the native keyboard; mobile may block focus outside a gesture.
+  const autoFocusedRef = useRef(false);
+  useEffect(() => {
+    if (!streaming || autoFocusedRef.current || !keyboardOnRef.current) return;
+    autoFocusedRef.current = true;
+    textInputRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streaming]);
 
   // When closing panel, sync-focus hidden sink to keep native keyboard visible (iOS gesture rule).
   // When opening, let RemoteControls' useEffect focus the panel textarea after slide-in.
@@ -227,11 +238,16 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   }, [canvasContainerRef, panForKeyboard]);
 
   // Unified key emit — merges sticky UI modifiers with combo's own modifiers.
-  const emitKeyDirect = useCallback((key, comboModifiers = []) => {
+  // osAdaptive combos (undo/paste/cut/...) use ⌘ on a macOS host instead of Ctrl.
+  const emitKeyDirect = useCallback((key, comboModifiers = [], osAdaptive = false) => {
     if (!streaming) return;
-    if (comboModifiers.length > 0) emitKeyPress(key, comboModifiers);
-    else emitKeyWithActiveModifiers(key);
-  }, [streaming, emitKeyPress, emitKeyWithActiveModifiers]);
+    if (comboModifiers.length > 0) {
+      const mods = osAdaptive && hostPlatform === "darwin"
+        ? comboModifiers.map((m) => (m === "control" ? "command" : m))
+        : comboModifiers;
+      emitKeyPress(key, mods);
+    } else emitKeyWithActiveModifiers(key);
+  }, [streaming, hostPlatform, emitKeyPress, emitKeyWithActiveModifiers]);
 
   // Hand mode: ON presses mouse-left at virtual cursor; OFF releases it.
   const toggleHandMode = useCallback(() => {

@@ -48,9 +48,10 @@ export async function captureFull() {
   }
 
   // node-screenshots: DXGI on Win, XCap on Mac/Linux → RGBA bytes
+  // Use async API — sync version leaks native Obj-C autoreleased objects on Mac
   const m = await getMonitor();
-  const image = m.captureImageSync();
-  const raw = image.toRawSync ? image.toRawSync() : image.rawSync();
+  const image = await m.captureImage();
+  const raw = await image.toRaw();
   return {
     buffer: raw,
     width: image.width,

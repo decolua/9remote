@@ -3,10 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import Button from "@/shared/components/ui/Button";
 import {
-  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff
+  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff, History
 } from "@/shared/components/ui/Icon";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
+import CommandSuggestions from "@/shared/components/ui/CommandSuggestions";
+import CommandHistoryModal from "@/shared/components/ui/CommandHistoryModal";
+import { useRemoteHistoryStore } from "@/shared/stores/historyStore";
 import { vibrate } from "@/shared/utils/vibration";
 import {
   REMOTE_CONFIG,
@@ -84,6 +87,7 @@ export default function RemoteControls({
   // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
   const [voiceLang, setVoiceLang] = useVoiceLang(locale);
   const [voiceLangOpen, setVoiceLangOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const voice = useVoiceInput({
     lang: localeToSpeechLang(voiceLang),
     onText: (txt) => {
@@ -129,6 +133,8 @@ export default function RemoteControls({
 
   const pcCfg = REMOTE_CONFIG.pcModeControls;
   const show = (k) => inputMode !== "mouse" || pcCfg[k];
+  // Narrow viewport → fewer suggestion rows so the floating panel doesn't cover content.
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
   // Render one pool key with correct handler
   const renderPoolKey = (kc, idx, pinned = false, extraClass = "") => {
@@ -167,7 +173,7 @@ export default function RemoteControls({
     return (
       <Btn
         key={kc.id + idx}
-        onClick={() => v(onEmitKey, kc.key, kc.modifiers || [])}
+        onClick={() => v(onEmitKey, kc.key, kc.modifiers || [], kc.osAdaptive)}
         disabled={!streaming}
         primary={!pinned && kc.primary}
         pinned={pinned}
@@ -209,6 +215,12 @@ export default function RemoteControls({
 
       <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} relative z-30 px-2 py-1 gap-2 items-end landscape:order-last`}>
         <div className="relative flex-1">
+          <CommandSuggestions
+            value={textInputValue}
+            store={useRemoteHistoryStore}
+            isMobile={isMobile}
+            onSelect={(cmd) => { onTextInputChange(cmd); panelInputRef.current?.focus(); }}
+          />
           <textarea
             ref={panelInputRef}
             rows={1}
@@ -233,7 +245,7 @@ export default function RemoteControls({
             className="block w-full px-3 py-2 pr-8 bg-surface-2 rounded text-text text-sm placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none overflow-y-auto landscape:!h-32"
             disabled={!streaming}
           />
-          {textInputValue && (
+          {textInputValue ? (
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
@@ -242,6 +254,16 @@ export default function RemoteControls({
               className="absolute right-1.5 top-1.5 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors"
             >
               <X size={14} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setHistoryOpen(true)}
+              title={t("history.title")}
+              className="absolute right-1.5 top-1.5 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors"
+            >
+              <History size={14} />
             </button>
           )}
         </div>
@@ -414,6 +436,12 @@ export default function RemoteControls({
         value={voiceLang}
         onSelect={setVoiceLang}
         onClose={() => setVoiceLangOpen(false)}
+      />
+      <CommandHistoryModal
+        isOpen={historyOpen}
+        store={useRemoteHistoryStore}
+        onSelect={(cmd) => { onTextInputChange(cmd); panelInputRef.current?.focus(); }}
+        onClose={() => setHistoryOpen(false)}
       />
     </div>
   );

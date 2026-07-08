@@ -6,7 +6,8 @@ import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 // Detect Chromium for createImageBitmap(blob) non-blocking path
 const _isChromium = typeof window !== "undefined" && Boolean(window.chrome);
 
-const makeTileBlob = (buf) => new Blob([buf], { type: "image/jpeg" });
+// No MIME type — browser sniffs magic bytes → decodes JPEG (old agent) or WebP (new agent)
+const makeTileBlob = (buf) => new Blob([buf]);
 
 const makeInvalidate = (ref, tileIndex) => () => { ref.current[tileIndex] = null; };
 
