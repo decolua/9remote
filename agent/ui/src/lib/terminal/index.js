@@ -64,7 +64,7 @@ const TERMINAL_OPTIONS = {
   cursorBlink: true,
   fontSize: 14,
   fontFamily: '"SF Mono", "Cascadia Code", Menlo, Monaco, "Courier New", monospace',
-  scrollback: 10000,
+  scrollback: 50000,
   convertEol: true,
   allowProposedApi: true,
   scrollOnUserInput: true,

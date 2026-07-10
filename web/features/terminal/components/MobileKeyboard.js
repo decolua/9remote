@@ -8,7 +8,12 @@ import {
   TERMINAL_DEFAULT_EXTRA,
   TERMINAL_PINNED_KEY_ID,
   BUTTON_STYLES,
-  COMMON_COMMANDS
+  COMMON_COMMANDS,
+  MAX_ATTACHMENT_SIZE,
+  MAX_ATTACHMENTS,
+  CLIPBOARD_ATTACH_TIMEOUT,
+  CLIPBOARD_ATTACH_GAP,
+  INPUT_CONTROL_KEYS
 } from "@/features/terminal/constants/terminalConfig";
 import { vibrate } from "@/shared/utils/vibration";
 import { Paperclip, Settings, MoreHorizontal, X, CornerDownLeft, Mic, MicOff, History } from "@/shared/components/ui/Icon";
@@ -43,6 +48,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   const resolveAlias = useTerminalHistoryStore((s) => s.resolveAlias);
   const textInputRef = useRef(null);
   const pasteInputRef = useRef(null);
+  // Pending attachments (images/files) shown as chips; sent via OS clipboard on send.
+  const [attachments, setAttachments] = useState([]);
+  const attachIdRef = useRef(0);
 
   // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
   const [voiceLang, setVoiceLang] = useVoiceLang(locale);
@@ -272,7 +280,40 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     if (onExpandChange) setTimeout(() => onExpandChange(newState), 320);
   };
 
-  const sendTextBatch = () => {
+  // Read a File → base64 attachment entry, skipping oversized ones.
+  const fileToAttachment = (file) => new Promise((resolve) => {
+    if (file.size > MAX_ATTACHMENT_SIZE) { alert(t("mobileKeyboard.fileTooLarge")); return resolve(null); }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = reader.result.split(",")[1];
+      const isImage = file.type.startsWith("image/");
+      const name = file.name || `paste_${attachIdRef.current}.${isImage ? (file.type.split("/")[1] || "png") : "bin"}`;
+      resolve({ id: ++attachIdRef.current, name, type: file.type, size: file.size, content, isImage });
+    };
+    reader.onerror = () => { alert(t("mobileKeyboard.readFileFailed")); resolve(null); };
+    reader.readAsDataURL(file);
+  });
+
+  const addFiles = async (files) => {
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (room <= 0) return;
+    const picked = Array.from(files).slice(0, room);
+    const entries = (await Promise.all(picked.map(fileToAttachment))).filter(Boolean);
+    if (entries.length) { vibrate(); setAttachments((prev) => [...prev, ...entries]); }
+  };
+
+  const removeAttachment = (id) => setAttachments((prev) => prev.filter((a) => a.id !== id));
+
+  // Push one attachment into the host OS clipboard + Ctrl+V, waiting for ack so
+  // the CLI reads it before the next overwrites the clipboard.
+  const sendOneAttachment = (att) => new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    socket.emit("clipboard-attach", { sessionId, filename: att.name, type: att.type, content: att.content }, finish);
+    setTimeout(finish, CLIPBOARD_ATTACH_TIMEOUT);
+  });
+
+  const sendTextBatch = async () => {
     vibrate(15);
     if (voice.listening) voice.stop();
     if (!socket || !sessionId) return;
@@ -285,8 +326,17 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     // Expand a bare snippet alias (e.g. "nrd" -> "npm run dev") before sending.
     const text = resolveAlias(raw);
     onInput?.(sessionId);
+
+    // Attachments first (serially), then text — mirrors paste-image-then-type on the host.
+    const pending = attachments;
+    if (pending.length) setAttachments([]);
+    for (const att of pending) {
+      await sendOneAttachment(att);
+      await new Promise((r) => setTimeout(r, CLIPBOARD_ATTACH_GAP));
+    }
+
     if (text === "") {
-      socket.emit("input", { sessionId, data: "\r" });
+      if (!pending.length) socket.emit("input", { sessionId, data: "\r" });
     } else {
       // Send text first, then Enter after a short delay so PTY reliably
       // receives both (mobile/IME may otherwise drop the Enter).
@@ -300,26 +350,20 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
   const handleFileUpload = async (event) => {
     vibrate();
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      if (file.size > 5 * 1024 * 1024) { alert(t("mobileKeyboard.fileTooLarge")); return; }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64Content = reader.result.split(",")[1];
-        if (socket && sessionId && base64Content) {
-          socket.emit("upload-file", {
-            sessionId, filename: file.name, size: file.size, type: file.type, content: base64Content
-          });
-        }
-      };
-      reader.onerror = () => alert(t("mobileKeyboard.readFileFailed"));
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error("File upload error:", err);
-      alert(t("mobileKeyboard.uploadFailed", { error: err.message }));
-    }
+    const files = event.target.files;
+    if (files?.length) await addFiles(files);
     event.target.value = "";
+  };
+
+  // Paste on the input: attach any image/file items; let text paste fall through.
+  const handleAttachPaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files = [];
+    for (const it of items) {
+      if (it.kind === "file") { const f = it.getAsFile(); if (f) files.push(f); }
+    }
+    if (files.length) { e.preventDefault(); addFiles(files); }
   };
 
   const buttonBaseClass = BUTTON_STYLES.base;
@@ -408,15 +452,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Text Input Panel */}
       <div
-        className={`transition-all duration-300 bg-bg ${voice.listening || showTextPanel ? "overflow-visible" : "overflow-hidden"} ${showTextPanel ? "max-h-24 opacity-100" : "max-h-0 opacity-0"}`}
+        className={`transition-all duration-300 bg-bg ${voice.listening || showTextPanel ? "overflow-visible" : "overflow-hidden"} ${showTextPanel ? `${attachments.length ? "max-h-40" : "max-h-24"} opacity-100` : "max-h-0 opacity-0"}`}
       >
         <div className="p-2 flex gap-2 items-end">
-          <label className="px-3 py-2 bg-surface-2 hover:bg-surface-3 text-sm font-medium rounded transition-all duration-150 ease-out flex items-center gap-1 cursor-pointer flex-shrink-0">
-            <Paperclip size={16} className="text-orange-500/70" />
-            <input type="file" onChange={handleFileUpload} className="hidden" accept="*/*" />
-          </label>
-
-          <div className="relative flex-1">
+          <div className="relative flex-1 bg-surface-2 rounded focus-within:ring-2 focus-within:ring-brand-500/40 transition-all duration-150 ease-out">
             <CommandSuggestions
               value={textInput}
               store={useTerminalHistoryStore}
@@ -424,19 +463,58 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
               isMobile={isMobile}
               onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
             />
+            {attachments.length > 0 && (
+              <div className="flex gap-2 px-2 pt-2 overflow-x-auto scroll-thin-x">
+                {attachments.map((att) => (
+                  <div key={att.id} className="relative flex-shrink-0 group">
+                    {att.isImage ? (
+                      <img src={`data:${att.type};base64,${att.content}`} alt={att.name}
+                        className="w-10 h-10 object-cover rounded border border-border" />
+                    ) : (
+                      <div className="w-10 h-10 flex flex-col items-center justify-center rounded border border-border bg-surface-3 px-1">
+                        <Paperclip size={14} className="text-text-muted" />
+                        <span className="text-[9px] text-text-muted truncate w-full text-center">{att.name}</span>
+                      </div>
+                    )}
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => removeAttachment(att.id)}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center bg-surface-3 rounded-full text-text-muted hover:text-text border border-border"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className="absolute left-1.5 bottom-1.5 w-6 h-6 flex items-center justify-center cursor-pointer text-orange-500/70 hover:text-orange-500 transition-colors">
+              <Paperclip size={16} />
+              <input type="file" multiple onChange={handleFileUpload} className="hidden" accept="*/*" />
+            </label>
             <textarea
               ref={textInputRef}
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
+              onPaste={handleAttachPaste}
               onKeyDown={(e) => {
                 if (hasPhysicalKeyboard && e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   sendTextBatch();
+                  return;
+                }
+                // Control keys (Esc, Ctrl+C/D/Z/L) → straight to terminal.
+                const cfg = INPUT_CONTROL_KEYS[e.key];
+                if (cfg && (!cfg.ctrl || e.ctrlKey) && !e.metaKey && !e.altKey) {
+                  const el = e.target;
+                  if (cfg.requireNoSelection && el.selectionStart !== el.selectionEnd) return;
+                  e.preventDefault();
+                  onInput?.(sessionId);
+                  socket.emit("input", { sessionId, data: cfg.data });
                 }
               }}
               placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend") : t("mobileKeyboard.typeCommand")}
               rows={1}
-              className="block w-full px-3 py-2 pr-8 bg-surface-2 rounded text-text text-sm placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none overflow-y-auto"
+              className="block w-full pl-9 pr-8 py-2 bg-transparent text-text text-sm placeholder-text-muted focus:outline-none resize-none overflow-y-auto"
             />
             {textInput ? (
               <button
@@ -488,7 +566,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
             disabled={false}
             className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[56px] flex items-center justify-center"
           >
-            {textInput.trim() ? t("mobileKeyboard.send") : <CornerDownLeft size={16} strokeWidth={2.5} />}
+            {textInput.trim() || attachments.length ? t("mobileKeyboard.send") : <CornerDownLeft size={16} strokeWidth={2.5} />}
           </button>
         </div>
       </div>

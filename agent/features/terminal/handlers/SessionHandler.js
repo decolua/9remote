@@ -8,7 +8,7 @@ import fs from "fs";
 import path from "path";
 
 const MAX_BUFFER = 2 * 1024 * 1024;
-const JOIN_REPLAY_SIZE = 256 * 1024; // Replay only tail on join to avoid network burst
+const JOIN_REPLAY_SIZE = 1024 * 1024; // 1MB tail on join — balances history vs join latency
 const PERSISTENCE_MODE = "daemon";
 
 /**
@@ -169,7 +169,21 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
   });
 
   socket.on("joinSession", async (sessionId, callback) => {
-    const session = sessions.get(sessionId);
+    let session = sessions.get(sessionId);
+
+    // Session gone (daemon killed / restarted, metadata lost) → recreate a fresh PTY in the same tab
+    if (!session && PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
+      const autoName = `${resolveShell().label} ${sessions.size + 1}`;
+      const cwd = getDefaultCwd(isCodespaces());
+      const created = await daemonClient.createSession(autoName, 80, 24, undefined, sessionId, cwd);
+      if (!created.success) return callback({ success: false, error: created.error });
+      session = { daemon: true, name: autoName, createdAt: Date.now(), cwd: created.cwd, shellId: created.shellId, shellLabel: created.shellLabel };
+      sessions.set(sessionId, session);
+      saveSessionMetadata(sessions);
+      const result = await daemonClient.joinSession(sessionId);
+      return callback({ success: result.success, name: session.name, cwd: result.cwd || session.cwd, recreated: true, error: result.error });
+    }
+
     if (!session) return callback({ success: false, error: "Session not found" });
 
     // Daemon mode

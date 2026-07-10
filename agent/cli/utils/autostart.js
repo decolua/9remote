@@ -1,7 +1,7 @@
 /**
  * Cross-platform OS auto-start (run on user login).
  * macOS  → LaunchAgent plist
- * Win    → HKCU Run registry key
+ * Win    → Startup-folder VBS (WshShell.Run ..., 0, False → invisible, no console flash)
  * Linux  → ~/.config/autostart/*.desktop
  */
 
@@ -26,6 +26,8 @@ const PATHS = {
   darwin: join(HOME, "Library", "LaunchAgents", `${APP_ID}.plist`),
   linux: join(HOME, ".config", "autostart", `${APP_ID}.desktop`),
   linuxSystemd: join(HOME, ".config", "systemd", "user", `${APP_ID}.service`),
+  // Windows Startup folder VBS — WshShell.Run(..., 0, False) launches node invisibly, no console flash
+  win: join(process.env.APPDATA || "", "Microsoft", "Windows", "Start Menu", "Programs", "Startup", `${APP_NAME}.vbs`),
 };
 
 // Headless (VPS/SSH) detection — no GUI session means .desktop autostart never fires
@@ -159,42 +161,47 @@ function isEnabledMac() {
 
 // ── Windows ───────────────────────────────────────────────────────────────────
 
-function buildWinCommand() {
-  // Quote node + script paths so spaces in path work
-  return `"${getNodeBin()}" "${getCliEntry()}" ${AUTOSTART_ARGS.join(" ")}`;
+// Startup-folder VBS instead of HKCU\Run registry key: registry runs node.exe
+// (a console app) directly, flashing a cmd window at login. The VBS calls
+// WshShell.Run(cmd, 0, False) — window style 0 (invisible), detached — so
+// nothing flashes. Same login trigger, invisible launch.
+function buildWinVbs() {
+  const argStr = AUTOSTART_ARGS.join(" ");
+  return `Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run """${getNodeBin()}"" ""${getCliEntry()}"" ${argStr}", 0, False
+`;
 }
 
-function regRun(args) {
-  return new Promise((resolve) => {
-    execFile("reg", args, { windowsHide: true }, (err, stdout) => {
-      resolve({ ok: !err, stdout: stdout || "" });
-    });
-  });
+// Remove legacy HKCU\Run entry from when autostart used the registry key
+// instead of the Startup-folder VBS. Left behind, it spawns node.exe directly
+// (console flash at login) and races the VBS — clean on every enable/disable.
+function cleanLegacyWinRun() {
+  try {
+    execFileSync("reg", [
+      "DELETE", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "/V", APP_NAME, "/F",
+    ], { windowsHide: true, stdio: "ignore" });
+  } catch {}
 }
 
-async function enableWin() {
-  const cmd = buildWinCommand();
-  const { ok } = await regRun([
-    "ADD", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-    "/V", APP_NAME, "/t", "REG_SZ", "/D", cmd, "/F",
-  ]);
-  return ok;
-}
-
-async function disableWin() {
-  await regRun([
-    "DELETE", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-    "/V", APP_NAME, "/F",
-  ]);
+function enableWin() {
+  const dir = path.dirname(PATHS.win);
+  if (!existsSync(dir)) return false;
+  cleanLegacyWinRun();
+  writeFileSync(PATHS.win, buildWinVbs());
   return true;
 }
 
-async function isEnabledWin() {
-  const { ok, stdout } = await regRun([
-    "QUERY", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-    "/V", APP_NAME,
-  ]);
-  return ok && stdout.includes(APP_NAME);
+function disableWin() {
+  cleanLegacyWinRun();
+  if (existsSync(PATHS.win)) {
+    try { unlinkSync(PATHS.win); } catch {}
+  }
+  return true;
+}
+
+function isEnabledWin() {
+  return existsSync(PATHS.win);
 }
 
 // ── Linux ─────────────────────────────────────────────────────────────────────
@@ -295,6 +302,11 @@ export async function setAutoStart(enabled) {
 // No-op when disabled or already up-to-date — avoids rewriting on every boot.
 export async function refreshAutoStart() {
   try {
+    // Always clean legacy registry entry on Windows — even if autostart is
+    // disabled, a stale HKCU\Run from before the VBS migration still flashes
+    // a console at login. No-op once gone.
+    if (process.platform === "win32") cleanLegacyWinRun();
+
     if (!(await isAutoStartEnabled())) return false;
 
     if (process.platform === "darwin") {
@@ -306,12 +318,11 @@ export async function refreshAutoStart() {
     }
 
     if (process.platform === "win32") {
-      const desired = buildWinCommand();
-      const { ok, stdout } = await regRun([
-        "QUERY", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/V", APP_NAME,
-      ]);
-      if (ok && stdout.includes(desired)) return false;
-      return await enableWin();
+      const desired = buildWinVbs();
+      const current = existsSync(PATHS.win) ? readFileSync(PATHS.win, "utf8") : "";
+      if (current === desired) return false;
+      writeFileSync(PATHS.win, desired);
+      return true;
     }
 
     if (process.platform === "linux") {

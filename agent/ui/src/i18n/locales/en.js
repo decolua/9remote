@@ -37,6 +37,13 @@ export default {
     send: "Send",
     typeCommand: "Shift+Enter for new line • Ctrl+Num to switch tab",
     deleteConfirm: "Delete terminal {name}?",
+    clearInput: "Clear",
+  },
+  history: {
+    title: "Command history",
+    empty: "No commands yet",
+    remove: "Remove",
+    clearAll: "Clear all",
   },
   sessions: {
     newTerminal: "New Terminal",
@@ -132,6 +139,7 @@ export default {
     startTunnel: "Start the tunnel to get a QR code and connect your devices from anywhere.",
     connect: "Connect",
     connecting: "Connecting…",
+    pairDevice: "Pair a device",
     scanToSignIn: "Scan QR or open link to sign in",
     oneTimeKey: "One-Time Key",
     oneTimeDesc: "Single use · expires",

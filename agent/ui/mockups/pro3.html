@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>9Remote — Connection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,300,0,0" />
+<style>
+  /* ============ TOKENS ============ */
+  :root, [data-theme="dark"] {
+    --bg: #05060D;
+    --bg-2: #090C18;
+    --surface: rgba(18, 24, 44, 0.58);
+    --surface-solid: #0B0F1E;
+    --surface-2: rgba(28, 36, 60, 0.62);
+    --card-border: rgba(120, 160, 255, 0.10);
+    --card-hi: rgba(180, 205, 255, 0.06);
+    --text: #E6ECFF;
+    --muted: #8794B5;
+    --faint: #5A6688;
+    --brand: #3B82F6;       /* electric blue */
+    --brand-2: #22D3EE;     /* cyan         */
+    --accent: #A3E635;      /* lime         */
+    --success: #34E5A4;
+    --danger: #FF6B81;
+    --warn: #FFC24B;
+    --ring: rgba(59, 130, 246, 0.55);
+    --glow-1: rgba(59, 130, 246, 0.42);
+    --glow-2: rgba(34, 211, 238, 0.34);
+    --glow-3: rgba(163, 230, 53, 0.18);
+    --grid-line: rgba(150, 180, 255, 0.045);
+    --grid-line-strong: rgba(120, 170, 255, 0.09);
+    --shadow: 0 24px 60px -18px rgba(0, 2, 10, 0.9);
+    --scrim: rgba(3, 5, 12, 0.6);
+  }
+  [data-theme="light"] {
+    --bg: #EEF1FB;
+    --bg-2: #E2E8F7;
+    --surface: rgba(255, 255, 255, 0.78);
+    --surface-solid: #FFFFFF;
+    --surface-2: rgba(245, 248, 255, 0.9);
+    --card-border: rgba(30, 50, 100, 0.10);
+    --card-hi: rgba(255, 255, 255, 0.9);
+    --text: #0C1230;
+    --muted: #566093;
+    --faint: #828BB0;
+    --brand: #2563EB;
+    --brand-2: #0891B2;
+    --accent: #65A30D;
+    --success: #059669;
+    --danger: #DC2626;
+    --warn: #D97706;
+    --ring: rgba(37, 99, 235, 0.4);
+    --glow-1: rgba(59, 130, 246, 0.22);
+    --glow-2: rgba(34, 211, 238, 0.18);
+    --glow-3: rgba(163, 230, 53, 0.14);
+    --grid-line: rgba(40, 70, 140, 0.07);
+    --grid-line-strong: rgba(40, 70, 140, 0.13);
+    --shadow: 0 24px 50px -20px rgba(60, 80, 140, 0.30);
+    --scrim: rgba(200, 210, 235, 0.55);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Sora", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    position: relative;
+  }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .ms { font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal; line-height: 1; letter-spacing: normal; text-transform: none; white-space: nowrap; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; font-variation-settings: 'opsz' 24, 'wght' 300; }
+
+  /* ============ NEON GRID + PULSE GLOW ============ */
+  .bg-grid {
+    position: fixed; inset: -10%; z-index: -3; pointer-events: none;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(var(--grid-line-strong) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line-strong) 1px, transparent 1px);
+    background-size: 44px 44px, 44px 44px, 220px 220px, 220px 220px;
+    background-position: 0 0, 0 0, 0 0, 0 0;
+    transform: perspective(900px) rotateX(0deg);
+    animation: gridShift 24s linear infinite, gridPersp 30s ease-in-out infinite;
+  }
+  @keyframes gridShift {
+    from { background-position: 0 0, 0 0, 0 0, 0 0; }
+    to   { background-position: 44px 44px, 44px 44px, 220px 220px, 220px 220px; }
+  }
+  @keyframes gridPersp {
+    0%, 100% { transform: perspective(900px) rotateX(0deg) translateY(0); }
+    50%      { transform: perspective(900px) rotateX(3deg) translateY(-1.5%); }
+  }
+
+  .bg-glow { position: fixed; inset: 0; z-index: -2; pointer-events: none; overflow: hidden;
+    background: radial-gradient(140% 120% at 50% -10%, var(--bg-2), var(--bg) 62%); }
+  .bg-glow span {
+    position: absolute; border-radius: 50%; filter: blur(80px); mix-blend-mode: screen;
+    will-change: transform, opacity;
+  }
+  [data-theme="light"] .bg-glow span { mix-blend-mode: multiply; filter: blur(90px); }
+  .gl1 { width: 48vw; height: 48vw; left: -10vw; top: -12vw; background: var(--glow-1); animation: pulse1 7s ease-in-out infinite; }
+  .gl2 { width: 42vw; height: 42vw; right: -8vw; top: 8vw; background: var(--glow-2); animation: pulse2 9s ease-in-out infinite; }
+  .gl3 { width: 38vw; height: 38vw; left: 30vw; bottom: -14vw; background: var(--glow-3); animation: pulse3 8s ease-in-out infinite; }
+  @keyframes pulse1 { 0%,100% { transform: scale(1); opacity: .85; } 50% { transform: scale(1.18); opacity: 1; } }
+  @keyframes pulse2 { 0%,100% { transform: scale(1.08); opacity: .7; } 50% { transform: scale(0.92); opacity: .98; } }
+  @keyframes pulse3 { 0%,100% { transform: scale(0.95); opacity: .6; } 50% { transform: scale(1.22); opacity: .9; } }
+
+  /* vignette to keep content readable */
+  .bg-vig { position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(120% 90% at 50% 0%, transparent 38%, var(--bg) 100%); }
+
+  /* ============ GLASS CARD ============ */
+  .glass {
+    background: var(--surface);
+    border: 1px solid var(--card-border);
+    border-radius: 20px;
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    box-shadow: var(--shadow), inset 0 1px 0 var(--card-hi);
+    position: relative;
+  }
+  @media (prefers-reduced-transparency: reduce) { .glass { background: var(--surface-solid); backdrop-filter: none; } }
+
+  /* ============ LAYOUT ============ */
+  .app { position: relative; z-index: 1; min-height: 100dvh; display: grid; grid-template-columns: 264px 1fr; }
+  .sidebar { padding: 22px 16px; display: flex; flex-direction: column; gap: 6px; border-right: 1px solid var(--card-border); background: linear-gradient(180deg, rgba(150,180,255,0.03), transparent); }
+  .main { padding: 24px 30px 40px; min-width: 0; }
+
+  /* Brand */
+  .brand { display: flex; align-items: center; gap: 12px; padding: 6px 8px 18px; }
+  .logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-size: 22px;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2)); box-shadow: 0 0 22px -2px var(--ring), 0 8px 20px -8px var(--brand); }
+  .brand h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+  .brand .v { font-size: 11px; color: var(--faint); }
+
+  .health { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px; margin-bottom: 14px;
+    background: var(--surface-2); border: 1px solid var(--card-border); font-size: 12.5px; font-weight: 500; }
+  .health .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(163,230,53,0.16), 0 0 12px var(--accent); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(163,230,53,0.04), 0 0 14px var(--accent); } }
+  .health .lat { margin-left: auto; color: var(--muted); }
+
+  /* Nav */
+  .nav { display: flex; flex-direction: column; gap: 3px; }
+  .nav a { display: flex; align-items: center; gap: 13px; padding: 11px 12px; border-radius: 13px; color: var(--muted);
+    text-decoration: none; font-size: 13.5px; font-weight: 500; transition: all .22s cubic-bezier(.16,1,.3,1); position: relative; cursor: pointer; }
+  .nav a .ms { font-size: 21px; }
+  .nav a .desc { display: block; font-size: 11px; color: var(--faint); font-weight: 400; margin-top: 1px; }
+  .nav a:hover { background: var(--surface-2); color: var(--text); }
+  .nav a:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .nav a.active { color: var(--text); background: linear-gradient(100deg, rgba(59,130,246,0.22), rgba(34,211,238,0.10)); border: 1px solid rgba(59,130,246,0.32); }
+  .nav a.active::before { content: ""; position: absolute; left: -16px; top: 50%; transform: translateY(-50%); width: 3px; height: 22px; border-radius: 3px; background: linear-gradient(var(--brand), var(--brand-2)); box-shadow: 0 0 10px var(--brand-2); }
+  .nav a.active .ms { color: var(--brand-2); }
+
+  .recent { margin-top: auto; padding-top: 16px; }
+  .recent .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--faint); padding: 0 8px 8px; }
+  .ri { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 11px; cursor: pointer; transition: background .2s; }
+  .ri:hover { background: var(--surface-2); }
+  .ava { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; flex: none; }
+  .ri .t { font-size: 12.5px; font-weight: 600; }
+  .ri .s { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .ri .time { margin-left: auto; font-size: 11px; color: var(--faint); }
+
+  /* Header */
+  .head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 22px; }
+  .head .htxt h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.03em; }
+  .head .htxt p { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .head .actions { margin-left: auto; display: flex; gap: 8px; }
+  .iconbtn { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; cursor: pointer; color: var(--muted);
+    background: var(--surface-2); border: 1px solid var(--card-border); transition: all .2s cubic-bezier(.16,1,.3,1); }
+  .iconbtn:hover { color: var(--text); transform: translateY(-1px); }
+  .iconbtn:active { transform: scale(.96); }
+  .iconbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .iconbtn .ms { font-size: 20px; }
+
+  /* Stat row */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+  .stat { padding: 18px 20px; overflow: hidden; }
+  .stat .top { display: flex; align-items: center; justify-content: space-between; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; }
+  .stat .top .ms { font-size: 20px; color: var(--muted); }
+  .stat .val { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; margin-top: 10px; display: flex; align-items: baseline; gap: 6px; }
+  .stat .val small { font-size: 15px; color: var(--muted); font-weight: 500; }
+  .stat .sub { font-size: 11.5px; color: var(--faint); margin-top: 4px; }
+  .stat.accent { background: linear-gradient(120deg, rgba(163,230,53,0.14), var(--surface)); border-color: rgba(163,230,53,0.30); }
+  .stat.accent .val { color: var(--accent); text-shadow: 0 0 18px rgba(163,230,53,0.25); }
+
+  /* Content grid */
+  .grid { display: grid; grid-template-columns: 1fr 1.7fr; gap: 16px; align-items: start; }
+  .col { display: flex; flex-direction: column; gap: 16px; }
+  .card { padding: 22px; }
+  .card .ch { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .card .ch .ms { font-size: 20px; color: var(--brand-2); }
+  .card .ch h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .card .ch .badge { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+  /* QR */
+  .qrwrap { display: flex; flex-direction: column; align-items: center; }
+  .qr { width: 200px; height: 200px; border-radius: 18px; padding: 14px; background: #fff; box-shadow: 0 0 28px -6px var(--ring), 0 12px 30px -10px rgba(0,0,0,0.5); }
+  .qr img { width: 100%; height: 100%; display: block; }
+  .keylbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--faint); align-self: flex-start; margin: 18px 0 8px; }
+  .keyrow { display: flex; gap: 8px; width: 100%; }
+  .key { flex: 1; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--card-border);
+    font-size: 18px; font-weight: 600; letter-spacing: 0.14em; }
+  .kbtn { width: 46px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--card-border); color: var(--muted); cursor: pointer; display: grid; place-items: center; transition: all .2s; }
+  .kbtn:hover { color: var(--text); border-color: var(--ring); }
+  .kbtn:active { transform: scale(.94); }
+  .kbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .ghost { width: 100%; margin-top: 12px; padding: 11px; border-radius: 12px; background: transparent; border: 1px solid var(--card-border);
+    color: var(--muted); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all .2s cubic-bezier(.16,1,.3,1); }
+  .ghost:hover { color: var(--text); background: var(--surface-2); border-color: var(--ring); }
+  .ghost:active { transform: scale(.98); }
+  .ghost:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .ghost .ms { font-size: 17px; }
+  .divider { height: 1px; background: var(--card-border); margin: 18px 0; width: 100%; }
+  .urlrow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 11px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--card-border); }
+  .urlrow .ms { font-size: 16px; color: var(--accent); }
+  .urlrow span { flex: 1; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .danger { width: 100%; margin-top: 12px; padding: 11px; border-radius: 12px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+    background: rgba(255,107,129,0.12); border: 1px solid rgba(255,107,129,0.28); color: var(--danger); display: flex; align-items: center; justify-content: center; gap: 8px; transition: all .2s; }
+  .danger:hover { background: rgba(255,107,129,0.2); }
+  .danger:active { transform: scale(.98); }
+
+  /* Service rows */
+  .srv { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-top: 1px solid var(--card-border); }
+  .srv:first-of-type { border-top: none; padding-top: 0; }
+  .sic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--surface-2); border: 1px solid var(--card-border); color: var(--brand-2); }
+  .sic .ms { font-size: 20px; }
+  .sbody { flex: 1; min-width: 0; }
+  .sbody .n { font-size: 14px; font-weight: 600; }
+  .sbody .d { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .chip { font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px; }
+  .chip.on { background: rgba(52,229,164,0.15); color: var(--success); }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  .perms { display: flex; gap: 8px; margin-top: 8px; }
+  .perm { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 5px 10px; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--card-border); }
+  .perm .ms { font-size: 15px; }
+  .perm.ok { color: var(--success); } .perm.no { color: var(--faint); }
+
+  /* Toggle */
+  .tg { width: 46px; height: 26px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--card-border); cursor: pointer; position: relative; flex: none; transition: background .24s cubic-bezier(.16,1,.3,1); }
+  .tg::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.4); transition: transform .24s cubic-bezier(.16,1,.3,1); }
+  .tg.on { background: linear-gradient(135deg, var(--brand), var(--brand-2)); border-color: transparent; box-shadow: 0 0 16px -2px var(--ring); }
+  .tg.on::after { transform: translateX(20px); }
+  .tg:active::after { width: 24px; }
+  .tg:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  .sel { padding: 9px 12px; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--card-border); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .sel .ms { font-size: 16px; color: var(--muted); }
+
+  /* Clients */
+  .cli { display: flex; align-items: center; gap: 13px; padding: 13px 0; border-top: 1px solid var(--card-border); }
+  .cli:first-of-type { border-top: none; padding-top: 2px; }
+  .cli .di { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--surface-2); border: 1px solid var(--card-border); color: var(--muted); }
+  .cli .di .ms { font-size: 20px; }
+  .cli .cb { flex: 1; min-width: 0; }
+  .cli .cb .nm { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .cli .cb .meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .st { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px; }
+  .st .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 7px currentColor; }
+  .st.online { background: rgba(52,229,164,0.14); color: var(--success); }
+  .st.offline { background: var(--surface-2); color: var(--faint); }
+  .st.pending { background: rgba(255,194,75,0.14); color: var(--warn); }
+  .act { padding: 8px 14px; border-radius: 10px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; border: 1px solid var(--card-border); background: var(--surface-2); color: var(--muted); transition: all .2s; min-height: 40px; }
+  .act:hover { color: var(--text); }
+  .act:active { transform: scale(.96); }
+  .act:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .act.approve { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; border: none; box-shadow: 0 0 18px -4px var(--ring); }
+  .cli.pend { background: linear-gradient(100deg, rgba(255,194,75,0.08), transparent); margin: 0 -22px; padding: 13px 22px; border-radius: 12px; border-top: none; }
+
+  .menubtn { display: none; }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { position: fixed; z-index: 40; inset: 0 auto 0 0; width: 264px; transform: translateX(-100%); transition: transform .3s cubic-bezier(.16,1,.3,1); background: var(--surface-solid); }
+    .sidebar.open { transform: translateX(0); }
+    .scrim { position: fixed; inset: 0; z-index: 39; background: var(--scrim); backdrop-filter: blur(2px); display: none; }
+    .scrim.show { display: block; }
+    .menubtn { display: grid; }
+    .stats { grid-template-columns: 1fr; }
+    .grid { grid-template-columns: 1fr; }
+    .main { padding: 18px 16px 40px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bg-grid { animation: none; }
+    .bg-glow span { animation: none; }
+    .health .dot { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow"><span class="gl1"></span><span class="gl2"></span><span class="gl3"></span></div>
+  <div class="bg-vig"></div>
+  <div class="scrim" id="scrim" onclick="toggleMenu()"></div>
+
+  <div class="app">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="logo"><span class="ms">bolt</span></div>
+        <div><h1>9Remote</h1><div class="v mono">v2.4.1</div></div>
+      </div>
+      <div class="health"><span class="dot"></span> Tunnel healthy <span class="lat mono">28ms</span></div>
+      <nav class="nav">
+        <a class="active" tabindex="0"><span class="ms">hub</span><span>Connection<span class="desc">Pairing and tunnel</span></span></a>
+        <a tabindex="0"><span class="ms">terminal</span><span>Terminals<span class="desc">1 active session</span></span></a>
+        <a tabindex="0"><span class="ms">description</span><span>Logs<span class="desc">Events and audit</span></span></a>
+      </nav>
+      <div class="recent">
+        <div class="lbl">Recent activity</div>
+        <div class="ri">
+          <div class="ava" style="background:linear-gradient(135deg,#D97757,#b85c3e)">cl</div>
+          <div><div class="t">claude · api-refactor</div><div class="s"><span class="ms" style="font-size:14px;color:var(--success)">check_circle</span> Session done</div></div>
+          <div class="time mono">3m</div>
+        </div>
+        <div class="ri">
+          <div class="ava" style="background:linear-gradient(135deg,#10a37f,#0d7d63)">co</div>
+          <div><div class="t">codex · deploy</div><div class="s"><span class="ms" style="font-size:14px;color:var(--warn)">bolt</span> Needs input</div></div>
+          <div class="time mono">8m</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+      <div class="head">
+        <button class="iconbtn menubtn" onclick="toggleMenu()" aria-label="Open menu"><span class="ms">menu</span></button>
+        <div class="htxt"><h2>Connection</h2><p>Pair devices and manage your secure tunnel</p></div>
+        <div class="actions">
+          <button class="iconbtn" onclick="toggleTheme()" id="themebtn" aria-label="Toggle theme"><span class="ms">dark_mode</span></button>
+          <button class="iconbtn" aria-label="Settings"><span class="ms">settings</span></button>
+        </div>
+      </div>
+
+      <!-- STATS -->
+      <div class="stats">
+        <div class="glass stat accent">
+          <div class="top">Connected <span class="ms">devices</span></div>
+          <div class="val mono">1</div>
+          <div class="sub">device online now</div>
+        </div>
+        <div class="glass stat">
+          <div class="top">Uptime <span class="ms">schedule</span></div>
+          <div class="val mono">4h 12m</div>
+          <div class="sub">since last restart</div>
+        </div>
+        <div class="glass stat">
+          <div class="top">Transferred <span class="ms">swap_vert</span></div>
+          <div class="val mono">1.4 <small>GB</small></div>
+          <div class="sub">this session</div>
+        </div>
+      </div>
+
+      <!-- GRID -->
+      <div class="grid">
+        <!-- QR -->
+        <div class="glass card">
+          <div class="ch"><span class="ms">qr_code_2</span><h3>Pair a device</h3></div>
+          <div class="qrwrap">
+            <div class="qr"><img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://9remote.cc/pair/8F2K9DXQ" alt="Pairing QR code" /></div>
+            <div class="keylbl">One-time key</div>
+            <div class="keyrow">
+              <div class="key mono" id="key">8F2K-9DXQ</div>
+              <button class="kbtn" onclick="copyKey()" aria-label="Copy key"><span class="ms" id="cpi">content_copy</span></button>
+            </div>
+            <button class="ghost" onclick="regen()"><span class="ms">autorenew</span> Generate new key</button>
+            <div class="divider"></div>
+            <div class="urlrow"><span class="ms">lan</span><span>calm-river-8821.trycloudflare.com</span><button class="kbtn" style="width:34px;height:34px;border:none;background:transparent" aria-label="Copy URL"><span class="ms" style="font-size:15px">content_copy</span></button></div>
+            <button class="danger"><span class="ms">stop_circle</span> Stop tunnel</button>
+          </div>
+        </div>
+
+        <!-- RIGHT -->
+        <div class="col">
+          <!-- SERVICES -->
+          <div class="glass card">
+            <div class="ch"><span class="ms">tune</span><h3>Remote services</h3></div>
+            <div class="srv">
+              <div class="sic"><span class="ms">terminal</span></div>
+              <div class="sbody"><div class="n">Terminal</div><div class="d">Always on · PTY daemon</div></div>
+              <span class="chip on"><span class="dot"></span>Active</span>
+            </div>
+            <div class="srv">
+              <div class="sic"><span class="ms">desktop_windows</span></div>
+              <div class="sbody">
+                <div class="n">Desktop</div><div class="d">Remote screen streaming</div>
+                <div class="perms">
+                  <span class="perm ok"><span class="ms">check_circle</span>Screen Recording</span>
+                  <span class="perm no"><span class="ms">cancel</span>Accessibility</span>
+                </div>
+              </div>
+              <div class="tg" onclick="this.classList.toggle('on')" role="switch" aria-checked="false" tabindex="0"></div>
+            </div>
+            <div class="srv">
+              <div class="sic"><span class="ms">rocket_launch</span></div>
+              <div class="sbody"><div class="n">Auto-start on boot</div><div class="d">Launch host at login</div></div>
+              <div class="tg on" onclick="this.classList.toggle('on')" role="switch" aria-checked="true" tabindex="0"></div>
+            </div>
+            <div class="srv">
+              <div class="sic"><span class="ms">coffee</span></div>
+              <div class="sbody"><div class="n">Keep awake</div><div class="d">Prevent host from sleeping</div></div>
+              <div class="sel">While connected <span class="ms">expand_more</span></div>
+            </div>
+          </div>
+
+          <!-- CLIENTS -->
+          <div class="glass card">
+            <div class="ch"><span class="ms">devices</span><h3>Clients</h3><span class="badge mono">3 devices</span></div>
+            <div class="cli">
+              <div class="di"><span class="ms">smartphone</span></div>
+              <div class="cb"><div class="nm">iPhone 15 Pro <span class="st online"><span class="dot"></span>Online</span></div><div class="meta mono">192.168.1.24 · connected 12:04</div></div>
+              <button class="act">Disconnect</button>
+            </div>
+            <div class="cli">
+              <div class="di"><span class="ms">laptop_mac</span></div>
+              <div class="cb"><div class="nm">MacBook Air <span class="st offline"><span class="dot"></span>Offline</span></div><div class="meta">Approved 2 days ago</div></div>
+              <button class="act">Remove</button>
+            </div>
+            <div class="cli pend">
+              <div class="di"><span class="ms">smartphone</span></div>
+              <div class="cb"><div class="nm">Pixel 8 <span class="st pending"><span class="dot"></span>Pending</span></div><div class="meta">Waiting for approval</div></div>
+              <button class="act approve">Approve</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function toggleTheme() {
+      const r = document.documentElement;
+      const d = r.getAttribute('data-theme') === 'dark';
+      r.setAttribute('data-theme', d ? 'light' : 'dark');
+      document.getElementById('themebtn').querySelector('.ms').textContent = d ? 'light_mode' : 'dark_mode';
+    }
+    function toggleMenu() {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('scrim').classList.toggle('show');
+    }
+    function copyKey() {
+      const t = document.getElementById('key').textContent;
+      if (navigator.clipboard) navigator.clipboard.writeText(t).catch(function(){});
+      const i = document.getElementById('cpi'); i.textContent = 'check'; i.style.color = 'var(--success)';
+      setTimeout(() => { i.textContent = 'content_copy'; i.style.color = ''; }, 1400);
+    }
+    function regen() {
+      const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let k = ''; for (let i=0;i<8;i++){ k += c[Math.floor(Math.random()*c.length)]; if(i===3)k+='-'; }
+      document.getElementById('key').textContent = k;
+    }
+    document.querySelectorAll('.tg').forEach(function(t){
+      t.addEventListener('keydown', function(e){
+        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); t.classList.toggle('on'); t.setAttribute('aria-checked', t.classList.contains('on')); }
+      });
+      t.addEventListener('click', function(){ t.setAttribute('aria-checked', t.classList.contains('on')); });
+    });
+  </script>
+</body>
+</html>

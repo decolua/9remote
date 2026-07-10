@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>9Remote · Connection</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,300,0,0" />
+<style>
+  :root {
+    --background:#F8FAFC; --surface:#FFFFFF; --surface-2:#F1F3F5;
+    --primary:#1E3A5F; --secondary:#2563EB; --accent:#059669;
+    --foreground:#0F172A; --muted-foreground:#64748B; --border:#E4E7EB;
+    --destructive:#DC2626; --warn:#D97706; --ring:#2563EB;
+    --primary-tint:#EAF0F7; --accent-tint:#E7F5EF; --warn-tint:#FCF2E4;
+    --shadow-sm:0 1px 2px 0 rgba(30,58,95,.06);
+    --shadow:0 2px 6px -1px rgba(30,58,95,.08), 0 1px 3px -1px rgba(30,58,95,.06);
+    --shadow-md:0 8px 24px -6px rgba(30,58,95,.12), 0 2px 6px -2px rgba(30,58,95,.08);
+  }
+  [data-theme="dark"] {
+    --background:#0B1220; --surface:#111A2E; --surface-2:#1A2440;
+    --primary:#3B82F6; --secondary:#2563EB; --accent:#22C55E;
+    --foreground:#F8FAFC; --muted-foreground:#94A3B8; --border:#25304D;
+    --destructive:#F87171; --warn:#FBBF24; --ring:#3B82F6;
+    --primary-tint:#16233F; --accent-tint:#0F2A1E; --warn-tint:#2A2110;
+    --shadow-sm:0 1px 2px 0 rgba(0,0,0,.4);
+    --shadow:0 2px 6px -1px rgba(0,0,0,.5), 0 1px 3px -1px rgba(0,0,0,.4);
+    --shadow-md:0 8px 24px -6px rgba(0,0,0,.6), 0 2px 6px -2px rgba(0,0,0,.5);
+  }
+  * { border-color: var(--border); }
+  html, body { background: var(--background); color: var(--foreground); }
+  body { font-family: "IBM Plex Sans", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .msym { font-family: "Material Symbols Outlined"; font-weight: normal; font-style: normal; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; direction: ltr; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
+  .bg-background { background: var(--background); }
+  .bg-surface { background: var(--surface); }
+  .bg-surface-2 { background: var(--surface-2); }
+  .bg-primary { background: var(--primary); }
+  .bg-secondary { background: var(--secondary); }
+  .bg-accent { background: var(--accent); }
+  .bg-primary-tint { background: var(--primary-tint); }
+  .bg-accent-tint { background: var(--accent-tint); }
+  .bg-warn-tint { background: var(--warn-tint); }
+  .text-foreground { color: var(--foreground); }
+  .text-muted { color: var(--muted-foreground); }
+  .text-primary { color: var(--primary); }
+  .text-secondary { color: var(--secondary); }
+  .text-accent { color: var(--accent); }
+  .text-warn { color: var(--warn); }
+  .text-destructive { color: var(--destructive); }
+  .border-c { border-color: var(--border); }
+  .border-secondary { border-color: var(--secondary); }
+  .shadow-sm2 { box-shadow: var(--shadow-sm); }
+  .shadow-c { box-shadow: var(--shadow); }
+  .shadow-md2 { box-shadow: var(--shadow-md); }
+  .ring-focus:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  button, a, [role="button"], label[for] { cursor: pointer; }
+  .trans { transition: all 200ms cubic-bezier(0.16,1,0.3,1); }
+  .press:active { transform: scale(0.98); }
+  .track-wide { letter-spacing: 0.08em; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+    .press:active { transform: none; }
+  }
+  /* Toggle switch */
+  .switch { width: 40px; height: 24px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); position: relative; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 999px; background: #fff; box-shadow: var(--shadow-sm); transition: transform 200ms cubic-bezier(0.16,1,0.3,1); }
+  .switch[aria-checked="true"] { background: var(--secondary); border-color: var(--secondary); }
+  .switch[aria-checked="true"]::after { transform: translateX(16px); }
+  .dot-pulse { position: relative; }
+  .dot-pulse::before { content: ""; position: absolute; inset: -4px; border-radius: 999px; background: var(--accent); opacity: .28; animation: pulse 2s ease-out infinite; }
+  @keyframes pulse { 0% { transform: scale(.6); opacity: .4; } 100% { transform: scale(1.6); opacity: 0; } }
+  .drawer-hidden { transform: translateX(-100%); }
+  select.sel { background: var(--surface-2); color: var(--foreground); border: 1px solid var(--border); }
+  #scrim { backdrop-filter: blur(2px); }
+</style>
+</head>
+<body class="min-h-[100dvh]">
+
+<div class="flex min-h-[100dvh]">
+
+  <!-- Scrim (mobile) -->
+  <div id="scrim" class="fixed inset-0 z-30 bg-black/40 hidden md:hidden" onclick="closeDrawer()"></div>
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="bg-surface border-r border-c w-[248px] flex-none flex flex-col fixed inset-y-0 left-0 z-40 trans drawer-hidden md:translate-x-0 md:static md:z-auto">
+    <!-- Wordmark -->
+    <div class="px-5 h-16 flex items-center gap-2.5 border-b border-c">
+      <div class="w-8 h-8 rounded-[9px] bg-primary flex items-center justify-center text-white flex-none">
+        <span class="msym text-[20px]">terminal</span>
+      </div>
+      <div class="leading-tight">
+        <div class="font-600 text-[15px] tracking-tight">9Remote</div>
+        <div class="mono text-[11px] text-muted">v2.4.1</div>
+      </div>
+    </div>
+
+    <!-- Tunnel pill -->
+    <div class="px-4 pt-4">
+      <div class="flex items-center justify-between gap-2 bg-accent-tint rounded-[9px] px-3 py-2">
+        <div class="flex items-center gap-2">
+          <span class="dot-pulse w-2 h-2 rounded-full bg-accent block"></span>
+          <span class="text-[12.5px] font-500" style="color:var(--accent)">Tunnel healthy</span>
+        </div>
+        <span class="mono text-[12px]" style="color:var(--accent)">28ms</span>
+      </div>
+    </div>
+
+    <!-- Nav -->
+    <nav class="px-3 pt-4 flex flex-col gap-1" aria-label="Primary">
+      <a href="#" aria-current="page" class="relative flex items-start gap-3 rounded-[9px] px-3 py-2.5 bg-primary-tint trans ring-focus">
+        <span class="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-secondary"></span>
+        <span class="msym text-[21px] text-secondary mt-[1px]">hub</span>
+        <span class="leading-tight">
+          <span class="block text-[13.5px] font-600 text-foreground">Connection</span>
+          <span class="block text-[11.5px] text-muted">Pair &amp; tunnel</span>
+        </span>
+      </a>
+      <a href="#" class="flex items-start gap-3 rounded-[9px] px-3 py-2.5 hover:bg-surface-2 trans ring-focus">
+        <span class="msym text-[21px] text-muted mt-[1px]">terminal</span>
+        <span class="leading-tight">
+          <span class="block text-[13.5px] font-500 text-foreground">Terminals</span>
+          <span class="block text-[11.5px] text-muted">Sessions &amp; PTY</span>
+        </span>
+      </a>
+      <a href="#" class="flex items-start gap-3 rounded-[9px] px-3 py-2.5 hover:bg-surface-2 trans ring-focus">
+        <span class="msym text-[21px] text-muted mt-[1px]">description</span>
+        <span class="leading-tight">
+          <span class="block text-[13.5px] font-500 text-foreground">Logs</span>
+          <span class="block text-[11.5px] text-muted">Events &amp; audit</span>
+        </span>
+      </a>
+    </nav>
+
+    <!-- Recent activity -->
+    <div class="mt-auto px-4 pb-5 pt-4">
+      <div class="text-[11px] font-600 track-wide uppercase text-muted mb-2.5">Recent activity</div>
+      <ul class="flex flex-col gap-2.5">
+        <li class="flex items-center gap-2.5">
+          <span class="w-7 h-7 rounded-full bg-accent-tint flex items-center justify-center flex-none">
+            <span class="msym text-[16px]" style="color:var(--accent)">check</span>
+          </span>
+          <span class="min-w-0 flex-1 leading-tight">
+            <span class="block text-[12.5px] font-500 truncate">claude · api-refactor</span>
+            <span class="block text-[11px] text-muted">done</span>
+          </span>
+          <span class="mono text-[11px] text-muted">3m</span>
+        </li>
+        <li class="flex items-center gap-2.5">
+          <span class="w-7 h-7 rounded-full bg-warn-tint flex items-center justify-center flex-none">
+            <span class="msym text-[16px]" style="color:var(--warn)">priority_high</span>
+          </span>
+          <span class="min-w-0 flex-1 leading-tight">
+            <span class="block text-[12.5px] font-500 truncate">codex · needs input</span>
+            <span class="block text-[11px] text-muted">waiting</span>
+          </span>
+          <span class="mono text-[11px] text-muted">8m</span>
+        </li>
+        <li class="flex items-center gap-2.5">
+          <span class="w-7 h-7 rounded-full bg-surface-2 flex items-center justify-center flex-none">
+            <span class="msym text-[16px] text-muted">upload_file</span>
+          </span>
+          <span class="min-w-0 flex-1 leading-tight">
+            <span class="block text-[12.5px] font-500 truncate">deploy · build push</span>
+            <span class="block text-[11px] text-muted">done</span>
+          </span>
+          <span class="mono text-[11px] text-muted">21m</span>
+        </li>
+      </ul>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 min-w-0 flex flex-col">
+
+    <!-- Header -->
+    <header class="h-16 flex-none bg-surface/80 border-b border-c sticky top-0 z-20 backdrop-blur px-4 sm:px-6 flex items-center gap-3">
+      <button onclick="openDrawer()" aria-label="Open menu" class="md:hidden w-10 h-10 rounded-[9px] hover:bg-surface-2 trans press ring-focus flex items-center justify-center flex-none">
+        <span class="msym text-[22px]">menu</span>
+      </button>
+      <div class="min-w-0">
+        <h1 class="text-[17px] font-600 leading-tight truncate">Connection</h1>
+        <p class="text-[12.5px] text-muted leading-tight truncate">Pair devices and manage your secure tunnel</p>
+      </div>
+      <div class="ml-auto flex items-center gap-1.5">
+        <button id="themeBtn" onclick="toggleTheme()" aria-label="Toggle theme" class="w-10 h-10 rounded-[9px] hover:bg-surface-2 trans press ring-focus flex items-center justify-center">
+          <span class="msym text-[21px]" id="themeIcon">dark_mode</span>
+        </button>
+        <button aria-label="Settings" class="w-10 h-10 rounded-[9px] hover:bg-surface-2 trans press ring-focus flex items-center justify-center">
+          <span class="msym text-[21px]">settings</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="p-4 sm:p-6 flex flex-col gap-5 max-w-[1240px] w-full mx-auto">
+
+      <!-- Stat cards -->
+      <section class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="bg-surface border border-c rounded-[10px] p-4 shadow-sm2">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="msym text-[18px] text-secondary">devices</span>
+            <span class="text-[11px] font-600 track-wide uppercase text-muted">Connected</span>
+          </div>
+          <div class="mono text-[26px] font-600 leading-none tnum">1</div>
+          <div class="text-[12px] text-muted mt-1.5">active client</div>
+        </div>
+        <div class="bg-surface border border-c rounded-[10px] p-4 shadow-sm2">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="msym text-[18px] text-secondary">schedule</span>
+            <span class="text-[11px] font-600 track-wide uppercase text-muted">Uptime</span>
+          </div>
+          <div class="mono text-[26px] font-600 leading-none tnum">4h 12m</div>
+          <div class="text-[12px] text-muted mt-1.5">since 08:14</div>
+        </div>
+        <div class="bg-surface border border-c rounded-[10px] p-4 shadow-sm2">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="msym text-[18px] text-secondary">swap_vert</span>
+            <span class="text-[11px] font-600 track-wide uppercase text-muted">Transferred</span>
+          </div>
+          <div class="mono text-[26px] font-600 leading-none tnum">1.4 GB</div>
+          <div class="text-[12px] text-muted mt-1.5">this session</div>
+        </div>
+      </section>
+
+      <!-- Grid: QR (1/3) + Services/Clients (2/3) -->
+      <section class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        <!-- QR card -->
+        <div class="bg-surface border border-c rounded-[10px] shadow-c p-5 flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-[14px] font-600">Pair a device</h2>
+            <span class="inline-flex items-center gap-1.5 text-[11px] font-600 px-2 py-0.5 rounded-full bg-accent-tint" style="color:var(--accent)">
+              <span class="w-1.5 h-1.5 rounded-full bg-accent"></span>Ready
+            </span>
+          </div>
+
+          <div class="self-center p-3 bg-white rounded-[10px] border border-c shadow-sm2">
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=9remote.cc" alt="Scan to pair device" width="180" height="180" class="block rounded-[4px]" />
+          </div>
+
+          <div class="mt-4">
+            <div class="text-[11px] font-600 track-wide uppercase text-muted mb-1.5">Pairing key</div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 bg-surface-2 border border-c rounded-[9px] px-3 py-2.5 mono text-[16px] font-600 tracking-wider text-center" id="pairKey">8F2K-9DXQ</div>
+              <button onclick="copyKey(this)" aria-label="Copy pairing key" class="w-10 h-10 flex-none rounded-[9px] border border-c bg-surface hover:bg-surface-2 trans press ring-focus flex items-center justify-center">
+                <span class="msym text-[19px]" data-copy-icon>content_copy</span>
+              </button>
+            </div>
+          </div>
+
+          <button class="mt-3 w-full h-10 rounded-[9px] border border-c bg-surface hover:bg-surface-2 trans press ring-focus flex items-center justify-center gap-2 text-[13px] font-500">
+            <span class="msym text-[18px] text-secondary">autorenew</span>Generate new key
+          </button>
+
+          <div class="mt-5 pt-4 border-t border-c">
+            <div class="text-[11px] font-600 track-wide uppercase text-muted mb-1.5">Tunnel URL</div>
+            <div class="flex items-center gap-2">
+              <a href="#" class="flex-1 min-w-0 mono text-[12.5px] text-secondary truncate hover:underline ring-focus rounded" title="https://calm-river-8821.trycloudflare.com">https://calm-river-8821.trycloudflare.com</a>
+              <button onclick="copyText('https://calm-river-8821.trycloudflare.com', this)" aria-label="Copy tunnel URL" class="w-8 h-8 flex-none rounded-[8px] border border-c hover:bg-surface-2 trans press ring-focus flex items-center justify-center">
+                <span class="msym text-[16px]" data-copy-icon>content_copy</span>
+              </button>
+            </div>
+            <button class="mt-3 w-full h-10 rounded-[9px] trans press ring-focus flex items-center justify-center gap-2 text-[13px] font-600" style="color:var(--destructive); background:color-mix(in srgb, var(--destructive) 8%, transparent);">
+              <span class="msym text-[18px]">stop_circle</span>Stop tunnel
+            </button>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <div class="lg:col-span-2 flex flex-col gap-5">
+
+          <!-- Services -->
+          <div class="bg-surface border border-c rounded-[10px] shadow-c p-5">
+            <div class="flex items-center gap-2 mb-4">
+              <span class="msym text-[19px] text-secondary">tune</span>
+              <h2 class="text-[14px] font-600">Services</h2>
+            </div>
+
+            <ul class="flex flex-col divide-y" style="--tw-divide-opacity:1;">
+              <!-- Terminal -->
+              <li class="flex items-center gap-3 py-3">
+                <span class="w-9 h-9 rounded-[9px] bg-primary-tint flex items-center justify-center flex-none">
+                  <span class="msym text-[19px] text-secondary">terminal</span>
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[13.5px] font-600">Terminal</div>
+                  <div class="text-[12px] text-muted">Always on · PTY sessions</div>
+                </div>
+                <span class="inline-flex items-center gap-1.5 text-[11px] font-600 px-2 py-1 rounded-full bg-accent-tint" style="color:var(--accent)">
+                  <span class="w-1.5 h-1.5 rounded-full bg-accent"></span>Active
+                </span>
+              </li>
+
+              <!-- Desktop -->
+              <li class="flex items-start gap-3 py-3">
+                <span class="w-9 h-9 rounded-[9px] bg-surface-2 flex items-center justify-center flex-none">
+                  <span class="msym text-[19px] text-muted">desktop_windows</span>
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="text-[13.5px] font-600">Desktop</div>
+                    <button role="switch" aria-checked="false" aria-label="Toggle Desktop service" onclick="toggleSwitch(this)" class="switch trans ring-focus press"></button>
+                  </div>
+                  <div class="text-[12px] text-muted mt-0.5 mb-2">Screen streaming over WebRTC</div>
+                  <div class="flex flex-wrap gap-2">
+                    <span class="inline-flex items-center gap-1.5 text-[11.5px] px-2 py-1 rounded-[7px] bg-accent-tint" style="color:var(--accent)">
+                      <span class="msym text-[15px]">check_circle</span>Screen Recording
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 text-[11.5px] px-2 py-1 rounded-[7px]" style="color:var(--destructive); background:color-mix(in srgb, var(--destructive) 8%, transparent);">
+                      <span class="msym text-[15px]">cancel</span>Accessibility
+                    </span>
+                  </div>
+                </div>
+              </li>
+
+              <!-- Auto-start -->
+              <li class="flex items-center gap-3 py-3">
+                <span class="w-9 h-9 rounded-[9px] bg-surface-2 flex items-center justify-center flex-none">
+                  <span class="msym text-[19px] text-muted">rocket_launch</span>
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[13.5px] font-600">Auto-start</div>
+                  <div class="text-[12px] text-muted">Launch host at login</div>
+                </div>
+                <button role="switch" aria-checked="true" aria-label="Toggle Auto-start" onclick="toggleSwitch(this)" class="switch trans ring-focus press"></button>
+              </li>
+
+              <!-- Keep awake -->
+              <li class="flex items-center gap-3 py-3">
+                <span class="w-9 h-9 rounded-[9px] bg-surface-2 flex items-center justify-center flex-none">
+                  <span class="msym text-[19px] text-muted">bolt</span>
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[13.5px] font-600">Keep awake</div>
+                  <div class="text-[12px] text-muted">Prevent sleep while hosting</div>
+                </div>
+                <label class="sr-only" for="keepAwake">Keep awake mode</label>
+                <select id="keepAwake" class="sel rounded-[9px] px-3 h-9 text-[12.5px] font-500 ring-focus trans">
+                  <option>Off</option>
+                  <option selected>While connected</option>
+                  <option>Always</option>
+                </select>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Clients -->
+          <div class="bg-surface border border-c rounded-[10px] shadow-c p-5">
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-2">
+                <span class="msym text-[19px] text-secondary">group</span>
+                <h2 class="text-[14px] font-600">Clients</h2>
+              </div>
+              <span class="mono text-[12px] text-muted tnum">3 devices</span>
+            </div>
+
+            <ul class="flex flex-col gap-3">
+              <!-- iPhone -->
+              <li class="flex items-center gap-3 p-3 rounded-[10px] border border-c bg-surface-2/40">
+                <span class="w-9 h-9 rounded-[9px] bg-surface flex items-center justify-center border border-c flex-none">
+                  <span class="msym text-[19px]">smartphone</span>
+                </span>
+                <div class="min-w-0 flex-1 leading-tight">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13.5px] font-600 truncate">iPhone 15 Pro</span>
+                    <span class="inline-flex items-center gap-1 text-[11px] font-600" style="color:var(--accent)">
+                      <span class="w-1.5 h-1.5 rounded-full bg-accent"></span>Online
+                    </span>
+                  </div>
+                  <div class="text-[12px] text-muted mono">192.168.1.24 · connected 12:04</div>
+                </div>
+                <button class="h-9 px-3 rounded-[9px] border border-c bg-surface hover:bg-surface-2 trans press ring-focus text-[12.5px] font-600" style="color:var(--destructive)">Disconnect</button>
+              </li>
+
+              <!-- MacBook -->
+              <li class="flex items-center gap-3 p-3 rounded-[10px] border border-c">
+                <span class="w-9 h-9 rounded-[9px] bg-surface-2 flex items-center justify-center flex-none">
+                  <span class="msym text-[19px] text-muted">laptop_mac</span>
+                </span>
+                <div class="min-w-0 flex-1 leading-tight">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13.5px] font-600 truncate">MacBook Air</span>
+                    <span class="inline-flex items-center gap-1 text-[11px] font-600 text-muted">
+                      <span class="w-1.5 h-1.5 rounded-full bg-[color:var(--muted-foreground)]"></span>Offline
+                    </span>
+                  </div>
+                  <div class="text-[12px] text-muted">Approved 2 days ago</div>
+                </div>
+                <button class="h-9 px-3 rounded-[9px] border border-c bg-surface hover:bg-surface-2 trans press ring-focus text-[12.5px] font-500 text-muted">Remove</button>
+              </li>
+
+              <!-- Pixel -->
+              <li class="flex items-center gap-3 p-3 rounded-[10px] border" style="border-color:color-mix(in srgb, var(--warn) 40%, var(--border)); background:var(--warn-tint);">
+                <span class="w-9 h-9 rounded-[9px] bg-surface flex items-center justify-center border border-c flex-none">
+                  <span class="msym text-[19px]">smartphone</span>
+                </span>
+                <div class="min-w-0 flex-1 leading-tight">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13.5px] font-600 truncate">Pixel 8</span>
+                    <span class="inline-flex items-center gap-1 text-[11px] font-600" style="color:var(--warn)">
+                      <span class="w-1.5 h-1.5 rounded-full" style="background:var(--warn)"></span>Pending
+                    </span>
+                  </div>
+                  <div class="text-[12px] text-muted">Waiting for approval</div>
+                </div>
+                <div class="flex items-center gap-2 flex-none">
+                  <button aria-label="Deny Pixel 8" class="w-9 h-9 rounded-[9px] border border-c bg-surface hover:bg-surface-2 trans press ring-focus flex items-center justify-center">
+                    <span class="msym text-[18px] text-muted">close</span>
+                  </button>
+                  <button class="h-9 px-3.5 rounded-[9px] bg-secondary text-white hover:brightness-95 trans press ring-focus text-[12.5px] font-600 flex items-center gap-1.5">
+                    <span class="msym text-[17px]">check</span>Approve
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+        </div>
+      </section>
+
+      <footer class="text-[11.5px] text-muted text-center py-2">9Remote host · secured via Cloudflare tunnel</footer>
+    </main>
+  </div>
+</div>
+
+<script>
+  function toggleTheme() {
+    const html = document.documentElement;
+    const dark = html.getAttribute("data-theme") === "dark";
+    html.setAttribute("data-theme", dark ? "light" : "dark");
+    document.getElementById("themeIcon").textContent = dark ? "dark_mode" : "light_mode";
+  }
+  function toggleSwitch(el) {
+    el.setAttribute("aria-checked", el.getAttribute("aria-checked") === "true" ? "false" : "true");
+  }
+  function copyText(text, btn) {
+    navigator.clipboard && navigator.clipboard.writeText(text);
+    const icon = btn.querySelector("[data-copy-icon]");
+    if (!icon) return;
+    const prev = icon.textContent;
+    icon.textContent = "check";
+    icon.style.color = "var(--accent)";
+    setTimeout(() => { icon.textContent = prev; icon.style.color = ""; }, 1400);
+  }
+  function copyKey(btn) {
+    copyText(document.getElementById("pairKey").textContent.trim(), btn);
+  }
+  function openDrawer() {
+    document.getElementById("sidebar").classList.remove("drawer-hidden");
+    document.getElementById("scrim").classList.remove("hidden");
+  }
+  function closeDrawer() {
+    document.getElementById("sidebar").classList.add("drawer-hidden");
+    document.getElementById("scrim").classList.add("hidden");
+  }
+</script>
+</body>
+</html>

@@ -1,13 +1,13 @@
 // Block system sleep, allow display sleep — keeps agent reachable.
 // Mode-based: "never" = always on; "30m/1h/..." = auto-off after N idle (no active connections).
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("sleep");
 
 const PLATFORM_CMD = {
-  darwin: { cmd: "caffeinate", args: ["-imsd"] },
+  darwin: { cmd: "caffeinate", args: ["-imsd", "-w", String(process.pid)] },
   linux:  { cmd: "systemd-inhibit", args: ["--what=idle:sleep:handle-lid-switch", "--who=9remote", "--why=remote-active", "sleep", "infinity"] },
   win32:  {
     cmd: "powershell.exe",
@@ -26,6 +26,21 @@ function registerExitHook() {
   if (exitHookRegistered) return;
   exitHookRegistered = true;
   process.on("exit", () => { if (proc) { try { proc.kill(); } catch {} proc = null; } });
+}
+
+// Kill leaked caffeinate from crashed older versions (orphaned → reparented to launchd)
+let orphansReaped = false;
+function reapOrphans() {
+  if (orphansReaped) return;
+  orphansReaped = true;
+  if (process.platform !== "darwin") return;
+  try {
+    const out = execSync("pgrep -f 'caffeinate -imsd'", { encoding: "utf8" }).trim();
+    for (const pid of out.split("\n").filter(Boolean)) {
+      const ppid = execSync(`ps -o ppid= -p ${pid}`, { encoding: "utf8" }).trim();
+      if (ppid === "1") { try { process.kill(Number(pid)); } catch {} } // ppid=1 → orphan
+    }
+  } catch {}
 }
 
 function spawnProc() {
@@ -67,6 +82,7 @@ function isValidMode(m) {
 
 // Core reconciler — decides whether to run proc + arm idle timer based on mode + connections
 function reconcile() {
+  reapOrphans();
   clearIdleTimer();
   if (mode === "never") {
     spawnProc();

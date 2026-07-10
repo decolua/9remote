@@ -81,7 +81,7 @@ export default function CommandSuggestions({ value, store, commonCommands = [], 
         : <History size={13} className="text-text-muted" />;
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-1 z-40 rounded-brand overflow-hidden bg-surface-1/95 backdrop-blur-xl shadow-xl ring-1 ring-border">
+    <div className="absolute bottom-full left-0 right-0 mb-1 z-40 rounded-brand overflow-hidden bg-surface/95 backdrop-blur-xl shadow-xl ring-1 ring-border">
       <button
         type="button"
         onMouseDown={(e) => e.preventDefault()}

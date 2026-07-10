@@ -13,6 +13,9 @@ const PATHS = {
   arrowLeft: <><path d="m12 19-7-7 7-7" /><path d="M19 12H5" /></>,
   cornerDownLeft: <><path d="M20 4v7a4 4 0 0 1-4 4H4" /><path d="m9 10-5 5 5 5" /></>,
   language: <><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></>,
+  paperclip: <><path d="M13.234 20.252 21 12.3a4.243 4.243 0 0 0-6-6L5.548 15.606a2.828 2.828 0 0 0 4 4L18 11.152" /></>,
+  x: <><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>,
+  history: <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></>,
 };
 
 export default function Icon({ name, size = 20, color, className = "", ...props }) {

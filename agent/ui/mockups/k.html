@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>9Remote · Connection</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,300,0,0" />
+<style>
+  :root[data-theme="dark"]{
+    --background:#020617;
+    --card:#0E1223;
+    --surface-2:#1A1E2F;
+    --primary:#0F172A;
+    --secondary:#1E293B;
+    --accent:#22C55E;
+    --accent-weak:rgba(34,197,94,.10);
+    --accent-border:rgba(34,197,94,.28);
+    --foreground:#F8FAFC;
+    --muted-foreground:#94A3B8;
+    --border:#334155;
+    --border-soft:#232838;
+    --destructive:#EF4444;
+    --warn:#F59E0B;
+    --ring:#22C55E;
+    --inner-hi:rgba(248,250,252,.03);
+    --shadow:0 8px 30px -12px rgba(2,6,23,.9);
+  }
+  :root[data-theme="light"]{
+    --background:#F8FAFC;
+    --card:#FFFFFF;
+    --surface-2:#F1F3F5;
+    --primary:#FFFFFF;
+    --secondary:#EEF1F5;
+    --accent:#16A34A;
+    --accent-weak:rgba(22,163,74,.09);
+    --accent-border:rgba(22,163,74,.30);
+    --foreground:#0F172A;
+    --muted-foreground:#64748B;
+    --border:#E4E7EB;
+    --border-soft:#EAEDF1;
+    --destructive:#DC2626;
+    --warn:#D97706;
+    --ring:#16A34A;
+    --inner-hi:rgba(15,23,42,.02);
+    --shadow:0 8px 24px -14px rgba(15,23,42,.25);
+  }
+
+  *{ -webkit-tap-highlight-color:transparent; }
+  html,body{ background:var(--background); color:var(--foreground); }
+  body{ font-family:"Fira Sans", system-ui, sans-serif; }
+  .mono{ font-family:"Fira Code", ui-monospace, monospace; font-variant-numeric:tabular-nums; }
+  .num{ font-family:"Fira Code", ui-monospace, monospace; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+  .msym{ font-family:"Material Symbols Outlined"; font-weight:300; font-style:normal; line-height:1; letter-spacing:normal; text-transform:none; white-space:nowrap; word-wrap:normal; direction:ltr; -webkit-font-feature-settings:'liga'; }
+
+  .bento{
+    background:var(--card);
+    border:1px solid var(--border-soft);
+    border-radius:16px;
+    box-shadow:inset 0 1px 0 var(--inner-hi);
+  }
+  .bento-2{ background:var(--surface-2); }
+  .bento-accent{
+    background:
+      linear-gradient(180deg, var(--accent-weak), transparent 60%),
+      var(--card);
+    border-color:var(--accent-border);
+  }
+
+  .transition-fluid{ transition:all .22s cubic-bezier(.16,1,.3,1); }
+  .press:active{ transform:scale(.98); }
+
+  :focus-visible{ outline:2px solid var(--ring); outline-offset:2px; border-radius:12px; }
+
+  .seg-btn[data-active="true"]{ background:var(--secondary); color:var(--foreground); }
+  .seg-btn{ color:var(--muted-foreground); }
+
+  /* toggle switch */
+  .sw{ width:44px; height:26px; border-radius:999px; background:var(--secondary); border:1px solid var(--border); position:relative; flex:none; }
+  .sw[data-on="true"]{ background:var(--accent); border-color:var(--accent); }
+  .sw .knob{ position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:999px; background:var(--foreground); transition:transform .22s cubic-bezier(.16,1,.3,1); box-shadow:0 1px 2px rgba(0,0,0,.4); }
+  :root[data-theme="dark"] .sw[data-on="true"] .knob{ background:#052e16; }
+  :root[data-theme="light"] .sw .knob{ background:#FFFFFF; }
+  :root[data-theme="light"] .sw[data-on="true"] .knob{ background:#FFFFFF; }
+  .sw[data-on="true"] .knob{ transform:translateX(18px); }
+
+  .divide-soft > * + *{ border-top:1px solid var(--border-soft); }
+
+  select.native{
+    background:var(--secondary); color:var(--foreground); border:1px solid var(--border);
+    border-radius:10px; padding:6px 30px 6px 10px; -webkit-appearance:none; appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 8px center;
+  }
+
+  .dot{ width:8px; height:8px; border-radius:999px; flex:none; }
+  .pulse{ box-shadow:0 0 0 0 var(--accent); animation:pulse 2.4s infinite; }
+  @keyframes pulse{ 0%{ box-shadow:0 0 0 0 var(--accent-border);} 70%{ box-shadow:0 0 0 6px transparent;} 100%{ box-shadow:0 0 0 0 transparent;} }
+
+  .status-pill{ background:var(--surface-2); border:1px solid var(--border-soft); }
+
+  #mobileMenu{ display:none; }
+  #mobileMenu[data-open="true"]{ display:block; }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ transition:none !important; animation:none !important; }
+    .press:active{ transform:none; }
+  }
+</style>
+</head>
+<body class="min-h-[100dvh]">
+  <div class="min-h-[100dvh] mx-auto max-w-[1240px] px-4 sm:px-6 pb-16">
+
+    <!-- TOP BAR -->
+    <header class="sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 backdrop-blur-md" style="background:color-mix(in srgb, var(--background) 82%, transparent); border-bottom:1px solid var(--border-soft);">
+      <div class="flex items-center gap-3">
+        <!-- wordmark -->
+        <div class="flex items-center gap-2 flex-none">
+          <span class="msym text-[22px]" style="color:var(--accent)" aria-hidden="true">bolt</span>
+          <span class="mono font-bold text-[17px] tracking-tight">9Remote</span>
+          <span class="num text-[11px] px-1.5 py-0.5 rounded-md" style="background:var(--surface-2); color:var(--muted-foreground)">v2.4.1</span>
+        </div>
+
+        <!-- tunnel pill -->
+        <div class="status-pill hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-full flex-none">
+          <span class="dot pulse" style="background:var(--accent)"></span>
+          <span class="text-[12px] font-medium">Tunnel healthy</span>
+          <span class="num text-[12px]" style="color:var(--muted-foreground)">28ms</span>
+        </div>
+
+        <!-- segmented nav (desktop) -->
+        <nav class="hidden md:flex items-center gap-1 ml-auto p-1 rounded-xl" style="background:var(--surface-2); border:1px solid var(--border-soft)">
+          <button class="seg-btn transition-fluid press cursor-pointer mono text-[13px] font-medium px-3.5 py-1.5 rounded-lg" data-active="true">Connection</button>
+          <button class="seg-btn transition-fluid press cursor-pointer mono text-[13px] font-medium px-3.5 py-1.5 rounded-lg" data-active="false">Terminals</button>
+          <button class="seg-btn transition-fluid press cursor-pointer mono text-[13px] font-medium px-3.5 py-1.5 rounded-lg" data-active="false">Logs</button>
+        </nav>
+
+        <div class="flex items-center gap-1.5 ml-auto md:ml-2 flex-none">
+          <button id="themeBtn" class="transition-fluid press cursor-pointer grid place-items-center w-9 h-9 rounded-xl" style="background:var(--surface-2); border:1px solid var(--border-soft)" aria-label="Toggle theme">
+            <span class="msym text-[20px]" id="themeIcon" aria-hidden="true">dark_mode</span>
+          </button>
+          <button class="transition-fluid press cursor-pointer grid place-items-center w-9 h-9 rounded-xl" style="background:var(--surface-2); border:1px solid var(--border-soft)" aria-label="Settings">
+            <span class="msym text-[20px]" aria-hidden="true">settings</span>
+          </button>
+          <button id="menuBtn" class="md:hidden transition-fluid press cursor-pointer grid place-items-center w-9 h-9 rounded-xl" style="background:var(--surface-2); border:1px solid var(--border-soft)" aria-label="Open menu" aria-expanded="false">
+            <span class="msym text-[20px]" aria-hidden="true">menu</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- mobile menu -->
+      <div id="mobileMenu" data-open="false" class="md:hidden mt-3">
+        <nav class="flex flex-col gap-1 p-1.5 rounded-xl" style="background:var(--surface-2); border:1px solid var(--border-soft)">
+          <button class="seg-btn transition-fluid press cursor-pointer mono text-[14px] text-left font-medium px-3 py-2.5 rounded-lg" data-active="true">Connection</button>
+          <button class="seg-btn transition-fluid press cursor-pointer mono text-[14px] text-left font-medium px-3 py-2.5 rounded-lg" data-active="false">Terminals</button>
+          <button class="seg-btn transition-fluid press cursor-pointer mono text-[14px] text-left font-medium px-3 py-2.5 rounded-lg" data-active="false">Logs</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="mt-5">
+      <div class="flex items-baseline justify-between mb-4">
+        <h1 class="mono text-[15px] font-semibold tracking-tight" style="color:var(--muted-foreground)">Connection <span style="color:var(--accent)">/ READY</span></h1>
+        <span class="num text-[12px]" style="color:var(--muted-foreground)">host: studio-mini</span>
+      </div>
+
+      <!-- BENTO GRID -->
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-3 sm:gap-4">
+
+        <!-- STAT ROW -->
+        <div class="bento bento-accent transition-fluid md:col-span-4 p-4">
+          <div class="flex items-center justify-between">
+            <span class="mono text-[11px] uppercase tracking-wider" style="color:var(--muted-foreground)">Connected</span>
+            <span class="msym text-[18px]" style="color:var(--accent)" aria-hidden="true">devices</span>
+          </div>
+          <div class="mt-2 flex items-baseline gap-2">
+            <span class="num text-[34px] font-semibold leading-none">1</span>
+            <span class="text-[12px] font-medium" style="color:var(--muted-foreground)">active client</span>
+          </div>
+        </div>
+
+        <div class="bento bento-2 transition-fluid md:col-span-4 p-4">
+          <div class="flex items-center justify-between">
+            <span class="mono text-[11px] uppercase tracking-wider" style="color:var(--muted-foreground)">Uptime</span>
+            <span class="msym text-[18px]" style="color:var(--muted-foreground)" aria-hidden="true">schedule</span>
+          </div>
+          <div class="mt-2 flex items-baseline gap-2">
+            <span class="num text-[34px] font-semibold leading-none">4h 12m</span>
+          </div>
+        </div>
+
+        <div class="bento bento-2 transition-fluid md:col-span-4 p-4">
+          <div class="flex items-center justify-between">
+            <span class="mono text-[11px] uppercase tracking-wider" style="color:var(--muted-foreground)">Transferred</span>
+            <span class="msym text-[18px]" style="color:var(--muted-foreground)" aria-hidden="true">swap_vert</span>
+          </div>
+          <div class="mt-2 flex items-baseline gap-2">
+            <span class="num text-[34px] font-semibold leading-none">1.4</span>
+            <span class="text-[13px] font-medium" style="color:var(--muted-foreground)">GB</span>
+          </div>
+        </div>
+
+        <!-- QR (col-5, span 2 rows) -->
+        <div class="bento transition-fluid md:col-span-5 md:row-span-2 p-4 flex flex-col">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="msym text-[18px]" style="color:var(--accent)" aria-hidden="true">qr_code_2</span>
+            <h2 class="mono text-[13px] font-semibold uppercase tracking-wider">Pair device</h2>
+          </div>
+
+          <div class="grid place-items-center p-3 rounded-2xl mb-3" style="background:var(--surface-2); border:1px solid var(--border-soft)">
+            <img
+              src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=9remote.cc&bgcolor=0E1223&color=F8FAFC"
+              alt="QR code to pair a device with 9Remote"
+              width="200" height="200"
+              class="rounded-lg w-[176px] h-[176px]" />
+          </div>
+
+          <!-- key + copy -->
+          <div class="flex items-center gap-2 mb-3">
+            <div class="flex-1 flex items-center justify-between px-3 py-2.5 rounded-xl" style="background:var(--surface-2); border:1px solid var(--border-soft)">
+              <span class="num text-[16px] font-semibold tracking-widest" id="pairKey">8F2K-9DXQ</span>
+              <button class="copyBtn transition-fluid press cursor-pointer grid place-items-center w-8 h-8 rounded-lg" data-copy="8F2K-9DXQ" style="background:var(--secondary)" aria-label="Copy pairing key">
+                <span class="msym text-[18px]" aria-hidden="true">content_copy</span>
+              </button>
+            </div>
+          </div>
+
+          <button class="transition-fluid press cursor-pointer w-full flex items-center justify-center gap-2 py-2.5 rounded-xl mono text-[13px] font-medium mb-4" style="background:var(--secondary); border:1px solid var(--border)">
+            <span class="msym text-[17px]" aria-hidden="true">refresh</span>
+            Generate new key
+          </button>
+
+          <!-- tunnel url -->
+          <div class="mt-auto pt-3" style="border-top:1px solid var(--border-soft)">
+            <span class="mono text-[10px] uppercase tracking-wider" style="color:var(--muted-foreground)">Tunnel URL</span>
+            <div class="flex items-center gap-2 mt-1.5">
+              <span class="num text-[12px] truncate flex-1" style="color:var(--foreground)">https://calm-river-8821.trycloudflare.com</span>
+              <button class="copyBtn transition-fluid press cursor-pointer grid place-items-center w-8 h-8 rounded-lg flex-none" data-copy="https://calm-river-8821.trycloudflare.com" style="background:var(--surface-2); border:1px solid var(--border-soft)" aria-label="Copy tunnel URL">
+                <span class="msym text-[16px]" aria-hidden="true">content_copy</span>
+              </button>
+            </div>
+            <button class="transition-fluid press cursor-pointer w-full mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-medium" style="background:color-mix(in srgb, var(--destructive) 12%, transparent); color:var(--destructive); border:1px solid color-mix(in srgb, var(--destructive) 30%, transparent)">
+              <span class="msym text-[17px]" aria-hidden="true">stop_circle</span>
+              Stop tunnel
+            </button>
+          </div>
+        </div>
+
+        <!-- REMOTE SERVICES (col-7) -->
+        <div class="bento bento-2 transition-fluid md:col-span-7 p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="msym text-[18px]" style="color:var(--muted-foreground)" aria-hidden="true">tune</span>
+            <h2 class="mono text-[13px] font-semibold uppercase tracking-wider">Remote services</h2>
+          </div>
+
+          <div class="divide-soft rounded-xl overflow-hidden" style="border:1px solid var(--border-soft); background:var(--card)">
+            <!-- Terminal -->
+            <div class="flex items-center gap-3 px-3.5 py-3">
+              <span class="msym text-[20px]" style="color:var(--accent)" aria-hidden="true">terminal</span>
+              <div class="flex-1 min-w-0">
+                <div class="text-[14px] font-medium">Terminal</div>
+                <div class="text-[12px]" style="color:var(--muted-foreground)">Always on · PTY daemon</div>
+              </div>
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full mono text-[11px] font-medium" style="background:var(--accent-weak); color:var(--accent); border:1px solid var(--accent-border)">
+                <span class="dot" style="background:var(--accent)"></span>Active
+              </span>
+            </div>
+
+            <!-- Desktop -->
+            <div class="flex items-center gap-3 px-3.5 py-3">
+              <span class="msym text-[20px]" style="color:var(--muted-foreground)" aria-hidden="true">desktop_windows</span>
+              <div class="flex-1 min-w-0">
+                <div class="text-[14px] font-medium">Desktop</div>
+                <div class="flex items-center gap-3 mt-1 text-[11px]" style="color:var(--muted-foreground)">
+                  <span class="inline-flex items-center gap-1"><span class="msym text-[14px]" style="color:var(--accent)" aria-hidden="true">check_circle</span>Screen Recording</span>
+                  <span class="inline-flex items-center gap-1"><span class="msym text-[14px]" style="color:var(--destructive)" aria-hidden="true">cancel</span>Accessibility</span>
+                </div>
+              </div>
+              <button class="sw toggle transition-fluid press cursor-pointer" data-on="false" role="switch" aria-checked="false" aria-label="Toggle Desktop service"><span class="knob"></span></button>
+            </div>
+
+            <!-- Auto-start -->
+            <div class="flex items-center gap-3 px-3.5 py-3">
+              <span class="msym text-[20px]" style="color:var(--muted-foreground)" aria-hidden="true">rocket_launch</span>
+              <div class="flex-1 min-w-0">
+                <div class="text-[14px] font-medium">Auto-start</div>
+                <div class="text-[12px]" style="color:var(--muted-foreground)">Launch on login</div>
+              </div>
+              <button class="sw toggle transition-fluid press cursor-pointer" data-on="true" role="switch" aria-checked="true" aria-label="Toggle Auto-start"><span class="knob"></span></button>
+            </div>
+
+            <!-- Keep awake -->
+            <div class="flex items-center gap-3 px-3.5 py-3">
+              <span class="msym text-[20px]" style="color:var(--muted-foreground)" aria-hidden="true">coffee</span>
+              <div class="flex-1 min-w-0">
+                <div class="text-[14px] font-medium">Keep awake</div>
+                <div class="text-[12px]" style="color:var(--muted-foreground)">Prevent host sleep</div>
+              </div>
+              <select class="native mono text-[12px] font-medium transition-fluid cursor-pointer" aria-label="Keep awake mode">
+                <option>Off</option>
+                <option selected>While connected</option>
+                <option>Always</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- CLIENTS (col-7, under services) -->
+        <div class="bento transition-fluid md:col-span-7 p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="msym text-[18px]" style="color:var(--muted-foreground)" aria-hidden="true">groups</span>
+              <h2 class="mono text-[13px] font-semibold uppercase tracking-wider">Clients</h2>
+            </div>
+            <span class="num text-[11px] px-2 py-0.5 rounded-md" style="background:var(--surface-2); color:var(--muted-foreground)">3 total</span>
+          </div>
+
+          <div class="flex flex-col gap-2.5">
+            <!-- iPhone online -->
+            <div class="flex items-center gap-3 p-3 rounded-xl" style="background:var(--surface-2); border:1px solid var(--border-soft)">
+              <span class="msym text-[22px]" style="color:var(--foreground)" aria-hidden="true">smartphone</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-medium truncate">iPhone 15 Pro</span>
+                  <span class="inline-flex items-center gap-1 mono text-[10px] font-medium px-1.5 py-0.5 rounded" style="background:var(--accent-weak); color:var(--accent)"><span class="dot" style="background:var(--accent)"></span>Online</span>
+                </div>
+                <div class="num text-[12px] mt-0.5 truncate" style="color:var(--muted-foreground)">192.168.1.24 · connected 12:04</div>
+              </div>
+              <button class="transition-fluid press cursor-pointer flex-none px-3 py-1.5 rounded-lg text-[12px] font-medium" style="background:color-mix(in srgb, var(--destructive) 12%, transparent); color:var(--destructive)">Disconnect</button>
+            </div>
+
+            <!-- MacBook offline -->
+            <div class="flex items-center gap-3 p-3 rounded-xl" style="background:var(--surface-2); border:1px solid var(--border-soft); opacity:.82">
+              <span class="msym text-[22px]" style="color:var(--muted-foreground)" aria-hidden="true">laptop_mac</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-medium truncate">MacBook Air</span>
+                  <span class="inline-flex items-center gap-1 mono text-[10px] font-medium px-1.5 py-0.5 rounded" style="background:var(--secondary); color:var(--muted-foreground)"><span class="dot" style="background:var(--muted-foreground)"></span>Offline</span>
+                </div>
+                <div class="text-[12px] mt-0.5 truncate" style="color:var(--muted-foreground)">Approved 2 days ago</div>
+              </div>
+              <button class="transition-fluid press cursor-pointer flex-none px-3 py-1.5 rounded-lg text-[12px] font-medium" style="background:var(--secondary); color:var(--muted-foreground)">Remove</button>
+            </div>
+
+            <!-- Pixel pending -->
+            <div class="flex items-center gap-3 p-3 rounded-xl" style="background:color-mix(in srgb, var(--warn) 8%, var(--surface-2)); border:1px solid color-mix(in srgb, var(--warn) 32%, transparent)">
+              <span class="msym text-[22px]" style="color:var(--warn)" aria-hidden="true">smartphone</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-medium truncate">Pixel 8</span>
+                  <span class="inline-flex items-center gap-1 mono text-[10px] font-medium px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--warn) 16%, transparent); color:var(--warn)">Pending</span>
+                </div>
+                <div class="text-[12px] mt-0.5 truncate" style="color:var(--muted-foreground)">Waiting approval</div>
+              </div>
+              <button class="transition-fluid press cursor-pointer flex-none inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold" style="background:var(--accent); color:#052e16">
+                <span class="msym text-[15px]" aria-hidden="true">check</span>Approve
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RECENT ACTIVITY (full width strip) -->
+        <div class="bento bento-2 transition-fluid md:col-span-12 p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="msym text-[18px]" style="color:var(--muted-foreground)" aria-hidden="true">history</span>
+            <h2 class="mono text-[13px] font-semibold uppercase tracking-wider">Recent activity</h2>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div class="flex items-center gap-3 p-3 rounded-xl" style="background:var(--card); border:1px solid var(--border-soft)">
+              <span class="grid place-items-center w-9 h-9 rounded-full flex-none mono text-[13px] font-semibold" style="background:var(--accent-weak); color:var(--accent)">cl</span>
+              <div class="flex-1 min-w-0">
+                <div class="text-[13px]"><span class="mono font-semibold">claude</span> · <span class="num">api-refactor</span></div>
+                <div class="text-[12px] inline-flex items-center gap-1" style="color:var(--accent)"><span class="msym text-[14px]" aria-hidden="true">check_circle</span>done</div>
+              </div>
+              <span class="num text-[12px] flex-none" style="color:var(--muted-foreground)">3m</span>
+            </div>
+            <div class="flex items-center gap-3 p-3 rounded-xl" style="background:var(--card); border:1px solid var(--border-soft)">
+              <span class="grid place-items-center w-9 h-9 rounded-full flex-none mono text-[13px] font-semibold" style="background:color-mix(in srgb, var(--warn) 16%, transparent); color:var(--warn)">co</span>
+              <div class="flex-1 min-w-0">
+                <div class="text-[13px]"><span class="mono font-semibold">codex</span> · session</div>
+                <div class="text-[12px] inline-flex items-center gap-1" style="color:var(--warn)"><span class="msym text-[14px]" aria-hidden="true">pending</span>needs input</div>
+              </div>
+              <span class="num text-[12px] flex-none" style="color:var(--muted-foreground)">8m</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- toast -->
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 translate-y-4 opacity-0 pointer-events-none transition-fluid px-4 py-2.5 rounded-xl mono text-[13px] font-medium z-50" style="background:var(--card); border:1px solid var(--accent-border); color:var(--foreground); box-shadow:var(--shadow)">
+    <span class="inline-flex items-center gap-2"><span class="msym text-[16px]" style="color:var(--accent)" aria-hidden="true">check</span><span id="toastMsg">Copied</span></span>
+  </div>
+
+<script>
+  const root = document.documentElement;
+
+  // theme toggle
+  const themeIcon = document.getElementById("themeIcon");
+  function applyThemeIcon(){
+    themeIcon.textContent = root.getAttribute("data-theme") === "dark" ? "dark_mode" : "light_mode";
+  }
+  applyThemeIcon();
+  document.getElementById("themeBtn").addEventListener("click", () => {
+    root.setAttribute("data-theme", root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+    applyThemeIcon();
+  });
+
+  // mobile menu
+  const menu = document.getElementById("mobileMenu");
+  const menuBtn = document.getElementById("menuBtn");
+  menuBtn.addEventListener("click", () => {
+    const open = menu.getAttribute("data-open") === "true";
+    menu.setAttribute("data-open", String(!open));
+    menuBtn.setAttribute("aria-expanded", String(!open));
+  });
+
+  // toggles
+  document.querySelectorAll(".toggle").forEach(sw => {
+    sw.addEventListener("click", () => {
+      const on = sw.getAttribute("data-on") === "true";
+      sw.setAttribute("data-on", String(!on));
+      sw.setAttribute("aria-checked", String(!on));
+    });
+  });
+
+  // segmented nav
+  function bindSeg(scope){
+    scope.querySelectorAll(".seg-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        scope.querySelectorAll(".seg-btn").forEach(b => b.setAttribute("data-active","false"));
+        btn.setAttribute("data-active","true");
+      });
+    });
+  }
+  document.querySelectorAll("nav").forEach(bindSeg);
+
+  // copy
+  const toast = document.getElementById("toast");
+  const toastMsg = document.getElementById("toastMsg");
+  let toastTimer;
+  function showToast(msg){
+    toastMsg.textContent = msg;
+    toast.style.opacity = "1";
+    toast.style.transform = "translate(-50%, 0)";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.style.opacity = "0";
+      toast.style.transform = "translate(-50%, 16px)";
+    }, 1600);
+  }
+  document.querySelectorAll(".copyBtn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const val = btn.getAttribute("data-copy");
+      try{ await navigator.clipboard.writeText(val); showToast("Copied " + val.slice(0,24)); }
+      catch(e){ showToast("Copy failed"); }
+    });
+  });
+</script>
+</body>
+</html>

@@ -6,15 +6,16 @@ import { useAuth } from "@/shared/hooks/useAuth";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import { maskApiKey } from "@/shared/utils/formatters";
 import Container from "@/shared/components/ui/Container";
+import Icon from "@/shared/components/ui/Icon";
+import QRScanner from "@/shared/components/ui/QRScanner";
 import Button from "@/shared/components/ui/Button";
 import Spinner from "@/shared/components/ui/Spinner";
-import QRScanner from "@/shared/components/ui/QRScanner";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
 import LanguageSwitcher from "@/shared/components/ui/LanguageSwitcher";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
 import { useI18n } from "@/shared/i18n";
-import { X, Eye, EyeOff, LogIn, Trash2, Terminal, QrCode, Home, FileText, Github, Pencil, Check } from "@/shared/components/ui/Icon";
+import { X, Eye, EyeOff, LogIn, Trash2, Terminal, Home, FileText, Pencil, Check } from "@/shared/components/ui/Icon";
 import { HOMEPAGE_URL, DOCS_URL } from "@/shared/constants/API";
 import GithubLoginForm from "@/features/codespace/components/GithubLoginForm";
 import CodespaceList from "@/features/codespace/components/CodespaceList";
@@ -22,6 +23,7 @@ import { useGithub } from "@/features/codespace/hooks/useGithub";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { buildCodespaceUrl } from "@/shared/constants/github";
 
+// Terminal-glyph laptop + phone hero illustration (brand-tinted, theme-agnostic)
 function LoginContent() {
   const { t } = useI18n();
   const [apiKey, setApiKey] = useState("");
@@ -172,20 +174,12 @@ function LoginContent() {
 
   // Handle QR scan result
   const handleQRScan = async (tempKey) => {
-    console.log("handleQRScan called with tempKey:", tempKey);
-    
     const result = await authenticateWithToken(tempKey, true);
-    
-    console.log("Authentication result:", result);
-    
     if (result.success) {
-      console.log("Authentication successful, redirecting to /workspace/");
       if (rememberKey && result.apiKey) {
         saveKey(result.apiKey);
       }
       router.push("/workspace/");
-    } else {
-      console.error("Authentication failed:", result.error);
     }
   };
 
@@ -246,94 +240,57 @@ function LoginContent() {
   return (
     <>
       <AnimatedBackground />
-      <Container>
-        <div className="card-elev p-8 max-w-md w-full border border-border">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-brand-500/10 rounded-brand">
-              <Terminal className="text-brand-500" size={32} />
+      <Container centered={true} className="py-8 bg-gradient-to-b from-brand-500/10 via-brand-500/[0.03] to-transparent">
+        <div className="max-w-md w-full mx-auto space-y-4">
+
+          {/* Header */}
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-brand-500 rounded-2xl shadow-lg shadow-brand-500/30">
+              <Terminal className="text-white" size={28} />
             </div>
             <div className="flex-1">
-              <h1 className="text-4xl font-bold text-text">9Remote</h1>
-              {version && <p className="text-xs text-text-muted mt-0.5">v{version}</p>}
+              <h1 className="text-3xl font-extrabold text-text leading-none">9Remote</h1>
+              {version && <p className="text-xs font-semibold text-brand-500 mt-1">v{version}</p>}
             </div>
             <LanguageSwitcher />
             <ThemeToggle />
           </div>
 
-          <p className="text-text-muted mb-6">
+          {/* Hero */}
+          <p className="text-text-muted text-lg font-medium leading-snug pr-16 mb-10">
             {t("login.tagline")}
           </p>
 
-          {/* Auth tabs - hidden */}
-          {false && (
-          <div className="flex gap-1 p-1 mb-6 bg-surface-2 rounded-brand">
-            <button
-              onClick={() => setAuthTab("local")}
-              className={`flex-1 py-2 px-3 rounded-brand text-sm font-medium transition-colors ${
-                authTab === "local" ? "bg-surface text-text shadow-sm" : "text-text-muted hover:text-text"
-              }`}
-            >
-              <span className="inline-flex items-center gap-1.5"><Terminal size={14} />Local</span>
-            </button>
-            <button
-              onClick={() => setAuthTab("github")}
-              className={`flex-1 py-2 px-3 rounded-brand text-sm font-medium transition-colors ${
-                authTab === "github" ? "bg-surface text-text shadow-sm" : "text-text-muted hover:text-text"
-              }`}
-            >
-              <span className="inline-flex items-center gap-1.5"><Github size={14} />Codespace</span>
-            </button>
-          </div>
-          )}
-
           {authTab === "github" && (
-            <GithubLoginForm onAuthenticated={handleGithubAuthenticated} />
+            <div className="card-elev rounded-2xl p-5 border border-border">
+              <GithubLoginForm onAuthenticated={handleGithubAuthenticated} />
+            </div>
           )}
 
           {authTab === "local" && (<>
 
-          {/* QR Scan Section - Temporarily hidden */}
-          {false && (
-            <>
-              <div className="flex flex-col items-center mb-3">
-                <button
-                  onClick={() => setShowQRScanner(true)}
-                  className="flex flex-col items-center gap-2 p-2 bg-surface-2 hover:bg-surface-3 rounded-brand transition-all duration-150 ease-out active:scale-[0.98]"
-                  aria-label="Scan QR Code"
-                >
-                  <QrCode size={48} strokeWidth={1.5} className="text-brand-500" />
-                  <span className="text-sm text-text-muted">{t("login.tapToScan")}</span>
-                </button>
+          {/* Access Key card */}
+          <div className="card-elev rounded-2xl p-5 border border-border relative">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-1.5 bg-brand-500/10 rounded-xl">
+                <Icon name="KeyRound" className="text-brand-500" size={20} />
               </div>
+              <h2 className="text-lg font-bold text-text">{t("login.accessKey")}</h2>
+            </div>
 
-              {/* Divider */}
-              <div className="relative mb-3">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full h-px bg-border-subtle"></div>
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-4 bg-surface text-text-muted">{t("login.orEnterManually")}</span>
-                </div>
-              </div>
-            </>
-          )}
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-text mb-2">
-                {t("login.accessKey")}
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
-                  placeholder={t("login.placeholder")}
-                  className="w-full px-4 py-3 pr-20 bg-surface-2 rounded-brand text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
-                />
+            <div className="relative">
+              <input
+                id="accessKeyInput"
+                type={showPassword ? "text" : "password"}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
+                placeholder={t("login.placeholder")}
+                className="w-full px-4 py-3.5 pr-14 bg-surface-2 rounded-xl text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 {apiKey && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                  <>
                     <button
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => setShowPassword(!showPassword)}
@@ -350,42 +307,41 @@ function LoginContent() {
                     >
                       <X size={20} />
                     </button>
-                  </div>
+                  </>
                 )}
               </div>
-              {error && (
-                <p className="mt-2 text-sm text-danger">{error}</p>
-              )}
             </div>
+            {error && <p className="mt-2 text-sm text-danger">{error}</p>}
 
-            <label className="flex items-center gap-2 cursor-pointer group">
+            <label className="flex items-center gap-2 cursor-pointer group mt-4">
               <input
                 type="checkbox"
                 checked={rememberKey}
                 onChange={(e) => handleRememberChange(e.target.checked)}
                 className="w-4 h-4 rounded accent-brand-500 focus:ring-2 focus:ring-brand-500/40"
               />
-              <span className="text-sm text-text group-hover:text-text transition-colors">{t("login.rememberKey")}</span>
+              <span className="text-sm text-text">{t("login.rememberKey")}</span>
             </label>
 
             <Button
               variant="primary"
               onClick={handleConnect}
-              disabled={!apiKey}
               loading={loading}
-              className="w-full"
+              className="w-full mt-4"
             >
-              {t("login.connect")}
+              <span className="inline-flex items-center justify-center gap-2">
+                {t("login.connect")}
+                <Icon name="ArrowRight" size={18} />
+              </span>
             </Button>
-          </div>
 
-          {/* Saved Keys - only render after hydration */}
+          {/* Saved Keys - inner section, same card */}
           {isHydrated && savedKeys.length > 0 && (
-            <div className="mt-6 pt-6 border-t border-border-subtle">
-              <h3 className="text-sm font-medium text-text mb-3">{t("login.savedKeys")}</h3>
+            <div className="mt-5 pt-5 border-t border-border-subtle">
+              <h3 className="text-base font-bold text-text mb-3">{t("login.savedKeys")}</h3>
               <div className="space-y-2">
                 {savedKeys.map((item) => (
-                  <div key={item.id} className="bg-surface-2 rounded-brand p-3 hover:bg-surface-3 transition-all duration-150 ease-out">
+                  <div key={item.id} className="bg-surface-2 rounded-xl p-3 hover:bg-surface-3 transition-all duration-150 ease-out">
                     {editingKeyId === item.id ? (
                       <div className="flex items-center gap-2">
                         <input
@@ -400,86 +356,81 @@ function LoginContent() {
                           autoFocus
                           className="flex-1 min-w-0 px-3 py-1.5 bg-surface rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
                         />
-                        <button
-                          onClick={() => handleSaveRename(item.id)}
-                          className="text-brand-500 hover:text-brand-400 transition-colors"
-                          type="button"
-                        >
+                        <button onClick={() => handleSaveRename(item.id)} className="text-brand-500 hover:text-brand-400 transition-colors" type="button">
                           <Check size={18} />
                         </button>
-                        <button
-                          onClick={handleCancelRename}
-                          className="text-text-muted hover:text-text transition-colors"
-                          type="button"
-                        >
+                        <button onClick={handleCancelRename} className="text-text-muted hover:text-text transition-colors" type="button">
                           <X size={18} />
                         </button>
                       </div>
                     ) : (
-                    <div className="space-y-2">
-                      {/* Row 1: label + rename (left), last login (right) */}
-                      <div className="flex items-center justify-between gap-2">
-                        <button
-                          onClick={() => handleStartRename(item)}
-                          disabled={loading}
-                          className="group flex items-center gap-1.5 min-w-0 disabled:opacity-50"
-                          type="button"
-                          aria-label={t("login.rename")}
-                        >
-                          <span className="text-sm font-medium text-text group-hover:text-brand-500 truncate transition-colors">
-                            {item.label}
-                          </span>
-                          <Pencil size={14} className="shrink-0 text-text-muted group-hover:text-brand-500 transition-colors" />
-                        </button>
-                        {item.lastLoginDate && (
-                          <span className="shrink-0 text-xs text-text-muted">
-                            {formatLoginDate(item.lastLoginDate)}
-                          </span>
-                        )}
-                      </div>
-                      {/* Row 2: masked key (clickable login), actions */}
-                      <div className="flex items-center justify-between gap-3">
-                        <code
-                          onClick={() => handleLoginWithSavedKey(item.key)}
-                          className="flex-1 min-w-0 text-sm text-text-muted hover:text-brand-500 font-mono truncate transition-colors cursor-pointer"
-                        >
-                          {maskApiKey(item.key)}
-                        </code>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <button
+                      <div className="flex items-center gap-3">
+                        <div className="shrink-0 w-11 h-11 rounded-full bg-brand-500/10 flex items-center justify-center">
+                          <Icon name="KeyRound" className="text-brand-500" size={20} />
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleStartRename(item)}
+                              disabled={loading}
+                              className="group flex items-center gap-1.5 min-w-0 disabled:opacity-50"
+                              type="button"
+                              aria-label={t("login.rename")}
+                            >
+                              <span className="text-sm font-semibold text-text group-hover:text-brand-500 truncate transition-colors">
+                                {item.label}
+                              </span>
+                              <Pencil size={13} className="shrink-0 text-text-muted group-hover:text-brand-500 transition-colors" />
+                            </button>
+                          </div>
+                          <code
                             onClick={() => handleLoginWithSavedKey(item.key)}
-                            disabled={loading}
-                            className="flex items-center gap-1.5 p-1 text-brand-500 hover:text-brand-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="block text-xs text-text-muted hover:text-brand-500 font-mono truncate transition-colors cursor-pointer"
                           >
-                            <LogIn size={16} />
-                            {t("login.login")}
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget({ id: item.id, label: item.label })}
-                            disabled={loading}
-                            className="flex items-center p-1 text-text-muted hover:text-danger text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                            {maskApiKey(item.key)}
+                          </code>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          {item.lastLoginDate && (
+                            <span className="text-xs text-text-muted">{formatLoginDate(item.lastLoginDate)}</span>
+                          )}
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleLoginWithSavedKey(item.key)}
+                              disabled={loading}
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border text-brand-500 hover:bg-brand-500/10 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <LogIn size={15} />
+                              {t("login.login")}
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget({ id: item.id, label: item.label })}
+                              disabled={loading}
+                              className="flex items-center p-2 rounded-lg border border-border text-text-muted hover:text-danger hover:border-danger/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
                     )}
                   </div>
                 ))}
               </div>
             </div>
           )}
+          </div>
           </>)}
 
-          <div className="mt-6 pt-6 border-t border-border-subtle flex items-center justify-center gap-4 text-sm text-text-muted">
+          {/* Footer nav */}
+          <div className="flex items-center justify-center gap-4 pt-1 text-sm">
             <a
               href={HOMEPAGE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 hover:text-brand-500 transition-colors"
+              className="flex items-center gap-1.5 text-brand-500 font-semibold transition-colors"
             >
-              <Home size={14} />
+              <Home size={16} />
               {t("login.home")}
             </a>
             <span className="text-text-subtle">·</span>
@@ -487,9 +438,9 @@ function LoginContent() {
               href={DOCS_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 hover:text-brand-500 transition-colors"
+              className="flex items-center gap-1.5 text-text-muted hover:text-brand-500 font-medium transition-colors"
             >
-              <FileText size={14} />
+              <FileText size={16} />
               {t("login.docs")}
             </a>
           </div>

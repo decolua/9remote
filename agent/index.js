@@ -3,7 +3,7 @@
  */
 
 import { createServer, request as httpRequest } from "http";
-import { execFile, spawn } from "child_process";
+import { execFile, execSync, spawn } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { join, extname } from "path";
 import { fileURLToPath } from "url";
@@ -216,10 +216,22 @@ const port = parseInt(process.env.PORT || "2208", 10);
 
 // Auto-start Vite dev server in dev mode
 let viteProcess = null;
+// Kill leaked vite from crashed/hard-killed dev restarts (orphaned → reparented to launchd)
+function reapOrphanVite(configPath) {
+  if (process.platform === "win32") return;
+  try {
+    const pids = execSync(`pgrep -f "vite --config ${configPath}"`, { encoding: "utf8" }).trim();
+    for (const pid of pids.split("\n").filter(Boolean)) {
+      const ppid = execSync(`ps -o ppid= -p ${pid}`, { encoding: "utf8" }).trim();
+      if (ppid === "1") { try { process.kill(Number(pid)); } catch {} } // esbuild child dies with vite
+    }
+  } catch {}
+}
 function startViteDev() {
   if (!IS_DEV) return;
   const viteConfigPath = join(__dirname, "vite.config.js");
   if (!existsSync(viteConfigPath)) return;
+  reapOrphanVite(viteConfigPath);
   const viteBin = existsSync(join(__dirname, "node_modules", ".bin", "vite"))
     ? join(__dirname, "node_modules", ".bin", "vite")
     : join(__dirname, "..", "node_modules", ".bin", "vite");

@@ -30,7 +30,7 @@ const clients = new Set();
 
 // Constants
 const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB raw fallback per session
-const JOIN_REPLAY_SIZE = 256 * 1024; // Replay only tail on join to avoid network burst
+const JOIN_REPLAY_SIZE = 1024 * 1024; // 1MB tail on join — balances history vs join latency
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
 
 // Log file path — under ~/.9remote/logs/ for consistency with agent.log
@@ -106,20 +106,24 @@ function buildShellEnv(shellPath) {
   const isZsh = shellPath.includes("zsh");
   const isBash = shellPath.includes("bash");
 
+  let zdotDir = null;
   if (isZsh) {
-    env.ZDOTDIR = env.ZDOTDIR || env.HOME;
-    const precmdHook = `
-precmd() {
-  print -Pn "\\e]7;file://%m\${PWD}\\e\\\\"
-}
-`;
-    env._9REMOTE_PRECMD = precmdHook;
+    // zsh ignores a bare env hook; write a real .zshrc into a temp ZDOTDIR so precmd fires.
+    zdotDir = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-zsh-"));
+    const tmpZshrc = path.join(zdotDir, ".zshrc");
+    const homeZshrc = env.HOME ? path.join(env.HOME, ".zshrc") : null;
+    let body = 'precmd() { print -Pn "\\e]7;file://%m${PWD}\\e\\\\" }\n';
+    if (homeZshrc && fs.existsSync(homeZshrc)) {
+      body += `[ -f "${homeZshrc}" ] && source "${homeZshrc}"\n`;
+    }
+    fs.writeFileSync(tmpZshrc, body);
+    env.ZDOTDIR = zdotDir;
   } else if (isBash) {
     const existingPrompt = env.PROMPT_COMMAND || "";
     env.PROMPT_COMMAND = `printf "\\e]7;file://%s\\a" "\${HOSTNAME}\${PWD}"${existingPrompt ? `; ${existingPrompt}` : ""}`;
   }
 
-  return env;
+  return { env, zdotDir };
 }
 
 /**
@@ -160,7 +164,7 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
   if (!cwd || !fs.existsSync(cwd)) cwd = getDefaultCwd();
 
   try {
-    const shellEnv = buildShellEnv(shellConfig.path);
+    const { env: shellEnv, zdotDir } = buildShellEnv(shellConfig.path);
     shellEnv.NINE_REMOTE_SESSION_ID = sessionId;
 
     const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, {
@@ -185,7 +189,8 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       createdAt: Date.now(),
       cwd,
       shellId: shellConfig.id,
-      shellLabel: shellConfig.label
+      shellLabel: shellConfig.label,
+      zdotDir
     };
 
     // Buffer output and broadcast to clients
@@ -209,6 +214,7 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
 
     ptyProcess.onExit(() => {
       sessions.delete(sessionId);
+      if (session.zdotDir) fs.rm(session.zdotDir, { recursive: true, force: true }, () => {});
       broadcast({ type: "sessionClosed", sessionId });
     });
 
@@ -245,7 +251,7 @@ function handleMessage(client, message) {
 
     case "createSession":
       const createResult = createSession(
-        payload.sessionId || `session-${Date.now()}`,
+        sessionId || `session-${Date.now()}`,
         payload.name,
         payload.cols,
         payload.rows,

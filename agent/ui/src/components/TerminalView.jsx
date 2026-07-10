@@ -2,7 +2,13 @@ import { useState, useEffect, useRef } from "preact/hooks";
 import Icon from "./Icon";
 import { useI18n } from "../i18n";
 import TerminalPane from "./TerminalPane";
-import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "../lib/constants";
+import CommandSuggestions from "./CommandSuggestions";
+import CommandHistoryModal from "./CommandHistoryModal";
+import { loadHistory, addHistory, removeHistory, clearHistory } from "../lib/history";
+import {
+  DESKTOP_BREAKPOINT, PANE_MIN_WIDTH, COMMON_COMMANDS, INPUT_CONTROL_KEYS,
+  MAX_ATTACHMENT_SIZE, MAX_ATTACHMENTS, CLIPBOARD_ATTACH_TIMEOUT, CLIPBOARD_ATTACH_GAP
+} from "../lib/constants";
 
 const UNGROUPED = { id: null, name: "Ungrouped" };
 
@@ -12,6 +18,10 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [textInput, setTextInput] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [history, setHistory] = useState(() => loadHistory());
+  const [showHistory, setShowHistory] = useState(false);
+  const attachIdRef = useRef(0);
   const [tabMenu, setTabMenu] = useState({ sessionId: null, x: 0, y: 0 });
   const tabMenuRef = useRef(null);
   const [editingTabId, setEditingTabId] = useState(null);
@@ -30,13 +40,85 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   // Active session object (input bar target) — undefined when no active pane
   const activeSession = sessions.find((s) => s.id === activeId);
 
-  // Send current text input to active session (Enter parity: empty → send "\r")
-  const sendText = () => {
+  // Read a File → base64 attachment entry, skipping oversized ones.
+  const fileToAttachment = (file) => new Promise((resolve) => {
+    if (file.size > MAX_ATTACHMENT_SIZE) return resolve(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = reader.result.split(",")[1];
+      const isImage = file.type.startsWith("image/");
+      const name = file.name || `paste_${attachIdRef.current}.${isImage ? (file.type.split("/")[1] || "png") : "bin"}`;
+      resolve({ id: ++attachIdRef.current, name, type: file.type, size: file.size, content, isImage });
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+
+  const addFiles = async (files) => {
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (room <= 0) return;
+    const entries = (await Promise.all(Array.from(files).slice(0, room).map(fileToAttachment))).filter(Boolean);
+    if (entries.length) setAttachments((prev) => [...prev, ...entries]);
+  };
+
+  const removeAttachment = (id) => setAttachments((prev) => prev.filter((a) => a.id !== id));
+
+  // Push one attachment into the host clipboard + Ctrl+V (image) or type path (file),
+  // waiting for ack so the CLI consumes each before the next overwrites the clipboard.
+  const sendOneAttachment = (att) => new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    socket.emit("clipboard-attach", { sessionId: activeSession.id, filename: att.name, type: att.type, content: att.content }, finish);
+    setTimeout(finish, CLIPBOARD_ATTACH_TIMEOUT);
+  });
+
+  // Attachments first (serially), then text + Enter — mirrors web send flow.
+  const sendText = async () => {
     if (!socket || !activeSession) return;
-    const data = textInput === "" ? "\r" : textInput;
     clearFinished?.(activeSession.id);
-    socket.emit("input", { sessionId: activeSession.id, data });
-    if (textInput !== "") setTextInput("");
+
+    const pending = attachments;
+    if (pending.length) setAttachments([]);
+    for (const att of pending) {
+      await sendOneAttachment(att);
+      await new Promise((r) => setTimeout(r, CLIPBOARD_ATTACH_GAP));
+    }
+
+    const text = textInput;
+    if (text === "") {
+      if (!pending.length) socket.emit("input", { sessionId: activeSession.id, data: "\r" });
+    } else {
+      // Send text first, then Enter after a short delay so PTY reliably receives both.
+      socket.emit("input", { sessionId: activeSession.id, data: text });
+      setTimeout(() => socket.emit("input", { sessionId: activeSession.id, data: "\r" }), 40);
+      setHistory(addHistory(text));
+      setTextInput("");
+    }
+  };
+
+  // Paste on the input: attach any image/file items; let text paste fall through.
+  const handleAttachPaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files = [];
+    for (const it of items) {
+      if (it.kind === "file") { const f = it.getAsFile(); if (f) files.push(f); }
+    }
+    if (files.length) { e.preventDefault(); addFiles(files); }
+  };
+
+  // Control keys (Esc, Ctrl+C/D/Z/L) from the input → straight to terminal.
+  const handleControlKey = (e) => {
+    const cfg = INPUT_CONTROL_KEYS[e.key];
+    if (!cfg || (cfg.ctrl && !e.ctrlKey) || e.metaKey || e.altKey) return false;
+    const el = e.target;
+    if (cfg.requireNoSelection && el.selectionStart !== el.selectionEnd) return false;
+    e.preventDefault();
+    if (socket && activeSession) {
+      clearFinished?.(activeSession.id);
+      socket.emit("input", { sessionId: activeSession.id, data: cfg.data });
+    }
+    return true;
   };
 
   // Close tab context menu on outside click / Escape
@@ -281,33 +363,82 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
 
       {/* Text input bar — web MobileKeyboard parity (send raw text or lone Enter) */}
       {activeSession && (
-        <div className="flex items-center gap-2 px-2 py-1.5 flex-shrink-0 relative z-10" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
-          <div className="relative flex-1">
+        <div className="flex items-end gap-2 px-2 py-1.5 flex-shrink-0 relative z-10" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
+          <div className="relative flex-1 rounded-lg" style={{ background: "var(--surface-2)" }}>
+            <CommandSuggestions
+              value={textInput}
+              history={history}
+              commonCommands={COMMON_COMMANDS}
+              onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
+            />
+            {attachments.length > 0 && (
+              <div className="flex gap-2 px-2 pt-2 overflow-x-auto">
+                {attachments.map((att) => (
+                  <div key={att.id} className="relative flex-shrink-0">
+                    {att.isImage ? (
+                      <img src={`data:${att.type};base64,${att.content}`} alt={att.name}
+                        className="w-10 h-10 object-cover rounded" style={{ border: "1px solid var(--border)" }} />
+                    ) : (
+                      <div className="w-10 h-10 flex flex-col items-center justify-center rounded px-1"
+                        style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>
+                        <Icon name="paperclip" size={12} />
+                        <span className="text-[8px] truncate w-full text-center" style={{ color: "var(--text-muted)" }}>{att.name}</span>
+                      </div>
+                    )}
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => removeAttachment(att.id)}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center rounded-full"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                    >
+                      <Icon name="x" size={9} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className="absolute left-1.5 bottom-1.5 w-6 h-6 flex items-center justify-center cursor-pointer" style={{ color: "var(--text-muted)" }}>
+              <Icon name="paperclip" size={15} />
+              <input type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+            </label>
             <textarea
               ref={textInputRef}
               value={textInput}
               rows={Math.min(2, (textInput.match(/\n/g) || []).length + 1)}
               onInput={(e) => setTextInput(e.target.value)}
+              onPaste={handleAttachPaste}
               onKeyDown={(e) => {
                 // Enter sends; Shift+Enter inserts newline (web parity)
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   sendText();
+                  return;
                 }
+                handleControlKey(e);
               }}
               placeholder={t("terminal.typeCommand")}
-              className="term-input w-full px-3 py-1.5 pr-8 rounded-lg text-sm resize-none focus:outline-none"
-              style={{ background: "var(--surface-2)", color: "var(--text-main)" }}
+              className="term-input block w-full pl-9 pr-8 py-1.5 rounded-lg text-sm resize-none focus:outline-none leading-5"
+              style={{ background: "transparent", color: "var(--text-main)" }}
             />
-            {textInput && (
+            {textInput ? (
               <button
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setTextInput("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full"
+                onClick={() => { setTextInput(""); textInputRef.current?.focus(); }}
+                title={t("terminal.clearInput")}
+                className="absolute right-1.5 bottom-1.5 w-5 h-5 flex items-center justify-center"
                 style={{ color: "var(--text-muted)" }}
-                aria-label="Clear"
               >
-                <Icon name="plus" size={14} className="rotate-45" />
+                <Icon name="x" size={14} />
+              </button>
+            ) : (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setShowHistory(true)}
+                title={t("history.title")}
+                className="absolute right-1.5 bottom-1.5 w-5 h-5 flex items-center justify-center"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <Icon name="history" size={14} />
               </button>
             )}
           </div>
@@ -315,7 +446,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
             onClick={sendText}
             className="btn-primary px-4 py-1.5 text-sm font-semibold flex-shrink-0 min-w-[72px] flex items-center justify-center"
           >
-            {textInput.trim() ? t("terminal.send") : <Icon name="cornerDownLeft" size={16} strokeWidth={2.5} />}
+            {textInput.trim() || attachments.length ? t("terminal.send") : <Icon name="cornerDownLeft" size={16} strokeWidth={2.5} />}
           </button>
         </div>
       )}
@@ -434,6 +565,16 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
             </div>
           </div>
         </div>
+      )}
+
+      {showHistory && (
+        <CommandHistoryModal
+          history={history}
+          onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
+          onRemove={(cmd) => setHistory(removeHistory(cmd))}
+          onClear={() => setHistory(clearHistory())}
+          onClose={() => setShowHistory(false)}
+        />
       )}
     </div>
   );

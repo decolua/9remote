@@ -25,7 +25,7 @@ export function setupPushHandlers(socket) {
     const identifier = subscription?.type === "expo" ? subscription.token : subscription?.endpoint;
     if (!identifier) return;
     markSubscriptionConnected(socket.id, identifier);
-    addPushSubscription(subscription, socket.id);
+    addPushSubscription(subscription, socket.id, socket.handshake.auth?.deviceId);
   });
 
   socket.on("pushUnsubscribe", (identifier) => {

@@ -6,7 +6,7 @@ import Input from "@/shared/components/ui/Input";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import SitesList from "@/features/terminal/components/SitesList";
-import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap, Plus, FolderPlus, X, Folder, GripVertical } from "@/shared/components/ui/Icon";
+import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap, Plus, FolderPlus, X, Folder } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
@@ -356,80 +356,117 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                   </div>
 
                   {/* Cards */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                         {groupSessions.map((session, cardIdx) => {
                           const isDragging = drag?.groupId === section.id && drag.fromIdx === cardIdx;
                           const isDragOver = drag?.groupId === section.id && drag.overIdx === cardIdx && drag.fromIdx !== cardIdx;
                           const groupIds = groupSessions.map((s) => s.id);
+                          const dotBase = connected ? "" : "opacity-40 saturate-0";
                           return (
                           <div
                             key={session.id}
                             data-session-card
                             data-card-idx={cardIdx}
-                            className={`relative overflow-hidden bg-surface border rounded-brand-lg p-3 flex items-center justify-between transition-all duration-150 ease-out ${
-                              notifications[session.id] ? "terminal-done-border" : "border-border-subtle"
-                            } ${isDragging ? "opacity-40" : ""} ${isDragOver ? "border-brand-500 ring-2 ring-brand-500/40" : ""} ${connected && !drag ? "hover:bg-surface-2" : ""} ${!connected ? "opacity-50" : ""}`}
+                            className={`group relative transition-all duration-200 ease-out ${isDragging ? "opacity-40" : ""} ${connected && !drag ? "hover:-translate-y-1" : ""} ${!connected ? "opacity-60" : ""}`}
                           >
-                            {connected && groupSessions.length > 1 && (
-                              <div
-                                className="flex-shrink-0 -ml-1 mr-1 p-1 text-text-muted hover:text-text touch-none cursor-grab active:cursor-grabbing"
-                                onPointerDown={(e) => onGripPointerDown(e, section.id, groupIds, cardIdx)}
-                                onPointerUp={clearPress}
-                                onPointerLeave={clearPress}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <GripVertical size={18} />
-                              </div>
-                            )}
+                            {/* Terminal window */}
                             <div
-                              className={`flex-1 flex items-center gap-3 ${connected && editingId !== session.id && !drag ? "cursor-pointer" : "cursor-default"}`}
-                              onClick={() => { if (connected && editingId !== session.id && !drag) { vibrate(); onSelect(session.id); } }}
+                              className={`rounded-xl overflow-hidden border border-white/15 ring-1 ring-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_8px_28px_-6px_rgba(0,0,0,0.7)] ${
+                                notifications[session.id] ? "terminal-done-border" : ""
+                              } ${isDragOver ? "ring-2 ring-brand-500/50" : ""}`}
+                              style={{ background: connected ? "linear-gradient(155deg,#22242e 0%,#1a1b21 55%,#141519 100%)" : "linear-gradient(155deg,#1c1d20,#141416)" }}
                             >
-                              <div className="p-2 bg-brand-500/10 rounded-brand flex-shrink-0">
-                                <Terminal className="text-brand-500" size={20} />
+                              <div>
+                                {/* Titlebar — drag handle when group has >1 terminal */}
+                                {(() => {
+                                  const draggable = connected && groupSessions.length > 1;
+                                  return (
+                                <div
+                                  className={`flex items-center gap-2 px-2.5 py-1.5 bg-[#2c2c2e]/90 border-b border-black/30 ${draggable ? "touch-none cursor-grab active:cursor-grabbing" : ""}`}
+                                  onPointerDown={draggable ? (e) => onGripPointerDown(e, section.id, groupIds, cardIdx) : undefined}
+                                  onPointerUp={draggable ? clearPress : undefined}
+                                  onPointerLeave={draggable ? clearPress : undefined}
+                                >
+                                  <div className={`flex items-center gap-1.5 flex-shrink-0 ${dotBase}`}>
+                                    <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
+                                    <span className="w-[10px] h-[10px] rounded-full bg-[#febc2e]" />
+                                    <span className="w-[10px] h-[10px] rounded-full bg-[#28c840]" />
+                                  </div>
+                                  <span className="flex-1 min-w-0 text-center text-[11px] font-medium text-white/55 truncate">
+                                    {session.name}
+                                  </span>
+                                  <div className="flex items-center gap-2 flex-shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+                                    <button
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={(e) => { e.stopPropagation(); vibrate(); handleStartEdit(session); }}
+                                      disabled={!connected}
+                                      className={`p-1.5 rounded-md transition-colors ${connected ? "text-amber-400/70 hover:text-amber-300 hover:bg-amber-400/15" : "text-white/20 cursor-not-allowed"}`}
+                                      title={t("sessions.editName")}
+                                    >
+                                      <Pencil size={16} />
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); vibrate(); handleDeleteWithConfirm(session.id, session.name); }}
+                                      disabled={!connected}
+                                      className={`p-1.5 rounded-md transition-colors ${connected ? "text-red-400/70 hover:text-red-300 hover:bg-red-500/20" : "text-white/20 cursor-not-allowed"}`}
+                                      title={t("common.delete")}
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                </div>
+                                  );
+                                })()}
+
+                                {/* Body — fake terminal */}
+                                <div
+                                  className={`px-3 py-3 font-mono min-h-[128px] ${connected && editingId !== session.id && !drag ? "cursor-pointer" : "cursor-default"}`}
+                                  onClick={() => { if (connected && editingId !== session.id && !drag) { vibrate(); onSelect(session.id); } }}
+                                >
+                                  {editingId === session.id ? (
+                                    <input
+                                      type="text"
+                                      value={editName}
+                                      onChange={(e) => setEditName(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleSaveEdit(session.id);
+                                        if (e.key === "Escape") handleCancelEdit();
+                                      }}
+                                      onBlur={() => handleSaveEdit(session.id)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-full bg-black/40 text-white text-[12px] px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <div className="text-[11.5px] leading-[1.7] space-y-0.5">
+                                      <div className="flex items-center min-w-0">
+                                        <span className="text-emerald-400 flex-shrink-0">➜</span>
+                                        <span className="text-cyan-400 flex-shrink-0 mx-1">~</span>
+                                        <span className="text-white/45 truncate">{session.name}</span>
+                                      </div>
+                                      {connected ? (
+                                        <>
+                                          <div className="text-white/35 truncate">
+                                            <span className="text-emerald-400">✓</span> connected
+                                          </div>
+                                          <div className="text-white/35 truncate">
+                                            <span className="text-amber-400">●</span> {t("sessions.created", { time: new Date(session.createdAt).toLocaleTimeString() })}
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <div className="text-white/30 truncate">
+                                          <span className="text-red-400/70">✕</span> disconnected
+                                        </div>
+                                      )}
+                                      <div className="flex items-center min-w-0">
+                                        <span className="text-emerald-400 flex-shrink-0">➜</span>
+                                        <span className="text-cyan-400 flex-shrink-0 mx-1">~</span>
+                                        <span className="inline-block flex-shrink-0 w-[7px] h-[14px] bg-emerald-400/80 animate-pulse" />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                {editingId === session.id ? (
-                                  <input
-                                    type="text"
-                                    value={editName}
-                                    onChange={(e) => setEditName(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") handleSaveEdit(session.id);
-                                      if (e.key === "Escape") handleCancelEdit();
-                                    }}
-                                    onBlur={() => handleSaveEdit(session.id)}
-                                    className="w-full bg-surface-2 text-text px-2 py-1 rounded-brand focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
-                                    autoFocus
-                                  />
-                                ) : (
-                                  <>
-                                    <h3 className="text-text font-medium truncate">{session.name}</h3>
-                                    <p className="text-text-muted text-sm">
-                                      {t("sessions.created", { time: new Date(session.createdAt).toLocaleTimeString() })}
-                                    </p>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex gap-1.5 ml-3">
-                              <button
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => { vibrate(); handleStartEdit(session); }}
-                                disabled={!connected}
-                                className={`p-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.96] ${connected ? "hover:bg-surface-3 text-text-muted hover:text-text" : "text-text-muted cursor-not-allowed"}`}
-                                title={t("sessions.editName")}
-                              >
-                                <Pencil size={16} />
-                              </button>
-                              <button
-                                onClick={() => { vibrate(); handleDeleteWithConfirm(session.id, session.name); }}
-                                disabled={!connected}
-                                className={`p-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.96] ${connected ? "hover:bg-red-500/15 text-text-muted hover:text-red-400" : "text-text-muted cursor-not-allowed"}`}
-                                title={t("common.delete")}
-                              >
-                                <Trash2 size={16} />
-                              </button>
                             </div>
                           </div>
                           );
@@ -438,7 +475,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                         <button
                           onClick={() => { vibrate(); setNewTerminalName(suggestTerminalName(section.id)); setTerminalModal({ open: true, groupId: section.id }); }}
                           disabled={!connected}
-                          className={`min-h-[58px] rounded-brand-lg p-3 flex items-center justify-center gap-1.5 text-sm border border-dashed border-border text-text-muted transition-all duration-150 ease-out ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10" : "opacity-50 cursor-not-allowed"}`}
+                          className={`min-h-[164px] rounded-xl p-3 flex items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
                           title={t("groups.addTerminal")}
                         >
                           <Plus className="text-brand-500" size={16} /> <span className="text-brand-500">{t("terminal.newTerminal")}</span>

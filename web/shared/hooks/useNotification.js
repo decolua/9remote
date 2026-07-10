@@ -99,7 +99,18 @@ export function useNotification(socketRef, connected) {
         if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
         const registration = await navigator.serviceWorker.ready;
         if (!registration.pushManager) return;
-        const subscription = await registration.pushManager.getSubscription();
+        let subscription = await registration.pushManager.getSubscription();
+        // iOS silently drops the sub on SW update/expiry. Re-subscribe if permission
+        // is still granted so the toggle doesn't turn itself off between deploys.
+        if (!subscription && Notification.permission === "granted") {
+          const vapidKey = await new Promise((resolve) => currentSocket.emit("getVapidKey", resolve));
+          if (vapidKey) {
+            subscription = await registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: vapidKey
+            });
+          }
+        }
         if (subscription) {
           currentSocket.emit("pushSubscribe", subscription.toJSON());
           // Re-sync focus state — addPushSubscription keeps stale hidden flag otherwise

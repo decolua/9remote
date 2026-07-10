@@ -5,7 +5,7 @@
 import { jsonOk, jsonErr } from "../lib/router.js";
 import { getIO } from "../transport/server.js";
 import { broadcast } from "../transport/broadcast.js";
-import { sendPushNotification, shouldPush } from "../features/terminal/pushManager.js";
+import { sendPushNotification } from "../features/terminal/pushManager.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
 
 const pushLastTime = {};
@@ -52,10 +52,9 @@ function dispatchNotify({ type, sessionId, tool }) {
   addNotification(sessionId, notification);
   broadcast(io, "chatNotification", notification);
 
-  // Type B — push to mobile app: send whenever the app isn't foregrounded.
-  // WebPush/Expo delivers to a closed PWA without a live socket, so we must NOT
-  // gate on socket connectivity — only skip when the app is connected AND focused.
-  if (!shouldPush()) return;
+  // Type B — push to mobile app: sendPushNotification targets every non-foregrounded
+  // sub and prunes dead endpoints. The SW's visible-window backstop suppresses the
+  // banner when a client is actually focused, so no server-side focus gate here.
   // Rate-limit per session (not per tool:type) so two sessions finishing close
   // together don't swallow each other's push.
   const pushKey = `${sessionId}:${type}`;

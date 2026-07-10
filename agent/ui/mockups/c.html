@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>9Remote — Connection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..400,0..1,-25..0" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['"Plus Jakarta Sans"', "system-ui", "sans-serif"],
+          mono: ['"JetBrains Mono"', "monospace"],
+        },
+      },
+    },
+  };
+</script>
+<style>
+  :root {
+    --brand-500: #E56A4A;
+    --brand-600: #cc5236;
+    --brand-400: #ea7855;
+    --brand-tint: rgba(229, 106, 74, 0.12);
+
+    --bg-body: #141414;
+    --surface: #262626;
+    --surface-2: #303030;
+    --border: #333333;
+    --border-subtle: #2A2A2A;
+
+    --text-main: #EDEDED;
+    --text-muted: #9CA3AF;
+    --success: #22C55E;
+    --danger: #EF4444;
+    --warn: #F59E0B;
+
+    /* glass */
+    --glass-bg: rgba(255, 255, 255, 0.045);
+    --glass-core: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.10);
+    --glass-highlight: rgba(255, 255, 255, 0.08);
+    --glass-blur: 22px;
+
+    /* aurora */
+    --aurora-1: rgba(229, 106, 74, 0.16);
+    --aurora-2: rgba(234, 120, 85, 0.10);
+    --aurora-3: rgba(120, 110, 100, 0.10);
+  }
+
+  [data-theme="light"] {
+    --bg-body: #FCFBF9;
+    --surface: #FFFFFF;
+    --surface-2: #F4F4F5;
+    --border: #E5E7EB;
+    --border-subtle: #EDEDEC;
+
+    --text-main: #0A0A0A;
+    --text-muted: #6B7280;
+
+    --glass-bg: rgba(255, 255, 255, 0.60);
+    --glass-core: rgba(255, 255, 255, 0.42);
+    --glass-border: rgba(255, 255, 255, 0.75);
+    --glass-highlight: rgba(255, 255, 255, 0.85);
+    --glass-blur: 20px;
+
+    --aurora-1: rgba(229, 106, 74, 0.14);
+    --aurora-2: rgba(234, 120, 85, 0.10);
+    --aurora-3: rgba(210, 200, 190, 0.35);
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body {
+    background: var(--bg-body);
+    color: var(--text-main);
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Aurora mesh background */
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(52% 44% at 12% 8%, var(--aurora-1) 0%, transparent 60%),
+      radial-gradient(46% 40% at 88% 4%, var(--aurora-2) 0%, transparent 58%),
+      radial-gradient(60% 55% at 78% 92%, var(--aurora-3) 0%, transparent 62%),
+      radial-gradient(40% 38% at 30% 96%, var(--aurora-1) 0%, transparent 60%);
+    filter: saturate(1.05);
+  }
+
+  .grain {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+    font-size: 20px;
+    line-height: 1;
+  }
+  .ms-fill {
+    font-variation-settings: "FILL" 1, "wght" 300, "GRAD" 0, "opsz" 24;
+  }
+
+  /* Glass card: double-bezel shell + inner core */
+  .glass {
+    position: relative;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+    box-shadow:
+      inset 0 1px 0 0 var(--glass-highlight),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+      0 24px 60px -24px rgba(0, 0, 0, 0.55),
+      0 8px 20px -12px rgba(0, 0, 0, 0.45);
+  }
+  .glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(160deg, var(--glass-highlight), transparent 42%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0.7;
+  }
+
+  /* solid panel (non-glass, for inner concentric surfaces) */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+  }
+
+  .divider {
+    height: 1px;
+    background: var(--border-subtle);
+  }
+
+  /* nav item */
+  .nav-item {
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    border: 1px solid transparent;
+  }
+  .nav-item:hover {
+    background: var(--glass-bg);
+    border-color: var(--border-subtle);
+  }
+  .nav-item.active {
+    background: var(--brand-tint);
+    border-color: rgba(229, 106, 74, 0.25);
+  }
+  .nav-item.active .nav-ico {
+    color: var(--brand-500);
+  }
+
+  /* buttons */
+  .btn {
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    border-radius: 12px;
+    font-weight: 600;
+  }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn-primary {
+    background: linear-gradient(180deg, var(--brand-400), var(--brand-600));
+    color: #fff;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.25),
+      0 8px 20px -8px rgba(229, 106, 74, 0.6);
+  }
+  .btn-primary:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    color: var(--text-main);
+  }
+  .btn-ghost:hover {
+    background: var(--surface-2);
+    transform: translateY(-1px);
+  }
+  .btn-danger-ghost {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.22);
+    color: #f87171;
+  }
+  .btn-danger-ghost:hover {
+    background: rgba(239, 68, 68, 0.14);
+    transform: translateY(-1px);
+  }
+
+  /* toggle switch */
+  .switch {
+    width: 44px;
+    height: 26px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    position: relative;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    flex-shrink: 0;
+  }
+  .switch:active {
+    transform: scale(0.97);
+  }
+  .switch .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .switch.on {
+    background: linear-gradient(180deg, var(--brand-400), var(--brand-600));
+    border-color: transparent;
+  }
+  .switch.on .knob {
+    transform: translateX(18px);
+  }
+
+  /* status dot (real state only) */
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .dot-live {
+    background: var(--success);
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16);
+  }
+  .dot-off {
+    background: var(--text-muted);
+    opacity: 0.55;
+  }
+  .dot-pending {
+    background: var(--warn);
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+  }
+
+  .mono {
+    font-family: "JetBrains Mono", monospace;
+    font-feature-settings: "tnum" 1;
+  }
+
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border-radius: 999px;
+    padding: 3px 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  select.select-native {
+    appearance: none;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-main);
+    border-radius: 10px;
+    padding: 7px 30px 7px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 9px center;
+    transition: border-color 0.2s;
+  }
+  select.select-native:hover {
+    border-color: var(--brand-500);
+  }
+
+  .qr-frame {
+    background: #fff;
+    border-radius: 16px;
+    padding: 14px;
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.06),
+      0 12px 30px -12px rgba(0, 0, 0, 0.5);
+  }
+
+  /* scroll area — no blur here */
+  .scroll-area::-webkit-scrollbar {
+    width: 8px;
+  }
+  .scroll-area::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 8px;
+  }
+
+  /* mobile drawer */
+  .sidebar {
+    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .scrim {
+    transition: opacity 0.25s ease;
+  }
+
+  @media (max-width: 767px) {
+    .sidebar {
+      position: fixed;
+      z-index: 50;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      transform: translateX(-100%);
+    }
+    .sidebar.open {
+      transform: translateX(0);
+    }
+  }
+  @media (min-width: 768px) {
+    #scrim {
+      display: none !important;
+    }
+    .menu-btn {
+      display: none;
+    }
+  }
+
+  /* reduced transparency fallback: solid surfaces, no blur */
+  @media (prefers-reduced-transparency: reduce) {
+    .glass {
+      background: var(--surface);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border-color: var(--border);
+    }
+    .aurora {
+      opacity: 0.4;
+    }
+  }
+
+  .fade-in {
+    animation: fade 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+</style>
+</head>
+<body class="min-h-[100dvh] antialiased">
+  <div class="aurora"></div>
+  <div class="grain"></div>
+
+  <div id="scrim" class="scrim scrim-hidden fixed inset-0 z-40 bg-black/50 opacity-0 pointer-events-none md:hidden"></div>
+
+  <div class="relative z-10 flex min-h-[100dvh]">
+    <!-- ===================== SIDEBAR ===================== -->
+    <aside id="sidebar" class="sidebar w-[260px] shrink-0 flex flex-col gap-4 p-4 md:h-[100dvh] md:sticky md:top-0" style="background: color-mix(in srgb, var(--bg-body) 82%, transparent);">
+      <!-- logo -->
+      <div class="glass flex items-center gap-3 px-4 py-3.5">
+        <div class="grid h-10 w-10 place-items-center rounded-xl" style="background: linear-gradient(160deg, var(--brand-400), var(--brand-600)); box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 8px 18px -8px rgba(229,106,74,.7);">
+          <span class="material-symbols-outlined ms-fill text-white" style="font-size:22px;">bolt</span>
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="font-extrabold tracking-tight text-[16px]">9Remote</span>
+            <span class="mono text-[10px] px-1.5 py-0.5 rounded-md" style="background:var(--surface-2); color:var(--text-muted);">v2.4.1</span>
+          </div>
+          <div class="flex items-center gap-1.5 mt-0.5">
+            <span class="dot dot-live"></span>
+            <span class="text-[11px] font-semibold" style="color:var(--success);">Tunnel healthy</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- nav -->
+      <nav class="flex flex-col gap-1.5">
+        <a href="#" class="nav-item active flex items-start gap-3 rounded-xl px-3 py-2.5">
+          <span class="material-symbols-outlined nav-ico mt-0.5" style="color:var(--brand-500);">hub</span>
+          <span class="min-w-0">
+            <span class="block text-[14px] font-semibold leading-tight">Connection</span>
+            <span class="block text-[11.5px] mt-0.5 leading-snug" style="color:var(--text-muted);">Pair devices and tunnel</span>
+          </span>
+        </a>
+        <a href="#" class="nav-item flex items-start gap-3 rounded-xl px-3 py-2.5">
+          <span class="material-symbols-outlined nav-ico mt-0.5" style="color:var(--text-muted);">terminal</span>
+          <span class="min-w-0">
+            <span class="block text-[14px] font-semibold leading-tight">Terminals</span>
+            <span class="block text-[11.5px] mt-0.5 leading-snug" style="color:var(--text-muted);">2 active sessions</span>
+          </span>
+        </a>
+        <a href="#" class="nav-item flex items-start gap-3 rounded-xl px-3 py-2.5">
+          <span class="material-symbols-outlined nav-ico mt-0.5" style="color:var(--text-muted);">receipt_long</span>
+          <span class="min-w-0">
+            <span class="block text-[14px] font-semibold leading-tight">Logs</span>
+            <span class="block text-[11.5px] mt-0.5 leading-snug" style="color:var(--text-muted);">Events and audit trail</span>
+          </span>
+        </a>
+      </nav>
+
+      <div class="mt-auto"></div>
+
+      <!-- recent activity -->
+      <div class="glass p-3.5">
+        <div class="flex items-center gap-2 mb-3 px-1">
+          <span class="material-symbols-outlined" style="font-size:16px; color:var(--text-muted);">history</span>
+          <span class="text-[11px] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Recent activity</span>
+        </div>
+        <div class="flex flex-col gap-3">
+          <div class="flex items-center gap-2.5">
+            <div class="grid h-8 w-8 place-items-center rounded-full text-[11px] font-bold text-white shrink-0" style="background:linear-gradient(150deg,#8b6f4a,#5c4a33);">CL</div>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px] font-semibold truncate">claude finished refactor</div>
+              <div class="text-[11px]" style="color:var(--text-muted);">session build-api</div>
+            </div>
+            <span class="text-[11px] mono" style="color:var(--text-muted);">3m</span>
+          </div>
+          <div class="flex items-center gap-2.5">
+            <div class="grid h-8 w-8 place-items-center rounded-full text-[11px] font-bold text-white shrink-0" style="background:linear-gradient(150deg,#3f6d5a,#274a3d);">CX</div>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px] font-semibold truncate">codex ran test suite</div>
+              <div class="text-[11px]" style="color:var(--text-muted);">session web-ui</div>
+            </div>
+            <span class="text-[11px] mono" style="color:var(--text-muted);">18m</span>
+          </div>
+          <div class="flex items-center gap-2.5">
+            <div class="grid h-8 w-8 place-items-center rounded-full text-[11px] font-bold text-white shrink-0" style="background:linear-gradient(150deg,#6b5a8a,#453a5c);">HA</div>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px] font-semibold truncate">you approved Pixel 8</div>
+              <div class="text-[11px]" style="color:var(--text-muted);">device pairing</div>
+            </div>
+            <span class="text-[11px] mono" style="color:var(--text-muted);">1h</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===================== MAIN ===================== -->
+    <main class="flex-1 min-w-0 flex flex-col">
+      <!-- header -->
+      <header class="sticky top-0 z-30 flex items-center gap-3 px-4 md:px-8 py-4" style="background: color-mix(in srgb, var(--bg-body) 72%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom:1px solid var(--border-subtle);">
+        <button id="menuBtn" class="menu-btn btn btn-ghost grid h-10 w-10 place-items-center md:hidden">
+          <span class="material-symbols-outlined">menu</span>
+        </button>
+        <div class="min-w-0 flex-1">
+          <h1 class="text-[20px] md:text-[22px] font-extrabold tracking-tight leading-none">Connection</h1>
+          <p class="text-[12.5px] mt-1" style="color:var(--text-muted);">Pair devices and manage your secure tunnel</p>
+        </div>
+        <button id="themeBtn" class="btn btn-ghost grid h-10 w-10 place-items-center" title="Toggle theme">
+          <span id="themeIco" class="material-symbols-outlined">dark_mode</span>
+        </button>
+        <button class="btn btn-ghost grid h-10 w-10 place-items-center" title="Settings">
+          <span class="material-symbols-outlined">settings</span>
+        </button>
+      </header>
+
+      <!-- content -->
+      <div class="scroll-area flex-1 overflow-y-auto px-4 md:px-8 py-6">
+        <!-- ready banner -->
+        <div class="fade-in glass flex flex-wrap items-center gap-3 px-5 py-3.5 mb-6">
+          <span class="dot dot-live"></span>
+          <span class="text-[14px] font-bold">Host is ready</span>
+          <span class="text-[12.5px]" style="color:var(--text-muted);">Scan the code or share the key to connect a new device.</span>
+          <span class="badge ml-auto" style="background:var(--brand-tint); color:var(--brand-400);">
+            <span class="material-symbols-outlined" style="font-size:14px;">shield</span>End-to-end encrypted
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- ========== LEFT: QR CARD ========== -->
+          <div class="fade-in glass p-6 flex flex-col lg:col-span-1" style="animation-delay:.04s;">
+            <div class="flex items-center gap-2 mb-5">
+              <span class="material-symbols-outlined" style="color:var(--brand-500);">qr_code_2</span>
+              <h2 class="text-[15px] font-bold">Pair a device</h2>
+            </div>
+
+            <div class="qr-frame mx-auto">
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=9remote.cc" alt="Pairing QR" width="200" height="200" class="block rounded-lg" />
+            </div>
+
+            <div class="mt-5">
+              <div class="text-[11px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">One-time key</div>
+              <div class="panel flex items-center gap-3 px-4 py-3">
+                <span class="mono text-[20px] font-semibold tracking-[0.14em] flex-1">8F2K-9DXQ</span>
+                <button class="btn grid h-8 w-8 place-items-center" style="color:var(--text-muted);" title="Copy" onclick="copyKey(this)">
+                  <span class="material-symbols-outlined" style="font-size:18px;">content_copy</span>
+                </button>
+              </div>
+            </div>
+
+            <button class="btn btn-ghost w-full mt-3 flex items-center justify-center gap-2 py-2.5 text-[13.5px]">
+              <span class="material-symbols-outlined" style="font-size:18px;">autorenew</span>
+              Generate new key
+            </button>
+
+            <div class="divider my-5"></div>
+
+            <div>
+              <div class="text-[11px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Tunnel URL</div>
+              <div class="panel flex items-center gap-2 px-3.5 py-2.5">
+                <span class="material-symbols-outlined shrink-0" style="font-size:16px; color:var(--success);">lock</span>
+                <span class="mono text-[12px] truncate flex-1" style="color:var(--text-muted);">https://calm-otter-7f3.trycloudflare.com</span>
+                <button class="btn grid h-7 w-7 place-items-center shrink-0" style="color:var(--text-muted);" title="Copy URL">
+                  <span class="material-symbols-outlined" style="font-size:16px;">open_in_new</span>
+                </button>
+              </div>
+            </div>
+
+            <button class="btn btn-danger-ghost w-full mt-4 flex items-center justify-center gap-2 py-2.5 text-[13.5px]">
+              <span class="material-symbols-outlined" style="font-size:18px;">stop_circle</span>
+              Stop tunnel
+            </button>
+          </div>
+
+          <!-- ========== RIGHT COLUMN ========== -->
+          <div class="lg:col-span-2 flex flex-col gap-6">
+            <!-- Remote Services -->
+            <div class="fade-in glass p-6" style="animation-delay:.08s;">
+              <div class="flex items-center gap-2 mb-5">
+                <span class="material-symbols-outlined" style="color:var(--brand-500);">tune</span>
+                <h2 class="text-[15px] font-bold">Remote services</h2>
+              </div>
+
+              <div class="flex flex-col">
+                <!-- Terminal -->
+                <div class="flex items-center gap-4 py-3.5">
+                  <div class="grid h-10 w-10 place-items-center rounded-xl shrink-0 panel">
+                    <span class="material-symbols-outlined" style="color:var(--text-main);">terminal</span>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                      <span class="text-[14px] font-semibold">Terminal</span>
+                      <span class="badge" style="background:rgba(34,197,94,.14); color:var(--success);"><span class="dot dot-live"></span>Active</span>
+                    </div>
+                    <div class="text-[12px] mt-0.5" style="color:var(--text-muted);">Always on. Shell access over the tunnel.</div>
+                  </div>
+                  <span class="text-[12px] font-semibold" style="color:var(--text-muted);">Always on</span>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- Desktop -->
+                <div class="py-3.5">
+                  <div class="flex items-center gap-4">
+                    <div class="grid h-10 w-10 place-items-center rounded-xl shrink-0 panel">
+                      <span class="material-symbols-outlined" style="color:var(--text-main);">desktop_windows</span>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <span class="text-[14px] font-semibold">Desktop</span>
+                      <div class="text-[12px] mt-0.5" style="color:var(--text-muted);">Stream and control the screen over WebRTC.</div>
+                    </div>
+                    <div class="switch" data-switch onclick="toggleSwitch(this)"><div class="knob"></div></div>
+                  </div>
+                  <div class="mt-3 ml-14 flex flex-col gap-1.5">
+                    <div class="flex items-center gap-2 text-[12.5px]">
+                      <span class="material-symbols-outlined" style="font-size:17px; color:var(--success);">check_circle</span>
+                      <span style="color:var(--text-muted);">Screen Recording permission granted</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-[12.5px]">
+                      <span class="material-symbols-outlined" style="font-size:17px; color:var(--danger);">cancel</span>
+                      <span style="color:var(--text-muted);">Accessibility permission required</span>
+                      <button class="mono text-[11px] font-semibold ml-1" style="color:var(--brand-400);">Grant</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- Auto-start -->
+                <div class="flex items-center gap-4 py-3.5">
+                  <div class="grid h-10 w-10 place-items-center rounded-xl shrink-0 panel">
+                    <span class="material-symbols-outlined" style="color:var(--text-main);">rocket_launch</span>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <span class="text-[14px] font-semibold">Auto-start on login</span>
+                    <div class="text-[12px] mt-0.5" style="color:var(--text-muted);">Launch the host when this machine boots.</div>
+                  </div>
+                  <div class="switch on" data-switch onclick="toggleSwitch(this)"><div class="knob"></div></div>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- Keep awake -->
+                <div class="flex items-center gap-4 py-3.5">
+                  <div class="grid h-10 w-10 place-items-center rounded-xl shrink-0 panel">
+                    <span class="material-symbols-outlined" style="color:var(--text-main);">coffee</span>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <span class="text-[14px] font-semibold">Keep awake</span>
+                    <div class="text-[12px] mt-0.5" style="color:var(--text-muted);">Prevent sleep so sessions stay reachable.</div>
+                  </div>
+                  <select class="select-native">
+                    <option>Off</option>
+                    <option selected>While connected</option>
+                    <option>Always</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Clients -->
+            <div class="fade-in glass p-6" style="animation-delay:.12s;">
+              <div class="flex items-center gap-2 mb-5">
+                <span class="material-symbols-outlined" style="color:var(--brand-500);">devices</span>
+                <h2 class="text-[15px] font-bold">Connected clients</h2>
+                <span class="badge ml-auto" style="background:var(--surface-2); color:var(--text-muted);">3 total</span>
+              </div>
+
+              <div class="flex flex-col gap-3">
+                <!-- online -->
+                <div class="panel flex items-center gap-4 px-4 py-3.5">
+                  <div class="grid h-10 w-10 place-items-center rounded-xl shrink-0" style="background:var(--surface-2);">
+                    <span class="material-symbols-outlined" style="color:var(--text-main);">smartphone</span>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[14px] font-semibold truncate">iPhone 15 Pro</div>
+                    <div class="flex items-center gap-1.5 mt-0.5">
+                      <span class="dot dot-live"></span>
+                      <span class="text-[12px] font-medium" style="color:var(--success);">Online</span>
+                      <span class="text-[12px]" style="color:var(--text-muted);">connected 42m ago</span>
+                    </div>
+                  </div>
+                  <button class="btn btn-danger-ghost px-3.5 py-2 text-[12.5px]">Disconnect</button>
+                </div>
+
+                <!-- offline -->
+                <div class="panel flex items-center gap-4 px-4 py-3.5" style="opacity:.72;">
+                  <div class="grid h-10 w-10 place-items-center rounded-xl shrink-0" style="background:var(--surface-2);">
+                    <span class="material-symbols-outlined" style="color:var(--text-muted);">laptop_mac</span>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[14px] font-semibold truncate">MacBook Air</div>
+                    <div class="flex items-center gap-1.5 mt-0.5">
+                      <span class="dot dot-off"></span>
+                      <span class="text-[12px] font-medium" style="color:var(--text-muted);">Offline</span>
+                      <span class="text-[12px]" style="color:var(--text-muted);">last seen 2h ago</span>
+                    </div>
+                  </div>
+                  <button class="btn btn-ghost px-3.5 py-2 text-[12.5px]">Remove</button>
+                </div>
+
+                <!-- pending -->
+                <div class="panel flex items-center gap-4 px-4 py-3.5" style="border-color:rgba(245,158,11,.28); background:rgba(245,158,11,.05);">
+                  <div class="grid h-10 w-10 place-items-center rounded-xl shrink-0" style="background:var(--surface-2);">
+                    <span class="material-symbols-outlined" style="color:var(--warn);">phone_android</span>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[14px] font-semibold truncate">Pixel 8</div>
+                    <div class="flex items-center gap-1.5 mt-0.5">
+                      <span class="dot dot-pending"></span>
+                      <span class="text-[12px] font-medium" style="color:var(--warn);">Pending approval</span>
+                      <span class="text-[12px]" style="color:var(--text-muted);">requested just now</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button class="btn btn-ghost grid h-9 w-9 place-items-center" title="Deny">
+                      <span class="material-symbols-outlined" style="font-size:18px; color:var(--danger);">close</span>
+                    </button>
+                    <button class="btn btn-primary px-3.5 py-2 text-[12.5px]">Approve</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="h-8"></div>
+      </div>
+    </main>
+  </div>
+
+<script>
+  // theme toggle
+  const themeBtn = document.getElementById("themeBtn");
+  const themeIco = document.getElementById("themeIco");
+  themeBtn.addEventListener("click", () => {
+    const root = document.documentElement;
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    themeIco.textContent = next === "dark" ? "dark_mode" : "light_mode";
+  });
+
+  // switch toggle
+  function toggleSwitch(el) {
+    el.classList.toggle("on");
+  }
+
+  // copy key
+  function copyKey(btn) {
+    navigator.clipboard && navigator.clipboard.writeText("8F2K-9DXQ");
+    const ico = btn.querySelector(".material-symbols-outlined");
+    const prev = ico.textContent;
+    ico.textContent = "check";
+    ico.style.color = "var(--success)";
+    setTimeout(() => {
+      ico.textContent = prev;
+      ico.style.color = "";
+    }, 1400);
+  }
+
+  // mobile drawer
+  const sidebar = document.getElementById("sidebar");
+  const scrim = document.getElementById("scrim");
+  document.getElementById("menuBtn").addEventListener("click", () => {
+    sidebar.classList.add("open");
+    scrim.style.opacity = "1";
+    scrim.style.pointerEvents = "auto";
+  });
+  scrim.addEventListener("click", () => {
+    sidebar.classList.remove("open");
+    scrim.style.opacity = "0";
+    scrim.style.pointerEvents = "none";
+  });
+</script>
+</body>
+</html>

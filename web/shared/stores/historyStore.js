@@ -4,6 +4,9 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 const MAX_HISTORY = 50;
+// Skip entries longer than this — pasted file contents / long blobs aren't reuseable
+// as suggestions and would bloat localStorage + crowd the history list.
+const MAX_COMMAND_LEN = 250;
 
 // Auto-suggest a short alias from a command: first letter of each word.
 // "npm run dev" -> "nrd", "git status" -> "gs". Dedup against existing aliases.
@@ -29,7 +32,7 @@ const createHistoryStore = (storageName) => create(
 
       addCommand: (cmd) => set((state) => {
         const text = cmd.trim();
-        if (!text || state.history[0] === text) return state;
+        if (!text || text.length > MAX_COMMAND_LEN || state.history[0] === text) return state;
         return { history: [text, ...state.history.filter((c) => c !== text)].slice(0, MAX_HISTORY) };
       }),
 

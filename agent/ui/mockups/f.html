@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>9Remote · connection ▸ ready</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..400,0..1,-25..0" />
+<style>
+  :root {
+    --green:#4ADE80; --green-dim:#3AAE68; --green-tint:rgba(74,222,128,.10); --green-line:rgba(74,222,128,.24);
+    --amber:#F5A524; --amber-tint:rgba(245,165,36,.10); --amber-line:rgba(245,165,36,.26);
+    --bg-body:#0C0D0E; --bg-rail:#101113; --surface:#16181B; --surface-2:#1D2024; --surface-3:#24282D;
+    --border:#24282D; --border-subtle:#1B1E21;
+    --text-main:#D6DBD9; --text-muted:#7C857F; --text-dim:#565E58;
+    --success:#4ADE80; --danger:#F87171; --warn:#F5A524;
+    --radius:8px; --radius-sm:6px; --radius-lg:10px;
+    --ease:cubic-bezier(0.16,1,0.3,1);
+    --shadow-tile:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.22);
+    --shadow-green:0 1px 2px rgba(0,0,0,.4), 0 8px 26px rgba(74,222,128,.10);
+  }
+  [data-theme="light"] {
+    --green:#16A34A; --green-dim:#15803D; --green-tint:rgba(22,163,74,.09); --green-line:rgba(22,163,74,.22);
+    --amber:#B45309; --amber-tint:rgba(180,83,9,.08); --amber-line:rgba(180,83,9,.22);
+    --bg-body:#F6F7F5; --bg-rail:#EEF0EC; --surface:#FFFFFF; --surface-2:#F1F3EF; --surface-3:#E7EAE4;
+    --border:#E3E6E1; --border-subtle:#EAEDE7;
+    --text-main:#14181A; --text-muted:#5C635E; --text-dim:#8A928B;
+    --success:#16A34A; --danger:#DC2626; --warn:#B45309;
+    --shadow-tile:0 1px 2px rgba(20,24,26,.05), 0 6px 20px rgba(20,24,26,.06);
+    --shadow-green:0 1px 2px rgba(20,24,26,.05), 0 8px 24px rgba(22,163,74,.10);
+  }
+  * { -webkit-tap-highlight-color:transparent; }
+  html,body { background:var(--bg-body); color:var(--text-main); }
+  body { font-family:"Space Grotesk", system-ui, sans-serif; }
+  .mono { font-family:"JetBrains Mono", ui-monospace, monospace; }
+  .msym { font-family:"Material Symbols Outlined"; font-weight:normal; font-style:normal; line-height:1; letter-spacing:normal; text-transform:none; display:inline-block; white-space:nowrap; direction:ltr; -webkit-font-feature-settings:'liga'; -webkit-font-smoothing:antialiased; font-variation-settings:'wght' 300, 'opsz' 24; }
+  .tile { background:var(--surface); border:1px solid var(--border-subtle); border-radius:var(--radius); box-shadow:var(--shadow-tile); }
+  .press { transition:transform .2s var(--ease), background-color .2s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease), color .2s var(--ease); }
+  .press:active { transform:scale(.97); }
+  ::-webkit-scrollbar { width:9px; height:9px; }
+  ::-webkit-scrollbar-thumb { background:var(--surface-3); border-radius:6px; border:2px solid var(--bg-body); }
+  /* toggle switch */
+  .sw { width:40px; height:23px; border-radius:999px; background:var(--surface-3); border:1px solid var(--border); position:relative; cursor:pointer; transition:background-color .2s var(--ease), border-color .2s var(--ease); }
+  .sw::after { content:""; position:absolute; top:2px; left:2px; width:17px; height:17px; border-radius:999px; background:#E7ECE9; box-shadow:0 1px 2px rgba(0,0,0,.4); transition:transform .2s var(--ease), width .15s var(--ease); }
+  .sw[data-on="true"] { background:var(--green); border-color:var(--green); }
+  .sw[data-on="true"]::after { transform:translateX(17px); background:#0C0D0E; }
+  .sw:active::after { width:20px; }
+  /* icon rail nav */
+  .rail-item { position:relative; }
+  .rail-item .tip { position:absolute; left:56px; top:50%; transform:translateY(-50%) translateX(-4px); opacity:0; pointer-events:none; white-space:nowrap; background:var(--surface-3); border:1px solid var(--border); color:var(--text-main); font-size:11.5px; font-weight:600; padding:5px 9px; border-radius:6px; transition:opacity .16s var(--ease), transform .16s var(--ease); z-index:60; box-shadow:var(--shadow-tile); }
+  .rail-item:hover .tip { opacity:1; transform:translateY(-50%) translateX(0); }
+  .rail-item.active .railbox { background:var(--green-tint); border-color:var(--green-line); }
+  .rail-item.active .msym { color:var(--green); }
+  .rail-item.active::before { content:""; position:absolute; left:-12px; top:50%; transform:translateY(-50%); width:3px; height:20px; border-radius:0 3px 3px 0; background:var(--green); }
+  select.mini { background:var(--surface-3); color:var(--text-main); border:1px solid var(--border); border-radius:6px; padding:5px 26px 5px 9px; font-size:12px; font-weight:600; outline:none; font-family:"JetBrains Mono",monospace; -webkit-appearance:none; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237C857F' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 8px center; cursor:pointer; }
+  .dot { width:7px; height:7px; border-radius:999px; display:inline-block; }
+  .kbd { font-family:"JetBrains Mono",monospace; font-size:11px; padding:2px 6px; border-radius:5px; background:var(--surface-3); border:1px solid var(--border); color:var(--text-muted); }
+  @media (max-width:767px){
+    .icon-rail{ position:fixed; bottom:0; left:0; right:0; top:auto !important; flex-direction:row !important; width:100% !important; height:60px; border-right:0 !important; border-top:1px solid var(--border-subtle); padding:0 8px !important; justify-content:space-around; z-index:50; }
+    .icon-rail .rail-logo, .icon-rail .rail-spacer{ display:none !important; }
+    .icon-rail .rail-item.active::before{ left:50%; top:auto; bottom:-2px; transform:translateX(-50%); width:20px; height:3px; border-radius:3px 3px 0 0; }
+    .icon-rail .tip{ display:none; }
+    .main-scroll{ padding-bottom:76px; }
+  }
+</style>
+</head>
+<body class="antialiased">
+<div class="flex min-h-[100dvh]">
+
+  <!-- ICON RAIL 72px -->
+  <aside class="icon-rail sticky top-0 h-[100dvh] w-[72px] shrink-0 flex flex-col items-center gap-2 py-4 border-r" style="border-color:var(--border-subtle); background:var(--bg-rail);">
+    <!-- logo mark -->
+    <div class="rail-logo w-10 h-10 rounded-[9px] grid place-items-center mb-2 shrink-0" style="background:linear-gradient(150deg, var(--green) 0%, var(--green-dim) 100%); box-shadow:var(--shadow-green);">
+      <span class="mono font-extrabold text-[20px]" style="color:#0C0D0E;">9</span>
+    </div>
+
+    <!-- nav -->
+    <a class="rail-item active press flex flex-col items-center cursor-pointer">
+      <span class="railbox w-11 h-11 rounded-[9px] grid place-items-center border border-transparent transition-colors">
+        <span class="msym" style="font-size:22px; color:var(--text-muted);">lan</span>
+      </span>
+      <span class="tip">Connection</span>
+    </a>
+    <a class="rail-item press flex flex-col items-center cursor-pointer">
+      <span class="railbox w-11 h-11 rounded-[9px] grid place-items-center border border-transparent hover:bg-white/[.03]">
+        <span class="msym" style="font-size:22px; color:var(--text-muted);">terminal</span>
+      </span>
+      <span class="tip">Terminals</span>
+    </a>
+    <a class="rail-item press flex flex-col items-center cursor-pointer">
+      <span class="railbox w-11 h-11 rounded-[9px] grid place-items-center border border-transparent hover:bg-white/[.03]">
+        <span class="msym" style="font-size:22px; color:var(--text-muted);">list_alt</span>
+      </span>
+      <span class="tip">Logs</span>
+    </a>
+
+    <div class="rail-spacer mt-auto"></div>
+
+    <!-- theme + settings -->
+    <a id="themeBtn" class="rail-item press flex flex-col items-center cursor-pointer">
+      <span class="railbox w-11 h-11 rounded-[9px] grid place-items-center border border-transparent hover:bg-white/[.03]">
+        <span class="msym" id="themeIcon" style="font-size:21px; color:var(--text-muted);">dark_mode</span>
+      </span>
+      <span class="tip" id="themeTip">Light mode</span>
+    </a>
+    <a class="rail-item press flex flex-col items-center cursor-pointer">
+      <span class="railbox w-11 h-11 rounded-[9px] grid place-items-center border border-transparent hover:bg-white/[.03]">
+        <span class="msym" style="font-size:21px; color:var(--text-muted);">settings</span>
+      </span>
+      <span class="tip">Settings</span>
+    </a>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="flex-1 min-w-0 flex flex-col">
+
+    <!-- header (slim) -->
+    <header class="flex items-center gap-3 px-5 md:px-7 h-14 border-b shrink-0" style="border-color:var(--border-subtle); background:var(--bg-body);">
+      <div class="mono text-[13px] flex items-center gap-1.5 min-w-0">
+        <span style="color:var(--text-muted);">connection</span>
+        <span style="color:var(--text-dim);">▸</span>
+        <span style="color:var(--green);" class="font-semibold">ready</span>
+      </div>
+
+      <div class="ml-auto flex items-center gap-2 md:gap-4">
+        <!-- tunnel health pill -->
+        <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-[6px]" style="background:var(--green-tint); border:1px solid var(--green-line);">
+          <span class="dot" style="background:var(--green);"></span>
+          <span class="text-[12px] font-semibold" style="color:var(--green);">tunnel healthy</span>
+          <span class="mono text-[11px]" style="color:var(--text-muted);">28ms</span>
+        </div>
+        <!-- stats (mono) -->
+        <div class="hidden md:flex items-center gap-4 mono text-[11.5px]">
+          <span style="color:var(--text-muted);">clients=<span style="color:var(--text-main);" class="font-semibold">1</span></span>
+          <span style="color:var(--text-muted);">uptime=<span style="color:var(--text-main);" class="font-semibold">4h12m</span></span>
+          <span style="color:var(--text-muted);">tx=<span style="color:var(--text-main);" class="font-semibold">1.4GB</span></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- scroll body -->
+    <div class="main-scroll flex-1 overflow-y-auto p-5 md:p-7">
+      <div class="max-w-[1180px] mx-auto flex flex-col gap-5">
+
+        <!-- ROW: QR (left) + Services (right) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+          <!-- QR / pairing -->
+          <section class="tile lg:col-span-5 p-5 flex flex-col" style="box-shadow:var(--shadow-green);">
+            <div class="flex items-center gap-2 mb-4">
+              <span class="msym" style="font-size:19px; color:var(--green);">qr_code_2</span>
+              <h2 class="text-[14px] font-semibold tracking-tight">Pairing</h2>
+              <span class="mono ml-auto text-[10.5px] font-bold px-2 py-1 rounded-[5px]" style="background:var(--green-tint); color:var(--green); border:1px solid var(--green-line);">[ READY ]</span>
+            </div>
+
+            <!-- qr -->
+            <div class="rounded-[8px] p-3.5 grid place-items-center mb-4 mx-auto" style="background:#F4F6F3; border:1px solid var(--border);">
+              <img alt="QR pairing code" width="184" height="184" src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&amp;data=9remote.cc">
+            </div>
+
+            <!-- one time key -->
+            <div class="rounded-[7px] p-3.5 mb-3" style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+              <div class="mono text-[10.5px] uppercase tracking-wider mb-2" style="color:var(--text-muted);">one-time key</div>
+              <div class="flex items-center gap-2">
+                <span id="keyText" class="mono text-[21px] font-bold tracking-[.14em]" style="color:var(--text-main);">8F2K-9DXQ</span>
+                <button id="copyKey" class="press ml-auto w-8 h-8 rounded-[6px] grid place-items-center border" style="background:var(--surface); border-color:var(--border);" title="Copy key">
+                  <span class="msym" id="copyIcon" style="font-size:16px; color:var(--text-muted);">content_copy</span>
+                </button>
+              </div>
+            </div>
+
+            <button class="press w-full py-2.5 rounded-[7px] mono text-[12.5px] font-bold flex items-center justify-center gap-2 mb-4" style="background:var(--green); color:#0C0D0E; box-shadow:var(--shadow-green);">
+              <span class="msym" style="font-size:17px;">autorenew</span> generate new key
+            </button>
+
+            <!-- tunnel url -->
+            <div class="mt-auto pt-3.5 border-t flex items-center gap-2.5" style="border-color:var(--border-subtle);">
+              <span class="dot shrink-0" style="background:var(--green);"></span>
+              <div class="min-w-0">
+                <div class="mono text-[10px] uppercase tracking-wider" style="color:var(--text-muted);">tunnel url</div>
+                <a class="mono text-[11.5px] truncate block hover:underline" style="color:var(--green);" href="#">https://calm-river-8821.trycloudflare.com</a>
+              </div>
+              <button class="press ml-auto shrink-0 px-2.5 py-2 rounded-[6px] mono text-[11.5px] font-bold flex items-center gap-1.5 border" style="background:rgba(248,113,113,.08); color:var(--danger); border-color:rgba(248,113,113,.22);">
+                <span class="msym" style="font-size:15px;">stop_circle</span> stop tunnel
+              </button>
+            </div>
+          </section>
+
+          <!-- Remote Services -->
+          <section class="tile lg:col-span-7 p-5">
+            <div class="flex items-center gap-2 mb-4">
+              <span class="msym" style="font-size:19px; color:var(--text-muted);">tune</span>
+              <h2 class="text-[14px] font-semibold tracking-tight">Remote Services</h2>
+            </div>
+
+            <div class="flex flex-col gap-2.5">
+              <!-- terminal -->
+              <div class="flex items-center gap-3 p-3 rounded-[7px]" style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+                <div class="w-9 h-9 rounded-[7px] grid place-items-center shrink-0" style="background:var(--green-tint); border:1px solid var(--green-line);">
+                  <span class="msym" style="font-size:18px; color:var(--green);">terminal</span>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[13px] font-semibold">Terminal</div>
+                  <div class="mono text-[11px]" style="color:var(--text-muted);">pty sessions, always on</div>
+                </div>
+                <span class="mono ml-auto text-[10.5px] font-bold px-2.5 py-1 rounded-[5px] flex items-center gap-1.5" style="background:var(--green-tint); color:var(--green); border:1px solid var(--green-line);">
+                  <span class="dot" style="background:var(--green);"></span> Active
+                </span>
+              </div>
+
+              <!-- desktop -->
+              <div class="p-3 rounded-[7px]" style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-[7px] grid place-items-center shrink-0" style="background:var(--surface-3);">
+                    <span class="msym" style="font-size:18px; color:var(--text-muted);">desktop_windows</span>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-[13px] font-semibold">Desktop</div>
+                    <div class="mono text-[11px]" style="color:var(--text-muted);">screen streaming via webrtc</div>
+                  </div>
+                  <div class="sw ml-auto" data-on="false" onclick="toggleSw(this)"></div>
+                </div>
+                <div class="flex flex-wrap gap-x-5 gap-y-1.5 mt-3 pl-12">
+                  <div class="flex items-center gap-1.5 mono text-[11px] font-medium" style="color:var(--success);">
+                    <span class="msym" style="font-size:15px;">check_circle</span> Screen Recording
+                  </div>
+                  <div class="flex items-center gap-1.5 mono text-[11px] font-medium" style="color:var(--danger);">
+                    <span class="msym" style="font-size:15px;">cancel</span> Accessibility
+                  </div>
+                </div>
+              </div>
+
+              <!-- auto-start -->
+              <div class="flex items-center gap-3 p-3 rounded-[7px]" style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+                <div class="w-9 h-9 rounded-[7px] grid place-items-center shrink-0" style="background:var(--surface-3);">
+                  <span class="msym" style="font-size:18px; color:var(--text-muted);">rocket_launch</span>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[13px] font-semibold">Auto-start</div>
+                  <div class="mono text-[11px]" style="color:var(--text-muted);">launch on system login</div>
+                </div>
+                <div class="sw ml-auto" data-on="true" onclick="toggleSw(this)"></div>
+              </div>
+
+              <!-- keep awake -->
+              <div class="flex items-center gap-3 p-3 rounded-[7px]" style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+                <div class="w-9 h-9 rounded-[7px] grid place-items-center shrink-0" style="background:var(--surface-3);">
+                  <span class="msym" style="font-size:18px; color:var(--text-muted);">bedtime</span>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[13px] font-semibold">Keep awake</div>
+                  <div class="mono text-[11px]" style="color:var(--text-muted);">prevent system sleep</div>
+                </div>
+                <select class="mini ml-auto">
+                  <option>Off</option>
+                  <option selected>While connected</option>
+                  <option>Always</option>
+                </select>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Clients (full width) -->
+        <section class="tile p-5">
+          <div class="flex items-center gap-2 mb-4">
+            <span class="msym" style="font-size:19px; color:var(--text-muted);">devices</span>
+            <h2 class="text-[14px] font-semibold tracking-tight">Clients</h2>
+            <span class="mono ml-auto text-[10.5px] px-2 py-1 rounded-[5px]" style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border-subtle);">3 total</span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            <!-- iphone online -->
+            <div class="flex flex-col gap-3 p-3.5 rounded-[7px]" style="background:var(--surface-2); border:1px solid var(--green-line);">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-[7px] grid place-items-center shrink-0" style="background:var(--surface-3);">
+                  <span class="msym" style="font-size:18px; color:var(--text-main);">smartphone</span>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[13px] font-semibold truncate">iPhone 15 Pro</div>
+                  <div class="flex items-center gap-1.5 mono text-[11px]" style="color:var(--green);">
+                    <span class="dot" style="background:var(--green);"></span> Online
+                  </div>
+                </div>
+              </div>
+              <div class="mono text-[10.5px] flex flex-col gap-0.5" style="color:var(--text-muted);">
+                <span>192.168.1.42</span>
+                <span>connected 12:04</span>
+              </div>
+              <button class="press w-full py-2 rounded-[6px] mono text-[11.5px] font-bold border" style="background:rgba(248,113,113,.08); color:var(--danger); border-color:rgba(248,113,113,.22);">disconnect</button>
+            </div>
+
+            <!-- macbook offline -->
+            <div class="flex flex-col gap-3 p-3.5 rounded-[7px]" style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-[7px] grid place-items-center shrink-0" style="background:var(--surface-3);">
+                  <span class="msym" style="font-size:18px; color:var(--text-muted);">laptop_mac</span>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[13px] font-semibold truncate" style="color:var(--text-muted);">MacBook Air</div>
+                  <div class="flex items-center gap-1.5 mono text-[11px]" style="color:var(--text-dim);">
+                    <span class="dot" style="background:var(--text-dim);"></span> Offline
+                  </div>
+                </div>
+              </div>
+              <div class="mono text-[10.5px] flex flex-col gap-0.5" style="color:var(--text-muted);">
+                <span>10.0.0.8</span>
+                <span>approved 2 days ago</span>
+              </div>
+              <button class="press w-full py-2 rounded-[6px] mono text-[11.5px] font-bold border" style="background:var(--surface); color:var(--text-muted); border-color:var(--border);">remove</button>
+            </div>
+
+            <!-- pixel pending -->
+            <div class="flex flex-col gap-3 p-3.5 rounded-[7px]" style="background:var(--amber-tint); border:1px solid var(--amber-line);">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-[7px] grid place-items-center shrink-0" style="background:var(--surface-3);">
+                  <span class="msym" style="font-size:18px; color:var(--warn);">phone_android</span>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-[13px] font-semibold truncate">Pixel 8</div>
+                  <div class="flex items-center gap-1.5 mono text-[11px]" style="color:var(--warn);">
+                    <span class="dot" style="background:var(--warn);"></span> Pending
+                  </div>
+                </div>
+              </div>
+              <div class="mono text-[10.5px] flex flex-col gap-0.5" style="color:var(--text-muted);">
+                <span>192.168.1.77</span>
+                <span>waiting approval</span>
+              </div>
+              <button class="press w-full py-2 rounded-[6px] mono text-[11.5px] font-bold flex items-center justify-center gap-1.5" style="background:var(--green); color:#0C0D0E;">
+                <span class="msym" style="font-size:15px;">check</span> approve
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Recent activity -->
+        <section class="tile p-5">
+          <div class="flex items-center gap-2 mb-3.5">
+            <span class="msym" style="font-size:19px; color:var(--text-muted);">history</span>
+            <h2 class="text-[14px] font-semibold tracking-tight">Recent activity</h2>
+          </div>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-3 px-3 py-2.5 rounded-[7px]" style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+              <div class="w-7 h-7 rounded-full grid place-items-center mono text-[11px] font-bold shrink-0" style="background:var(--green-tint); color:var(--green); border:1px solid var(--green-line);">cl</div>
+              <div class="min-w-0 flex items-center gap-2 flex-wrap">
+                <span class="text-[12.5px] font-semibold">claude</span>
+                <span class="mono text-[11px]" style="color:var(--text-muted);">session "api-refactor"</span>
+              </div>
+              <span class="mono ml-auto text-[10.5px] font-semibold flex items-center gap-1.5 shrink-0" style="color:var(--green);">
+                <span class="msym" style="font-size:14px;">check_circle</span> done 3m
+              </span>
+            </div>
+            <div class="flex items-center gap-3 px-3 py-2.5 rounded-[7px]" style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+              <div class="w-7 h-7 rounded-full grid place-items-center mono text-[11px] font-bold shrink-0" style="background:var(--amber-tint); color:var(--warn); border:1px solid var(--amber-line);">cx</div>
+              <div class="min-w-0 flex items-center gap-2 flex-wrap">
+                <span class="text-[12.5px] font-semibold">codex</span>
+                <span class="mono text-[11px]" style="color:var(--text-muted);">session "db-index"</span>
+              </div>
+              <span class="mono ml-auto text-[10.5px] font-semibold flex items-center gap-1.5 shrink-0" style="color:var(--warn);">
+                <span class="msym" style="font-size:14px;">error</span> needs input 8m
+              </span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  function toggleSw(el){ el.dataset.on = el.dataset.on === "true" ? "false" : "true"; }
+
+  // theme toggle
+  const themeBtn = document.getElementById("themeBtn");
+  const themeIcon = document.getElementById("themeIcon");
+  const themeTip = document.getElementById("themeTip");
+  themeBtn.addEventListener("click", () => {
+    const root = document.documentElement;
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    themeIcon.textContent = next === "dark" ? "dark_mode" : "light_mode";
+    themeTip.textContent = next === "dark" ? "Light mode" : "Dark mode";
+  });
+
+  // copy key
+  const copyBtn = document.getElementById("copyKey");
+  const copyIcon = document.getElementById("copyIcon");
+  copyBtn.addEventListener("click", () => {
+    const key = document.getElementById("keyText").textContent.trim();
+    navigator.clipboard && navigator.clipboard.writeText(key);
+    copyIcon.textContent = "check";
+    copyIcon.style.color = "var(--green)";
+    setTimeout(() => { copyIcon.textContent = "content_copy"; copyIcon.style.color = "var(--text-muted)"; }, 1400);
+  });
+</script>
+</body>
+</html>

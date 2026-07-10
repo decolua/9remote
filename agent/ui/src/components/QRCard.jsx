@@ -36,7 +36,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
   useEffect(() => {
     if (!qrUrl || !canvasRef.current) return;
     QRCode.toCanvas(canvasRef.current, qrUrl, {
-      width: 160,
+      width: 200,
       margin: 1,
       color: { dark: "#0f1923", light: "#ffffff" },
     }).catch(() => {});
@@ -87,12 +87,18 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
 
       <div className="card-elev p-5 flex flex-col items-center gap-4 h-full">
 
+        {/* Card header */}
+        <div className="w-full flex items-center gap-2">
+          <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--brand-500)" }}>qr_code_2</span>
+          <span className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>{t("connection.pairDevice")}</span>
+        </div>
+
         {/* QR */}
-        <div className="w-44 h-44 rounded-xl overflow-hidden bg-white p-2 flex items-center justify-center flex-shrink-0">
+        <div className="w-52 h-52 rounded-[18px] overflow-hidden bg-white p-3.5 flex items-center justify-center flex-shrink-0" style={{ boxShadow: "0 12px 30px -10px rgba(0,0,0,0.5)" }}>
           {qrUrl ? (
             <canvas ref={canvasRef} />
           ) : (
-            <span className="material-symbols-outlined text-gray-300 text-6xl">qr_code_2</span>
+            <span className="material-symbols-outlined text-gray-300 text-7xl">qr_code_2</span>
           )}
         </div>
 
@@ -165,18 +171,15 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
         </div>
         </div>
 
-        {/* Stop tunnel */}
-        <div className="w-full flex justify-center pt-5">
-          <button
-            onClick={() => setPopup("stop")}
-            title="Stop tunnel"
-            className="glass-btn flex items-center gap-1.5 px-3 h-7 text-xs font-medium"
-            style={{ color: "rgba(255,100,100,0.7)" }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>stop_circle</span>
-            Stop Tunnel
-          </button>
-        </div>
+        {/* Stop tunnel — full-width danger (pro5 parity) */}
+        <button
+          onClick={() => setPopup("stop")}
+          title="Stop tunnel"
+          className="btn-danger w-full mt-1 py-2.5 flex items-center justify-center gap-2 text-[13px] font-semibold"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 17 }}>stop_circle</span>
+          Stop Tunnel
+        </button>
 
       </div>
     </>

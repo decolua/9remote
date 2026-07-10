@@ -28,13 +28,33 @@ export const COMMON_COMMANDS = [
   "docker ps", "docker ps -a", "docker images", "docker logs -f", "docker exec -it",
   "docker compose up -d", "docker compose down", "docker build -t",
   // misc
-  "clear", "sudo", "code .", "vim", "nano", "python3", "node", "make"
+  "clear", "sudo", "code .", "vim", "nano", "python3", "node", "make",
+  // AI CLI tools — kept short→long so the base command surfaces first
+  "claude", "claude --continue", "claude --resume", "claude mcp",
+  "claude --dangerously-skip-permissions", "codex", "codex --full-auto",
+  "gemini", "aider", "opencode", "grok"
 ];
 
 // Layout breakpoints and sizing
 export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
 export const PANE_MIN_WIDTH = 500; // px, min width per terminal pane on desktop
 export const MAX_LIVE_PANES = 12; // Max mounted XTerm panes kept alive (LRU); caps RAM
+
+// Attachments pasted/attached into the terminal input, sent via OS clipboard on the host
+export const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5MB per attachment
+export const MAX_ATTACHMENTS = 5; // cap concurrent attachments per send
+export const CLIPBOARD_ATTACH_TIMEOUT = 3000; // ms; fallback if host ack never arrives
+export const CLIPBOARD_ATTACH_GAP = 150; // ms; let CLI read clipboard before next overwrite
+
+// Control keys sent straight to the terminal from the text input (ANSI codes, OS-agnostic).
+// Ctrl only (not Meta) so Cmd+C stays copy on macOS. requireNoSelection: skip when text is selected.
+export const INPUT_CONTROL_KEYS = {
+  Escape: { data: "\x1b" },
+  c: { ctrl: true, data: "\x03", requireNoSelection: true },
+  d: { ctrl: true, data: "\x04" },
+  z: { ctrl: true, data: "\x1a" },
+  l: { ctrl: true, data: "\x0c" }
+};
 
 // Per-terminal folder/changed-files toolbar
 export const WATCH_DEBOUNCE_MS = 400; // Debounce gitStatus refresh on file changes
@@ -46,7 +66,7 @@ export const TERMINAL_OPTIONS = {
   fontSize: 14,
   fontSizeMobile: 12,
   fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", "Noto Sans Mono", Menlo, Monaco, "Courier New", monospace',
-  scrollback: 10000,
+  scrollback: 50000,
   convertEol: true,
   allowProposedApi: true,
   scrollOnUserInput: true,

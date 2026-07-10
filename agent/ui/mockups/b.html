@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>9Remote · Connection</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+<style>
+  :root[data-theme="dark"]{
+    --brand-500:#E56A4A; --brand-600:#cc5236; --brand-400:#ea7855; --brand-tint:rgba(229,106,74,.12);
+    --bg-body:#1A1A1A; --surface:#262626; --surface-2:#303030; --border:#333; --border-subtle:#2A2A2A;
+    --text-main:#EDEDED; --text-muted:#9CA3AF; --success:#22C55E; --danger:#EF4444; --warn:#F59E0B;
+    --shadow-card:0 1px 2px rgba(0,0,0,.28), 0 8px 24px -12px rgba(20,14,10,.55);
+    --shadow-pop:0 12px 40px -14px rgba(10,7,5,.7);
+    --hairline:rgba(255,255,255,.04);
+  }
+  :root[data-theme="light"]{
+    --brand-500:#E56A4A; --brand-600:#cc5236; --brand-400:#ea7855; --brand-tint:rgba(229,106,74,.12);
+    --bg-body:#FCFBF9; --surface:#FFFFFF; --surface-2:#F4F4F5; --border:#E5E7EB; --border-subtle:#EDEBE7;
+    --text-main:#0A0A0A; --text-muted:#6B7280; --success:#16A34A; --danger:#DC2626; --warn:#D97706;
+    --shadow-card:0 1px 2px rgba(40,30,22,.05), 0 10px 30px -18px rgba(120,90,60,.28);
+    --shadow-pop:0 16px 44px -18px rgba(90,60,40,.28);
+    --hairline:rgba(20,15,10,.03);
+  }
+  *{ -webkit-tap-highlight-color:transparent; }
+  html,body{ background:var(--bg-body); }
+  body{
+    font-family:"Plus Jakarta Sans", system-ui, sans-serif;
+    color:var(--text-main);
+    letter-spacing:-.011em;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  .mono{ font-family:"JetBrains Mono", ui-monospace, monospace; font-feature-settings:"zero" 1; }
+  .msym{ font-family:"Material Symbols Outlined"; font-weight:normal; font-style:normal; line-height:1;
+    font-variation-settings:'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24; -webkit-font-feature-settings:'liga'; }
+  .msym.fill{ font-variation-settings:'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border-subtle);
+    border-radius:14px;
+    box-shadow:var(--shadow-card);
+  }
+  .divide-hair > * + *{ border-top:1px solid var(--border-subtle); }
+
+  .btn{ transition:transform .2s cubic-bezier(0.16,1,0.3,1), background .2s ease, border-color .2s ease, color .2s ease; }
+  .btn:active{ transform:scale(.97); }
+
+  .brand-btn{ background:var(--brand-500); color:#fff; }
+  .brand-btn:hover{ background:var(--brand-600); }
+
+  .ghost-btn{ background:transparent; border:1px solid var(--border); color:var(--text-main); }
+  .ghost-btn:hover{ background:var(--surface-2); border-color:var(--brand-500); }
+
+  .nav-item{ transition:background .2s ease, color .2s ease; }
+  .nav-item:hover{ background:var(--surface-2); }
+  .nav-item.active{ background:var(--brand-tint); }
+  .nav-item.active .nav-ic{ color:var(--brand-500); }
+  .nav-item.active .nav-title{ color:var(--text-main); }
+  .nav-rail{ position:absolute; left:-1px; top:50%; transform:translateY(-50%); width:3px; height:22px; border-radius:0 3px 3px 0; background:var(--brand-500); }
+
+  /* toggle switch */
+  .sw{ width:42px; height:24px; border-radius:999px; background:var(--surface-2); border:1px solid var(--border); position:relative; cursor:pointer;
+    transition:background .22s cubic-bezier(0.16,1,0.3,1), border-color .22s ease; flex:none; }
+  .sw .knob{ position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:999px; background:var(--text-muted);
+    transition:transform .22s cubic-bezier(0.16,1,0.3,1), background .22s ease; box-shadow:0 1px 2px rgba(0,0,0,.3); }
+  .sw:active .knob{ width:20px; }
+  .sw.on{ background:var(--brand-500); border-color:var(--brand-500); }
+  .sw.on .knob{ transform:translateX(18px); background:#fff; }
+
+  .pill{ font-size:11px; font-weight:600; letter-spacing:.01em; padding:3px 9px; border-radius:999px; display:inline-flex; align-items:center; gap:5px; }
+  .dot{ width:6px; height:6px; border-radius:999px; flex:none; }
+
+  select.sel{ background:var(--surface-2); border:1px solid var(--border); color:var(--text-main); border-radius:9px;
+    padding:7px 30px 7px 11px; font-size:13px; font-weight:500; appearance:none; cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 9px center; transition:border-color .2s ease; }
+  select.sel:hover{ border-color:var(--brand-500); }
+
+  .qr-frame{ background:#fff; border-radius:12px; padding:12px; }
+
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb{ background:var(--border); border-radius:99px; border:3px solid var(--bg-body); }
+
+  .sidebar-backdrop{ background:rgba(0,0,0,.5); }
+  @media (min-width:768px){
+    #sidebar{ transform:none !important; }
+    .sidebar-backdrop{ display:none !important; }
+  }
+  @media (max-width:767px){
+    #sidebar{ position:fixed; z-index:50; transform:translateX(-100%); transition:transform .28s cubic-bezier(0.16,1,0.3,1); }
+    #sidebar.open{ transform:translateX(0); }
+  }
+</style>
+</head>
+<body>
+<div class="flex min-h-[100dvh]">
+
+  <!-- ============ SIDEBAR ============ -->
+  <div id="backdrop" class="sidebar-backdrop fixed inset-0 z-40 hidden md:hidden" onclick="toggleSidebar(false)"></div>
+  <aside id="sidebar" class="w-[260px] flex-none flex flex-col border-r"
+         style="border-color:var(--border-subtle); background:var(--surface); height:100dvh; position:sticky; top:0;">
+    <!-- brand -->
+    <div class="px-5 pt-5 pb-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-[11px] grid place-items-center flex-none"
+             style="background:var(--brand-500); box-shadow:0 6px 16px -6px var(--brand-tint);">
+          <span class="msym fill text-white" style="font-size:22px;">bolt</span>
+        </div>
+        <div class="leading-tight">
+          <div class="font-extrabold text-[15px]">9Remote</div>
+          <div class="mono text-[11px]" style="color:var(--text-muted);">v2.4.1</div>
+        </div>
+      </div>
+      <!-- tunnel health -->
+      <div class="mt-4 flex items-center justify-between rounded-[11px] px-3 py-2.5"
+           style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+        <div class="flex items-center gap-2">
+          <span class="msym" style="font-size:17px; color:var(--text-muted);">cloud_done</span>
+          <span class="text-[12.5px] font-medium" style="color:var(--text-muted);">Tunnel</span>
+        </div>
+        <span class="pill" style="background:rgba(34,197,94,.14); color:var(--success);">
+          <span class="dot" style="background:var(--success);"></span>Healthy
+        </span>
+      </div>
+    </div>
+
+    <!-- nav -->
+    <nav class="px-3 flex flex-col gap-1">
+      <a href="#" class="nav-item active relative flex items-start gap-3 rounded-[11px] px-3 py-2.5">
+        <span class="nav-rail"></span>
+        <span class="nav-ic msym mt-[1px]" style="font-size:20px; color:var(--text-muted);">hub</span>
+        <span>
+          <span class="nav-title block text-[13.5px] font-semibold" style="color:var(--text-main);">Connection</span>
+          <span class="block text-[11.5px]" style="color:var(--text-muted);">Pairing and tunnel</span>
+        </span>
+      </a>
+      <a href="#" class="nav-item relative flex items-start gap-3 rounded-[11px] px-3 py-2.5">
+        <span class="nav-ic msym mt-[1px]" style="font-size:20px; color:var(--text-muted);">terminal</span>
+        <span>
+          <span class="nav-title block text-[13.5px] font-semibold" style="color:var(--text-muted);">Terminals</span>
+          <span class="block text-[11.5px]" style="color:var(--text-muted);">3 active sessions</span>
+        </span>
+      </a>
+      <a href="#" class="nav-item relative flex items-start gap-3 rounded-[11px] px-3 py-2.5">
+        <span class="nav-ic msym mt-[1px]" style="font-size:20px; color:var(--text-muted);">receipt_long</span>
+        <span>
+          <span class="nav-title block text-[13.5px] font-semibold" style="color:var(--text-muted);">Logs</span>
+          <span class="block text-[11.5px]" style="color:var(--text-muted);">Events and audit</span>
+        </span>
+      </a>
+    </nav>
+
+    <!-- recent activity -->
+    <div class="mt-auto px-3 pb-4">
+      <div class="px-2 pb-2 flex items-center gap-1.5">
+        <span class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Recent activity</span>
+      </div>
+      <div class="rounded-[12px] p-1" style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+        <div class="flex items-center gap-2.5 px-2.5 py-2">
+          <div class="w-7 h-7 rounded-full grid place-items-center flex-none mono text-[11px] font-semibold"
+               style="background:var(--brand-tint); color:var(--brand-400);">cl</div>
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-medium truncate">claude finished refactor</div>
+            <div class="text-[11px]" style="color:var(--text-muted);">session-a3f · 3m</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2.5 px-2.5 py-2">
+          <div class="w-7 h-7 rounded-full grid place-items-center flex-none mono text-[11px] font-semibold"
+               style="background:rgba(34,197,94,.14); color:var(--success);">cx</div>
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-medium truncate">codex ran test suite</div>
+            <div class="text-[11px]" style="color:var(--text-muted);">session-91b · 18m</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2.5 px-2.5 py-2">
+          <div class="w-7 h-7 rounded-full grid place-items-center flex-none mono text-[11px] font-semibold"
+               style="background:var(--surface); color:var(--text-muted);">az</div>
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-medium truncate">deploy to workers</div>
+            <div class="text-[11px]" style="color:var(--text-muted);">azimuth · 1h</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="flex-1 min-w-0 flex flex-col">
+    <!-- header -->
+    <header class="sticky top-0 z-30 flex items-center gap-3 px-5 md:px-8 py-4 border-b"
+            style="border-color:var(--border-subtle); background:color-mix(in srgb, var(--bg-body) 80%, transparent); backdrop-filter:blur(12px);">
+      <button class="btn md:hidden w-9 h-9 rounded-[10px] grid place-items-center ghost-btn" onclick="toggleSidebar(true)">
+        <span class="msym" style="font-size:20px;">menu</span>
+      </button>
+      <div class="min-w-0 flex-1">
+        <h1 class="text-[19px] font-bold leading-tight">Connection</h1>
+        <p class="text-[12.5px] mt-0.5" style="color:var(--text-muted);">Pair devices and manage your secure tunnel</p>
+      </div>
+      <button id="themeBtn" class="btn w-9 h-9 rounded-[10px] grid place-items-center ghost-btn" onclick="toggleTheme()" title="Toggle theme">
+        <span class="msym" id="themeIcon" style="font-size:19px;">light_mode</span>
+      </button>
+      <button class="btn w-9 h-9 rounded-[10px] grid place-items-center ghost-btn" title="Settings">
+        <span class="msym" style="font-size:19px;">settings</span>
+      </button>
+    </header>
+
+    <!-- content -->
+    <main class="px-5 md:px-8 py-6 md:py-8">
+      <!-- status banner -->
+      <div class="flex flex-wrap items-center gap-3 mb-6">
+        <span class="pill text-[12px] px-3 py-1.5" style="background:rgba(34,197,94,.14); color:var(--success);">
+          <span class="dot" style="background:var(--success); box-shadow:0 0 0 3px rgba(34,197,94,.16);"></span>Ready
+        </span>
+        <span class="text-[13px]" style="color:var(--text-muted);">Host online. Scan the code to connect a device.</span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        <!-- ==== LEFT: QR CARD ==== -->
+        <section class="card p-5 lg:col-span-1 flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-[14px] font-bold">Pair a device</h2>
+            <span class="msym" style="font-size:19px; color:var(--text-muted);">qr_code_2</span>
+          </div>
+
+          <div class="qr-frame self-center">
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=9remote.cc" alt="QR code" width="180" height="180" class="block rounded-md">
+          </div>
+
+          <div class="mt-5">
+            <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">One-time key</div>
+            <div class="flex items-center justify-between rounded-[11px] px-3.5 py-3"
+                 style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+              <span class="mono text-[18px] font-semibold tracking-wide">8F2K-9DXQ</span>
+              <button class="btn w-8 h-8 rounded-[9px] grid place-items-center ghost-btn" title="Copy key">
+                <span class="msym" style="font-size:17px;">content_copy</span>
+              </button>
+            </div>
+            <button class="btn ghost-btn w-full mt-2.5 rounded-[11px] py-2.5 text-[13px] font-semibold flex items-center justify-center gap-2">
+              <span class="msym" style="font-size:17px;">autorenew</span>Generate new key
+            </button>
+          </div>
+
+          <div class="mt-5 pt-4" style="border-top:1px solid var(--border-subtle);">
+            <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Tunnel URL</div>
+            <div class="flex items-center gap-2 rounded-[10px] px-3 py-2.5 mb-3"
+                 style="background:var(--surface-2); border:1px solid var(--border-subtle);">
+              <span class="msym" style="font-size:16px; color:var(--success);">lock</span>
+              <span class="mono text-[12px] truncate flex-1" style="color:var(--text-muted);">https://calm-otter-42.trycloudflare.com</span>
+              <button class="btn grid place-items-center" title="Open"><span class="msym" style="font-size:16px; color:var(--text-muted);">open_in_new</span></button>
+            </div>
+            <button class="btn w-full rounded-[11px] py-2.5 text-[13px] font-semibold flex items-center justify-center gap-2"
+                    style="background:rgba(239,68,68,.1); color:var(--danger); border:1px solid rgba(239,68,68,.22);">
+              <span class="msym" style="font-size:17px;">stop_circle</span>Stop tunnel
+            </button>
+          </div>
+        </section>
+
+        <!-- ==== RIGHT: services + clients ==== -->
+        <div class="lg:col-span-2 flex flex-col gap-5">
+
+          <!-- Remote Services -->
+          <section class="card">
+            <div class="flex items-center justify-between px-5 pt-5 pb-3">
+              <h2 class="text-[14px] font-bold">Remote services</h2>
+              <span class="text-[12px]" style="color:var(--text-muted);">Host capabilities</span>
+            </div>
+            <div class="divide-hair px-1 pb-1">
+
+              <!-- Terminal -->
+              <div class="flex items-center gap-4 px-4 py-3.5">
+                <div class="w-9 h-9 rounded-[10px] grid place-items-center flex-none" style="background:var(--brand-tint);">
+                  <span class="msym" style="font-size:19px; color:var(--brand-400);">terminal</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[13.5px] font-semibold">Terminal</div>
+                  <div class="text-[12px]" style="color:var(--text-muted);">Always on. Shell access over the tunnel.</div>
+                </div>
+                <span class="pill" style="background:rgba(34,197,94,.14); color:var(--success);">
+                  <span class="dot" style="background:var(--success);"></span>Active
+                </span>
+              </div>
+
+              <!-- Desktop -->
+              <div class="px-4 py-3.5">
+                <div class="flex items-center gap-4">
+                  <div class="w-9 h-9 rounded-[10px] grid place-items-center flex-none" style="background:var(--surface-2);">
+                    <span class="msym" style="font-size:19px; color:var(--text-muted);">desktop_windows</span>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[13.5px] font-semibold">Desktop</div>
+                    <div class="text-[12px]" style="color:var(--text-muted);">Screen streaming and remote control.</div>
+                  </div>
+                  <div class="sw" data-on="false" onclick="toggleSwitch(this)"><div class="knob"></div></div>
+                </div>
+                <!-- permissions -->
+                <div class="flex flex-wrap gap-2 mt-3 ml-[52px]">
+                  <span class="pill" style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border-subtle);">
+                    <span class="msym" style="font-size:14px; color:var(--success);">check_circle</span>Screen Recording
+                  </span>
+                  <span class="pill" style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border-subtle);">
+                    <span class="msym" style="font-size:14px; color:var(--danger);">cancel</span>Accessibility
+                  </span>
+                </div>
+              </div>
+
+              <!-- Auto-start -->
+              <div class="flex items-center gap-4 px-4 py-3.5">
+                <div class="w-9 h-9 rounded-[10px] grid place-items-center flex-none" style="background:var(--surface-2);">
+                  <span class="msym" style="font-size:19px; color:var(--text-muted);">rocket_launch</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[13.5px] font-semibold">Auto-start on boot</div>
+                  <div class="text-[12px]" style="color:var(--text-muted);">Launch the host when this machine starts.</div>
+                </div>
+                <div class="sw on" data-on="true" onclick="toggleSwitch(this)"><div class="knob"></div></div>
+              </div>
+
+              <!-- Keep awake -->
+              <div class="flex items-center gap-4 px-4 py-3.5">
+                <div class="w-9 h-9 rounded-[10px] grid place-items-center flex-none" style="background:var(--surface-2);">
+                  <span class="msym" style="font-size:19px; color:var(--text-muted);">coffee</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[13.5px] font-semibold">Keep awake</div>
+                  <div class="text-[12px]" style="color:var(--text-muted);">Prevent sleep so sessions stay reachable.</div>
+                </div>
+                <select class="sel">
+                  <option>Off</option>
+                  <option selected>While connected</option>
+                  <option>Always</option>
+                </select>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- Clients -->
+          <section class="card">
+            <div class="flex items-center justify-between px-5 pt-5 pb-3">
+              <h2 class="text-[14px] font-bold">Clients</h2>
+              <span class="text-[12px]" style="color:var(--text-muted);">2 connected, 1 pending</span>
+            </div>
+            <div class="divide-hair px-1 pb-1">
+
+              <!-- online -->
+              <div class="flex items-center gap-4 px-4 py-3.5">
+                <div class="w-9 h-9 rounded-[10px] grid place-items-center flex-none" style="background:var(--surface-2);">
+                  <span class="msym" style="font-size:19px; color:var(--text-muted);">smartphone</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13.5px] font-semibold">iPhone 15 Pro</span>
+                    <span class="pill" style="background:rgba(34,197,94,.14); color:var(--success);">
+                      <span class="dot" style="background:var(--success);"></span>Online
+                    </span>
+                  </div>
+                  <div class="text-[12px]" style="color:var(--text-muted);">Connected 12m ago · Safari</div>
+                </div>
+                <button class="btn ghost-btn rounded-[9px] px-3 py-1.5 text-[12.5px] font-semibold">Disconnect</button>
+              </div>
+
+              <!-- offline -->
+              <div class="flex items-center gap-4 px-4 py-3.5">
+                <div class="w-9 h-9 rounded-[10px] grid place-items-center flex-none" style="background:var(--surface-2);">
+                  <span class="msym" style="font-size:19px; color:var(--text-muted);">laptop_mac</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13.5px] font-semibold" style="color:var(--text-muted);">MacBook Air</span>
+                    <span class="pill" style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border-subtle);">
+                      <span class="dot" style="background:var(--text-muted);"></span>Offline
+                    </span>
+                  </div>
+                  <div class="text-[12px]" style="color:var(--text-muted);">Last seen 2h ago · Chrome</div>
+                </div>
+                <button class="btn rounded-[9px] px-3 py-1.5 text-[12.5px] font-semibold"
+                        style="color:var(--danger); background:transparent; border:1px solid transparent;"
+                        onmouseover="this.style.background='rgba(239,68,68,.1)'" onmouseout="this.style.background='transparent'">Remove</button>
+              </div>
+
+              <!-- pending -->
+              <div class="flex items-center gap-4 px-4 py-3.5">
+                <div class="w-9 h-9 rounded-[10px] grid place-items-center flex-none" style="background:rgba(245,158,11,.12);">
+                  <span class="msym" style="font-size:19px; color:var(--warn);">phone_android</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13.5px] font-semibold">Pixel 8</span>
+                    <span class="pill" style="background:rgba(245,158,11,.14); color:var(--warn);">
+                      <span class="dot" style="background:var(--warn);"></span>Pending
+                    </span>
+                  </div>
+                  <div class="text-[12px]" style="color:var(--text-muted);">Requested access 40s ago · needs approval</div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button class="btn ghost-btn rounded-[9px] px-2.5 py-1.5 text-[12.5px] font-semibold">Deny</button>
+                  <button class="btn brand-btn rounded-[9px] px-3 py-1.5 text-[12.5px] font-semibold flex items-center gap-1.5">
+                    <span class="msym" style="font-size:16px;">check</span>Approve
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+      <p class="text-center text-[11.5px] mt-8" style="color:var(--text-muted);">9Remote host · encrypted end to end over Cloudflare tunnel</p>
+    </main>
+  </div>
+</div>
+
+<script>
+  function toggleSwitch(el){
+    const on = el.getAttribute("data-on") === "true";
+    el.setAttribute("data-on", String(!on));
+    el.classList.toggle("on", !on);
+  }
+  function toggleSidebar(open){
+    const sb = document.getElementById("sidebar");
+    const bd = document.getElementById("backdrop");
+    sb.classList.toggle("open", open);
+    bd.classList.toggle("hidden", !open);
+  }
+  function toggleTheme(){
+    const root = document.documentElement;
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    document.getElementById("themeIcon").textContent = next === "dark" ? "light_mode" : "dark_mode";
+  }
+</script>
+</body>
+</html>

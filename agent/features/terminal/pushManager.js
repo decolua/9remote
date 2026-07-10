@@ -9,7 +9,7 @@ const VAPID_CONFIG_PATH = path.join(PATHS.CONFIG, "vapid.json");
 const PUSH_SUBS_PATH = path.join(PATHS.CONFIG, "push-subscriptions.json");
 const PUSH_OFFLINE_LIMIT_MS = 30 * 60 * 1000; // 30 minutes
 
-// Push subscriptions: { endpoint, keys, socketId, disconnectedAt }
+// Push subscriptions: { endpoint, keys, deviceId, socketId, disconnectedAt }
 let pushSubscriptions = [];
 
 function loadVapidKeys() {
@@ -65,14 +65,18 @@ function getIdentifier(sub) {
   return sub.type === "expo" ? sub.token : sub.endpoint;
 }
 
-export function addPushSubscription(subscription, socketId) {
+export function addPushSubscription(subscription, socketId, deviceId) {
   const id = getIdentifier(subscription);
   // Preserve prior visibility: a re-subscribe on reconnect must not reset a
   // backgrounded app to "focused" (which would swallow its push). The client
   // re-sends visibilityChange separately when it actually knows focus state.
-  const prev = pushSubscriptions.find(s => getIdentifier(s) === id);
-  pushSubscriptions = pushSubscriptions.filter(s => getIdentifier(s) !== id);
-  pushSubscriptions.push({ ...subscription, socketId, lastConnectedAt: Date.now(), hidden: prev?.hidden ?? false });
+  // Dedup by deviceId so iOS endpoint rotation (SW update) collapses to one entry
+  // per device; also drop legacy entries lacking deviceId (live devices re-subscribe).
+  const prev = pushSubscriptions.find(s => deviceId ? s.deviceId === deviceId : getIdentifier(s) === id);
+  pushSubscriptions = pushSubscriptions.filter(s =>
+    deviceId ? (s.deviceId && s.deviceId !== deviceId) : getIdentifier(s) !== id
+  );
+  pushSubscriptions.push({ ...subscription, deviceId, socketId, lastConnectedAt: Date.now(), hidden: prev?.hidden ?? false });
   savePushSubscriptions();
 }
 
@@ -85,21 +89,6 @@ export function setSubscriptionHidden(socketId, hidden) {
       if (!hidden) sub.disconnectedAt = null;
     }
   }
-}
-
-// Should we push to mobile? Push whenever the app isn't actively foregrounded.
-// WebPush/Expo delivery does NOT need a live socket — the push service wakes the
-// app even when the PWA is fully closed. So "disconnected" means "not focused" =
-// exactly when a push is wanted. Only skip when the latest sub is connected AND focused.
-// ponytail: picks the single latest sub (by lastConnectedAt); doesn't dedup across devices.
-// Upgrade path: push to every sub that's disconnected-or-hidden when multi-device is needed.
-export function shouldPush() {
-  const latest = pushSubscriptions.reduce(
-    (a, b) => ((a?.lastConnectedAt ?? 0) >= (b?.lastConnectedAt ?? 0) ? a : b),
-    null
-  );
-  if (!latest) return false;
-  return latest.disconnectedAt != null || !!latest.hidden;
 }
 
 export function removePushSubscription(identifier) {
@@ -146,34 +135,36 @@ async function sendExpoPush(sub, toolName, notification) {
 export async function sendPushNotification(notification) {
   const toolName = TOOL_LABELS[notification.tool] || "AI";
 
-  // Push only to the latest connected subscription
-  const latest = pushSubscriptions.reduce((a, b) =>
-    (a?.lastConnectedAt ?? 0) >= (b?.lastConnectedAt ?? 0) ? a : b
-  , null);
+  // Push to every sub that isn't actively foregrounded. iOS rotates the endpoint on
+  // SW update, leaving dead entries; sending to all lets 410/404 prune them. The SW's
+  // own visible-window backstop suppresses the banner when a client is actually focused.
+  const targets = pushSubscriptions.filter(s => s.disconnectedAt != null || s.hidden);
+  if (targets.length === 0) return;
 
-  if (!latest) return;
-
-  const id = getIdentifier(latest);
-
-  try {
-    if (latest.type === "expo") {
-      await sendExpoPush(latest, toolName, notification);
-    } else {
-      const payload = JSON.stringify({
-        title: notification.type === "stop" ? `${toolName} ✅` : `${toolName} 🔔`,
-        body: notification.type === "stop" ? `${toolName} completed the task` : `${toolName} needs your input`,
-        data: { url: `/workspace?t=${notification.sessionId}`, sessionId: notification.sessionId, type: notification.type }
-      });
-      await webpush.sendNotification({ endpoint: latest.endpoint, keys: latest.keys }, payload);
-      pushUiLog(`WebPush sent to ${latest.endpoint.slice(0, 50)}...`);
+  const expiredIds = [];
+  await Promise.all(targets.map(async (sub) => {
+    try {
+      if (sub.type === "expo") {
+        await sendExpoPush(sub, toolName, notification);
+      } else {
+        const payload = JSON.stringify({
+          title: notification.type === "stop" ? `${toolName} ✅` : `${toolName} 🔔`,
+          body: notification.type === "stop" ? `${toolName} completed the task` : `${toolName} needs your input`,
+          data: { url: `/workspace?t=${notification.sessionId}`, sessionId: notification.sessionId, type: notification.type }
+        });
+        await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload);
+        pushUiLog(`WebPush sent to ${sub.endpoint.slice(0, 50)}...`);
+      }
+    } catch (error) {
+      pushUiLog(`Push failed: ${error.statusCode || error.message}`);
+      const isExpired = error.statusCode === 410 || error.statusCode === 404 || error.message?.includes("DeviceNotRegistered");
+      if (isExpired) expiredIds.push(getIdentifier(sub));
     }
-  } catch (error) {
-    pushUiLog(`Push failed: ${error.statusCode || error.message}`);
-    const isExpired = error.statusCode === 410 || error.statusCode === 404 || error.message?.includes("DeviceNotRegistered");
-    if (isExpired) {
-      pushSubscriptions = pushSubscriptions.filter(s => getIdentifier(s) !== id);
-      savePushSubscriptions();
-    }
+  }));
+
+  if (expiredIds.length) {
+    pushSubscriptions = pushSubscriptions.filter(s => !expiredIds.includes(getIdentifier(s)));
+    savePushSubscriptions();
   }
 }
 

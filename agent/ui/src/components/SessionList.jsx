@@ -92,49 +92,79 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
               </div>
 
               {/* Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                   {list.map((s) => (
-                    <div key={s.id} className={`session-card relative rounded-2xl p-3 flex items-center justify-between ${finishedIds?.has(s.id) ? "terminal-done-border" : ""}`}>
-                      <div className="flex-1 flex items-center gap-3 min-w-0 cursor-pointer"
-                        onClick={() => { if (editingId !== s.id) onSelect(s); }}>
-                        <div className="p-2 rounded-xl flex-shrink-0" style={{ background: "var(--brand-tint)" }}>
-                          <Icon name="terminal" size={20} color="var(--brand-500)" />
+                    <div
+                      key={s.id}
+                      className={`group relative rounded-xl overflow-hidden transition-all duration-200 ease-out ${connected ? "hover:-translate-y-1" : "opacity-60"} ${finishedIds?.has(s.id) ? "terminal-done-border" : ""}`}
+                      style={{
+                        background: connected ? "linear-gradient(155deg,#22242e 0%,#1a1b21 55%,#141519 100%)" : "linear-gradient(155deg,#1c1d20,#141416)",
+                        border: "1px solid rgba(255,255,255,0.15)",
+                        boxShadow: "0 0 0 1px rgba(255,255,255,0.05), 0 8px 28px -6px rgba(0,0,0,0.7)",
+                      }}
+                    >
+                      {/* Titlebar */}
+                      <div className="flex items-center gap-2 px-2.5 py-1.5" style={{ background: "rgba(44,44,46,0.9)", borderBottom: "1px solid rgba(0,0,0,0.3)" }}>
+                        <div className="flex items-center gap-1.5 flex-shrink-0" style={{ opacity: connected ? 1 : 0.4, filter: connected ? "none" : "saturate(0)" }}>
+                          <span className="w-[10px] h-[10px] rounded-full" style={{ background: "#ff5f57" }} />
+                          <span className="w-[10px] h-[10px] rounded-full" style={{ background: "#febc2e" }} />
+                          <span className="w-[10px] h-[10px] rounded-full" style={{ background: "#28c840" }} />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          {editingId === s.id ? (
-                            <input
-                            type="text" value={editName} ref={focusEnd}
-                            onInput={(e) => setEditName(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === "Enter") saveEdit(s.id); if (e.key === "Escape") { setEditingId(null); setEditName(""); } }}
-                              onBlur={() => saveEdit(s.id)}
-                              className="w-full px-2 py-1 rounded-lg text-sm focus:outline-none" style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}
-                            />
-                          ) : (
-                            <>
-                              <h3 className="text-sm font-medium truncate" style={{ color: "var(--text-main)" }}>{s.name || s.id}</h3>
-                              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{s.createdAt ? `Created ${new Date(s.createdAt).toLocaleTimeString()}` : ""}</p>
-                            </>
-                          )}
+                        <span className="flex-1 min-w-0 text-center text-[11px] font-medium truncate" style={{ color: "rgba(255,255,255,0.55)" }}>{s.name || s.id}</span>
+                        <div className="flex items-center gap-0.5 flex-shrink-0">
+                          <button
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => { e.stopPropagation(); setEditingId(s.id); setEditName(s.name || ""); }}
+                            title={t("common.rename")} className="tw-act p-1 rounded"
+                          >
+                            <Icon name="pencil" size={13} />
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ id: s.id, name: s.name }); }} title={t("common.delete")} className="tw-del p-1 rounded">
+                            <Icon name="trash" size={13} />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex gap-0.5 ml-1">
-                        <button
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => { setEditingId(s.id); setEditName(s.name || ""); }}
-                          title={t("common.rename")} className="card-act p-1.5 rounded-lg"
-                        >
-                          <Icon name="pencil" size={16} />
-                        </button>
-                        <button onClick={() => setDeleteConfirm({ id: s.id, name: s.name })} title={t("common.delete")} className="card-del p-1.5 rounded-lg">
-                          <Icon name="trash" size={16} />
-                        </button>
+
+                      {/* Body — fake terminal */}
+                      <div className="px-3 py-3 font-mono min-h-[128px] cursor-pointer" onClick={() => { if (editingId !== s.id) onSelect(s); }}>
+                        {editingId === s.id ? (
+                          <input
+                            type="text" value={editName} ref={focusEnd}
+                            onInput={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") saveEdit(s.id); if (e.key === "Escape") { setEditingId(null); setEditName(""); } }}
+                            onBlur={() => saveEdit(s.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full px-2 py-1 rounded text-[12px] focus:outline-none" style={{ background: "rgba(0,0,0,0.4)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)" }}
+                          />
+                        ) : (
+                          <div className="text-[11.5px] leading-[1.7] space-y-0.5">
+                            <div className="flex items-center min-w-0">
+                              <span style={{ color: "#34d399" }} className="flex-shrink-0">➜</span>
+                              <span style={{ color: "#22d3ee" }} className="flex-shrink-0 mx-1">~</span>
+                              <span className="truncate" style={{ color: "rgba(255,255,255,0.45)" }}>{s.name || s.id}</span>
+                            </div>
+                            {connected ? (
+                              <>
+                                <div className="truncate" style={{ color: "rgba(255,255,255,0.35)" }}><span style={{ color: "#34d399" }}>✓</span> connected</div>
+                                {s.createdAt && <div className="truncate" style={{ color: "rgba(255,255,255,0.35)" }}><span style={{ color: "#fbbf24" }}>●</span> Created {new Date(s.createdAt).toLocaleTimeString()}</div>}
+                              </>
+                            ) : (
+                              <div className="truncate" style={{ color: "rgba(255,255,255,0.3)" }}><span style={{ color: "rgba(248,113,113,0.7)" }}>✕</span> disconnected</div>
+                            )}
+                            <div className="flex items-center min-w-0">
+                              <span style={{ color: "#34d399" }} className="flex-shrink-0">➜</span>
+                              <span style={{ color: "#22d3ee" }} className="flex-shrink-0 mx-1">~</span>
+                              <span className="inline-block flex-shrink-0 w-[7px] h-[14px] animate-pulse" style={{ background: "rgba(52,211,153,0.8)" }} />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
                   {/* Inline dashed add card */}
                   <button
                     onClick={() => { setNewTerminalName(suggestTerminalName(section.id)); setTerminalModal({ open: true, groupId: section.id }); }}
-                    className="dashed-card min-h-[58px] rounded-2xl p-3 flex items-center justify-center gap-1.5 text-sm"
+                    className="dashed-card min-h-[164px] rounded-xl p-3 flex items-center justify-center gap-1.5 text-sm"
                   >
                     <Icon className="text-brand-500" name="plus" size={16} /> <span style={{ color: "var(--brand-500)" }}>{t("sessions.newTerminal")}</span>
                   </button>
