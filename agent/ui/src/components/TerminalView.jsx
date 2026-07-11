@@ -2,8 +2,13 @@ import { useState, useEffect, useRef } from "preact/hooks";
 import Icon from "./Icon";
 import { useI18n } from "../i18n";
 import TerminalPane from "./TerminalPane";
+import FileExplorer from "./FileExplorer";
+import GitPanel from "./GitPanel";
+import FileWorkspaceDesktop from "./FileWorkspaceDesktop";
 import CommandSuggestions from "./CommandSuggestions";
 import CommandHistoryModal from "./CommandHistoryModal";
+import { useFileSocket } from "../lib/fileExplorer/useFileSocket";
+import { ACTIVITY_PANELS } from "../lib/fileExplorer/constants";
 import { loadHistory, addHistory, removeHistory, clearHistory } from "../lib/history";
 import {
   DESKTOP_BREAKPOINT, PANE_MIN_WIDTH, COMMON_COMMANDS, INPUT_CONTROL_KEYS,
@@ -29,6 +34,9 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newTerminalName, setNewTerminalName] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  // Overlay: files | git panel — opened from TerminalPane header buttons
+  const [overlay, setOverlay] = useState(null);
+  const fileSocket = useFileSocket();
   const groupMenuRef = useRef(null);
   const tabsRef = useRef(null);
   const activeTabRef = useRef(null);
@@ -355,8 +363,11 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 sessionId={s.id}
                 theme={theme}
                 isFocused={isFocused}
+                cwd={s.cwd}
                 onActivate={onSwitch}
                 onInput={clearFinished}
+                onOpenFiles={(cwd) => setOverlay({ type: "files", cwd })}
+                onOpenGit={(cwd) => setOverlay({ type: "git", cwd })}
                 showFocusBorder={isDesktop && multi}
                 showDoneBorder={finishedIds?.has(s.id)}
               />
@@ -415,8 +426,15 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
               }}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
-                // Physical ArrowUp/Down (no modifier) navigate command history.
+                // Physical ArrowUp/Down (no modifier) navigate history only at caret boundaries (multi-line aware).
                 if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                  const el = e.target;
+                  const firstNL = el.value.indexOf("\n");
+                  const atFirstLine = el.selectionStart <= (firstNL === -1 ? el.value.length : firstNL);
+                  const lastNL = el.value.lastIndexOf("\n");
+                  const atLastLine = el.selectionEnd >= (lastNL === -1 ? 0 : lastNL + 1);
+                  if (e.key === "ArrowUp" && !atFirstLine) return;
+                  if (e.key === "ArrowDown" && !atLastLine) return;
                   if (!history.length) return;
                   e.preventDefault();
                   if (historyIndexRef.current === -1) draftRef.current = e.target.value;
@@ -598,6 +616,40 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
           onClear={() => setHistory(clearHistory())}
           onClose={() => setShowHistory(false)}
         />
+      )}
+
+      {/* Full-screen file/git overlay (opened from TerminalPane header) */}
+      {overlay && (
+        <div className="absolute inset-0 z-[80]" style={{ background: "var(--bg-body)" }}>
+          {isDesktop && (overlay.type === "files" || overlay.type === "git") ? (
+            <FileWorkspaceDesktop
+              workspace={overlay.cwd}
+              fileSocket={fileSocket}
+              socket={socket}
+              connected={connected}
+              sessions={sessions}
+              onCreateTerminalSession={onCreate}
+              onDeleteTerminalSession={onDelete}
+              onRenameTerminalSession={onRename}
+              initialPanel={overlay.type === "git" ? ACTIVITY_PANELS.scm : undefined}
+              onBack={() => setOverlay(null)}
+            />
+          ) : overlay.type === "files" ? (
+            <FileExplorer
+              workspace={overlay.cwd}
+              initialPath={overlay.cwd}
+              fileSocket={fileSocket}
+              onBack={() => setOverlay(null)}
+              onOpenGit={() => setOverlay({ type: "git", cwd: overlay.cwd })}
+            />
+          ) : (
+            <GitPanel
+              workspace={overlay.cwd}
+              fileSocket={fileSocket}
+              onBack={() => setOverlay(null)}
+            />
+          )}
+        </div>
       )}
     </div>
   );

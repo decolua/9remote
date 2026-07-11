@@ -509,8 +509,14 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                   sendTextBatch();
                   return;
                 }
-                // Physical ArrowUp/Down (no modifier) navigate command history.
+                // Physical ArrowUp/Down (no modifier) navigate history only at caret boundaries (multi-line aware).
                 if (hasPhysicalKeyboard && (e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                  const el = e.target;
+                  const atFirstLine = el.selectionStart <= (el.value.indexOf("\n") === -1 ? el.value.length : el.value.indexOf("\n"));
+                  const lastNL = el.value.lastIndexOf("\n");
+                  const atLastLine = el.selectionEnd >= (lastNL === -1 ? 0 : lastNL + 1);
+                  if (e.key === "ArrowUp" && !atFirstLine) return;
+                  if (e.key === "ArrowDown" && !atLastLine) return;
                   const hist = useTerminalHistoryStore.getState().history;
                   if (!hist.length) return;
                   e.preventDefault();

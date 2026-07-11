@@ -17,6 +17,21 @@ export default defineConfig({
   },
   // Obfuscate all UI code except @xterm — obfuscating xterm breaks alt-screen parsing (TUI apps blank)
   plugins: [preact(), obfuscator({ apply: "build", include: ["**/*.js"], exclude: ["**/node_modules/@xterm/**"], options: browserPreset })],
+  optimizeDeps: {
+    include: [
+      "codemirror",
+      "@codemirror/state",
+      "@codemirror/view",
+      "@codemirror/lang-javascript",
+      "@codemirror/lang-html",
+      "@codemirror/lang-css",
+      "@codemirror/lang-json",
+      "@codemirror/lang-markdown",
+      "@codemirror/theme-one-dark",
+      "@codemirror/search",
+      "@codemirror/autocomplete",
+    ],
+  },
   server: {
     port: 5173,
     proxy: {

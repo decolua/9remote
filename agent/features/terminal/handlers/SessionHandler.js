@@ -65,10 +65,17 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
   // Persist current groups + session->group map + session order
   const persistGroups = () => saveGroups(groups, sessionGroups, sessionOrder);
 
-  socket.on("getSessions", (callback) => {
+  socket.on("getSessions", async (callback) => {
     const list = [];
+    // Fetch live cwd for daemon sessions (OSC 7 updates daemon-side, not agent cache)
+    const useDaemon = PERSISTENCE_MODE === "daemon" && daemonClient.isConnected();
     for (const [id, session] of sessions) {
-      list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false, shellId: session.shellId, shellLabel: session.shellLabel, groupId: sessionGroups[id] || null });
+      let cwd = session.cwd;
+      if (useDaemon && session.daemon) {
+        const liveCwd = await daemonClient.getSessionCwd(id);
+        if (liveCwd) { cwd = liveCwd; if (session.cwd !== liveCwd) session.cwd = liveCwd; }
+      }
+      list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false, shellId: session.shellId, shellLabel: session.shellLabel, groupId: sessionGroups[id] || null, cwd });
     }
     // Sort by persisted order; unranked ids (new sessions) fall to the end, stable
     const rank = new Map(sessionOrder.map((id, i) => [id, i]));
