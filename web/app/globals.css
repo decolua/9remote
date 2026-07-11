@@ -266,14 +266,38 @@ html.terminal-page body {
   z-index: 0;
   pointer-events: none;
 }
+
+/* Terminal wrapper — default clip; .is-scrollable unlocks pan when soft-KB shrinks viewport */
 .terminal-wrapper {
   position: relative;
   z-index: 1;
-}
-
-/* Terminal wrapper */
-.terminal-wrapper {
   overflow: hidden !important;
+}
+.terminal-wrapper.is-scrollable {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  touch-action: pan-y !important;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.terminal-wrapper.is-scrollable::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
+/* Prefer outer wrapper pan when soft-KB; stop xterm inner viewport + its scrollbar */
+.terminal-wrapper.is-scrollable .xterm-viewport {
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+}
+.terminal-wrapper.is-scrollable .xterm-viewport::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+}
+.terminal-wrapper.is-scrollable .xterm .scrollbar {
+  display: none !important;
 }
 
 /* Thin continuous brand glow ring around focused pane */

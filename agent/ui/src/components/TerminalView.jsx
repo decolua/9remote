@@ -35,6 +35,9 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const createInputRef = useRef(null);
   const tabInputRef = useRef(null);
   const textInputRef = useRef(null);
+  // Physical ArrowUp/Down navigate command history; -1 = editing live draft.
+  const historyIndexRef = useRef(-1);
+  const draftRef = useRef("");
   const paneEls = useRef({});
 
   // Active session object (input bar target) — undefined when no active pane
@@ -93,6 +96,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
       setTimeout(() => socket.emit("input", { sessionId: activeSession.id, data: "\r" }), 40);
       setHistory(addHistory(text));
       setTextInput("");
+      historyIndexRef.current = -1;
     }
   };
 
@@ -405,9 +409,28 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
               ref={textInputRef}
               value={textInput}
               rows={Math.min(2, (textInput.match(/\n/g) || []).length + 1)}
-              onInput={(e) => setTextInput(e.target.value)}
+              onInput={(e) => {
+                setTextInput(e.target.value);
+                historyIndexRef.current = -1;
+              }}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
+                // Physical ArrowUp/Down (no modifier) navigate command history.
+                if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                  if (!history.length) return;
+                  e.preventDefault();
+                  if (historyIndexRef.current === -1) draftRef.current = e.target.value;
+                  let next = historyIndexRef.current + (e.key === "ArrowUp" ? 1 : -1);
+                  if (next >= history.length) next = history.length - 1;
+                  if (next < -1) next = -1;
+                  historyIndexRef.current = next;
+                  setTextInput(next === -1 ? draftRef.current : history[next]);
+                  requestAnimationFrame(() => {
+                    const el = textInputRef.current;
+                    if (el) { el.selectionStart = el.selectionEnd = el.value.length; }
+                  });
+                  return;
+                }
                 // Enter sends; Shift+Enter inserts newline (web parity)
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

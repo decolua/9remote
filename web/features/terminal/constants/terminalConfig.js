@@ -76,9 +76,8 @@ export const TERMINAL_OPTIONS = {
   minimumContrastRatio: 1
 };
 
-// Large join/output write path — avoid one long main-thread parse freeze
-export const WRITE_CHUNK_SIZE = 32 * 1024; // bytes/chars per rAF write chunk
-export const OSC7_SCAN_TAIL = 2 * 1024; // only scan last N of large payloads for cwd
+// OSC7 cwd scan — only scan tail of large payloads (cwd almost always in latest prompt)
+export const OSC7_SCAN_TAIL = 2 * 1024;
 
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {

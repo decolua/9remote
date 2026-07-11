@@ -48,6 +48,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   const resolveAlias = useTerminalHistoryStore((s) => s.resolveAlias);
   const textInputRef = useRef(null);
   const pasteInputRef = useRef(null);
+  // Physical ArrowUp/Down navigate command history; -1 = editing live draft.
+  const historyIndexRef = useRef(-1);
+  const draftRef = useRef("");
   // Pending attachments (images/files) shown as chips; sent via OS clipboard on send.
   const [attachments, setAttachments] = useState([]);
   const attachIdRef = useRef(0);
@@ -344,6 +347,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       setTimeout(() => socket.emit("input", { sessionId, data: "\r" }), 40);
       addCommand(text);
       setTextInput("");
+      historyIndexRef.current = -1;
     }
     if (wasFocused) textInputRef.current?.focus();
   };
@@ -494,12 +498,32 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
             <textarea
               ref={textInputRef}
               value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
+              onChange={(e) => {
+                setTextInput(e.target.value);
+                historyIndexRef.current = -1;
+              }}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
                 if (hasPhysicalKeyboard && e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   sendTextBatch();
+                  return;
+                }
+                // Physical ArrowUp/Down (no modifier) navigate command history.
+                if (hasPhysicalKeyboard && (e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                  const hist = useTerminalHistoryStore.getState().history;
+                  if (!hist.length) return;
+                  e.preventDefault();
+                  if (historyIndexRef.current === -1) draftRef.current = e.target.value;
+                  let next = historyIndexRef.current + (e.key === "ArrowUp" ? 1 : -1);
+                  if (next >= hist.length) next = hist.length - 1;
+                  if (next < -1) next = -1;
+                  historyIndexRef.current = next;
+                  setTextInput(next === -1 ? draftRef.current : hist[next]);
+                  requestAnimationFrame(() => {
+                    const el = textInputRef.current;
+                    if (el) { el.selectionStart = el.selectionEnd = el.value.length; }
+                  });
                   return;
                 }
                 // Control keys (Esc, Ctrl+C/D/Z/L) → straight to terminal.

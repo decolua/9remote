@@ -248,6 +248,7 @@ export default function WorkspaceLayout({ children }) {
       if (
         e.target.closest(".xterm-viewport") ||
         e.target.closest(".xterm-screen") ||
+        e.target.closest(".terminal-scroll") ||
         e.target.closest(".cm-scroller") ||
         e.target.closest(".cm-content") ||
         e.target.closest(".overflow-auto") ||
@@ -648,7 +649,10 @@ export default function WorkspaceLayout({ children }) {
                 <MobileKeyboard
                   socket={socket}
                   sessionId={activeSessionId}
-                  onExpandChange={() => paneApisRef.current[activeSessionId]?.doResize?.()}
+                  onExpandChange={() => {
+                    // Desktop split: bar height change needs re-fit. Mobile: fixed-height pane scrolls — skip resize.
+                    if (isDesktop) paneApisRef.current[activeSessionId]?.doResize?.();
+                  }}
                   onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
                   onRegisterTextApi={registerKeyboardTextApi}
                   platform={platform}

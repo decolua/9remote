@@ -7,7 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
-import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, WRITE_CHUNK_SIZE, OSC7_SCAN_TAIL } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, OSC7_SCAN_TAIL } from "@/features/terminal/constants/terminalConfig";
 // import { detectLinks } from "@/features/terminal/utils/linkDetector";
 
 const OSC7_RE = /\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
@@ -21,22 +21,10 @@ function parseOsc7Cwd(text) {
   try { return decodeURIComponent(match[1]); } catch { return match[1]; }
 }
 
-// Chunk large writes across frames so join history doesn't freeze the main thread
+// Write output directly — xterm ANSI parse is cheap (~3ms/MB); chunking via rAF only adds latency.
 function writeChunked(term, data) {
-  const len = data?.length ?? data?.byteLength ?? 0;
-  if (!len || len <= WRITE_CHUNK_SIZE) {
-    term.write(data);
-    return;
-  }
-  let offset = 0;
-  const pump = () => {
-    if (!term || term._core?._isDisposed) return;
-    const end = Math.min(offset + WRITE_CHUNK_SIZE, len);
-    term.write(data.slice ? data.slice(offset, end) : data.subarray(offset, end));
-    offset = end;
-    if (offset < len) requestAnimationFrame(pump);
-  };
-  pump();
+  if (!term || term._core?._isDisposed) return;
+  term.write(data);
 }
 
 // XTerm instance management hook
@@ -56,19 +44,35 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
   const [termReady, setTermReady] = useState(false);
 
+  // Last PTY size sent — skip emit when fit yields same cols/rows (soft-KB with fixed pane height)
+  const lastPtySizeRef = useRef(null);
+
   // Resize with debounce singleton - uses rAF to ensure layout is stable
-  const doResize = useCallback(() => {
+  // Always re-fit canvas; skip PTY emit only when size unchanged AND not forced (soft-KB/tab dup guard).
+  const doResize = useCallback((opts = {}) => {
+    const force = opts === true || opts?.force === true;
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = setTimeout(() => {
       requestAnimationFrame(() => {
         if (!fitAddonRef.current || !termRef.current || !socket) return;
+        const el = containerRef.current;
+        if (!el?.offsetWidth || !el?.offsetHeight) {
+          resizeTimerRef.current = null;
+          return;
+        }
         fitAddonRef.current.fit();
         const { cols, rows } = termRef.current;
+        const prev = lastPtySizeRef.current;
+        if (!force && prev && prev.cols === cols && prev.rows === rows) {
+          resizeTimerRef.current = null;
+          return;
+        }
+        lastPtySizeRef.current = { cols, rows };
         socket.emit("resize", { sessionId, cols, rows });
         resizeTimerRef.current = null;
       });
     }, 150);
-  }, [socket, sessionId]);
+  }, [socket, sessionId, containerRef]);
 
   // Keep ref updated for use in useEffect without stale closure
   useEffect(() => { doResizeRef.current = doResize; }, [doResize]);
@@ -244,14 +248,23 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   // Re-fit when becoming visible (desktop: all opened panes; mobile: active pane)
   useEffect(() => {
     if (!isVisible || !fitAddonRef.current || !termRef.current) return;
-    const timer = setTimeout(doResize, 100);
+    const timer = setTimeout(() => {
+      doResize();
+      // Pane was hidden (LRU opacity-0) → force repaint so stale canvas redraws even at same size
+      requestAnimationFrame(() => termRef.current?.refresh(0, termRef.current.rows - 1));
+    }, 100);
     return () => clearTimeout(timer);
   }, [isVisible, doResize]);
 
   // Refit terminal when pane receives focus (desktop split + mobile active pane)
+  // Mobile single-pane: force PTY emit so TUI redraws at the right size (no split size change to trigger it)
   useEffect(() => {
     if (!isFocused) return;
-    const timer = setTimeout(doResize, 100);
+    const mobile = typeof window !== "undefined" && window.innerWidth < 760;
+    const timer = setTimeout(() => {
+      doResize(mobile ? { force: true } : undefined);
+      requestAnimationFrame(() => termRef.current?.refresh(0, termRef.current.rows - 1));
+    }, 100);
     return () => clearTimeout(timer);
   }, [isFocused, doResize]);
 
@@ -405,12 +418,36 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
       const currentY = touch.clientY;
       const currentTime = Date.now();
-      const deltaY = (lastY - currentY) * SENSITIVITY;
+      const dy = lastY - currentY; // >0 finger up / reveal bottom; <0 finger down / reveal top
       const deltaTime = currentTime - lastTime || 1;
 
+      // Soft-KB: pan outer wrapper first; at edge hand off to xterm scrollback
+      const wrap = xtermScreen.closest(".terminal-scroll.is-scrollable");
+      if (wrap && wrap.scrollHeight > wrap.clientHeight + 1) {
+        const maxScroll = wrap.scrollHeight - wrap.clientHeight;
+        const atTop = wrap.scrollTop <= 0.5;
+        const atBottom = wrap.scrollTop >= maxScroll - 0.5;
+        // Still room in wrapper → scroll it; at top+up or bottom+down → xterm
+        const handoffToTerm = (dy < 0 && atTop) || (dy > 0 && atBottom);
+        if (!handoffToTerm) {
+          if (dy !== 0) {
+            e.preventDefault();
+            wrap.scrollTop = Math.max(0, Math.min(maxScroll, wrap.scrollTop + dy));
+          }
+          lastY = currentY;
+          lastTime = currentTime;
+          velocity = 0;
+          accumulated = 0;
+          return;
+        }
+        // fall through to xterm applyScroll
+      }
+
+      const deltaY = dy * SENSITIVITY;
       accumulated += deltaY;
       const lines = Math.trunc(accumulated / LINE_HEIGHT);
       if (lines !== 0) {
+        e.preventDefault();
         applyScroll(lines);
         accumulated -= lines * LINE_HEIGHT;
       }

@@ -74,26 +74,6 @@ const TERMINAL_OPTIONS = {
   minimumContrastRatio: 1,
 };
 
-const WRITE_CHUNK_SIZE = 32 * 1024;
-
-// Chunk large writes across frames so join history doesn't freeze the main thread
-function writeChunked(term, data) {
-  const len = data?.length ?? data?.byteLength ?? 0;
-  if (!len || len <= WRITE_CHUNK_SIZE) {
-    term.write(data);
-    return;
-  }
-  let offset = 0;
-  const pump = () => {
-    if (!term || term._core?._isDisposed) return;
-    const end = Math.min(offset + WRITE_CHUNK_SIZE, len);
-    term.write(data.slice ? data.slice(offset, end) : data.subarray(offset, end));
-    offset = end;
-    if (offset < len) requestAnimationFrame(pump);
-  };
-  pump();
-}
-
 export function resolveTheme(name) {
   return TERMINAL_THEMES[name] || TERMINAL_THEMES.dark;
 }
@@ -132,11 +112,11 @@ export function bindOutput(term, socket, sessionId) {
     if (!payload || payload.sessionId !== sessionId) return;
     const { data } = payload;
     if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-      writeChunked(term, data instanceof Uint8Array ? data : new Uint8Array(data));
+      term.write(data instanceof Uint8Array ? data : new Uint8Array(data));
     } else if (typeof data === "string") {
-      writeChunked(term, data);
+      term.write(data);
     } else {
-      writeChunked(term, String(data));
+      term.write(String(data));
     }
   };
   socket.on("output", handler);

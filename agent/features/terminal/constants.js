@@ -1,5 +1,5 @@
 // Daemon protocol/code version — bump only when daemon behavior changes (independent of CLI version)
-export const DAEMON_VERSION = "21";
+export const DAEMON_VERSION = "22";
 
 // Shell options for terminal sessions
 export const SHELL_OPTIONS = {
