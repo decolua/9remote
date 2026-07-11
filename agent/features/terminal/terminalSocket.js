@@ -106,6 +106,11 @@ export function setupTerminalSocket(io, apiKey) {
   // Forward daemon events to all socket clients
   if (PERSISTENCE_MODE === "daemon") {
     daemonClient.on("output", ({ sessionId, data }) => broadcast(io, "output", { sessionId, data }));
+    daemonClient.on("cwdChange", ({ sessionId, cwd }) => {
+      const session = sessions.get(sessionId);
+      if (session && cwd && session.cwd !== cwd) { session.cwd = cwd; saveSessionMetadata(sessions); }
+      broadcast(io, "cwdChange", { sessionId, cwd });
+    });
     daemonClient.on("sessionClosed", (sessionId) => {
       sessions.delete(sessionId);
       // Drop any stale finished-badge so title count + UI stay in sync

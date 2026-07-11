@@ -93,7 +93,6 @@ export default function ExplorerPanel({ workspace, fileSocket, onOpenFile, activ
   const loadGitStatus = useCallback(async () => {
     if (!workspace) return;
     const res = await fileSocket.gitStatus(workspace);
-    console.log("[ExplorerPanel] gitStatus workspace=", workspace, "res=", res);
     if (!res?.success) { setGitStatusMap({}); return; }
     const map = {};
     const list = res.files || res.status || [];
@@ -108,7 +107,6 @@ export default function ExplorerPanel({ workspace, fileSocket, onOpenFile, activ
         if (!map[parentRel]) map[parentRel] = "folder-changed";
       }
     });
-    console.log("[ExplorerPanel] gitStatusMap keys=", Object.keys(map).slice(0, 5), "sample file.path=", rootFiles?.[0]?.path, "getRelative=", getRelative(rootFiles?.[0]?.path));
     setGitStatusMap(map);
   }, [fileSocket, workspace]);
 

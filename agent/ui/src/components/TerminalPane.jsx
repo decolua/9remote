@@ -17,7 +17,7 @@ import { WATCH_DEBOUNCE_MS, MAX_CHANGED_BADGE } from "../lib/fileExplorer/consta
 
 // Single xterm pane bound local socket — direct protocol (output/input/resize/joinSession).
 // Core logic lives in @shared/terminal; this component only wires Preact lifecycle.
-export default function TerminalPane({ socket, sessionId, theme = "dark", isFocused, cwd, onActivate, onInput, onOpenFiles, onOpenGit, showFocusBorder, showDoneBorder }) {
+export default function TerminalPane({ socket, sessionId, theme = "dark", isFocused, cwd, onActivate, onInput, onOpenFiles, onOpenGit, onCwd, showFocusBorder, showDoneBorder }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -43,7 +43,7 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
     });
     ro.observe(containerRef.current);
 
-    const unbindOutput = bindOutput(term, socket, sessionId);
+    const unbindOutput = bindOutput(term, socket, sessionId, onCwd);
 
     const checkScroll = () => {
       const b = term.buffer.active;

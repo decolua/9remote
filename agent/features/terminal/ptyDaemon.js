@@ -217,7 +217,14 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       session.buffer.push(data);
       // Track live cwd from OSC 7 escape: \e]7;file://host/path\a (or ST terminator)
       const osc7 = data.match(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)/);
-      if (osc7) { try { session.cwd = decodeURIComponent(osc7[1]); } catch {} }
+      if (osc7) {
+        let next;
+        try { next = decodeURIComponent(osc7[1]); } catch { next = osc7[1]; }
+        if (next && next !== session.cwd) {
+          session.cwd = next;
+          broadcast({ type: "cwdChange", sessionId, cwd: next });
+        }
+      }
       // Trim by char length keeping the tail — avoids cutting whole chunks mid-ANSI
       let totalSize = session.buffer.reduce((sum, chunk) => sum + chunk.length, 0);
       if (totalSize > MAX_BUFFER_SIZE) {

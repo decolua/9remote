@@ -1,6 +1,6 @@
 "use client";
 
-import { Files, Search, GitBranch, Settings, X } from "@/shared/components/ui/Icon";
+import { Files, Search, GitBranch, Settings, ChevronLeft } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { ACTIVITY_PANELS, ACTIVITY_BAR_WIDTH } from "../constants/fileExplorer.js";
 
@@ -38,6 +38,9 @@ export default function ActivityBar({ activePanel, onSelectPanel, onBack }) {
       style={{ width: ACTIVITY_BAR_WIDTH }}
     >
       <div className="flex flex-col items-center gap-1">
+        <BarButton onClick={handleBack} label="Back">
+          <ChevronLeft size={20} />
+        </BarButton>
         {TOP_ITEMS.map(({ id, Icon, label }) => (
           <BarButton key={id} active={activePanel === id} onClick={() => handleSelect(id)} label={label}>
             <Icon size={20} />
@@ -51,9 +54,6 @@ export default function ActivityBar({ activePanel, onSelectPanel, onBack }) {
           label="Settings"
         >
           <Settings size={20} />
-        </BarButton>
-        <BarButton onClick={handleBack} label="Back">
-          <X size={20} />
         </BarButton>
       </div>
     </div>

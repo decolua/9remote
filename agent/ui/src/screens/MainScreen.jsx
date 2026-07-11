@@ -1031,6 +1031,7 @@ export default function MainScreen({
           groups={term.groups}
           finishedIds={term.finishedIds}
           clearFinished={term.clearFinished}
+          updateCwd={term.updateCwd}
           onSwitch={(id) => { term.clearFinished(id); setActiveSessionId(id); }}
           onSelectGroup={(gid) => {
             const groupIds = term.sessions.filter((s) => (s.groupId || null) === gid).map((s) => s.id);

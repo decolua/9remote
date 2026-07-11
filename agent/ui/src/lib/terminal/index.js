@@ -105,18 +105,36 @@ export function createTerminal(container, { theme = "dark" } = {}) {
   return { term, fitAddon, doFit, dispose };
 }
 
+// OSC 7 cwd tracking: \e]7;file://host/path\a (or ST terminator) — scan tail for last match.
+const OSC7_RE = /\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)/g;
+function parseOsc7Cwd(text) {
+  const tail = text.length > 4096 ? text.slice(-4096) : text;
+  const matches = [...tail.matchAll(OSC7_RE)];
+  if (!matches.length) return null;
+  try { return decodeURIComponent(matches[matches.length - 1][1]); } catch { return null; }
+}
+
 // Bind socket output → term.write, filtered by sessionId.
-// Returns unbind fn.
-export function bindOutput(term, socket, sessionId) {
+// Returns unbind fn. onCwd(parsedCwd) called when OSC 7 emits a working directory.
+export function bindOutput(term, socket, sessionId, onCwd) {
   const handler = (payload) => {
     if (!payload || payload.sessionId !== sessionId) return;
     const { data } = payload;
+    let str = null;
     if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-      term.write(data instanceof Uint8Array ? data : new Uint8Array(data));
+      const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+      term.write(u8);
+      str = new TextDecoder().decode(u8);
     } else if (typeof data === "string") {
       term.write(data);
+      str = data;
     } else {
       term.write(String(data));
+      str = String(data);
+    }
+    if (onCwd && str) {
+      const cwd = parseOsc7Cwd(str);
+      if (cwd) onCwd(cwd);
     }
   };
   socket.on("output", handler);

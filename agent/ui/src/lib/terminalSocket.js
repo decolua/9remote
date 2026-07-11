@@ -91,7 +91,13 @@ export function useSessions() {
   const renameGroup = (groupId, name) => socket.emit("renameGroup", { groupId, name }, () => refresh());
   const deleteGroup = (groupId) => socket.emit("deleteGroup", { groupId }, () => refresh());
 
-  return { socket, connected, sessions, groups, finishedIds, notifications, clearFinished, dismissRecent, refresh, createSession, deleteSession, renameSession, createGroup, renameGroup, deleteGroup };
+  // Update a session's cwd locally (OSC 7 client-side parse) — no server round-trip
+  const updateCwd = (sessionId, cwd) => {
+    if (!sessionId || !cwd) return;
+    setSessions((prev) => prev.map((s) => (s.id === sessionId && s.cwd !== cwd ? { ...s, cwd } : s)));
+  };
+
+  return { socket, connected, sessions, groups, finishedIds, notifications, clearFinished, dismissRecent, refresh, createSession, deleteSession, renameSession, createGroup, renameGroup, deleteGroup, updateCwd };
 }
 
 export { getSocket };

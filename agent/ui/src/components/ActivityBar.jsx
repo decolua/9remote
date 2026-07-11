@@ -30,6 +30,9 @@ export default function ActivityBar({ activePanel, onSelectPanel, onBack }) {
       style={{ width: ACTIVITY_BAR_WIDTH }}
     >
       <div className="flex flex-col items-center gap-1">
+        <BarButton onClick={handleBack} label="Back">
+          <Icon name="chevronLeft" size={20} />
+        </BarButton>
         {TOP_ITEMS.map(({ id, icon, label }) => (
           <BarButton key={id} active={activePanel === id} onClick={() => handleSelect(id)} label={label}>
             <Icon name={icon} size={20} />
@@ -43,9 +46,6 @@ export default function ActivityBar({ activePanel, onSelectPanel, onBack }) {
           label="Settings"
         >
           <Icon name="settings" size={20} />
-        </BarButton>
-        <BarButton onClick={handleBack} label="Back">
-          <Icon name="x" size={20} />
         </BarButton>
       </div>
     </div>

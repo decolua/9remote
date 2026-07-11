@@ -18,7 +18,7 @@ import {
 const UNGROUPED = { id: null, name: "Ungrouped" };
 
 // Full-screen terminal overlay — mirrors web workspace (split panes + tabs + group selector)
-export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", finishedIds, clearFinished, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
+export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", finishedIds, clearFinished, updateCwd, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
   const { t } = useI18n();
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
@@ -366,6 +366,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 cwd={s.cwd}
                 onActivate={onSwitch}
                 onInput={clearFinished}
+                onCwd={(cwd) => updateCwd?.(s.id, cwd)}
                 onOpenFiles={(cwd) => setOverlay({ type: "files", cwd })}
                 onOpenGit={(cwd) => setOverlay({ type: "git", cwd })}
                 showFocusBorder={isDesktop && multi}

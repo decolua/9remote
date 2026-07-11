@@ -272,6 +272,10 @@ function handleMessage(message) {
       emit("sessionClosed", data.sessionId);
       break;
 
+    case "cwdChange":
+      emit("cwdChange", { sessionId: data.sessionId, cwd: data.cwd });
+      break;
+
     case "pong":
       // Heartbeat response
       break;

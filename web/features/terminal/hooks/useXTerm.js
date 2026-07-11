@@ -174,6 +174,13 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     };
     socket.on("output", handleOutput);
 
+    // Server-pushed cwd change (OSC 7 detected daemon-side) — authoritative cwd source
+    const handleCwdChange = (payload) => {
+      if (!payload || payload.sessionId !== sessionId) return;
+      if (payload.cwd) { cwdRef.current = payload.cwd; setCwd(payload.cwd); }
+    };
+    socket.on("cwdChange", handleCwdChange);
+
     // Join session and replay scrollback buffer from daemon
     const doJoinSession = (isRejoin = false) => {
       socket.emit("joinSession", sessionId, (result) => {
@@ -217,6 +224,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       resizeObserver.disconnect();
       socket.off("connect", handleReconnect);
       socket.off("output", handleOutput);
+      socket.off("cwdChange", handleCwdChange);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       if (webglAddon) webglAddon.dispose();
