@@ -7,8 +7,37 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
-import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, WRITE_CHUNK_SIZE, OSC7_SCAN_TAIL } from "@/features/terminal/constants/terminalConfig";
 // import { detectLinks } from "@/features/terminal/utils/linkDetector";
+
+const OSC7_RE = /\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+
+// Scan only the tail of large payloads (cwd almost always in the latest prompt)
+function parseOsc7Cwd(text) {
+  if (!text || text.indexOf("\x1b") === -1) return null;
+  const scan = text.length > OSC7_SCAN_TAIL ? text.slice(-OSC7_SCAN_TAIL) : text;
+  const match = [...scan.matchAll(OSC7_RE)].pop();
+  if (!match?.[1]) return null;
+  try { return decodeURIComponent(match[1]); } catch { return match[1]; }
+}
+
+// Chunk large writes across frames so join history doesn't freeze the main thread
+function writeChunked(term, data) {
+  const len = data?.length ?? data?.byteLength ?? 0;
+  if (!len || len <= WRITE_CHUNK_SIZE) {
+    term.write(data);
+    return;
+  }
+  let offset = 0;
+  const pump = () => {
+    if (!term || term._core?._isDisposed) return;
+    const end = Math.min(offset + WRITE_CHUNK_SIZE, len);
+    term.write(data.slice ? data.slice(offset, end) : data.subarray(offset, end));
+    offset = end;
+    if (offset < len) requestAnimationFrame(pump);
+  };
+  pump();
+}
 
 // XTerm instance management hook
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
@@ -120,28 +149,23 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
       const data = payload.data;
-      
-      // Parse OSC 7 sequence to track working directory
+
+      // Parse OSC 7 — only scan tail of large join/history blobs
       if (typeof data === "string" || data instanceof Uint8Array) {
         const text = typeof data === "string" ? data : (decoderRef.current ??= new TextDecoder()).decode(data);
-        // Gate OSC7 scan — skip regex unless an escape sequence is present.
-        // Match BEL (bash) and ST (zsh) terminators; take the last match when a chunk carries several prompts.
-        const osc7Match = text.indexOf("\x1b") !== -1
-          ? [...text.matchAll(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)(?:\x07|\x1b\\)/g)].pop()
-          : null;
-        if (osc7Match && osc7Match[1]) {
-          const next = decodeURIComponent(osc7Match[1]);
+        const next = parseOsc7Cwd(text);
+        if (next) {
           cwdRef.current = next;
           setCwd(next);
         }
       }
-      
-      if (data instanceof ArrayBuffer || (data && data.buffer)) {
-        term.write(new Uint8Array(data));
+
+      if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+        writeChunked(term, data instanceof Uint8Array ? data : new Uint8Array(data));
       } else if (typeof data === "string") {
-        term.write(data);
+        writeChunked(term, data);
       } else {
-        term.write(String(data));
+        writeChunked(term, String(data));
       }
     };
     socket.on("output", handleOutput);

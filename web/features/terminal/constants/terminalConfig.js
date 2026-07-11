@@ -66,7 +66,7 @@ export const TERMINAL_OPTIONS = {
   fontSize: 14,
   fontSizeMobile: 12,
   fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", "Noto Sans Mono", Menlo, Monaco, "Courier New", monospace',
-  scrollback: 50000,
+  scrollback: 10000,
   convertEol: true,
   allowProposedApi: true,
   scrollOnUserInput: true,
@@ -75,6 +75,10 @@ export const TERMINAL_OPTIONS = {
   rescaleOverlappingGlyphs: true,
   minimumContrastRatio: 1
 };
+
+// Large join/output write path — avoid one long main-thread parse freeze
+export const WRITE_CHUNK_SIZE = 32 * 1024; // bytes/chars per rAF write chunk
+export const OSC7_SCAN_TAIL = 2 * 1024; // only scan last N of large payloads for cwd
 
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {

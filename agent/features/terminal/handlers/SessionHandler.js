@@ -8,8 +8,27 @@ import fs from "fs";
 import path from "path";
 
 const MAX_BUFFER = 2 * 1024 * 1024;
-const JOIN_REPLAY_SIZE = 1024 * 1024; // 1MB tail on join — balances history vs join latency
+const JOIN_REPLAY_SIZE = 256 * 1024; // 256KB tail on join — keep join latency low
 const PERSISTENCE_MODE = "daemon";
+
+// Walk chunks from the end — avoid joining full ≤2MB buffer just to keep a tail
+function takeBufferTail(chunks, maxLen) {
+  if (!chunks?.length || maxLen <= 0) return "";
+  let remaining = maxLen;
+  const parts = [];
+  for (let i = chunks.length - 1; i >= 0 && remaining > 0; i--) {
+    const chunk = chunks[i];
+    if (chunk.length <= remaining) {
+      parts.push(chunk);
+      remaining -= chunk.length;
+    } else {
+      parts.push(chunk.slice(chunk.length - remaining));
+      remaining = 0;
+    }
+  }
+  parts.reverse();
+  return parts.join("");
+}
 
 /**
  * Setup PTY data listeners — shared between createSession and joinSession (buffer mode).
@@ -21,7 +40,7 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
     sessionData.buffer.push(data);
     // Trim by char length keeping the tail — avoids cutting whole chunks mid-ANSI
     const size = sessionData.buffer.reduce((s, c) => s + c.length, 0);
-    if (size > MAX_BUFFER) sessionData.buffer = [sessionData.buffer.join("").slice(-MAX_BUFFER)];
+    if (size > MAX_BUFFER) sessionData.buffer = [takeBufferTail(sessionData.buffer, MAX_BUFFER)];
     broadcast(io, "output", { sessionId, data: Buffer.from(data, "utf-8") });
     if (PERSISTENCE_MODE === "buffer") {
       if (saveTimeout) clearTimeout(saveTimeout);
@@ -232,7 +251,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     }
 
     if (session.buffer?.length > 0) {
-      socket.emit("output", { sessionId, data: Buffer.from(session.buffer.join("").slice(-JOIN_REPLAY_SIZE), "utf-8") });
+      socket.emit("output", { sessionId, data: Buffer.from(takeBufferTail(session.buffer, JOIN_REPLAY_SIZE), "utf-8") });
     }
     callback({ success: true, name: session.name, cwd: session.cwd });
   });

@@ -30,8 +30,27 @@ const clients = new Set();
 
 // Constants
 const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB raw fallback per session
-const JOIN_REPLAY_SIZE = 1024 * 1024; // 1MB tail on join — balances history vs join latency
+const JOIN_REPLAY_SIZE = 256 * 1024; // 256KB tail on join — keep join latency low
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
+
+// Walk chunks from the end — avoid joining full ≤2MB buffer just to keep a tail
+function takeBufferTail(chunks, maxLen) {
+  if (!chunks?.length || maxLen <= 0) return "";
+  let remaining = maxLen;
+  const parts = [];
+  for (let i = chunks.length - 1; i >= 0 && remaining > 0; i--) {
+    const chunk = chunks[i];
+    if (chunk.length <= remaining) {
+      parts.push(chunk);
+      remaining -= chunk.length;
+    } else {
+      parts.push(chunk.slice(chunk.length - remaining));
+      remaining = 0;
+    }
+  }
+  parts.reverse();
+  return parts.join("");
+}
 
 // Log file path — under ~/.9remote/logs/ for consistency with agent.log
 const LOG_DIR = path.join(SOCKET_DIR, "logs");
@@ -202,7 +221,7 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       // Trim by char length keeping the tail — avoids cutting whole chunks mid-ANSI
       let totalSize = session.buffer.reduce((sum, chunk) => sum + chunk.length, 0);
       if (totalSize > MAX_BUFFER_SIZE) {
-        session.buffer = [session.buffer.join("").slice(-MAX_BUFFER_SIZE)];
+        session.buffer = [takeBufferTail(session.buffer, MAX_BUFFER_SIZE)];
       }
 
       broadcast({
@@ -268,7 +287,7 @@ function handleMessage(client, message) {
         return;
       }
       // Replay only tail of buffered output to avoid network burst on join
-      const history = session.buffer.length > 0 ? session.buffer.join("").slice(-JOIN_REPLAY_SIZE) : "";
+      const history = takeBufferTail(session.buffer, JOIN_REPLAY_SIZE);
       if (history) {
         send(client, {
           type: "output",

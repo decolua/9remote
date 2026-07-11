@@ -64,7 +64,7 @@ const TERMINAL_OPTIONS = {
   cursorBlink: true,
   fontSize: 14,
   fontFamily: '"SF Mono", "Cascadia Code", Menlo, Monaco, "Courier New", monospace',
-  scrollback: 50000,
+  scrollback: 10000,
   convertEol: true,
   allowProposedApi: true,
   scrollOnUserInput: true,
@@ -73,6 +73,26 @@ const TERMINAL_OPTIONS = {
   rescaleOverlappingGlyphs: true,
   minimumContrastRatio: 1,
 };
+
+const WRITE_CHUNK_SIZE = 32 * 1024;
+
+// Chunk large writes across frames so join history doesn't freeze the main thread
+function writeChunked(term, data) {
+  const len = data?.length ?? data?.byteLength ?? 0;
+  if (!len || len <= WRITE_CHUNK_SIZE) {
+    term.write(data);
+    return;
+  }
+  let offset = 0;
+  const pump = () => {
+    if (!term || term._core?._isDisposed) return;
+    const end = Math.min(offset + WRITE_CHUNK_SIZE, len);
+    term.write(data.slice ? data.slice(offset, end) : data.subarray(offset, end));
+    offset = end;
+    if (offset < len) requestAnimationFrame(pump);
+  };
+  pump();
+}
 
 export function resolveTheme(name) {
   return TERMINAL_THEMES[name] || TERMINAL_THEMES.dark;
@@ -111,12 +131,12 @@ export function bindOutput(term, socket, sessionId) {
   const handler = (payload) => {
     if (!payload || payload.sessionId !== sessionId) return;
     const { data } = payload;
-    if (data instanceof ArrayBuffer || (data && data.buffer)) {
-      term.write(new Uint8Array(data));
+    if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+      writeChunked(term, data instanceof Uint8Array ? data : new Uint8Array(data));
     } else if (typeof data === "string") {
-      term.write(data);
+      writeChunked(term, data);
     } else {
-      term.write(String(data));
+      writeChunked(term, String(data));
     }
   };
   socket.on("output", handler);
