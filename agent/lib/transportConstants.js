@@ -24,7 +24,7 @@ export const TRANSPORT_PROFILES = {
   remoteDesktop: {
     enabled: ["ws", "rtc"],
     channels: {
-      control: { strategy: "priority", prefer: "rtc" },
+      control: { strategy: "priority", prefer: "ws" },
       binary: { strategy: "priority", prefer: "rtc" }
     }
   }

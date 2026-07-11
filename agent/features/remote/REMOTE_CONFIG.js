@@ -57,8 +57,9 @@ export const REMOTE_CONFIG = {
     turnRefreshInterval: (24 - 1) * 60 * 60 * 1000,
     // 64KB — SCTP hard limit per message in node-datachannel
     dcMaxMessageSize: 65536,
-    // Max buffered bytes before skipping frame — ~1 frame worth at typical quality
-    dcBufferThreshold: 65536,
+    // Max buffered bytes before skipping frame — ~4 frames worth at typical quality.
+    // Higher than 64KB to avoid excessive drops; still caps SCTP queue growth.
+    dcBufferThreshold: 262144,
     // Grace before closing RTC on ICE "disconnected" (transient network lag)
     iceDisconnectGraceMs: 6000,
     // DataChannel chunk size (tiles per message) — keep under 64KB

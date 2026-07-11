@@ -111,16 +111,13 @@ export class WebRtcProtocol extends BaseProtocol {
     if (channel === CHANNELS.binary) {
       if (!this._dcBinary) return false;
       try {
-        // payload may be array of chunks or single Buffer
-        const chunks = Array.isArray(payload) ? payload : [payload];
-        const max = this._ctx.profile?.rtc?.dcMaxMessageSize ?? 65536;
+        // Single pre-sized chunk (Buffer) — PM splits by dcMaxMessageSize.
+        const chunk = Array.isArray(payload) ? payload[0] : payload;
         const bufThreshold = REMOTE_CONFIG.webrtc.dcBufferThreshold;
-        for (const chunk of chunks) {
-          // Backpressure — drop frame if SCTP send queue is congested
-          if (this._dcBinary.bufferedAmount() > bufThreshold) return true;
-          if (chunk.length <= max) this._dcBinary.sendMessageBinary(chunk);
-        }
-        return true;
+        // Backpressure — return false so PM stops and retries remaining tiles next frame
+        if (this._dcBinary.bufferedAmount() > bufThreshold) return false;
+        // sendMessageBinary returns false on oversize/negotiated-max violation — treat as drop
+        return this._dcBinary.sendMessageBinary(chunk);
       } catch (err) {
         console.error("[WebRtcProtocol] send binary:", err.message);
         return false;

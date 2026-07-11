@@ -77,7 +77,7 @@ export class ProtocolManager {
 
   /**
    * Tiles: prefer binary channel via RTC if ready, else WS chunked.
-   * Returns array of tiles actually sent (WS may drop chunks under backpressure).
+   * Returns array of tiles actually sent (adapter may drop chunks under backpressure).
    */
   sendTiles(payload, encodeBatch) {
     const { tiles, timestamp } = payload;
@@ -87,12 +87,7 @@ export class ProtocolManager {
     const frameTs = timestamp ?? Date.now();
 
     if (adapter?.constructor.id === "rtc" && encodeBatch) {
-      const chunks = [];
-      for (let i = 0; i < tiles.length; i += this._dcChunkSize) {
-        chunks.push(encodeBatch(tiles.slice(i, i + this._dcChunkSize), frameTs));
-      }
-      adapter.send(CHANNELS.binary, chunks);
-      return tiles;
+      return this._emitTilesRtc(adapter, tiles, frameTs, encodeBatch);
     }
     // WS path — chunked binary emit
     return this._emitTilesChunked(tiles, frameTs);
@@ -143,6 +138,48 @@ export class ProtocolManager {
         chunk.push(tiles[(start + i + j) % n]);
       }
       if (ws.send(CHANNELS.binary, encodeTilesBatch(chunk, frameTs)) === false) break;
+      sent.push(...chunk);
+    }
+    return sent;
+  }
+
+  // RTC tile path — chunked binary DC, same sent-acknowledgement contract as WS.
+  // Chunk size is adapted per frame against the ACTUAL first chunk (round-robin
+  // offset aware) so each encoded chunk fits dcMaxMessageSize (SCTP hard limit).
+  // Single tile still over max → salvage via WS (no SCTP limit) to avoid infinite
+  // re-encode loop. Returns tiles actually sent; stops on first RTC backpressure.
+  _emitTilesRtc(rtc, tiles, frameTs, encodeBatch) {
+    const max = this._profile.rtc?.dcMaxMessageSize ?? 65536;
+    const n = tiles.length;
+    const start = n > this._dcChunkSize ? this._chunkOffset % n : 0;
+    const chunkTiles = (cs) => {
+      const arr = [];
+      for (let j = 0; j < cs; j++) arr.push(tiles[(start + j) % n]);
+      return arr;
+    };
+    // Probe — shrink until the actual first chunk fits SCTP max
+    let chunkSize = Math.min(this._dcChunkSize, n);
+    while (chunkSize > 1 && encodeBatch(chunkTiles(chunkSize), frameTs).length > max) {
+      chunkSize = Math.floor(chunkSize / 2);
+    }
+    if (n > chunkSize) this._chunkOffset = (start + chunkSize) % n;
+    const ws = this._adapters.get("ws");
+    const sent = [];
+    for (let i = 0; i < n; i += chunkSize) {
+      const chunk = [];
+      for (let j = 0; j < chunkSize && i + j < n; j++) {
+        chunk.push(tiles[(start + i + j) % n]);
+      }
+      const buf = encodeBatch(chunk, frameTs);
+      if (buf.length > max) {
+        // Single tile over SCTP max — salvage via WS to avoid infinite re-encode
+        if (chunk.length === 1 && ws?.ready && ws.send(CHANNELS.binary, buf) !== false) {
+          sent.push(...chunk);
+        }
+        // else multi-tile (probe missed — retry next frame) or WS down: keep old hash
+        continue;
+      }
+      if (rtc.send(CHANNELS.binary, buf) === false) return sent;
       sent.push(...chunk);
     }
     return sent;

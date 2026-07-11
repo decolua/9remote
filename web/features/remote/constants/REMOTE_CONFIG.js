@@ -7,7 +7,7 @@ export const REMOTE_CONFIG = {
   // WebRTC transport config
   // enableWebRTC: true  → negotiate DataChannel for faster streaming
   // enableTurn: false   → STUN P2P only, no TURN relay (set true for cross-network)
-  enableWebRTC: false,
+  enableWebRTC: true,
   enableTurn: false,
 
   // Debug log toggles (set true to enable verbose console logs)
