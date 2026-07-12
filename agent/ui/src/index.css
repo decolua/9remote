@@ -388,9 +388,19 @@
 .terminal-wrapper .xterm-viewport::-webkit-scrollbar-thumb:hover {
   background: rgba(var(--brand-rgb), 0.8);
 }
-/* XTerm custom overlay scrollbar (JS-rendered div, not native) — thin only, keep default color */
-.terminal-wrapper .xterm .scrollbar { width: 6px !important; }
-.terminal-wrapper .xterm .scrollbar .slider { width: 6px !important; border-radius: 3px !important; }
+/* XTerm custom overlay scrollbar (JS-rendered div, not native) — thin + brand-colored */
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar {
+  width: 6px !important;
+  opacity: 1 !important;
+}
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar .slider {
+  width: 6px !important;
+  border-radius: 3px !important;
+  background: rgba(var(--brand-rgb), 0.5) !important;
+}
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar .slider:hover {
+  background: rgba(var(--brand-rgb), 0.8) !important;
+}
 .terminal-wrapper .xterm-screen { touch-action: pan-y !important; }
 .xterm .xterm-helpers { z-index: 0 !important; }
 .xterm-helper-textarea { opacity: 0 !important; }

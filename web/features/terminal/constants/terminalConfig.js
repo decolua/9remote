@@ -82,10 +82,11 @@ export const OSC7_SCAN_TAIL = 2 * 1024;
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {
   lineHeight: 18, // px per line step
-  sensitivity: 0.5,
-  friction: 0.85,
+  sensitivity: 1.0, // 1:1 finger-to-content drag
+  friction: 0.95, // inertia glide (~native iOS)
   minVelocity: 0.3,
   wheelStepLines: 1, // max TUI wheel notches per scroll step
+  tuiThrottleMs: 50, // min interval between SGR wheel events (≈ PC wheel cadence)
   sgrUp: (x, y) => `\x1b[<64;${x};${y}M`,
   sgrDown: (x, y) => `\x1b[<65;${x};${y}M`
 };

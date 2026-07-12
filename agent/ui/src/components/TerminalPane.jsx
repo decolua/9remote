@@ -70,7 +70,8 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
     const unbindVisibility = bindVisibilityRepaint(term);
 
     const screen = term.element?.querySelector(".xterm-screen");
-    const detachTouch = screen ? attachTouchScroll(term, screen) : () => {};
+    const sendInput = (data) => socket.emit("input", { sessionId, data });
+    const detachTouch = screen ? attachTouchScroll(term, screen, sendInput) : () => {};
 
     return () => {
       ro.disconnect();

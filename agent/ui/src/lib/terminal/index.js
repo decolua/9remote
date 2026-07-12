@@ -173,24 +173,59 @@ export function bindVisibilityRepaint(term) {
   return () => document.removeEventListener("visibilitychange", handler);
 }
 
-// Touch scroll with inertia (iOS-like).
+// Touch scroll with inertia (iOS-like), parity with web useXTerm.
+// Alt-buffer (TUI mouse-tracking) gets SGR wheel; else local scrollback.
 // Returns detach fn.
-export function attachTouchScroll(term, xtermScreen) {
-  const LINE_HEIGHT = 16;
-  const SENSITIVITY = 1;
-  const FRICTION = 0.95;
+export function attachTouchScroll(term, xtermScreen, sendInput) {
+  const FALLBACK_LINE_HEIGHT = 16;
+  const SENSITIVITY = 1.0; // 1:1 finger-to-content drag
+  const FRICTION = 0.95; // inertia glide (~native iOS)
   const MIN_VELOCITY = 0.05;
+  const WHEEL_STEP_LINES = 1;
+  const TUI_THROTTLE_MS = 50; // min interval between SGR wheel events (≈ PC wheel cadence)
+  const SGR_DOWN = (x, y) => `\x1b[<65;${x};${y}M`;
+  const SGR_UP = (x, y) => `\x1b[<64;${x};${y}M`;
 
+  let lineHeight = FALLBACK_LINE_HEIGHT;
   let lastY = 0;
   let lastTime = 0;
   let velocity = 0;
   let accumulated = 0;
   let momentumId = null;
+  let lastSgrAt = 0;
+  let pendingLines = 0;
+  let pendingTimer = null;
 
   const stopMomentum = () => {
     if (momentumId) {
       cancelAnimationFrame(momentumId);
       momentumId = null;
+    }
+  };
+
+  const flushSgr = () => {
+    pendingTimer = null;
+    if (!pendingLines) return;
+    const x = Math.max(1, Math.ceil(term.cols / 2));
+    const y = Math.max(1, Math.ceil(term.rows / 2));
+    const seq = pendingLines > 0 ? SGR_DOWN(x, y) : SGR_UP(x, y);
+    const n = Math.min(Math.abs(pendingLines), WHEEL_STEP_LINES);
+    for (let i = 0; i < n; i++) sendInput?.(seq);
+    pendingLines = 0;
+    lastSgrAt = Date.now();
+  };
+
+  const applyScroll = (lines) => {
+    if (term.buffer?.active?.type === "alternate") {
+      pendingLines += lines;
+      const elapsed = Date.now() - lastSgrAt;
+      if (elapsed >= TUI_THROTTLE_MS) {
+        flushSgr();
+      } else if (!pendingTimer) {
+        pendingTimer = setTimeout(flushSgr, TUI_THROTTLE_MS - elapsed);
+      }
+    } else {
+      term.scrollLines(lines);
     }
   };
 
@@ -200,10 +235,10 @@ export function attachTouchScroll(term, xtermScreen) {
       return;
     }
     accumulated += velocity;
-    const lines = Math.trunc(accumulated / LINE_HEIGHT);
+    const lines = Math.trunc(accumulated / lineHeight);
     if (lines !== 0) {
-      term.scrollLines(lines);
-      accumulated -= lines * LINE_HEIGHT;
+      applyScroll(lines);
+      accumulated -= lines * lineHeight;
     }
     velocity *= FRICTION;
     momentumId = requestAnimationFrame(doMomentum);
@@ -211,7 +246,12 @@ export function attachTouchScroll(term, xtermScreen) {
 
   const handleTouchStart = (e) => {
     stopMomentum();
-    lastY = e.touches[0].clientY;
+    const touch = e.touches[0];
+    // Sync lineHeight to actual rendered cell height (changes with fontSize/resize)
+    const rect = xtermScreen.getBoundingClientRect();
+    const rows = term.rows;
+    if (rect.height && rows) lineHeight = rect.height / rows;
+    lastY = touch.clientY;
     lastTime = Date.now();
     velocity = 0;
     accumulated = 0;
@@ -224,13 +264,16 @@ export function attachTouchScroll(term, xtermScreen) {
     const deltaTime = currentTime - lastTime || 1;
 
     accumulated += deltaY;
-    const lines = Math.trunc(accumulated / LINE_HEIGHT);
+    const lines = Math.trunc(accumulated / lineHeight);
     if (lines !== 0) {
-      term.scrollLines(lines);
-      accumulated -= lines * LINE_HEIGHT;
+      applyScroll(lines);
+      accumulated -= lines * lineHeight;
     }
 
-    velocity = (deltaY / deltaTime) * 16;
+    // EWA-smoothed velocity (avoids flick spike from last thin-delta event)
+    const dt = Math.max(8, deltaTime);
+    const sample = (deltaY / dt) * 8;
+    velocity = velocity * 0.6 + sample * 0.4;
     lastY = currentY;
     lastTime = currentTime;
   };
@@ -247,6 +290,7 @@ export function attachTouchScroll(term, xtermScreen) {
 
   return () => {
     stopMomentum();
+    if (pendingTimer) clearTimeout(pendingTimer);
     xtermScreen.removeEventListener("touchstart", handleTouchStart);
     xtermScreen.removeEventListener("touchmove", handleTouchMove);
     xtermScreen.removeEventListener("touchend", handleTouchEnd);

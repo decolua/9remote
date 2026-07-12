@@ -297,20 +297,42 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     let accumulated = 0;
 
     const SENSITIVITY = TOUCH_SCROLL.sensitivity;
+    const FALLBACK_LINE_HEIGHT = TOUCH_SCROLL.lineHeight;
     const LINE_HEIGHT = TOUCH_SCROLL.lineHeight;
     const FRICTION = TOUCH_SCROLL.friction;
     const MIN_VELOCITY = TOUCH_SCROLL.minVelocity;
+    const TUI_THROTTLE_MS = TOUCH_SCROLL.tuiThrottleMs;
+
+    // Throttle SGR wheel burst so touch ≈ PC wheel cadence (TUI decides actual rate).
+    let lastSgrAt = 0;
+    let pendingLines = 0;
+    let pendingTimer = null;
+    const flushSgr = () => {
+      pendingTimer = null;
+      if (!pendingLines) return;
+      const t = termRef.current;
+      if (!t) { pendingLines = 0; return; }
+      const x = Math.max(1, Math.ceil(t.cols / 2));
+      const y = Math.max(1, Math.ceil(t.rows / 2));
+      const seq = pendingLines > 0 ? TOUCH_SCROLL.sgrDown(x, y) : TOUCH_SCROLL.sgrUp(x, y);
+      const n = Math.min(Math.abs(pendingLines), TOUCH_SCROLL.wheelStepLines);
+      for (let i = 0; i < n; i++) socket.emit("input", { sessionId, data: seq });
+      pendingLines = 0;
+      lastSgrAt = performance.now();
+    };
 
     // Alt-buffer (TUI mouse-tracking) has no scrollback → send SGR wheel to app; else scroll local scrollback
     const applyScroll = (lines) => {
       const t = termRef.current;
       if (!t) return;
       if (t.buffer.active.type === "alternate") {
-        const x = Math.max(1, Math.ceil(t.cols / 2));
-        const y = Math.max(1, Math.ceil(t.rows / 2));
-        const seq = lines > 0 ? TOUCH_SCROLL.sgrDown(x, y) : TOUCH_SCROLL.sgrUp(x, y);
-        const n = Math.min(Math.abs(lines), TOUCH_SCROLL.wheelStepLines);
-        for (let i = 0; i < n; i++) socket.emit("input", { sessionId, data: seq });
+        pendingLines += lines;
+        const elapsed = performance.now() - lastSgrAt;
+        if (elapsed >= TUI_THROTTLE_MS) {
+          flushSgr();
+        } else if (!pendingTimer) {
+          pendingTimer = setTimeout(flushSgr, TUI_THROTTLE_MS - elapsed);
+        }
       } else {
         t.scrollLines(lines);
       }
