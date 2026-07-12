@@ -60,7 +60,7 @@ export default {
     changedFiles: "Changed files",
   },
   system: {
-    agent: "Agent",
+    agent: "9Remote",
     machine: "Machine",
     remoteDesktop: "Remote Desktop",
     uptime: "Uptime",

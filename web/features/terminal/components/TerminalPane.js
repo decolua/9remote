@@ -87,7 +87,9 @@ function TerminalPane({
       if (h <= 0) return;
       const prev = fixedMetaRef.current;
       // Width change (rotate) → re-lock. Soft KB: width same, height down → keep larger height.
-      if (w !== prev.width || prev.height == null || h > prev.height) {
+      // >= prev-2: KB closing returns height to (near) stored max → clear shrink state.
+      // Tolerance 2px < shrink threshold 8px, so real shrinks still fall through to else-if.
+      if (w !== prev.width || prev.height == null || h >= prev.height - 2) {
         fixedMetaRef.current = { width: w, height: h };
         setFixedHeight(h);
         lastViewportH = h;

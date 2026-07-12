@@ -119,8 +119,15 @@ function parseOsc7Cwd(text) {
 export function bindOutput(term, socket, sessionId, onCwd) {
   const handler = (payload) => {
     if (!payload || payload.sessionId !== sessionId) return;
-    const { data } = payload;
+    let { data } = payload;
     let str = null;
+    // Daemon marks coalesced output with enc:"b64" (base64 string) — decode once here.
+    if (payload.enc === "b64" && typeof data === "string") {
+      const bin = atob(data);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      data = bytes;
+    }
     if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
       const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
       term.write(u8);

@@ -105,7 +105,7 @@ export async function initializeTerminal() {
 export function setupTerminalSocket(io, apiKey) {
   // Forward daemon events to all socket clients
   if (PERSISTENCE_MODE === "daemon") {
-    daemonClient.on("output", ({ sessionId, data }) => broadcast(io, "output", { sessionId, data }));
+    daemonClient.on("output", ({ sessionId, enc, data }) => broadcast(io, "output", { sessionId, enc, data }));
     daemonClient.on("cwdChange", ({ sessionId, cwd }) => {
       const session = sessions.get(sessionId);
       if (session && cwd && session.cwd !== cwd) { session.cwd = cwd; saveSessionMetadata(sessions); }

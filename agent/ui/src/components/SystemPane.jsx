@@ -97,7 +97,7 @@ export default function SystemPane() {
 
   return (
     <div className="flex flex-col gap-5 max-w-2xl mx-auto w-full">
-      <SectionCard icon="memory" title={t("system.agent") || "Agent"}>
+      <SectionCard icon="memory" title={t("system.agent") || "9Remote"}>
         <StatRow icon="tag" label="Version" value={agent.version || "--"} sub={`${agent.nodeVersion} · PID ${agent.pid}`} />
         <StatRow icon="schedule" label={t("system.uptime") || "Uptime"} value={fmtUptime(agent.uptimeSec)} />
         <StatRow
