@@ -252,6 +252,8 @@ export default function WorkspaceLayout({ children }) {
         e.target.closest(".cm-scroller") ||
         e.target.closest(".cm-content") ||
         e.target.closest(".overflow-auto") ||
+        e.target.closest(".overflow-x-auto") ||
+        e.target.closest(".overflow-y-auto") ||
         e.target.closest(".modal-scrollable")
       ) return;
       e.preventDefault();

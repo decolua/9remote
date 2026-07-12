@@ -604,10 +604,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       {/* Bottom keyboard bar */}
       {!hasPhysicalKeyboard && (
         <div
-          className={`overflow-auto px-1.5 pb-1.5 bg-bg ${isIosPwa ? "safe-area-bottom" : ""}`}
+          className={`overflow-x-auto overflow-y-hidden touch-pan-x px-1.5 pb-1.5 bg-bg ${isIosPwa ? "safe-area-bottom" : ""}`}
         >
           <div className="flex items-center gap-1 max-w-4xl mx-auto">
-            <div className="flex gap-1 flex-1 overflow-x-auto scroll-thin-x pr-2 rounded-lg">
+            <div className="flex gap-1 flex-1 overflow-x-auto scroll-thin-x touch-pan-x pr-2 rounded-lg">
               {basicCustom.keys
                 .filter(kc => kc.id !== TERMINAL_PINNED_KEY_ID)
                 .map((kc, idx) => renderKey(kc, idx))}

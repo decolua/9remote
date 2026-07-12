@@ -278,6 +278,7 @@ html.terminal-page body {
   overflow-x: hidden !important;
   touch-action: pan-y !important;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain !important;
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
 }
@@ -337,9 +338,9 @@ html.terminal-page body {
   50% { opacity: 0.3; }
 }
 
-/* XTerm - enable touch events for JS scroll handler */
+/* XTerm - lock native pan so JS handler fully controls gesture (no container drag) */
 .terminal-wrapper .xterm-screen {
-  touch-action: pan-y !important;
+  touch-action: none !important;
 }
 
 /* XTerm scrollbar - thin brand-colored */

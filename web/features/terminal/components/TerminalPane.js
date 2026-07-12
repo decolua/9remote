@@ -231,7 +231,7 @@ function TerminalPane({
 
   return (
     <div
-      className={`h-full w-full flex flex-col overflow-hidden relative ${focusClass}`}
+      className={`h-full w-full flex flex-col overflow-hidden relative touch-none ${focusClass}`}
       style={{ background: currentTheme.background }}
       onMouseDown={handlePaneClick}
       onTouchStart={() => handlePaneClick()}
@@ -270,7 +270,7 @@ function TerminalPane({
 
       {/* Overlays stay on viewport, not inside scroll content */}
       {cwd && isFocused && (
-        <div className="absolute top-2 right-2 z-50 flex flex-col gap-2 pointer-events-auto">
+        <div className="absolute top-2 right-2 z-50 flex flex-col gap-2 pointer-events-auto touch-none">
           <button
             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
             onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -305,7 +305,7 @@ function TerminalPane({
             e.stopPropagation();
             handleScrollToBottom();
           }}
-          className="absolute bottom-5 right-7 z-50 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+          className="absolute bottom-5 right-7 z-50 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94] touch-none"
           title={t("terminalPane.scrollToBottom")}
         >
           <ChevronDown size={20} />

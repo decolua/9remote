@@ -82,8 +82,8 @@ export const OSC7_SCAN_TAIL = 2 * 1024;
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {
   lineHeight: 18, // px per line step
-  sensitivity: 1.0,
-  friction: 0.9,
+  sensitivity: 0.5,
+  friction: 0.85,
   minVelocity: 0.3,
   wheelStepLines: 1, // max TUI wheel notches per scroll step
   sgrUp: (x, y) => `\x1b[<64;${x};${y}M`,
