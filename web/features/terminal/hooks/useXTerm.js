@@ -8,6 +8,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, OSC7_SCAN_TAIL } from "@/features/terminal/constants/terminalConfig";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 // import { detectLinks } from "@/features/terminal/utils/linkDetector";
 
 const OSC7_RE = /\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
@@ -42,6 +43,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   const decoderRef = useRef(null); // Reused TextDecoder for binary output
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
+  const awaitingTuiOutputRef = useRef(false); // SGR emit→output round-trip tracker (TUI backpressure)
   const [termReady, setTermReady] = useState(false);
 
   // Last PTY size sent — skip emit when fit yields same cols/rows (soft-KB with fixed pane height)
@@ -153,6 +155,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
       const data = payload.data;
+      awaitingTuiOutputRef.current = false; // SGR round-trip done → resume TUI scroll
 
       // Parse OSC 7 — only scan tail of large join/history blobs
       if (typeof data === "string" || data instanceof Uint8Array) {
@@ -161,6 +164,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
         if (next) {
           cwdRef.current = next;
           setCwd(next);
+          useTerminalStore.getState().setCwd(sessionId, next);
         }
       }
 
@@ -177,7 +181,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     // Server-pushed cwd change (OSC 7 detected daemon-side) — authoritative cwd source
     const handleCwdChange = (payload) => {
       if (!payload || payload.sessionId !== sessionId) return;
-      if (payload.cwd) { cwdRef.current = payload.cwd; setCwd(payload.cwd); }
+      if (payload.cwd) { cwdRef.current = payload.cwd; setCwd(payload.cwd); useTerminalStore.getState().setCwd(sessionId, payload.cwd); }
     };
     socket.on("cwdChange", handleCwdChange);
 
@@ -185,7 +189,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     const doJoinSession = (isRejoin = false) => {
       socket.emit("joinSession", sessionId, (result) => {
         if (result.success) {
-          if (result.cwd) { cwdRef.current = result.cwd; setCwd(result.cwd); }
+          if (result.cwd) { cwdRef.current = result.cwd; setCwd(result.cwd); useTerminalStore.getState().setCwd(sessionId, result.cwd); }
           setTimeout(() => {
             // Temporary: disable WebGL renderer for blurry-text verification on mobile devices.
             // loadWebGL();
@@ -218,9 +222,24 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    // Show persistent scrollbar only when scrollback ≥ 2 viewports. Toggles a
+    // class on the wrapper; CSS keeps the overlay always-on (no fade).
+    const updateScrollActive = () => {
+      const t = termRef.current;
+      const el = containerRef.current;
+      if (!t || !el) return;
+      const active = t.buffer.active.length >= t.rows * 2;
+      el.classList.toggle("scroll-active", active);
+    };
+    const lineFeedDisp = term.onLineFeed(updateScrollActive);
+    const resizeDisp = term.onResize(updateScrollActive);
+    updateScrollActive();
+
     return () => {
       window.removeEventListener("orientationchange", handleOrientationChange);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      lineFeedDisp.dispose();
+      resizeDisp.dispose();
       resizeObserver.disconnect();
       socket.off("connect", handleReconnect);
       socket.off("output", handleOutput);
@@ -295,13 +314,18 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     let velocity = 0;
     let momentumId = null;
     let accumulated = 0;
+    let lastScrollAt = 0;
 
     const SENSITIVITY = TOUCH_SCROLL.sensitivity;
     const FALLBACK_LINE_HEIGHT = TOUCH_SCROLL.lineHeight;
     const LINE_HEIGHT = TOUCH_SCROLL.lineHeight;
     const FRICTION = TOUCH_SCROLL.friction;
     const MIN_VELOCITY = TOUCH_SCROLL.minVelocity;
+    const MAX_VELOCITY = TOUCH_SCROLL.maxVelocity;
     const TUI_THROTTLE_MS = TOUCH_SCROLL.tuiThrottleMs;
+    const MOMENTUM_CADENCE_MS = TOUCH_SCROLL.momentumRenderCadenceMs;
+    const TUI_BACKPRESSURE_TIMEOUT_MS = TOUCH_SCROLL.tuiBackpressureTimeoutMs;
+    const MAX_LINES_PER_FRAME = 3; // cap scrollLines per frame → smaller repaints, smoother inertia
 
     // Throttle SGR wheel burst so touch ≈ PC wheel cadence (TUI decides actual rate).
     let lastSgrAt = 0;
@@ -319,6 +343,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       for (let i = 0; i < n; i++) socket.emit("input", { sessionId, data: seq });
       pendingLines = 0;
       lastSgrAt = performance.now();
+      awaitingTuiOutputRef.current = true; // expect output round-trip; cleared in handleOutput
     };
 
     // Alt-buffer (TUI mouse-tracking) has no scrollback → send SGR wheel to app; else scroll local scrollback
@@ -326,6 +351,10 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       const t = termRef.current;
       if (!t) return;
       if (t.buffer.active.type === "alternate") {
+        // Backpressure: TUI still redrawing last SGR → drop new lines, don't pile up.
+        // Safety timeout: clear anyway after TUI_BACKPRESSURE_TIMEOUT_MS so TUIs that
+        // don't emit output on wheel (opencode/lazygit) never stall scroll.
+        if (awaitingTuiOutputRef.current && performance.now() - lastSgrAt < TUI_BACKPRESSURE_TIMEOUT_MS) return;
         pendingLines += lines;
         const elapsed = performance.now() - lastSgrAt;
         if (elapsed >= TUI_THROTTLE_MS) {
@@ -334,7 +363,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
           pendingTimer = setTimeout(flushSgr, TUI_THROTTLE_MS - elapsed);
         }
       } else {
-        t.scrollLines(lines);
+        t.scrollLines(Math.max(-MAX_LINES_PER_FRAME, Math.min(MAX_LINES_PER_FRAME, lines)));
       }
     };
 
@@ -353,14 +382,26 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
         return;
       }
 
-      accumulated += velocity;
-      const lines = Math.trunc(accumulated / LINE_HEIGHT);
-      if (lines !== 0) {
-        applyScroll(lines);
-        accumulated -= lines * LINE_HEIGHT;
+      const isAlt = termRef.current.buffer?.active?.type === "alternate";
+      const now = performance.now();
+      // Decay velocity every frame consistently — gates below only control apply, not decay
+      velocity *= FRICTION;
+
+      // TUI backpressure (RTT-aware, with timeout safety for non-responsive TUIs)
+      const tuiBusy = isAlt && awaitingTuiOutputRef.current && now - lastSgrAt < TUI_BACKPRESSURE_TIMEOUT_MS;
+      // Scrollback render cadence: cap repaint to ~30fps during inertia
+      const cadenceDue = !isAlt && now - lastScrollAt >= MOMENTUM_CADENCE_MS;
+
+      if (!tuiBusy && (isAlt || cadenceDue)) {
+        accumulated += velocity;
+        const lines = Math.trunc(accumulated / LINE_HEIGHT);
+        if (lines !== 0) {
+          applyScroll(lines);
+          accumulated -= lines * LINE_HEIGHT;
+          lastScrollAt = performance.now();
+        }
       }
 
-      velocity *= FRICTION;
       momentumId = requestAnimationFrame(doMomentum);
     };
 
@@ -482,7 +523,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
         accumulated -= lines * LINE_HEIGHT;
       }
 
-      velocity = (deltaY / deltaTime) * 16;
+      velocity = Math.min((deltaY / deltaTime) * 16, MAX_VELOCITY);
       lastY = currentY;
       lastTime = currentTime;
     };

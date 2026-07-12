@@ -9,30 +9,23 @@ export const COMMON_COMMANDS = [
   "git status", "git add .", "git commit -m \"\"", "git push", "git pull", "git fetch",
   "git diff", "git log --oneline", "git branch", "git checkout", "git checkout -b",
   "git switch", "git stash", "git stash pop", "git merge", "git rebase", "git clone",
-  "git remote -v", "git restore", "git cherry-pick", "git tag",
+  "git remote -v", "git restore",
   // npm / yarn / pnpm / bun
-  "npm install", "npm ci", "npm run dev", "npm run build", "npm run start", "npm run test",
-  "npm run lint", "npm outdated", "npm update", "npx", "pnpm install", "pnpm dev",
-  "pnpm build", "yarn", "yarn dev", "bun install", "bun run dev",
+  "npm install", "npm ci", "npm run dev", "npm run build", "npm run test",
+  "npm run lint", "npm outdated", "npx", "pnpm install", "pnpm dev", "yarn dev", "bun install",
   // navigation / filesystem
-  "cd ..", "cd ~", "cd -", "ls", "ls -la", "ll", "pwd", "mkdir -p", "cp -r", "mv",
-  "cat", "less", "touch", "tree", "find . -name", "du -sh", "chmod +x", "ln -s",
+  "cd ..", "cd ~", "cd -", "ls -la", "ll", "mkdir -p", "cp -r", "find . -name", "du -sh", "chmod +x", "ln -s",
   // search / text
-  "grep -rn", "grep -i", "sed -i", "awk", "sort", "uniq -c", "wc -l", "head", "tail -f",
+  "grep -rn", "grep -i", "wc -l", "tail -f",
   // process / system
-  "ps aux", "top", "htop", "df -h", "free -h", "uname -a", "whoami", "uptime",
-  "lsof -i", "netstat -tlnp", "env", "export", "history", "which",
-  // network
-  "curl", "wget", "ping", "ssh", "scp", "rsync -av",
+  "ps aux", "df -h", "free -h", "lsof -i", "netstat -tlnp",
   // docker
   "docker ps", "docker ps -a", "docker images", "docker logs -f", "docker exec -it",
   "docker compose up -d", "docker compose down", "docker build -t",
   // misc
-  "clear", "sudo", "code .", "vim", "nano", "python3", "node", "make",
-  // AI CLI tools — kept short→long so the base command surfaces first
-  "claude", "claude --continue", "claude --resume", "claude mcp",
-  "claude --dangerously-skip-permissions", "codex", "codex --full-auto",
-  "gemini", "aider", "opencode", "grok"
+  "code .",
+  // AI CLI
+  "claude", "claude --continue", "claude --resume", "claude mcp", "codex", "codex --full-auto", "gemini"
 ];
 
 // Layout breakpoints and sizing
@@ -85,8 +78,11 @@ export const TOUCH_SCROLL = {
   sensitivity: 1.0, // 1:1 finger-to-content drag
   friction: 0.95, // inertia glide (~native iOS)
   minVelocity: 0.3,
+  maxVelocity: 35, // cap inertia so a hard flick doesn't pile up SGR/render frames in TUI
   wheelStepLines: 1, // max TUI wheel notches per scroll step
   tuiThrottleMs: 50, // min interval between SGR wheel events (≈ PC wheel cadence)
+  momentumRenderCadenceMs: 33, // throttle scrollback repaint during inertia (~30fps)
+  tuiBackpressureTimeoutMs: 120, // safety: clear SGR backpressure flag even if TUI emits no output (opencode/lazygit)
   sgrUp: (x, y) => `\x1b[<64;${x};${y}M`,
   sgrDown: (x, y) => `\x1b[<65;${x};${y}M`
 };
@@ -96,6 +92,16 @@ export const TOUCH_SELECT = {
   longPressMs: 450, // hold duration to enter select mode
   moveTolerance: 10, // px finger jitter before it counts as scroll (cancels long-press)
   wordChars: /[A-Za-z0-9._\-/~:@]/ // chars grouped as one "word"
+};
+
+// Path-aware ghost suggestions: only query host when input matches a path-verb
+// regex, and only complete the partial arg. Cache listings client-side (TTL).
+export const PATH_SUGGEST = {
+  verbs: ["cd", "ls", "ll", "cat", "less", "more", "head", "tail", "vim", "nvim", "nano", "bat", "code", "code-insiders", "rm", "cp", "mv", "mkdir", "touch", "chmod", "open", "grep"],
+  ttlMs: 5 * 60 * 1000, // dir listing cache lifetime
+  debounceMs: 120, // query throttle while typing
+  maxDirs: 20, // FIFO cap on cached dirs
+  maxResults: 8 // max entries shown in the path suggestion dropdown
 };
 
 // Swipe-to-switch-tab thresholds (mobile)

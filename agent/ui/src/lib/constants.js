@@ -26,9 +26,15 @@ export const INPUT_CONTROL_KEYS = {
 
 // Suggestions shown when the input is empty/prefix-matched (mirrors web COMMON_COMMANDS)
 export const COMMON_COMMANDS = [
-  "npm run dev", "npm run build", "npm install", "npm test",
-  "git status", "git add .", "git commit -m \"\"", "git push", "git pull", "git log --oneline",
-  "ls -la", "cd ", "clear", "docker ps", "docker compose up"
+  "git status", "git add .", "git commit -m \"\"", "git push", "git pull", "git diff",
+  "git log --oneline", "git branch", "git checkout", "git stash",
+  "npm install", "npm run dev", "npm run build", "npm run test", "npm run lint", "npx",
+  "cd ..", "cd ~", "ls -la", "ll", "mkdir -p", "cp -r",
+  "grep -rn", "wc -l", "tail -f",
+  "ps aux", "df -h", "free -h",
+  "docker ps", "docker ps -a", "docker logs -f", "docker compose up -d", "docker compose down",
+  "code .",
+  "claude", "claude --continue", "claude --resume", "codex", "gemini"
 ];
 
 // Command history persisted in localStorage (agent UI has no Zustand store)

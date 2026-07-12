@@ -37,6 +37,10 @@ export const useTerminalStore = create(
       toggleGroup: (key) => set((state) => ({
         collapsedGroups: { ...state.collapsedGroups, [key]: !state.collapsedGroups[key] }
       })),
+
+      // Per-session working directory (OSC 7), consumed by path-aware suggestions.
+      cwdBySession: {},
+      setCwd: (sessionId, cwd) => { if (!sessionId || !cwd) return; set((state) => state.cwdBySession[sessionId] === cwd ? state : ({ cwdBySession: { ...state.cwdBySession, [sessionId]: cwd } })); },
       
       // Actions
       pushView: (view) => set((state) => ({

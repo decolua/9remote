@@ -28,6 +28,10 @@ import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
+import PathSuggestion from "@/shared/components/ui/PathSuggestion";
+import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/utils/pathSuggest";
+import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput }) => {
   const { t, locale } = useI18n();
@@ -51,6 +55,16 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   // Physical ArrowUp/Down navigate command history; -1 = editing live draft.
   const historyIndexRef = useRef(-1);
   const draftRef = useRef("");
+
+  // Path-aware ghost suggestion: only resolves when input matches a path-verb
+  // regex + caret at end. Dir listings cached client-side (TTL, FIFO cap).
+  const cwd = useTerminalStore((s) => s.cwdBySession[sessionId]);
+  const [pathItems, setPathItems] = useState([]);
+  const dirCacheRef = useRef(null);
+  if (dirCacheRef.current == null) dirCacheRef.current = makeDirCache();
+  const socketRef = useRef(socket);
+  useEffect(() => { socketRef.current = socket; }, [socket]);
+  const fileSocket = useFileSocket(socketRef);
   // Pending attachments (images/files) shown as chips; sent via OS clipboard on send.
   const [attachments, setAttachments] = useState([]);
   const attachIdRef = useRef(0);
@@ -81,6 +95,36 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     document.activeElement?.blur(); // hide soft keyboard while dictating
     voice.start(textInput);
   };
+
+  // Recompute ghost suffix when text or cwd changes. Only queries host if input
+  // parses to a path-verb arg form; otherwise clears. State is set only from the
+  // debounced async callback (never synchronously in the effect body).
+  const lastSuggestRef = useRef(0);
+  useEffect(() => {
+    const parsed = parsePathInput(textInput, cwd);
+    const token = ++lastSuggestRef.current;
+    const timer = setTimeout(async () => {
+      if (token !== lastSuggestRef.current) return;
+      if (!parsed) { setPathItems([]); return; }
+      const now = Date.now();
+      let entries = dirCacheRef.current.get(parsed.dir, now);
+      if (entries == null) {
+        const res = await fileSocket.getFiles(parsed.dir, false);
+        if (token !== lastSuggestRef.current) return;
+        if (!res?.success) { setPathItems([]); return; }
+        entries = res.files;
+        dirCacheRef.current.set(parsed.dir, entries, now);
+      }
+      setPathItems(pickMatches(entries, parsed.prefix, parsed));
+    }, PATH_SUGGEST.debounceMs);
+    return () => clearTimeout(timer);
+  }, [textInput, cwd, fileSocket]);
+
+  // Reset per-session cache + suggestions when switching panes.
+  useEffect(() => {
+    const timer = setTimeout(() => { dirCacheRef.current?.clear(); setPathItems([]); }, 0);
+    return () => clearTimeout(timer);
+  }, [sessionId]);
 
   const { isIosPwa } = useDeviceInfo();
   const inputMode = useInputMode();
@@ -460,11 +504,16 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       >
         <div className="p-2 flex gap-2 items-end">
           <div className="relative flex-1 bg-surface-2 rounded focus-within:ring-2 focus-within:ring-brand-500/40 transition-all duration-150 ease-out">
+            <PathSuggestion
+              items={pathItems}
+              onSelect={(full) => { setTextInput(full); textInputRef.current?.focus(); }}
+            />
             <CommandSuggestions
               value={textInput}
               store={useTerminalHistoryStore}
               commonCommands={COMMON_COMMANDS}
               isMobile={isMobile}
+              disabled={pathItems.length > 0}
               onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
             />
             {attachments.length > 0 && (

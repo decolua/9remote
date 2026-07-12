@@ -23,7 +23,7 @@ const scoreOf = (key, q) => {
 // Inline command suggestions floating above an input. Ranks pinned snippets,
 // history and (optional) common commands by relevance to the typed text.
 // Absolute + translucent blurred background so it overlays content, not push it.
-export default function CommandSuggestions({ value, store, commonCommands = [], onSelect, isMobile = false }) {
+export default function CommandSuggestions({ value, store, commonCommands = [], onSelect, isMobile = false, disabled = false }) {
   const history = store((s) => s.history);
   const pinned = store((s) => s.pinned);
   // Dismiss the panel for the current text; typing more re-opens it.
@@ -31,7 +31,7 @@ export default function CommandSuggestions({ value, store, commonCommands = [], 
 
   const items = useMemo(() => {
     const q = value.trim().toLowerCase();
-    if (!q) return [];
+    if (!q || disabled) return [];
 
     const seen = new Set();
     const collect = (list, type, getCmd) => {
