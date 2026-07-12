@@ -81,7 +81,7 @@ export default function CommandSuggestions({ value, store, commonCommands = [], 
         : <History size={13} className="text-text-muted" />;
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-1 z-40 rounded-brand overflow-hidden bg-surface/95 backdrop-blur-xl shadow-xl ring-1 ring-border">
+    <div className="absolute bottom-full left-0 right-0 mb-1 z-40 rounded-brand overflow-hidden bg-surface/95 backdrop-blur-xl shadow-xl ring-1 ring-border touch-none">
       <button
         type="button"
         onMouseDown={(e) => e.preventDefault()}
@@ -97,7 +97,7 @@ export default function CommandSuggestions({ value, store, commonCommands = [], 
             key={`${it.type}-${it.cmd}`}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => { vibrate(); onSelect(it.cmd); }}
-            className="flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 transition-colors touch-none"
           >
             <span className="flex-shrink-0">{iconOf(it.type)}</span>
             <span className="min-w-0 text-sm text-text font-mono truncate">{it.cmd}</span>

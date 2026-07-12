@@ -1,14 +1,21 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { usePersistedState } from "@/shared/hooks/usePersistedState";
 
 // Manage a persisted list of key IDs (flat) OR 2D grid of IDs.
 // mode "flat"  → state: string[]          → for single-row bars
 // mode "grid"  → state: string[][]        → for multi-row panels (fixed row count)
-export function useCustomKeys(storageKey, pool, defaultValue, mode = "flat") {
+export function useCustomKeys(storageKey, pool, defaultValue, mode = "flat", legacyDefaults = []) {
   const [state, setState, reset] = usePersistedState(storageKey, defaultValue);
   const map = useMemo(() => new Map(pool.map(k => [k.id, k])), [pool]);
+
+  // Migrate: if persisted state exactly matches a legacy default, upgrade to current default.
+  // Only fires when the user never customized — idempotent (after upgrade, no legacy match).
+  const flatState = mode === "grid" ? state?.flat?.() : state;
+  const equals = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]);
+  const isLegacy = flatState && legacyDefaults.some(legacy => mode === "grid" ? equals(legacy.flat(), flatState) : equals(legacy, flatState));
+  const migrated = isLegacy ? defaultValue : state;
 
   const resolve = useCallback((ids) => ids.map(id => map.get(id)).filter(Boolean), [map]);
 
@@ -18,12 +25,12 @@ export function useCustomKeys(storageKey, pool, defaultValue, mode = "flat") {
   // Normalize shape defensively. If legacy/corrupted shape in grid mode → fallback to default.
   const rows = useMemo(() => {
     if (mode === "grid") {
-      const validGrid = Array.isArray(state) && state.length === expectedRowCount && state.every(Array.isArray);
-      if (validGrid) return state;
+      const validGrid = Array.isArray(migrated) && migrated.length === expectedRowCount && migrated.every(Array.isArray);
+      if (validGrid) return migrated;
       return defaultValue; // restore default when shape invalid (e.g. legacy flat)
     }
-    return [Array.isArray(state) ? state : []];
-  }, [state, mode, defaultValue, expectedRowCount]);
+    return [Array.isArray(migrated) ? migrated : []];
+  }, [migrated, mode, defaultValue, expectedRowCount]);
   const keys = useMemo(() => resolve(rows.flat()), [rows, resolve]);
   const available = useMemo(() => {
     const used = new Set(keys.map(k => k.id));
@@ -31,7 +38,12 @@ export function useCustomKeys(storageKey, pool, defaultValue, mode = "flat") {
   }, [keys, pool]);
 
   // Get/set a single row (always returns array)
-  const getRow = useCallback((r) => (mode === "grid" ? state[r] || [] : state), [state, mode]);
+  const getRow = useCallback((r) => (mode === "grid" ? migrated[r] || [] : migrated), [migrated, mode]);
+
+  // Persist migration: when state matched a legacy default, write upgraded value back.
+  useEffect(() => {
+    if (isLegacy) setState(defaultValue);
+  }, [isLegacy, defaultValue, setState]);
 
   const updateRows = useCallback((fn) => {
     setState(prev => {

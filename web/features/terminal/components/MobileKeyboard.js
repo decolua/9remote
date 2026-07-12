@@ -36,7 +36,6 @@ import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput }) => {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showTextPanel, setShowTextPanel] = useState(true);
   // Draft text lives in the store keyed by sessionId so it survives this component
   // unmounting (e.g. switching to remote view and back).
   const textInput = useTerminalStore((s) => s.drafts[sessionId] ?? "");
@@ -91,7 +90,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     el.style.height = `${Math.min(el.scrollHeight, 72)}px`;
   }, [textInput]);
   const toggleVoice = () => {
-    if (voice.listening) { voice.stop(); return; }
+    if (voice.listening) { setVoiceLangOpen(true); return; }
     document.activeElement?.blur(); // hide soft keyboard while dictating
     voice.start(textInput);
   };
@@ -136,7 +135,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   const [altPressed, setAltPressed] = useState(false);
   const [shiftPressed, setShiftPressed] = useState(false);
 
-  const basicCustom = useCustomKeys("terminal.basicKeys", TERMINAL_KEY_POOL, TERMINAL_DEFAULT_BASIC, "flat");
+  // Legacy basic-bar default (pre-slash) → auto-upgrade unchanged configs.
+  const basicCustom = useCustomKeys("terminal.basicKeys", TERMINAL_KEY_POOL, TERMINAL_DEFAULT_BASIC, "flat", [
+    ["esc", "up", "down", "ctrlC", "ctrl", "opt", "shift", "tab"]
+  ]);
   const extraCustom = useCustomKeys("terminal.extraKeys", TERMINAL_KEY_POOL, TERMINAL_DEFAULT_EXTRA, "grid");
 
   // Smart combination generator - handles all key combinations
@@ -212,7 +214,6 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   useEffect(() => {
     if (!onRegisterTextApi) return;
     const openTextPanel = () => {
-      setShowTextPanel(true);
       setTimeout(() => textInputRef.current?.focus(), 100);
     };
     onRegisterTextApi({ openTextPanel });
@@ -500,10 +501,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Text Input Panel */}
       <div
-        className={`transition-all duration-300 bg-bg ${voice.listening || showTextPanel ? "overflow-visible" : "overflow-hidden"} ${showTextPanel ? `${attachments.length ? "max-h-40" : "max-h-24"} opacity-100` : "max-h-0 opacity-0"}`}
+        className={`transition-all duration-300 bg-bg ${voice.listening ? "overflow-visible" : "overflow-hidden"} ${attachments.length ? "max-h-40" : "max-h-24"} opacity-100`}
       >
         <div className="p-2 flex gap-2 items-end">
-          <div className="relative flex-1 bg-surface-2 rounded focus-within:ring-2 focus-within:ring-brand-500/40 transition-all duration-150 ease-out">
+          <div className="relative flex-1 bg-surface-2 rounded-xl focus-within:ring-2 focus-within:ring-brand-500/40 transition-all duration-150 ease-out">
             <PathSuggestion
               items={pathItems}
               onSelect={(full) => { setTextInput(full); textInputRef.current?.focus(); }}
@@ -540,7 +541,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                 ))}
               </div>
             )}
-            <label className="absolute left-1.5 bottom-1.5 w-6 h-6 flex items-center justify-center cursor-pointer text-orange-500/70 hover:text-orange-500 transition-colors">
+            <label className="absolute left-1.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center cursor-pointer text-orange-500/70 hover:text-orange-500 transition-colors touch-none">
               <Paperclip size={16} />
               <input type="file" multiple onChange={handleFileUpload} className="hidden" accept="*/*" />
             </label>
@@ -593,14 +594,14 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
               }}
               placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend") : t("mobileKeyboard.typeCommand")}
               rows={1}
-              className="block w-full pl-9 pr-8 py-2 bg-transparent text-text text-sm placeholder-text-muted focus:outline-none resize-none overflow-y-auto"
+              className="block w-full pl-9 pr-16 py-2 bg-transparent text-text text-sm placeholder-text-muted focus:outline-none resize-none overflow-y-auto touch-none"
             />
             {textInput ? (
               <button
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { setTextInput(""); textInputRef.current?.focus(); }}
                 title={t("voice.clear")}
-                className="absolute right-1.5 top-1.5 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors"
+                className="absolute right-10 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors touch-none"
               >
                 <X size={14} />
               </button>
@@ -609,41 +610,29 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setShowHistory(true)}
                 title={t("history.title")}
-                className="absolute right-1.5 top-1.5 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors"
+                className="absolute right-10 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors touch-none"
               >
                 <History size={14} />
               </button>
             )}
-          </div>
-          {voice.supported && (
-            <div className="relative flex-shrink-0">
-              {voice.listening && (
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => setVoiceLangOpen(true)}
-                  title={t("voice.language")}
-                  className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1 rounded bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
-                >
-                  {voiceLang}
-                </button>
-              )}
+            {voice.supported && (
               <button
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={toggleVoice}
                 title={voice.error === "not-allowed" || voice.error === "service-not-allowed" ? t("voice.denied") : t("voice.dictate")}
-                className={`h-9 w-9 flex items-center justify-center rounded-full transition-all duration-200 ${
-                  voice.listening ? "bg-red-500/90 text-white animate-pulse" : voice.error ? "bg-surface-2 text-red-400" : "bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text"
+                className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full transition-all duration-200 touch-none ${
+                  voice.listening ? "bg-red-500/90 text-white animate-pulse" : voice.error ? "text-red-400" : "text-text-muted hover:text-text"
                 }`}
               >
-                {voice.listening ? <MicOff size={18} /> : <Mic size={18} />}
+                {voice.listening ? <MicOff size={16} /> : <Mic size={16} />}
               </button>
-            </div>
-          )}
+            )}
+          </div>
           <button
             onMouseDown={(e) => e.preventDefault()}
             onClick={sendTextBatch}
             disabled={false}
-            className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[56px] flex items-center justify-center"
+            className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-xl transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[56px] flex items-center justify-center"
           >
             {textInput.trim() || attachments.length ? t("mobileKeyboard.send") : <CornerDownLeft size={16} strokeWidth={2.5} />}
           </button>
@@ -668,16 +657,6 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                 <div className="flex-shrink-0">{renderKey(pinned, "pinned", false, true)}</div>
               ) : null;
             })()}
-            {/* Pinned Aa — toggle text input panel */}
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { vibrate(); setShowTextPanel(s => !s); }}
-              className={`${buttonBaseClass} ${showTextPanel ? BUTTON_STYLES.modifierActive : BUTTON_STYLES.pinned} flex-shrink-0 text-[11px]`}
-              style={BUTTON_STYLES.size}
-              title={t("mobileKeyboard.toggleTextInput")}
-            >
-              Aa
-            </button>
             {/* Expand button */}
             <button
               onMouseDown={(e) => e.preventDefault()}
@@ -704,8 +683,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       <VoiceLangModal
         isOpen={voiceLangOpen}
         value={voiceLang}
-        onSelect={setVoiceLang}
-        onClose={() => setVoiceLangOpen(false)}
+        onSelect={(l) => { setVoiceLang(l); voice.stop(); }}
+        onClose={() => { setVoiceLangOpen(false); voice.stop(); }}
       />
       <CommandHistoryModal
         isOpen={showHistory}

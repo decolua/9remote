@@ -7,20 +7,9 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
-import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, OSC7_SCAN_TAIL } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT } from "@/features/terminal/constants/terminalConfig";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 // import { detectLinks } from "@/features/terminal/utils/linkDetector";
-
-const OSC7_RE = /\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
-
-// Scan only the tail of large payloads (cwd almost always in the latest prompt)
-function parseOsc7Cwd(text) {
-  if (!text || text.indexOf("\x1b") === -1) return null;
-  const scan = text.length > OSC7_SCAN_TAIL ? text.slice(-OSC7_SCAN_TAIL) : text;
-  const match = [...scan.matchAll(OSC7_RE)].pop();
-  if (!match?.[1]) return null;
-  try { return decodeURIComponent(match[1]); } catch { return match[1]; }
-}
 
 // Write output directly — xterm ANSI parse is cheap (~3ms/MB); chunking via rAF only adds latency.
 function writeChunked(term, data) {
@@ -40,7 +29,6 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   const stopMomentumRef = useRef(null);
   const cwdRef = useRef(null); // Track current working directory
   const [cwd, setCwd] = useState(null); // Reactive cwd for toolbar UI
-  const decoderRef = useRef(null); // Reused TextDecoder for binary output
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
   const awaitingTuiOutputRef = useRef(false); // SGR emit→output round-trip tracker (TUI backpressure)
@@ -157,17 +145,6 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       const data = payload.data;
       awaitingTuiOutputRef.current = false; // SGR round-trip done → resume TUI scroll
 
-      // Parse OSC 7 — only scan tail of large join/history blobs
-      if (typeof data === "string" || data instanceof Uint8Array) {
-        const text = typeof data === "string" ? data : (decoderRef.current ??= new TextDecoder()).decode(data);
-        const next = parseOsc7Cwd(text);
-        if (next) {
-          cwdRef.current = next;
-          setCwd(next);
-          useTerminalStore.getState().setCwd(sessionId, next);
-        }
-      }
-
       if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
         writeChunked(term, data instanceof Uint8Array ? data : new Uint8Array(data));
       } else if (typeof data === "string") {
@@ -222,24 +199,9 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    // Show persistent scrollbar only when scrollback ≥ 2 viewports. Toggles a
-    // class on the wrapper; CSS keeps the overlay always-on (no fade).
-    const updateScrollActive = () => {
-      const t = termRef.current;
-      const el = containerRef.current;
-      if (!t || !el) return;
-      const active = t.buffer.active.length >= t.rows * 2;
-      el.classList.toggle("scroll-active", active);
-    };
-    const lineFeedDisp = term.onLineFeed(updateScrollActive);
-    const resizeDisp = term.onResize(updateScrollActive);
-    updateScrollActive();
-
     return () => {
       window.removeEventListener("orientationchange", handleOrientationChange);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      lineFeedDisp.dispose();
-      resizeDisp.dispose();
       resizeObserver.disconnect();
       socket.off("connect", handleReconnect);
       socket.off("output", handleOutput);

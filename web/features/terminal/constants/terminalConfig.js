@@ -59,7 +59,7 @@ export const TERMINAL_OPTIONS = {
   fontSize: 14,
   fontSizeMobile: 12,
   fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", "Noto Sans Mono", Menlo, Monaco, "Courier New", monospace',
-  scrollback: 10000,
+  scrollback: 15000,
   convertEol: true,
   allowProposedApi: true,
   scrollOnUserInput: true,
@@ -68,9 +68,6 @@ export const TERMINAL_OPTIONS = {
   rescaleOverlappingGlyphs: true,
   minimumContrastRatio: 1
 };
-
-// OSC7 cwd scan — only scan tail of large payloads (cwd almost always in latest prompt)
-export const OSC7_SCAN_TAIL = 2 * 1024;
 
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {
@@ -186,7 +183,7 @@ export const TERMINAL_KEY_POOL = [
 // Default basic keys (main bar, always visible)
 // Note: "enter" is pinned separately next to the expand button, not included here.
 export const TERMINAL_DEFAULT_BASIC = [
-  "esc", "up", "down", "ctrlC", "ctrl", "opt", "shift", "tab"
+  "esc", "up", "down", "ctrlC", "ctrl", "opt", "shift", "tab", "slash"
 ];
 
 // Pinned key id rendered fixed next to the expand button (not customizable)

@@ -38,6 +38,7 @@ export const {
   ChevronLeft,
   ChevronRight,
   CornerDownLeft,
+  Delete,
   Mic,
   MicOff,
   Check,

@@ -371,9 +371,13 @@ html.terminal-page body {
   background: rgba(var(--brand-rgb), 0.8) !important;
 }
 
-/* Only render when scrollback ≥ 2 viewports. */
-.terminal-wrapper:not(.scroll-active) .xterm .xterm-scrollable-element > .scrollbar {
-  display: none !important;
+/* Force the overlay scrollbar solid at all times when scrollable. xterm fades
+   it to .invisible after an idle timeout; override both visibility classes. */
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar.visible,
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar.invisible {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transition: none !important;
 }
 
 /* Disable text selection on buttons */
