@@ -72,6 +72,16 @@ export default function ExplorerPanel({ workspace, fileSocket, onOpenFile, activ
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
   const [dragOverPath, setDragOverPath] = useState(null);
+  const [showHidden, setShowHidden] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.showHidden);
+      if (raw === null) return true;
+      return JSON.parse(raw) !== false;
+    } catch {
+      return true;
+    }
+  });
   const lastClickedRef = useRef(null);
   const longPressTimer = useRef(null);
   const renameInputRef = useRef(null);
@@ -81,14 +91,14 @@ export default function ExplorerPanel({ workspace, fileSocket, onOpenFile, activ
 
   const loadDir = useCallback(async (dirPath) => {
     setLoading((prev) => { const n = new Set(prev); n.add(dirPath); return n; });
-    const res = await fileSocket.getFiles(dirPath, false);
+    const res = await fileSocket.getFiles(dirPath, showHidden);
     setLoading((prev) => { const n = new Set(prev); n.delete(dirPath); return n; });
     if (res?.success) {
       setTree((prev) => { const n = new Map(prev); n.set(dirPath, res.files || []); return n; });
       return res.files || [];
     }
     return [];
-  }, [fileSocket]);
+  }, [fileSocket, showHidden]);
 
   const loadGitStatus = useCallback(async () => {
     if (!workspace) return;
@@ -189,6 +199,17 @@ export default function ExplorerPanel({ workspace, fileSocket, onOpenFile, activ
     await Promise.all(dirs.map((d) => loadDir(d)));
     loadGitStatus();
   }, [tree, loadDir, loadGitStatus]);
+
+  // Persist + reload cached dirs when toggle hidden files
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(STORAGE_KEYS.showHidden, JSON.stringify(showHidden));
+    if (tree.size > 0) {
+      const dirs = [...tree.keys()];
+      Promise.all(dirs.map((d) => loadDir(d))).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHidden]);
 
   const getNewItemTargetDir = useCallback(() => {
     if (selectedFolder && tree.has(selectedFolder)) return selectedFolder;
@@ -408,6 +429,9 @@ export default function ExplorerPanel({ workspace, fileSocket, onOpenFile, activ
         </button>
         <button onClick={refreshAll} className="text-text-muted hover:text-text p-1 rounded hover:bg-surface-2" title="Refresh">
           <Icon name="refreshCw" size={14} />
+        </button>
+        <button onClick={() => setShowHidden((v) => !v)} className={`p-1 rounded hover:bg-surface-2 ${showHidden ? "text-text" : "text-text-muted hover:text-text"}`} title={showHidden ? "Hide hidden files" : "Show hidden files"}>
+          <Icon name={showHidden ? "eye" : "eyeOff"} size={14} />
         </button>
       </div>
 

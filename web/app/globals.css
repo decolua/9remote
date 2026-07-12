@@ -300,20 +300,20 @@ html.terminal-page body {
   display: none !important;
 }
 
-/* Thin continuous brand glow ring around focused pane */
+/* Thin continuous amber glow ring around focused pane */
 .terminal-focus-glow::after {
   content: "";
   position: absolute;
   inset: 0;
-  border: 1px solid var(--color-brand-500);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--color-brand-500) 70%, transparent);
+  border: 1px solid #fbbf24;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.7);
   pointer-events: none;
   z-index: 2;
 }
 
-/* Finished-terminal highlight — thin amber ring + soft glow (cleared on focus) */
+/* Finished-terminal highlight — animated gradient bottom border (cleared on focus) */
 /* Finished-terminal badge styles — KEEP IN SYNC with agent/ui/src/index.css (separate build) */
-.terminal-done-border::after {
+.terminal-done-border::before {
   content: "";
   position: absolute;
   top: 0;
@@ -324,6 +324,7 @@ html.terminal-page body {
   background-size: 200% 100%;
   animation: borderFlow 3s linear infinite;
   pointer-events: none;
+  z-index: 3;
 }
 @keyframes borderFlow {
   from { background-position: 0% 0; }

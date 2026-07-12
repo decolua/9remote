@@ -35,8 +35,14 @@ export default function FileExplorer({
   const [hasGit, setHasGit] = useState(false);
   const [gitStatusMap, setGitStatusMap] = useState({});
   const [showHidden, setShowHidden] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(STORAGE_KEYS.showHidden) === "1";
+    if (typeof window === "undefined") return true;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.showHidden);
+      if (raw === null) return true;
+      return JSON.parse(raw) !== false;
+    } catch {
+      return true;
+    }
   });
   
   // Search state
@@ -159,7 +165,7 @@ export default function FileExplorer({
 
   // Reload + persist when toggle hidden files
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEYS.showHidden, showHidden ? "1" : "0");
+    window.localStorage.setItem(STORAGE_KEYS.showHidden, JSON.stringify(showHidden));
     if (currentPath) loadFiles(currentPath);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHidden]);

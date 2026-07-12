@@ -10,6 +10,9 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
  * NOTE: badge state shape here is `notifications` (object keyed by sessionId);
  * the agent preact UI uses a Set `finishedIds` (see agent/ui/src/lib/terminalSocket.js) — equivalent semantics.
  */
+// Persisted across reloads; survives SW updates so toggle-off sticks
+const USER_DISABLED_KEY = "9remote:push:userDisabled";
+
 export function useNotification(socketRef, connected) {
   const subscriptionRef = useRef(null);
   const [notifications, setNotifications] = useState({});
@@ -37,6 +40,7 @@ export function useNotification(socketRef, connected) {
   // Subscribe to push notifications and send subscription to server
   const subscribeToPush = useCallback(async () => {
     if (!socketRef?.current) return;
+    if (typeof window !== "undefined") localStorage.removeItem(USER_DISABLED_KEY);
 
     // Expo WebView: request token via native bridge
     if (isExpoWebView) {
@@ -83,6 +87,8 @@ export function useNotification(socketRef, connected) {
   useEffect(() => {
     const currentSocket = socketRef?.current;
     if (!currentSocket || !connected) return;
+    // Honor explicit user toggle-off (survives SW updates and reloads)
+    if (typeof window !== "undefined" && localStorage.getItem(USER_DISABLED_KEY) === "1") return;
 
     if (isExpoWebView) {
       // Re-request token via bridge to update socketId on server
@@ -177,6 +183,7 @@ export function useNotification(socketRef, connected) {
   }, [socketRef]);
 
   const unsubscribeFromPush = useCallback(async () => {
+    if (typeof window !== "undefined") localStorage.setItem(USER_DISABLED_KEY, "1");
     try {
       if (subscriptionRef.current?.type === "expo") {
         socketRef.current?.emit("pushUnsubscribe", subscriptionRef.current.token);

@@ -83,6 +83,16 @@ export default function ExplorerPanel({
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
   const [dragOverPath, setDragOverPath] = useState(null);
+  const [showHidden, setShowHidden] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.showHidden);
+      if (raw === null) return true;
+      return JSON.parse(raw) !== false;
+    } catch {
+      return true;
+    }
+  });
   const lastClickedRef = useRef(null);
 
   const longPressTimer = useRef(null);
@@ -102,7 +112,7 @@ export default function ExplorerPanel({
         next.add(dirPath);
         return next;
       });
-      const res = await fileSocket.getFiles(dirPath, false);
+      const res = await fileSocket.getFiles(dirPath, showHidden);
       setLoading((prev) => {
         const next = new Set(prev);
         next.delete(dirPath);
@@ -118,7 +128,7 @@ export default function ExplorerPanel({
       }
       return [];
     },
-    [fileSocket]
+    [fileSocket, showHidden]
   );
 
   // Load git status and propagate folder-changed up parents
@@ -275,6 +285,16 @@ export default function ExplorerPanel({
     await Promise.all(dirs.map((d) => loadDir(d)));
     loadGitStatus();
   }, [tree, loadDir, loadGitStatus]);
+
+  // Persist + reload cached dirs when toggle hidden files
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEYS.showHidden, JSON.stringify(showHidden));
+    if (tree.size > 0) {
+      const dirs = [...tree.keys()];
+      Promise.all(dirs.map((d) => loadDir(d))).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHidden]);
 
   // Determine target folder for new items
   const getNewItemTargetDir = useCallback(() => {
@@ -655,6 +675,13 @@ export default function ExplorerPanel({
           title="Refresh"
         >
           <Icon name="RefreshCw" size={14} />
+        </button>
+        <button
+          onClick={() => setShowHidden((v) => !v)}
+          className={`p-1 rounded hover:bg-surface-2 ${showHidden ? "text-text" : "text-text-muted hover:text-text"}`}
+          title={showHidden ? "Hide hidden files" : "Show hidden files"}
+        >
+          <Icon name={showHidden ? "Eye" : "EyeOff"} size={14} />
         </button>
       </div>
 

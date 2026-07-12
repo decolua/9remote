@@ -380,7 +380,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
       {/* Text input bar — web MobileKeyboard parity (send raw text or lone Enter) */}
       {activeSession && (
         <div className="flex items-end gap-2 px-2 py-1.5 flex-shrink-0 relative z-10" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
-          <div className="relative flex-1 rounded-lg" style={{ background: "var(--surface-2)" }}>
+          <div className="relative flex-1 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
             <CommandSuggestions
               value={textInput}
               history={history}

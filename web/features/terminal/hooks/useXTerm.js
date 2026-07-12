@@ -190,7 +190,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
             // Temporary: disable WebGL renderer for blurry-text verification on mobile devices.
             // loadWebGL();
             fitAddon.fit();
-          }, 100);
+          }, 200);
         } else {
           term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);
         }

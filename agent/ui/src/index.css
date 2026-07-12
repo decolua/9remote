@@ -395,20 +395,20 @@
 .xterm .xterm-helpers { z-index: 0 !important; }
 .xterm-helper-textarea { opacity: 0 !important; }
 
-/* Thin continuous brand glow ring around focused pane */
+/* Thin continuous amber glow ring around focused pane */
 .terminal-focus-glow::after {
   content: "";
   position: absolute;
   inset: 0;
-  border: 1px solid var(--brand-500);
-  box-shadow: 0 0 6px rgba(var(--brand-rgb), 0.7);
+  border: 1px solid #fbbf24;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.7);
   pointer-events: none;
   z-index: 2;
 }
 
-/* Finished-terminal highlight — animated gradient bottom border (cleared on focus) */
+/* Finished-terminal highlight — animated gradient top bar (separate pseudo from focus-glow) */
 /* Finished-terminal badge styles — KEEP IN SYNC with web/app/globals.css (separate build) */
-.terminal-done-border::after {
+.terminal-done-border::before {
   content: "";
   position: absolute;
   top: 0;
@@ -419,6 +419,7 @@
   background-size: 200% 100%;
   animation: borderFlow 3s linear infinite;
   pointer-events: none;
+  z-index: 3;
 }
 @keyframes borderFlow {
   from { background-position: 0% 0; }

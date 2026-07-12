@@ -114,8 +114,11 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
   }, [isFocused, sessionId, socket]);
 
   const scrollToBottom = () => termRef.current?.scrollToBottom();
-  // Done-border shows even while focused (badge persists until input/switch); takes priority over focus glow
-  const glow = showDoneBorder ? "terminal-done-border" : (showFocusBorder && isFocused ? "terminal-focus-glow" : "");
+  // Done-border + focus glow coexist (different pseudo-elements on the same node)
+  const glow = [
+    showDoneBorder ? "terminal-done-border" : "",
+    showFocusBorder && isFocused ? "terminal-focus-glow" : ""
+  ].filter(Boolean).join(" ");
 
   // Watch cwd + track changed-files count via git status (debounced on fs events)
   const fileSocket = useFileSocket();

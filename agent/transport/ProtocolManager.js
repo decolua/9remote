@@ -39,9 +39,9 @@ export class ProtocolManager {
     this._buffer = [];
     this._rtcSignalingHandler = null;
     this._sigListeners = null;
-    // Round-robin chunk start offset — rotates each frame so tiles dropped by
-    // backpressure (always at the tail) get prioritized on the next frame.
+    // Round-robin chunk start offset — RTC only.
     this._chunkOffset = 0;
+    this._wsPendingSince = new Map();
   }
 
   get type() {
@@ -122,22 +122,31 @@ export class ProtocolManager {
 
   // Returns tiles actually sent; stops on first dropped chunk (backpressure)
   // so remaining tiles keep old hash and retry next frame.
-  // Round-robin start offset rotates each frame so tiles at the tail (dropped
-  // by backpressure) get sent first on the next frame instead of being starved.
+  // WS prioritizes tiles that have been pending longest, using fresh tile data
+  // from the current frame instead of resending stale buffers.
   _emitTilesChunked(tiles, frameTs) {
     const ws = this._adapters.get("ws");
     if (!ws?.ready) return [];
     const size = this._wsChunkSize;
-    const n = tiles.length;
-    const start = n > size ? this._chunkOffset % n : 0;
-    if (n > size) this._chunkOffset = (start + size) % n;
+    const pendingSince = this._wsPendingSince;
+    const now = frameTs ?? Date.now();
+    const ordered = [...tiles].sort((a, b) => {
+      const ap = pendingSince.get(a.tileIndex) ?? Infinity;
+      const bp = pendingSince.get(b.tileIndex) ?? Infinity;
+      if (ap !== bp) return ap - bp;
+      return a.tileIndex - b.tileIndex;
+    });
     const sent = [];
-    for (let i = 0; i < n; i += size) {
-      const chunk = [];
-      for (let j = 0; j < size && i + j < n; j++) {
-        chunk.push(tiles[(start + i + j) % n]);
+    for (let i = 0; i < ordered.length; i += size) {
+      const chunk = ordered.slice(i, i + size);
+      if (ws.send(CHANNELS.binary, encodeTilesBatch(chunk, frameTs)) === false) {
+        for (let j = i; j < ordered.length; j++) {
+          const tileIndex = ordered[j].tileIndex;
+          if (!pendingSince.has(tileIndex)) pendingSince.set(tileIndex, now);
+        }
+        break;
       }
-      if (ws.send(CHANNELS.binary, encodeTilesBatch(chunk, frameTs)) === false) break;
+      for (const tile of chunk) pendingSince.delete(tile.tileIndex);
       sent.push(...chunk);
     }
     return sent;

@@ -33,7 +33,7 @@ export default function SettingsPanel() {
   const [fontSize, setFontSize] = usePersistedState(STORAGE_KEYS.editorFontSize, EDITOR_FONT_DEFAULT);
   const [wordWrap, setWordWrap] = usePersistedState(STORAGE_KEYS.wordWrap, false);
   const [autoSave, setAutoSave] = usePersistedState(STORAGE_KEYS.autoSaveMode, AUTO_SAVE_MODES.off);
-  const [showHidden, setShowHidden] = usePersistedState(SHOW_HIDDEN_KEY, false);
+  const [showHidden, setShowHidden] = usePersistedState(SHOW_HIDDEN_KEY, true);
 
   // Clamp font-size to allowed range
   const updateFontSize = (n) => {

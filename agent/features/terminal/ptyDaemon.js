@@ -52,6 +52,24 @@ function takeBufferTail(chunks, maxLen) {
   return parts.join("");
 }
 
+// DEC private modes we restore on replay — alt buffer + mouse tracking/encoding
+const RESTORE_MODES = ["1049", "1047", "1000", "1002", "1003", "1006", "1015", "1005"];
+const DEC_PRIVATE_RE = /\x1b\[\?([0-9;]+)([hl])/g;
+
+// Track terminal modes from PTY output so reconnect replay can re-emit them
+function applyModes(modes, data) {
+  if (typeof data !== "string") data = String(data);
+  for (const m of data.matchAll(DEC_PRIVATE_RE)) {
+    const set = m[2] === "h";
+    for (const n of m[1].split(";")) modes[set ? "add" : "delete"](`?${n}`);
+  }
+}
+
+function restoreSeq(modes) {
+  const active = RESTORE_MODES.filter((n) => modes.has(`?${n}`));
+  return active.length ? `\x1b[?${active.join(";")}h` : "";
+}
+
 // Log file path — under ~/.9remote/logs/ for consistency with agent.log
 const LOG_DIR = path.join(SOCKET_DIR, "logs");
 const LOG_PATH = path.join(LOG_DIR, "daemon.log");
@@ -204,6 +222,7 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
     const session = {
       pty: ptyProcess,
       buffer: [],
+      modes: new Set(),
       name,
       createdAt: Date.now(),
       cwd,
@@ -215,6 +234,8 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
     // Buffer output and broadcast to clients
     ptyProcess.onData((data) => {
       session.buffer.push(data);
+      // Track terminal modes (alt buffer, mouse) so reconnect replay can restore them
+      applyModes(session.modes, data);
       // Track live cwd from OSC 7 escape: \e]7;file://host/path\a (or ST terminator)
       const osc7 = data.match(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)/);
       if (osc7) {
@@ -292,6 +313,13 @@ function handleMessage(client, message) {
       if (!session) {
         send(client, { type: "joinResult", success: false, error: "Session not found", requestId: payload.requestId });
         return;
+      }
+      // Re-emit terminal mode sequences BEFORE history tail — client called reset() on
+      // reconnect which wiped alt-buffer/mouse modes; without this, replay lands in the
+      // normal buffer and wheel/touch scroll breaks for TUI apps (e.g. opencode).
+      const restore = restoreSeq(session.modes);
+      if (restore) {
+        send(client, { type: "output", sessionId, data: Buffer.from(restore).toString("base64") });
       }
       // Replay only tail of buffered output to avoid network burst on join
       const history = takeBufferTail(session.buffer, JOIN_REPLAY_SIZE);

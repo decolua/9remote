@@ -35,6 +35,7 @@ function TerminalPane({
   const scrollRef = useRef(null);
   const fixedMetaRef = useRef({ width: 0, height: null }); // mobile: lock height vs soft-KB shrink
   const [fixedHeight, setFixedHeight] = useState(null);
+  const [kbShrunk, setKbShrunk] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [selection, setSelection] = useState(null); // { text, x, y } from long-press select
   const [changedCount, setChangedCount] = useState(0);
@@ -78,6 +79,7 @@ function TerminalPane({
         fixedMetaRef.current = { width: 0, height: null };
         lastViewportH = 0;
         setFixedHeight(null);
+        setKbShrunk(false);
         return;
       }
       const w = el.clientWidth;
@@ -89,9 +91,11 @@ function TerminalPane({
         fixedMetaRef.current = { width: w, height: h };
         setFixedHeight(h);
         lastViewportH = h;
+        setKbShrunk(false);
       } else if (prev.height != null && h < prev.height && h < lastViewportH - 8) {
         // Viewport just shrunk (soft KB open) — bring cursor/prompt into the visible rect (once)
         lastViewportH = h;
+        setKbShrunk(true);
         requestAnimationFrame(scrollCursorIntoView);
       } else {
         lastViewportH = h;
@@ -219,10 +223,11 @@ function TerminalPane({
     if (!isFocused) onActivate?.(sessionId);
   };
 
-  // Done-border shows even while focused (badge persists until input/switch); takes priority over focus glow
-  const focusClass = notifications[sessionId]
-    ? "terminal-done-border"
-    : (showFocusBorder && isFocused ? "terminal-focus-glow" : "");
+  // Done-border + focus glow coexist (different pseudo-elements on the same node)
+  const focusClass = [
+    notifications[sessionId] ? "terminal-done-border" : "",
+    showFocusBorder && isFocused ? "terminal-focus-glow" : ""
+  ].filter(Boolean).join(" ");
 
   return (
     <div
@@ -234,7 +239,7 @@ function TerminalPane({
       {/* Mobile: scroll wrapper; terminal keeps fixed (keyboard-closed) height so PTY size stays put */}
       <div
         ref={scrollRef}
-        className={`terminal-wrapper terminal-scroll flex-1 min-h-0 relative${fixedHeight != null ? " is-scrollable" : ""}`}
+        className={`terminal-wrapper terminal-scroll flex-1 min-h-0 relative${kbShrunk ? " is-scrollable" : ""}`}
       >
         <div
           ref={containerRef}
