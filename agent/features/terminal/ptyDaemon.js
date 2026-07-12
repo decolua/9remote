@@ -228,7 +228,26 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       cwd,
       shellId: shellConfig.id,
       shellLabel: shellConfig.label,
-      zdotDir
+      zdotDir,
+      pending: null,          // coalesced output (concat of same-tick chunks)
+      flushScheduled: false   // setImmediate flush guard
+    };
+
+    // Flush coalesced output as a single packet — chunks arriving in the same
+    // event-loop tick are merged, so TUI redraw bursts become one packet instead
+    // of thousands. setImmediate runs after the poll phase, so a lone keystroke
+    // echo (one chunk per tick) still flushes immediately (~0.1ms, imperceptible).
+    const flushOutput = () => {
+      session.flushScheduled = false;
+      const pending = session.pending;
+      if (!pending) return;
+      session.pending = null;
+      broadcast({
+        type: "output",
+        sessionId,
+        enc: "b64",
+        data: Buffer.from(pending).toString("base64")
+      });
     };
 
     // Buffer output and broadcast to clients
@@ -252,11 +271,12 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
         session.buffer = [takeBufferTail(session.buffer, MAX_BUFFER_SIZE)];
       }
 
-      broadcast({
-        type: "output",
-        sessionId,
-        data: Buffer.from(data).toString("base64")
-      });
+      // Coalesce: append to pending, schedule one flush at end of this tick.
+      session.pending = session.pending === null ? data : session.pending + data;
+      if (!session.flushScheduled) {
+        session.flushScheduled = true;
+        setImmediate(flushOutput);
+      }
     });
 
     ptyProcess.onExit(() => {
@@ -319,7 +339,7 @@ function handleMessage(client, message) {
       // normal buffer and wheel/touch scroll breaks for TUI apps (e.g. opencode).
       const restore = restoreSeq(session.modes);
       if (restore) {
-        send(client, { type: "output", sessionId, data: Buffer.from(restore).toString("base64") });
+        send(client, { type: "output", sessionId, enc: "b64", data: Buffer.from(restore).toString("base64") });
       }
       // Replay only tail of buffered output to avoid network burst on join
       const history = takeBufferTail(session.buffer, JOIN_REPLAY_SIZE);
@@ -327,6 +347,7 @@ function handleMessage(client, message) {
         send(client, {
           type: "output",
           sessionId,
+          enc: "b64",
           data: Buffer.from(history).toString("base64")
         });
       }

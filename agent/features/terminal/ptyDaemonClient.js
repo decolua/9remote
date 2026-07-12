@@ -262,9 +262,12 @@ function handleMessage(message) {
   // Handle events
   switch (type) {
     case "output":
+      // Pass base64 through untouched when daemon marks enc:"b64" — avoids a
+      // pointless base64→Buffer encode here only to be re-encoded by socket.io.
+      // Older daemons without enc still send raw bytes → decode to Buffer.
       emit("output", {
         sessionId: data.sessionId,
-        data: Buffer.from(data.data, "base64")
+        data: data.enc === "b64" ? data.data : Buffer.from(data.data, "base64")
       });
       break;
 

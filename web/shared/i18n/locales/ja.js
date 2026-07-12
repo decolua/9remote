@@ -78,6 +78,8 @@ export default {
     language: "言語",
     theme: "テーマ",
     notifications: "通知",
+    webgl: "GPU Render (Faster)",
+    webglHint: "テキストがおかしい場合はオフにしてください",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "サイト",

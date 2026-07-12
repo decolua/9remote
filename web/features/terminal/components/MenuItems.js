@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, Monitor } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import UpgradeButton from "@/features/terminal/components/UpgradeButton";
@@ -30,6 +31,8 @@ export default function MenuItems({
 }) {
   const { t } = useI18n();
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
+  const webglEnabled = useTerminalStore((s) => s.webglEnabled);
+  const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const isOutdated = isAgentOutdated(agentVersion, webVersion) || isWebOutdated(agentVersion, webVersion);
 
@@ -100,6 +103,23 @@ export default function MenuItems({
           )}
         </button>
       )}
+
+      {/* WebGL renderer toggle — reload prompt (swap needs remount) */}
+      <button
+        onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
+        className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+      >
+        <div className="flex items-center gap-2.5">
+          <Monitor className="text-brand-500" size={16} />
+          <div className="flex flex-col">
+            <span className="text-sm">{t("menu.webgl")}</span>
+            <span className="text-xs text-text-muted">{t("menu.webglHint")}</span>
+          </div>
+        </div>
+        <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${webglEnabled ? "bg-brand-500" : "bg-surface-2"}`}>
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${webglEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+        </span>
+      </button>
 
 
       {/* Files */}

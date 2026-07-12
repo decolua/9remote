@@ -78,6 +78,8 @@ export default {
     language: "ภาษา",
     theme: "ธีม",
     notifications: "การแจ้งเตือน",
+    webgl: "GPU Render (Faster)",
+    webglHint: "ปิดหากข้อความดูผิด",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "ไซต์",

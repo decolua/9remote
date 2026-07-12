@@ -78,6 +78,8 @@ export default {
     language: "Språk",
     theme: "Tema",
     notifications: "Aviseringar",
+    webgl: "GPU Render (Faster)",
+    webglHint: "Stäng av om texten ser fel ut",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "Webbplatser",

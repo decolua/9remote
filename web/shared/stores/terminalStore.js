@@ -41,6 +41,10 @@ export const useTerminalStore = create(
       // Per-session working directory (OSC 7), consumed by path-aware suggestions.
       cwdBySession: {},
       setCwd: (sessionId, cwd) => { if (!sessionId || !cwd) return; set((state) => state.cwdBySession[sessionId] === cwd ? state : ({ cwdBySession: { ...state.cwdBySession, [sessionId]: cwd } })); },
+
+      // WebGL renderer toggle (default on; off → canvas fallback). Applied on next mount.
+      webglEnabled: true,
+      setWebglEnabled: (enabled) => set({ webglEnabled: !!enabled }),
       
       // Actions
       pushView: (view) => set((state) => ({
@@ -101,7 +105,8 @@ export const useTerminalStore = create(
         viewStack: state.viewStack,
         openedSessions: state.openedSessions,
         activeGroupId: state.activeGroupId,
-        collapsedGroups: state.collapsedGroups
+        collapsedGroups: state.collapsedGroups,
+        webglEnabled: state.webglEnabled
       }),
       storage: {
         getItem: (name) => {

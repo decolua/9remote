@@ -78,6 +78,8 @@ export default {
     language: "שפה",
     theme: "ערכת נושא",
     notifications: "התראות",
+    webgl: "GPU Render (Faster)",
+    webglHint: "כבה אם הטקסט נראה שגוי",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "אתרים",

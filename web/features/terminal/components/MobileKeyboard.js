@@ -90,7 +90,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     el.style.height = `${Math.min(el.scrollHeight, 72)}px`;
   }, [textInput]);
   const toggleVoice = () => {
-    if (voice.listening) { setVoiceLangOpen(true); return; }
+    if (voice.listening) { voice.stop(); return; }
     document.activeElement?.blur(); // hide soft keyboard while dictating
     voice.start(textInput);
   };
@@ -501,7 +501,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Text Input Panel */}
       <div
-        className={`transition-all duration-300 bg-bg ${voice.listening ? "overflow-visible" : "overflow-hidden"} ${attachments.length ? "max-h-40" : "max-h-24"} opacity-100`}
+        className={`transition-all duration-300 bg-bg overflow-visible ${attachments.length ? "max-h-40" : "max-h-24"} opacity-100`}
       >
         <div className="p-2 flex gap-2 items-end">
           <div className="relative flex-1 bg-surface-2 rounded-xl focus-within:ring-2 focus-within:ring-brand-500/40 transition-all duration-150 ease-out">
@@ -613,6 +613,16 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                 className="absolute right-10 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text transition-colors touch-none"
               >
                 <History size={14} />
+              </button>
+            )}
+            {voice.supported && voice.listening && (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setVoiceLangOpen(true)}
+                title={t("voice.language")}
+                className="absolute right-1.5 -top-7 z-50 px-2.5 py-1 rounded bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors touch-none"
+              >
+                {voiceLang}
               </button>
             )}
             {voice.supported && (

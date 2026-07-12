@@ -78,6 +78,8 @@ export default {
     language: "언어",
     theme: "테마",
     notifications: "알림",
+    webgl: "GPU Render (Faster)",
+    webglHint: "텍스트가 이상하면 끄세요",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "사이트",

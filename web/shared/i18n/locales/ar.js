@@ -78,6 +78,8 @@ export default {
     language: "اللغة",
     theme: "السمة",
     notifications: "الإشعارات",
+    webgl: "GPU Render (Faster)",
+    webglHint: "أوقفه إذا بدا النص غير صحيح",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "المواقع",

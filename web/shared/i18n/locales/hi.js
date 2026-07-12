@@ -78,6 +78,8 @@ export default {
     language: "भाषा",
     theme: "थीम",
     notifications: "सूचनाएँ",
+    webgl: "GPU Render (Faster)",
+    webglHint: "यदि पाठ गलत दिखे तो बंद करें",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "साइटें",

@@ -78,6 +78,8 @@ export default {
     language: "Язык",
     theme: "Тема",
     notifications: "Уведомления",
+    webgl: "GPU Render (Faster)",
+    webglHint: "Отключите, если текст выглядит неправильно",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "Сайты",

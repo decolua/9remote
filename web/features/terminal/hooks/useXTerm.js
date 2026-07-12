@@ -23,12 +23,16 @@ function writeChunked(term, data) {
 export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, containerRef, onInput, onSelectionMade }) {
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
+  const webglAddonRef = useRef(null);
+  const loadWebGLRef = useRef(null);
+  const disposeWebGLRef = useRef(null);
   const inputHandlerRef = useRef(null);
   const resizeTimerRef = useRef(null);
   const doResizeRef = useRef(null);
   const stopMomentumRef = useRef(null);
   const cwdRef = useRef(null); // Track current working directory
   const [cwd, setCwd] = useState(null); // Reactive cwd for toolbar UI
+  const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
   const awaitingTuiOutputRef = useRef(false); // SGR emit→output round-trip tracker (TUI backpressure)
@@ -100,17 +104,34 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     // });
 
     // WebGL addon loaded after joinSession to avoid blank screen
-    let webglAddon = null;
     const loadWebGL = () => {
-      if (webglAddon) return;
+      if (webglAddonRef.current) return;
       try {
-        webglAddon = new WebglAddon();
+        const webglAddon = new WebglAddon();
         webglAddon.onContextLoss(() => webglAddon.dispose());
         term.loadAddon(webglAddon);
+        webglAddonRef.current = webglAddon;
+        // Re-fit with WebGL glyph metrics to prevent text overflow from canvas→webgl metric mismatch
+        fitAddon.fit();
+        socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+        // Force repaint all rows with new glyph metrics
+        term.refresh(0, term.rows - 1);
       } catch (e) {
         console.warn("WebGL not supported, using canvas renderer");
       }
     };
+    const disposeWebGL = () => {
+      if (!webglAddonRef.current) return;
+      webglAddonRef.current.dispose();
+      webglAddonRef.current = null;
+      fitAddon.fit();
+      socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+      term.refresh(0, term.rows - 1);
+    };
+
+    // Expose swap fns to the toggle effect
+    loadWebGLRef.current = loadWebGL;
+    disposeWebGLRef.current = disposeWebGL;
 
     // Initial fit and mark ready
     let checkCount = 0;
@@ -142,7 +163,15 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     // Output handler - filter by sessionId
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
-      const data = payload.data;
+      let data = payload.data;
+      // Daemon marks coalesced/optimized output with enc:"b64" (base64 string).
+      // Decode once here → avoids double base64 in the old Buffer round-trip path.
+      if (payload.enc === "b64" && typeof data === "string") {
+        const bin = atob(data);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        data = bytes;
+      }
       awaitingTuiOutputRef.current = false; // SGR round-trip done → resume TUI scroll
 
       if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
@@ -168,8 +197,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
         if (result.success) {
           if (result.cwd) { cwdRef.current = result.cwd; setCwd(result.cwd); useTerminalStore.getState().setCwd(sessionId, result.cwd); }
           setTimeout(() => {
-            // Temporary: disable WebGL renderer for blurry-text verification on mobile devices.
-            // loadWebGL();
+            // WebGL renderer applied by the webglEnabled watch effect below; just fit.
             fitAddon.fit();
           }, 200);
         } else {
@@ -208,7 +236,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       socket.off("cwdChange", handleCwdChange);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
-      if (webglAddon) webglAddon.dispose();
+      if (webglAddonRef.current) webglAddonRef.current.dispose();
       fitAddon.dispose();
       term.dispose();
       termRef.current = null;
@@ -216,6 +244,15 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, sessionId]);
+
+  // Live WebGL toggle: swap renderer + re-fit on change (no reload needed)
+  useEffect(() => {
+    const term = termRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!term || !fitAddon || !socket || !sessionId) return;
+    if (webglEnabled) loadWebGLRef.current?.();
+    else disposeWebGLRef.current?.();
+  }, [webglEnabled, socket, sessionId]);
 
   // Input handler - only when active
   useEffect(() => {

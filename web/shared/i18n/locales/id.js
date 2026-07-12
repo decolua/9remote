@@ -78,6 +78,8 @@ export default {
     language: "Bahasa",
     theme: "Tema",
     notifications: "Notifikasi",
+    webgl: "GPU Render (Faster)",
+    webglHint: "Matikan jika teks terlihat salah",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "Situs",

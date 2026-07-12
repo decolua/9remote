@@ -78,6 +78,8 @@ export default {
     language: "زبان",
     theme: "پوسته",
     notifications: "اعلان‌ها",
+    webgl: "GPU Render (Faster)",
+    webglHint: "در صورت اشتباه متن، خاموش کنید",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "سایت‌ها",

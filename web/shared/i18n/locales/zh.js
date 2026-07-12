@@ -78,6 +78,8 @@ export default {
     language: "语言",
     theme: "主题",
     notifications: "通知",
+    webgl: "GPU Render (Faster)",
+    webglHint: "如果文字显示异常请关闭",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "站点",

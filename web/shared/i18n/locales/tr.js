@@ -78,6 +78,8 @@ export default {
     language: "Dil",
     theme: "Tema",
     notifications: "Bildirimler",
+    webgl: "GPU Render (Faster)",
+    webglHint: "Metin yanlış görünüyorsa kapatın",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "Siteler",

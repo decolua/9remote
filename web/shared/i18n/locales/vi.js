@@ -78,6 +78,8 @@ export default {
     language: "Ngôn ngữ",
     theme: "Giao diện",
     notifications: "Thông báo",
+    webgl: "GPU Render (Faster)",
+    webglHint: "Tắt nếu chữ hiển thị sai",
     notificationsHint: "Báo khi Agent xong",
     files: "File Explorer",
     sites: "Trang web",
