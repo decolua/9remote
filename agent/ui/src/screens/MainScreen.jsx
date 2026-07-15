@@ -561,9 +561,7 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
     <aside className="flex flex-col sidebar w-[264px] flex-shrink-0 h-full">
       {/* Brand */}
       <div className="flex items-center gap-3 px-5 py-5">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "linear-gradient(135deg, var(--brand-500), var(--brand-400))", boxShadow: "0 8px 20px -6px var(--ring)" }}>
-          <span className="material-symbols-outlined text-[22px]" style={{ color: "#062017" }}>bolt</span>
-        </div>
+        <img src="/favicon.svg" alt="9Remote" className="w-10 h-10 rounded-xl flex-shrink-0" />
         <div className="flex flex-col leading-tight">
           <span className="brand-text text-xs">9Remote</span>
           {version && <span className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>v{version}</span>}

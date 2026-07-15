@@ -3,7 +3,8 @@
 // v33: small echo flushes sync (realtime typing); large bursts still coalesce via setImmediate.
 // v34: drop setImmediate coalesce entirely — sync flush each onData chunk (fixes rapid-typing backlog).
 // v35: add latency trace points (input.write/onData/broadcast) — temporary debugging.
-export const DAEMON_VERSION = "36";
+// v37: restore same-tick coalesce (setImmediate) — rapid-typing lag was the agent git spawn, not this.
+export const DAEMON_VERSION = "37";
 
 // Shell options for terminal sessions
 export const SHELL_OPTIONS = {

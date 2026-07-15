@@ -4,6 +4,11 @@ import { spawn, spawnSync, execSync } from "child_process";
 import { BINARY_EXTENSIONS, MAX_FILE_SIZE, DEFAULT_GIT_LOG_LIMIT } from "../constants.js";
 import { isSensitivePath } from "../pathGuard.js";
 
+// Per-cwd TTL cache for gitChangedCount badge — prevents repeated git spawns on
+// rapid requests (e.g. terminal typing re-rendering the file watcher effect).
+const GIT_COUNT_TTL_MS = 5000;
+const _countCache = new Map(); // repoPath → { ts, value, pending }
+
 export function runGit(args, cwd) {
   return new Promise((resolve) => {
     const child = spawn("git", args, { cwd, windowsHide: true });
@@ -89,17 +94,30 @@ export function setupGitHandlers(socket) {
     }
   });
 
-  // Lightweight: only the count of changed files (badge), avoids sending the full list
-  socket.on("gitChangedCount", ({ repoPath }, callback) => {
-    try {
-      const result = execSync("git status --porcelain", {
-        cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true
-      });
-      const count = result.trim() ? result.trim().split("\n").length : 0;
-      callback({ success: true, count });
-    } catch {
-      callback({ success: false, error: "Not a git repository or git not available" });
+  // Lightweight: only the count of changed files (badge), avoids sending the full list.
+  // Async (runGit = spawn) + per-cwd TTL cache so rapid requests (e.g. typing) don't
+  // spawn git repeatedly or block the event loop.
+  socket.on("gitChangedCount", async ({ repoPath }, callback) => {
+    const cached = _countCache.get(repoPath);
+    const now = Date.now();
+    if (cached && now - cached.ts < GIT_COUNT_TTL_MS) {
+      callback(cached.value);
+      return;
     }
+    // A spawn is already in-flight for this cwd → await it instead of spawning again
+    if (cached?.pending) {
+      try { callback(await cached.pending); } catch { callback({ success: false }); }
+      return;
+    }
+    const pending = runGit(["status", "--porcelain"], repoPath).then((r) => {
+      const value = r.code === 0
+        ? { success: true, count: r.stdout.trim() ? r.stdout.trim().split("\n").length : 0 }
+        : { success: false, error: "Not a git repository or git not available" };
+      _countCache.set(repoPath, { ts: Date.now(), value, pending: null });
+      return value;
+    }).catch(() => ({ success: false }));
+    _countCache.set(repoPath, { ts: now, value: { success: false }, pending });
+    try { callback(await pending); } catch { callback({ success: false }); }
   });
 
   socket.on("gitFileStatus", ({ repoPath, filePath }, callback) => {

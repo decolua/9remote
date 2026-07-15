@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 // File Explorer socket hook - uses existing socket from useSocket
 export function useFileSocket(socketRef) {
@@ -315,7 +315,10 @@ export function useFileSocket(socketRef) {
     });
   }, [socketRef]);
 
-  return {
+  // Memoize the returned object so the ref stays stable across renders.
+  // Without this, consumers' effects keyed on `fileSocket` re-run every render
+  // (e.g. TerminalPane re-runs git/watch setup on every keystroke → agent git spawn storm).
+  return useMemo(() => ({
     getSystemInfo,
     getFiles,
     readFile,
@@ -344,5 +347,8 @@ export function useFileSocket(socketRef) {
     gitPush,
     gitPull,
     gitLog
-  };
+  }), [getSystemInfo, getFiles, readFile, readImage, writeFile, createItem, deleteItem,
+    renameItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
+    searchInFiles, replaceInFiles, watchDir, unwatchDir, revealInOS, openInTerminal,
+    getFileTree, gitBranch, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog]);
 }

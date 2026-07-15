@@ -4,15 +4,6 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-
-// Latency tracer — toggle via localStorage.traceTty = "0". Remove once root cause found.
-const _base = typeof performance !== "undefined" ? performance.timeOrigin : Date.now();
-const _traceOn = () => typeof localStorage === "undefined" || localStorage.traceTty !== "0";
-const trace = (point, extra = "") => {
-  if (!_traceOn()) return;
-  const ms = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now() - _base));
-  console.log(`[trace] +${ms}ms ${point} ${extra}`);
-};
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
@@ -24,8 +15,6 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 // mirror/mirrorBytes: refs to accumulate raw bytes for scroll-up history replay (null = skip mirroring).
 function writeChunked(term, data, mirror, mirrorBytes) {
   if (!term || term._core?._isDisposed) return;
-  const bytes = data?.length || data?.byteLength || 0;
-  trace("web.term.write", `bytes=${bytes}`);
   term.write(data);
 
   // Mirror output for history replay — keep raw bytes (Uint8Array/string) so we can splice prefix later.
@@ -303,7 +292,6 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     // Output handler - filter by sessionId
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
-      trace("web.output.recv", `sid=${sessionId.slice(-6)} bytes=${payload.data?.length || 0}`);
       let data = payload.data;
       // Daemon marks coalesced/optimized output with enc:"b64" (base64 string).
       // Decode once here → avoids double base64 in the old Buffer round-trip path.
@@ -425,8 +413,6 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
     if (isFocused) {
       inputHandlerRef.current = termRef.current.onData((data) => {
-        const preview = data.replace(/\r/g, "\\r").slice(0, 12);
-        trace("web.input.send", `sid=${sessionId.slice(-6)} "${preview}"`);
         if (isUserTyping(data)) onInput?.(sessionId);
         socket.emit("input", { sessionId, data });
       });
