@@ -60,6 +60,11 @@ export const SCROLL_THRESHOLD = 5;
 // Treat data starting with ESC (0x1b) as non-typing so badges survive scrolling.
 export const isUserTyping = (d) => !!d && d.charCodeAt(0) !== 0x1b;
 
+// UTF-8 byte length of a string — matches daemon's Buffer byte count so `have`/`total`
+// stay consistent across multibyte (CJK/emoji) output during scroll-up history replay.
+const _utf8Encoder = new TextEncoder();
+export const byteLength = (str) => (!str ? 0 : _utf8Encoder.encode(str).length);
+
 const TERMINAL_OPTIONS = {
   cursorBlink: true,
   fontSize: 14,
@@ -116,7 +121,12 @@ function parseOsc7Cwd(text) {
 
 // Bind socket output → term.write, filtered by sessionId.
 // Returns unbind fn. onCwd(parsedCwd) called when OSC 7 emits a working directory.
-export function bindOutput(term, socket, sessionId, onCwd) {
+// Bind socket "output" → term.write, scoped to sessionId.
+// opts: { onCwd, mirror, mirrorBytes, onPrefix }
+//   mirror/mirrorBytes: refs (array + number) accumulating raw bytes for scroll-up replay.
+//   onPrefix(data): called for isHistoryPrefix chunks instead of writing — caller splices+replays.
+export function bindOutput(term, socket, sessionId, onCwd, opts = {}) {
+  const { mirror = null, mirrorBytes = null, onPrefix = null } = opts;
   const handler = (payload) => {
     if (!payload || payload.sessionId !== sessionId) return;
     let { data } = payload;
@@ -128,16 +138,24 @@ export function bindOutput(term, socket, sessionId, onCwd) {
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       data = bytes;
     }
+    // Older-than-tail prefix (scroll-up fetch): hand to caller for splice+replay, don't write/mirror here.
+    if (payload.isHistoryPrefix) {
+      onPrefix?.(data);
+      return;
+    }
     if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
       const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
       term.write(u8);
       str = new TextDecoder().decode(u8);
+      if (mirror) { mirror.current.push(u8); mirrorBytes.current += u8.length; }
     } else if (typeof data === "string") {
       term.write(data);
       str = data;
+      if (mirror) { mirror.current.push(data); mirrorBytes.current += byteLength(data); }
     } else {
       term.write(String(data));
       str = String(data);
+      if (mirror) { mirror.current.push(str); mirrorBytes.current += byteLength(str); }
     }
     if (onCwd && str) {
       const cwd = parseOsc7Cwd(str);
@@ -183,7 +201,8 @@ export function bindVisibilityRepaint(term) {
 // Touch scroll with inertia (iOS-like), parity with web useXTerm.
 // Alt-buffer (TUI mouse-tracking) gets SGR wheel; else local scrollback.
 // Returns detach fn.
-export function attachTouchScroll(term, xtermScreen, sendInput) {
+export function attachTouchScroll(term, xtermScreen, sendInput, opts = {}) {
+  const { onScrollUp = null } = opts;
   const FALLBACK_LINE_HEIGHT = 16;
   const SENSITIVITY = 1.0; // 1:1 finger-to-content drag
   const FRICTION = 0.95; // inertia glide (~native iOS)
@@ -233,6 +252,11 @@ export function attachTouchScroll(term, xtermScreen, sendInput) {
       }
     } else {
       term.scrollLines(lines);
+      // Touch scroll up near top must trigger history fetch — onScroll path alone doesn't cover touch.
+      if (lines < 0 && onScrollUp) {
+        const buf = term.buffer.active;
+        if (buf.viewportY <= onScrollUp.thresholdLines) onScrollUp.fire();
+      }
     }
   };
 

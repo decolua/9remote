@@ -11,6 +11,7 @@ import path from "path";
 import os from "os";
 import pty from "node-pty";
 import { resolveShell, DAEMON_VERSION } from "./constants.js";
+import { trace } from "./ptyTrace.js";
 
 // Socket path
 const SOCKET_DIR = path.join(os.homedir(), ".9remote");
@@ -31,7 +32,7 @@ const clients = new Set();
 // Constants
 const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB raw fallback per session
 const JOIN_REPLAY_SIZE = 128 * 1024; // 128KB tail on join — older history fetched on scroll-up
-const HISTORY_CHUNK_SIZE = 64 * 1024; // 64KB per scroll-up fetch chunk
+const HISTORY_CHUNK_SIZE = 128 * 1024; // 128KB per scroll-up fetch chunk
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
 
 // Buffer storage = Buffer[] (byte-accurate). The web mirror also counts BYTES, so total/have
@@ -237,7 +238,10 @@ function broadcast(message) {
   const data = JSON.stringify(message) + "\n";
   for (const client of clients) {
     try {
-      client.write(data);
+      const rv = client.write(data);
+      if (message.type === "output") {
+        trace("daemon.broadcast", `sid=${message.sessionId.slice(-6)} bytes=${message.data?.length || 0} writeRv=${rv}`);
+      }
     } catch (e) {
       // Client disconnected
     }
@@ -295,25 +299,19 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       cwd,
       shellId: shellConfig.id,
       shellLabel: shellConfig.label,
-      zdotDir,
-      pending: null,          // coalesced output (concat of same-tick chunks)
-      flushScheduled: false   // setImmediate flush guard
+      zdotDir
     };
 
-    // Flush coalesced output as a single packet — chunks arriving in the same
-    // event-loop tick are merged, so TUI redraw bursts become one packet instead
-    // of thousands. setImmediate runs after the poll phase, so a lone keystroke
-    // echo (one chunk per tick) still flushes immediately (~0.1ms, imperceptible).
-    const flushOutput = () => {
-      session.flushScheduled = false;
-      const pending = session.pending;
-      if (!pending) return;
-      session.pending = null;
+    // Flush each onData chunk synchronously — realtime echo under rapid typing.
+    // node-pty chunks via the kernel PTY buffer so onData is naturally batched;
+    // prior setImmediate coalescing starved under sustained input (output backed up
+    // for seconds then dumped at once when the event loop idled).
+    const flushOutput = (chunk) => {
       broadcast({
         type: "output",
         sessionId,
         enc: "b64",
-        data: Buffer.from(pending).toString("base64")
+        data: Buffer.from(chunk).toString("base64")
       });
     };
 
@@ -340,12 +338,9 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
         session.buffer = [takeBufferTail(session.buffer, MAX_BUFFER_SIZE)];
       }
 
-      // Coalesce: append to pending, schedule one flush at end of this tick.
-      session.pending = session.pending === null ? data : session.pending + data;
-      if (!session.flushScheduled) {
-        session.flushScheduled = true;
-        setImmediate(flushOutput);
-      }
+      flushOutput(data);
+      const preview = data.replace(/\r/g, "\\r").replace(/\n/g, "\\n").slice(0, 12);
+      trace("daemon.onData", `sid=${sessionId.slice(-6)} bytes=${data.length} "${preview}"`);
     });
 
     ptyProcess.onExit(() => {
@@ -459,6 +454,8 @@ function handleMessage(client, message) {
     case "input":
       const inputSession = sessions.get(sessionId);
       if (inputSession?.pty) {
+        const preview = payload.data.replace(/\r/g, "\\r").slice(0, 12);
+        trace("daemon.input.write", `sid=${sessionId.slice(-6)} "${preview}"`);
         inputSession.pty.write(payload.data);
       }
       break;

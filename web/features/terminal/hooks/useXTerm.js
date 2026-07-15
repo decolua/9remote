@@ -4,6 +4,15 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+
+// Latency tracer — toggle via localStorage.traceTty = "0". Remove once root cause found.
+const _base = typeof performance !== "undefined" ? performance.timeOrigin : Date.now();
+const _traceOn = () => typeof localStorage === "undefined" || localStorage.traceTty !== "0";
+const trace = (point, extra = "") => {
+  if (!_traceOn()) return;
+  const ms = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now() - _base));
+  console.log(`[trace] +${ms}ms ${point} ${extra}`);
+};
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
@@ -15,6 +24,8 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 // mirror/mirrorBytes: refs to accumulate raw bytes for scroll-up history replay (null = skip mirroring).
 function writeChunked(term, data, mirror, mirrorBytes) {
   if (!term || term._core?._isDisposed) return;
+  const bytes = data?.length || data?.byteLength || 0;
+  trace("web.term.write", `bytes=${bytes}`);
   term.write(data);
 
   // Mirror output for history replay — keep raw bytes (Uint8Array/string) so we can splice prefix later.
@@ -69,6 +80,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   const historyTotalRef = useRef(0);   // bytes agent reports holding (ceiling)
   const historyFetchingRef = useRef(false); // in-flight requestHistory
   const historyLastFetchRef = useRef(0);    // timestamp of last fetch (guard)
+  const historyHaveAtEmitRef = useRef(0);   // historyBytesRef snapshot at requestHistory emit (race-dedup)
   const scrollDisposeRef = useRef(null);    // disposable from term.onScroll
   const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
   const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers in other effects
@@ -209,6 +221,17 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       // — ANSI escapes + wide-char wrapping make byte/cols estimates wildly wrong → viewport jump.
       const oldViewportY = term.buffer.active.viewportY;
       const baseYBefore = term.buffer.active.baseY;
+      // Race-dedup: daemon computes the prefix range against the `have` we SENT, but live PTY
+      // output can land in our tail between emit and ack → daemon's endExclusive shifts past
+      // our current tail, so the prefix's tail end re-covers bytes already mirrored. Drop that
+      // overlap (liveDelta = bytes pushed since emit) before prepending, else a few lines dup.
+      const liveDelta = Math.max(0, historyHaveAtEmitRef.current > 0 ? historyBytesRef.current - historyHaveAtEmitRef.current : 0);
+      historyHaveAtEmitRef.current = 0;
+      if (liveDelta > 0) {
+        const keep = Math.max(0, (typeof prefixChunk === "string" ? BufferLikeByteLength(prefixChunk) : prefixChunk.byteLength) - liveDelta);
+        prefixChunk = typeof prefixChunk === "string" ? prefixChunk.slice(0, keep) : prefixChunk.subarray(0, keep);
+      }
+
       const chunkLen = typeof prefixChunk === "string" ? BufferLikeByteLength(prefixChunk) : prefixChunk.byteLength;
 
       // Empty prefix (daemon had <1 line older than what we hold) — don't reset+rewrite the
@@ -265,8 +288,9 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
       historyFetchingRef.current = true;
       historyLastFetchRef.current = now;
+      historyHaveAtEmitRef.current = historyBytesRef.current;
       setHistoryFetching(true);
-      socket.emit("requestHistory", { sessionId, have: historyBytesRef.current }, (result) => {
+      socket.emit("requestHistory", { sessionId, have: historyHaveAtEmitRef.current }, (result) => {
         if (!result || !result.success) { historyFetchingRef.current = false; setHistoryFetching(false); return; }
         if (!result.prefixLen) { historyFetchingRef.current = false; setHistoryFetching(false); }
         historyTotalRef.current = result.total || historyTotalRef.current;
@@ -279,6 +303,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     // Output handler - filter by sessionId
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
+      trace("web.output.recv", `sid=${sessionId.slice(-6)} bytes=${payload.data?.length || 0}`);
       let data = payload.data;
       // Daemon marks coalesced/optimized output with enc:"b64" (base64 string).
       // Decode once here → avoids double base64 in the old Buffer round-trip path.
@@ -400,6 +425,8 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
     if (isFocused) {
       inputHandlerRef.current = termRef.current.onData((data) => {
+        const preview = data.replace(/\r/g, "\\r").slice(0, 12);
+        trace("web.input.send", `sid=${sessionId.slice(-6)} "${preview}"`);
         if (isUserTyping(data)) onInput?.(sessionId);
         socket.emit("input", { sessionId, data });
       });

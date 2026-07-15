@@ -18,11 +18,15 @@ const DEFAULT_ICE = [
   { hostname: "stun.cloudflare.com", port: 3478, type: "Stun" }
 ];
 
+// Suppress repeated TURN fetch errors — endpoint fails non-fatally (STUN-only fallback),
+// but each new connection retried the fetch, spamming identical errors.
+let _lastTurnError = "";
 async function fetchTurnIceServers(turnApiUrl, apiKey) {
   try {
     const resp = await fetch(turnApiUrl, { headers: { "X-API-Key": apiKey } });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const { iceServers } = await resp.json();
+    _lastTurnError = ""; // reset on success
     const result = [];
     for (const srv of iceServers) {
       for (const url of srv.urls) {
@@ -43,7 +47,11 @@ async function fetchTurnIceServers(turnApiUrl, apiKey) {
     }
     return result;
   } catch (err) {
-    console.error("[WebRtcProtocol] TURN fetch failed:", err.message);
+    // Non-fatal: STUN-only fallback. Log once per distinct error to avoid spam.
+    if (_lastTurnError !== err.message) {
+      _lastTurnError = err.message;
+      console.warn(`[WebRtcProtocol] TURN fetch failed (${err.message}) — using STUN-only fallback. Will retry on next connection.`);
+    }
     return null;
   }
 }

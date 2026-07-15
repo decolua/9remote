@@ -28,15 +28,33 @@ export const INPUT_CONTROL_KEYS = {
 export const COMMON_COMMANDS = [
   "git status", "git add .", "git commit -m \"\"", "git push", "git pull", "git diff",
   "git log --oneline", "git branch", "git checkout", "git stash",
-  "npm install", "npm run dev", "npm run build", "npm run test", "npm run lint", "npx",
+  "npm install", "npm run dev", "npm run build", "npm run test", "npm run lint",
   "cd ..", "cd ~", "ls -la", "ll", "mkdir -p", "cp -r",
   "grep -rn", "wc -l", "tail -f",
   "ps aux", "df -h", "free -h",
   "docker ps", "docker ps -a", "docker logs -f", "docker compose up -d", "docker compose down",
   "code .",
-  "claude", "claude --continue", "claude --resume", "codex", "gemini"
+  "claude", "claude --continue", "claude --resume", "codex"
 ];
+
+// Path-aware ghost suggestions (mirrors web PATH_SUGGEST)
+export const PATH_SUGGEST = {
+  verbs: ["cd", "ls", "ll", "cat", "less", "more", "head", "tail", "vim", "nvim", "nano", "bat", "code", "code-insiders", "rm", "cp", "mv", "mkdir", "touch", "chmod", "open", "grep"],
+  ttlMs: 5 * 60 * 1000,
+  debounceMs: 120,
+  maxDirs: 20,
+  maxResults: 8
+};
 
 // Command history persisted in localStorage (agent UI has no Zustand store)
 export const HISTORY_KEY = "9remote-cmd-history";
 export const HISTORY_MAX = 100;
+
+// Scrollback history fetch — join sends only JOIN_REPLAY_SIZE tail; older history
+// fetched on demand when user scrolls near top (primary buffer only).
+export const HISTORY_FETCH = {
+  topThresholdLines: 5, // within N lines of buffer top → fetch older prefix
+  guardMs: 2000,        // min interval between scroll-top fetches (anti-spam + visible loading)
+  minFetchBytes: 256,   // skip fetch when fewer bytes remain — stray ANSI bytes aren't worth a full mirror reset+rewrite
+  disabled: false,      // global kill switch (e.g. alt-buffer apps)
+};

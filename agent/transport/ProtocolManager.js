@@ -39,9 +39,9 @@ export class ProtocolManager {
     this._buffer = [];
     this._rtcSignalingHandler = null;
     this._sigListeners = null;
-    // Round-robin chunk start offset — RTC only.
-    this._chunkOffset = 0;
     this._wsPendingSince = new Map();
+    // Pending-since timestamps — RTC backpressure priority, mirrors WS path.
+    this._rtcPendingSince = new Map();
   }
 
   get type() {
@@ -153,42 +153,53 @@ export class ProtocolManager {
   }
 
   // RTC tile path — chunked binary DC, same sent-acknowledgement contract as WS.
-  // Chunk size is adapted per frame against the ACTUAL first chunk (round-robin
-  // offset aware) so each encoded chunk fits dcMaxMessageSize (SCTP hard limit).
-  // Single tile still over max → salvage via WS (no SCTP limit) to avoid infinite
-  // re-encode loop. Returns tiles actually sent; stops on first RTC backpressure.
+  // Chunk size is probed down from dcChunkSize so each encoded chunk fits
+  // dcMaxMessageSize (SCTP hard limit). Single tile still over max → salvage via
+  // WS (no SCTP limit) to avoid infinite re-encode loop. Order and backpressure
+  // mirror _emitTilesChunked: oldest-pending tile first, mark remaining on drop.
+  // Returns tiles actually sent; stops on first RTC backpressure.
   _emitTilesRtc(rtc, tiles, frameTs, encodeBatch) {
     const max = this._profile.rtc?.dcMaxMessageSize ?? 65536;
     const n = tiles.length;
-    const start = n > this._dcChunkSize ? this._chunkOffset % n : 0;
-    const chunkTiles = (cs) => {
-      const arr = [];
-      for (let j = 0; j < cs; j++) arr.push(tiles[(start + j) % n]);
-      return arr;
-    };
+    const pendingSince = this._rtcPendingSince;
+    const now = frameTs ?? Date.now();
+    // Oldest-pending first — skipped tiles get priority next frame (same as WS).
+    const ordered = [...tiles].sort((a, b) => {
+      const ap = pendingSince.get(a.tileIndex) ?? Infinity;
+      const bp = pendingSince.get(b.tileIndex) ?? Infinity;
+      if (ap !== bp) return ap - bp;
+      return a.tileIndex - b.tileIndex;
+    });
+    const chunkTiles = (cs) => ordered.slice(0, cs);
     // Probe — shrink until the actual first chunk fits SCTP max
     let chunkSize = Math.min(this._dcChunkSize, n);
     while (chunkSize > 1 && encodeBatch(chunkTiles(chunkSize), frameTs).length > max) {
       chunkSize = Math.floor(chunkSize / 2);
     }
-    if (n > chunkSize) this._chunkOffset = (start + chunkSize) % n;
     const ws = this._adapters.get("ws");
     const sent = [];
     for (let i = 0; i < n; i += chunkSize) {
-      const chunk = [];
-      for (let j = 0; j < chunkSize && i + j < n; j++) {
-        chunk.push(tiles[(start + i + j) % n]);
-      }
+      const chunk = ordered.slice(i, i + chunkSize);
       const buf = encodeBatch(chunk, frameTs);
       if (buf.length > max) {
         // Single tile over SCTP max — salvage via WS to avoid infinite re-encode
         if (chunk.length === 1 && ws?.ready && ws.send(CHANNELS.binary, buf) !== false) {
+          pendingSince.delete(chunk[0].tileIndex);
           sent.push(...chunk);
         }
         // else multi-tile (probe missed — retry next frame) or WS down: keep old hash
         continue;
       }
-      if (rtc.send(CHANNELS.binary, buf) === false) return sent;
+      if (rtc.send(CHANNELS.binary, buf) === false) {
+        // Backpressure — mark this chunk + remaining as pending so they are
+        // prioritized next frame. Caller retries with fresh tile data.
+        for (let j = i; j < n; j++) {
+          const tileIndex = ordered[j].tileIndex;
+          if (!pendingSince.has(tileIndex)) pendingSince.set(tileIndex, now);
+        }
+        return sent;
+      }
+      for (const tile of chunk) pendingSince.delete(tile.tileIndex);
       sent.push(...chunk);
     }
     return sent;

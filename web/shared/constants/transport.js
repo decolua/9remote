@@ -29,7 +29,7 @@ export const TRANSPORT_PROFILES = {
     enabled: ["ws", "rtc"],
     parallel: true,
     channels: {
-      control: { strategy: "priority", prefer: "ws" },
+      control: { strategy: "priority", prefer: "rtc" },
       binary: { strategy: "priority", prefer: "rtc" }
     },
     rtc: { enableTurn: false, dcControl: { ordered: true } }

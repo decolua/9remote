@@ -8,7 +8,7 @@ export function setTuiActive(v) { isTuiActive = v; }
 // Probe both families in parallel (Ubuntu/glibc may resolve localhost → ::1 first),
 // prefer localhost when both live, cache winner. Reset on failure so we retry next call.
 let cachedHost = null;
-async function resolveLocalHost() {
+export async function resolveLocalHost() {
   if (cachedHost) return cachedHost;
   const probe = (h) =>
     fetch(`http://${h}:${SERVER_PORT}/api/health`, { signal: AbortSignal.timeout(2000) })

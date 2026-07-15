@@ -4,6 +4,7 @@ import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import * as daemonClient from "./ptyDaemonClient.js";
+import { trace } from "./ptyTrace.js";
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
 import { isRemoteReady, setRemoteReadyChangeHandler, getUpdateInfo } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
@@ -105,7 +106,10 @@ export async function initializeTerminal() {
 export function setupTerminalSocket(io, apiKey) {
   // Forward daemon events to all socket clients
   if (PERSISTENCE_MODE === "daemon") {
-    daemonClient.on("output", ({ sessionId, enc, data }) => broadcast(io, "output", { sessionId, enc, data }));
+    daemonClient.on("output", ({ sessionId, enc, data }) => {
+      trace("agent.output.recv", `sid=${sessionId.slice(-6)} bytes=${data?.length || 0}`);
+      broadcast(io, "output", { sessionId, enc, data });
+    });
     daemonClient.on("cwdChange", ({ sessionId, cwd }) => {
       const session = sessions.get(sessionId);
       if (session && cwd && session.cwd !== cwd) { session.cwd = cwd; saveSessionMetadata(sessions); }

@@ -176,6 +176,15 @@ export default function WorkspaceLayout({ children }) {
     }
   }, [socket, loadSessions, loadGroups]);
 
+  // Retry fetching sessions/groups once after 1s if still empty in terminal view
+  // (guards against rare connect race where terminal:ready reply arrives too late)
+  useEffect(() => {
+    if (currentView.type !== "terminal") return;
+    if (sessions.length || groups.length) return;
+    const timer = setTimeout(() => { loadSessions(); loadGroups(); }, 1000);
+    return () => clearTimeout(timer);
+  }, [currentView.type, sessions.length, groups.length, loadSessions, loadGroups]);
+
   // Cleanup openedSessions - remove sessions that no longer exist
   // Delay to avoid race with newly-created sessions (server create → loadSessions is async)
   useEffect(() => {
@@ -603,7 +612,7 @@ export default function WorkspaceLayout({ children }) {
 
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div
-                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-border" : "relative"}`}
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-border px-2" : "relative"}`}
                 {...bindSwipeTab({
                   enabled: !isDesktop,
                   sessionIds: groupOpenedSessions,

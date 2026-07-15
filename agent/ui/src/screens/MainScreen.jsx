@@ -752,6 +752,15 @@ export default function MainScreen({
     if (activeMenu === "terminals") term.refresh();
   }, [logs, activeMenu, connections.length]);
 
+  // Retry fetching sessions once after 1s if still empty in terminals view
+  // (guards against rare race where terminal:ready reply arrives too late)
+  useEffect(() => {
+    if (activeMenu !== "terminals") return;
+    if (term.sessions.length || term.groups.length) return;
+    const timer = setTimeout(() => term.refresh(), 1000);
+    return () => clearTimeout(timer);
+  }, [activeMenu, term.sessions.length, term.groups.length]);
+
   const clients = mergeClients(approvedDevices, connections, rejectedDevices);
   const onlineCount = clients.filter((c) => c.status === "online").length;
 

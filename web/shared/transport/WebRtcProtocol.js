@@ -94,7 +94,7 @@ export class WebRtcProtocol extends BaseProtocol {
 
     const ordered = ctx.profile?.rtc?.dcControl?.ordered ?? true;
     const dcControl = pc.createDataChannel("control", { ordered });
-    const dcBinary = pc.createDataChannel("binary", { ordered: false, maxPacketLifeTime: 200 });
+    const dcBinary = pc.createDataChannel("binary", { ordered: false, maxPacketLifeTime: 500 });
     dcBinary.binaryType = "arraybuffer";
     dcControl.binaryType = "arraybuffer";
     this._dcControl = dcControl;

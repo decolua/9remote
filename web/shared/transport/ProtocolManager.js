@@ -59,6 +59,19 @@ export class ProtocolManager {
     this._rawSocket = null;
     this._proxySocket = this._createProxySocket();
     this.socketRef = { current: this._proxySocket };
+    // Visibility-based RTC health check — restart frozen RTC when tab becomes visible.
+    // WS may survive background suspension (socket.io keepalive) while the RTC
+    // PeerConnection freezes/closes; without this, RTC never recovers on resume.
+    this._visibilityHandler = () => {
+      if (document.visibilityState !== "visible") return;
+      const ws = this._adapters.get("ws");
+      if (!ws?.ready) return; // Need WS alive to carry signaling for renegotiation
+      const rtc = this._adapters.get("rtc");
+      if (!rtc || rtc.state === ADAPTER_STATE.closed || rtc.state === ADAPTER_STATE.degraded) {
+        this._restartRtc();
+      }
+    };
+    document.addEventListener("visibilitychange", this._visibilityHandler);
 
     // Cross-adapter signaling — RTC pulls this from connect ctx
     this._rtcSignalingHandler = null;
@@ -175,6 +188,10 @@ export class ProtocolManager {
   }
 
   disconnect() {
+    if (this._visibilityHandler) {
+      document.removeEventListener("visibilitychange", this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
     for (const inst of this._adapters.values()) {
       try { inst.disconnect(); } catch {}
     }

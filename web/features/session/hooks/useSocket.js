@@ -65,6 +65,13 @@ export function useSocket() {
       removeTempKey();
     });
 
+    // Server emits "terminal:ready" AFTER getSessions/getGroups handlers are registered
+    // (async setupSocketFeatures). Fetching here avoids the F5 race that returned empty.
+    socket.on("terminal:ready", () => {
+      socket.emit("getGroups", (list) => setGroups(list || []));
+      socket.emit("getSessions", (list) => setSessions(list || []));
+    });
+
     socket.on("device:rejected", () => {
       setApprovalStatus("rejected");
       // Stop auto-reconnect — user must re-submit key to try again

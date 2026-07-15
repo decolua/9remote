@@ -43,6 +43,9 @@ export function useSessions() {
   useEffect(() => {
     const onConnect = () => { setConnected(true); refreshRef.current(); };
     const onDisconnect = () => setConnected(false);
+    // Server emits "terminal:ready" AFTER getSessions/getGroups handlers are registered.
+    // F5 raced the initial fetch ahead of async setup → empty list. This is the gate.
+    const onReady = () => { refreshRef.current(); socket.emit("getNotificationState"); };
     const onChanged = () => refreshRef.current();
     // Terminal command finished (AI hook) → mark session badge
     const onFinish = (n) => { if (n?.sessionId) { setFinishedIds((p) => new Set(p).add(n.sessionId)); setNotifications((p) => ({ ...p, [n.sessionId]: n })); } };
@@ -50,9 +53,9 @@ export function useSessions() {
     const onState = (state) => { const s = state || {}; setFinishedIds(new Set(Object.keys(s))); setNotifications((p) => ({ ...p, ...s })); };
     // Another client cleared a badge → mirror badge only, keep it in Recent
     const onCleared = (sessionId) => setFinishedIds((p) => { if (!p.has(sessionId)) return p; const n = new Set(p); n.delete(sessionId); return n; });
-    const syncState = () => { onConnect(); socket.emit("getNotificationState"); };
 
-    socket.on("connect", syncState);
+    socket.on("connect", onConnect);
+    socket.on("terminal:ready", onReady);
     socket.on("disconnect", onDisconnect);
     socket.on("sessionClosed", onChanged);
     socket.on("groupsChanged", onChanged);
@@ -61,10 +64,9 @@ export function useSessions() {
     socket.on("notificationState", onState);
     socket.on("notificationCleared", onCleared);
 
-    if (socket.connected) syncState();
-
     return () => {
-      socket.off("connect", syncState);
+      socket.off("connect", onConnect);
+      socket.off("terminal:ready", onReady);
       socket.off("disconnect", onDisconnect);
       socket.off("sessionClosed", onChanged);
       socket.off("groupsChanged", onChanged);

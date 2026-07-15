@@ -1,6 +1,7 @@
 import * as daemonClient from "../ptyDaemonClient.js";
 import { UPLOAD_DIR } from "../ptyHelper.js";
 import { setClipboardFromFile } from "../../../lib/clipboardSystem.js";
+import { trace } from "../ptyTrace.js";
 import fs from "fs";
 import path from "path";
 
@@ -12,6 +13,8 @@ export function setupInputHandlers(socket, sessions) {
     if (!sessionId) return;
     const session = sessions.get(sessionId);
     if (!session) return;
+    const preview = typeof data === "string" ? data.replace(/\r/g, "\\r").slice(0, 12) : `[${data?.length}b]`;
+    trace("agent.input.recv", `sid=${sessionId.slice(-6)} data="${preview}"`);
     if (session.daemon && daemonClient.isConnected()) return daemonClient.sendInput(sessionId, data);
     if (session.pty) session.pty.write(Buffer.isBuffer(data) ? data.toString("utf-8") : data);
   });

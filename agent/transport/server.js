@@ -46,7 +46,9 @@ export function getIO() {
 
 /** Setup all per-socket features on an approved socket (single entry point).
  * Order matters: transport bus MUST be ready before terminal/remote handlers so the
- * first tile frame isn't dropped (black canvas). File + terminal + remote all live here. */
+ * first tile frame isn't dropped (black canvas). File + terminal + remote all live here.
+ * Emits "terminal:ready" once handlers are registered so the client can fetch sessions
+ * without racing the async setup (F5 was landing getSessions before getSessions handler). */
 async function setupSocketFeatures(socket) {
   // Clear one-time key if used
   if (socket.handshake.auth?.tempKey) {
@@ -57,6 +59,7 @@ async function setupSocketFeatures(socket) {
   setupFileExplorerHandlers(socket);
   setupClipboardHandlers(socket);
   await setupTerminalHandlers(socket, ioInstance, loadApiKey());
+  socket.emit("terminal:ready");
 }
 
 /** Create connection-level PM and route socket.emit through it (DRY transport bus).
@@ -106,7 +109,7 @@ export function approveSocketDevice(socketId) {
   socket.data.approved = true;
   socket.emit("device:approved");
 
-  // Setup features
+  // Setup features — emits "terminal:ready" when handlers are registered
   setupSocketFeatures(socket);
   pushUiLog(`Device approved: ${pending.deviceId.slice(0, 8)}...`);
 
@@ -223,7 +226,7 @@ export async function startTransportServer(server) {
       socket.data.approved = true;
       socket.data.localUi = true;
       pushUiLog("Local UI connected — trusted (token)");
-      setupSocketFeatures(socket);
+      setupSocketFeatures(socket); // emits "terminal:ready" when handlers registered
       return; // do not track in Clients list
     }
 
@@ -255,7 +258,9 @@ export async function startTransportServer(server) {
       // Known device — allow immediately
       pushUiLog(`Device recognized: ${deviceId.slice(0, 8)}...`);
       socket.data.approved = true;
-      setupSocketFeatures(socket);
+      setupSocketFeatures(socket); // emits "terminal:ready" when handlers registered
+      // Notify client so it reloads sessions/groups after handlers are registered
+      socket.once("device:clientReady", () => socket.emit("device:approved"));
     } else if (deviceId && isDeviceRejected(deviceId)) {
       // Previously rejected — keep socket unapproved, no modal, update socketId for later approve
       updateRejectedSocket(deviceId, socket.id, ip);
@@ -268,7 +273,7 @@ export async function startTransportServer(server) {
       clearRejectedDevice(deviceId);
       socket.data.approved = true;
       pushUiLog(`Auto-approved device: ${deviceId.slice(0, 8)}...`);
-      setupSocketFeatures(socket);
+      setupSocketFeatures(socket); // emits "terminal:ready" when handlers registered
       // Notify client after it signals ready so listeners are attached
       socket.once("device:clientReady", () => socket.emit("device:approved"));
       pushUiEvent("deviceApproval", { action: "refresh" });

@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { spawn, spawnSync } from "child_process";
+import { spawn, spawnSync, execSync } from "child_process";
 import { BINARY_EXTENSIONS, MAX_FILE_SIZE, DEFAULT_GIT_LOG_LIMIT } from "../constants.js";
 import { isSensitivePath } from "../pathGuard.js";
 

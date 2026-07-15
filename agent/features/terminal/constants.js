@@ -1,6 +1,9 @@
 // Daemon protocol/code version — bump only when daemon behavior changes (independent of CLI version)
 // v31: buffer storage string[]→Buffer[] (byte-accurate offsets for scroll-up history fetch).
-export const DAEMON_VERSION = "32";
+// v33: small echo flushes sync (realtime typing); large bursts still coalesce via setImmediate.
+// v34: drop setImmediate coalesce entirely — sync flush each onData chunk (fixes rapid-typing backlog).
+// v35: add latency trace points (input.write/onData/broadcast) — temporary debugging.
+export const DAEMON_VERSION = "36";
 
 // Shell options for terminal sessions
 export const SHELL_OPTIONS = {

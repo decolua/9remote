@@ -19,6 +19,7 @@
     "agent:publish:beta": "rm -f 9remote-beta-*.tgz && NREMOTE_PKG=9remote-beta npm run agent:build && npm publish --workspaces=false --access=public 9remote-beta-*.tgz",
     "web:dev": "npm run dev --workspace=web",
     "web:deploy": "npm run deploy --workspace=web",
+    "web:deploy:dev": "npm run secrets:sync:dev && npm run deploy --workspace=web -- --env dev",
     "secrets:sync": "node scripts/syncSecrets.mjs",
     "secrets:sync:prod": "node scripts/syncSecrets.mjs --env=production",
     "secrets:sync:dev": "node scripts/syncSecrets.mjs --env=dev",

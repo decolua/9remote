@@ -12,7 +12,7 @@ export const COMMON_COMMANDS = [
   "git remote -v", "git restore",
   // npm / yarn / pnpm / bun
   "npm install", "npm ci", "npm run dev", "npm run build", "npm run test",
-  "npm run lint", "npm outdated", "npx", "pnpm install", "pnpm dev", "yarn dev", "bun install",
+  "npm run lint", "npm outdated", "pnpm install", "pnpm dev", "yarn dev", "bun install",
   // navigation / filesystem
   "cd ..", "cd ~", "cd -", "ls -la", "ll", "mkdir -p", "cp -r", "find . -name", "du -sh", "chmod +x", "ln -s",
   // search / text
@@ -25,7 +25,7 @@ export const COMMON_COMMANDS = [
   // misc
   "code .",
   // AI CLI
-  "claude", "claude --continue", "claude --resume", "claude mcp", "codex", "codex --full-auto", "gemini"
+  "claude", "claude --continue", "claude --resume", "claude --dangerously-skip-permissions", "claude mcp", "codex", "codex --full-auto"
 ];
 
 // Layout breakpoints and sizing

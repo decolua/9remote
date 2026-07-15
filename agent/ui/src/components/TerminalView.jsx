@@ -6,12 +6,14 @@ import FileExplorer from "./FileExplorer";
 import GitPanel from "./GitPanel";
 import FileWorkspaceDesktop from "./FileWorkspaceDesktop";
 import CommandSuggestions from "./CommandSuggestions";
+import PathSuggestion from "./PathSuggestion";
 import CommandHistoryModal from "./CommandHistoryModal";
 import { useFileSocket } from "../lib/fileExplorer/useFileSocket";
 import { ACTIVITY_PANELS } from "../lib/fileExplorer/constants";
 import { loadHistory, addHistory, removeHistory, clearHistory } from "../lib/history";
+import { parsePathInput, pickMatches, makeDirCache } from "../lib/pathSuggest";
 import {
-  DESKTOP_BREAKPOINT, PANE_MIN_WIDTH, COMMON_COMMANDS, INPUT_CONTROL_KEYS,
+  DESKTOP_BREAKPOINT, PANE_MIN_WIDTH, COMMON_COMMANDS, PATH_SUGGEST, INPUT_CONTROL_KEYS,
   MAX_ATTACHMENT_SIZE, MAX_ATTACHMENTS, CLIPBOARD_ATTACH_TIMEOUT, CLIPBOARD_ATTACH_GAP
 } from "../lib/constants";
 
@@ -50,6 +52,37 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
 
   // Active session object (input bar target) — undefined when no active pane
   const activeSession = sessions.find((s) => s.id === activeId);
+
+  // Path-aware suggestions (mirrors web MobileKeyboard logic)
+  const [pathItems, setPathItems] = useState([]);
+  const dirCacheRef = useRef(makeDirCache());
+  const lastSuggestRef = useRef(0);
+
+  useEffect(() => {
+    const cwd = activeSession?.cwd;
+    const parsed = cwd != null ? parsePathInput(textInput, cwd) : null;
+    if (!parsed) { setPathItems([]); return; }
+    const token = ++lastSuggestRef.current;
+    const timer = setTimeout(async () => {
+      const now = Date.now();
+      let entries = dirCacheRef.current.get(parsed.dir, now);
+      if (entries == null) {
+        const res = await fileSocket.getFiles(parsed.dir, false);
+        if (lastSuggestRef.current !== token) return;
+        if (!res?.success) { setPathItems([]); return; }
+        entries = res.files;
+        dirCacheRef.current.set(parsed.dir, entries, now);
+      }
+      setPathItems(pickMatches(entries, parsed.prefix, parsed));
+    }, PATH_SUGGEST.debounceMs);
+    return () => clearTimeout(timer);
+  }, [textInput, activeSession?.cwd, activeSession?.id]);
+
+  // Clear cache + items on session switch
+  useEffect(() => {
+    dirCacheRef.current.clear();
+    setPathItems([]);
+  }, [activeSession?.id]);
 
   // Read a File → base64 attachment entry, skipping oversized ones.
   const fileToAttachment = (file) => new Promise((resolve) => {
@@ -346,7 +379,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
       </div>
 
       {/* Panes: desktop = horizontal split, mobile = active pane only */}
-      <div className={`flex-1 min-h-0 relative z-10 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden" : "relative"}`}>
+      <div className={`flex-1 min-h-0 relative z-10 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden px-2" : "relative"}`}>
         {openedGroup.map((s) => {
           const isFocused = s.id === activeId;
           return (
@@ -381,12 +414,19 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
       {activeSession && (
         <div className="flex items-end gap-2 px-2 py-1.5 flex-shrink-0 relative z-10" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
           <div className="relative flex-1 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-            <CommandSuggestions
-              value={textInput}
-              history={history}
-              commonCommands={COMMON_COMMANDS}
-              onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
-            />
+            {pathItems.length > 0 ? (
+              <PathSuggestion
+                items={pathItems}
+                onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
+              />
+            ) : (
+              <CommandSuggestions
+                value={textInput}
+                history={history}
+                commonCommands={COMMON_COMMANDS}
+                onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
+              />
+            )}
             {attachments.length > 0 && (
               <div className="flex gap-2 px-2 pt-2 overflow-x-auto">
                 {attachments.map((att) => (

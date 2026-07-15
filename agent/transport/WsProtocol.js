@@ -1,5 +1,6 @@
 import { BaseProtocol } from "./BaseProtocol.js";
 import { ADAPTER_STATE, CHANNELS } from "../lib/transportConstants.js";
+import { trace } from "../features/terminal/ptyTrace.js";
 
 /**
  * WsProtocol — server-side socket.io adapter.
@@ -42,6 +43,12 @@ export class WsProtocol extends BaseProtocol {
     const emit = this._socket._rawEmit || this._socket.emit.bind(this._socket);
     if (channel === CHANNELS.control) {
       const { event, args = [] } = payload;
+      if (event === "output") {
+        const wb = this._socket.conn?.writeBuffer;
+        const wbLen = Array.isArray(wb) ? wb.length : -1;
+        const transport = this._socket.conn?.transport;
+        trace("wsEmit", `buf=${wbLen} writable=${transport?.writable} sid=${args[0]?.sessionId?.slice?.(-6) || ""}`);
+      }
       emit(event, ...args);
       return true;
     }
