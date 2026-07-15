@@ -61,6 +61,7 @@ function searchInFilesRecursive(dir, baseDir, matcher, includeRe, excludeRe, res
     }
     if (!entry.isFile()) continue;
     if (isBinaryFile(entry.name)) continue;
+    if (isSensitivePath(fullPath)) continue;
     if (excludeRe && excludeRe.test(rel)) continue;
     if (includeRe && !includeRe.test(rel)) continue;
     try {
@@ -320,6 +321,7 @@ export function setupFileHandlers(socket) {
         try {
           if (!fs.existsSync(filePath)) continue;
           if (isBinaryFile(filePath)) continue;
+          if (isSensitivePath(filePath)) continue;
           const stat = fs.statSync(filePath);
           if (!stat.isFile() || stat.size > MAX_FILE_SIZE) continue;
           const content = fs.readFileSync(filePath, "utf-8");
@@ -393,12 +395,12 @@ export function setupFileHandlers(socket) {
       const platform = process.platform;
       let cmd, args, opts = { detached: true, stdio: "ignore", windowsHide: true };
       if (platform === "darwin") { cmd = "open"; args = ["-a", "Terminal", dirPath]; }
-      else if (platform === "win32") { cmd = "cmd"; args = ["/C", "start", "cmd", "/K", `cd /d "${dirPath}"`]; opts.shell = false; }
-      else { cmd = "gnome-terminal"; args = [`--working-directory=${dirPath}`]; }
+      else if (platform === "win32") { cmd = "cmd"; args = ["/C", "start", "\"9Remote\"", "cmd", "/K"]; opts.shell = false; opts.cwd = dirPath; }
+      else { cmd = "gnome-terminal"; args = ["--working-directory", dirPath]; }
       const child = spawn(cmd, args, opts);
       child.on("error", () => {
         if (platform === "linux") {
-          const fb = spawn("xterm", ["-e", `cd "${dirPath}" && bash`], opts);
+          const fb = spawn("xterm", ["-e", "bash"], { ...opts, cwd: dirPath });
           fb.on("error", (e) => callback({ success: false, error: e.message }));
           fb.unref();
         } else {

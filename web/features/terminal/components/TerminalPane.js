@@ -114,7 +114,7 @@ function TerminalPane({
     };
   }, [scrollCursorIntoView]);
 
-  const { termRef, cwdRef, cwd, termReady, doResize, focus, stopMomentum } = useXTerm({
+  const { termRef, cwdRef, cwd, termReady, doResize, focus, stopMomentum, historyFetching } = useXTerm({
     socket, sessionId, theme, isVisible, isFocused, containerRef,
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
@@ -250,6 +250,15 @@ function TerminalPane({
             ? { height: fixedHeight, minHeight: fixedHeight }
             : { height: "100%", minHeight: "100%" }}
         />
+
+        {historyFetching && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-2/80 backdrop-blur-sm shadow-md text-xs text-text-secondary">
+              <span className="w-3 h-3 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              Loading history…
+            </div>
+          </div>
+        )}
 
         {selection && (
           <SelectionActionButton

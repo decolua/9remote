@@ -30,12 +30,16 @@ const clients = new Set();
 
 // Constants
 const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB raw fallback per session
-const JOIN_REPLAY_SIZE = 256 * 1024; // 256KB tail on join — keep join latency low
+const JOIN_REPLAY_SIZE = 128 * 1024; // 128KB tail on join — older history fetched on scroll-up
+const HISTORY_CHUNK_SIZE = 64 * 1024; // 64KB per scroll-up fetch chunk
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
 
+// Buffer storage = Buffer[] (byte-accurate). The web mirror also counts BYTES, so total/have
+// stay consistent across CJK/emoji/ANSI output. (Previously string[] + char-length → offset
+// drift on multibyte → "load more" loaded wrong/duplicate segments.)
 // Walk chunks from the end — avoid joining full ≤2MB buffer just to keep a tail
 function takeBufferTail(chunks, maxLen) {
-  if (!chunks?.length || maxLen <= 0) return "";
+  if (!chunks?.length || maxLen <= 0) return Buffer.alloc(0);
   let remaining = maxLen;
   const parts = [];
   for (let i = chunks.length - 1; i >= 0 && remaining > 0; i--) {
@@ -44,12 +48,75 @@ function takeBufferTail(chunks, maxLen) {
       parts.push(chunk);
       remaining -= chunk.length;
     } else {
-      parts.push(chunk.slice(chunk.length - remaining));
+      parts.push(chunk.subarray(chunk.length - remaining));
       remaining = 0;
     }
   }
   parts.reverse();
-  return parts.join("");
+  return Buffer.concat(parts);
+}
+
+// Total byte length of a chunked Buffer[]
+function bufferTotal(chunks) {
+  if (!chunks?.length) return 0;
+  return chunks.reduce((sum, c) => sum + c.length, 0);
+}
+
+// Walk chunks from the start — used by requestHistory to send prefix older than the tail
+function takeBufferHead(chunks, maxLen) {
+  if (!chunks?.length || maxLen <= 0) return Buffer.alloc(0);
+  let remaining = maxLen;
+  const parts = [];
+  for (let i = 0; i < chunks.length && remaining > 0; i++) {
+    const chunk = chunks[i];
+    if (chunk.length <= remaining) {
+      parts.push(chunk);
+      remaining -= chunk.length;
+    } else {
+      parts.push(chunk.subarray(0, remaining));
+      remaining = 0;
+    }
+  }
+  return Buffer.concat(parts);
+}
+
+// Return up to chunkLen bytes ending at (total - haveFromEnd), i.e. the slice just before the
+// tail the client already holds. The raw slice may start mid-ANSI-sequence/mid-UTF8 → xterm
+// parser chokes. Align the START to the next '\n' after the raw start so every chunk begins at
+// a line boundary (ANSI sequences rarely span '\n'). The trimmed head is folded back into the
+// remaining history (reported via ackRemaining) so the next fetch covers it.
+function takeBufferRange(chunks, haveFromEnd, chunkLen) {
+  if (!chunks?.length || chunkLen <= 0) return { prefix: Buffer.alloc(0), trimmed: 0 };
+  const total = bufferTotal(chunks);
+  const endExclusive = total - Math.max(0, Math.min(haveFromEnd, total)); // absolute end offset
+  let start = endExclusive - chunkLen;
+  if (start < 0) { chunkLen += start; start = 0; }
+  if (chunkLen <= 0) return { prefix: Buffer.alloc(0), trimmed: 0 };
+
+  // Walk forward accumulating byte offset until we reach `start`, then collect chunkLen bytes.
+  let offset = 0;
+  const parts = [];
+  for (let i = 0; i < chunks.length && chunkLen > 0; i++) {
+    const chunk = chunks[i];
+    const next = offset + chunk.length;
+    if (next <= start) { offset = next; continue; }
+    if (offset >= endExclusive) break;
+    const localStart = Math.max(0, start - offset);
+    const take = Math.min(chunkLen, chunk.length - localStart);
+    parts.push(chunk.subarray(localStart, localStart + take));
+    chunkLen -= take;
+    offset = next;
+  }
+  let raw = Buffer.concat(parts);
+
+  // Align start to the next '\n' (0x0A) so we don't begin mid-line/mid-sequence.
+  let trimmed = 0;
+  const nl = raw.indexOf(0x0a);
+  if (nl > 0 && nl < raw.length - 1) {
+    trimmed = nl + 1;
+    raw = raw.subarray(trimmed);
+  }
+  return { prefix: raw, trimmed };
 }
 
 // DEC private modes we restore on replay — alt buffer + mouse tracking/encoding
@@ -252,7 +319,9 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
 
     // Buffer output and broadcast to clients
     ptyProcess.onData((data) => {
-      session.buffer.push(data);
+      // Store as Buffer (byte-accurate) — web mirror counts bytes, so total/have stay
+      // consistent across CJK/emoji. applyModes + OSC 7 parse keep using the raw `data` string.
+      session.buffer.push(Buffer.from(data, "utf-8"));
       // Track terminal modes (alt buffer, mouse) so reconnect replay can restore them
       applyModes(session.modes, data);
       // Track live cwd from OSC 7 escape: \e]7;file://host/path\a (or ST terminator)
@@ -265,8 +334,8 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
           broadcast({ type: "cwdChange", sessionId, cwd: next });
         }
       }
-      // Trim by char length keeping the tail — avoids cutting whole chunks mid-ANSI
-      let totalSize = session.buffer.reduce((sum, chunk) => sum + chunk.length, 0);
+      // Trim by BYTE length keeping the tail — avoids cutting whole chunks mid-ANSI/mid-UTF8
+      const totalSize = bufferTotal(session.buffer);
       if (totalSize > MAX_BUFFER_SIZE) {
         session.buffer = [takeBufferTail(session.buffer, MAX_BUFFER_SIZE)];
       }
@@ -343,16 +412,49 @@ function handleMessage(client, message) {
       }
       // Replay only tail of buffered output to avoid network burst on join
       const history = takeBufferTail(session.buffer, JOIN_REPLAY_SIZE);
-      if (history) {
+      if (history && history.length) {
         send(client, {
           type: "output",
           sessionId,
           enc: "b64",
-          data: Buffer.from(history).toString("base64")
+          data: history.toString("base64")
         });
       }
-      send(client, { type: "joinResult", success: true, name: session.name, cwd: session.cwd, shellId: session.shellId, shellLabel: session.shellLabel, requestId: payload.requestId });
+      // total = bytes agent still holds; web uses it to know the older-history ceiling
+      const joinTotal = bufferTotal(session.buffer);
+      send(client, { type: "joinResult", success: true, name: session.name, cwd: session.cwd, shellId: session.shellId, shellLabel: session.shellLabel, total: joinTotal, replaySize: history ? history.length : 0, requestId: payload.requestId });
       break;
+
+    case "requestHistory": {
+      // Client scrolled to top → return a CHUNK of bytes just before the bytes it holds.
+      // have = bytes the client currently has (its tail). We return the newest older chunk:
+      // buffer[total-have-chunkLen .. total-have]. Client splices it before its mirror and
+      // replays, then re-requests for the next older chunk. Prefix travels in the ack (not a
+      // broadcast output) so only the requesting socket receives it.
+      const hSession = sessions.get(sessionId);
+      if (!hSession) {
+        send(client, { type: "historyResult", success: false, error: "Session not found", requestId: payload.requestId });
+        return;
+      }
+      const total = bufferTotal(hSession.buffer);
+      const have = Math.max(0, Math.min(payload.have || 0, total));
+      const remaining = total - have;          // bytes older than what client holds
+      const chunkLen = Math.min(HISTORY_CHUNK_SIZE, remaining);
+      const { prefix, trimmed } = chunkLen > 0 ? takeBufferRange(hSession.buffer, have, chunkLen) : { prefix: Buffer.alloc(0), trimmed: 0 };
+      send(client, {
+        type: "historyResult",
+        success: true,
+        sessionId,
+        enc: "b64",
+        prefix: prefix && prefix.length ? prefix.toString("base64") : "",
+        prefixLen: prefix ? prefix.length : 0,
+        total,
+        // remaining = older bytes not yet sent. trimmed (line-align head) stays unsent → add back.
+        remaining: Math.max(0, remaining - prefix.length - trimmed) + trimmed,
+        requestId: payload.requestId
+      });
+      break;
+    }
 
     case "input":
       const inputSession = sessions.get(sessionId);

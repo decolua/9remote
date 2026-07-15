@@ -2,6 +2,7 @@ import { TUNNEL_HEALTH, SERVER_PORT } from "../../lib/constants.js";
 import { probeTunnelOnce, flushWinDns } from "./dnsProbe.js";
 import { createLogger } from "../../lib/logger.js";
 import { HEALTH_FLAP_STABLE_CHECKS } from "../config.js";
+import { resolveLocalHost } from "../core/localApi.js";
 
 const logger = createLogger("tunnel");
 
@@ -14,7 +15,8 @@ let paused = false;
 
 async function pushState(data) {
   try {
-    await fetch(`http://localhost:${SERVER_PORT}/api/ui/state`, {
+    const host = await resolveLocalHost();
+    await fetch(`http://${host}:${SERVER_PORT}/api/ui/state`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),

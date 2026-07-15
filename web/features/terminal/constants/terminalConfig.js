@@ -33,6 +33,15 @@ export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (table
 export const PANE_MIN_WIDTH = 500; // px, min width per terminal pane on desktop
 export const MAX_LIVE_PANES = 12; // Max mounted XTerm panes kept alive (LRU); caps RAM
 
+// Scrollback history fetch — join sends only JOIN_REPLAY_SIZE tail; older history
+// fetched on demand when user scrolls near top (primary buffer only).
+export const HISTORY_FETCH = {
+  topThresholdLines: 5,    // within N lines of buffer top → fetch older prefix
+  guardMs: 2000,           // min interval between scroll-top fetches (anti-spam + visible loading)
+  minFetchBytes: 256,      // skip fetch when fewer bytes remain — a few stray ANSI bytes aren't worth a full mirror reset+rewrite that yanks the viewport
+  disabled: false          // global kill switch (e.g. alt-buffer apps)
+};
+
 // Attachments pasted/attached into the terminal input, sent via OS clipboard on the host
 export const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5MB per attachment
 export const MAX_ATTACHMENTS = 5; // cap concurrent attachments per send
@@ -75,7 +84,7 @@ export const TOUCH_SCROLL = {
   sensitivity: 1.0, // 1:1 finger-to-content drag
   friction: 0.95, // inertia glide (~native iOS)
   minVelocity: 0.3,
-  maxVelocity: 35, // cap inertia so a hard flick doesn't pile up SGR/render frames in TUI
+  maxVelocity: 55, // cap inertia so a hard flick doesn't pile up SGR/render frames in TUI
   wheelStepLines: 1, // max TUI wheel notches per scroll step
   tuiThrottleMs: 50, // min interval between SGR wheel events (≈ PC wheel cadence)
   momentumRenderCadenceMs: 33, // throttle scrollback repaint during inertia (~30fps)

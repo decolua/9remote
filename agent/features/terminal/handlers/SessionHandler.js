@@ -227,7 +227,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
         const result = await daemonClient.joinSession(sessionId);
         // Persist live cwd (user may have cd'd) — agent is source of truth
         if (result.cwd && result.cwd !== session.cwd) { session.cwd = result.cwd; saveSessionMetadata(sessions); }
-        callback({ success: result.success, name: session.name, cwd: result.cwd || session.cwd, error: result.error });
+        callback({ success: result.success, name: session.name, cwd: result.cwd || session.cwd, total: result.total || 0, replaySize: result.replaySize || 0, error: result.error });
       } catch (e) {
         callback({ success: false, error: e.message });
       }
@@ -261,6 +261,24 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
       socket.emit("output", { sessionId, data: Buffer.from(takeBufferTail(session.buffer, JOIN_REPLAY_SIZE), "utf-8") });
     }
     callback({ success: true, name: session.name, cwd: session.cwd });
+  });
+
+  // Scroll-up history fetch — client asks for the prefix older than the bytes it holds.
+  // Emit prefix ONLY to the requesting socket (not broadcast) so other clients keep their stream intact.
+  socket.on("requestHistory", async ({ sessionId, have } = {}, callback) => {
+    const session = sessions.get(sessionId);
+    if (!session) return callback?.({ success: false, error: "Session not found" });
+    if (!session.daemon || !daemonClient.isConnected()) return callback?.({ success: false, error: "History unavailable" });
+    try {
+      const result = await daemonClient.requestHistory(sessionId, have || 0);
+      if (!result.success) return callback?.({ success: false, error: result.error });
+      if (result.prefix) {
+        socket.emit("output", { sessionId, enc: "b64", isHistoryPrefix: true, data: result.prefix });
+      }
+      callback?.({ success: true, prefixLen: result.prefixLen || 0, total: result.total || 0, remaining: result.remaining || 0 });
+    } catch (e) {
+      callback?.({ success: false, error: e.message });
+    }
   });
 
   socket.on("deleteSession", async (sessionId, callback) => {

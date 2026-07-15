@@ -14,6 +14,19 @@ function run(cmd, args, input) {
   });
 }
 
+// Capture stdout of a command as a string (for reading clipboard text)
+function runText(cmd, args) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    if (p.stdout) p.stdout.on("data", (d) => { out += d.toString(); });
+    if (p.stderr) p.stderr.on("data", (d) => { err += d.toString(); });
+    p.on("error", reject);
+    p.on("close", (code) => (code === 0 ? resolve(out) : reject(new Error(err.trim() || `${cmd} exited ${code}`))));
+  });
+}
+
 const isImage = (type) => typeof type === "string" && type.startsWith("image/");
 
 // Per-OS: put an image (pixel data) vs a file reference onto the system clipboard.
@@ -38,4 +51,32 @@ export async function setClipboardFromFile(filePath, type) {
   const handlers = PLATFORM[process.platform];
   if (!handlers) throw new Error(`clipboard unsupported on ${process.platform}`);
   return isImage(type) ? handlers.image(filePath) : handlers.file(filePath);
+}
+
+// Per-OS text clipboard read/write for 2-way clipboard sync.
+const TEXT_PLATFORM = {
+  darwin: {
+    get: () => runText("pbpaste", []),
+    set: (text) => run("pbcopy", [], text)
+  },
+  linux: {
+    get: () => runText("xclip", ["-selection", "clipboard", "-o"]),
+    set: (text) => run("xclip", ["-selection", "clipboard"], text)
+  },
+  win32: {
+    get: () => runText("powershell.exe", ["-NonInteractive", "-NoProfile", "-STA", "-Command", "Get-Clipboard -Raw"]),
+    set: (text) => run("powershell.exe", ["-NonInteractive", "-NoProfile", "-STA", "-Command", `$Input | Set-Clipboard`], text)
+  }
+};
+
+export async function getClipboardText() {
+  const ops = TEXT_PLATFORM[process.platform];
+  if (!ops) throw new Error(`clipboard unsupported on ${process.platform}`);
+  return (await ops.get()).replace(/\r\n/g, "\n");
+}
+
+export async function setClipboardText(text) {
+  const ops = TEXT_PLATFORM[process.platform];
+  if (!ops) throw new Error(`clipboard unsupported on ${process.platform}`);
+  return ops.set(text);
 }

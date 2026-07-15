@@ -7,17 +7,38 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
-import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH } from "@/features/terminal/constants/terminalConfig";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 // import { detectLinks } from "@/features/terminal/utils/linkDetector";
 
 // Write output directly — xterm ANSI parse is cheap (~3ms/MB); chunking via rAF only adds latency.
-function writeChunked(term, data) {
+// mirror/mirrorBytes: refs to accumulate raw bytes for scroll-up history replay (null = skip mirroring).
+function writeChunked(term, data, mirror, mirrorBytes) {
   if (!term || term._core?._isDisposed) return;
   term.write(data);
+
+  // Mirror output for history replay — keep raw bytes (Uint8Array/string) so we can splice prefix later.
+  if (mirror) {
+    if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+      const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
+      mirror.current.push(chunk);
+      mirrorBytes.current += chunk.length; // Uint8Array.length === byteLength ✓
+    } else if (typeof data === "string") {
+      mirror.current.push(data);
+      // Count BYTES not UTF-16 code units — multibyte (CJK/emoji) must match daemon's byte total.
+      mirrorBytes.current += BufferLikeByteLength(data);
+    }
+  }
 }
 
-// XTerm instance management hook
+// Byte length of a string in UTF-8 — matches the daemon's Buffer byte count so `have`/`total`
+// stay consistent across multibyte output. Uses TextEncoder (browser) or Buffer (node).
+const _utf8Encoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+function BufferLikeByteLength(str) {
+  if (!str) return 0;
+  if (_utf8Encoder) return _utf8Encoder.encode(str).length;
+  return Buffer.byteLength(str, "utf-8"); // node fallback
+}
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
 export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, containerRef, onInput, onSelectionMade }) {
@@ -40,6 +61,18 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
   // Last PTY size sent — skip emit when fit yields same cols/rows (soft-KB with fixed pane height)
   const lastPtySizeRef = useRef(null);
+
+  // Scrollback history mirror — raw bytes written to XTerm, so we can replay after
+  // fetching an older prefix on scroll-up. have = bytes currently mirrored.
+  const historyMirrorRef = useRef([]); // array of Uint8Array/string chunks
+  const historyBytesRef = useRef(0);   // total mirrored bytes
+  const historyTotalRef = useRef(0);   // bytes agent reports holding (ceiling)
+  const historyFetchingRef = useRef(false); // in-flight requestHistory
+  const historyLastFetchRef = useRef(0);    // timestamp of last fetch (guard)
+  const scrollDisposeRef = useRef(null);    // disposable from term.onScroll
+  const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
+  const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers in other effects
+  const userAtTopRef = useRef(false); // set true only when user actively scrolls up to top (not mount transient)
 
   // Resize with debounce singleton - uses rAF to ensure layout is stable
   // Always re-fit canvas; skip PTY emit only when size unchanged AND not forced (soft-KB/tab dup guard).
@@ -160,6 +193,89 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     const resizeObserver = new ResizeObserver(() => doResizeRef.current?.());
     resizeObserver.observe(containerRef.current);
 
+    // Replay full mirror after prepending an older-history prefix (scroll-up fetch).
+    // xterm has no prepend API → reset + rewrite. ANSI is stateful so we must replay all.
+    const replayWithPrefix = (prefixData) => {
+      // Prepend prefix chunk to the mirror
+      let prefixChunk;
+      if (prefixData instanceof ArrayBuffer || ArrayBuffer.isView(prefixData)) {
+        prefixChunk = prefixData instanceof Uint8Array ? prefixData : new Uint8Array(prefixData);
+      } else {
+        prefixChunk = String(prefixData);
+      }
+      // Preserve the user's current viewport row: after replay, the older chunk sits above,
+      // so the same content is now at (oldViewportY + actualChunkLines). We MEASURE the chunk's
+      // real line count (baseY after write − baseY before reset) instead of estimating from bytes
+      // — ANSI escapes + wide-char wrapping make byte/cols estimates wildly wrong → viewport jump.
+      const oldViewportY = term.buffer.active.viewportY;
+      const baseYBefore = term.buffer.active.baseY;
+      const chunkLen = typeof prefixChunk === "string" ? BufferLikeByteLength(prefixChunk) : prefixChunk.byteLength;
+
+      // Empty prefix (daemon had <1 line older than what we hold) — don't reset+rewrite the
+      // whole mirror just to add nothing; that yanks the viewport for no content gain.
+      if (chunkLen === 0) {
+        historyFetchingRef.current = false;
+        setHistoryFetching(false);
+        return;
+      }
+
+      historyMirrorRef.current.unshift(prefixChunk);
+      historyBytesRef.current += chunkLen;
+
+      // xterm only auto-scrolls to bottom on write when the viewport is already at the bottom.
+      // After reset+write the viewport lands at the bottom (newest). To keep the user's prior
+      // position, scroll back up by (actualChunkLines) via scrollLines — it goes through xterm's
+      // normal user-scroll path (no _sync override like scrollToLine).
+      term.reset();
+      const decoder = new TextDecoder();
+      const parts = historyMirrorRef.current.map((c) =>
+        typeof c === "string" ? c : decoder.decode(c, { stream: true })
+      );
+      term.write(parts.join(""), () => {
+        requestAnimationFrame(() => {
+          // baseY now reflects the full replayed buffer. actualChunkLines = how many lines the
+          // prefix added (measured, not estimated) → exact viewport preservation.
+          const baseYAfter = term.buffer.active.baseY;
+          const actualChunkLines = Math.max(0, baseYAfter - baseYBefore);
+          const target = Math.max(0, Math.min(oldViewportY + actualChunkLines, baseYAfter));
+          const delta = target - baseYAfter; // negative → scroll up
+          if (delta < 0) term.scrollLines(delta);
+          historyFetchingRef.current = false;
+          setHistoryFetching(false);
+        });
+      });
+    };
+
+    // Detect scroll near top (primary buffer only) → fetch older history chunk from agent.
+    const maybeFetchHistory = () => {
+      const buf = term.buffer.active;
+      if (HISTORY_FETCH.disabled) return;
+      if (historyFetchingRef.current) return;
+      if (buf.type === "alternate") return;
+      if (historyTotalRef.current <= 0) return;
+      // Skip when fewer than minFetchBytes remain — a few stray bytes (live output that landed
+      // between fetches) aren't worth a full mirror reset+rewrite, which yanks the viewport.
+      if (historyTotalRef.current - historyBytesRef.current < HISTORY_FETCH.minFetchBytes) return;
+      const now = Date.now();
+      if (now - historyLastFetchRef.current < HISTORY_FETCH.guardMs) return;
+      // Only fetch when the user actively scrolled to top — viewportY is transiently 0 right
+      // after mount/write, so relying on it alone would fire a fetch on every F5.
+      if (!userAtTopRef.current) return;
+      if (buf.viewportY > HISTORY_FETCH.topThresholdLines) { userAtTopRef.current = false; return; }
+
+      historyFetchingRef.current = true;
+      historyLastFetchRef.current = now;
+      setHistoryFetching(true);
+      socket.emit("requestHistory", { sessionId, have: historyBytesRef.current }, (result) => {
+        if (!result || !result.success) { historyFetchingRef.current = false; setHistoryFetching(false); return; }
+        if (!result.prefixLen) { historyFetchingRef.current = false; setHistoryFetching(false); }
+        historyTotalRef.current = result.total || historyTotalRef.current;
+      });
+    };
+    scrollDisposeRef.current = term.onScroll(maybeFetchHistory);
+    term.textarea?.addEventListener("keyup", maybeFetchHistory);
+    maybeFetchHistoryRef.current = maybeFetchHistory;
+
     // Output handler - filter by sessionId
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
@@ -174,12 +290,21 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       }
       awaitingTuiOutputRef.current = false; // SGR round-trip done → resume TUI scroll
 
+      // Older-than-tail prefix (scroll-up fetch): splice before mirror, reset+replay once.
+      if (payload.isHistoryPrefix) {
+        replayWithPrefix(data);
+        return;
+      }
+
+      // Live output arrives → user is effectively at bottom; clear the user-scrolled-to-top flag.
+      userAtTopRef.current = false;
+
       if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-        writeChunked(term, data instanceof Uint8Array ? data : new Uint8Array(data));
+        writeChunked(term, data instanceof Uint8Array ? data : new Uint8Array(data), historyMirrorRef, historyBytesRef);
       } else if (typeof data === "string") {
-        writeChunked(term, data);
+        writeChunked(term, data, historyMirrorRef, historyBytesRef);
       } else {
-        writeChunked(term, String(data));
+        writeChunked(term, String(data), historyMirrorRef, historyBytesRef);
       }
     };
     socket.on("output", handleOutput);
@@ -193,8 +318,16 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
     // Join session and replay scrollback buffer from daemon
     const doJoinSession = (isRejoin = false) => {
+      // Reset history mirror — rejoin starts fresh with the tail replay.
+      historyMirrorRef.current = [];
+      historyBytesRef.current = 0;
+      historyTotalRef.current = 0;
+      historyFetchingRef.current = false;
+      userAtTopRef.current = false;
       socket.emit("joinSession", sessionId, (result) => {
         if (result.success) {
+          // total = bytes agent holds; ceiling for scroll-up fetch.
+          historyTotalRef.current = result.total || 0;
           if (result.cwd) { cwdRef.current = result.cwd; setCwd(result.cwd); useTerminalStore.getState().setCwd(sessionId, result.cwd); }
           setTimeout(() => {
             // WebGL renderer applied by the webglEnabled watch effect below; just fit.
@@ -234,6 +367,8 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       socket.off("connect", handleReconnect);
       socket.off("output", handleOutput);
       socket.off("cwdChange", handleCwdChange);
+      if (scrollDisposeRef.current) scrollDisposeRef.current.dispose();
+      term.textarea?.removeEventListener("keyup", maybeFetchHistory);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       if (webglAddonRef.current) webglAddonRef.current.dispose();
@@ -363,6 +498,15 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
         }
       } else {
         t.scrollLines(Math.max(-MAX_LINES_PER_FRAME, Math.min(MAX_LINES_PER_FRAME, lines)));
+        // B3: touch scroll up near top must trigger history fetch — wheel handler sets userAtTopRef,
+        // but touch path (applyScroll) never did, so mobile users couldn't load older history.
+        if (lines < 0) {
+          const buf = t.buffer.active;
+          if (buf.viewportY <= HISTORY_FETCH.topThresholdLines) {
+            userAtTopRef.current = true;
+            maybeFetchHistoryRef.current?.();
+          }
+        }
       }
     };
 
@@ -383,15 +527,16 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
       const isAlt = termRef.current.buffer?.active?.type === "alternate";
       const now = performance.now();
-      // Decay velocity every frame consistently — gates below only control apply, not decay
-      velocity *= FRICTION;
 
       // TUI backpressure (RTT-aware, with timeout safety for non-responsive TUIs)
       const tuiBusy = isAlt && awaitingTuiOutputRef.current && now - lastSgrAt < TUI_BACKPRESSURE_TIMEOUT_MS;
       // Scrollback render cadence: cap repaint to ~30fps during inertia
       const cadenceDue = !isAlt && now - lastScrollAt >= MOMENTUM_CADENCE_MS;
 
+      // Decay at the apply timestep, not per-rAF — otherwise scrollback (apply every 33ms)
+      // loses 2x velocity between applies and the glide dies early. TUI always applies → unchanged.
       if (!tuiBusy && (isAlt || cadenceDue)) {
+        velocity *= FRICTION;
         accumulated += velocity;
         const lines = Math.trunc(accumulated / LINE_HEIGHT);
         if (lines !== 0) {
@@ -545,12 +690,24 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     xtermScreen.addEventListener("touchmove", handleTouchMove, { passive: false });
     xtermScreen.addEventListener("touchend", handleTouchEnd, { passive: true });
 
+    // Desktop wheel — when scrolled to top, fetch older history chunk
+    const handleWheel = (e) => {
+      const t = termRef.current;
+      if (!t) return;
+      if (e.deltaY < 0 && t.buffer.active.viewportY <= HISTORY_FETCH.topThresholdLines) {
+        userAtTopRef.current = true;
+        maybeFetchHistoryRef.current?.();
+      }
+    };
+    xtermScreen.addEventListener("wheel", handleWheel, { passive: true });
+
     return () => {
       stopMomentum();
       clearTimeout(longPressTimer);
       xtermScreen.removeEventListener("touchstart", handleTouchStart);
       xtermScreen.removeEventListener("touchmove", handleTouchMove);
       xtermScreen.removeEventListener("touchend", handleTouchEnd);
+      xtermScreen.removeEventListener("wheel", handleWheel);
     };
   }, [termReady, isVisible]);
 
@@ -561,6 +718,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     termReady,
     doResize,
     focus: () => termRef.current?.focus(),
-    stopMomentum: () => stopMomentumRef.current?.()
+    stopMomentum: () => stopMomentumRef.current?.(),
+    historyFetching // true while an older-history chunk is in flight
   };
 }

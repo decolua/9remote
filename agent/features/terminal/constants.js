@@ -1,5 +1,6 @@
 // Daemon protocol/code version — bump only when daemon behavior changes (independent of CLI version)
-export const DAEMON_VERSION = "28";
+// v31: buffer storage string[]→Buffer[] (byte-accurate offsets for scroll-up history fetch).
+export const DAEMON_VERSION = "32";
 
 // Shell options for terminal sessions
 export const SHELL_OPTIONS = {

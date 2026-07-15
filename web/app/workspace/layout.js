@@ -8,6 +8,7 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
+import { useClipboardSocket } from "@/features/clipboard/hooks/useClipboardSocket";
 import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
 import { useNotification } from "@/shared/hooks/useNotification";
 import { updateTitle } from "@/shared/utils/titleMarquee";
@@ -85,6 +86,7 @@ export default function WorkspaceLayout({ children }) {
     getShells((res) => { if (res?.shells) setShells(res.shells); });
   }, [connected, getShells]);
   const fileSocket = useFileSocket(socketRef);
+  useClipboardSocket(socketRef, connected);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
 
   // Reflect unseen finished-terminal count in browser tab title (marquee)

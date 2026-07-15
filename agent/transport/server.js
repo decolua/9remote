@@ -10,6 +10,7 @@ import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { setupTerminalSocket, setupTerminalHandlers } from "../features/terminal/terminalSocket.js";
 import { checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerHandlers } from "../features/fileExplorer/fileExplorerSocket.js";
+import { setupClipboardHandlers } from "../features/clipboard/clipboardSocket.js";
 import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey, pushUiEvent, setRemoteAvailable } from "../api/ui.js";
 import {
   loadApprovedDevices,
@@ -54,6 +55,7 @@ async function setupSocketFeatures(socket) {
   }
   await attachTransportBus(socket);
   setupFileExplorerHandlers(socket);
+  setupClipboardHandlers(socket);
   await setupTerminalHandlers(socket, ioInstance, loadApiKey());
 }
 

@@ -1,9 +1,10 @@
 import fs from "fs";
 import path from "path";
-import { execSync, spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { BINARY_EXTENSIONS, MAX_FILE_SIZE, DEFAULT_GIT_LOG_LIMIT } from "../constants.js";
+import { isSensitivePath } from "../pathGuard.js";
 
-function runGit(args, cwd) {
+export function runGit(args, cwd) {
   return new Promise((resolve) => {
     const child = spawn("git", args, { cwd, windowsHide: true });
     let stdout = "", stderr = "";
@@ -12,6 +13,15 @@ function runGit(args, cwd) {
     child.on("error", (e) => resolve({ code: -1, stdout, stderr: e.message }));
     child.on("close", (code) => resolve({ code, stdout, stderr }));
   });
+}
+
+// Sync no-shell git for legacy sync handlers. args is an argv array (never a template
+// string) so socket-controlled paths cannot inject shell metacharacters.
+export function runGitSync(args, cwd) {
+  try {
+    const r = spawnSync("git", args, { cwd, encoding: "utf-8", windowsHide: true });
+    return r.stdout ?? "";
+  } catch { return ""; }
 }
 
 function isBinaryFile(filename) {
@@ -62,7 +72,7 @@ export function setupGitHandlers(socket) {
         if (status === "?") {
           try {
             const fullPath = path.join(repoPath, filePath);
-            if (fs.existsSync(fullPath) && !isBinaryFile(filePath)) {
+            if (fs.existsSync(fullPath) && !isBinaryFile(filePath) && !isSensitivePath(fullPath)) {
               const content = fs.readFileSync(fullPath, "utf-8");
               stats.added = content.split("\n").length;
               stats.deleted = 0;
@@ -95,9 +105,7 @@ export function setupGitHandlers(socket) {
   socket.on("gitFileStatus", ({ repoPath, filePath }, callback) => {
     try {
       const relativePath = path.relative(repoPath, filePath);
-      const result = execSync(`git status --porcelain -- "${relativePath}"`, {
-        cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true
-      });
+      const result = runGitSync(["status", "--porcelain", "--", relativePath], repoPath);
 
       const line = result.trim();
       if (!line) return callback({ success: true, status: null });
@@ -126,24 +134,24 @@ export function setupGitHandlers(socket) {
 
       if (file && status === "?") {
         const filePath = path.join(repoPath, file);
-        if (fs.existsSync(filePath)) {
+        if (fs.existsSync(filePath) && !isSensitivePath(filePath)) {
           const content = fs.readFileSync(filePath, "utf-8");
           const lines = content.split("\n");
           diff = `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${lines.length} @@\n${lines.map(l => `+${l}`).join("\n")}`;
         }
       } else if (file) {
-        diff = execSync(`git diff HEAD -- "${file}"`, { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+        diff = runGitSync(["diff", "HEAD", "--", file], repoPath);
       } else {
-        diff = execSync("git diff HEAD", { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+        diff = runGitSync(["diff", "HEAD"], repoPath);
 
-        const statusResult = execSync("git status --porcelain", { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+        const statusResult = runGitSync(["status", "--porcelain"], repoPath);
         const untrackedFiles = statusResult.trim().split("\n")
           .filter(line => line.startsWith("??"))
           .map(line => line.substring(3));
 
         for (const untrackedFile of untrackedFiles) {
           const filePath = path.join(repoPath, untrackedFile);
-          if (fs.existsSync(filePath) && !isBinaryFile(untrackedFile)) {
+          if (fs.existsSync(filePath) && !isBinaryFile(untrackedFile) && !isSensitivePath(filePath)) {
             try {
               const stat = fs.statSync(filePath);
               if (stat.size <= MAX_FILE_SIZE) {
@@ -243,16 +251,18 @@ export function setupGitHandlers(socket) {
       if (!file) return callback({ success: false, error: "No file specified" });
       const filePath = path.join(repoPath, file);
 
+      if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
+
       if (status === "?") {
         if (fs.existsSync(filePath)) {
           const stat = fs.statSync(filePath);
           stat.isDirectory() ? fs.rmSync(filePath, { recursive: true }) : fs.unlinkSync(filePath);
         }
       } else if (status === "A") {
-        execSync(`git reset HEAD -- "${file}"`, { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        runGitSync(["reset", "HEAD", "--", file], repoPath);
+        if (fs.existsSync(filePath) && !isSensitivePath(filePath)) fs.unlinkSync(filePath);
       } else {
-        execSync(`git checkout HEAD -- "${file}"`, { cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+        runGitSync(["checkout", "HEAD", "--", file], repoPath);
       }
 
       callback({ success: true });

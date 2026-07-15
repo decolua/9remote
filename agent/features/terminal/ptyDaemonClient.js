@@ -611,6 +611,12 @@ export async function joinSession(sessionId) {
   return result;
 }
 
+// Fetch older-than-tail prefix when web scrolls to top. have = bytes web already holds.
+export async function requestHistory(sessionId, have) {
+  const result = await request({ type: "requestHistory", sessionId, have });
+  return result;
+}
+
 /**
  * Send input to session
  */

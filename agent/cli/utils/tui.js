@@ -8,6 +8,7 @@ import http from "http";
 import { openPermissionPane } from "./permissions.js";
 import { computeDelay } from "./backoff.js";
 import { RETRY_CONFIG, NPM_INSTALL_SPEC } from "../../lib/constants.js";
+import { resolveLocalHost } from "../core/localApi.js";
 
 export { openPermissionPane };
 
@@ -429,9 +430,10 @@ export function subscribeSSE(port, onEvent) {
     idleTimer = setTimeout(() => { try { req?.destroy(); } catch {} }, IDLE_MS);
   };
 
-  const connect = () => {
+  const connect = async () => {
     if (closed) return;
-    req = http.get(`http://localhost:${port}/api/ui/events`, (res) => {
+    const host = await resolveLocalHost();
+    req = http.get(`http://${host}:${port}/api/ui/events`, (res) => {
       let buf = "";
       armIdle();
       res.on("data", (chunk) => {

@@ -5,21 +5,39 @@ import { renderProgress, updateProgressDesc } from "../utils/tui.js";
 let isTuiActive = false;
 export function setTuiActive(v) { isTuiActive = v; }
 
+// Probe both families in parallel (Ubuntu/glibc may resolve localhost → ::1 first),
+// prefer localhost when both live, cache winner. Reset on failure so we retry next call.
+let cachedHost = null;
+async function resolveLocalHost() {
+  if (cachedHost) return cachedHost;
+  const probe = (h) =>
+    fetch(`http://${h}:${SERVER_PORT}/api/health`, { signal: AbortSignal.timeout(2000) })
+      .then((r) => (r.ok ? h : Promise.reject()));
+  const results = await Promise.allSettled(["localhost", "127.0.0.1"].map(probe));
+  const live = results.map((r, i) => (r.status === "fulfilled" ? ["localhost", "127.0.0.1"][i] : null));
+  cachedHost = live.find((h) => h === "localhost") || live.find(Boolean) || null;
+  return cachedHost || "127.0.0.1";
+}
+
+function bumpHostOnFail() { cachedHost = null; }
+
 export async function apiPost(path, data) {
+  const host = await resolveLocalHost();
   try {
-    return await fetch(`http://localhost:${SERVER_PORT}${path}`, {
+    return await fetch(`http://${host}:${SERVER_PORT}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-  } catch { return null; }
+  } catch { bumpHostOnFail(); return null; }
 }
 
 export async function apiGet(path) {
+  const host = await resolveLocalHost();
   try {
-    const res = await fetch(`http://localhost:${SERVER_PORT}${path}`);
+    const res = await fetch(`http://${host}:${SERVER_PORT}${path}`);
     return res.ok ? await res.json() : null;
-  } catch { return null; }
+  } catch { bumpHostOnFail(); return null; }
 }
 
 export async function pushUiState(data) {
