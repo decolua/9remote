@@ -110,7 +110,8 @@ export const useTerminalStore = create(
         openedSessions: state.openedSessions,
         activeGroupId: state.activeGroupId,
         collapsedGroups: state.collapsedGroups,
-        webglEnabled: state.webglEnabled
+        webglEnabled: state.webglEnabled,
+        fontSize: state.fontSize
       }),
       storage: {
         getItem: (name) => {

@@ -82,7 +82,7 @@ export default {
     webglHint: "Turn off if text looks wrong",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
-    sites: "Workspaces",
+    sites: "Local Sites",
     terminalSettings: "Terminal",
     fontSize: "Font Size",
     commandNotes: "Command Notes",
