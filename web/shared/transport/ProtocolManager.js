@@ -1,7 +1,7 @@
 import { WsProtocol } from "./WsProtocol";
 import { WebRtcProtocol } from "./WebRtcProtocol";
 import { registerProtocol, getProtocol } from "./registry";
-import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE } from "@/shared/constants/transport";
+import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_RESTART } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 
 // Auto-register built-in adapters
@@ -47,7 +47,13 @@ export class ProtocolManager {
     this._listeners = new Map();  // event → Set<handler>
     this._buffer = [];            // pending control sends when no adapter ready
     this._pendingAcks = new Map(); // ackId → callback (RTC ack)
+    this._ackTimers = new Map();  // ackId → timeout (zombie detection)
     this._ackSeq = 0;
+
+    // RTC zombie recovery — restart with backoff when acks time out (dead-but-open DC)
+    this._rtcRestartAttempts = 0;
+    this._rtcRestartTimer = null;
+    this._ackTimeoutMs = RTC_RESTART.ackTimeoutMs;
 
     this._connected = false;
     this._type = "ws";
@@ -200,6 +206,12 @@ export class ProtocolManager {
     this._buffer = [];
     this._connected = false;
     this._rawSocket = null;
+    // Clear RTC zombie recovery state
+    clearTimeout(this._rtcRestartTimer);
+    this._rtcRestartTimer = null;
+    this._rtcRestartAttempts = 0;
+    for (const t of this._ackTimers.values()) clearTimeout(t);
+    this._ackTimers.clear();
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────────
@@ -264,6 +276,10 @@ export class ProtocolManager {
 
     if (adapterId === "rtc" && state === ADAPTER_STATE.open) {
       this._rtcCallbacks.onUpgrade?.(this._adapters.get("rtc")?.typeDetail || "dc-stun");
+      // Successful RTC open → reset zombie recovery attempts
+      this._rtcRestartAttempts = 0;
+      clearTimeout(this._rtcRestartTimer);
+      this._rtcRestartTimer = null;
     }
     if (adapterId === "rtc" && state === ADAPTER_STATE.closed) {
       this._rtcCallbacks.onFallback?.("ws");
@@ -273,6 +289,8 @@ export class ProtocolManager {
         try { cb({ error: "rtc-closed" }); } catch {}
       }
       this._pendingAcks.clear();
+      for (const t of this._ackTimers.values()) clearTimeout(t);
+      this._ackTimers.clear();
       // RTC died — if WS also down, emit disconnect now (was suppressed earlier)
       if (!this._anyAdapterReady()) {
         this._wsCallbacks.onDisconnect?.("rtc-closed");
@@ -325,11 +343,18 @@ export class ProtocolManager {
   _sendControl(event, args) {
     const last = args[args.length - 1];
     const cb = typeof last === "function" ? args.pop() : null;
-    const adapter = this._pickAdapter(CHANNELS.control);
+    let adapter = this._pickAdapter(CHANNELS.control);
     if (!adapter) {
       debugLog("transport", `[pm] buffer event=${event} (no adapter ready)`);
       this._buffer.push({ event, args, cb });
       return;
+    }
+    // Preemptive size-routing: SCTP DC rejects oversize control payloads (> CONTROL_RTC_MAX_BYTES)
+    // with a throw/false, corrupting the channel into a zombie state. Route oversize payloads
+    // to WS (no SCTP limit) before attempting RTC.
+    if (adapter.constructor.id === "rtc" && _controlBytes(args) > CONTROL_RTC_MAX_BYTES) {
+      const ws = this._adapters.get("ws");
+      if (ws?.ready) adapter = ws;
     }
     debugLog("transport", `[pm] send control event=${event} via=${adapter.constructor.id}`);
     if (adapter.constructor.id === "rtc") {
@@ -337,10 +362,20 @@ export class ProtocolManager {
       if (cb) {
         ackId = `c_${++this._ackSeq}`;
         this._pendingAcks.set(ackId, cb);
-        // Auto-cleanup after 30s to avoid memory leak
-        setTimeout(() => this._pendingAcks.delete(ackId), 30000);
+        // Short timeout — zombie RTC (open but bytes lost) means ack never arrives.
+        // On expiry, trigger restart instead of waiting the full 30s.
+        this._scheduleAckTimeout(ackId);
       }
-      adapter.send(CHANNELS.control, { event, args, ackId });
+      const ok = adapter.send(CHANNELS.control, { event, args, ackId });
+      // RTC DC silently dropped (dead SCTP / oversize slipped through) → fallback WS so
+      // the request doesn't hang. Mirrors agent _sendControl fallback.
+      if (!ok) {
+        const ws = this._adapters.get("ws");
+        if (ws?.ready) {
+          if (cb) ws.send(CHANNELS.control, { event, args, cb });
+          else ws.send(CHANNELS.control, { event, args });
+        }
+      }
     } else {
       // WS path — pass through to socket.io native (multi-arg + ack supported)
       adapter.send(CHANNELS.control, { event, args, cb });
@@ -368,7 +403,12 @@ export class ProtocolManager {
     if (event === "__ack") {
       const { ackId, args } = payload || {};
       const cb = this._pendingAcks.get(ackId);
-      if (cb) { this._pendingAcks.delete(ackId); cb(...(args || [])); }
+      if (cb) {
+        this._pendingAcks.delete(ackId);
+        const t = this._ackTimers.get(ackId);
+        if (t) { clearTimeout(t); this._ackTimers.delete(ackId); }
+        cb(...(args || []));
+      }
       return;
     }
     // RTC control envelope carries {event, args}; binary path (tiles-data) keeps raw data
@@ -385,6 +425,41 @@ export class ProtocolManager {
     if (!sock) return;
     const fns = sock.listeners?.(event);
     if (fns?.length) for (const fn of fns) fn(...args);
+  }
+
+  // ─── RTC zombie recovery ───────────────────────────────────────────────────
+
+  // Short ack timeout — if ack doesn't arrive, RTC is likely zombie (open but bytes lost).
+  _scheduleAckTimeout(ackId) {
+    const timer = setTimeout(() => {
+      this._ackTimers.delete(ackId);
+      debugLog("transport", `[pm] ack timeout ackId=${ackId} → suspect zombie RTC`);
+      this._scheduleRtcRestart();
+    }, this._ackTimeoutMs);
+    this._ackTimers.set(ackId, timer);
+  }
+
+  // Schedule a restart attempt with backoff. Caps at maxAttempts → gives up (WS owns).
+  _scheduleRtcRestart() {
+    if (this._rtcRestartAttempts >= RTC_RESTART.maxAttempts) {
+      debugLog("transport", `[pm] rtc restart cap reached (${RTC_RESTART.maxAttempts}) → ws owns`);
+      return;
+    }
+    const attempt = this._rtcRestartAttempts;
+    const delay = RTC_RESTART.backoffMs[attempt] ?? RTC_RESTART.backoffMs[RTC_RESTART.backoffMs.length - 1];
+    this._rtcRestartAttempts++;
+    debugLog("transport", `[pm] schedule rtc restart #${this._rtcRestartAttempts} in ${delay}ms`);
+    clearTimeout(this._rtcRestartTimer);
+    this._rtcRestartTimer = setTimeout(() => {
+      this._rtcRestartTimer = null;
+      // Only restart if WS is alive (signaling needs WS to renegotiate)
+      const ws = this._adapters.get("ws");
+      if (!ws?.ready) {
+        debugLog("transport", "[pm] skip rtc restart — ws down (no signaling)");
+        return;
+      }
+      this._restartRtc();
+    }, delay);
   }
 
   // ─── Signaling routing (cross-adapter for RTC) ────────────────────────────
@@ -439,4 +514,15 @@ export class ProtocolManager {
     ws.offRaw("webrtc:error", onErr);
     this._sigListeners = null;
   }
+}
+
+// Approximate serialized size of control args — cheap upper bound for SCTP limit check.
+function _controlBytes(args) {
+  let bytes = 0;
+  for (const a of args) {
+    if (a == null) bytes += 4;
+    else if (typeof a === "string") bytes += a.length;
+    else bytes += JSON.stringify(a).length;
+  }
+  return bytes;
 }

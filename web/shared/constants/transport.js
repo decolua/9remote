@@ -1,9 +1,20 @@
 // Transport channel + profile config (config-driven, DRY).
-// Thêm protocol mới = 1 entry trong profiles.enabled + register adapter.
+// Add new protocol = 1 entry in profiles.enabled + register adapter.
 
 export const CHANNELS = {
   control: "control",
   binary: "binary"
+};
+
+// SCTP DC max control payload — oversize messages throw / corrupt the channel.
+// Route control payloads larger than this over WS (no SCTP limit).
+export const CONTROL_RTC_MAX_BYTES = 65536;
+
+// RTC zombie recovery — ack timeout (detect dead-but-open DC) + restart backoff.
+export const RTC_RESTART = {
+  ackTimeoutMs: 5000,        // ack not received → suspect zombie → restart
+  maxAttempts: 3,            // give up after N restarts → WS owns
+  backoffMs: [1000, 2000, 4000] // delay before each restart attempt
 };
 
 export const ADAPTER_STATE = {

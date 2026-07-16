@@ -5,6 +5,10 @@ export const CHANNELS = {
   binary: "binary"
 };
 
+// SCTP DC max control payload — oversize messages throw / corrupt the channel.
+// Route control payloads larger than this over WS (no SCTP limit).
+export const CONTROL_RTC_MAX_BYTES = 65536;
+
 export const ADAPTER_STATE = {
   idle: "idle",
   connecting: "connecting",

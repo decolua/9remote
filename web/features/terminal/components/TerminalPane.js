@@ -5,7 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import SelectionActionButton from "@/features/terminal/components/SelectionActionButton";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES } from "@/features/terminal/constants/themes";
-import { ChevronDown, Folder, GitBranch } from "@/shared/components/ui/Icon";
+import { ChevronDown, Folder, GitBranch, RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
@@ -38,6 +38,7 @@ function TerminalPane({
   const [fixedHeight, setFixedHeight] = useState(null);
   const [kbShrunk, setKbShrunk] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [selection, setSelection] = useState(null); // { text, x, y } from long-press select
 
   const { pushView } = useTerminalStore();
@@ -114,7 +115,7 @@ function TerminalPane({
     };
   }, [scrollCursorIntoView]);
 
-  const { termRef, cwdRef, cwd, termReady, doResize, focus, stopMomentum, historyFetching } = useXTerm({
+  const { termRef, cwdRef, cwd, termReady, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
     socket, sessionId, theme, isVisible, isFocused, containerRef,
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
@@ -262,6 +263,22 @@ function TerminalPane({
       {/* Overlays stay on viewport, not inside scroll content */}
       {cwd && isFocused && (
         <div className="absolute top-2 right-2 z-50 flex flex-col gap-2 pointer-events-auto touch-none">
+          <button
+            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (refreshing) return;
+              vibrate();
+              setRefreshing(true);
+              reload();
+              setTimeout(() => setRefreshing(false), 700);
+            }}
+            className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+            title={t("terminalPane.refresh")}
+          >
+            <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
+          </button>
           <button
             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
             onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}

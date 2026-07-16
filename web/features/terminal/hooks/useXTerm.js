@@ -50,6 +50,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   const inputHandlerRef = useRef(null);
   const resizeTimerRef = useRef(null);
   const doResizeRef = useRef(null);
+  const doJoinSessionRef = useRef(null); // reload() calls this — no full socket reconnect
   const stopMomentumRef = useRef(null);
   const cwdRef = useRef(null); // Track current working directory
   const [cwd, setCwd] = useState(null); // Reactive cwd for toolbar UI
@@ -338,6 +339,13 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       historyTotalRef.current = 0;
       historyFetchingRef.current = false;
       userAtTopRef.current = false;
+      // Fit + emit resize BEFORE join so the daemon serializes the TUI snapshot
+      // (alt-screen apps like Claude Code) at the client's real size. Join-first would
+      // replay at the daemon's stale cols/rows → garbled until next SIGWINCH.
+      if (containerRef.current?.offsetWidth && containerRef.current?.offsetHeight) {
+        fitAddon.fit();
+        socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+      }
       socket.emit("joinSession", sessionId, (result) => {
         if (result.success) {
           // total = bytes agent holds; ceiling for scroll-up fetch.
@@ -353,6 +361,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
       });
     };
     doJoinSession();
+    doJoinSessionRef.current = doJoinSession;
 
     // On reconnect → clear stale content and rejoin to get latest scrollback
     const handleReconnect = () => {
@@ -737,12 +746,21 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     };
   }, [termReady, isVisible]);
 
+  // Manual per-pane reload: reset local XTerm + re-join THIS session to re-fetch
+  // scrollback tail + restore modes. No socket reconnect, no impact on other panes.
+  const reload = useCallback(() => {
+    if (!termRef.current || !socket) return;
+    termRef.current.reset();
+    doJoinSessionRef.current?.(true);
+  }, [socket]);
+
   return {
     termRef,
     cwdRef, // Expose cwd for file path resolution
     cwd, // Reactive cwd for toolbar UI
     termReady,
     doResize,
+    reload,
     focus: () => termRef.current?.focus(),
     stopMomentum: () => stopMomentumRef.current?.(),
     historyFetching // true while an older-history chunk is in flight

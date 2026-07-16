@@ -560,6 +560,7 @@ export default function WorkspaceLayout({ children }) {
             onDeleteGroup={deleteGroup}
             onMoveSession={moveSession}
             onReorderSession={reorderSession}
+            shells={shells}
           />
         </div>
 

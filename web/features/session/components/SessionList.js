@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap, Plus, FolderPlus, X, Folder } from "@/shared/components/ui/Icon";
@@ -13,7 +14,7 @@ import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/
 
 const UNGROUPED_KEY = "ungrouped";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup, onReorderSession }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup, onReorderSession, shells = [] }) {
   const { t } = useI18n();
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
@@ -25,7 +26,6 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [terminalModal, setTerminalModal] = useState({ open: false, groupId: null });
-  const [newTerminalName, setNewTerminalName] = useState("");
 
   // Pointer-based drag reorder (mobile-first). Long-press on grip handle activates drag.
   const [drag, setDrag] = useState(null); // { groupId, ids, fromIdx, overIdx }
@@ -192,10 +192,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     setGroupModalOpen(false);
   };
 
-  const submitCreateTerminal = () => {
-    const name = newTerminalName.trim() || null;
-    onCreate?.(name, terminalModal.groupId);
-    setNewTerminalName("");
+  const submitCreateTerminal = (name, shellId) => {
+    onCreate?.(name, terminalModal.groupId, shellId);
     setTerminalModal({ open: false, groupId: null });
   };
 
@@ -473,7 +471,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                         })}
                         {/* Inline dashed card to add a terminal into this group */}
                         <button
-                          onClick={() => { vibrate(); setNewTerminalName(suggestTerminalName(section.id)); setTerminalModal({ open: true, groupId: section.id }); }}
+                          onClick={() => { vibrate(); setTerminalModal({ open: true, groupId: section.id }); }}
                           disabled={!connected}
                           className={`min-h-[164px] rounded-xl p-3 flex items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
                           title={t("groups.addTerminal")}
@@ -536,37 +534,14 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         message={t("groups.deleteMessage", { name: groupDeleteConfirm.groupName })}
       />
 
-      {/* Create Terminal Modal */}
+      {/* Create Terminal Modal (shared) */}
       {terminalModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setTerminalModal({ open: false, groupId: null })} />
-          <div className="relative card-elev max-w-sm w-full p-6">
-            <h3 className="text-lg font-semibold text-text mb-4">{t("terminal.newTerminal")}</h3>
-            <div className="relative">
-              <Input
-                value={newTerminalName}
-                onChange={(e) => setNewTerminalName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitCreateTerminal(); if (e.key === "Escape") setTerminalModal({ open: false, groupId: null }); }}
-                placeholder={suggestTerminalName(terminalModal.groupId)}
-                autoFocus
-              />
-              {newTerminalName && (
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => setNewTerminalName("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text rounded-full hover:bg-surface-3 transition-colors"
-                  aria-label="Clear"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            <div className="flex gap-3 mt-5">
-              <Button variant="primary" onClick={submitCreateTerminal} className="flex-1">{t("common.confirm")}</Button>
-              <Button variant="secondary" onClick={() => { setNewTerminalName(""); setTerminalModal({ open: false, groupId: null }); }} className="flex-1">{t("common.cancel")}</Button>
-            </div>
-          </div>
-        </div>
+        <NewTerminalModal
+          onClose={() => setTerminalModal({ open: false, groupId: null })}
+          onCreate={submitCreateTerminal}
+          shells={shells}
+          suggestName={suggestTerminalName(terminalModal.groupId)}
+        />
       )}
 
       {/* Sites Modal - Reuse SitesList component */}

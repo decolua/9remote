@@ -5,6 +5,7 @@ import { ChevronLeft, Settings, Monitor, Plus, ChevronDown, Pencil, Trash2, X } 
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
+import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 
 export default function TerminalHeader({
   sessions = [],
@@ -51,9 +52,7 @@ export default function TerminalHeader({
   const [tabDeleteConfirm, setTabDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
   // New terminal modal (named create)
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [newTerminalName, setNewTerminalName] = useState("");
-  const [newTerminalShell, setNewTerminalShell] = useState("");
-  const createInputRef = useRef(null);
+
   const tabInputRef = useRef(null);
   const activeGroupName = groups.find((g) => g.id === activeGroupId)?.name || t("groups.ungrouped");
   // A group is "finished" if any of its sessions has an unseen notification — surfaces cross-group dots
@@ -63,7 +62,6 @@ export default function TerminalHeader({
   const suggestTerminalName = (groupId) => `${t("terminal.defaultName")} ${sessions.filter((s) => (s.groupId || null) === groupId).length + 1}`;
 
   // Reliable focus+select on conditional mount (autoFocus is flaky)
-  useEffect(() => { if (createModalOpen) requestAnimationFrame(() => { createInputRef.current?.focus(); createInputRef.current?.select(); }); }, [createModalOpen]);
   useEffect(() => { if (editingTabId) requestAnimationFrame(() => { tabInputRef.current?.focus(); tabInputRef.current?.select(); }); }, [editingTabId]);
 
   // Ctrl+←/→ prev/next tab (wrap), Ctrl+1..9 jump tab N (9 = last if longer)
@@ -144,13 +142,8 @@ export default function TerminalHeader({
     setTabMenu({ sessionId: null, x: 0, y: 0 });
   };
 
-  const handleCreateSubmit = () => {
-    const name = newTerminalName.trim();
-    const shellId = newTerminalShell || null;
-    setCreateModalOpen(false);
-    setNewTerminalName("");
-    setNewTerminalShell("");
-    if (onCreateNamedSession) onCreateNamedSession(name || null, activeGroupId, shellId);
+  const handleModalCreate = (name, shellId) => {
+    if (onCreateNamedSession) onCreateNamedSession(name, activeGroupId, shellId);
     else onCreateSession?.(activeGroupId);
   };
 
@@ -290,7 +283,7 @@ export default function TerminalHeader({
           {onCreateSession && (
             <div className="relative sticky right-0 ml-1 flex-shrink-0">
               <button
-                onClick={() => { vibrate(); setNewTerminalName(suggestTerminalName(activeGroupId)); setCreateModalOpen(true); }}
+                onClick={() => { vibrate(); setCreateModalOpen(true); }}
                 disabled={!connected}
                 className="p-1.5 bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
                 title={t("terminal.newTerminal")}
@@ -342,77 +335,14 @@ export default function TerminalHeader({
         </div>
       )}
 
-      {/* New terminal modal (named create) */}
+      {/* New terminal modal (shared) */}
       {createModalOpen && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
-          onClick={() => setCreateModalOpen(false)}
-        >
-          <div
-            className="bg-surface rounded-brand-lg p-5 w-80 shadow-elev"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-text">{t("terminal.newTerminal")}</p>
-              <button onClick={() => setCreateModalOpen(false)} className="text-text-muted hover:text-text">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="relative mb-4">
-              <input
-                type="text"
-                ref={createInputRef}
-                value={newTerminalName}
-                placeholder={t("terminal.defaultName")}
-                onInput={(e) => setNewTerminalName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateSubmit();
-                  if (e.key === "Escape") setCreateModalOpen(false);
-                }}
-                className="w-full px-3 py-2 pr-8 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-              />
-              {newTerminalName && (
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => setNewTerminalName("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text"
-                  title={t("common.cancel")}
-                >
-                  <X size={16} />
-                </button>
-              )}
-            </div>
-            {shells.length > 0 && (
-              <div className="mb-4">
-                <label className="block text-xs font-medium text-text-muted mb-1.5">{t("terminal.shell")}</label>
-                <select
-                  value={newTerminalShell}
-                  onChange={(e) => setNewTerminalShell(e.target.value)}
-                  className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-                >
-                  <option value="">{t("common.default")}</option>
-                  {shells.map((s) => (
-                    <option key={s.id} value={s.id}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={handleCreateSubmit}
-                className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-brand transition-colors"
-              >
-                {t("common.create")}
-              </button>
-              <button
-                onClick={() => setCreateModalOpen(false)}
-                className="flex-1 py-2 text-sm text-text-muted bg-surface-2 hover:bg-surface-3 rounded-brand transition-colors"
-              >
-                {t("common.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
+        <NewTerminalModal
+          onClose={() => setCreateModalOpen(false)}
+          onCreate={handleModalCreate}
+          shells={shells}
+          suggestName={suggestTerminalName(activeGroupId)}
+        />
       )}
 
       {/* Tab delete confirm */}

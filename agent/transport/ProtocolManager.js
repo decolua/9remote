@@ -1,7 +1,7 @@
 import { WsProtocol } from "./WsProtocol.js";
 import { WebRtcProtocol } from "./WebRtcProtocol.js";
 import { registerProtocol, getProtocol } from "./registry.js";
-import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE } from "../lib/transportConstants.js";
+import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES } from "../lib/transportConstants.js";
 import { encodeTilesBatch } from "../features/remote/handlers/ScreenHandler.js";
 
 registerProtocol(WsProtocol);
@@ -247,12 +247,19 @@ export class ProtocolManager {
   }
 
   _sendControl(event, args, ackId) {
-    const adapter = this._pickAdapter(CHANNELS.control);
+    let adapter = this._pickAdapter(CHANNELS.control);
     if (!adapter) {
       this._buffer.push({ event, args, ackId });
       // Bound buffer — drop oldest when no adapter ready for too long
       if (this._buffer.length > this._maxControlBuffer) this._buffer.shift();
       return;
+    }
+    // Preemptive size-routing: SCTP DC rejects oversize control payloads (> CONTROL_RTC_MAX_BYTES)
+    // with a throw/false, which can corrupt the channel into a zombie state. Route oversize
+    // payloads to WS (no SCTP limit) before attempting RTC.
+    if (adapter.constructor.id === "rtc" && _controlBytes(args) > CONTROL_RTC_MAX_BYTES) {
+      const ws = this._adapters.get("ws");
+      if (ws?.ready) adapter = ws;
     }
     if (adapter.constructor.id === "rtc") {
       const ok = adapter.send(CHANNELS.control, { event, args, ackId });
@@ -351,4 +358,15 @@ export class ProtocolManager {
     this._socket.off("webrtc:ice-candidate", this._sigListeners.onIce);
     this._sigListeners = null;
   }
+}
+
+// Approximate serialized size of control args — cheap upper bound for SCTP limit check.
+function _controlBytes(args) {
+  let bytes = 0;
+  for (const a of args) {
+    if (a == null) bytes += 4;
+    else if (typeof a === "string") bytes += a.length;
+    else bytes += JSON.stringify(a).length;
+  }
+  return bytes;
 }

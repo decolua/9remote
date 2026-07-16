@@ -20,9 +20,17 @@ export const SHELL_OPTIONS = {
   ]
 };
 
-// Only Windows exposes shell picker; Unix uses default shell silently
+import fs from "fs";
+
+// Only Windows exposes shell picker; Unix uses default shell silently.
+// Filter by path existence so machines without pwsh don't show a broken option.
 export function getShellList() {
-  return process.platform === "win32" ? SHELL_OPTIONS.win32 : [];
+  if (process.platform !== "win32") return [];
+  const sysRoot = process.env.SystemRoot || "C:\\Windows";
+  return SHELL_OPTIONS.win32.filter((s) => {
+    try { return fs.existsSync(s.path) || fs.existsSync(`${sysRoot}\\System32\\${s.path}`); }
+    catch { return true; }
+  });
 }
 
 export function resolveShell(shellId) {
