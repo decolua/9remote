@@ -54,6 +54,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   const cwdRef = useRef(null); // Track current working directory
   const [cwd, setCwd] = useState(null); // Reactive cwd for toolbar UI
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
+  const fontSizeSetting = useTerminalStore((s) => s.fontSize);
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
   const awaitingTuiOutputRef = useRef(false); // SGR emit→output round-trip tracker (TUI backpressure)
@@ -112,7 +113,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
 
     const term = new XTerm({
       ...TERMINAL_OPTIONS,
-      fontSize: window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize,
+      fontSize: fontSizeSetting ?? (window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize),
       theme: THEMES[theme] || THEMES.dark
     });
 
@@ -402,6 +403,16 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     else disposeWebGLRef.current?.();
   }, [webglEnabled, socket, sessionId]);
 
+  // Live font size: apply + re-fit on change
+  useEffect(() => {
+    const term = termRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!term || !fitAddon || !socket || !sessionId) return;
+    if (fontSizeSetting == null) return;
+    term.options.fontSize = fontSizeSetting;
+    fitAddon.fit();
+  }, [fontSizeSetting, socket, sessionId]);
+
   // Input handler - only when active
   useEffect(() => {
     if (!termRef.current || !socket || !sessionId) return;
@@ -423,7 +434,9 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
   useEffect(() => {
     if (!isVisible || !fitAddonRef.current || !termRef.current) return;
     const timer = setTimeout(() => {
-      doResize();
+      // force: pane may have been hidden during reconnect → daemon snapshot stale,
+      // and cols/rows unchanged would skip emit → PTY never gets SIGWINCH to redraw.
+      doResize({ force: true });
       // Pane was hidden (LRU opacity-0) → force repaint so stale canvas redraws even at same size
       requestAnimationFrame(() => termRef.current?.refresh(0, termRef.current.rows - 1));
     }, 100);
