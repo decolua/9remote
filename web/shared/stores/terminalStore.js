@@ -45,6 +45,10 @@ export const useTerminalStore = create(
       // WebGL renderer toggle (default on; off → canvas fallback). Applied on next mount.
       webglEnabled: true,
       setWebglEnabled: (enabled) => set({ webglEnabled: !!enabled }),
+
+      // Terminal font size override (null = use config defaults 14/12). Clamped: 10-16 mobile, 10-18 desktop.
+      fontSize: null,
+      setFontSize: (size) => set({ fontSize: size ? Math.max(10, Math.min(18, Math.round(size))) : null }),
       
       // Actions
       pushView: (view) => set((state) => ({

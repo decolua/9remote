@@ -284,8 +284,8 @@ export default function WorkspaceLayout({ children }) {
     return () => document.removeEventListener("focusin", handleFocusIn);
   }, []);
 
-  const handleCreateSession = useCallback((name, groupId = null) => {
-    createSession(name, null, groupId, (result) => {
+  const handleCreateSession = useCallback((name, groupId = null, shellId = null) => {
+    createSession(name, shellId, groupId, (result) => {
       if (!result.success) {
         alert(t("workspace.failedCreateSession", { error: result.error }));
       } else if (result.sessionId) {

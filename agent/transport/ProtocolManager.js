@@ -255,10 +255,18 @@ export class ProtocolManager {
       return;
     }
     if (adapter.constructor.id === "rtc") {
-      adapter.send(CHANNELS.control, { event, args, ackId });
-    } else {
-      adapter.send(CHANNELS.control, { event, args });
+      const ok = adapter.send(CHANNELS.control, { event, args, ackId });
+      // RTC DC may silently drop (dead SCTP during ice transient) → fallback WS so the
+      // client (likely already on WS) still receives server control like "output".
+      if (ok) return;
+      const ws = this._adapters.get("ws");
+      if (ws?.ready && ws.send(CHANNELS.control, { event, args })) return;
+    } else if (adapter.send(CHANNELS.control, { event, args })) {
+      return;
     }
+    // Couldn't deliver on any adapter — buffer for next ready window.
+    this._buffer.push({ event, args, ackId });
+    if (this._buffer.length > this._maxControlBuffer) this._buffer.shift();
   }
 
   _flushBuffer() {
@@ -297,9 +305,10 @@ export class ProtocolManager {
 
   _sendAck(ackId, resp) {
     const adapter = this._adapters.get("rtc");
-    if (adapter?.ready) {
-      adapter.send(CHANNELS.control, { event: "__ack", args: resp, ackId });
-    }
+    if (adapter?.ready && adapter.send(CHANNELS.control, { event: "__ack", args: resp, ackId })) return;
+    // RTC dead/unavailable → ack rides WS so the client request doesn't hang.
+    const ws = this._adapters.get("ws");
+    if (ws?.ready) ws.send(CHANNELS.control, { event: "__ack", args: resp, ackId });
   }
 
   // ─── Signaling routing ─────────────────────────────────────────────────────

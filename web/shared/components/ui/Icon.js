@@ -110,4 +110,5 @@ export const {
   PanelLeftClose,
   Replace,
   Command,
+  Type,
 } = LucideIcons;

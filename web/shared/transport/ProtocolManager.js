@@ -267,6 +267,12 @@ export class ProtocolManager {
     }
     if (adapterId === "rtc" && state === ADAPTER_STATE.closed) {
       this._rtcCallbacks.onFallback?.("ws");
+      // Reject acks of requests sent over the now-dead RTC DC so callers fail
+      // fast instead of hanging until the 30s cleanup silently drops them.
+      for (const cb of this._pendingAcks.values()) {
+        try { cb({ error: "rtc-closed" }); } catch {}
+      }
+      this._pendingAcks.clear();
       // RTC died — if WS also down, emit disconnect now (was suppressed earlier)
       if (!this._anyAdapterReady()) {
         this._wsCallbacks.onDisconnect?.("rtc-closed");
@@ -358,8 +364,8 @@ export class ProtocolManager {
    * (legacy single-arg from raw socket.io onAny).
    */
   _dispatch(event, payload, source) {
-    // Resolve RTC ack reply
-    if (event === "__ack" && source === "rtc") {
+    // Resolve ack reply — may arrive via RTC or WS (agent falls back to WS when RTC dies)
+    if (event === "__ack") {
       const { ackId, args } = payload || {};
       const cb = this._pendingAcks.get(ackId);
       if (cb) { this._pendingAcks.delete(ackId); cb(...(args || [])); }

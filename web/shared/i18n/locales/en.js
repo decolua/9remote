@@ -82,7 +82,9 @@ export default {
     webglHint: "Turn off if text looks wrong",
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
-    sites: "Sites",
+    sites: "Workspaces",
+    terminalSettings: "Terminal",
+    fontSize: "Font Size",
     commandNotes: "Command Notes",
     community: "Community",
     installApp: "Install App",
@@ -158,7 +160,8 @@ export default {
     menu: "Menu",
     newTerminal: "New terminal",
     remoteDesktop: "Remote Desktop",
-    defaultName: "Term"
+    defaultName: "Term",
+    shell: "Shell"
   },
   files: {
     selectWorkspace: "Select Workspace",

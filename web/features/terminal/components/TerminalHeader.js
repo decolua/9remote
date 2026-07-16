@@ -52,6 +52,7 @@ export default function TerminalHeader({
   // New terminal modal (named create)
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newTerminalName, setNewTerminalName] = useState("");
+  const [newTerminalShell, setNewTerminalShell] = useState("");
   const createInputRef = useRef(null);
   const tabInputRef = useRef(null);
   const activeGroupName = groups.find((g) => g.id === activeGroupId)?.name || t("groups.ungrouped");
@@ -145,9 +146,11 @@ export default function TerminalHeader({
 
   const handleCreateSubmit = () => {
     const name = newTerminalName.trim();
+    const shellId = newTerminalShell || null;
     setCreateModalOpen(false);
     setNewTerminalName("");
-    if (onCreateNamedSession) onCreateNamedSession(name || null, activeGroupId);
+    setNewTerminalShell("");
+    if (onCreateNamedSession) onCreateNamedSession(name || null, activeGroupId, shellId);
     else onCreateSession?.(activeGroupId);
   };
 
@@ -379,6 +382,21 @@ export default function TerminalHeader({
                 </button>
               )}
             </div>
+            {shells.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-text-muted mb-1.5">{t("terminal.shell")}</label>
+                <select
+                  value={newTerminalShell}
+                  onChange={(e) => setNewTerminalShell(e.target.value)}
+                  className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                >
+                  <option value="">{t("common.default")}</option>
+                  {shells.map((s) => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={handleCreateSubmit}

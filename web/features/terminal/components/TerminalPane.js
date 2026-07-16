@@ -10,7 +10,8 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import { WATCH_DEBOUNCE_MS, MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
+import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
+import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
@@ -38,7 +39,6 @@ function TerminalPane({
   const [kbShrunk, setKbShrunk] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [selection, setSelection] = useState(null); // { text, x, y } from long-press select
-  const [changedCount, setChangedCount] = useState(0);
 
   const { pushView } = useTerminalStore();
 
@@ -185,28 +185,8 @@ function TerminalPane({
     };
   }, [termRef, termReady, isVisible]);
 
-  // Watch cwd + track changed-files count via git status (debounced on fs events)
-  useEffect(() => {
-    if (!cwd || !fileSocket || !socket) return;
-    let timer = null;
-    // Keep last count on transient failures (reconnect/not-a-repo race); only update on success
-    const refresh = async () => {
-      const res = await fileSocket.gitChangedCount(cwd);
-      if (res?.success) setChangedCount(res.count || 0);
-    };
-    const onFileChange = () => {
-      clearTimeout(timer);
-      timer = setTimeout(refresh, WATCH_DEBOUNCE_MS);
-    };
-    fileSocket.watchDir(cwd);
-    socket.on("fileChange", onFileChange);
-    refresh();
-    return () => {
-      clearTimeout(timer);
-      socket.off("fileChange", onFileChange);
-      fileSocket.unwatchDir(cwd);
-    };
-  }, [cwd, fileSocket, socket]);
+  // Shared, ref-counted git changed-count per cwd — syncs across panes, polls every 10s
+  const changedCount = useGitChangedCount(cwd, fileSocket, { enabled: isVisible });
 
   const badgeLabel = changedCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changedCount;
 

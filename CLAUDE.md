@@ -74,9 +74,6 @@ Each feature owns a `*Socket.js` entry that registers handlers on the shared ser
 Locale files under `web/shared/i18n/locales/` and `agent/ui/src/i18n/locales/`. Full locale set: `ar de en es fa fr he hi id it ja ko ms nl pl pt ru sv th tr uk vi zh`.
 Never hand-edit individual locale files. To add keys: build a JSON `{anchor, translations:{<locale>:{key:val}}}` and run `node web/shared/i18n/insertKeys.mjs <data.json>` (idempotent). Only translate all locales when explicitly requested; otherwise `en` fallback.
 
-### graphify (code knowledge graph)
-`agent/` and `web/` have a `graphify-out/` knowledge graph. Before broad codebase exploration, prefer `graphify query "<question>"` / `graphify path "<A>" "<B>"` / `graphify explain "<concept>"` (run inside `agent/` or `web/`) — surfaces inferred cross-file edges grep misses. After editing code, run `graphify update .` to keep it current. Fall back to Read/Grep once oriented.
-
 ## Security-sensitive areas
 
 `.docs/security/` tracks a known-issues audit. Treat these as hardening boundaries when touching them: `fileExplorer/pathGuard.js` (path jail), device approval in `transport/server.js`, CORS/auth middleware, the QR/one-time-key flow, and the auto-update path in `cli/utils/updateChecker.js`. Don't weaken an existing check; don't introduce secrets into `wrangler.toml` (secrets go through `secrets:sync`).

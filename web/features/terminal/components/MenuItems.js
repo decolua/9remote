@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, Monitor } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, Monitor, Type } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -33,6 +33,10 @@ export default function MenuItems({
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
+  const fontSize = useTerminalStore((s) => s.fontSize);
+  const setFontSize = useTerminalStore((s) => s.setFontSize);
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => { setIsMobile(window.innerWidth < 768); }, []);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const isOutdated = isAgentOutdated(agentVersion, webVersion) || isWebOutdated(agentVersion, webVersion);
 
@@ -104,7 +108,25 @@ export default function MenuItems({
         </button>
       )}
 
+      {/* Terminal settings — font size + GPU render. Workspace menu only. */}
+      {!hideActions.includes('terminalSettings') && (
+        <div className="px-3 py-1.5 bg-surface rounded-brand-lg flex items-center gap-2.5">
+          <Type className="text-brand-500" size={16} />
+          <span className="text-sm">{t("menu.fontSize")}</span>
+          <select
+            value={fontSize ?? (isMobile ? 12 : 14)}
+            onChange={(e) => { vibrate(); setFontSize(Number(e.target.value)); }}
+            className="ml-auto bg-surface-2 text-text text-sm rounded-brand px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+          >
+            {Array.from({ length: isMobile ? 7 : 9 }, (_, i) => i + 10).map((n) => (
+              <option key={n} value={n}>{n}px</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* WebGL renderer toggle — reload prompt (swap needs remount) */}
+      {!hideActions.includes('terminalSettings') && (
       <button
         onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
         className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
@@ -120,22 +142,6 @@ export default function MenuItems({
           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${webglEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
         </span>
       </button>
-
-
-      {/* Files */}
-      {!hideActions.includes('files') && onFiles && (
-        <button
-          onClick={() => { vibrate(); onFiles(); }}
-          disabled={!connected}
-          className={`w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out ${
-            connected
-              ? "bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
-              : "bg-surface/30 text-text-muted cursor-not-allowed"
-          }`}
-        >
-          <FolderOpen className="text-brand-500" size={16} />
-          <span className="text-sm">{t("menu.files")}</span>
-        </button>
       )}
 
       {/* Sites */}

@@ -99,7 +99,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       showTheme: false,
       theme: "default",
       socketRef,
-      hideActions: ['remote', 'files', 'sites'],
+      hideActions: ['remote', 'files', 'sites', 'terminalSettings'],
       tunnelUrl,
       apiKey,
       connectionMode,
