@@ -420,6 +420,8 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     if (fontSizeSetting == null) return;
     term.options.fontSize = fontSizeSetting;
     fitAddon.fit();
+    socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+    term.refresh(0, term.rows - 1);
   }, [fontSizeSetting, socket, sessionId]);
 
   // Input handler - only when active

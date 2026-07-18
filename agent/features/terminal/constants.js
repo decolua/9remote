@@ -4,7 +4,8 @@
 // v34: drop setImmediate coalesce entirely — sync flush each onData chunk (fixes rapid-typing backlog).
 // v35: add latency trace points (input.write/onData/broadcast) — temporary debugging.
 // v37: restore same-tick coalesce (setImmediate) — rapid-typing lag was the agent git spawn, not this.
-export const DAEMON_VERSION = "37";
+// v38: zsh PTY now sources ~/.zprofile + ~/.zlogin (ZDOTDIR=temp dir previously skipped them).
+export const DAEMON_VERSION = "38";
 
 // Shell options for terminal sessions
 export const SHELL_OPTIONS = {

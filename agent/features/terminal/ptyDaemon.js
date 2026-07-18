@@ -215,11 +215,16 @@ function buildShellEnv(shellPath) {
     // zsh ignores a bare env hook; write a real .zshrc into a temp ZDOTDIR so precmd fires.
     zdotDir = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-zsh-"));
     const tmpZshrc = path.join(zdotDir, ".zshrc");
-    const homeZshrc = env.HOME ? path.join(env.HOME, ".zshrc") : null;
-    let body = 'precmd() { print -Pn "\\e]7;file://%m${PWD}\\e\\\\" }\n';
-    if (homeZshrc && fs.existsSync(homeZshrc)) {
-      body += `[ -f "${homeZshrc}" ] && source "${homeZshrc}"\n`;
-    }
+    const home = env.HOME || os.homedir();
+    // zsh login order under $ZDOTDIR: .zshenv → .zshrc → .zlogin (.zprofile sits in $HOME, not ZDOTDIR).
+    // We point ZDOTDIR at a temp dir to inject OSC 7, so explicitly source the HOME login files we skipped.
+    let body = "";
+    body += `[ -f "${home}/.zprofile" ] && source "${home}/.zprofile"\n`;
+    body += `[ -f "${home}/.zshrc" ] && source "${home}/.zshrc"\n`;
+    body += `[ -f "${home}/.zlogin" ] && source "${home}/.zlogin"\n`;
+    // Append OSC 7 to precmd_functions so a user-defined precmd in .zshrc still runs.
+    body += "NineRemoteOsc7() { print -Pn \"\\e]7;file://%m\${PWD}\\e\\\\\" }\n";
+    body += "precmd_functions+=( NineRemoteOsc7 )\n";
     fs.writeFileSync(tmpZshrc, body);
     env.ZDOTDIR = zdotDir;
   } else if (isBash) {

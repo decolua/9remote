@@ -45,6 +45,14 @@ export function useFileSocket(socketRef) {
     });
   }, [socketRef]);
 
+  // Read any previewable media (image/video/audio/pdf) as a data URL
+  const readMedia = useCallback((filePath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) { resolve({ success: false, error: "Not connected" }); return; }
+      socketRef.current.emit("readMedia", { filePath }, resolve);
+    });
+  }, [socketRef]);
+
   // Write file content
   const writeFile = useCallback((filePath, content) => {
     return new Promise((resolve) => {
@@ -323,6 +331,7 @@ export function useFileSocket(socketRef) {
     getFiles,
     readFile,
     readImage,
+    readMedia,
     writeFile,
     createItem,
     deleteItem,
@@ -347,7 +356,7 @@ export function useFileSocket(socketRef) {
     gitPush,
     gitPull,
     gitLog
-  }), [getSystemInfo, getFiles, readFile, readImage, writeFile, createItem, deleteItem,
+  }), [getSystemInfo, getFiles, readFile, readImage, readMedia, writeFile, createItem, deleteItem,
     renameItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
     searchInFiles, replaceInFiles, watchDir, unwatchDir, revealInOS, openInTerminal,
     getFileTree, gitBranch, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog]);

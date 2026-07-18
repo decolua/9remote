@@ -14,6 +14,7 @@ import {
   SIDEBAR_MAX_WIDTH,
   BOTTOM_PANEL_DEFAULT_HEIGHT,
   STORAGE_KEYS,
+  MAX_OPEN_TABS,
 } from "../lib/fileExplorer/constants";
 
 // Desktop VSCode-like layout: ActivityBar | Sidebar | EditorArea + StatusBar.
@@ -56,14 +57,15 @@ export default function FileWorkspaceDesktop({ workspace, fileSocket, onBack, so
   const [paletteMode, setPaletteMode] = useState("commands");
 
   const handleOpenFile = useCallback((filePath) => {
-    setOpenedFiles((prev) => (prev.includes(filePath) ? prev : [...prev, filePath]));
+    // Newest at head (LRU); cap at MAX_OPEN_TABS, evicting oldest from the tail
+    setOpenedFiles((prev) => [filePath, ...prev.filter((p) => p !== filePath)].slice(0, MAX_OPEN_TABS));
     setActiveFile(filePath);
   }, []);
 
   const handleCloseFile = useCallback((filePath) => {
     setOpenedFiles((prev) => {
       const next = prev.filter((p) => p !== filePath);
-      if (activeFile === filePath) setActiveFile(next[next.length - 1] || null);
+      if (activeFile === filePath) setActiveFile(next[0] || null);
       return next;
     });
   }, [activeFile]);

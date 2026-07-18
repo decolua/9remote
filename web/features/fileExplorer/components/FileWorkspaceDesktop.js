@@ -15,7 +15,8 @@ import {
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_MAX_WIDTH,
   BOTTOM_PANEL_DEFAULT_HEIGHT,
-  STORAGE_KEYS
+  STORAGE_KEYS,
+  MAX_OPEN_TABS
 } from "../constants/fileExplorer.js";
 
 // Desktop-only VSCode-like layout: ActivityBar | Sidebar | EditorArea + StatusBar
@@ -82,7 +83,8 @@ export default function FileWorkspaceDesktop({
 
   // Open file (from explorer/search/quick-open)
   const handleOpenFile = useCallback((filePath, opts = {}) => {
-    setOpenedFiles(prev => prev.includes(filePath) ? prev : [...prev, filePath]);
+    // Newest at head (LRU); cap at MAX_OPEN_TABS, evicting oldest from the tail
+    setOpenedFiles(prev => [filePath, ...prev.filter(p => p !== filePath)].slice(0, MAX_OPEN_TABS));
     setActiveFile(filePath);
     if (opts.line) setEditorState(s => ({ ...s, jumpLine: opts.line, jumpColumn: opts.column }));
   }, []);
@@ -90,7 +92,7 @@ export default function FileWorkspaceDesktop({
   const handleCloseFile = useCallback((filePath) => {
     setOpenedFiles(prev => {
       const next = prev.filter(p => p !== filePath);
-      if (activeFile === filePath) setActiveFile(next[next.length - 1] || null);
+      if (activeFile === filePath) setActiveFile(next[0] || null);
       return next;
     });
   }, [activeFile]);

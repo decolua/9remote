@@ -1,6 +1,9 @@
 // File Explorer constants
 
-export const MAX_FILE_SIZE = 500 * 1024; // 500KB
+export const MAX_FILE_SIZE = 1024 * 1024; // 1MB text read limit
+// ponytail: media preview over base64 socket is slow for very large files;
+// upgrade to HTTP range streaming when users routinely open >5MB media.
+export const MAX_MEDIA_SIZE = 5 * 1024 * 1024; // 5MB previewable media limit
 export const MAX_SEARCH_RESULTS = 200;
 export const MAX_MATCHES_PER_FILE = 10;
 export const DEFAULT_TREE_DEPTH = 3;
@@ -38,29 +41,67 @@ export const IGNORED_DIRS = [
 ];
 
 export const BINARY_EXTENSIONS = [
-  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg", ".bmp",
-  ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z",
-  ".exe", ".dll", ".so", ".dylib",
-  ".mp3", ".mp4", ".wav", ".avi", ".mov", ".webm",
+  ".zip", ".tar", ".gz", ".tgz", ".rar", ".7z", ".bz2", ".xz",
+  ".exe", ".dll", ".so", ".dylib", ".app", ".bin",
   ".woff", ".woff2", ".ttf", ".eot", ".otf",
-  ".sqlite", ".db"
+  ".sqlite", ".db", ".mdb",
+  ".class", ".jar", ".war", ".pyc", ".o", ".obj"
 ];
 
+export const IMAGE_EXTENSIONS = [
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp",
+  ".svg", ".avif", ".apng", ".tif", ".tiff"
+];
+
+export const VIDEO_EXTENSIONS = [
+  ".mp4", ".m4v", ".webm", ".ogv", ".mov", ".mkv", ".avi", ".3gp"
+];
+
+export const AUDIO_EXTENSIONS = [
+  ".mp3", ".wav", ".ogg", ".oga", ".flac", ".m4a", ".aac", ".opus"
+];
+
+export const PDF_EXTENSIONS = [".pdf"];
+
+export function hasExt(filePath, exts) {
+  if (!filePath) return false;
+  const lower = filePath.toLowerCase();
+  return exts.some((e) => lower.endsWith(e));
+}
+export const isImageFile = (p) => hasExt(p, IMAGE_EXTENSIONS);
+export const isVideoFile = (p) => hasExt(p, VIDEO_EXTENSIONS);
+export const isAudioFile = (p) => hasExt(p, AUDIO_EXTENSIONS);
+export const isPdfFile = (p) => hasExt(p, PDF_EXTENSIONS);
+export const isPreviewableFile = (p) =>
+  isImageFile(p) || isVideoFile(p) || isAudioFile(p) || isPdfFile(p);
+
 export const LANGUAGE_MAP = {
-  ".js": "javascript",
-  ".jsx": "javascript",
-  ".ts": "javascript",
-  ".tsx": "javascript",
-  ".mjs": "javascript",
-  ".cjs": "javascript",
-  ".html": "html",
-  ".htm": "html",
-  ".css": "css",
-  ".scss": "css",
-  ".less": "css",
-  ".json": "json",
-  ".md": "markdown",
-  ".markdown": "markdown"
+  ".js": "javascript", ".jsx": "javascript", ".ts": "javascript",
+  ".tsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+  ".html": "html", ".htm": "html", ".xhtml": "html",
+  ".css": "css", ".scss": "css", ".sass": "css", ".less": "css", ".styl": "css",
+  ".json": "json", ".json5": "json", ".jsonc": "json",
+  ".md": "markdown", ".markdown": "markdown", ".mdx": "markdown",
+  ".py": "python", ".pyw": "python",
+  ".rb": "ruby", ".php": "php", ".go": "go", ".rs": "rust",
+  ".java": "java", ".kt": "kotlin", ".kts": "kotlin", ".swift": "swift",
+  ".scala": "scala", ".clj": "clojure", ".cljs": "clojure",
+  ".ex": "elixir", ".exs": "elixir", ".erl": "erlang", ".hs": "haskell",
+  ".ml": "ocaml", ".mli": "ocaml", ".jl": "julia",
+  ".pl": "perl", ".pm": "perl", ".tcl": "tcl", ".lua": "lua",
+  ".r": "r", ".dart": "dart", ".groovy": "groovy", ".gradle": "groovy",
+  ".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp",
+  ".hpp": "cpp", ".hh": "cpp", ".cs": "csharp", ".m": "objectivec",
+  ".sh": "shell", ".bash": "shell", ".zsh": "shell", ".fish": "shell",
+  ".ps1": "powershell", ".bat": "batch", ".cmd": "batch",
+  ".yml": "yaml", ".yaml": "yaml", ".toml": "toml",
+  ".ini": "ini", ".cfg": "ini", ".conf": "ini", ".properties": "ini",
+  ".xml": "xml", ".sql": "sql", ".graphql": "graphql", ".gql": "graphql",
+  ".proto": "protobuf", ".vue": "vue", ".svelte": "svelte",
+  ".csv": "csv", ".tsv": "csv", ".log": "log",
+  ".diff": "diff", ".patch": "diff",
+  ".dockerfile": "dockerfile", ".makefile": "makefile", ".mk": "makefile",
+  ".env": "env", ".gitignore": "gitignore"
 };
 
 export const FILE_ICONS = {

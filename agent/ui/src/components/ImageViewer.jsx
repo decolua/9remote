@@ -1,13 +1,8 @@
 import { useState, useEffect } from "preact/hooks";
 import Icon from "./Icon";
+import { isImageFile } from "../lib/fileExplorer/constants";
 
-const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp"];
-
-export function isImageFile(filePath) {
-  if (!filePath) return false;
-  const lower = filePath.toLowerCase();
-  return IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
-}
+export { isImageFile };
 
 export default function ImageViewer({ filePath, fileSocket }) {
   const [dataUrl, setDataUrl] = useState("");
@@ -21,7 +16,7 @@ export default function ImageViewer({ filePath, fileSocket }) {
     setError("");
     setDataUrl("");
     setZoom(1);
-    fileSocket.readImage(filePath).then((r) => {
+    fileSocket.readMedia(filePath).then((r) => {
       if (cancelled) return;
       if (r.success) setDataUrl(r.dataUrl);
       else setError(r.error || "Failed to load image");

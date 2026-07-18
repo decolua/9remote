@@ -46,27 +46,7 @@ export default function RotateOverlay() {
     };
   }, [isMobile]);
 
-  if (!isMobile || !landscape) return null;
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 9999,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 16,
-        background: "#121212",
-        color: "#fff",
-        fontFamily: "var(--font-geist-sans, system-ui, sans-serif)",
-      }}
-    >
-      <span style={{ fontSize: 56, animation: "rotateHint 1.6s ease-in-out infinite" }}>📱</span>
-      <span style={{ fontSize: 15, opacity: 0.85 }}>Rotate your device</span>
-      <style>{`@keyframes rotateHint{0%,100%{transform:rotate(0)}50%{transform:rotate(-90deg)}}`}</style>
-    </div>
-  );
+  // No overlay: Android PWA stays locked via screen.orientation above; other
+  // mobile browsers (iOS, Chrome) are free to rotate.
+  return null;
 }

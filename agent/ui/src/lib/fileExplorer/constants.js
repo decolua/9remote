@@ -64,7 +64,6 @@ export const STATUS_BAR_HEIGHT = 24;
 export const BOTTOM_PANEL_DEFAULT_HEIGHT = 30;
 export const BOTTOM_PANEL_MIN_HEIGHT = 10;
 export const BOTTOM_PANEL_MAX_HEIGHT = 70;
-export const MAX_OPEN_TABS = 30;
 
 // Activity panels
 export const ACTIVITY_PANELS = {
@@ -96,3 +95,25 @@ export const parseDiffPath = (p) => {
   const i = rest.indexOf(":");
   return { status: rest.slice(0, i), absPath: rest.slice(i + 1) };
 };
+
+// Previewable file types (browser can render native). Mirrors agent/feature constants.
+export const IMAGE_EXTENSIONS = [
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp",
+  ".svg", ".avif", ".apng", ".tif", ".tiff",
+];
+export const VIDEO_EXTENSIONS = [".mp4", ".m4v", ".webm", ".ogv", ".mov", ".mkv", ".avi", ".3gp"];
+export const AUDIO_EXTENSIONS = [".mp3", ".wav", ".ogg", ".oga", ".flac", ".m4a", ".aac", ".opus"];
+export const PDF_EXTENSIONS = [".pdf"];
+
+function hasExt(filePath, exts) {
+  if (!filePath) return false;
+  const lower = filePath.toLowerCase();
+  return exts.some((e) => lower.endsWith(e));
+}
+export const isImageFile = (p) => hasExt(p, IMAGE_EXTENSIONS);
+export const isVideoFile = (p) => hasExt(p, VIDEO_EXTENSIONS);
+export const isAudioFile = (p) => hasExt(p, AUDIO_EXTENSIONS);
+export const isPdfFile = (p) => hasExt(p, PDF_EXTENSIONS);
+
+// Max open editor tabs on desktop; newest at head (LRU), oldest evicted past this
+export const MAX_OPEN_TABS = 5;

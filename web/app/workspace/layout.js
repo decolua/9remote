@@ -139,6 +139,9 @@ export default function WorkspaceLayout({ children }) {
 
   // Current view is top of stack
   const currentView = viewStack[viewStack.length - 1];
+  // Active session at component scope (needed by terminal IIFE)
+  const isTerminalView = currentView?.type === "terminal";
+  const activeSessionId = isTerminalView ? currentView?.sessionId : null;
 
   // Enable slide animation only after settled in terminal view (avoids slide-through when entering from list)
   const [swipeAnimEnabled, setSwipeAnimEnabled] = useState(false);
@@ -566,8 +569,6 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Terminal view: shared header + multi-pane layout */}
         {openedSessions.length > 0 && (() => {
-          const isTerminalView = currentView.type === "terminal";
-          const activeSessionId = isTerminalView ? currentView.sessionId : null;
           // Active-group panes drive tabs/visibility; LRU union stays mounted (no remount on group switch)
           const groupSessionIds = new Set(sessions.filter(s => (s.groupId || null) === activeGroupId).map(s => s.id));
           const groupOpenedSessions = openedSessions.filter(sid => groupSessionIds.has(sid));
@@ -613,7 +614,7 @@ export default function WorkspaceLayout({ children }) {
 
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div
-                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden divide-x divide-border px-2" : "relative"}`}
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1.5 overflow-x-auto overflow-y-hidden px-2" : "relative"}`}
                 {...bindSwipeTab({
                   enabled: !isDesktop,
                   sessionIds: groupOpenedSessions,
@@ -634,7 +635,7 @@ export default function WorkspaceLayout({ children }) {
                         !inActiveGroup
                           ? "hidden"
                           : isDesktop
-                          ? "flex-1 h-full"
+                          ? `flex-1 h-full rounded-xl overflow-hidden ${isFocused ? "p-0 border-2 border-brand-500" : "p-px border border-text-muted/25"}`
                           : `absolute inset-0 ${isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
                       }
                       style={inActiveGroup && isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
@@ -648,7 +649,7 @@ export default function WorkspaceLayout({ children }) {
                         onActivate={handleSelectSession}
                         onRegisterApi={registerPaneApi}
                         onPasteFallback={handlePasteFallback}
-                        showFocusBorder={isDesktop && groupOpenedSessions.length > 1}
+                        showFocusBorder={false}
                         notifications={notifications}
                         clearNotification={clearNotification}
                         fileSocket={fileSocket}

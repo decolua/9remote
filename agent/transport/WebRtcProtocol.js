@@ -1,11 +1,17 @@
-import nodeDataChannel from "node-datachannel";
+import { loadNative } from "./nativeSelfHeal.js";
 import { BaseProtocol } from "./BaseProtocol.js";
 import { encode, decode } from "./codec.js";
 import { ADAPTER_STATE, CHANNELS } from "../lib/transportConstants.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { resolveCandidate } from "../lib/mdnsResolver.js";
 
-const { PeerConnection } = nodeDataChannel;
+// Lazy load: node-datachannel's native binary may be missing if install scripts
+// were blocked (e.g. Garner/npm fork). loadNative self-heals via prebuild-install.
+let _nodeDataChannel = null;
+function nodeDataChannel() {
+  if (!_nodeDataChannel) _nodeDataChannel = loadNative("node-datachannel");
+  return _nodeDataChannel;
+}
 
 // STUN cluster — benchmarked from VN: Google ~150ms, Twilio ~144ms, Cloudflare ~813ms
 const DEFAULT_ICE = [
@@ -112,7 +118,7 @@ export class WebRtcProtocol extends BaseProtocol {
         this._dcControl.sendMessage(encode({ event: payload.event, args: payload.args || [], ackId: payload.ackId || null }));
         return true;
       } catch (err) {
-        console.error("[WebRtcProtocol] send control:", err.message);
+        // Oversize/dead-channel errors are expected — ProtocolManager falls back to WS.
         return false;
       }
     }
@@ -167,6 +173,7 @@ export class WebRtcProtocol extends BaseProtocol {
     if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
 
     const socketId = this._ctx?.auth?.socketId || "anon";
+    const { PeerConnection } = nodeDataChannel();
     const pc = new PeerConnection(`peer-${socketId}`, { iceServers: this._iceServers });
 
     // ICE lifecycle — close on real death; grace-debounce transient "disconnected"

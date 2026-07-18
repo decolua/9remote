@@ -10,11 +10,14 @@ import { css } from "@codemirror/lang-css";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { AUTO_SAVE_DELAY, LANGUAGE_MAP } from "../constants/fileExplorer.js";
+import { AUTO_SAVE_DELAY, LANGUAGE_MAP, isImageFile, isVideoFile, isAudioFile, isPdfFile } from "../constants/fileExplorer.js";
 import { ChevronLeft, Save, Loader2, GitBranch } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import ImageViewer from "./ImageViewer.js";
+import MediaViewer from "./MediaViewer.js";
+import PdfViewer from "./PdfViewer.js";
 
 const languageExtensions = {
   javascript: javascript(),
@@ -56,6 +59,9 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
   const [textInput, setTextInput] = useState("");
 
   const fileName = filePath.split("/").pop();
+  // ponytail: previewable files bypass CodeMirror entirely and render in a native viewer;
+  // they never hit the binary rejection in readFile.
+  const isPreviewable = isImageFile(filePath) || isVideoFile(filePath) || isAudioFile(filePath) || isPdfFile(filePath);
 
   // Save file
   const saveFile = useCallback(async () => {
@@ -86,8 +92,9 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
     autoSaveTimerRef.current = setTimeout(saveFile, AUTO_SAVE_DELAY);
   }, [saveFile]);
 
-  // Load file content
+  // Load file content (skipped for previewable files — they render via a viewer)
   useEffect(() => {
+    if (isPreviewable) return;
     const loadFile = async () => {
       setLoading(true);
       setError("");
@@ -112,7 +119,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
         clearTimeout(autoSaveTimerRef.current);
       }
     };
-  }, [filePath, fileSocket]);
+  }, [filePath, fileSocket, isPreviewable]);
 
   // Check git status for this file
   useEffect(() => {
@@ -325,17 +332,29 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
         </div>
       )}
 
-      {/* Editor */}
+      {/* Editor (or native viewer for previewable files) */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {loading && (
-          <div className="h-full flex items-center justify-center text-text-muted">
-            {t("common.loading")}
-          </div>
+        {isPreviewable ? (
+          isPdfFile(filePath) ? (
+            <PdfViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />
+          ) : isVideoFile(filePath) || isAudioFile(filePath) ? (
+            <MediaViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />
+          ) : (
+            <ImageViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />
+          )
+        ) : (
+          <>
+            {loading && (
+              <div className="h-full flex items-center justify-center text-text-muted">
+                {t("common.loading")}
+              </div>
+            )}
+            <div
+              ref={editorRef}
+              className={`h-full overflow-auto ${loading ? "hidden" : ""}`}
+            />
+          </>
         )}
-        <div 
-          ref={editorRef} 
-          className={`h-full overflow-auto ${loading ? "hidden" : ""}`} 
-        />
       </div>
 
       {/* Git Diff Modal */}

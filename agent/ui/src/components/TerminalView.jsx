@@ -379,17 +379,26 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
       </div>
 
       {/* Panes: desktop = horizontal split, mobile = active pane only */}
-      <div className={`flex-1 min-h-0 relative z-10 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden px-2" : "relative"}`}>
+      <div className={`flex-1 min-h-0 relative z-10 ${isDesktop ? "flex flex-row gap-1.5 overflow-x-auto overflow-y-hidden px-2" : "relative"}`}>
         {openedGroup.map((s) => {
           const isFocused = s.id === activeId;
+          // Desktop: rounded pane with focus border on wrapper (web workspace parity).
+          // Mobile: stacked, focused pane visible only.
+          const desktopClass = isFocused
+            ? "flex-1 h-full rounded-xl overflow-hidden border-2 p-0"
+            : "flex-1 h-full rounded-xl overflow-hidden border p-px";
+          const desktopStyle = {
+            minWidth: `${PANE_MIN_WIDTH}px`,
+            borderColor: isFocused ? "var(--brand-500)" : "color-mix(in srgb, var(--text-muted) 25%, transparent)",
+          };
           return (
             <div
               key={s.id}
               ref={(el) => { if (el) paneEls.current[s.id] = el; else delete paneEls.current[s.id]; }}
               className={isDesktop
-                ? "flex-1 h-full border-r"
+                ? desktopClass
                 : `absolute inset-0 ${isFocused ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}
-              style={isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px`, borderColor: "var(--border)" } : undefined}
+              style={isDesktop ? desktopStyle : undefined}
             >
               <TerminalPane
                 socket={socket}
@@ -402,7 +411,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 onCwd={(cwd) => updateCwd?.(s.id, cwd)}
                 onOpenFiles={(cwd) => setOverlay({ type: "files", cwd })}
                 onOpenGit={(cwd) => setOverlay({ type: "git", cwd })}
-                showFocusBorder={isDesktop && multi}
+                showFocusBorder={false}
                 showDoneBorder={finishedIds?.has(s.id)}
               />
             </div>

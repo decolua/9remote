@@ -377,23 +377,27 @@
 .terminal-wrapper .xterm-viewport {
   overflow-y: auto !important;
   scrollbar-width: thin;
-  scrollbar-color: rgba(var(--brand-rgb), 0.5) transparent;
+  scrollbar-color: transparent transparent;
 }
+/* Native webkit thumb: transparent until viewport hovered (auto-hide) */
 .terminal-wrapper .xterm-viewport::-webkit-scrollbar { width: 6px; }
 .terminal-wrapper .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 .terminal-wrapper .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(var(--brand-rgb), 0.5);
+  background: transparent;
   border-radius: 3px;
 }
-.terminal-wrapper .xterm-viewport::-webkit-scrollbar-thumb:hover {
+.terminal-wrapper:hover .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(var(--brand-rgb), 0.4);
+}
+.terminal-wrapper:hover .xterm-viewport::-webkit-scrollbar-thumb:hover {
   background: rgba(var(--brand-rgb), 0.8);
 }
-/* XTerm custom overlay scrollbar (JS-rendered div) — 7px brand-colored, no fade. */
+/* XTerm overlay scrollbar (JS-rendered div) — auto-hide: only .visible while scrolling/hovering. */
 .terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar {
   width: 7px !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  transition: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.18s ease !important;
 }
 .terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar .slider {
   width: 7px !important;
@@ -404,13 +408,10 @@
   background: rgba(var(--brand-rgb), 0.8) !important;
 }
 
-/* Force the overlay scrollbar solid at all times when scrollable. xterm fades
-   it to .invisible after an idle timeout; override both visibility classes. */
-.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar.visible,
-.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar.invisible {
+/* Show overlay scrollbar only while xterm marks it .visible (scrolling / hovering track). */
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar.visible {
   opacity: 1 !important;
   pointer-events: auto !important;
-  transition: none !important;
 }
 .terminal-wrapper .xterm-screen { touch-action: pan-y !important; }
 .xterm .xterm-helpers { z-index: 0 !important; }

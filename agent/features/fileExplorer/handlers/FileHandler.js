@@ -3,8 +3,20 @@ import path from "path";
 import os from "os";
 import { execSync, spawn } from "child_process";
 import chokidar from "chokidar";
-import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH } from "../constants.js";
+import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH } from "../constants.js";
 import { isSensitivePath } from "../pathGuard.js";
+
+// Extension -> MIME. Covers all previewable (image/video/audio/pdf) types.
+const MIME_BY_EXT = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", svg: "image/svg+xml", ico: "image/x-icon", bmp: "image/bmp",
+  avif: "image/avif", apng: "image/apng", tif: "image/tiff", tiff: "image/tiff",
+  mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", ogv: "video/ogg",
+  mov: "video/quicktime", mkv: "video/x-matroska", avi: "video/x-msvideo", "3gp": "video/3gpp",
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg",
+  flac: "audio/flac", m4a: "audio/mp4", aac: "audio/aac", opus: "audio/opus",
+  pdf: "application/pdf"
+};
 
 function isIgnoredDir(name) { return IGNORED_DIRS.includes(name); }
 function isBinaryFile(filename) {
@@ -187,16 +199,33 @@ export function setupFileHandlers(socket) {
     }
   });
 
+  // Previewable media (image/video/audio/pdf) as a data URL. Used by every viewer
+  // so they share one size cap and MIME table. readImage kept as a back-compat alias.
+  socket.on("readMedia", ({ filePath }, callback) => {
+    try {
+      if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
+      if (!fs.existsSync(filePath)) return callback({ success: false, error: "File not found" });
+      const stat = fs.statSync(filePath);
+      if (stat.size > MAX_MEDIA_SIZE) return callback({ success: false, error: `File too large (${formatSize(stat.size)}). Max ${formatSize(MAX_MEDIA_SIZE)}` });
+      const ext = path.extname(filePath).toLowerCase().slice(1);
+      const mime = MIME_BY_EXT[ext] || "application/octet-stream";
+      const buffer = fs.readFileSync(filePath);
+      const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+      callback({ success: true, dataUrl, size: stat.size, mime });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  // readImage: back-compat alias for callers still on the old event name.
   socket.on("readImage", ({ filePath }, callback) => {
     try {
       if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(filePath)) return callback({ success: false, error: "File not found" });
       const stat = fs.statSync(filePath);
-      const maxImageSize = 10 * 1024 * 1024;
-      if (stat.size > maxImageSize) return callback({ success: false, error: `Image too large (${formatSize(stat.size)})` });
+      if (stat.size > MAX_MEDIA_SIZE) return callback({ success: false, error: `Image too large (${formatSize(stat.size)})` });
       const ext = path.extname(filePath).toLowerCase().slice(1);
-      const mimeMap = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", ico: "image/x-icon", bmp: "image/bmp" };
-      const mime = mimeMap[ext] || "application/octet-stream";
+      const mime = MIME_BY_EXT[ext] || "application/octet-stream";
       const buffer = fs.readFileSync(filePath);
       const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
       callback({ success: true, dataUrl, size: stat.size, mime });

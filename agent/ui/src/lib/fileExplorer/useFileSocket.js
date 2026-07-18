@@ -16,6 +16,7 @@ export function useFileSocket() {
     getFiles: (dirPath, showHidden = false) => emit(socket, "getFiles", { dirPath, showHidden }),
     readFile: (filePath) => emit(socket, "readFile", { filePath }),
     readImage: (filePath) => emit(socket, "readImage", { filePath }),
+    readMedia: (filePath) => emit(socket, "readMedia", { filePath }),
     writeFile: (filePath, content) => emit(socket, "writeFile", { filePath, content }),
     createItem: (itemPath, type) => emit(socket, "createItem", { itemPath, type }),
     deleteItem: (itemPath) => emit(socket, "deleteItem", { itemPath }),

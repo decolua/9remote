@@ -8,7 +8,11 @@ import {
   FILE_ICON_NAMES,
   LANGUAGE_MAP,
   GIT_STATUS_COLORS,
-  STORAGE_KEYS
+  STORAGE_KEYS,
+  isImageFile,
+  isVideoFile,
+  isAudioFile,
+  isPdfFile
 } from "../constants/fileExplorer.js";
 
 const INDENT_BASE = 12;
@@ -23,9 +27,9 @@ function getFileIconName(file) {
   const ext = dot >= 0 ? name.slice(dot).toLowerCase() : "";
   const lang = LANGUAGE_MAP[ext];
   if (lang && FILE_ICON_NAMES[lang]) return FILE_ICON_NAMES[lang];
-  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp"].includes(ext)) {
-    return FILE_ICON_NAMES.image;
-  }
+  if (isImageFile(file.path)) return FILE_ICON_NAMES.image;
+  if (isVideoFile(file.path) || isAudioFile(file.path)) return FILE_ICON_NAMES.video;
+  if (isPdfFile(file.path)) return FILE_ICON_NAMES.pdf;
   return FILE_ICON_NAMES.file;
 }
 

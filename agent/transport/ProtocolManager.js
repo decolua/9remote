@@ -55,13 +55,21 @@ export class ProtocolManager {
     for (const id of this._profile.enabled) {
       const Adapter = getProtocol(id);
       if (!Adapter) continue;
-      const inst = new Adapter();
-      inst.on("stateChange", (state) => this._onAdapterStateChange(id, state));
-      inst.on("message", ({ event, data, source }) => this._dispatch(event, data, source));
+      let inst;
+      try {
+        inst = new Adapter();
+        inst.on("stateChange", (state) => this._onAdapterStateChange(id, state));
+        inst.on("message", ({ event, data, source }) => this._dispatch(event, data, source));
+        await inst.connect(this._buildCtx(id));
+      } catch (err) {
+        // Native addon missing/broken (e.g. blocked install script) — degrade to WS-only.
+        if (id === "rtc") {
+          console.warn(`[ProtocolManager] WebRTC unavailable — remote desktop over WS only. (${err.message})`);
+          continue;
+        }
+        throw err;
+      }
       this._adapters.set(id, inst);
-
-      const ctx = this._buildCtx(id);
-      await inst.connect(ctx);
     }
   }
 

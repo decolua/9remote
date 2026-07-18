@@ -6,8 +6,10 @@ import EditorTabs from "./EditorTabs.js";
 import Breadcrumbs from "./Breadcrumbs.js";
 import EmbeddedEditor from "./EmbeddedEditor.js";
 import ImageViewer, { isImageFile } from "./ImageViewer.js";
+import MediaViewer from "./MediaViewer.js";
+import PdfViewer from "./PdfViewer.js";
 import DiffView from "./DiffView.js";
-import { isDiffPath } from "../constants/fileExplorer.js";
+import { isDiffPath, isVideoFile, isAudioFile, isPdfFile } from "../constants/fileExplorer.js";
 
 export default function EditorArea({
   workspace,
@@ -64,6 +66,10 @@ export default function EditorArea({
       <div className="flex-1 min-h-0 overflow-hidden">
         {isDiffPath(activeFile) ? (
           <DiffView key={activeFile} diffPath={activeFile} workspace={workspace} fileSocket={fileSocket} />
+        ) : isPdfFile(activeFile) ? (
+          <PdfViewer key={activeFile} filePath={activeFile} fileSocket={fileSocket} />
+        ) : isVideoFile(activeFile) || isAudioFile(activeFile) ? (
+          <MediaViewer key={activeFile} filePath={activeFile} fileSocket={fileSocket} />
         ) : isImageFile(activeFile) ? (
           <ImageViewer key={activeFile} filePath={activeFile} fileSocket={fileSocket} />
         ) : (

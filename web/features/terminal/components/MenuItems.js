@@ -45,6 +45,9 @@ export default function MenuItems({
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || isExpoWebView
   );
+  // WebPush available on any SW+PushManager browser (desktop included), not just installed PWA
+  const pushSupported = !isExpoWebView &&
+    typeof navigator !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
 
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
@@ -84,8 +87,8 @@ export default function MenuItems({
 
   return (
     <div className="p-3 space-y-0.5">
-      {/* Notifications switch - show in PWA or native app (Expo WebView) */}
-      {isApp && (
+      {/* Notifications switch - WebPush (desktop browser + PWA) or Expo native */}
+      {pushSupported && (
         <button
           onClick={handleTogglePush}
           disabled={pushLoading}
