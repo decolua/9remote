@@ -32,7 +32,7 @@ function encodeBatch(tiles) {
 }
 
 function mkTile(idx, bytes) {
-  return { tileIndex: idx, bytes, hash: idx + 1000, imageBuffer: { length: bytes } };
+  return { tileIndex: idx, bytes, hash: idx + 1000, imageBuffer: Buffer.alloc(bytes), x: 0, y: 0, width: 1, height: 1 };
 }
 
 let pass = 0, fail = 0;
@@ -68,17 +68,36 @@ const pm = new ProtocolManager(
   check("1. happy: hashes match sent", sent.every(t => tiles.includes(t)));
 }
 
-// TEST 2: backpressure — rtc drops after 1 chunk → partial sent, no throw
+// TEST 2: RTC backpressure → spillover remaining to WS (parallel path).
+// 20 tiles, dcChunkSize=8 → 1st chunk via RTC (8), 2nd backpressured,
+// remaining 12 spillover to WS (wsChunkSize=32 → one chunk). sent=20.
 {
   const rtc = makeAdapter("rtc", { dropAt: 1 }); // 1st chunk ok, 2nd returns false
-  pm._adapters = new Map([["rtc", rtc], ["ws", makeAdapter("ws")]]);
+  const ws = makeAdapter("ws");
+  pm._adapters = new Map([["rtc", rtc], ["ws", ws]]);
   pm._profile.channels.binary.prefer = "rtc";
   pm._chunkOffset = 0;
-  const tiles = Array.from({ length: 20 }, (_, i) => mkTile(i, 1000)); // 3 chunks of 8
+  const tiles = Array.from({ length: 20 }, (_, i) => mkTile(i, 1000));
   const sent = pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
-  check("2. backpressure: partial sent (<=8)", sent.length <= 8, `got ${sent.length}`);
-  check("2. backpressure: sent via rtc", rtc.sent.length >= 1);
-  check("2. backpressure: returned without throw", Array.isArray(sent));
+  check("2. spillover: all 20 sent", sent.length === 20, `got ${sent.length}`);
+  check("2. spillover: 8 via rtc", rtc.sent.length === 1, `rtc.sent=${rtc.sent.length}`);
+  check("2. spillover: 12 via ws", ws.sent.length === 1, `ws.sent=${ws.sent.length}`);
+  check("2. spillover: no throw", Array.isArray(sent));
+}
+
+// TEST 2b: RTC backpressure + WS down → mark remaining rtc-pending, no spillover.
+{
+  const rtc = makeAdapter("rtc", { dropAt: 1 });
+  const ws = makeAdapter("ws", { ready: false });
+  pm._adapters = new Map([["rtc", rtc], ["ws", ws]]);
+  pm._profile.channels.binary.prefer = "rtc";
+  pm._chunkOffset = 0;
+  pm._rtcPendingSince.clear();
+  const tiles = Array.from({ length: 20 }, (_, i) => mkTile(i, 1000));
+  const sent = pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
+  check("2b. ws-down: only rtc chunk sent (8)", sent.length === 8, `got ${sent.length}`);
+  check("2b. ws-down: 12 tiles marked pending", pm._rtcPendingSince.size === 12, `pending=${pm._rtcPendingSince.size}`);
+  check("2b. ws-down: ws unused", ws.sent.length === 0);
 }
 
 // TEST 3: single tile > max → WS salvage (rtc would silent-skip in old code)
@@ -112,15 +131,18 @@ const pm = new ProtocolManager(
   check("4. probe-offset: chunkSize adapted (multiple rtc sends)", rtc.sent.length >= 1);
 }
 
-// TEST 5: rtc.send returns false (oversize drop per C1) → treated as stop
+// TEST 5: rtc.send returns false on first chunk (persistent backpressure / oversize)
+// → spillover all to WS. Was "stop immediately" pre-spillover; now WS carries them.
 {
   const rtc = makeAdapter("rtc", { failReturn: true }); // every send returns false
-  pm._adapters = new Map([["rtc", rtc], ["ws", makeAdapter("ws")]]);
+  const ws = makeAdapter("ws");
+  pm._adapters = new Map([["rtc", rtc], ["ws", ws]]);
   pm._profile.channels.binary.prefer = "rtc";
   pm._chunkOffset = 0;
   const tiles = Array.from({ length: 8 }, (_, i) => mkTile(i, 1000));
   const sent = pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
-  check("5. failReturn: stops immediately (0 sent)", sent.length === 0, `got ${sent.length}`);
+  check("5. failReturn: spillover to ws (8)", sent.length === 8, `got ${sent.length}`);
+  check("5. failReturn: ws received", ws.sent.length >= 1);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -27,25 +27,47 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   const [newGroupName, setNewGroupName] = useState("");
   const [terminalModal, setTerminalModal] = useState({ open: false, groupId: null });
 
-  // Pointer-based drag reorder (mobile-first). Long-press on grip handle activates drag.
-  const [drag, setDrag] = useState(null); // { groupId, ids, fromIdx, overIdx }
+  // Pointer-based drag reorder (mobile-first). Long-press activates drag; card follows pointer.
+  const [drag, setDrag] = useState(null); // { groupId, fromIdx, overIdx }
   const dragRef = useRef(null);
   const pressTimer = useRef(null);
+  const pressStartRef = useRef(null);
+  const suppressClickRef = useRef(false);
 
   const clearPress = () => { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; } };
 
-  const startDrag = (groupId, ids, fromIdx) => {
+  const resetCard = (el) => {
+    if (!el) return;
+    el.style.transform = "";
+    el.style.zIndex = "";
+    el.style.transition = "";
+    el.style.willChange = "";
+  };
+
+  const startDrag = (e, groupId, ids, fromIdx, cardEl) => {
     vibrate();
-    const state = { groupId, ids, fromIdx, overIdx: fromIdx };
-    dragRef.current = state;
-    setDrag(state);
+    dragRef.current = { groupId, ids, fromIdx, overIdx: fromIdx, startX: e.clientX, startY: e.clientY, cardEl, moved: false };
+    setDrag({ groupId, fromIdx, overIdx: fromIdx });
+    try { cardEl.setPointerCapture(e.pointerId); } catch {}
   };
 
   const onGripPointerDown = (e, groupId, ids, fromIdx) => {
     if (!connected || ids.length < 2) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.stopPropagation();
     clearPress();
-    pressTimer.current = setTimeout(() => startDrag(groupId, ids, fromIdx), 180);
+    pressStartRef.current = { x: e.clientX, y: e.clientY };
+    const cardEl = e.currentTarget;
+    pressTimer.current = setTimeout(() => {
+      pressTimer.current = null;
+      startDrag(e, groupId, ids, fromIdx, cardEl);
+    }, 180);
+  };
+
+  // Cancel pending long-press if the finger moves (likely scrolling) during hold
+  const onCardPointerMove = (e) => {
+    if (!pressTimer.current || !pressStartRef.current) return;
+    if (Math.abs(e.clientX - pressStartRef.current.x) > 8 || Math.abs(e.clientY - pressStartRef.current.y) > 8) clearPress();
   };
 
   useEffect(() => {
@@ -57,31 +79,58 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       return Number.isNaN(i) ? null : i;
     };
     const onMove = (e) => {
-      const p = e.touches ? e.touches[0] : e;
-      const i = findIdx(p.clientX, p.clientY);
-      if (i == null || i === dragRef.current.overIdx) return;
-      dragRef.current = { ...dragRef.current, overIdx: i };
-      setDrag(dragRef.current);
+      const d = dragRef.current;
+      if (!d) return;
+      e.preventDefault(); // block touch scroll during active drag
+      const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
+      if (!d.moved && Math.hypot(dx, dy) > 3) d.moved = true;
+      if (d.moved) {
+        // Drive the card straight to the DOM (60fps, no React re-render per move)
+        d.cardEl.style.transition = "none";
+        d.cardEl.style.willChange = "transform";
+        d.cardEl.style.zIndex = "50";
+        d.cardEl.style.transform = `translate(${dx}px, ${dy}px) scale(1.05) rotate(2deg)`;
+      }
+      const i = findIdx(e.clientX, e.clientY);
+      if (i != null && i !== d.overIdx) {
+        d.overIdx = i;
+        setDrag({ ...drag, overIdx: i });
+      }
     };
     const onUp = () => {
       const d = dragRef.current;
-      if (d && d.fromIdx !== d.overIdx) {
-        const ids = [...d.ids];
-        const [moved] = ids.splice(d.fromIdx, 1);
-        ids.splice(d.overIdx, 0, moved);
-        onReorderSession?.(ids);
-        vibrate();
+      if (d) {
+        if (d.moved) suppressClickRef.current = true; // drop must not trigger a click
+        resetCard(d.cardEl);
+        if (d.fromIdx !== d.overIdx) {
+          const ids = [...d.ids];
+          const [moved] = ids.splice(d.fromIdx, 1);
+          ids.splice(d.overIdx, 0, moved);
+          onReorderSession?.(ids);
+          vibrate();
+        }
       }
       dragRef.current = null;
       setDrag(null);
     };
-    window.addEventListener("pointermove", onMove, { passive: true });
+    // Swallow the synthesized click that follows a drag (capture phase beats React onClick)
+    const onClickCapture = (e) => {
+      if (dragRef.current || suppressClickRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        suppressClickRef.current = false;
+      }
+    };
+    window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+    window.addEventListener("click", onClickCapture, true);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("click", onClickCapture, true);
     };
   }, [drag, onReorderSession]);
 
@@ -298,7 +347,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-4 sm:p-6 overflow-auto modal-scrollable">
+      <div className="flex-1 p-4 sm:p-6 overflow-auto modal-scrollable" style={{ overflowAnchor: "none" }}>
         {/* Agent outdated warning — only when connected (update is meaningless mid-connect) */}
         {connected && (isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || isWebOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || updateAvailable) && (
           <AgentOutdatedBanner agentVersion={agentVersion} webVersion={process.env.NEXT_PUBLIC_SERVER_VERSION} updateAvailable={updateAvailable} canSelfUpdate={canSelfUpdate} onUpdate={onUpdate} className="mb-6" />
@@ -360,12 +409,18 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                           const isDragOver = drag?.groupId === section.id && drag.overIdx === cardIdx && drag.fromIdx !== cardIdx;
                           const groupIds = groupSessions.map((s) => s.id);
                           const dotBase = connected ? "" : "opacity-40 saturate-0";
+                          const draggable = connected && groupSessions.length > 1;
                           return (
                           <div
                             key={session.id}
                             data-session-card
                             data-card-idx={cardIdx}
-                            className={`group relative transition-all duration-200 ease-out ${isDragging ? "opacity-40" : ""} ${connected && !drag ? "hover:-translate-y-1" : ""} ${!connected ? "opacity-60" : ""}`}
+                            onPointerDown={draggable ? (e) => onGripPointerDown(e, section.id, groupIds, cardIdx) : undefined}
+                            onPointerUp={draggable ? clearPress : undefined}
+                            onPointerLeave={draggable ? clearPress : undefined}
+                            onPointerMove={draggable ? onCardPointerMove : undefined}
+                            onClick={() => { if (suppressClickRef.current) { suppressClickRef.current = false; return; } if (!drag && connected) { vibrate(); onSelect(session.id); } }}
+                            className={`group relative select-none rounded-xl transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isDragOver ? "scale-[1.02] ring-2 ring-brand-500" : ""} ${connected && !drag ? "hover:-translate-y-1 cursor-grab active:cursor-grabbing" : ""} ${draggable ? "touch-none" : ""} ${!connected ? "opacity-60" : ""}`}
                           >
                             {/* Terminal window */}
                             <div
@@ -375,15 +430,9 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                               style={{ background: connected ? "linear-gradient(155deg,#22242e 0%,#1a1b21 55%,#141519 100%)" : "linear-gradient(155deg,#1c1d20,#141416)" }}
                             >
                               <div>
-                                {/* Titlebar — drag handle when group has >1 terminal */}
-                                {(() => {
-                                  const draggable = connected && groupSessions.length > 1;
-                                  return (
+                                {/* Titlebar */}
                                 <div
-                                  className={`flex items-center gap-2 px-2.5 py-1.5 bg-[#2c2c2e]/90 border-b border-black/30 ${draggable ? "touch-none cursor-grab active:cursor-grabbing" : ""}`}
-                                  onPointerDown={draggable ? (e) => onGripPointerDown(e, section.id, groupIds, cardIdx) : undefined}
-                                  onPointerUp={draggable ? clearPress : undefined}
-                                  onPointerLeave={draggable ? clearPress : undefined}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 bg-[#2c2c2e]/90 border-b border-black/30"
                                 >
                                   <div className={`flex items-center gap-1.5 flex-shrink-0 ${dotBase}`}>
                                     <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
@@ -413,13 +462,11 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                                     </button>
                                   </div>
                                 </div>
-                                  );
-                                })()}
 
                                 {/* Body — fake terminal */}
                                 <div
                                   className={`px-3 py-3 font-mono min-h-[128px] ${connected && editingId !== session.id && !drag ? "cursor-pointer" : "cursor-default"}`}
-                                  onClick={() => { if (connected && editingId !== session.id && !drag) { vibrate(); onSelect(session.id); } }}
+                                  onClick={() => { if (suppressClickRef.current) { suppressClickRef.current = false; return; } if (connected && editingId !== session.id && !drag) { vibrate(); onSelect(session.id); } }}
                                 >
                                   {editingId === session.id ? (
                                     <input

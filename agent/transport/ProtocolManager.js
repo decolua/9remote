@@ -191,11 +191,18 @@ export class ProtocolManager {
         continue;
       }
       if (rtc.send(CHANNELS.binary, buf) === false) {
-        // Backpressure — mark this chunk + remaining as pending so they are
-        // prioritized next frame. Caller retries with fresh tile data.
-        for (let j = i; j < n; j++) {
-          const tileIndex = ordered[j].tileIndex;
-          if (!pendingSince.has(tileIndex)) pendingSince.set(tileIndex, now);
+        // RTC backpressure — spillover remaining to WS (parallel path). Client
+        // merges by tileIndex+timestamp so no duplicate render. Falls back to
+        // marking rtc-pending when WS is down, preserving old retry behavior.
+        const remaining = ordered.slice(i);
+        if (ws?.ready) {
+          const wsSent = this._emitTilesChunked(remaining, frameTs);
+          for (const t of wsSent) pendingSince.delete(t.tileIndex);
+          sent.push(...wsSent);
+        } else {
+          for (let j = i; j < n; j++) {
+            if (!pendingSince.has(ordered[j].tileIndex)) pendingSince.set(ordered[j].tileIndex, now);
+          }
         }
         return sent;
       }

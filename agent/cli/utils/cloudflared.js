@@ -22,6 +22,11 @@ const TUNNEL_CONFIG = {
   internetCheckPort: 443,
 };
 
+// Sleep/wake detection — setInterval misses ticks while OS suspends the process,
+// so the gap between ticks jumps far past the poll interval. Tuned above CPU spikes.
+const SLEEP_DETECT_MS = 30000;
+let lastTickAt = 0;
+
 // Network + restart state (module-scoped)
 let networkMonitorInterval = null;
 let lastNetworkState = null;
@@ -627,10 +632,27 @@ function startNetworkMonitor() {
   if (networkMonitorInterval) return;
 
   lastNetworkState = getNetworkFingerprint();
+  lastTickAt = Date.now();
 
   networkMonitorInterval = setInterval(async () => {
+    // Time gap between ticks — must track before any early return so a long
+    // restartInFlight / waitForInternet window isn't misread as sleep on the next tick.
+    const now = Date.now();
+    const gap = now - lastTickAt;
+    lastTickAt = now;
+
     if (isWaitingForInternet || restartInFlight) return;
     if (!restartCallback || currentRestartArg == null) return;
+
+    // Sleep/wake: gap >> poll interval → OS suspended us (clamshell, idle sleep).
+    // cloudflared edges timed out during suspend; process alive but tunnel dead. Restart.
+    if (gap > SLEEP_DETECT_MS) {
+      logger.info(`💤 Sleep/wake detected (gap=${gap}ms) → restart tunnel`);
+      setLastStatus("unreachable");
+      killCloudflared();
+      scheduleRestart(currentRestartArg, "woke from sleep");
+      return;
+    }
 
     const current = getNetworkFingerprint();
     const fingerprintChanged = current !== lastNetworkState;

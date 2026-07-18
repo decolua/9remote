@@ -44,7 +44,7 @@ export async function POST(request) {
 
     const session = await env.DB.prepare(`
       SELECT tunnelUrl, machineId, publicIp, localIp FROM sessions
-      WHERE apiKey = ? AND expiresAt > datetime('now')
+      WHERE apiKey = ?
     `).bind(apiKey).first();
 
     if (!session) return jsonError("Session not found or expired", 404);

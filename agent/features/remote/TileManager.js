@@ -375,9 +375,13 @@ export class TileManager {
     const { rowStep, colStep } = REMOTE_CONFIG.pipeline.checksumSampling;
 
     for (let y = 0; y < tileHeight; y += rowStep) {
-      const rowOffset = (startY + y) * screenRowBytes + startX * channels;
-      for (let x = 0; x < tileWidth; x += colStep) {
-        const offset = rowOffset + x * channels;
+      // Sheared grid: shift each sampled row by +1px (mod colStep) so over one
+      // colStep-period every x column is sampled — catches 1px vertical carets
+      // that a regular grid misses between columns. Same sample count/cost.
+      const ox = ((y / rowStep) | 0) % colStep;
+      const rowOffset = (startY + y) * screenRowBytes + (startX + ox) * channels;
+      for (let x = ox; x < tileWidth; x += colStep) {
+        const offset = rowOffset + (x - ox) * channels;
         // Position-weighted: prevents thin-caret pixel deltas cancelling out
         const w = x + 1;
         sum = (sum + screenData.buffer[offset] * w) >>> 0;

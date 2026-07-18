@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { STORAGE_KEY, DEFAULT_THEME } from "@/shared/theme/themeConfig";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import { GA_ID } from "@/shared/constants/analytics";
+import RotateOverlay from "@/shared/components/ui/RotateOverlay";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -63,6 +64,7 @@ export default function RootLayout({ children }) {
           }}
         />
         <ThemeProvider>{children}</ThemeProvider>
+        <RotateOverlay />
         {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
       </body>
     </html>

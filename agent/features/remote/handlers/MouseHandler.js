@@ -6,6 +6,8 @@ export class MouseHandler {
     this.robot = robot;
     this.resourceManager = resourceManager;
     this.lastMouseMove = 0;
+    // Tracks button held between press→release so mouse-move routes to dragMouse.
+    this.buttonDown = null;
   }
 
   setupMouseHandlers(socket, requireAuth) {
@@ -22,8 +24,12 @@ export class MouseHandler {
         const pcY = Math.round((data.y / 100) * dimensions.height);
         const finalX = Math.max(0, Math.min(dimensions.width - 1, pcX));
         const finalY = Math.max(0, Math.min(dimensions.height - 1, pcY));
-        
-        robot.moveMouse(finalX, finalY);
+
+        // macOS needs kCGEventLeftMouseDragged (not kCGEventMouseMoved) to drag a
+        // window mid-press. dragMouse posts the correct event type; on Linux/Win
+        // it falls back to moveMouse so behavior is unchanged.
+        if (this.buttonDown) robot.dragMouse(finalX, finalY, this.buttonDown);
+        else robot.moveMouse(finalX, finalY);
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
         console.error("Mouse move error:", error.message);
@@ -64,7 +70,9 @@ export class MouseHandler {
         const finalY = Math.max(0, Math.min(dimensions.height - 1, pcY));
 
         robot.moveMouse(finalX, finalY);
-        robot.mouseToggle("down", data.button || "left");
+        const button = data.button || "left";
+        robot.mouseToggle("down", button);
+        this.buttonDown = button;
 
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
@@ -84,7 +92,9 @@ export class MouseHandler {
         const finalY = Math.max(0, Math.min(dimensions.height - 1, pcY));
 
         robot.moveMouse(finalX, finalY);
-        robot.mouseToggle("up", data.button || "left");
+        const button = this.buttonDown || data.button || "left";
+        robot.mouseToggle("up", button);
+        this.buttonDown = null;
 
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
