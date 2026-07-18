@@ -89,9 +89,6 @@ export default function WorkspaceLayout({ children }) {
   useClipboardSocket(socketRef, connected);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
 
-  // Reflect unseen finished-terminal count in browser tab title (marquee)
-  useEffect(() => { updateTitle(Object.keys(notifications).length); return () => updateTitle(0); }, [notifications]);
-
   const [systemInfo, setSystemInfo] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen); // Selector - only subscribe to function
@@ -142,6 +139,11 @@ export default function WorkspaceLayout({ children }) {
   // Active session at component scope (needed by terminal IIFE)
   const isTerminalView = currentView?.type === "terminal";
   const activeSessionId = isTerminalView ? currentView?.sessionId : null;
+
+  // Reflect unseen finished-terminal count (or active session name when idle) in browser tab title
+  const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
+  const activeSessionName = activeSession ? (activeSession.name || t("terminal.defaultName")) : null;
+  useEffect(() => { updateTitle(Object.keys(notifications).length, activeSessionName); return () => updateTitle(0); }, [notifications, activeSessionName]);
 
   // Enable slide animation only after settled in terminal view (avoids slide-through when entering from list)
   const [swipeAnimEnabled, setSwipeAnimEnabled] = useState(false);

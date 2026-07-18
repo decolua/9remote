@@ -357,10 +357,10 @@ html.terminal-page body {
   border-radius: 3px;
 }
 .terminal-wrapper:hover .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(var(--brand-rgb), 0.4);
+  background: rgba(128, 128, 128, 0.4);
 }
 .terminal-wrapper:hover .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(var(--brand-rgb), 0.8);
+  background: rgba(128, 128, 128, 0.8);
 }
 /* XTerm overlay scrollbar (JS-rendered div) — auto-hide: only .visible while scrolling/hovering. */
 .terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar {
@@ -372,10 +372,10 @@ html.terminal-page body {
 .terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar .slider {
   width: 7px !important;
   border-radius: 4px !important;
-  background: rgba(var(--brand-rgb), 0.5) !important;
+  background: rgba(128, 128, 128, 0.5) !important;
 }
 .terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar .slider:hover {
-  background: rgba(var(--brand-rgb), 0.8) !important;
+  background: rgba(128, 128, 128, 0.8) !important;
 }
 
 /* Show overlay scrollbar only while xterm marks it .visible (scrolling / hovering track). */

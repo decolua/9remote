@@ -13,14 +13,14 @@ function render() {
   offset = (offset + 1) % SCROLL.length;
 }
 
-// count>0: fixed `(n) 🔔 ` prefix + rotating SCROLL body; else static BASE
-export function updateTitle(count) {
+// count>0: fixed `(n) 🔔 ` prefix + rotating SCROLL body; else show active name or BASE
+export function updateTitle(count, activeName) {
   current = count;
   if (count > 0) {
     if (!timer) { offset = 0; render(); timer = setInterval(render, STEP_MS); }
   } else {
     if (timer) { clearInterval(timer); timer = null; }
     offset = 0;
-    document.title = BASE;
+    document.title = activeName ? `${activeName} • ${BASE}` : BASE;
   }
 }

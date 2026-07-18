@@ -226,7 +226,7 @@ function TerminalPane({
       >
         <div
           ref={containerRef}
-          className="xterm-screen w-full rounded-sm overflow-hidden px-1 py-0.5"
+          className="xterm-screen w-full rounded-sm overflow-hidden px-1 py-0.5 pb-2"
           style={fixedHeight != null
             ? { height: fixedHeight, minHeight: fixedHeight }
             : { height: "100%", minHeight: "100%" }}

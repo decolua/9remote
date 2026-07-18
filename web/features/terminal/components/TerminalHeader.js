@@ -194,7 +194,7 @@ export default function TerminalHeader({
   }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, transport, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
-    <div className="px-2 sm:px-4 pt-2 flex items-center gap-2 flex-shrink-0 bg-bg">
+    <div className="px-2 sm:px-4 pt-2 mb-1 flex items-center gap-2 flex-shrink-0 bg-bg">
       <button
         onClick={() => { vibrate(); onBack(); }}
         className="p-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
