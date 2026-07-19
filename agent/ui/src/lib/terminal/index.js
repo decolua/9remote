@@ -85,6 +85,9 @@ export function resolveTheme(name) {
 
 // Create xterm instance + fit addon, attach to container.
 // Returns { term, fitAddon, doFit, dispose }.
+export { createWriteBatcher } from "./writeBatcher.js";
+export { trimEndToEsc } from "./ansiBoundary.js";
+
 export function createTerminal(container, { theme = "dark" } = {}) {
   const term = new Terminal({
     ...TERMINAL_OPTIONS,
@@ -122,15 +125,39 @@ function parseOsc7Cwd(text) {
 // Bind socket output → term.write, filtered by sessionId.
 // Returns unbind fn. onCwd(parsedCwd) called when OSC 7 emits a working directory.
 // Bind socket "output" → term.write, scoped to sessionId.
-// opts: { onCwd, mirror, mirrorBytes, onPrefix }
+// opts: { onCwd, mirror, mirrorBytes, onPrefix, joining, batcher }
 //   mirror/mirrorBytes: refs (array + number) accumulating raw bytes for scroll-up replay.
 //   onPrefix(data): called for isHistoryPrefix chunks instead of writing — caller splices+replays.
+//   joining: ref ({current}) — when true, drop live output (bytes already in the tail snapshot
+//     racing between reset() and the ack); replay packets still write through.
+//   batcher: { write } — rAF write coalescer; if absent falls back to direct term.write.
 export function bindOutput(term, socket, sessionId, onCwd, opts = {}) {
-  const { mirror = null, mirrorBytes = null, onPrefix = null } = opts;
+  const { mirror = null, mirrorBytes = null, onPrefix = null, joining = null, batcher = null } = opts;
+
+  // Write + mirror a decoded chunk (string or Uint8Array).
+  const writeChunk = (data) => {
+    let str = null;
+    if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+      const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+      (batcher?.write ?? term.write.bind(term))(u8);
+      str = new TextDecoder().decode(u8);
+      if (mirror) { mirror.current.push(u8); mirrorBytes.current += u8.length; }
+    } else if (typeof data === "string") {
+      (batcher?.write ?? term.write.bind(term))(data);
+      str = data;
+      if (mirror) { mirror.current.push(data); mirrorBytes.current += byteLength(data); }
+    } else {
+      const s = String(data);
+      (batcher?.write ?? term.write.bind(term))(s);
+      str = s;
+      if (mirror) { mirror.current.push(str); mirrorBytes.current += byteLength(str); }
+    }
+    return str;
+  };
+
   const handler = (payload) => {
     if (!payload || payload.sessionId !== sessionId) return;
     let { data } = payload;
-    let str = null;
     // Daemon marks coalesced output with enc:"b64" (base64 string) — decode once here.
     if (payload.enc === "b64" && typeof data === "string") {
       const bin = atob(data);
@@ -143,20 +170,16 @@ export function bindOutput(term, socket, sessionId, onCwd, opts = {}) {
       onPrefix?.(data);
       return;
     }
-    if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-      const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
-      term.write(u8);
-      str = new TextDecoder().decode(u8);
-      if (mirror) { mirror.current.push(u8); mirrorBytes.current += u8.length; }
-    } else if (typeof data === "string") {
-      term.write(data);
-      str = data;
-      if (mirror) { mirror.current.push(data); mirrorBytes.current += byteLength(data); }
-    } else {
-      term.write(String(data));
-      str = String(data);
-      if (mirror) { mirror.current.push(str); mirrorBytes.current += byteLength(str); }
+    // Join-replay packet (mode restore + tail): write immediately in arrival order. No mirror —
+    // the tail is the post-reset baseline; mirroring would double-count it.
+    if (payload.replay) {
+      writeChunk(data);
+      return;
     }
+    // Live output racing the join (bytes already in the tail snapshot) → drop to avoid duplicate
+    // / wrong-buffer write. Bytes newer than the snapshot land after the ack, outside this window.
+    if (joining?.current) return;
+    const str = writeChunk(data);
     if (onCwd && str) {
       const cwd = parseOsc7Cwd(str);
       if (cwd) onCwd(cwd);
@@ -166,9 +189,10 @@ export function bindOutput(term, socket, sessionId, onCwd, opts = {}) {
   return () => socket.off("output", handler);
 }
 
-// Emit joinSession with ack handlers.
-export function joinSession(socket, sessionId, { onSuccess, onError } = {}) {
-  socket.emit("joinSession", sessionId, (res) => {
+// Emit joinSession with ack handlers. Sends cols/rows so a respawned PTY spawns at
+// the right size instead of falling back to 80×24 (R1 v3).
+export function joinSession(socket, sessionId, { cols, rows, onSuccess, onError } = {}) {
+  socket.emit("joinSession", { sessionId, cols, rows }, (res) => {
     if (!res?.success) {
       onError?.(res?.error || "Failed to join session");
     } else {

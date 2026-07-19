@@ -54,6 +54,10 @@ async function syncDaemonSessions() {
       createdAt: meta.createdAt,
       shellId: meta.shellId,
       cwd: live?.cwd || meta.cwd,
+      // Restore last client size so a respawned PTY (after agent/daemon restart)
+      // inherits the real terminal size instead of falling back to 80×24.
+      lastCols: meta.cols ?? null,
+      lastRows: meta.rows ?? null,
       needsRespawn: !live
     });
   }
@@ -106,9 +110,10 @@ export async function initializeTerminal() {
 export function setupTerminalSocket(io, apiKey) {
   // Forward daemon events to all socket clients
   if (PERSISTENCE_MODE === "daemon") {
-    daemonClient.on("output", ({ sessionId, enc, data }) => {
-      broadcast(io, "output", { sessionId, enc, data });
+    daemonClient.on("output", ({ sessionId, enc, data, replay }) => {
+      broadcast(io, "output", { sessionId, enc, data, replay: replay === true });
     });
+
     daemonClient.on("cwdChange", ({ sessionId, cwd }) => {
       const session = sessions.get(sessionId);
       if (session && cwd && session.cwd !== cwd) { session.cwd = cwd; saveSessionMetadata(sessions); }
@@ -131,6 +136,9 @@ export function setupTerminalSocket(io, apiKey) {
     platform: process.platform,
     updateAvailable: getUpdateInfo(),
     canSelfUpdate: true, // this build ships the web-triggered self-update flow
+    // Capability flags — web feature-detects against these so old agents don't break
+    // when web starts sending a new payload shape (e.g. joinSession with cols/rows).
+    caps: { joinSessionSize: true },
     ...getCodespaceInfo()
   });
 
@@ -167,6 +175,7 @@ export async function setupTerminalHandlers(socket, io, apiKey) {
   socket.emit("serverInfo", setupTerminalSocket._buildServerInfo?.());
 
   setupSessionHandlers(socket, io, sessions, groups, sessionGroups, sessionOrder);
+
   setupInputHandlers(socket, sessions);
   setupPushHandlers(socket, io);
 

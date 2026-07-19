@@ -11,6 +11,7 @@ import path from "path";
 import os from "os";
 import pty from "node-pty";
 import { resolveShell, DAEMON_VERSION } from "./constants.js";
+import { takeBufferTail, takeBufferRange, bufferTotal } from "./bufferSlice.js";
 
 // Socket path
 const SOCKET_DIR = path.join(os.homedir(), ".9remote");
@@ -37,89 +38,6 @@ const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
 // Buffer storage = Buffer[] (byte-accurate). The web mirror also counts BYTES, so total/have
 // stay consistent across CJK/emoji/ANSI output. (Previously string[] + char-length → offset
 // drift on multibyte → "load more" loaded wrong/duplicate segments.)
-// Walk chunks from the end — avoid joining full ≤2MB buffer just to keep a tail
-function takeBufferTail(chunks, maxLen) {
-  if (!chunks?.length || maxLen <= 0) return Buffer.alloc(0);
-  let remaining = maxLen;
-  const parts = [];
-  for (let i = chunks.length - 1; i >= 0 && remaining > 0; i--) {
-    const chunk = chunks[i];
-    if (chunk.length <= remaining) {
-      parts.push(chunk);
-      remaining -= chunk.length;
-    } else {
-      parts.push(chunk.subarray(chunk.length - remaining));
-      remaining = 0;
-    }
-  }
-  parts.reverse();
-  return Buffer.concat(parts);
-}
-
-// Total byte length of a chunked Buffer[]
-function bufferTotal(chunks) {
-  if (!chunks?.length) return 0;
-  return chunks.reduce((sum, c) => sum + c.length, 0);
-}
-
-// Walk chunks from the start — used by requestHistory to send prefix older than the tail
-function takeBufferHead(chunks, maxLen) {
-  if (!chunks?.length || maxLen <= 0) return Buffer.alloc(0);
-  let remaining = maxLen;
-  const parts = [];
-  for (let i = 0; i < chunks.length && remaining > 0; i++) {
-    const chunk = chunks[i];
-    if (chunk.length <= remaining) {
-      parts.push(chunk);
-      remaining -= chunk.length;
-    } else {
-      parts.push(chunk.subarray(0, remaining));
-      remaining = 0;
-    }
-  }
-  return Buffer.concat(parts);
-}
-
-// Return up to chunkLen bytes ending at (total - haveFromEnd), i.e. the slice just before the
-// tail the client already holds. The raw slice may start mid-ANSI-sequence/mid-UTF8 → xterm
-// parser chokes. Align the START to the next '\n' after the raw start so every chunk begins at
-// a line boundary (ANSI sequences rarely span '\n'). The trimmed head is folded back into the
-// remaining history (reported via ackRemaining) so the next fetch covers it.
-function takeBufferRange(chunks, haveFromEnd, chunkLen) {
-  if (!chunks?.length || chunkLen <= 0) return { prefix: Buffer.alloc(0), trimmed: 0 };
-  const total = bufferTotal(chunks);
-  const endExclusive = total - Math.max(0, Math.min(haveFromEnd, total)); // absolute end offset
-  let start = endExclusive - chunkLen;
-  if (start < 0) { chunkLen += start; start = 0; }
-  if (chunkLen <= 0) return { prefix: Buffer.alloc(0), trimmed: 0 };
-
-  // Walk forward accumulating byte offset until we reach `start`, then collect chunkLen bytes.
-  let offset = 0;
-  const parts = [];
-  for (let i = 0; i < chunks.length && chunkLen > 0; i++) {
-    const chunk = chunks[i];
-    const next = offset + chunk.length;
-    if (next <= start) { offset = next; continue; }
-    if (offset >= endExclusive) break;
-    const localStart = Math.max(0, start - offset);
-    const take = Math.min(chunkLen, chunk.length - localStart);
-    parts.push(chunk.subarray(localStart, localStart + take));
-    chunkLen -= take;
-    offset = next;
-  }
-  let raw = Buffer.concat(parts);
-
-  // Align start to the next '\n' (0x0A) so we don't begin mid-line/mid-sequence.
-  let trimmed = 0;
-  const nl = raw.indexOf(0x0a);
-  if (nl > 0 && nl < raw.length - 1) {
-    trimmed = nl + 1;
-    raw = raw.subarray(trimmed);
-  }
-  return { prefix: raw, trimmed };
-}
-
-// DEC private modes we restore on replay — alt buffer + mouse tracking/encoding
 const RESTORE_MODES = ["1049", "1047", "1000", "1002", "1003", "1006", "1015", "1005"];
 const DEC_PRIVATE_RE = /\x1b\[\?([0-9;]+)([hl])/g;
 
@@ -411,9 +329,12 @@ function handleMessage(client, message) {
       // Re-emit terminal mode sequences BEFORE history tail — client called reset() on
       // reconnect which wiped alt-buffer/mouse modes; without this, replay lands in the
       // normal buffer and wheel/touch scroll breaks for TUI apps (e.g. opencode).
+      // replay:true lets the client ORDER these packets strictly before live output that
+      // races between reset() and ack — otherwise a live packet writes into the wrong buffer
+      // (alt-screen mode not yet restored) and content is lost/garbled, especially Claude Code.
       const restore = restoreSeq(session.modes);
       if (restore) {
-        send(client, { type: "output", sessionId, enc: "b64", data: Buffer.from(restore).toString("base64") });
+        send(client, { type: "output", sessionId, enc: "b64", replay: true, data: Buffer.from(restore).toString("base64") });
       }
       // Replay only tail of buffered output to avoid network burst on join
       const history = takeBufferTail(session.buffer, JOIN_REPLAY_SIZE);
@@ -422,6 +343,7 @@ function handleMessage(client, message) {
           type: "output",
           sessionId,
           enc: "b64",
+          replay: true,
           data: history.toString("base64")
         });
       }
@@ -445,7 +367,7 @@ function handleMessage(client, message) {
       const have = Math.max(0, Math.min(payload.have || 0, total));
       const remaining = total - have;          // bytes older than what client holds
       const chunkLen = Math.min(HISTORY_CHUNK_SIZE, remaining);
-      const { prefix, trimmed } = chunkLen > 0 ? takeBufferRange(hSession.buffer, have, chunkLen) : { prefix: Buffer.alloc(0), trimmed: 0 };
+      const { prefix, extra = 0 } = chunkLen > 0 ? takeBufferRange(hSession.buffer, have, chunkLen) : { prefix: Buffer.alloc(0), extra: 0 };
       send(client, {
         type: "historyResult",
         success: true,
@@ -454,8 +376,9 @@ function handleMessage(client, message) {
         prefix: prefix && prefix.length ? prefix.toString("base64") : "",
         prefixLen: prefix ? prefix.length : 0,
         total,
-        // remaining = older bytes not yet sent. trimmed (line-align head) stays unsent → add back.
-        remaining: Math.max(0, remaining - prefix.length - trimmed) + trimmed,
+        // remaining = older bytes not yet sent. The prefix may extend back `extra` bytes to an ESC
+        // boundary; the next fetch covers from there, so remaining shrinks by chunkLen only.
+        remaining: Math.max(0, remaining - chunkLen),
         requestId: payload.requestId
       });
       break;

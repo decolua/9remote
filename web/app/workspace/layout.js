@@ -53,8 +53,17 @@ export default function WorkspaceLayout({ children }) {
     setActiveGroupId,
     livePanes,
     touchLivePane,
+    mountedGroups,
+    markGroupMounted,
+    isGroupMounted,
     reset: resetStore
   } = useTerminalStore();
+
+  // Lazy per-group mount: the FIRST time a group becomes active, mark it mounted so its panes'
+  // XTterms initialize. Other groups stay as placeholders until visited — avoids mounting every
+  // terminal across all groups at once (5+ concurrent joins → main-thread stall). Panes inside a
+  // newly-active group join sequentially (focus first, rest staggered) via mountDelay.
+  // (Effect body defined here; fired after isTerminalView is computed below.)
 
   // Hydrate Zustand on mount
   useEffect(() => {
@@ -141,6 +150,15 @@ export default function WorkspaceLayout({ children }) {
   const isTerminalView = currentView?.type === "terminal";
   const activeSessionId = isTerminalView ? currentView?.sessionId : null;
 
+  // Lazy per-group mount: the FIRST time a group becomes active, mark it mounted so its panes'
+  // XTterms initialize. Other groups stay as placeholders until visited — avoids mounting every
+  // terminal across all groups at once (5+ concurrent joins → main-thread stall). Panes inside a
+  // newly-active group join sequentially (focus first, rest staggered) via mountDelay.
+  useEffect(() => {
+    if (!isTerminalView || activeGroupId === undefined) return;
+    markGroupMounted(activeGroupId);
+  }, [isTerminalView, activeGroupId, markGroupMounted]);
+
   // Reflect unseen finished-terminal count (or active session name when idle) in browser tab title
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
   const activeSessionName = activeSession ? (activeSession.name || t("terminal.defaultName")) : null;
@@ -168,11 +186,13 @@ export default function WorkspaceLayout({ children }) {
   // Sync URL <-> viewStack (deep-link, F5, back/forward)
   useRouteSync(hydrated);
 
-  // Pop view and reload sessions - keep terminals alive across back/forth
+  // Pop view via browser history — history is the single source of truth, store
+  // syncs from URL via useRouteSync. Fallback to storePopView for deep-links with
+  // no prior entry.
   const popView = useCallback(() => {
-    storePopView();
-    loadSessions();
-  }, [storePopView, loadSessions]);
+    if (typeof history !== "undefined" && history.length > 1) router.back();
+    else storePopView();
+  }, [router, storePopView]);
 
   // Load sessions + groups when socket connects
   useEffect(() => {
@@ -296,9 +316,15 @@ export default function WorkspaceLayout({ children }) {
         alert(t("workspace.failedCreateSession", { error: result.error }));
       } else if (result.sessionId) {
         addOpenedSession(result.sessionId);
+        // Auto-select new terminal when created from within terminal view
+        if (currentView.type === "terminal") {
+          const newStack = [...viewStack];
+          newStack[newStack.length - 1] = { type: "terminal", sessionId: result.sessionId };
+          setViewStack(newStack);
+        }
       }
     });
-  }, [createSession, addOpenedSession, t]);
+  }, [createSession, addOpenedSession, t, currentView, viewStack, setViewStack]);
 
   // Smooth-scroll focused pane to center of viewport (desktop split-view only)
   useEffect(() => {
@@ -578,9 +604,26 @@ export default function WorkspaceLayout({ children }) {
           const groupOpenedSessions = openedSessions.filter(sid => groupSessionIds.has(sid));
           const liveSet = new Set([...groupOpenedSessions, ...livePanes.filter(sid => openedSessions.includes(sid))]);
           const renderedSessions = openedSessions.filter(sid => liveSet.has(sid));
+          // sessionId → groupId lookup; pane mounts only if its group has been visited once
+          // (active group auto-marks mounted on selection). Desktop keeps panes from other VISITED
+          // groups mounted (split/LRU); mobile mounts ONLY the active group (one visible pane at a
+          // time — keeping other groups alive wastes memory + joins). Switching tabs within a group
+          // never remounts: panes stay mounted, only the focused one is shown.
+          const sessionGroup = new Map(sessions.map(s => [s.id, s.groupId ?? null]));
+          const mountedSet = new Set(openedSessions.filter(sid => {
+            if (groupSessionIds.has(sid)) return true; // active group always mounts
+            if (!isDesktop) return false; // mobile: don't keep other groups alive
+            const gid = sessionGroup.get(sid);
+            return !!mountedGroups[gid ?? "__ungrouped__"];
+          }));
+          // Sequential join within a freshly-active group: focus first (0ms), then stagger the rest
+          // (~120ms each) so concurrent joins don't pile up and stall the main thread.
+          const STAGGER_MS = 120;
+          const groupOrder = groupOpenedSessions; // order within active group (tab order)
+          const groupIndex = new Map(groupOrder.map((sid, i) => [sid, i]));
           return (
             <div
-              className={`absolute inset-0 transition-all duration-150 ease-out flex flex-col ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
+              className={`absolute inset-0 flex flex-col ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
                 }`}
             >
               <TerminalHeader
@@ -652,21 +695,34 @@ export default function WorkspaceLayout({ children }) {
                       }
                       style={inActiveGroup && isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
                     >
-                      <TerminalPane
-                        socket={socket}
-                        connected={connected}
-                        sessionId={sessionId}
-                        isVisible={isVisible}
-                        isFocused={isFocused}
-                        onActivate={handleSelectSession}
-                        onRegisterApi={registerPaneApi}
-                        onPasteFallback={handlePasteFallback}
-                        showFocusBorder={false}
-                        notifications={notifications}
-                        sessionStatus={sessionStatus}
-                        clearNotification={clearNotification}
-                        fileSocket={fileSocket}
-                      />
+                      {mountedSet.has(sessionId) ? (
+                        <TerminalPane
+                          socket={socket}
+                          connected={connected}
+                          sessionId={sessionId}
+                          isVisible={isVisible}
+                          isFocused={isFocused}
+                          onActivate={handleSelectSession}
+                          onRegisterApi={registerPaneApi}
+                          onPasteFallback={handlePasteFallback}
+                          showFocusBorder={false}
+                          notifications={notifications}
+                          sessionStatus={sessionStatus}
+                          clearNotification={clearNotification}
+                          fileSocket={fileSocket}
+                          mountDelay={(() => {
+                            // Focus pane joins immediately; other panes in the freshly-active group
+                            // stagger by tab order so joins don't pile up. Panes already alive
+                            // (revisit) pass 0 — no delay, their PTY is already running.
+                            if (!isFocused && groupIndex.has(sessionId)) return groupIndex.get(sessionId) * STAGGER_MS;
+                            return 0;
+                          })()}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-text-muted text-xs">
+                          {/* Placeholder — group not yet visited; mount on first entry */}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

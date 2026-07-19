@@ -5,7 +5,7 @@
 // v35: add latency trace points (input.write/onData/broadcast) — temporary debugging.
 // v37: restore same-tick coalesce (setImmediate) — rapid-typing lag was the agent git spawn, not this.
 // v38: zsh PTY now sources ~/.zprofile + ~/.zlogin (ZDOTDIR=temp dir previously skipped them).
-export const DAEMON_VERSION = "38";
+export const DAEMON_VERSION = "44";
 
 // Shell options for terminal sessions
 export const SHELL_OPTIONS = {

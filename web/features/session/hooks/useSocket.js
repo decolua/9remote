@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useBaseSocket } from "@/shared/hooks/useBaseSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { WORKER_API } from "@/shared/constants/API";
 
 // Socket.io connection management hook for Terminal
@@ -84,6 +85,7 @@ export function useSocket() {
       setAgentVersion(info.version || null);
       setUpdateAvailable(info.updateAvailable || null);
       setCanSelfUpdate(!!info.canSelfUpdate);
+      useTerminalStore.getState().setAgentCaps(info.caps || {});
       if (info.isCodespaces) {
         setCodespaceInfo({ isCodespaces: info.isCodespaces, codespaceName: info.codespaceName });
       }

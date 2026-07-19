@@ -7,15 +7,21 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
-import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS } from "@/features/terminal/constants/terminalConfig";
+import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
+import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
+import { trimEndToEsc } from "@/features/terminal/lib/ansiBoundary";
+
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 // import { detectLinks } from "@/features/terminal/utils/linkDetector";
 
-// Write output directly — xterm ANSI parse is cheap (~3ms/MB); chunking via rAF only adds latency.
-// mirror/mirrorBytes: refs to accumulate raw bytes for scroll-up history replay (null = skip mirroring).
-function writeChunked(term, data, mirror, mirrorBytes) {
+// Write output via the rAF batcher when provided (coalesces bursts into one write/frame so the
+// main thread isn't blocked parsing each 1KB chunk), else direct term.write. mirror/mirrorBytes:
+// refs to accumulate raw bytes for scroll-up history replay (null = skip mirroring).
+function writeChunked(term, data, mirror, mirrorBytes, batcher) {
   if (!term || term._core?._isDisposed) return;
-  term.write(data);
+  if (batcher) batcher.write(data);
+  else term.write(data);
 
   // Mirror output for history replay — keep raw bytes (Uint8Array/string) so we can splice prefix later.
   if (mirror) {
@@ -41,9 +47,10 @@ function BufferLikeByteLength(str) {
 }
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
-export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, onInput, onSelectionMade }) {
+export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, onInput, onSelectionMade }) {
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
+  const writeBatcherRef = useRef(null);
   const webglAddonRef = useRef(null);
   const loadWebGLRef = useRef(null);
   const disposeWebGLRef = useRef(null);
@@ -72,35 +79,69 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const historyFetchingRef = useRef(false); // in-flight requestHistory
   const historyLastFetchRef = useRef(0);    // timestamp of last fetch (guard)
   const historyHaveAtEmitRef = useRef(0);   // historyBytesRef snapshot at requestHistory emit (race-dedup)
+  // Join-replay window: while a joinSession round-trip is in flight (emit → replay → ack), LIVE
+  // output is QUEUED (not written) so it never lands between term.reset() and the mode-restore
+  // replay packet. Dropping was wrong — the window can last hundreds of ms under multi-pane joins
+  // (5×131KB tail replays), so live output produced AFTER the daemon's snapshot would be lost
+  // forever. Queue + flush on ack: replay paints first, queued live follows in arrival order.
+  const joiningRef = useRef(false);
+  const [joining, setJoining] = useState(false); // reactive for center loading spinner during join
+  const joinQueueRef = useRef([]);
   const scrollDisposeRef = useRef(null);    // disposable from term.onScroll
+  const needsRejoinRef = useRef(false);     // reconnect fired while pane hidden → defer rejoin until visible
+  const isVisibleRef = useRef(isVisible);   // mirror isVisible for socket handlers
+  useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
   const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
   const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers in other effects
   const userAtTopRef = useRef(false); // set true only when user actively scrolls up to top (not mount transient)
 
+  // Emit resize only if cols/rows are above the sane-size floor. A transient tiny size
+  // (layout mid-transition, app-resume reconnect) makes the shell re-wrap scrollback
+  // narrow forever — older lines stay narrow even after cols return to normal.
+  const emitResize = useCallback(() => {
+    const term = termRef.current;
+    if (!term || !socket) return;
+    const { cols, rows } = term;
+    if (cols < MIN_COLS || rows < MIN_ROWS) return;
+    lastPtySizeRef.current = { cols, rows };
+    socket.emit("resize", { sessionId, cols, rows });
+  }, [socket, sessionId]);
+
   // Resize with debounce singleton - uses rAF to ensure layout is stable
   // Always re-fit canvas; skip PTY emit only when size unchanged AND not forced (soft-KB/tab dup guard).
+  // Multi-pane race guard: RO fires across panes during flex redistribute → wait for cols/rows
+  // to STABILIZE across frames before emitting, else a transient size makes the shell re-wrap
+  // scrollback narrow forever.
   const doResize = useCallback((opts = {}) => {
     const force = opts === true || opts?.force === true;
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = setTimeout(() => {
-      requestAnimationFrame(() => {
-        if (!fitAddonRef.current || !termRef.current || !socket) return;
+      if (!fitAddonRef.current || !termRef.current || !socket) { resizeTimerRef.current = null; return; }
+      let lastSize = null;
+      let stableFrames = 0;
+      let attempts = 0;
+      const check = () => {
+        if (termRef.current?._isDisposed) { resizeTimerRef.current = null; return; }
+        attempts++;
         const el = containerRef.current;
-        if (!el?.offsetWidth || !el?.offsetHeight) {
-          resizeTimerRef.current = null;
-          return;
-        }
+        if (!el?.offsetWidth || !el?.offsetHeight) { resizeTimerRef.current = null; return; }
         fitAddonRef.current.fit();
         const { cols, rows } = termRef.current;
+        // Layout mid-transition (app-resume reconnect, soft-KB) → cols/rows below floor.
+        // Skip: emitting a tiny resize makes the shell re-wrap scrollback narrow forever.
+        if (cols < MIN_COLS || rows < MIN_ROWS) { resizeTimerRef.current = null; return; }
+        const cur = `${cols}x${rows}`;
+        // ALWAYS wait for size to stabilize across 2 frames — force included. A transient
+        // cols (above floor but mid-transition) makes Claude Code render narrow and stays so.
+        if (cur !== lastSize) { lastSize = cur; stableFrames = 1; if (attempts < 8) { requestAnimationFrame(check); return; } }
+        else if (++stableFrames < 2) { if (attempts < 8) { requestAnimationFrame(check); return; } }
         const prev = lastPtySizeRef.current;
-        if (!force && prev && prev.cols === cols && prev.rows === rows) {
-          resizeTimerRef.current = null;
-          return;
-        }
+        if (!force && prev && prev.cols === cols && prev.rows === rows) { resizeTimerRef.current = null; return; }
         lastPtySizeRef.current = { cols, rows };
         socket.emit("resize", { sessionId, cols, rows });
         resizeTimerRef.current = null;
-      });
+      };
+      requestAnimationFrame(check);
     }, 150);
   }, [socket, sessionId, containerRef]);
 
@@ -128,6 +169,11 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
 
     term.open(containerRef.current);
 
+    // rAF write batcher — coalesce high-frequency output bursts into one write/frame so the
+    // main thread isn't blocked parsing/rendering each 1KB chunk (stutters animation under load).
+    const batcher = createWriteBatcher(term);
+    writeBatcherRef.current = batcher;
+
     // File/URL link provider: temporarily disabled (inaccurate resolve), re-enable later
     // term.registerLinkProvider({
     //   provideLinks: (bufferLineNumber, cb) => {
@@ -149,7 +195,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         webglAddonRef.current = webglAddon;
         // Re-fit with WebGL glyph metrics to prevent text overflow from canvas→webgl metric mismatch
         fitAddon.fit();
-        socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+        emitResize();
         // Force repaint all rows with new glyph metrics
         term.refresh(0, term.rows - 1);
       } catch (e) {
@@ -161,7 +207,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       webglAddonRef.current.dispose();
       webglAddonRef.current = null;
       fitAddon.fit();
-      socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+      emitResize();
       term.refresh(0, term.rows - 1);
     };
 
@@ -182,9 +228,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         return;
       }
 
-      if (term.element && width > 0 && height > 0) {
+      if (term.element && width >= 100 && height >= 100) {
         fitAddon.fit();
-        socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+        emitResize();
         setTermReady(true);
       } else {
         setTimeout(checkReady, 50);
@@ -219,7 +265,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       const liveDelta = Math.max(0, historyHaveAtEmitRef.current > 0 ? historyBytesRef.current - historyHaveAtEmitRef.current : 0);
       historyHaveAtEmitRef.current = 0;
       if (liveDelta > 0) {
-        const keep = Math.max(0, (typeof prefixChunk === "string" ? BufferLikeByteLength(prefixChunk) : prefixChunk.byteLength) - liveDelta);
+        let keep = Math.max(0, (typeof prefixChunk === "string" ? BufferLikeByteLength(prefixChunk) : prefixChunk.byteLength) - liveDelta);
+        // A blind byte cut can split a trailing ANSI escape — align to a clean ESC boundary.
+        if (typeof prefixChunk !== "string") keep = trimEndToEsc(prefixChunk, keep);
         prefixChunk = typeof prefixChunk === "string" ? prefixChunk.slice(0, keep) : prefixChunk.subarray(0, keep);
       }
 
@@ -311,15 +359,33 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         return;
       }
 
+      // Join-replay packet (mode restore + tail): write immediately in arrival order. No mirror —
+      // the tail is the post-reset baseline; mirroring would double-count it.
+      if (payload.replay) {
+        const d = (data instanceof ArrayBuffer || ArrayBuffer.isView(data))
+          ? (data instanceof Uint8Array ? data : new Uint8Array(data))
+          : (typeof data === "string" ? data : String(data));
+        writeBatcherRef.current?.write(d);
+        writeBatcherRef.current?.flush();
+        return;
+      }
+
+      // Live output racing the join → queue, flush on ack. Dropping loses content produced after
+      // the daemon's snapshot (window can be hundreds of ms under multi-pane joins).
+      if (joiningRef.current) {
+        joinQueueRef.current.push(data);
+        return;
+      }
+
       // Live output arrives → user is effectively at bottom; clear the user-scrolled-to-top flag.
       userAtTopRef.current = false;
-
+      const b = writeBatcherRef.current;
       if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-        writeChunked(term, data instanceof Uint8Array ? data : new Uint8Array(data), historyMirrorRef, historyBytesRef);
+        writeChunked(term, data instanceof Uint8Array ? data : new Uint8Array(data), historyMirrorRef, historyBytesRef, b);
       } else if (typeof data === "string") {
-        writeChunked(term, data, historyMirrorRef, historyBytesRef);
+        writeChunked(term, data, historyMirrorRef, historyBytesRef, b);
       } else {
-        writeChunked(term, String(data), historyMirrorRef, historyBytesRef);
+        writeChunked(term, String(data), historyMirrorRef, historyBytesRef, b);
       }
     };
     socket.on("output", handleOutput);
@@ -342,30 +408,104 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       // Fit + emit resize BEFORE join so the daemon serializes the TUI snapshot
       // (alt-screen apps like Claude Code) at the client's real size. Join-first would
       // replay at the daemon's stale cols/rows → garbled until next SIGWINCH.
-      if (containerRef.current?.offsetWidth && containerRef.current?.offsetHeight) {
-        fitAddon.fit();
-        socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
-      }
-      socket.emit("joinSession", sessionId, (result) => {
-        if (result.success) {
-          // total = bytes agent holds; ceiling for scroll-up fetch.
-          historyTotalRef.current = result.total || 0;
-          if (result.cwd) { cwdRef.current = result.cwd; setCwd(result.cwd); useTerminalStore.getState().setCwd(sessionId, result.cwd); }
-          setTimeout(() => {
-            // WebGL renderer applied by the webglEnabled watch effect below; just fit.
-            fitAddon.fit();
-          }, 200);
-        } else {
-          term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);
+      // On app-resume reconnect the layout is mid-transition (container shrunk), so fit
+      // waits for cols/rows to STABILIZE across frames + a sane-size floor before emitting:
+      // a transient tiny resize would make the shell re-wrap scrollback narrow forever
+      // (older lines stay narrow even after cols return to normal).
+      let lastSize = null;
+      let stableFrames = 0;
+      let attempts = 0;
+      const doFitAndJoin = () => {
+        if (term._isDisposed) return;
+        attempts++;
+        if (containerRef.current?.offsetWidth && containerRef.current?.offsetHeight) {
+          fitAddon.fit();
         }
-      });
+        const { cols, rows } = term;
+        // During mount-in slide animation the container is briefly narrow → cols dips low → a tail
+        // snapshot at that width garbles content. Wait for the size to STABILIZE (two consecutive
+        // frames at the same value) AND be at least MIN_COLS wide. A genuinely tiny pane (e.g. a
+        // narrow split) still has a STABLE cols — it just won't reach MIN_COLS, so we cap retries
+        // and proceed once stable even if small, preferring a small-snapshot join over no join.
+        const cur = `${cols}x${rows}`;
+        if (cur !== lastSize) { lastSize = cur; stableFrames = 1; requestAnimationFrame(doFitAndJoin); return; }
+        if (++stableFrames < 2) { requestAnimationFrame(doFitAndJoin); return; }
+        // Settled. If still under floor after stabilizing, accept it (narrow split-view pane) —
+        // joining is better than leaving the pane blank forever.
+        socket.emit("resize", { sessionId, cols, rows });
+        lastPtySizeRef.current = { cols, rows }; // R4: record so doResize dedups after join
+        // Send the measured size in the join so a respawned PTY spawns at the right size.
+        // Only when the agent advertises the capability — older agents expect a bare
+        // sessionId string and would treat an object as an unknown session.
+        const joinPayload = useTerminalStore.getState().agentCaps?.joinSessionSize
+          ? { sessionId, cols, rows }
+          : sessionId;
+        // Open the drop window — live output racing the replay is dropped (already in the tail).
+        joiningRef.current = true;
+        setJoining(true);
+        joinQueueRef.current = [];
+        socket.emit("joinSession", joinPayload, (result) => {
+          // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
+          setTimeout(() => {
+            joiningRef.current = false;
+            setJoining(false);
+            const queue = joinQueueRef.current;
+            joinQueueRef.current = [];
+            const b = writeBatcherRef.current;
+            for (const q of queue) {
+              if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) {
+                writeChunked(term, q instanceof Uint8Array ? q : new Uint8Array(q), historyMirrorRef, historyBytesRef, b);
+              } else {
+                writeChunked(term, typeof q === "string" ? q : String(q), historyMirrorRef, historyBytesRef, b);
+              }
+            }
+            // Force a flush so queued content paints this frame instead of waiting for the next rAF.
+            b?.flush();
+          }, 0);
+          if (result.success) {
+            // total = bytes agent holds; ceiling for scroll-up fetch.
+            historyTotalRef.current = result.total || 0;
+            if (result.cwd) { cwdRef.current = result.cwd; setCwd(result.cwd); useTerminalStore.getState().setCwd(sessionId, result.cwd); }
+            setTimeout(() => {
+              // WebGL renderer applied by the webglEnabled watch effect below; just fit.
+              fitAddon.fit();
+            }, 200);
+          } else {
+            term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);
+          }
+        });
+      };
+      requestAnimationFrame(doFitAndJoin);
     };
+    // Stagger initial join by mountDelay so a freshly-entered group's panes don't all join at once
+    // (focus pane = 0ms, siblings stagger ~120ms). Rejoins/visibility-driven calls pass 0.
+    if (mountDelay > 0) {
+      const id = setTimeout(doJoinSession, mountDelay);
+      doJoinSessionRef.current = doJoinSession;
+      return () => clearTimeout(id); // unmount before fire → cancel
+    }
     doJoinSession();
     doJoinSessionRef.current = doJoinSession;
 
-    // On reconnect → clear stale content and rejoin to get latest scrollback
+    // On reconnect → clear stale content and rejoin to get latest scrollback.
+    // BUT only if the pane is visible — a hidden pane (different group, LRU) has a stale/
+    // zero-size container; fitting+joining now would serialize the TUI snapshot at a wrong cols
+    // and Claude Code's restored output renders narrow forever. Defer to the visibility effect.
     const handleReconnect = () => {
       if (!termRef.current) return;
+      // Reset transient state that may be stuck from the disconnect: mid-flight
+      // requestHistory (R2) and mid-SGR TUI round-trip (R3). R4 (lastPtySize dedup)
+      // is handled in doFitAndJoin, which records the size it emits after rejoin.
+      resetReconnectState({
+        historyFetching: historyFetchingRef,
+        historyHaveAtEmit: historyHaveAtEmitRef,
+        awaitingTuiOutput: awaitingTuiOutputRef,
+        joining: joiningRef,
+        joinQueue: joinQueueRef,
+      });
+      setHistoryFetching(false);
+      setJoining(false); // rejoin below will set it true again on emit
+      if (!isVisibleRef.current) { needsRejoinRef.current = true; return; }
       termRef.current.reset();
       doJoinSession(true);
     };
@@ -395,6 +535,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       if (webglAddonRef.current) webglAddonRef.current.dispose();
+      if (writeBatcherRef.current) writeBatcherRef.current.dispose();
       fitAddon.dispose();
       term.dispose();
       termRef.current = null;
@@ -420,7 +561,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     if (fontSizeSetting == null) return;
     term.options.fontSize = fontSizeSetting;
     fitAddon.fit();
-    socket.emit("resize", { sessionId, cols: term.cols, rows: term.rows });
+    emitResize();
     term.refresh(0, term.rows - 1);
   }, [fontSizeSetting, socket, sessionId]);
 
@@ -445,6 +586,14 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   useEffect(() => {
     if (!isVisible || !fitAddonRef.current || !termRef.current) return;
     const timer = setTimeout(() => {
+      // Reconnect fired while this pane was hidden → snapshot was never fetched at the right
+      // size. Now visible: reset + rejoin so the daemon serializes at the correct cols.
+      if (needsRejoinRef.current) {
+        needsRejoinRef.current = false;
+        termRef.current.reset();
+        doJoinSessionRef.current?.(true);
+        return;
+      }
       // force: pane may have been hidden during reconnect → daemon snapshot stale,
       // and cols/rows unchanged would skip emit → PTY never gets SIGWINCH to redraw.
       doResize({ force: true });
@@ -761,6 +910,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     cwdRef, // Expose cwd for file path resolution
     cwd, // Reactive cwd for toolbar UI
     termReady,
+    joining, // true while joinSession round-trip is in flight (initial mount + reconnect)
     doResize,
     reload,
     focus: () => termRef.current?.focus(),

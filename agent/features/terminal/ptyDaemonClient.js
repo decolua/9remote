@@ -269,6 +269,9 @@ function handleMessage(message) {
       emit("output", {
         sessionId: data.sessionId,
         enc: data.enc,
+        // replay:true marks join-replay packets (mode restore + tail) so the client can order
+        // them strictly before racing live output — preserves alt-screen mode sequencing.
+        replay: data.replay === true,
         data: data.enc === "b64" ? data.data : Buffer.from(data.data, "base64")
       });
       break;

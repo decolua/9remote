@@ -5,6 +5,7 @@ import {
   resolveTheme,
   SCROLL_THRESHOLD,
   createTerminal,
+  createWriteBatcher,
   attachTouchScroll,
   bindOutput,
   joinSession,
@@ -12,6 +13,7 @@ import {
   bindVisibilityRepaint,
   isUserTyping,
   byteLength,
+  trimEndToEsc,
 } from "@shared/terminal/index.js";
 import { useFileSocket } from "../lib/fileExplorer/useFileSocket";
 import { WATCH_DEBOUNCE_MS, MAX_CHANGED_BADGE } from "../lib/fileExplorer/constants";
@@ -35,6 +37,12 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
   const userAtTopRef = useRef(false);
   const maybeFetchHistoryRef = useRef(null);
   const [historyFetching, setHistoryFetching] = useState(false);
+  // Drop live output between term.reset() and ack: those bytes are already in the tail snapshot,
+  // so writing a racing packet would duplicate content, and before the mode-restore packet it lands
+  // in the wrong buffer (alt-screen TUI). Window closes in the ack. No queue/flush needed.
+  const joiningRef = useRef(false);
+  // rAF write batcher ref — created after term init.
+  const writeBatcherRef = useRef(null);
 
   useEffect(() => {
     if (!containerRef.current || !socket || !sessionId) return;
@@ -42,6 +50,9 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
     const { term, fitAddon, doFit, dispose } = createTerminal(containerRef.current, { theme });
     termRef.current = term;
     fitAddonRef.current = fitAddon;
+    // rAF write batcher — coalesce output bursts into one write/frame (parity with web).
+    const writeBatcher = createWriteBatcher(term);
+    writeBatcherRef.current = writeBatcher;
 
     // Resize observer → debounced fit + emit resize
     let resizeTimer = null;
@@ -72,7 +83,9 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
       const liveDelta = Math.max(0, historyHaveAtEmitRef.current > 0 ? historyBytesRef.current - historyHaveAtEmitRef.current : 0);
       historyHaveAtEmitRef.current = 0;
       if (liveDelta > 0) {
-        const keep = Math.max(0, (typeof prefixChunk === "string" ? byteLength(prefixChunk) : prefixChunk.byteLength) - liveDelta);
+        let keep = Math.max(0, (typeof prefixChunk === "string" ? byteLength(prefixChunk) : prefixChunk.byteLength) - liveDelta);
+        // A blind byte cut can split a trailing ANSI escape — align to a clean ESC boundary.
+        if (typeof prefixChunk !== "string") keep = trimEndToEsc(prefixChunk, keep);
         prefixChunk = typeof prefixChunk === "string" ? prefixChunk.slice(0, keep) : prefixChunk.subarray(0, keep);
       }
       const chunkLen = typeof prefixChunk === "string" ? byteLength(prefixChunk) : prefixChunk.byteLength;
@@ -106,6 +119,8 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
       mirror: historyMirrorRef,
       mirrorBytes: historyBytesRef,
       onPrefix: replayWithPrefix,
+      joining: joiningRef,
+      batcher: writeBatcher,
     });
 
     const checkScroll = () => {
@@ -154,12 +169,20 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
       historyTotalRef.current = 0;
       historyFetchingRef.current = false;
       userAtTopRef.current = false;
+      // Open the drop window — live output racing the replay is dropped (already in the tail).
+      joiningRef.current = true;
       joinSession(socket, sessionId, {
+        cols: term.cols,
+        rows: term.rows,
         onSuccess: (res) => {
+          joiningRef.current = false; // close drop window; subsequent live output is post-snapshot
           historyTotalRef.current = res?.total || 0;
           setTimeout(doFit, 100);
         },
-        onError: (msg) => term.write(`\r\n\x1b[1;31mError: ${msg}\x1b[0m\r\n`),
+        onError: (msg) => {
+          joiningRef.current = false;
+          term.write(`\r\n\x1b[1;31mError: ${msg}\x1b[0m\r\n`);
+        },
       });
     };
     doJoin();
@@ -192,6 +215,7 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
       if (resizeTimer) clearTimeout(resizeTimer);
       scrollDisp.dispose();
       writeDisp.dispose();
+      writeBatcher.dispose();
       dispose();
       termRef.current = null;
     };

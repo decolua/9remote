@@ -78,6 +78,12 @@ export const TERMINAL_OPTIONS = {
   minimumContrastRatio: 4.5
 };
 
+// Floor for emitting resize — below this the layout hasn't settled (app-resume
+// reconnect, soft-KB transition) and the shell would re-wrap scrollback to a
+// narrow width, permanently shrinking older output. Skip emit until cols/rows sane.
+export const MIN_COLS = 10;
+export const MIN_ROWS = 2;
+
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {
   lineHeight: 18, // px per line step

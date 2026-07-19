@@ -130,11 +130,25 @@ export function loadSessionMetadata() {
   return {};
 }
 
+// Serialize a single session to its metadata record. Exported for testing.
+// Persist cols/rows (from client's last resize) so a respawned PTY after an agent
+// restart inherits the real terminal size instead of falling back to 80×24.
+export function buildSessionMetadata(session) {
+  return {
+    name: session.name,
+    createdAt: session.createdAt,
+    shellId: session.shellId,
+    cwd: session.cwd,
+    cols: session.lastCols ?? session.cols ?? null,
+    rows: session.lastRows ?? session.rows ?? null,
+  };
+}
+
 export function saveSessionMetadata(sessions) {
   try {
     const metadata = {};
     for (const [id, session] of sessions) {
-      metadata[id] = { name: session.name, createdAt: session.createdAt, shellId: session.shellId, cwd: session.cwd };
+      metadata[id] = buildSessionMetadata(session);
     }
     const dir = path.dirname(SESSION_METADATA_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

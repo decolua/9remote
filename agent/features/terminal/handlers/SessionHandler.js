@@ -10,6 +10,22 @@ import path from "path";
 const MAX_BUFFER = 2 * 1024 * 1024;
 const JOIN_REPLAY_SIZE = 256 * 1024; // 256KB tail on join — keep join latency low
 const PERSISTENCE_MODE = "daemon";
+const RESPAWN_DEFAULT_COLS = 80;
+const RESPAWN_DEFAULT_ROWS = 24;
+const RESPAWN_MIN_COLS = 10;
+const RESPAWN_MIN_ROWS = 2;
+
+// Resolve cols/rows for a respawned PTY from the client's last known size.
+// Falls back to 80×24 when missing or below a sane floor (a transient tiny size
+// tracked before disconnect must not persist into the new PTY).
+export function pickRespawnSize(session) {
+  const cols = session?.lastCols;
+  const rows = session?.lastRows;
+  if (Number.isInteger(cols) && Number.isInteger(rows) && cols >= RESPAWN_MIN_COLS && rows >= RESPAWN_MIN_ROWS) {
+    return { cols, rows };
+  }
+  return { cols: RESPAWN_DEFAULT_COLS, rows: RESPAWN_DEFAULT_ROWS };
+}
 
 // Walk chunks from the end — avoid joining full ≤2MB buffer just to keep a tail
 function takeBufferTail(chunks, maxLen) {
@@ -27,7 +43,17 @@ function takeBufferTail(chunks, maxLen) {
     }
   }
   parts.reverse();
-  return parts.join("");
+  let tail = parts.join("");
+  // The byte cut can land mid-ANSI-sequence — the head then starts with a fragment (e.g.
+  // ";36;138;61m" missing "\x1b[38;2") which xterm mis-parses. Skip to the next ESC so the replay
+  // starts on a clean boundary. Bounded so we never discard a large prefix.
+  if (tail.length > 1 && tail.charCodeAt(0) !== 0x1b) {
+    const limit = Math.min(tail.length, 512);
+    for (let i = 1; i < limit; i++) {
+      if (tail.charCodeAt(i) === 0x1b) { tail = tail.slice(i); break; }
+    }
+  }
+  return tail;
 }
 
 /**
@@ -163,8 +189,8 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     const cwd = getDefaultCwd(isCodespaces());
 
     try {
-      // Auto-name from shell label if user didn't provide a custom name
-      const autoName = name || `${shellConfig.label} ${sessions.size + 1}`;
+      // Auto-name "Term N" if user didn't provide a custom name (cross-platform)
+      const autoName = name || `Term ${sessions.size + 1}`;
 
       // Daemon mode
       if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
@@ -194,16 +220,23 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     }
   });
 
-  socket.on("joinSession", async (sessionId, callback) => {
+  socket.on("joinSession", async (payload, callback) => {
+    // Accept both {sessionId, cols, rows} (new) and bare sessionId (legacy) for the
+    // transition. cols/rows are the client's real measured size — used to spawn a
+    // respawned PTY at the right size instead of guessing 80×24.
+    const sessionId = typeof payload === "string" ? payload : payload?.sessionId;
+    const joinCols = typeof payload === "object" ? payload?.cols : undefined;
+    const joinRows = typeof payload === "object" ? payload?.rows : undefined;
     let session = sessions.get(sessionId);
 
     // Session gone (daemon killed / restarted, metadata lost) → recreate a fresh PTY in the same tab
     if (!session && PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
-      const autoName = `${resolveShell().label} ${sessions.size + 1}`;
+      const autoName = `Term ${sessions.size + 1}`;
       const cwd = getDefaultCwd(isCodespaces());
-      const created = await daemonClient.createSession(autoName, 80, 24, undefined, sessionId, cwd);
+      const { cols, rows } = pickRespawnSize({ lastCols: joinCols, lastRows: joinRows });
+      const created = await daemonClient.createSession(autoName, cols, rows, undefined, sessionId, cwd);
       if (!created.success) return callback({ success: false, error: created.error });
-      session = { daemon: true, name: autoName, createdAt: Date.now(), cwd: created.cwd, shellId: created.shellId, shellLabel: created.shellLabel };
+      session = { daemon: true, name: autoName, createdAt: Date.now(), cwd: created.cwd, shellId: created.shellId, shellLabel: created.shellLabel, lastCols: cols, lastRows: rows };
       sessions.set(sessionId, session);
       saveSessionMetadata(sessions);
       const result = await daemonClient.joinSession(sessionId);
@@ -217,11 +250,15 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
       try {
         // Session lost after daemon respawn → recreate PTY with same id + title + prior cwd (buffer gone, metadata kept)
         if (session.needsRespawn) {
-          const created = await daemonClient.createSession(session.name, 80, 24, session.shellId, sessionId, session.cwd);
+          // Prefer the live size from this join payload; fall back to the last tracked size.
+          const { cols, rows } = pickRespawnSize({ lastCols: joinCols ?? session.lastCols, lastRows: joinRows ?? session.lastRows });
+          const created = await daemonClient.createSession(session.name, cols, rows, session.shellId, sessionId, session.cwd);
           if (!created.success) return callback({ success: false, error: created.error });
           delete session.needsRespawn;
           session.cwd = created.cwd;
           session.shellLabel = created.shellLabel;
+          session.lastCols = cols;
+          session.lastRows = rows;
           saveSessionMetadata(sessions);
         }
         const result = await daemonClient.joinSession(sessionId);

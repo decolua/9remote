@@ -22,6 +22,7 @@ function TerminalPane({
   sessionId,
   isVisible,
   isFocused,
+  mountDelay = 0,
   onActivate,
   onRegisterApi,
   onPasteFallback,
@@ -117,8 +118,8 @@ function TerminalPane({
     };
   }, [scrollCursorIntoView]);
 
-  const { termRef, cwdRef, cwd, termReady, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
-    socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef,
+  const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
+    socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay,
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
@@ -215,7 +216,7 @@ function TerminalPane({
 
   return (
     <div
-      className={`h-full w-full flex flex-col overflow-hidden relative touch-none ${focusClass}`}
+      className={`h-full w-full flex flex-col overflow-hidden relative touch-none px-1.5 py-1.5 ${focusClass}`}
       style={{ background: currentTheme.background }}
       onMouseDown={handlePaneClick}
       onTouchStart={() => handlePaneClick()}
@@ -223,15 +224,22 @@ function TerminalPane({
       {/* Mobile: scroll wrapper; terminal keeps fixed (keyboard-closed) height so PTY size stays put */}
       <div
         ref={scrollRef}
-        className={`terminal-wrapper terminal-scroll flex-1 min-h-0 relative${kbShrunk ? " is-scrollable" : ""}`}
+        className={`terminal-wrapper terminal-scroll flex-1 min-h-0 relative ${kbShrunk ? " is-scrollable" : ""}`}
       >
         <div
           ref={containerRef}
-          className="xterm-screen w-full rounded-sm overflow-hidden px-1.5 py-1.5"
+          className="xterm-screen w-full rounded-sm overflow-hidden"
           style={fixedHeight != null
             ? { height: fixedHeight, minHeight: fixedHeight }
             : { height: "100%", minHeight: "100%" }}
         />
+
+        {/* Center loading spinner during initial join / reconnect (before scrollback paints). */}
+        {(joining || !termReady) && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none">
+            <span className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
 
         {historyFetching && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
@@ -320,6 +328,7 @@ function TerminalPane({
           <ChevronDown size={20} />
         </button>
       )}
+
     </div>
   );
 }

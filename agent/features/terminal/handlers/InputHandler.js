@@ -1,11 +1,20 @@
 import * as daemonClient from "../ptyDaemonClient.js";
-import { UPLOAD_DIR } from "../ptyHelper.js";
+import { UPLOAD_DIR, saveSessionMetadata } from "../ptyHelper.js";
 import { setClipboardFromFile } from "../../../lib/clipboardSystem.js";
 import fs from "fs";
 import path from "path";
 
 const PERSISTENCE_MODE = "daemon";
 const PASTE_KEY = "\x16"; // Ctrl+V — tell the CLI to read the OS clipboard
+
+// Debounce metadata writes on resize so rapid layout changes don't write the file
+// on every event — but the last size always lands before the next agent restart.
+let resizeSaveTimer = null;
+const RESIZE_SAVE_DEBOUNCE_MS = 500;
+function persistSessionsDebounced(sessions) {
+  if (resizeSaveTimer) clearTimeout(resizeSaveTimer);
+  resizeSaveTimer = setTimeout(() => { resizeSaveTimer = null; saveSessionMetadata(sessions); }, RESIZE_SAVE_DEBOUNCE_MS);
+}
 
 export function setupInputHandlers(socket, sessions) {
   socket.on("input", ({ sessionId, data }) => {
@@ -20,6 +29,10 @@ export function setupInputHandlers(socket, sessions) {
     if (!sessionId) return;
     const session = sessions.get(sessionId);
     if (!session) return;
+    // Track last client size so a respawned PTY (daemon restart) inherits it instead of 80×24.
+    session.lastCols = cols;
+    session.lastRows = rows;
+    persistSessionsDebounced(sessions); // survive agent restart too (R1 v2)
     if (session.daemon && daemonClient.isConnected()) return daemonClient.resizeSession(sessionId, cols, rows);
     if (session.pty) {
       try { session.pty.resize(cols, rows); } catch (e) { console.log(`Resize failed for ${sessionId}: ${e.message}`); }

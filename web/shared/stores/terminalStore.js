@@ -25,6 +25,21 @@ export const useTerminalStore = create(
         return { livePanes: next.slice(-MAX_LIVE_PANES) };
       }),
 
+      // Groups whose panes have been mounted (xterm initialized) at least once. Drives lazy
+      // per-group mounting: only the active group mounts on first visit (sequential, focus first),
+      // other groups stay as placeholders until visited. Keeps mounted panes alive on revisit.
+      // Key: groupId, or null stringified as "__ungrouped__". Not persisted.
+      mountedGroups: {},
+      markGroupMounted: (groupId) => set((state) => {
+        const key = groupId ?? "__ungrouped__";
+        if (state.mountedGroups[key]) return state; // already mounted — no re-render
+        return { mountedGroups: { ...state.mountedGroups, [key]: true } };
+      }),
+      isGroupMounted: (groupId) => {
+        const key = groupId ?? "__ungrouped__";
+        return !!get().mountedGroups[key];
+      },
+
       // Unsent MobileKeyboard draft text, keyed by sessionId. Lives here (not in the
       // component) so it survives MobileKeyboard unmounting when switching to remote/etc.
       drafts: {},
@@ -45,6 +60,11 @@ export const useTerminalStore = create(
       // WebGL renderer toggle (default on; off → canvas fallback). Applied on next mount.
       webglEnabled: true,
       setWebglEnabled: (enabled) => set({ webglEnabled: !!enabled }),
+
+      // Agent capability flags from serverInfo.caps — feature-detect new payload shapes
+      // so web doesn't break against an older agent (e.g. joinSession with cols/rows).
+      agentCaps: {},
+      setAgentCaps: (caps) => set({ agentCaps: caps || {} }),
 
       // Terminal font size override (null = use config defaults 14/12). Clamped: 10-16 mobile, 10-18 desktop.
       fontSize: null,

@@ -5,7 +5,7 @@
   "scripts": {
     "predev": "pkill -f 'workerd.*9remote' 2>/dev/null; true",
     "dev": "next dev -H 0.0.0.0",
-    "build": "next build && node ../scripts/obfuscateNextBuild.js",
+    "build": "next build --webpack && node ../scripts/obfuscateNextBuild.js",
     "build:cf": "npm run build && opennextjs-cloudflare build",
     "deploy": "npm run build:cf && opennextjs-cloudflare deploy",
     "preview": "opennextjs-cloudflare preview",
