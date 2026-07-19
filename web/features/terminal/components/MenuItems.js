@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, Monitor, Type } from "@/shared/components/ui/Icon";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, Monitor, Type, Palette, Terminal, ChevronDown } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
+import { useTheme } from "@/shared/theme/ThemeProvider";
+import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import UpgradeButton from "@/features/terminal/components/UpgradeButton";
 
@@ -35,6 +37,23 @@ export default function MenuItems({
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
   const fontSize = useTerminalStore((s) => s.fontSize);
   const setFontSize = useTerminalStore((s) => s.setFontSize);
+  const terminalTheme = useTerminalStore((s) => s.terminalTheme);
+  const setTerminalTheme = useTerminalStore((s) => s.setTerminalTheme);
+  const { theme: appMode } = useTheme();
+  const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
+  const terminalMenuRef = useRef(null);
+
+  // Close terminal settings dropdown on outside click
+  useEffect(() => {
+    if (!terminalMenuOpen) return;
+    const onClick = (e) => {
+      if (terminalMenuRef.current && !terminalMenuRef.current.contains(e.target)) {
+        setTerminalMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [terminalMenuOpen]);
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => { setIsMobile(window.innerWidth < 768); }, []);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
@@ -111,40 +130,64 @@ export default function MenuItems({
         </button>
       )}
 
-      {/* Terminal settings — font size + GPU render. Workspace menu only. */}
+      {/* Terminal settings — collapsible dropdown (font + theme + GPU render) */}
       {!hideActions.includes('terminalSettings') && (
-        <div className="px-3 py-1.5 bg-surface rounded-brand-lg flex items-center gap-2.5">
-          <Type className="text-brand-500" size={16} />
-          <span className="text-sm">{t("menu.fontSize")}</span>
-          <select
-            value={fontSize ?? (isMobile ? 12 : 14)}
-            onChange={(e) => { vibrate(); setFontSize(Number(e.target.value)); }}
-            className="ml-auto bg-surface-2 text-text text-sm rounded-brand px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+        <div ref={terminalMenuRef} className="bg-surface rounded-brand-lg overflow-hidden">
+          <button
+            onClick={() => { vibrate(); setTerminalMenuOpen((v) => !v); }}
+            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
           >
-            {Array.from({ length: isMobile ? 7 : 9 }, (_, i) => i + 10).map((n) => (
-              <option key={n} value={n}>{n}px</option>
-            ))}
-          </select>
+            <Terminal className="text-brand-500" size={16} />
+            <span className="text-sm flex-1">{t("menu.terminalSettings")}</span>
+            <ChevronDown className={`text-text-muted transition-transform duration-200 ${terminalMenuOpen ? "rotate-180" : ""}`} size={16} />
+          </button>
+          {terminalMenuOpen && (
+            <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
+              <div className="flex items-center gap-2.5 pt-1.5">
+                <Type className="text-brand-500" size={16} />
+                <span className="text-sm">{t("menu.fontSize")}</span>
+                <select
+                  value={fontSize ?? (isMobile ? 12 : 14)}
+                  onChange={(e) => { vibrate(); setFontSize(Number(e.target.value)); }}
+                  className="ml-auto bg-surface-2 text-text text-sm rounded-brand px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                >
+                  {Array.from({ length: isMobile ? 7 : 9 }, (_, i) => i + 10).map((n) => (
+                    <option key={n} value={n}>{n}px</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <Palette className="text-brand-500" size={16} />
+                <span className="text-sm">{t("menu.terminalTheme")}</span>
+                <select
+                  value={terminalTheme}
+                  onChange={(e) => { vibrate(); setTerminalTheme(e.target.value); }}
+                  className="ml-auto bg-surface-2 text-text text-xs rounded-brand px-2 py-1 max-w-[55%] focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                >
+                  <option value="default">Vesper (Default)</option>
+                  {TERMINAL_THEME_OPTIONS
+                    .filter((opt) => opt.mode === appMode)
+                    .map((opt) => (
+                      <option key={opt.key} value={opt.key}>{opt.label}</option>
+                    ))}
+                </select>
+              </div>
+              <button
+                onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
+                className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+              >
+                <Monitor className="text-brand-500" size={16} />
+                <div className="flex flex-col flex-1">
+                  <span className="text-sm">{t("menu.webgl")}</span>
+                  <span className="text-xs text-text-muted">{t("menu.webglHint")}</span>
+                </div>
+                <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${webglEnabled ? "bg-brand-500" : "bg-surface-2"}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${webglEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                </span>
+              </button>
+            </div>
+          )}
         </div>
-      )}
-
-      {/* WebGL renderer toggle — reload prompt (swap needs remount) */}
-      {!hideActions.includes('terminalSettings') && (
-      <button
-        onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
-        className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
-      >
-        <div className="flex items-center gap-2.5">
-          <Monitor className="text-brand-500" size={16} />
-          <div className="flex flex-col">
-            <span className="text-sm">{t("menu.webgl")}</span>
-            <span className="text-xs text-text-muted">{t("menu.webglHint")}</span>
-          </div>
-        </div>
-        <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${webglEnabled ? "bg-brand-500" : "bg-surface-2"}`}>
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${webglEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
-        </span>
-      </button>
       )}
 
       {/* Sites */}

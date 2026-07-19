@@ -5,6 +5,7 @@ import { ChevronLeft, Settings, Monitor, Plus, ChevronDown, Pencil, Trash2, X } 
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
+import { statusVisual } from "@/shared/utils/statusVisual";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 
 export default function TerminalHeader({
@@ -13,6 +14,7 @@ export default function TerminalHeader({
   activeSessionId,
   connected,
   notifications = {},
+  sessionStatus = {},
   onSwitchSession,
   onCreateSession,
   onBack,
@@ -240,7 +242,8 @@ export default function TerminalHeader({
         <div className="flex gap-0.5 min-w-max items-center">
           {sessions.map((session) => {
             const isActiveTab = session.id === activeSessionId;
-            const hasNotif = !!notifications[session.id];
+            const st = sessionStatus[session.id]?.state || "idle";
+            const v = statusVisual(st);
             return (
               <button
                 key={session.id}
@@ -255,11 +258,11 @@ export default function TerminalHeader({
                 onTouchStart={(e) => { if (editingTabId === session.id) return; handleTabTouchStart(e, session); }}
                 onTouchMove={editingTabId === session.id ? undefined : clearTabLongPress}
                 onTouchEnd={editingTabId === session.id ? undefined : clearTabLongPress}
-                className={`px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap ${
-                  isActiveTab ? "border-brand-500 text-brand-500" : "border-transparent text-text-muted hover:text-text"
+                className={`term-tab px-2 sm:px-3 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
+                  isActiveTab ? "term-tab-active" : ""
                 }`}
               >
-                <span className={`w-1.5 h-1.5 rounded-full ${hasNotif ? "bg-yellow-400 term-tab-done-dot" : connected ? "bg-green-400" : "bg-red-400"}`} />
+                <span className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} title={t(v.label)} />
                 {editingTabId === session.id ? (
                   <input
                     type="text"

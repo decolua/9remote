@@ -168,7 +168,7 @@ export async function setupTerminalHandlers(socket, io, apiKey) {
 
   setupSessionHandlers(socket, io, sessions, groups, sessionGroups, sessionOrder);
   setupInputHandlers(socket, sessions);
-  setupPushHandlers(socket);
+  setupPushHandlers(socket, io);
 
   // Remote desktop handlers on same socket if capable (permissions checked at invoke time)
   if (isRemoteAvailable()) {

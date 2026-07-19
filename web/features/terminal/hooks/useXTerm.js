@@ -5,7 +5,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { THEMES } from "@/features/terminal/constants/themes";
+import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH } from "@/features/terminal/constants/terminalConfig";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -41,7 +41,7 @@ function BufferLikeByteLength(str) {
 }
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
-export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, containerRef, onInput, onSelectionMade }) {
+export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, onInput, onSelectionMade }) {
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const webglAddonRef = useRef(null);
@@ -115,7 +115,7 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     const term = new XTerm({
       ...TERMINAL_OPTIONS,
       fontSize: fontSizeSetting ?? (window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize),
-      theme: THEMES[theme] || THEMES.dark
+      theme: resolveTerminalTheme(theme, terminalTheme) || THEMES.dark
     });
 
     const fitAddon = new FitAddon();
@@ -466,12 +466,12 @@ export function useXTerm({ socket, sessionId, theme, isVisible, isFocused, conta
     return () => clearTimeout(timer);
   }, [isFocused, doResize]);
 
-  // Update theme
+  // Update theme (app mode + sub-theme)
   useEffect(() => {
     if (termRef.current) {
-      termRef.current.options.theme = THEMES[theme] || THEMES.dark;
+      termRef.current.options.theme = resolveTerminalTheme(theme, terminalTheme) || THEMES.dark;
     }
-  }, [theme]);
+  }, [theme, terminalTheme]);
 
   // Touch scroll with momentum (iOS-like inertia)
   useEffect(() => {

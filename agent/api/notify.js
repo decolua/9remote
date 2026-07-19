@@ -6,6 +6,7 @@ import { jsonOk, jsonErr } from "../lib/router.js";
 import { getIO } from "../transport/server.js";
 import { broadcast } from "../transport/broadcast.js";
 import { sendPushNotification } from "../features/terminal/pushManager.js";
+import { applyEvent, STATES } from "../features/terminal/statusManager.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
 
 const pushLastTime = {};
@@ -48,18 +49,22 @@ function dispatchNotify({ type, sessionId, tool }) {
 
   const notification = { type, sessionId, tool, timestamp: now };
 
-  // Type A — in-app badge (agent + web UI): always sent, no conditions
+  // State machine: applyEvent maps legacy type (stop/notification) and new (working/blocked/done).
+  const entry = applyEvent({ type, sessionId, tool });
+  const state = entry?.state || STATES.IDLE;
+
+  // Type A — in-app badge + 4-state signal. chatNotification kept for legacy web clients.
+  broadcast(io, "statusChange", { sessionId, state, tool, since: now });
   addNotification(sessionId, notification);
   broadcast(io, "chatNotification", notification);
 
-  // Type B — push to mobile app: sendPushNotification targets every non-foregrounded
-  // sub and prunes dead endpoints. The SW's visible-window backstop suppresses the
-  // banner when a client is actually focused, so no server-side focus gate here.
-  // Rate-limit per session (not per tool:type) so two sessions finishing close
-  // together don't swallow each other's push.
-  const pushKey = `${sessionId}:${type}`;
+  // Type B — push to mobile: only for done/blocked (working would spam every tool call).
+  // The SW's visible-window backstop suppresses the banner when a client is focused.
+  // Rate-limit per session+state so two sessions finishing close together don't swallow each other.
+  if (state !== STATES.DONE && state !== STATES.BLOCKED) return;
+  const pushKey = `${sessionId}:${state}`;
   if (now - (pushLastTime[pushKey] || 0) < PUSH_RATE_LIMIT_MS) return;
   pushLastTime[pushKey] = now;
 
-  sendPushNotification(notification);
+  sendPushNotification({ ...notification, state });
 }

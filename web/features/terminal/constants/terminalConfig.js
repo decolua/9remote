@@ -75,7 +75,7 @@ export const TERMINAL_OPTIONS = {
   fastScrollModifier: "none",
   smoothScrollDuration: 0,
   rescaleOverlappingGlyphs: true,
-  minimumContrastRatio: 1
+  minimumContrastRatio: 4.5
 };
 
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer

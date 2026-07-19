@@ -1,5 +1,9 @@
 export default {
   common: {
+    statusIdle: "Idle",
+    statusWorking: "Working",
+    statusBlocked: "Needs input",
+    statusDone: "Done",
     loading: "加载中...",
     cancel: "取消",
     confirm: "确认",

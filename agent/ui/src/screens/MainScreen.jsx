@@ -913,6 +913,7 @@ export default function MainScreen({
                     groups={term.groups}
                     connected={term.connected}
                     finishedIds={term.finishedIds}
+                    sessionStatus={term.sessionStatus}
                     onSelect={(s) => { term.clearFinished(s.id); openSession(s.id); }}
                     onCreate={(groupId) => term.createSession(groupId)}
                     onCreateNamed={(groupId, name) => term.createSession(groupId, undefined, name)}
@@ -1037,6 +1038,7 @@ export default function MainScreen({
           theme={theme}
           groups={term.groups}
           finishedIds={term.finishedIds}
+          sessionStatus={term.sessionStatus}
           clearFinished={term.clearFinished}
           updateCwd={term.updateCwd}
           onSwitch={(id) => { term.clearFinished(id); setActiveSessionId(id); }}

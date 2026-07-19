@@ -225,7 +225,7 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
   }, [isFocused, sessionId, socket]);
 
   const scrollToBottom = () => termRef.current?.scrollToBottom();
-  // Done-border + focus glow coexist (different pseudo-elements on the same node)
+  // Done-border + focus glow coexist on the same node (status border lives on the wrapper).
   const glow = [
     showDoneBorder ? "terminal-done-border" : "",
     showFocusBorder && isFocused ? "terminal-focus-glow" : ""

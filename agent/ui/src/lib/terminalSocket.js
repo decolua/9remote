@@ -32,6 +32,8 @@ export function useSessions() {
   const [finishedIds, setFinishedIds] = useState(() => new Set());
   // Full notification payloads keyed by sessionId ({ tool, type, timestamp }) — drives Recent activity list
   const [notifications, setNotifications] = useState(() => ({}));
+  // 4-state map: sessionId → { state, tool, since } (idle/working/blocked/done)
+  const [sessionStatus, setSessionStatus] = useState(() => ({}));
 
   const refresh = () => {
     socket.emit("getSessions", (list) => setSessions(Array.isArray(list) ? list : []));
@@ -45,7 +47,7 @@ export function useSessions() {
     const onDisconnect = () => setConnected(false);
     // Server emits "terminal:ready" AFTER getSessions/getGroups handlers are registered.
     // F5 raced the initial fetch ahead of async setup → empty list. This is the gate.
-    const onReady = () => { refreshRef.current(); socket.emit("getNotificationState"); };
+    const onReady = () => { refreshRef.current(); socket.emit("getNotificationState"); socket.emit("getStatusState"); };
     const onChanged = () => refreshRef.current();
     // Terminal command finished (AI hook) → mark session badge
     const onFinish = (n) => { if (n?.sessionId) { setFinishedIds((p) => new Set(p).add(n.sessionId)); setNotifications((p) => ({ ...p, [n.sessionId]: n })); } };
@@ -53,6 +55,11 @@ export function useSessions() {
     const onState = (state) => { const s = state || {}; setFinishedIds(new Set(Object.keys(s))); setNotifications((p) => ({ ...p, ...s })); };
     // Another client cleared a badge → mirror badge only, keep it in Recent
     const onCleared = (sessionId) => setFinishedIds((p) => { if (!p.has(sessionId)) return p; const n = new Set(p); n.delete(sessionId); return n; });
+
+    // 4-state (idle/working/blocked/done) handlers
+    const onStatusState = (state) => setSessionStatus(state || {});
+    const onStatusChange = ({ sessionId, state, tool, since }) => { if (!sessionId) return; setSessionStatus((p) => ({ ...p, [sessionId]: { state, tool, since } })); };
+    const onStatusCleared = (sessionId) => setSessionStatus((p) => { if (!p[sessionId]) return p; const { [sessionId]: _, ...rest } = p; return rest; });
 
     socket.on("connect", onConnect);
     socket.on("terminal:ready", onReady);
@@ -63,6 +70,9 @@ export function useSessions() {
     socket.on("chatNotification", onFinish);
     socket.on("notificationState", onState);
     socket.on("notificationCleared", onCleared);
+    socket.on("statusState", onStatusState);
+    socket.on("statusChange", onStatusChange);
+    socket.on("statusCleared", onStatusCleared);
 
     return () => {
       socket.off("connect", onConnect);
@@ -74,13 +84,19 @@ export function useSessions() {
       socket.off("chatNotification", onFinish);
       socket.off("notificationState", onState);
       socket.off("notificationCleared", onCleared);
+      socket.off("statusState", onStatusState);
+      socket.off("statusChange", onStatusChange);
+      socket.off("statusCleared", onStatusCleared);
     };
   }, []);
 
   // Clear local badge + notify agent (keeps server state accurate)
   const clearFinished = (sessionId) => {
     setFinishedIds((p) => { if (!p.has(sessionId)) return p; const n = new Set(p); n.delete(sessionId); return n; });
+    // Only drop status if DONE (seen → idle). working/blocked persist across focus.
+    setSessionStatus((p) => { if (!p[sessionId] || p[sessionId].state !== "done") return p; const { [sessionId]: _, ...rest } = p; return rest; });
     socket.emit("clearNotification", sessionId);
+    socket.emit("clearStatus", sessionId);
   };
 
   // Remove a Recent activity entry (manual dismiss, local only)
@@ -99,7 +115,7 @@ export function useSessions() {
     setSessions((prev) => prev.map((s) => (s.id === sessionId && s.cwd !== cwd ? { ...s, cwd } : s)));
   };
 
-  return { socket, connected, sessions, groups, finishedIds, notifications, clearFinished, dismissRecent, refresh, createSession, deleteSession, renameSession, createGroup, renameGroup, deleteGroup, updateCwd };
+  return { socket, connected, sessions, groups, finishedIds, sessionStatus, notifications, clearFinished, dismissRecent, refresh, createSession, deleteSession, renameSession, createGroup, renameGroup, deleteGroup, updateCwd };
 }
 
 export { getSocket };

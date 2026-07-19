@@ -10,11 +10,12 @@ import SitesList from "@/features/terminal/components/SitesList";
 import { Terminal, Pencil, Trash2, Settings, Monitor, FolderOpen, Globe, Zap, Plus, FolderPlus, X, Folder } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import { statusVisual } from "@/shared/utils/statusVisual";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 
 const UNGROUPED_KEY = "ungrouped";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup, onReorderSession, shells = [] }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, sessionStatus = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup, onReorderSession, shells = [] }) {
   const { t } = useI18n();
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
@@ -410,6 +411,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                           const groupIds = groupSessions.map((s) => s.id);
                           const dotBase = connected ? "" : "opacity-40 saturate-0";
                           const draggable = connected && groupSessions.length > 1;
+                          const st = sessionStatus[session.id]?.state || "idle";
+                          const v = statusVisual(st);
                           return (
                           <div
                             key={session.id}
@@ -424,9 +427,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                           >
                             {/* Terminal window */}
                             <div
-                              className={`rounded-xl overflow-hidden border border-white/15 ring-1 ring-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_8px_28px_-6px_rgba(0,0,0,0.7)] ${
-                                notifications[session.id] ? "terminal-done-border" : ""
-                              } ${isDragOver ? "ring-2 ring-brand-500/50" : ""}`}
+                              className={`rounded-xl overflow-hidden border border-text-muted/25 ring-1 ring-text-muted/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_8px_28px_-6px_rgba(0,0,0,0.7)] term-card ${v.cls} status-border-${st}${isDragOver ? " ring-2 ring-brand-500/50" : ""}`}
                               style={{ background: connected ? "linear-gradient(155deg,#22242e 0%,#1a1b21 55%,#141519 100%)" : "linear-gradient(155deg,#1c1d20,#141416)" }}
                             >
                               <div>
@@ -465,9 +466,19 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
 
                                 {/* Body — fake terminal */}
                                 <div
-                                  className={`px-3 py-3 font-mono min-h-[128px] ${connected && editingId !== session.id && !drag ? "cursor-pointer" : "cursor-default"}`}
+                                  className={`relative px-3 py-3 font-mono min-h-[128px] ${connected && editingId !== session.id && !drag ? "cursor-pointer" : "cursor-default"}`}
                                   onClick={() => { if (suppressClickRef.current) { suppressClickRef.current = false; return; } if (connected && editingId !== session.id && !drag) { vibrate(); onSelect(session.id); } }}
                                 >
+                                  {/* Status badge — top-right of body, mirrors tab dot */}
+                                  {st !== "idle" && (
+                                    <span
+                                      className={`absolute top-1.5 right-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${v.cls}`}
+                                      style={{ background: `${v.dot}22`, color: v.dot }}
+                                    >
+                                      <span className={`w-1.5 h-1.5 rounded-full term-dot${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
+                                      {t(v.label)}
+                                    </span>
+                                  )}
                                   {editingId === session.id ? (
                                     <input
                                       type="text"

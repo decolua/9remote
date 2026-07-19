@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "preact/hooks";
 import Icon from "./Icon";
 import { useI18n } from "../i18n";
+import { statusVisual } from "../lib/statusVisual";
 import TerminalPane from "./TerminalPane";
 import FileExplorer from "./FileExplorer";
 import GitPanel from "./GitPanel";
@@ -20,7 +21,7 @@ import {
 const UNGROUPED = { id: null, name: "Ungrouped" };
 
 // Full-screen terminal overlay — mirrors web workspace (split panes + tabs + group selector)
-export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", finishedIds, clearFinished, updateCwd, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
+export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", finishedIds, sessionStatus = {}, clearFinished, updateCwd, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
   const { t } = useI18n();
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
@@ -334,16 +335,17 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
           <div className="flex gap-0.5 min-w-max items-center">
             {groupSessions.map((s) => {
               const isActive = s.id === activeId;
+              const v = statusVisual(sessionStatus[s.id]?.state || "idle");
               return (
                 <button
                   key={s.id}
                   ref={isActive ? activeTabRef : null}
                   onClick={() => onSwitch?.(s.id)}
                   onContextMenu={(e) => handleTabContextMenu(e, s)}
-                  className={`px-2 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-2 whitespace-nowrap term-tab${isActive ? " term-tab-active" : ""}`}
+                  className={`px-2 sm:px-3 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap term-tab${isActive ? " term-tab-active" : ""}`}
                   style={{ color: isActive ? "var(--brand-500)" : "var(--text-muted)" }}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full${finishedIds?.has(s.id) ? " term-tab-done-dot" : ""}`} style={{ background: finishedIds?.has(s.id) ? "#f59e0b" : (connected ? "#22c55e" : "#ef4444") }} />
+                  <span className={`w-1.5 h-1.5 rounded-full term-dot${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} title={t(v.label)} />
                   {editingTabId === s.id ? (
                     <input
                       type="text"
@@ -384,12 +386,17 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
           const isFocused = s.id === activeId;
           // Desktop: rounded pane with focus border on wrapper (web workspace parity).
           // Mobile: stacked, focused pane visible only.
+          // Non-focused + non-idle status → dashed border in state color (replaces muted border).
+          const st = sessionStatus[s.id]?.state || "idle";
+          const statusBorder = !isFocused && st !== "idle";
           const desktopClass = isFocused
             ? "flex-1 h-full rounded-xl overflow-hidden border-2 p-0"
-            : "flex-1 h-full rounded-xl overflow-hidden border p-px";
+            : `flex-1 h-full rounded-xl overflow-hidden border p-px${statusBorder ? " border-dashed" : ""}`;
           const desktopStyle = {
             minWidth: `${PANE_MIN_WIDTH}px`,
-            borderColor: isFocused ? "var(--brand-500)" : "color-mix(in srgb, var(--text-muted) 25%, transparent)",
+            borderColor: isFocused
+              ? "var(--brand-500)"
+              : statusBorder ? statusVisual(st).dot : "color-mix(in srgb, var(--text-muted) 25%, transparent)",
           };
           return (
             <div

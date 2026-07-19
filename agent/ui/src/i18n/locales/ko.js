@@ -1,5 +1,9 @@
 export default {
   common: {
+    statusIdle: "Idle",
+    statusWorking: "Working",
+    statusBlocked: "Needs input",
+    statusDone: "Done",
     create: "만들기",
     cancel: "취소",
     delete: "삭제",

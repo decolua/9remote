@@ -16,6 +16,8 @@ const USER_DISABLED_KEY = "9remote:push:userDisabled";
 export function useNotification(socketRef, connected) {
   const subscriptionRef = useRef(null);
   const [notifications, setNotifications] = useState({});
+  // 4-state map: sessionId → { state, tool, since }
+  const [sessionStatus, setSessionStatus] = useState({});
   const getSelectedSession = useTerminalStore((state) => state.getSelectedSession);
   const getCurrentView = useTerminalStore((state) => state.getCurrentView);
   const pushView = useTerminalStore((state) => state.pushView);
@@ -131,7 +133,25 @@ export function useNotification(socketRef, connected) {
     const currentSocket = socketRef?.current;
     if (!currentSocket || !connected) return;
 
-    const fetchState = () => currentSocket.emit("getNotificationState");
+    const fetchState = () => {
+      currentSocket.emit("getStatusState");
+      currentSocket.emit("getNotificationState");
+    };
+
+    // Receive full 4-state map from server (idle/working/blocked/done)
+    const handleStatusState = (state) => setSessionStatus(state || {});
+
+    // Single status transition from a hook (working/blocked/done) — patch one entry
+    const handleStatusChange = ({ sessionId, state, tool, since }) => {
+      if (!sessionId) return;
+      setSessionStatus((prev) => ({ ...prev, [sessionId]: { state, tool, since } }));
+    };
+
+    // Another client cleared a session's status → drop entry (→ idle)
+    const handleStatusCleared = (sessionId) => {
+      if (!sessionId) return;
+      setSessionStatus((prev) => { const { [sessionId]: _, ...rest } = prev; return rest; });
+    };
 
     // Receive full badge state from server, auto-clear active focused tab
     const handleNotificationState = (state) => {
@@ -158,6 +178,9 @@ export function useNotification(socketRef, connected) {
     currentSocket.on("notificationState", handleNotificationState);
     currentSocket.on("chatNotification", handleChatNotification);
     currentSocket.on("notificationCleared", handleNotificationCleared);
+    currentSocket.on("statusState", handleStatusState);
+    currentSocket.on("statusChange", handleStatusChange);
+    currentSocket.on("statusCleared", handleStatusCleared);
     currentSocket.on("connect", handleReconnect);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -168,6 +191,9 @@ export function useNotification(socketRef, connected) {
       currentSocket.off("notificationState", handleNotificationState);
       currentSocket.off("chatNotification", handleChatNotification);
       currentSocket.off("notificationCleared", handleNotificationCleared);
+      currentSocket.off("statusState", handleStatusState);
+      currentSocket.off("statusChange", handleStatusChange);
+      currentSocket.off("statusCleared", handleStatusCleared);
       currentSocket.off("connect", handleReconnect);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -179,7 +205,15 @@ export function useNotification(socketRef, connected) {
       const { [sessionId]: _, ...rest } = prev;
       return rest;
     });
+    // Only drop status if DONE (seen → idle). working/blocked must persist — focusing a running
+    // agent must not erase its spinner.
+    setSessionStatus((prev) => {
+      if (!prev[sessionId] || prev[sessionId].state !== "done") return prev;
+      const { [sessionId]: _, ...rest } = prev;
+      return rest;
+    });
     socketRef.current?.emit("clearNotification", sessionId);
+    socketRef.current?.emit("clearStatus", sessionId);
   }, [socketRef]);
 
   const unsubscribeFromPush = useCallback(async () => {
@@ -207,5 +241,5 @@ export function useNotification(socketRef, connected) {
     }
   }, [socketRef]);
 
-  return { subscribeToPush, unsubscribeFromPush, notifications, clearNotification };
+  return { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification };
 }

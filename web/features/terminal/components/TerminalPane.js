@@ -4,7 +4,7 @@ import { useEffect, useRef, memo, useState, useCallback } from "react";
 import "@xterm/xterm/css/xterm.css";
 import SelectionActionButton from "@/features/terminal/components/SelectionActionButton";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
-import { THEMES } from "@/features/terminal/constants/themes";
+import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { ChevronDown, Folder, GitBranch, RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -27,6 +27,7 @@ function TerminalPane({
   onPasteFallback,
   showFocusBorder = false,
   notifications = {},
+  sessionStatus = {},
   clearNotification,
   fileSocket,
 }) {
@@ -42,6 +43,7 @@ function TerminalPane({
   const [selection, setSelection] = useState(null); // { text, x, y } from long-press select
 
   const { pushView } = useTerminalStore();
+  const terminalTheme = useTerminalStore((s) => s.terminalTheme);
 
 // Scroll wrapper so the cursor/content stays visible after a viewport shrink (soft KB).
 // Short content pinned to top; long content scrolls the cursor row into the visible rect.
@@ -116,7 +118,7 @@ function TerminalPane({
   }, [scrollCursorIntoView]);
 
   const { termRef, cwdRef, cwd, termReady, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
-    socket, sessionId, theme, isVisible, isFocused, containerRef,
+    socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef,
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
@@ -128,7 +130,7 @@ function TerminalPane({
     return () => onRegisterApi(sessionId, null);
   }, [sessionId, focus, doResize, onRegisterApi]);
 
-  const currentTheme = THEMES[theme] || THEMES.dark;
+  const currentTheme = resolveTerminalTheme(theme, terminalTheme) || THEMES.dark;
 
   // Long-press: try clipboard paste; if fails/empty → open text input panel below
   const handleLongPressPaste = async () => {
@@ -206,9 +208,8 @@ function TerminalPane({
     if (!isFocused) onActivate?.(sessionId);
   };
 
-  // Done-border + focus glow coexist (different pseudo-elements on the same node)
+  // Status border now lives on the pane WRAPPER (layout.js), not this inner node.
   const focusClass = [
-    notifications[sessionId] ? "terminal-done-border" : "",
     showFocusBorder && isFocused ? "terminal-focus-glow" : ""
   ].filter(Boolean).join(" ");
 
@@ -226,7 +227,7 @@ function TerminalPane({
       >
         <div
           ref={containerRef}
-          className="xterm-screen w-full rounded-sm overflow-hidden px-1 py-0.5 pb-2"
+          className="xterm-screen w-full rounded-sm overflow-hidden px-1.5 py-1.5"
           style={fixedHeight != null
             ? { height: fixedHeight, minHeight: fixedHeight }
             : { height: "100%", minHeight: "100%" }}
@@ -330,5 +331,6 @@ export default memo(TerminalPane, (prev, next) => (
   prev.connected === next.connected &&
   prev.theme === next.theme &&
   prev.showFocusBorder === next.showFocusBorder &&
-  prev.notifications === next.notifications
+  prev.notifications === next.notifications &&
+  prev.sessionStatus === next.sessionStatus
 ));

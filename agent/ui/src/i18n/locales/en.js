@@ -1,5 +1,9 @@
 export default {
   common: {
+    statusIdle: "Idle",
+    statusWorking: "Working",
+    statusBlocked: "Needs input",
+    statusDone: "Done",
     create: "Create",
     cancel: "Cancel",
     delete: "Delete",

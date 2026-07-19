@@ -1,5 +1,9 @@
 export default {
   common: {
+    statusIdle: "Idle",
+    statusWorking: "Working",
+    statusBlocked: "Needs input",
+    statusDone: "Done",
     loading: "جارٍ التحميل...",
     cancel: "إلغاء",
     confirm: "تأكيد",
@@ -344,6 +348,7 @@ export default {
     autoSaveAfterDelay: "After Delay",
     autoSaveOnFocusChange: "On Focus Change",
     fontSize: "Font Size",
+    terminalTheme: "Terminal Theme",
     wordWrap: "Word Wrap",
     language: "Language",
     encoding: "Encoding",

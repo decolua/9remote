@@ -1,5 +1,9 @@
 export default {
   common: {
+    statusIdle: "Idle",
+    statusWorking: "Working",
+    statusBlocked: "Needs input",
+    statusDone: "Done",
     loading: "लोड हो रहा है...",
     cancel: "रद्द करें",
     confirm: "पुष्टि करें",
@@ -344,6 +348,7 @@ export default {
     autoSaveAfterDelay: "After Delay",
     autoSaveOnFocusChange: "On Focus Change",
     fontSize: "Font Size",
+    terminalTheme: "Terminal Theme",
     wordWrap: "Word Wrap",
     language: "Language",
     encoding: "Encoding",

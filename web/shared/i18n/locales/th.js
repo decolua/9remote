@@ -1,5 +1,9 @@
 export default {
   common: {
+    statusIdle: "Idle",
+    statusWorking: "Working",
+    statusBlocked: "Needs input",
+    statusDone: "Done",
     loading: "กำลังโหลด...",
     cancel: "ยกเลิก",
     confirm: "ยืนยัน",

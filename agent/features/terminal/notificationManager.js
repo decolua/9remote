@@ -1,16 +1,15 @@
-// Server-side notification badge state manager
-// Stores { sessionId -> notification } in memory
-
-let notifications = {};
-
-export function addNotification(sessionId, notification) {
-  notifications[sessionId] = notification;
-}
-
-export function clearNotification(sessionId) {
-  delete notifications[sessionId];
-}
-
-export function getNotifications() {
-  return { ...notifications };
-}
+// Back-compat shim — logic moved to statusManager.js (4-state: idle/working/blocked/done).
+// Existing imports (addNotification, clearNotification, getNotifications) keep working.
+export {
+  addNotification,
+  clearNotification,
+  getNotifications,
+  applyEvent,
+  getStatuses,
+  clearStatus,
+  getStatus,
+  setStatus,
+  onClearStatus,
+  STATES,
+  TYPE_TO_STATE,
+} from "./statusManager.js";

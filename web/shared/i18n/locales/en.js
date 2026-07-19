@@ -1,5 +1,9 @@
 export default {
   common: {
+    statusIdle: "Idle",
+    statusWorking: "Working",
+    statusBlocked: "Needs input",
+    statusDone: "Done",
     loading: "Loading...",
     cancel: "Cancel",
     confirm: "Confirm",
@@ -83,8 +87,9 @@ export default {
     notificationsHint: "Notify when agent finishes",
     files: "File Explorer",
     sites: "Local Sites",
-    terminalSettings: "Terminal",
+    terminalSettings: "Terminal Settings",
     fontSize: "Font Size",
+    terminalTheme: "Terminal Theme",
     commandNotes: "Command Notes",
     community: "Community",
     installApp: "Install App",

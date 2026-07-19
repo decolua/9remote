@@ -1,10 +1,16 @@
 import { getVapidPublicKey, addPushSubscription, removePushSubscription, markSubscriptionConnected, setSubscriptionHidden } from "../pushManager.js";
 // enableToolHook/getHookStatus kept for reference (hooks auto-enabled on startup, not toggled by clients)
-import { addNotification, clearNotification, getNotifications } from "../notificationManager.js";
+import { getNotifications, getStatuses, clearStatus, STATES } from "../statusManager.js";
 import { getAutoStartStatus, setAutoStart, isCodespaces } from "../codespaceManager.js";
 import { writeCmd } from "../../../cli/utils/state.js";
 
-export function setupPushHandlers(socket) {
+export function setupPushHandlers(socket, io) {
+  // Full 4-state map (idle/working/blocked/done). New name; UI consumes this.
+  socket.on("getStatusState", () => {
+    socket.emit("statusState", getStatuses());
+  });
+
+  // Legacy: only done/blocked truthy map. Kept for older web clients.
   socket.on("getNotificationState", () => {
     socket.emit("notificationState", getNotifications());
   });
@@ -12,10 +18,22 @@ export function setupPushHandlers(socket) {
   // Trigger agent self-update via socket (authenticated, no HTTP through tunnel)
   socket.on("requestUpdate", () => writeCmd("update"));
 
-  socket.on("clearNotification", (sessionId) => {
-    if (sessionId) {
-      clearNotification(sessionId);
+  // Clear on focus/input/switch → idle. Only broadcast when a DONE entry was actually cleared;
+  // working/blocked must survive focus so a running agent keeps its spinner.
+  socket.on("clearStatus", (sessionId) => {
+    if (!sessionId) return;
+    const cleared = clearStatus(sessionId);
+    if (cleared) {
+      socket.broadcast.emit("statusCleared", sessionId);
       socket.broadcast.emit("notificationCleared", sessionId);
+    }
+  });
+  socket.on("clearNotification", (sessionId) => {
+    if (!sessionId) return;
+    const cleared = clearStatus(sessionId);
+    if (cleared) {
+      socket.broadcast.emit("notificationCleared", sessionId);
+      socket.broadcast.emit("statusCleared", sessionId);
     }
   });
 

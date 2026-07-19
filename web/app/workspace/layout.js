@@ -11,6 +11,7 @@ import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { useClipboardSocket } from "@/features/clipboard/hooks/useClipboardSocket";
 import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
 import { useNotification } from "@/shared/hooks/useNotification";
+import { statusVisual } from "@/shared/utils/statusVisual";
 import { updateTitle } from "@/shared/utils/titleMarquee";
 import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "@/features/terminal/constants/terminalConfig";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
@@ -87,7 +88,7 @@ export default function WorkspaceLayout({ children }) {
   }, [connected, getShells]);
   const fileSocket = useFileSocket(socketRef);
   useClipboardSocket(socketRef, connected);
-  const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(socketRef, connected);
+  const { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification } = useNotification(socketRef, connected);
 
   const [systemInfo, setSystemInfo] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
@@ -553,6 +554,7 @@ export default function WorkspaceLayout({ children }) {
             subscribeToPush={subscribeToPush}
             unsubscribeFromPush={unsubscribeFromPush}
             notifications={notifications}
+            sessionStatus={sessionStatus}
             clearNotification={clearNotification}
             agentVersion={agentVersion}
             updateAvailable={updateAvailable}
@@ -588,6 +590,7 @@ export default function WorkspaceLayout({ children }) {
                 isActive={isTerminalView}
                 connected={connected}
                 notifications={notifications}
+            sessionStatus={sessionStatus}
                 onSwitchSession={handleSelectSession}
                 onCreateSession={handleQuickCreateSession}
                 onRenameSession={handleRenameSession}
@@ -616,7 +619,7 @@ export default function WorkspaceLayout({ children }) {
 
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div
-                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1.5 overflow-x-auto overflow-y-hidden px-2" : "relative"}`}
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-2 overflow-x-auto overflow-y-hidden px-2 pb-2.5" : "relative"}`}
                 {...bindSwipeTab({
                   enabled: !isDesktop,
                   sessionIds: groupOpenedSessions,
@@ -637,7 +640,14 @@ export default function WorkspaceLayout({ children }) {
                         !inActiveGroup
                           ? "hidden"
                           : isDesktop
-                          ? `flex-1 h-full rounded-xl overflow-hidden ${isFocused ? "p-0 border-2 border-brand-500" : "p-px border border-text-muted/25"}`
+                          ? `flex-1 h-full rounded-xl overflow-hidden ${(() => {
+                              if (isFocused) return "p-0 border-2 border-brand-500";
+                              const st = sessionStatus[sessionId]?.state || "idle";
+                              if (st === "working") return "p-px border border-dashed status-border-working";
+                              if (st === "blocked") return "p-px border border-dashed status-border-blocked";
+                              if (st === "done") return "p-px border border-dashed status-border-done";
+                              return "p-px border border-text-muted/25";
+                            })()}`
                           : `absolute inset-0 ${isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
                       }
                       style={inActiveGroup && isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
@@ -653,6 +663,7 @@ export default function WorkspaceLayout({ children }) {
                         onPasteFallback={handlePasteFallback}
                         showFocusBorder={false}
                         notifications={notifications}
+                        sessionStatus={sessionStatus}
                         clearNotification={clearNotification}
                         fileSocket={fileSocket}
                       />

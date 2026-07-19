@@ -2,11 +2,12 @@ import { useState } from "preact/hooks";
 import Icon from "./Icon";
 import ConfirmPopup from "./ConfirmPopup";
 import { useI18n } from "../i18n";
+import { statusVisual } from "../lib/statusVisual";
 
 const UNGROUPED_KEY = "ungrouped";
 
 // Session list with group accordion + inline create — matches web/SessionList (lucide icons, brand tokens)
-export default function SessionList({ sessions, groups, connected, finishedIds, onSelect, onCreate, onCreateNamed, onDelete, onRename, onCreateGroup, onRenameGroup, onDeleteGroup }) {
+export default function SessionList({ sessions, groups, connected, finishedIds, sessionStatus = {}, onSelect, onCreate, onCreateNamed, onDelete, onRename, onCreateGroup, onRenameGroup, onDeleteGroup }) {
   const { t } = useI18n();
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
@@ -93,14 +94,16 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
 
               {/* Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {list.map((s) => (
+                  {list.map((s) => {
+                    const v = statusVisual(sessionStatus[s.id]?.state || "idle");
+                    return (
                     <div
                       key={s.id}
-                      className={`group relative rounded-xl overflow-hidden transition-all duration-200 ease-out ${connected ? "hover:-translate-y-1" : "opacity-60"} ${finishedIds?.has(s.id) ? "terminal-done-border" : ""}`}
+                      className={`group relative rounded-xl overflow-hidden transition-all duration-200 ease-out term-card ${v.cls} status-border-${sessionStatus[s.id]?.state || "idle"} ${connected ? "hover:-translate-y-1" : "opacity-60"}`}
                       style={{
                         background: connected ? "linear-gradient(155deg,#22242e 0%,#1a1b21 55%,#141519 100%)" : "linear-gradient(155deg,#1c1d20,#141416)",
-                        border: "1px solid rgba(255,255,255,0.15)",
-                        boxShadow: "0 0 0 1px rgba(255,255,255,0.05), 0 8px 28px -6px rgba(0,0,0,0.7)",
+                        border: "1px solid color-mix(in srgb, var(--text-muted) 25%, transparent)",
+                        boxShadow: "0 8px 28px -6px rgba(0,0,0,0.7)",
                       }}
                     >
                       {/* Titlebar */}
@@ -126,7 +129,17 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
                       </div>
 
                       {/* Body — fake terminal */}
-                      <div className="px-3 py-3 font-mono min-h-[128px] cursor-pointer" onClick={() => { if (editingId !== s.id) onSelect(s); }}>
+                      <div className="relative px-3 py-3 font-mono min-h-[128px] cursor-pointer" onClick={() => { if (editingId !== s.id) onSelect(s); }}>
+                        {/* Status badge — top-right of body, mirrors tab dot */}
+                        {(sessionStatus[s.id]?.state || "idle") !== "idle" && (
+                          <span
+                            className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                            style={{ background: `${v.dot}22`, color: v.dot }}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full term-dot${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
+                            {t(v.label)}
+                          </span>
+                        )}
                         {editingId === s.id ? (
                           <input
                             type="text" value={editName} ref={focusEnd}
@@ -160,7 +173,8 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
                         )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                   {/* Inline dashed add card */}
                   <button
                     onClick={() => { setNewTerminalName(suggestTerminalName(section.id)); setTerminalModal({ open: true, groupId: section.id }); }}

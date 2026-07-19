@@ -49,6 +49,10 @@ export const useTerminalStore = create(
       // Terminal font size override (null = use config defaults 14/12). Clamped: 10-16 mobile, 10-18 desktop.
       fontSize: null,
       setFontSize: (size) => set({ fontSize: size ? Math.max(10, Math.min(18, Math.round(size))) : null }),
+
+      // Terminal palette sub-theme (default = Vesper). Resolved against app mode in useXTerm.
+      terminalTheme: "default",
+      setTerminalTheme: (key) => set({ terminalTheme: key || "default" }),
       
       // Actions
       pushView: (view) => set((state) => ({
@@ -111,7 +115,8 @@ export const useTerminalStore = create(
         activeGroupId: state.activeGroupId,
         collapsedGroups: state.collapsedGroups,
         webglEnabled: state.webglEnabled,
-        fontSize: state.fontSize
+        fontSize: state.fontSize,
+        terminalTheme: state.terminalTheme
       }),
       storage: {
         getItem: (name) => {

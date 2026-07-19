@@ -338,6 +338,42 @@ html.terminal-page body {
   50% { opacity: 0.3; }
 }
 
+/* Terminal tabs — translucent pill background on active/hover (parity with agent/ui/src/index.css) */
+.term-tab {
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+.term-tab:hover:not(.term-tab-active) { color: var(--text); background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.term-tab-active {
+  color: var(--text);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--color-brand-500) 35%, transparent);
+}
+
+/* AI agent status dots — idle/working/blocked/done (see shared/utils/statusVisual.js) */
+/* KEEP IN SYNC with agent/ui/src/index.css (separate build) */
+/* Working = spinning ring (border-top + border-right visible, others transparent). */
+.term-dot.pulse-soft {
+  background: transparent !important;
+  width: 0.6rem !important;
+  height: 0.6rem !important;
+  border: 2px solid rgba(59,130,246,0.25);
+  border-top-color: #3b82f6;
+  border-right-color: #3b82f6;
+  animation: statusSpin 0.7s linear infinite;
+}
+@keyframes statusSpin { to { transform: rotate(360deg); } }
+.term-dot.pulse-strong { animation: statusPulseStrong 0.9s ease-in-out infinite; }
+@keyframes statusPulseStrong {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
+  50% { transform: scale(1.3); box-shadow: 0 0 0 4px rgba(239,68,68,0); }
+}
+/* Status border — dashed + state color. Used by pane wrapper (layout.js) and SessionList card. */
+.status-border-working { border: 1px dashed #3b82f6 !important; }
+.status-border-blocked { border: 1px dashed #ef4444 !important; }
+.status-border-done { border: 1px dashed #f59e0b !important; }
+
+
 /* XTerm - lock native pan so JS handler fully controls gesture (no container drag) */
 .terminal-wrapper .xterm-screen {
   touch-action: none !important;
@@ -364,14 +400,14 @@ html.terminal-page body {
 }
 /* XTerm overlay scrollbar (JS-rendered div) — auto-hide: only .visible while scrolling/hovering. */
 .terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar {
-  width: 7px !important;
+  width: 5px !important;
   opacity: 0 !important;
   pointer-events: none !important;
   transition: opacity 0.18s ease !important;
 }
 .terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar .slider {
-  width: 7px !important;
-  border-radius: 4px !important;
+  width: 5px !important;
+  border-radius: 3px !important;
   background: rgba(128, 128, 128, 0.5) !important;
 }
 .terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar .slider:hover {
