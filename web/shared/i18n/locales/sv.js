@@ -389,7 +389,10 @@ export default {
     claudeCode: "Claude Code",
     codex: "Codex",
     geminiCli: "Gemini CLI",
-    openCode: "OpenCode"
+    openCode: "OpenCode",
+    needsInput: "needs input",
+    replied: "replied",
+    agent: "Agent",
   },
   sites: {
     title: "Webbplatser",
@@ -482,6 +485,9 @@ export default {
     lookInstallIcon: "Leta efter installationsikon",
     lookInstallIconHint: "Leta efter installationsikonen i adressfältet",
     clickInstallPaste: "Klicka installera & klistra in nyckel",
+    installNow: "Install Now",
+    installNowHint: "Install 9Remote as an app for quick access",
+    installing: "Installing...",
     clickInstallPasteHint: "Klicka installera, öppna appen och klistra in din nyckel för att logga in",
     alternativeHint: "Alternativ: Öppna webbläsarmenyn → \"Installera 9Remote\" eller \"Skapa genväg\"",
     loadingPlatform: "Laddar plattformsdetektering...",

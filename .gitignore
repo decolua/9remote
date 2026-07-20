@@ -93,3 +93,4 @@ agent/graphify-out/*
 .devloop/
 
 .handoff/
+agent/tester/remote/leakTest.log

@@ -389,7 +389,10 @@ export default {
     claudeCode: "Claude Code",
     codex: "Codex",
     geminiCli: "Gemini CLI",
-    openCode: "OpenCode"
+    openCode: "OpenCode",
+    needsInput: "needs input",
+    replied: "replied",
+    agent: "Agent",
   },
   sites: {
     title: "Tapak",
@@ -482,6 +485,9 @@ export default {
     lookInstallIcon: "Cari Ikon Pasang",
     lookInstallIconHint: "Cari ikon pasang di bar alamat",
     clickInstallPaste: "Klik Pasang & Tampal Kunci",
+    installNow: "Install Now",
+    installNowHint: "Install 9Remote as an app for quick access",
+    installing: "Installing...",
     clickInstallPasteHint: "Klik pasang, buka aplikasi, dan tampal kunci anda untuk log masuk",
     alternativeHint: "Alternatif: Buka menu pelayar → \"Install 9Remote\" atau \"Create shortcut\"",
     loadingPlatform: "Memuatkan pengesanan platform...",

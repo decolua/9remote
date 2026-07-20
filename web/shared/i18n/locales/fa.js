@@ -491,7 +491,10 @@ export default {
     claudeCode: "Claude Code",
     codex: "Codex",
     geminiCli: "Gemini CLI",
-    openCode: "OpenCode"
+    openCode: "OpenCode",
+    needsInput: "needs input",
+    replied: "replied",
+    agent: "Agent",
   },
   sites: {
     title: "سایت‌ها",
@@ -584,6 +587,9 @@ export default {
     lookInstallIcon: "به دنبال آیکون نصب باشید",
     lookInstallIconHint: "به دنبال آیکون نصب در نوار آدرس باشید",
     clickInstallPaste: "کلیک نصب و چسباندن کلید",
+    installNow: "Install Now",
+    installNowHint: "Install 9Remote as an app for quick access",
+    installing: "Installing...",
     clickInstallPasteHint: "روی نصب کلیک کنید، برنامه را باز کنید و کلید خود را برای ورود بچسبانید",
     alternativeHint: "گزینه جایگزین: منوی مرورگر را باز کنید → \"Install 9Remote\" یا \"Create shortcut\"",
     loadingPlatform: "در حال بارگذاری تشخیص پلتفرم...",

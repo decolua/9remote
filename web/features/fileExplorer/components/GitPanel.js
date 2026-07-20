@@ -45,6 +45,8 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
   const [diffLoaded, setDiffLoaded] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false });
   const [branch, setBranch] = useState("");
+  const [ahead, setAhead] = useState(null);
+  const [behind, setBehind] = useState(null);
   const [actionsOpen, setActionsOpen] = useState(false);
 
   // Load git status
@@ -60,7 +62,12 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       setError(result.error);
     }
 
-    fileSocket.gitBranch(workspace).then((r) => { if (r?.success) setBranch(r.branch); });
+    fileSocket.gitBranch(workspace).then((r) => {
+      if (!r?.success) return;
+      setBranch(r.branch);
+      setAhead(r.ahead ?? null);
+      setBehind(r.behind ?? null);
+    });
 
     setStatusLoading(false);
   }, [workspace, fileSocket]);
@@ -255,8 +262,10 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-text text-lg font-semibold truncate">
+        <h1 className="text-text text-lg font-semibold truncate flex items-center gap-2">
           {t("git.title")}{branch ? <span className="text-text-muted font-normal"> · {branch}</span> : null}
+          {ahead > 0 && <span className="text-xs font-medium px-1.5 py-0.5 rounded-brand bg-brand-500/15 text-brand-500">↑{ahead}</span>}
+          {behind > 0 && <span className="text-xs font-medium px-1.5 py-0.5 rounded-brand bg-surface-3 text-text-muted">↓{behind}</span>}
         </h1>
         <button
           onClick={() => { vibrate(); setActionsOpen(true); }}
@@ -389,6 +398,18 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                     </option>
                   ))}
                 </select>
+                {selectedFile && selectedFileStatus !== "D" && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); vibrate(); handleOpenFile(selectedFile); }}
+                    disabled={diffLoading}
+                    className="px-4 py-2 bg-surface-3 hover:bg-surface disabled:cursor-not-allowed text-text text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2"
+                    title={t("git.openFile")}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </button>
+                )}
                 <button
                   onClick={() => { vibrate(); handleDiscard(); }}
                   disabled={!selectedFile || diffLoading}

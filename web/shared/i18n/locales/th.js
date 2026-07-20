@@ -389,7 +389,10 @@ export default {
     claudeCode: "Claude Code",
     codex: "Codex",
     geminiCli: "Gemini CLI",
-    openCode: "OpenCode"
+    openCode: "OpenCode",
+    needsInput: "needs input",
+    replied: "replied",
+    agent: "Agent",
   },
   sites: {
     title: "ไซต์",
@@ -482,6 +485,9 @@ export default {
     lookInstallIcon: "มองหาไอคอนติดตั้ง",
     lookInstallIconHint: "มองหาไอคอนติดตั้งในแถบที่อยู่",
     clickInstallPaste: "คลิกติดตั้งและวางคีย์",
+    installNow: "Install Now",
+    installNowHint: "Install 9Remote as an app for quick access",
+    installing: "Installing...",
     clickInstallPasteHint: "คลิกติดตั้ง เปิดแอป และวางคีย์เพื่อเข้าสู่ระบบ",
     alternativeHint: "ทางเลือก: เปิดเมนูเบราว์เซอร์ → \"ติดตั้ง 9Remote\" หรือ \"สร้างทางลัด\"",
     loadingPlatform: "กำลังตรวจจับแพลตฟอร์ม...",

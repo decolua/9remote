@@ -491,7 +491,10 @@ export default {
     claudeCode: "Claude Code",
     codex: "Codex",
     geminiCli: "Gemini CLI",
-    openCode: "OpenCode"
+    openCode: "OpenCode",
+    needsInput: "needs input",
+    replied: "replied",
+    agent: "Agent",
   },
   sites: {
     title: "साइटें",
@@ -584,6 +587,9 @@ export default {
     lookInstallIcon: "इंस्टॉल आइकन देखें",
     lookInstallIconHint: "एड्रेस बार में इंस्टॉल आइकन देखें",
     clickInstallPaste: "इंस्टॉल पर क्लिक करें और कुंजी पेस्ट करें",
+    installNow: "Install Now",
+    installNowHint: "Install 9Remote as an app for quick access",
+    installing: "Installing...",
     clickInstallPasteHint: "इंस्टॉल पर क्लिक करें, ऐप खोलें, और लॉगिन के लिए अपनी कुंजी पेस्ट करें",
     alternativeHint: "विकल्प: ब्राउज़र मेनू खोलें → \"9Remote इंस्टॉल करें\" या \"शॉर्टकट बनाएँ\"",
     loadingPlatform: "प्लेटफ़ॉर्म पहचान लोड हो रही है...",

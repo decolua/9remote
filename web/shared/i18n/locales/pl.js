@@ -389,7 +389,10 @@ export default {
     claudeCode: "Claude Code",
     codex: "Codex",
     geminiCli: "Gemini CLI",
-    openCode: "OpenCode"
+    openCode: "OpenCode",
+    needsInput: "needs input",
+    replied: "replied",
+    agent: "Agent",
   },
   sites: {
     title: "Strony",
@@ -482,6 +485,9 @@ export default {
     lookInstallIcon: "Poszukaj ikony instalacji",
     lookInstallIconHint: "Poszukaj ikony instalacji w pasku adresu",
     clickInstallPaste: "Kliknij Zainstaluj i wklej klucz",
+    installNow: "Install Now",
+    installNowHint: "Install 9Remote as an app for quick access",
+    installing: "Installing...",
     clickInstallPasteHint: "Kliknij Zainstaluj, otwórz aplikację i wklej klucz, aby się zalogować",
     alternativeHint: "Alternatywnie: Otwórz menu przeglądarki → \"Zainstaluj 9Remote\" lub \"Utwórz skrót\"",
     loadingPlatform: "Ładowanie wykrywania platformy...",

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "preact/hooks";
+import Icon from "./Icon";
 import { parseDiffPath } from "../lib/fileExplorer/constants";
 
 // Plain diff renderer (no diff2html). Renders unified diff as colored rows.
@@ -23,7 +24,7 @@ function parseRows(text) {
   return rows;
 }
 
-export default function DiffView({ diffPath, workspace, fileSocket }) {
+export default function DiffView({ diffPath, workspace, fileSocket, onOpenFile }) {
   const { status, absPath } = parseDiffPath(diffPath);
   const [diff, setDiff] = useState("");
   const [loading, setLoading] = useState(true);
@@ -43,12 +44,31 @@ export default function DiffView({ diffPath, workspace, fileSocket }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diffPath]);
 
+  const handleOpen = () => {
+    if (!onOpenFile || !absPath) return;
+    onOpenFile(absPath);
+  };
+
   if (loading) return <div className="h-full flex items-center justify-center text-text-muted">Loading diff…</div>;
   if (error) return <div className="h-full flex items-center justify-center text-red-400 text-sm">{error}</div>;
 
   const rows = parseRows(diff);
   return (
-    <div className="h-full overflow-auto bg-surface font-mono text-[12.5px] leading-[1.6]">
+    <div className="h-full flex flex-col bg-surface font-mono text-[12.5px] leading-[1.6]">
+      {onOpenFile && absPath && (
+        <div className="flex items-center justify-end py-1 px-3 bg-surface-2 border-b border-border flex-shrink-0">
+          <button
+            type="button"
+            onClick={handleOpen}
+            className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-text-muted hover:text-text hover:bg-surface-3 rounded-brand transition-colors"
+            title="Open file"
+          >
+            <Icon name="externalLink" size={12} />
+            <span>Open file</span>
+          </button>
+        </div>
+      )}
+      <div className="flex-1 overflow-auto">
       {rows.map((row, i) => {
         if (row.type === "file") return <div key={i} className="px-3 py-2 bg-surface-2 text-text font-semibold break-all">{row.text}</div>;
         if (row.type === "hunk") return <div key={i} className="px-3 py-1 bg-surface-2/60 text-text-muted select-none break-all">{row.text}</div>;
@@ -64,6 +84,7 @@ export default function DiffView({ diffPath, workspace, fileSocket }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

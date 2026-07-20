@@ -9,6 +9,11 @@ export const STATES = Object.freeze({
   DONE: "done",
 });
 
+// A working session is considered live while either hook events or PTY output keeps arriving.
+// Reaper clears entries idle beyond this TTL so a crashed/stuck agent can't pin "working" forever.
+export const WORKING_TTL_MS = 60_000;
+const REAPER_INTERVAL_MS = 15_000;
+
 // Back-compat: legacy hook event types from /api/notify → internal state.
 export const TYPE_TO_STATE = Object.freeze({
   stop: STATES.DONE,
@@ -34,7 +39,10 @@ export function applyEvent({ type, sessionId, tool, message } = {}) {
   // No-op transition: keep timestamp, avoid spurious broadcasts.
   if (prev && prev.state === state && prev.tool === tool) return prev;
 
-  const entry = { state, tool: tool || prev?.tool, since: Date.now(), message: message ?? undefined };
+  const entry = {
+    state, tool: tool || prev?.tool, since: Date.now(), message: message ?? undefined,
+    ...(state === STATES.WORKING ? { expiresAt: Date.now() + WORKING_TTL_MS } : {}),
+  };
   sessionStatus.set(sessionId, entry);
   return entry;
 }
@@ -42,7 +50,35 @@ export function applyEvent({ type, sessionId, tool, message } = {}) {
 export function setStatus(sessionId, entry) {
   if (!sessionId) return;
   if (!entry) { sessionStatus.delete(sessionId); return; }
-  sessionStatus.set(sessionId, { ...entry, since: Date.now() });
+  const meta = { ...entry, since: Date.now() };
+  if (meta.state === STATES.WORKING) meta.expiresAt = Date.now() + WORKING_TTL_MS;
+  sessionStatus.set(sessionId, meta);
+}
+
+// Refresh the working TTL — called on live PTY output so a thinking/streaming agent
+// is never reaped while it's still producing. No-op for non-working sessions.
+export function touchWorking(sessionId) {
+  if (!sessionId) return;
+  const entry = sessionStatus.get(sessionId);
+  if (entry?.state !== STATES.WORKING) return;
+  entry.expiresAt = Date.now() + WORKING_TTL_MS;
+}
+
+// Periodically drop working entries whose TTL expired (agent crashed / hook never fired).
+// broadcast(sessionId) is invoked per cleared session so clients flip back to idle.
+export function startReaper(broadcast) {
+  const timer = setInterval(() => {
+    const now = Date.now();
+    for (const [id, entry] of sessionStatus) {
+      if (entry.state !== STATES.WORKING) continue;
+      if (entry.expiresAt != null && entry.expiresAt <= now) {
+        sessionStatus.delete(id);
+        if (typeof broadcast === "function") { try { broadcast(id); } catch {} }
+      }
+    }
+  }, REAPER_INTERVAL_MS);
+  if (timer.unref) timer.unref();
+  return () => clearInterval(timer);
 }
 
 export function getStatus(sessionId) {

@@ -18,6 +18,8 @@ export default function MenuItems({
   onCommandNotes,
   onCommunity,
   onInstallApp,
+  canInstall = false,
+  isInstalled = false,
   onCodespace,
   onLogout,
   connected = true,
@@ -106,6 +108,23 @@ export default function MenuItems({
 
   return (
     <div className="p-3 space-y-0.5">
+      {/* Install App - pinned to top; hidden when running as PWA/native or already installed.
+          Whole row is one button; a small brand chip on the right signals one-tap install on Chromium. */}
+      {!isApp && !isInstalled && onInstallApp && (
+        <button
+          onClick={() => { vibrate(); onInstallApp(); }}
+          className="w-full px-3 py-1.5 mb-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+        >
+          <Download className="text-brand-500 flex-shrink-0" size={16} />
+          <span className="text-sm flex-1 min-w-0 truncate">{t("menu.installApp")}</span>
+          {canInstall && (
+            <span className="flex-shrink-0 px-2 py-0.5 bg-brand-500 text-white text-xs font-medium rounded-full">
+              {t("pwaGuide.installNow")}
+            </span>
+          )}
+        </button>
+      )}
+
       {/* Notifications switch - WebPush (desktop browser + PWA) or Expo native */}
       {pushSupported && (
         <button
@@ -230,17 +249,6 @@ export default function MenuItems({
 
       {/* IAP upgrade — mobile app only (web flow is separate) */}
       <UpgradeButton />
-
-      {/* Install App - hide when running as PWA or native app */}
-      {!isApp && onInstallApp && (
-        <button
-          onClick={() => { vibrate(); onInstallApp(); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
-        >
-          <Download className="text-brand-500" size={16} />
-          <span className="text-sm">{t("menu.installApp")}</span>
-        </button>
-      )}
 
       {/* Codespace */}
       {codespaceInfo?.isCodespaces && onCodespace && (

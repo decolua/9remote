@@ -21,6 +21,8 @@ function dirname(p) {
 
 export default function ScmPanel({ workspace, fileSocket, onOpenFile }) {
   const [branch, setBranch] = useState("");
+  const [ahead, setAhead] = useState(null);
+  const [behind, setBehind] = useState(null);
   const [files, setFiles] = useState([]);
   const [commitMsg, setCommitMsg] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,11 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile }) {
     ]);
     setLoading(false);
     if (statusRes?.success) setFiles(statusRes.files || []);
-    if (branchRes?.success) setBranch(branchRes.branch || "");
+    if (branchRes?.success) {
+      setBranch(branchRes.branch || "");
+      setAhead(branchRes.ahead ?? null);
+      setBehind(branchRes.behind ?? null);
+    }
   }, [workspace, fileSocket]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -165,6 +171,8 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile }) {
         <div className="flex items-center gap-2">
           <Icon name="gitBranch" size={14} className="text-text-muted" />
           <span className="text-xs text-text truncate flex-1">{branch || "—"}</span>
+          {ahead > 0 && <span className="text-[10px] font-medium px-1.5 rounded-brand bg-brand-500/15 text-brand-500">↑{ahead}</span>}
+          {behind > 0 && <span className="text-[10px] font-medium px-1.5 rounded-brand bg-surface-3 text-text-muted">↓{behind}</span>}
           <button type="button" title="Refresh" onClick={() => { vibrate(); reload(); }} className="p-1 text-text-muted hover:text-text">
             <Icon name="refreshCw" size={12} className={loading ? "animate-spin" : ""} />
           </button>

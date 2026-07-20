@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, Settings, Monitor, Plus, ChevronDown, Pencil, Trash2, X } from "@/shared/components/ui/Icon";
+import NotificationsBell from "./NotificationsBell";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
@@ -307,6 +308,13 @@ export default function TerminalHeader({
           <Monitor size={18} />
         </button>
       )}
+
+      <NotificationsBell
+        sessions={sessions}
+        allSessions={allSessions}
+        sessionStatus={sessionStatus}
+        onSwitchSession={onSwitchSession}
+      />
 
       <button
         onClick={() => { vibrate(); openMenu(); }}

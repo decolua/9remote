@@ -15,6 +15,7 @@ import { statusVisual } from "@/shared/utils/statusVisual";
 import { updateTitle } from "@/shared/utils/titleMarquee";
 import { DESKTOP_BREAKPOINT, PANE_MIN_WIDTH } from "@/features/terminal/constants/terminalConfig";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
+import { usePwaInstallInit } from "@/features/terminal/hooks/usePwaInstallInit";
 import { useSwipeTab } from "@/features/terminal/hooks/useSwipeTab";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
 
@@ -39,6 +40,8 @@ export default function WorkspaceLayout({ children }) {
   const { t } = useI18n();
   // Hydration state for Zustand
   const [hydrated, setHydrated] = useState(false);
+  // Capture PWA beforeinstallprompt as early as possible (Chromium-only).
+  usePwaInstallInit();
 
   // UI state from Zustand store (persisted to sessionStorage)
   const {

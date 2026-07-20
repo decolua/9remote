@@ -4,6 +4,9 @@ import { encode, decode } from "./codec.js";
 import { ADAPTER_STATE, CHANNELS } from "../lib/transportConstants.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { resolveCandidate } from "../lib/mdnsResolver.js";
+import { createLogger } from "../lib/logger.js";
+
+const logger = createLogger("webrtc");
 
 // Lazy load: node-datachannel's native binary may be missing if install scripts
 // were blocked (e.g. Garner/npm fork). loadNative self-heals via prebuild-install.
@@ -12,6 +15,9 @@ function nodeDataChannel() {
   if (!_nodeDataChannel) _nodeDataChannel = loadNative("node-datachannel");
   return _nodeDataChannel;
 }
+
+// Test-only injection point — avoids loading the .node binary in unit tests.
+export const __setNodeDataChannelForTest = (m) => { _nodeDataChannel = m; };
 
 // STUN cluster — benchmarked from VN: Google ~150ms, Twilio ~144ms, Cloudflare ~813ms
 const DEFAULT_ICE = [
@@ -82,6 +88,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pendingCandidates = [];
     this._signaling = null;
     this._iceGraceTimer = null;
+    this._answerTimer = null;
   }
 
   /**
@@ -93,6 +100,7 @@ export class WebRtcProtocol extends BaseProtocol {
   async connect(ctx) {
     this._ctx = ctx;
     this._setState(ADAPTER_STATE.connecting);
+    logger.info(`connect socketId=${ctx.auth?.socketId || "?"} turn=${!!ctx.profile?.rtc?.enableTurn}`);
 
     const rtcCfg = ctx.profile?.rtc || {};
     if (rtcCfg.enableTurn && ctx.auth?.apiKey && rtcCfg.turnApiUrl) {
@@ -104,6 +112,7 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   disconnect() {
+    logger.info(`disconnect socketId=${this._ctx?.auth?.socketId || "?"} state=${this._state}`);
     clearTimeout(this._refreshTimer);
     this._signaling?.off?.();
     this._signaling = null;
@@ -133,7 +142,7 @@ export class WebRtcProtocol extends BaseProtocol {
         // sendMessageBinary returns false on oversize/negotiated-max violation — treat as drop
         return this._dcBinary.sendMessageBinary(chunk);
       } catch (err) {
-        console.error("[WebRtcProtocol] send binary:", err.message);
+        logger.error(`send binary failed: ${err.message}`);
         return false;
       }
     }
@@ -151,6 +160,8 @@ export class WebRtcProtocol extends BaseProtocol {
         return;
       }
       this._addRemoteCandidate(msg.candidate, msg.mid || "0");
+    } else if (msg.type === "error") {
+      logger.warn(`remote signaling error: ${msg.message || "unknown"}`);
     }
   }
 
@@ -160,17 +171,21 @@ export class WebRtcProtocol extends BaseProtocol {
       const resolved = await resolveCandidate(candidate);
       if (!resolved || !this._pc) return;
       this._pc.addRemoteCandidate(resolved, mid);
-    } catch (err) { console.error("[WebRtcProtocol] addRemoteCandidate:", err.message); }
+    } catch (err) { logger.error(`addRemoteCandidate: ${err.message}`); }
   }
 
   _createPeer(rtcCfg) {
+    if (this._pc) logger.info(`peer recreate (had live pc, state=${this._state})`);
     try { this._pc?.close(); } catch {}
     this._pc = null;
     this._dcControl = null;
     this._dcBinary = null;
     this._remoteSet = false;
-    this._pendingCandidates = [];
+    // NOTE: do NOT clear _pendingCandidates here — _processOffer flushes them
+    // after setRemoteDescription. Wiping them drops early ICE (pre-offer) silently,
+    // which stalls ICE during a network-flap storm → Answer timeout pile-up.
     if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
+    if (this._answerTimer) { clearTimeout(this._answerTimer); this._answerTimer = null; }
 
     const socketId = this._ctx?.auth?.socketId || "anon";
     const { PeerConnection } = nodeDataChannel();
@@ -180,14 +195,19 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pcState = "new";
     pc.onStateChange((state) => {
       this._pcState = state;
+      logger.info(`peer-${socketId} state=${state}`);
       if (state === "failed" || state === "closed") {
         if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
         this._setState(ADAPTER_STATE.closed);
       } else if (state === "disconnected") {
         if (this._iceGraceTimer) return;
+        logger.warn(`peer-${socketId} ICE disconnected — grace ${REMOTE_CONFIG.webrtc.iceDisconnectGraceMs}ms`);
         this._iceGraceTimer = setTimeout(() => {
           this._iceGraceTimer = null;
-          if (this._pcState !== "connected") this._setState(ADAPTER_STATE.closed);
+          if (this._pcState !== "connected") {
+            logger.warn(`peer-${socketId} ICE grace expired → closed`);
+            this._setState(ADAPTER_STATE.closed);
+          }
         }, REMOTE_CONFIG.webrtc.iceDisconnectGraceMs);
       } else if (state === "connected") {
         if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
@@ -196,6 +216,7 @@ export class WebRtcProtocol extends BaseProtocol {
 
     pc.onDataChannel((dc) => {
       const label = dc.getLabel?.() || "";
+      logger.info(`peer-${socketId} DC[${label}] opened`);
       const setOpen = () => {
         if (label === "control") this._dcControl = dc;
         else if (label === "binary") this._dcBinary = dc;
@@ -203,18 +224,19 @@ export class WebRtcProtocol extends BaseProtocol {
       };
       dc.onOpen(setOpen);
       dc.onClosed(() => {
+        logger.info(`peer-${socketId} DC[${label}] closed`);
         if (label === "control") this._dcControl = null;
         if (label === "binary") this._dcBinary = null;
         if (!this._dcControl && !this._dcBinary) this._setState(ADAPTER_STATE.closed);
       });
-      dc.onError((err) => console.error(`[WebRtcProtocol] DC[${label}] error:`, err));
+      dc.onError((err) => logger.error(`DC[${label}] error: ${err?.message || err}`));
       dc.onMessage((data) => {
         if (label !== "control") return;
         let parsed;
         try { parsed = decode(data); }
-        catch (err) { console.error("[WebRtcProtocol] control parse:", err.message); return; }
+        catch (err) { logger.error(`control parse: ${err.message}`); return; }
         try { this._emit("message", { event: parsed.event, data: parsed, source: "rtc" }); }
-        catch (err) { console.error(`[WebRtcProtocol] handler error event=${parsed.event}:`, err.message); }
+        catch (err) { logger.error(`handler error event=${parsed.event}: ${err.message}`); }
       });
     });
 
@@ -223,12 +245,18 @@ export class WebRtcProtocol extends BaseProtocol {
 
   _processOffer(sdp, rtcCfg) {
     this._createPeer(rtcCfg);
+    logger.info(`offer received (buffered=${this._pendingCandidates.length})`);
+    let settled = false;
+    const clearAnswerTimer = () => {
+      if (this._answerTimer) { clearTimeout(this._answerTimer); this._answerTimer = null; }
+    };
     return new Promise((resolve, reject) => {
       this._pc.onLocalDescription((answerSdp, type) => {
-        if (type === "answer") {
-          this._signaling?.send?.({ type: "answer", sdp: answerSdp });
-          resolve();
-        }
+        if (type !== "answer" || settled) return;
+        settled = true;
+        clearAnswerTimer();
+        this._signaling?.send?.({ type: "answer", sdp: answerSdp });
+        resolve();
       });
       this._pc.onLocalCandidate((candidate, mid) => {
         if (candidate) this._signaling?.send?.({ type: "ice", candidate, mid });
@@ -236,22 +264,32 @@ export class WebRtcProtocol extends BaseProtocol {
       try {
         this._pc.setRemoteDescription(sdp, "offer");
         this._remoteSet = true;
+        // Flush ICE buffered before the offer arrived (network-flap race).
         for (const { candidate, mid } of this._pendingCandidates) {
           this._addRemoteCandidate(candidate, mid);
         }
         this._pendingCandidates = [];
         this._pc.setLocalDescription();
       } catch (err) {
+        if (!settled) { settled = true; clearAnswerTimer(); }
         this._signaling?.send?.({ type: "error", message: err.message });
         reject(err);
+        return;
       }
       const timeout = rtcCfg?.answerTimeout || 10000;
-      setTimeout(() => reject(new Error("Answer timeout")), timeout);
+      this._answerTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        this._answerTimer = null;
+        logger.warn(`Answer timeout (no local description within ${timeout}ms)`);
+        reject(new Error("Answer timeout"));
+      }, timeout);
     });
   }
 
   _cleanupPeer() {
     if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
+    if (this._answerTimer) { clearTimeout(this._answerTimer); this._answerTimer = null; }
     try { this._pc?.close(); } catch {}
     this._pc = null;
     this._dcControl = null;

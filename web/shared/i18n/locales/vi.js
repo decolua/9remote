@@ -389,7 +389,12 @@ export default {
     claudeCode: "Claude Code",
     codex: "Codex",
     geminiCli: "Gemini CLI",
-    openCode: "OpenCode"
+    openCode: "OpenCode",
+    title: "Thông báo",
+    empty: "Không có thông báo",
+    needsInput: "cần nhập liệu",
+    replied: "đã trả lời",
+    agent: "Agent"
   },
   sites: {
     title: "Trang web",
@@ -482,6 +487,9 @@ export default {
     lookInstallIcon: "Tìm icon cài đặt",
     lookInstallIconHint: "Tìm icon cài đặt trên thanh địa chỉ",
     clickInstallPaste: "Nhấn cài và dán key",
+    installNow: "Install Now",
+    installNowHint: "Install 9Remote as an app for quick access",
+    installing: "Installing...",
     clickInstallPasteHint: "Nhấn cài, mở app, và dán key để đăng nhập",
     alternativeHint: "Cách khác: Mở menu trình duyệt → \"Install 9Remote\" hoặc \"Create shortcut\"",
     loadingPlatform: "Đang nhận diện nền tảng...",

@@ -85,6 +85,7 @@ export const {
   ChevronDown,
   ChevronUp,
   Bell,
+  Bot,
   Zap,
   Keyboard,
   HelpCircle,

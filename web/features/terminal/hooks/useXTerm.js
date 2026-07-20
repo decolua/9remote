@@ -346,10 +346,16 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       // Daemon marks coalesced/optimized output with enc:"b64" (base64 string).
       // Decode once here → avoids double base64 in the old Buffer round-trip path.
       if (payload.enc === "b64" && typeof data === "string") {
-        const bin = atob(data);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        data = bytes;
+        // Native base64 decode (~5-9x faster than atob+char-loop) — Chrome 133+, Safari 18.2+.
+        // Fallback to atob for older browsers / Tauri WebViews.
+        if (typeof Uint8Array.fromBase64 === "function") {
+          data = Uint8Array.fromBase64(data);
+        } else {
+          const bin = atob(data);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          data = bytes;
+        }
       }
       awaitingTuiOutputRef.current = false; // SGR round-trip done → resume TUI scroll
 
@@ -898,12 +904,20 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   }, [termReady, isVisible]);
 
   // Manual per-pane reload: reset local XTerm + re-join THIS session to re-fetch
-  // scrollback tail + restore modes. No socket reconnect, no impact on other panes.
+  // scrollback tail + restore modes, then rebuild WebGL renderer to clear glyph glitch.
+  // No socket reconnect, no impact on other panes.
   const reload = useCallback(() => {
-    if (!termRef.current || !socket) return;
-    termRef.current.reset();
+    const term = termRef.current;
+    if (!term || !socket) return;
+    term.reset();
     doJoinSessionRef.current?.(true);
-  }, [socket]);
+    if (webglEnabled) {
+      disposeWebGLRef.current?.();
+      loadWebGLRef.current?.();
+    } else {
+      term.refresh(0, term.rows - 1);
+    }
+  }, [socket, webglEnabled]);
 
   return {
     termRef,

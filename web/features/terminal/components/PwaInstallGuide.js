@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Smartphone, Monitor, Check, Copy } from "@/shared/components/ui/Icon";
+import { Smartphone, Monitor, Check, Copy, Download } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { maskApiKey } from "@/shared/utils/formatters";
 import { useI18n } from "@/shared/i18n";
 
@@ -13,9 +14,13 @@ import { useI18n } from "@/shared/i18n";
 export default function PwaInstallGuide() {
   const { t } = useI18n();
   const [platform, setPlatform] = useState("unknown");
-  const [isInstalled, setIsInstalled] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [installState, setInstallState] = useState("idle");
   const apiKey = useSlideMenuStore((s) => s.context.apiKey);
+  // Shared install state — canInstall flips true only on Chromium.
+  const canInstall = usePwaInstallStore((s) => s.canInstall);
+  const isInstalled = usePwaInstallStore((s) => s.isInstalled);
+  const install = usePwaInstallStore((s) => s.install);
 
   useEffect(() => {
     // Detect platform
@@ -36,12 +41,13 @@ export default function PwaInstallGuide() {
     } else {
       setPlatform("desktop");
     }
-
-    // Check if already installed
-    if (window.matchMedia("(display-mode: standalone)").matches) {
-      setIsInstalled(true);
-    }
   }, []);
+
+  const handleInstallClick = async () => {
+    setInstallState("installing");
+    const outcome = await install();
+    setInstallState(outcome === "accepted" ? "done" : "idle");
+  };
 
   const copyToClipboard = async (text) => {
     // Try modern clipboard API first
@@ -163,67 +169,133 @@ export default function PwaInstallGuide() {
     <div className="space-y-4">
       {renderCopyKeyStep()}
 
+      {/* Install button — Android Chrome fires beforeinstallprompt */}
+      {renderInstallButton()}
+
+      {/* Manual fallback — Firefox/other browsers */}
+      {canInstall ? (
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+            {2 + stepOffset}
+          </div>
+          <div className="flex-1">
+            <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
+            <p className="text-text-muted text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+              {1 + stepOffset}
+            </div>
+            <div className="flex-1">
+              <p className="text-text font-medium mb-1">{t("pwaGuide.openMenu")}</p>
+              <p className="text-text-muted text-sm">{t("pwaGuide.openMenuHint")}</p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+              {2 + stepOffset}
+            </div>
+            <div className="flex-1">
+              <p className="text-text font-medium mb-1">{t("pwaGuide.installApp")}</p>
+              <p className="text-text-muted text-sm">{t("pwaGuide.installAppHint")}</p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+              {3 + stepOffset}
+            </div>
+            <div className="flex-1">
+              <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
+              <p className="text-text-muted text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  // Shared install button — Chromium (Chrome/Edge/Android Chrome) fires beforeinstallprompt.
+  // Inline install step — text on the left, small Install button on the right.
+  // Mirrors the copy-key step layout. Chromium-only (canInstall gate).
+  const renderInstallButton = () => {
+    if (!canInstall) return null;
+    return (
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
           {1 + stepOffset}
         </div>
-        <div className="flex-1">
-          <p className="text-text font-medium mb-1">{t("pwaGuide.openMenu")}</p>
-          <p className="text-text-muted text-sm">{t("pwaGuide.openMenuHint")}</p>
+        <div className="flex-1 min-w-0">
+          <p className="text-text font-medium mb-1">{t("pwaGuide.installNow")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.installNowHint")}</p>
         </div>
+        <button
+          type="button"
+          onClick={handleInstallClick}
+          disabled={installState === "installing"}
+          className="flex-shrink-0 flex items-center gap-1 px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-brand transition-all duration-150 active:scale-[0.97] disabled:opacity-70 disabled:cursor-wait"
+        >
+          <Download size={14} />
+          {installState === "installing" ? t("pwaGuide.installing") : t("pwaGuide.installNow")}
+        </button>
       </div>
-
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          {2 + stepOffset}
-        </div>
-        <div className="flex-1">
-          <p className="text-text font-medium mb-1">{t("pwaGuide.installApp")}</p>
-          <p className="text-text-muted text-sm">{t("pwaGuide.installAppHint")}</p>
-        </div>
-      </div>
-
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          {3 + stepOffset}
-        </div>
-        <div className="flex-1">
-          <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
-          <p className="text-text-muted text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
-        </div>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const renderDesktopInstructions = () => (
     <div className="space-y-4">
       {renderCopyKeyStep()}
 
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          {1 + stepOffset}
-        </div>
-        <div className="flex-1">
-          <p className="text-text font-medium mb-1">{t("pwaGuide.lookInstallIcon")}</p>
-          <p className="text-text-muted text-sm">{t("pwaGuide.lookInstallIconHint")}</p>
-        </div>
-      </div>
+      {/* Install button — only Chromium (Chrome/Edge) fires beforeinstallprompt */}
+      {renderInstallButton()}
 
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          {2 + stepOffset}
+      {/* After install, paste key — shown once install step is rendered */}
+      {canInstall && (
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+            {2 + stepOffset}
+          </div>
+          <div className="flex-1">
+            <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
+            <p className="text-text-muted text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
+          </div>
         </div>
-        <div className="flex-1">
-          <p className="text-text font-medium mb-1">{t("pwaGuide.clickInstallPaste")}</p>
-          <p className="text-text-muted text-sm">{t("pwaGuide.clickInstallPasteHint")}</p>
-        </div>
-      </div>
+      )}
 
-      <div className="mt-6 p-3 bg-blue-500/10 rounded-brand">
-        <p className="text-blue-200 text-sm">
-          💡 {t("pwaGuide.alternativeHint")}
-        </p>
-      </div>
+      {/* Manual fallback — Firefox/Safari/Chrome-before-engagement */}
+      {!canInstall && (
+        <>
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+              {1 + stepOffset}
+            </div>
+            <div className="flex-1">
+              <p className="text-text font-medium mb-1">{t("pwaGuide.lookInstallIcon")}</p>
+              <p className="text-text-muted text-sm">{t("pwaGuide.lookInstallIconHint")}</p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+              {2 + stepOffset}
+            </div>
+            <div className="flex-1">
+              <p className="text-text font-medium mb-1">{t("pwaGuide.clickInstallPaste")}</p>
+              <p className="text-text-muted text-sm">{t("pwaGuide.clickInstallPasteHint")}</p>
+            </div>
+          </div>
+
+          <div className="mt-6 p-3 bg-blue-500/10 rounded-brand">
+            <p className="text-blue-200 text-sm">
+              💡 {t("pwaGuide.alternativeHint")}
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 

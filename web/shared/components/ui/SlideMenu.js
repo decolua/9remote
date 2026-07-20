@@ -5,6 +5,7 @@ import { X, Sparkles, Square, ChevronLeft, Loader2, Sun, Moon } from "@/shared/c
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import MenuItems from "@/features/terminal/components/MenuItems";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
+import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import CommandNotesPanel from "@/features/terminal/components/CommandNotes/CommandNotesPanel";
 import CommunityModal from "@/features/terminal/components/CommunityModal";
@@ -30,6 +31,11 @@ export default function SlideMenu() {
     setActivePanel,
     openMenu,
   } = useSlideMenuStore();
+
+  // Chromium sets canInstall via beforeinstallprompt; iOS Safari/Firefox stay false.
+  const install = usePwaInstallStore((s) => s.install);
+  const canInstall = usePwaInstallStore((s) => s.canInstall);
+  const isInstalled = usePwaInstallStore((s) => s.isInstalled);
 
   const [sitesModalOpen, setSitesModalOpen] = useState(false);
   const [commandNotesOpen, setCommandNotesOpen] = useState(false);
@@ -86,9 +92,16 @@ export default function SlideMenu() {
     callbacks.onSites?.();
   }, [close, callbacks]);
 
+  // Chromium: trigger native install dialog directly. Otherwise open the
+  // manual guide panel (iOS Safari / Firefox / pre-engagement).
   const handleInstallApp = useCallback(() => {
-    handleOpenPwa();
-  }, [handleOpenPwa]);
+    if (canInstall) {
+      close();
+      install();
+    } else {
+      handleOpenPwa();
+    }
+  }, [canInstall, close, install, handleOpenPwa]);
 
   const handleCodespace = useCallback(() => {
     handleOpenCodespace();
@@ -255,6 +268,8 @@ export default function SlideMenu() {
               onCommandNotes={handleCommandNotes}
               onCommunity={handleCommunity}
               onInstallApp={handleInstallApp}
+              canInstall={canInstall}
+              isInstalled={isInstalled}
               onCodespace={context.codespaceInfo?.isCodespaces ? handleCodespace : null}
               onLogout={handleLogout}
               connected={context.connected}

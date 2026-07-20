@@ -15,6 +15,7 @@ import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
+import { touchWorking, startReaper, getStatuses } from "./statusManager.js";
 import { broadcast } from "../../transport/broadcast.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -111,8 +112,13 @@ export function setupTerminalSocket(io, apiKey) {
   // Forward daemon events to all socket clients
   if (PERSISTENCE_MODE === "daemon") {
     daemonClient.on("output", ({ sessionId, enc, data, replay }) => {
+      // Live (non-replay) output = agent still producing → keep working status alive.
+      if (replay !== true) touchWorking(sessionId);
       broadcast(io, "output", { sessionId, enc, data, replay: replay === true });
     });
+
+    // Clear stuck "working" entries (agent crashed / Stop hook never fired).
+    startReaper((sessionId) => broadcast(io, "statusState", getStatuses()));
 
     daemonClient.on("cwdChange", ({ sessionId, cwd }) => {
       const session = sessions.get(sessionId);

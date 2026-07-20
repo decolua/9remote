@@ -491,7 +491,10 @@ export default {
     claudeCode: "Claude Code",
     codex: "Codex",
     geminiCli: "Gemini CLI",
-    openCode: "OpenCode"
+    openCode: "OpenCode",
+    needsInput: "needs input",
+    replied: "replied",
+    agent: "Agent",
   },
   sites: {
     title: "אתרים",
@@ -584,6 +587,9 @@ export default {
     lookInstallIcon: "חפש סמל התקנה",
     lookInstallIconHint: "חפש את סמל ההתקנה בשורת הכתובת",
     clickInstallPaste: "לחץ התקן והדבק מפתח",
+    installNow: "Install Now",
+    installNowHint: "Install 9Remote as an app for quick access",
+    installing: "Installing...",
     clickInstallPasteHint: "לחץ התקן, פתח את האפליקציה, והדבק את המפתח כדי להתחבר",
     alternativeHint: "חלופה: פתח תפריט דפדפן → \"התקן 9Remote\" או \"צור קיצור דרך\"",
     loadingPlatform: "טוען זיהוי פלטפורמה...",

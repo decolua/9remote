@@ -389,7 +389,10 @@ export default {
     claudeCode: "Claude Code",
     codex: "Codex",
     geminiCli: "Gemini CLI",
-    openCode: "OpenCode"
+    openCode: "OpenCode",
+    needsInput: "needs input",
+    replied: "replied",
+    agent: "Agent",
   },
   sites: {
     title: "站点",
@@ -482,6 +485,9 @@ export default {
     lookInstallIcon: "查找安装图标",
     lookInstallIconHint: "在地址栏中查找安装图标",
     clickInstallPaste: "点击安装并粘贴密钥",
+    installNow: "Install Now",
+    installNowHint: "Install 9Remote as an app for quick access",
+    installing: "Installing...",
     clickInstallPasteHint: "点击安装，打开应用，然后粘贴您的密钥进行登录",
     alternativeHint: "或者：打开浏览器菜单 → \"安装 9Remote\" 或 \"创建快捷方式\"",
     loadingPlatform: "正在加载平台检测...",
