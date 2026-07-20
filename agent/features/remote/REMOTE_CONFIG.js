@@ -30,18 +30,24 @@ export const REMOTE_CONFIG = {
     // Applied via sharp resize once per frame on the full screen buffer.
     // Mouse coords are percentage-based so this does NOT affect input mapping.
     outputScale: 1,
-    // Adaptive quality tiers — single-axis pick by effective pixel density.
+    // Smooth outputScale — outputScale tracks effective pixel density 1:1 so
+    // encoded bitmap ≈ viewer's physical pixels (no GPU upsample → sharp, minimal bytes).
     // effective = (viewerWidth * zoom * dpr) / agentWidth
-    // High effective → viewer needs native pixels (e.g. PC2PC) → sharp + high q.
-    // Low effective → mobile/small viewer → downscale + lower q to save bandwidth.
-    // Hysteresis prevents flap when effective oscillates around tier boundary.
-    adaptiveTiers: [
-      { minEffective: 1.0, outputScale: 1.00, jpegQuality: 72 },
-      { minEffective: 0.7, outputScale: 0.95, jpegQuality: 62 },
-      { minEffective: 0.4, outputScale: 0.80, jpegQuality: 52 },
-      { minEffective: 0,   outputScale: 0.65, jpegQuality: 45 }
-    ],
+    // scaleMode "smooth" → outputScale = clamp(effective, min, max) (proposed)
+    // scaleMode "tier"   → legacy stepped tiers (outputScale jumps in 4 buckets)
+    scaleMode: "smooth",
+    minOutputScale: 0.25,
+    maxOutputScale: 1.0,
+    // Quality still stepped — quality has a floor so detail isn't starved at low scale.
+    qualityFloor: 85,
     tierHysteresis: 0.05,
+    // Legacy stepped tiers (used when scaleMode === "tier"). Kept for fallback/A-B.
+    adaptiveTiers: [
+      { minEffective: 1.0, outputScale: 1.00, jpegQuality: 85 },
+      { minEffective: 0.7, outputScale: 0.95, jpegQuality: 85 },
+      { minEffective: 0.4, outputScale: 0.80, jpegQuality: 85 },
+      { minEffective: 0,   outputScale: 0.65, jpegQuality: 85 }
+    ],
     // Tile change-detection sampling — denser grid catches thin caret (1-2px)
     checksumSampling: { rowStep: 3, colStep: 8 }
   },

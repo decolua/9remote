@@ -505,29 +505,43 @@ export class TileManager {
     return encodeJpeg(buffer, width, height, 4, this.compressionQuality);
   }
 
-  // Pick adaptive tier by effective pixel density viewer needs.
+  // Pick adaptive profile by effective pixel density viewer needs.
   // effective = (viewerWidth * zoom * dpr) / agentWidth
-  // Apply hysteresis: only switch tier if effective crosses boundary by margin.
+  // scaleMode "smooth": outputScale = clamp(effective, min, max) → encoded bitmap
+  //   ≈ viewer physical pixels (sharp, minimal bytes). Quality stays floored.
+  // scaleMode "tier": legacy stepped tiers with hysteresis on tier boundary.
   pickProfile({ zoom = 1, viewerWidth = 0, dpr = 1 } = {}) {
-    const tiers = REMOTE_CONFIG.pipeline.adaptiveTiers || [];
-    if (!tiers.length) return null;
     const agentW = this.captureWidth || this.screenWidth || 1;
     const vw = viewerWidth > 0 ? viewerWidth : agentW;
     const z = zoom > 0 ? zoom : 1;
     const d = dpr > 0 ? dpr : 1;
     const effective = (vw * z * d) / agentW;
-    const margin = REMOTE_CONFIG.pipeline.tierHysteresis || 0;
-    const prev = this._currentTier;
-    for (const t of tiers) {
-      const threshold = prev && t === prev ? t.minEffective - margin : t.minEffective;
-      if (effective >= threshold) {
-        this._currentTier = t;
-        return t;
+
+    const pipeline = REMOTE_CONFIG.pipeline;
+    if (pipeline.scaleMode !== "smooth") {
+      const tiers = pipeline.adaptiveTiers || [];
+      if (!tiers.length) return null;
+      const margin = pipeline.tierHysteresis || 0;
+      const prev = this._currentTier;
+      for (const t of tiers) {
+        const threshold = prev && t === prev ? t.minEffective - margin : t.minEffective;
+        if (effective >= threshold) {
+          this._currentTier = t;
+          return t;
+        }
       }
+      const last = tiers[tiers.length - 1];
+      this._currentTier = last;
+      return last;
     }
-    const last = tiers[tiers.length - 1];
-    this._currentTier = last;
-    return last;
+
+    // Smooth: 1:1 scale to effective, clamped. Quality flat at floor.
+    const minS = pipeline.minOutputScale ?? 0.25;
+    const maxS = pipeline.maxOutputScale ?? 1;
+    const outputScale = Math.max(minS, Math.min(maxS, effective));
+    const profile = { outputScale, jpegQuality: pipeline.qualityFloor ?? 80 };
+    this._currentTier = profile;
+    return profile;
   }
 
   // Apply a quality profile — mutates scaleFactor/compressionQuality only.
