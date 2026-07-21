@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X } from "@/shared/components/ui/Icon";
+import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X, ExternalLink } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import FileContextMenu from "@/shared/components/ui/FileContextMenu";
 import { GIT_STATUS_COLORS, makeDiffPath } from "../constants/fileExplorer.js";
+import { resolveFileIcon } from "../constants/fileIcons.js";
 
 const SECTION_CHANGES = "changes";
 const SECTION_UNTRACKED = "untracked";
@@ -145,18 +147,52 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile }) {
     reload();
   }, [workspace, fileSocket, reload]);
 
+  // Right-click context menu (vscode-style)
+  const [ctxMenu, setCtxMenu] = useState(null);
+  const copyToClipboard = useCallback(async (text) => {
+    try { await navigator.clipboard.writeText(text); } catch {}
+  }, []);
+  const openCtxMenu = useCallback((file, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    vibrate();
+    setCtxMenu({ file, x: e.clientX, y: e.clientY });
+  }, []);
+  const buildMenuItems = useCallback((file) => {
+    const absPath = joinPath(workspace, file.path);
+    return [
+      { key: "open", label: "Open File", icon: ExternalLink, disabled: file.status === "D",
+        onClick: () => onOpenFile?.(absPath) },
+      { key: "copyPath", label: "Copy Path", icon: ExternalLink, onClick: () => copyToClipboard(absPath) },
+      { key: "copyRel", label: "Copy Relative Path", icon: ExternalLink, onClick: () => copyToClipboard(file.path) },
+      { key: "copyName", label: "Copy Filename", icon: ExternalLink, onClick: () => copyToClipboard(basename(file.path)) },
+    ];
+  }, [workspace, onOpenFile, copyToClipboard]);
+
   const renderFileRow = (file, isUntracked) => {
     const colorClass = GIT_STATUS_COLORS[file.status] || "text-text-muted";
+    const absPath = joinPath(workspace, file.path);
     return (
       <div
         key={`${file.status}-${file.path}`}
-        className="group flex items-center gap-1 px-2 py-1 hover:bg-surface-2 cursor-pointer"
+        className="group flex items-center gap-1.5 px-2 py-1 hover:bg-surface-2 cursor-pointer"
+        onContextMenu={(e) => openCtxMenu(file, e)}
         onClick={() => { vibrate(); onOpenFile?.(makeDiffPath(file.status, file.path)); }}
       >
-        <span className={`w-3 text-center text-[11px] font-mono ${colorClass}`}>{file.status}</span>
+        <span className="flex-shrink-0 flex items-center">{resolveFileIcon({ name: basename(file.path), path: file.path, type: "file" }, 16)}</span>
         <span className="truncate text-xs text-text">{basename(file.path)}</span>
         <span className="truncate text-[11px] text-text-muted flex-1">{dirname(file.path)}</span>
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          {file.status !== "D" && (
+            <button
+              type="button"
+              title="Open file"
+              onClick={(e) => { e.stopPropagation(); vibrate(); onOpenFile?.(absPath); }}
+              className="p-0.5 text-text-muted hover:text-text"
+            >
+              <ExternalLink size={12} />
+            </button>
+          )}
           <button
             type="button"
             title={isUntracked ? "Delete" : "Discard"}
@@ -174,6 +210,7 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile }) {
             <Plus size={12} />
           </button>
         </div>
+        <span className={`flex-shrink-0 w-4 h-4 flex items-center justify-center text-[10px] font-mono rounded bg-surface-2 ${colorClass}`}>{file.status}</span>
       </div>
     );
   };
@@ -284,6 +321,15 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile }) {
         confirmText="Discard"
         cancelText="Cancel"
       />
+
+      {ctxMenu && (
+        <FileContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={buildMenuItems(ctxMenu.file)}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   );
 }

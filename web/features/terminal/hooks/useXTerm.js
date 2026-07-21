@@ -5,9 +5,12 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { ClipboardAddon, BrowserClipboardProvider } from "@xterm/addon-clipboard";
+import { SearchAddon } from "@xterm/addon-search";
+import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
-import { TERMINAL_OPTIONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { trimEndToEsc } from "@/features/terminal/lib/ansiBoundary";
@@ -66,6 +69,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
   const awaitingTuiOutputRef = useRef(false); // SGR emit→output round-trip tracker (TUI backpressure)
+  const searchAddonRef = useRef(null);
   const [termReady, setTermReady] = useState(false);
 
   // Last PTY size sent — skip emit when fit yields same cols/rows (soft-KB with fixed pane height)
@@ -174,32 +178,42 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     const batcher = createWriteBatcher(term);
     writeBatcherRef.current = batcher;
 
-    // File/URL link provider: temporarily disabled (inaccurate resolve), re-enable later
-    // term.registerLinkProvider({
-    //   provideLinks: (bufferLineNumber, cb) => {
-    //     const buffer = term.buffer.active;
-    //     const line = buffer.getLine(bufferLineNumber - 1);
-    //     if (!line) { cb([]); return; }
-    //     const links = detectLinks(line.translateToString(true), bufferLineNumber, cwdRef.current);
-    //     cb(links.map((l) => ({ range: l.range, activate: l.activate })));
-    //   },
-    // });
+    // Clipboard (OSC52) + search addons
+    if (ADDONS.clipboard) term.loadAddon(new ClipboardAddon(undefined, new BrowserClipboardProvider()));
+    if (ADDONS.search) {
+      searchAddonRef.current = new SearchAddon();
+      term.loadAddon(searchAddonRef.current);
+    }
 
-    // WebGL addon loaded after joinSession to avoid blank screen
+    // Smooth scroll only for physical mouse wheel (VS Code parity); touch keeps inertia handler
+    const wheelEl = containerRef.current;
+    const handleWheel = (e) => {
+      term.options.smoothScrollDuration = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50
+        ? RENDERER.smoothScrollDuration : 0;
+    };
+    wheelEl.addEventListener("wheel", handleWheel, { passive: true });
+
+    // WebGL renderer (VS Code parity: WebGL → DOM fallback). Loaded after joinSession to avoid blank screen.
+    let webglAddon = null;
+    let webglFailed = false;
     const loadWebGL = () => {
-      if (webglAddonRef.current) return;
+      if (webglAddon || webglFailed || RENDERER.gpuAcceleration === "off") return;
       try {
-        const webglAddon = new WebglAddon();
-        webglAddon.onContextLoss(() => webglAddon.dispose());
+        webglAddon = new WebglAddon();
+        // Context loss (GPU reclaimed) → dispose, xterm auto falls back to DOM. Buffer text preserved.
+        webglAddon.onContextLoss(() => {
+          webglAddon?.dispose();
+          webglAddon = null;
+        });
         term.loadAddon(webglAddon);
-        webglAddonRef.current = webglAddon;
-        // Re-fit with WebGL glyph metrics to prevent text overflow from canvas→webgl metric mismatch
+        // Image addon only with WebGL active (VS Code parity, avoids GPU issues)
+        if (ADDONS.image) term.loadAddon(new ImageAddon());
+        // WebGL cell dimensions differ from DOM → re-fit after load
         fitAddon.fit();
-        emitResize();
-        // Force repaint all rows with new glyph metrics
-        term.refresh(0, term.rows - 1);
       } catch (e) {
-        console.warn("WebGL not supported, using canvas renderer");
+        webglFailed = true;
+        webglAddon = null;
+        console.warn("WebGL unavailable, using DOM renderer");
       }
     };
     const disposeWebGL = () => {
@@ -533,6 +547,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       window.removeEventListener("orientationchange", handleOrientationChange);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       resizeObserver.disconnect();
+      wheelEl.removeEventListener("wheel", handleWheel);
       socket.off("connect", handleReconnect);
       socket.off("output", handleOutput);
       socket.off("cwdChange", handleCwdChange);
@@ -587,6 +602,18 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       });
     }
   }, [isFocused, socket, sessionId, onInput]);
+
+  // Hover scroll: forward mouse-report sequences to PTY even when pane not focused,
+  // so alt-screen apps (Claude Code CLI) scroll on hover without stealing keyboard focus.
+  useEffect(() => {
+    if (!termRef.current || !socket || !sessionId || isFocused) return;
+    // Mouse SGR (\x1b[<) or normal (\x1b[M) report → forward; ignore keyboard data
+    const isMouseReport = (d) => d.startsWith("\x1b[<") || d.startsWith("\x1b[M");
+    const handler = termRef.current.onData((data) => {
+      if (isMouseReport(data)) socket.emit("input", { sessionId, data });
+    });
+    return () => handler.dispose();
+  }, [isFocused, socket, sessionId]);
 
   // Re-fit when becoming visible (desktop: all opened panes; mobile: active pane)
   useEffect(() => {
@@ -923,6 +950,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     termRef,
     cwdRef, // Expose cwd for file path resolution
     cwd, // Reactive cwd for toolbar UI
+    searchAddonRef, // Expose for search UI (findNext/findPrevious)
     termReady,
     joining, // true while joinSession round-trip is in flight (initial mount + reconnect)
     doResize,

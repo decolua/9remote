@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import Icon from "./Icon";
 import "@xterm/xterm/css/xterm.css";
 import {
-  resolveTheme,
+  resolveTerminalTheme,
   SCROLL_THRESHOLD,
   createTerminal,
   createWriteBatcher,
@@ -21,7 +21,7 @@ import { HISTORY_FETCH } from "../lib/constants";
 
 // Single xterm pane bound local socket — direct protocol (output/input/resize/joinSession).
 // Core logic lives in @shared/terminal; this component only wires Preact lifecycle.
-export default function TerminalPane({ socket, sessionId, theme = "dark", isFocused, cwd, onActivate, onInput, onOpenFiles, onOpenGit, onCwd, showFocusBorder, showDoneBorder }) {
+export default function TerminalPane({ socket, sessionId, theme = "dark", terminalFont, terminalThemeKey = "default", isFocused, cwd, onActivate, onInput, onOpenFiles, onOpenGit, onCwd, showFocusBorder, showDoneBorder }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -47,7 +47,10 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
   useEffect(() => {
     if (!containerRef.current || !socket || !sessionId) return;
 
-    const { term, fitAddon, doFit, dispose } = createTerminal(containerRef.current, { theme });
+    const { term, fitAddon, doFit, dispose } = createTerminal(containerRef.current, {
+      theme: resolveTerminalTheme(theme, terminalThemeKey),
+      fontSize: terminalFont,
+    });
     termRef.current = term;
     fitAddonRef.current = fitAddon;
     // rAF write batcher — coalesce output bursts into one write/frame (parity with web).
@@ -229,10 +232,15 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
     return () => handler.dispose();
   }, [isFocused, socket, sessionId, onInput]);
 
-  // Theme switch
+  // Theme switch — re-resolve palette when app mode or sub-theme changes.
   useEffect(() => {
-    if (termRef.current) termRef.current.options.theme = resolveTheme(theme);
-  }, [theme]);
+    if (termRef.current) termRef.current.options.theme = resolveTerminalTheme(theme, terminalThemeKey);
+  }, [theme, terminalThemeKey]);
+
+  // Font size switch
+  useEffect(() => {
+    if (termRef.current && terminalFont) termRef.current.options.fontSize = terminalFont;
+  }, [terminalFont]);
 
   // Focus → also refit (layout may have changed since last visible)
   useEffect(() => {
@@ -277,7 +285,7 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", isFocu
   return (
     <div
       className={`h-full w-full flex flex-col overflow-hidden relative ${glow}`}
-      style={{ background: resolveTheme(theme).background }}
+      style={{ background: resolveTerminalTheme(theme, terminalThemeKey).background }}
       onMouseDown={() => { if (!isFocused) onActivate?.(sessionId); }}
     >
       <div className="terminal-wrapper flex-1 min-h-0 overflow-hidden px-1 py-0.5 relative">

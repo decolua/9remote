@@ -10,6 +10,8 @@ import { updateTitle } from "../lib/titleMarquee";
 import { useI18n } from "../i18n";
 import { SUPPORTED_LOCALES } from "../i18n/config";
 import { UPDATE_UI } from "../lib/constants";
+import { usePersistedState } from "../lib/usePersistedState";
+import { TERMINAL_THEME_OPTIONS } from "../lib/terminal";
 
 const HELP_URL = "https://docs.9remote.cc/";
 
@@ -425,10 +427,11 @@ function ConnectionEmpty({ onStart, t }) {
 }
 
 /** Language switcher — globe button + dropdown (header global action) */
-function SettingsMenu({ isStopped, onStop, onShutdown }) {
+function SettingsMenu({ isStopped, onStop, onShutdown, theme, terminalFont, setTerminalFont, terminalThemeKey, setTerminalTheme }) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
+  const [termOpen, setTermOpen] = useState(false);
   const ref = useRef(null);
   const curLocale = SUPPORTED_LOCALES.find((l) => l.code === locale) || SUPPORTED_LOCALES[0];
 
@@ -447,17 +450,76 @@ function SettingsMenu({ isStopped, onStop, onShutdown }) {
         <span className="material-symbols-outlined text-xl">settings</span>
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg py-1 min-w-[200px]" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+        <div className="absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg py-1 min-w-[220px]" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
           <button onClick={() => run(() => setLangOpen(true))} className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act" style={{ color: "var(--text-main)" }}>
             <span className="material-symbols-outlined text-base">language</span>
             <span className="flex-1">{curLocale.flag} {curLocale.label}</span>
           </button>
+          <div className="my-0.5" style={{ borderTop: "1px solid var(--border)" }} />
+          <TerminalSettingsRow
+            open={termOpen}
+            onToggle={() => setTermOpen((v) => !v)}
+            theme={theme}
+            terminalFont={terminalFont}
+            setTerminalFont={setTerminalFont}
+            terminalThemeKey={terminalThemeKey}
+            setTerminalTheme={setTerminalTheme}
+          />
           <MenuAction icon="menu_book" label={t("header.documentation")} onClick={() => run(() => window.open(HELP_URL, "_blank"))} />
           {!isStopped && <MenuAction icon="restart_alt" label={t("header.resetShort")} onClick={() => run(onStop)} />}
           <MenuAction icon="power_settings_new" label={t("header.shutdownShort")} danger onClick={() => run(onShutdown)} />
         </div>
       )}
       {langOpen && <LanguageModal onClose={() => setLangOpen(false)} />}
+    </div>
+  );
+}
+
+// Collapsible Terminal Settings — font size + theme palette (mirrors web MenuItems).
+function TerminalSettingsRow({ open, onToggle, theme, terminalFont, setTerminalFont, terminalThemeKey, setTerminalTheme }) {
+  const { t } = useI18n();
+  return (
+    <div className="px-1">
+      <button onClick={onToggle} className="w-full text-left px-2 py-1.5 text-sm flex items-center gap-2 card-act rounded-lg" style={{ color: "var(--text-main)" }}>
+        <span className="material-symbols-outlined text-base">terminal</span>
+        <span className="flex-1">{t("menu.terminalSettings") || "Terminal Settings"}</span>
+        <span className="material-symbols-outlined text-base transition-transform" style={{ transform: open ? "rotate(180deg)" : "none", color: "var(--text-muted)" }}>expand_more</span>
+      </button>
+      {open && (
+        <div className="pl-7 pr-2 pb-1.5 space-y-1.5">
+          <div className="flex items-center gap-2 pt-1.5">
+            <span className="material-symbols-outlined text-base" style={{ color: "var(--brand-500)" }}>text_fields</span>
+            <span className="text-sm flex-1">{t("menu.fontSize") || "Font Size"}</span>
+            <select
+              value={terminalFont ?? 14}
+              onChange={(e) => setTerminalFont(Number(e.target.value))}
+              className="text-sm rounded-lg px-2 py-1 focus:outline-none"
+              style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}
+            >
+              {Array.from({ length: 9 }, (_, i) => i + 10).map((n) => (
+                <option key={n} value={n}>{n}px</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-base" style={{ color: "var(--brand-500)" }}>palette</span>
+            <span className="text-sm flex-1">{t("menu.terminalTheme") || "Theme"}</span>
+            <select
+              value={terminalThemeKey}
+              onChange={(e) => setTerminalTheme(e.target.value)}
+              className="text-xs rounded-lg px-2 py-1 max-w-[55%] focus:outline-none"
+              style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)" }}
+            >
+              <option value="default">Vesper (Default)</option>
+              {TERMINAL_THEME_OPTIONS
+                .filter((opt) => opt.mode === theme)
+                .map((opt) => (
+                  <option key={opt.key} value={opt.key}>{opt.label}</option>
+                ))}
+            </select>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -620,7 +682,16 @@ function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown,
           title={theme === "dark" ? t("header.lightMode") : t("header.darkMode")}
           onClick={onToggleTheme}
         />
-        <SettingsMenu isStopped={isStopped} onStop={onStop} onShutdown={onShutdown} />
+        <SettingsMenu
+          isStopped={isStopped}
+          onStop={onStop}
+          onShutdown={onShutdown}
+          theme={theme}
+          terminalFont={terminalFont}
+          setTerminalFont={setTerminalFont}
+          terminalThemeKey={terminalTheme}
+          setTerminalTheme={setTerminalTheme}
+        />
       </div>
     </header>
   );
@@ -659,6 +730,9 @@ export default function MainScreen({
 }) {
   const { t } = useI18n();
   const [activeMenu, setActiveMenu] = useState(() => parsePath().menu);
+  // Terminal appearance prefs — shared with web's terminalStore keys for parity.
+  const [terminalFont, setTerminalFont] = usePersistedState("term.fontSize", null);
+  const [terminalTheme, setTerminalTheme] = usePersistedState("term.theme", "default");
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
@@ -1036,6 +1110,8 @@ export default function MainScreen({
           activeId={activeSessionId}
           connected={term.connected}
           theme={theme}
+          terminalFont={terminalFont}
+          terminalThemeKey={terminalTheme}
           groups={term.groups}
           finishedIds={term.finishedIds}
           sessionStatus={term.sessionStatus}

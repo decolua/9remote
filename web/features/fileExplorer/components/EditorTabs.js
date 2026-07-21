@@ -3,12 +3,12 @@
 import { useState, useEffect, useRef } from "react";
 import Icon, { X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
-import { LANGUAGE_MAP, FILE_ICON_NAMES, isDiffPath, parseDiffPath } from "../constants/fileExplorer.js";
+import { isDiffPath, parseDiffPath } from "../constants/fileExplorer.js";
+import { resolveFileIcon } from "../constants/fileIcons.js";
 
-function getFileIconName(filePath) {
-  const ext = "." + filePath.split(".").pop()?.toLowerCase();
-  const lang = LANGUAGE_MAP[ext];
-  return FILE_ICON_NAMES[lang] || FILE_ICON_NAMES.file;
+function pathToFileObj(filePath) {
+  const name = filePath.split("/").pop() || filePath;
+  return { name, type: "file", path: filePath };
 }
 
 export default function EditorTabs({ openedFiles, activeFile, dirtyFiles, onActivate, onClose, onCloseOthers, onCloseAll }) {
@@ -47,7 +47,7 @@ export default function EditorTabs({ openedFiles, activeFile, dirtyFiles, onActi
         const diff = isDiffPath(path);
         const realPath = diff ? parseDiffPath(path).absPath : path;
         const fileName = diff ? `${realPath.split("/").pop()} (diff)` : realPath.split("/").pop();
-        const iconName = getFileIconName(realPath);
+        const fileIcon = diff ? null : resolveFileIcon(pathToFileObj(realPath), 14);
         return (
           <div
             key={path}
@@ -60,7 +60,7 @@ export default function EditorTabs({ openedFiles, activeFile, dirtyFiles, onActi
                 : "bg-surface text-text-muted hover:text-text"
             }`}
           >
-            <Icon name={iconName} size={14} />
+            {fileIcon ? <span className="flex-shrink-0 flex items-center">{fileIcon}</span> : <Icon name="File" size={14} className="text-text-muted" />}
             <span className="truncate max-w-[160px]">{fileName}</span>
             {isDirty ? (
               <span className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0" />

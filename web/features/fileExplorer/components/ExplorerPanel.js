@@ -5,38 +5,17 @@ import Icon from "@/shared/components/ui/Icon";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { vibrate } from "@/shared/utils/vibration";
 import {
-  FILE_ICON_NAMES,
-  LANGUAGE_MAP,
   GIT_STATUS_COLORS,
-  STORAGE_KEYS,
-  isImageFile,
-  isVideoFile,
-  isAudioFile,
-  isPdfFile
+  STORAGE_KEYS
 } from "../constants/fileExplorer.js";
+import { resolveFileIcon, resolveFolderIcon } from "../constants/fileIcons.js";
 
 const INDENT_BASE = 12;
 const INDENT_STEP = 12;
 const LONG_PRESS_MS = 500;
 
-// Resolve icon name by file type / extension
-function getFileIconName(file) {
-  if (file.type === "folder") return FILE_ICON_NAMES.folder;
-  const name = file.name || "";
-  const dot = name.lastIndexOf(".");
-  const ext = dot >= 0 ? name.slice(dot).toLowerCase() : "";
-  const lang = LANGUAGE_MAP[ext];
-  if (lang && FILE_ICON_NAMES[lang]) return FILE_ICON_NAMES[lang];
-  if (isImageFile(file.path)) return FILE_ICON_NAMES.image;
-  if (isVideoFile(file.path) || isAudioFile(file.path)) return FILE_ICON_NAMES.video;
-  if (isPdfFile(file.path)) return FILE_ICON_NAMES.pdf;
-  return FILE_ICON_NAMES.file;
-}
-
 function getFileIcon(file) {
-  const name = getFileIconName(file);
-  const cls = file.type === "folder" ? "text-blue-400" : "text-text-muted";
-  return <Icon name={name} size={16} className={cls} />;
+  return resolveFileIcon(file, 16);
 }
 
 function joinPath(dir, name) {
@@ -510,13 +489,9 @@ export default function ExplorerPanel({
           )}
 
           {isFolder ? (
-            <Icon
-              name={isExpanded ? "FolderOpen" : "Folder"}
-              size={16}
-              className="text-blue-400 shrink-0"
-            />
+            <span className="shrink-0">{resolveFolderIcon(file.name, isExpanded, 16)}</span>
           ) : (
-            getFileIcon(file)
+            <span className="shrink-0">{getFileIcon(file)}</span>
           )}
 
           {isRenaming ? (

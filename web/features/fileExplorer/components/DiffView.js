@@ -3,11 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
-import { ExternalLink } from "@/shared/components/ui/Icon";
 import { parseDiffPath } from "../constants/fileExplorer.js";
 
 // Read-only git diff viewer (side-by-side), rendered as a virtual editor tab
-export default function DiffView({ diffPath, workspace, fileSocket, onOpenFile }) {
+export default function DiffView({ diffPath, workspace, fileSocket }) {
   const { status, absPath } = parseDiffPath(diffPath);
   const [loading, setLoading] = useState(true);
   const [diff, setDiff] = useState("");
@@ -26,11 +25,6 @@ export default function DiffView({ diffPath, workspace, fileSocket, onOpenFile }
     return () => { cancelled = true; };
   }, [workspace, absPath, status, fileSocket]);
 
-  const handleOpen = () => {
-    if (!onOpenFile || !absPath) return;
-    onOpenFile(absPath);
-  };
-
   const containerRef = useCallback((node) => {
     if (!node || loading || !diff) return;
     try {
@@ -47,19 +41,6 @@ export default function DiffView({ diffPath, workspace, fileSocket, onOpenFile }
 
   return (
     <div className="h-full overflow-auto p-3">
-      <div className="flex items-center justify-end mb-2">
-        {onOpenFile && absPath && (
-          <button
-            type="button"
-            onClick={handleOpen}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"
-            title="Open file"
-          >
-            <ExternalLink size={12} />
-            <span>Open file</span>
-          </button>
-        )}
-      </div>
       {error && (
         <div className="bg-red-500/20 border-b border-red-500/50 px-4 py-2 text-red-400 text-sm mb-3">{error}</div>
       )}

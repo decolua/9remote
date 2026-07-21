@@ -36,14 +36,14 @@ function isBinaryFile(filename) {
 export function setupGitHandlers(socket) {
   socket.on("gitStatus", ({ repoPath }, callback) => {
     try {
-      const result = execSync("git status --porcelain", {
+      const result = execSync("git status --porcelain --no-renames", {
         cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true
       });
 
       // Get diff stats for tracked files
       let diffStats = {};
       try {
-        const statResult = execSync("git diff HEAD --numstat", {
+        const statResult = execSync("git diff HEAD --numstat --no-renames", {
           cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true
         });
         statResult.trim().split("\n").filter(Boolean).forEach(line => {
@@ -62,7 +62,10 @@ export function setupGitHandlers(socket) {
         const match = line.match(/^([MADRCU?! ]{1,2})\s+(.+)$/);
         if (!match) continue;
         const statusCode = match[1];
-        const filePath = match[2];
+        // git wraps paths with special chars in double quotes; strip them.
+        // Trim trailing CR (CRLF output) / whitespace that breaks path joins.
+        let filePath = match[2].replace(/\r+$/, "").trim();
+        if (filePath.startsWith('"') && filePath.endsWith('"')) filePath = filePath.slice(1, -1);
         if (!filePath) continue;
 
         let status;
@@ -109,7 +112,7 @@ export function setupGitHandlers(socket) {
       try { callback(await cached.pending); } catch { callback({ success: false }); }
       return;
     }
-    const pending = runGit(["status", "--porcelain"], repoPath).then((r) => {
+    const pending = runGit(["status", "--porcelain", "--no-renames"], repoPath).then((r) => {
       const value = r.code === 0
         ? { success: true, count: r.stdout.trim() ? r.stdout.trim().split("\n").length : 0 }
         : { success: false, error: "Not a git repository or git not available" };
@@ -162,7 +165,7 @@ export function setupGitHandlers(socket) {
       } else {
         diff = runGitSync(["diff", "HEAD"], repoPath);
 
-        const statusResult = runGitSync(["status", "--porcelain"], repoPath);
+        const statusResult = runGitSync(["status", "--porcelain", "--no-renames"], repoPath);
         const untrackedFiles = statusResult.trim().split("\n")
           .filter(line => line.startsWith("??"))
           .map(line => line.substring(3));

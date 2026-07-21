@@ -75,7 +75,21 @@ export const TERMINAL_OPTIONS = {
   fastScrollModifier: "none",
   smoothScrollDuration: 0,
   rescaleOverlappingGlyphs: true,
-  minimumContrastRatio: 4.5
+  minimumContrastRatio: 4.5,
+  macOptionIsMeta: true
+};
+
+// Renderer config (VS Code parity)
+export const RENDERER = {
+  gpuAcceleration: "auto",      // "auto" | "on" | "off"
+  smoothScrollDuration: 125     // ms, applied only for physical mouse wheel
+};
+
+// Optional addons toggle
+export const ADDONS = {
+  clipboard: true,              // OSC52 read/write system clipboard
+  search: true,                 // search scrollback (findNext/findPrevious)
+  image: true                   // sixel/iTerm images (only when WebGL active)
 };
 
 // Floor for emitting resize — below this the layout hasn't settled (app-resume

@@ -3,6 +3,7 @@ import Icon from "./Icon";
 import { useI18n } from "../i18n";
 import { statusVisual } from "../lib/statusVisual";
 import TerminalPane from "./TerminalPane";
+import NotificationsBell from "./NotificationsBell";
 import FileExplorer from "./FileExplorer";
 import GitPanel from "./GitPanel";
 import FileWorkspaceDesktop from "./FileWorkspaceDesktop";
@@ -21,7 +22,7 @@ import {
 const UNGROUPED = { id: null, name: "Ungrouped" };
 
 // Full-screen terminal overlay — mirrors web workspace (split panes + tabs + group selector)
-export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", finishedIds, sessionStatus = {}, clearFinished, updateCwd, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
+export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", terminalFont, terminalThemeKey = "default", finishedIds, sessionStatus = {}, clearFinished, updateCwd, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
   const { t } = useI18n();
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
@@ -378,6 +379,13 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
             </button>
           </div>
         </div>
+
+        <NotificationsBell
+          sessions={sessions}
+          allSessions={sessions}
+          sessionStatus={sessionStatus}
+          onSwitchSession={onSwitch}
+        />
       </div>
 
       {/* Panes: desktop = horizontal split, mobile = active pane only */}
@@ -411,6 +419,8 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 socket={socket}
                 sessionId={s.id}
                 theme={theme}
+                terminalFont={terminalFont}
+                terminalThemeKey={terminalThemeKey}
                 isFocused={isFocused}
                 cwd={s.cwd}
                 onActivate={onSwitch}

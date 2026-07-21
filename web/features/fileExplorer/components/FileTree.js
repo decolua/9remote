@@ -1,46 +1,14 @@
 "use client";
 
-import { FILE_ICON_NAMES, LANGUAGE_MAP, GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
-import { Folder, File, FileCode, FileJson, FileText, Image, Package } from "@/shared/components/ui/Icon";
+import { GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
+import { resolveFileIcon } from "../constants/fileIcons.js";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 
-const ICON_COMPONENTS = {
-  Folder,
-  File,
-  FileCode,
-  FileJson,
-  FileText,
-  Image,
-  Package
-};
-
-// Icon colors by type
-const ICON_COLORS = {
-  Folder: "text-blue-400",
-  File: "text-text-muted",
-  FileCode: "text-yellow-500/70",
-  FileJson: "text-green-500/70",
-  FileText: "text-purple-500/70",
-  Package: "text-red-500/70",
-  Image: "text-pink-500/70"
-};
+const FILE_ICON_SIZE = 18;
 
 function getFileIcon(file) {
-  let iconName;
-  if (file.type === "folder") {
-    iconName = FILE_ICON_NAMES.folder;
-  } else if (file.type === "binary") {
-    iconName = FILE_ICON_NAMES.binary;
-  } else {
-    const ext = "." + file.name.split(".").pop()?.toLowerCase();
-    const lang = LANGUAGE_MAP[ext];
-    iconName = (lang && FILE_ICON_NAMES[lang]) || FILE_ICON_NAMES.file;
-  }
-  
-  const IconComponent = ICON_COMPONENTS[iconName];
-  const colorClass = ICON_COLORS[iconName] || "text-text-muted";
-  return IconComponent ? <IconComponent size={20} className={colorClass} /> : null;
+  return resolveFileIcon(file, FILE_ICON_SIZE);
 }
 
 // Get relative path from workspace

@@ -4,9 +4,11 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import { GIT_STATUS_COLORS, DIFF_SIDE_BY_SIDE_BREAKPOINT } from "../constants/fileExplorer.js";
+import { resolveFileIcon } from "../constants/fileIcons.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import GitActionsModal from "./GitActionsModal.js";
 import { ChevronLeft, Eye, Trash2, RefreshCw, GitBranch } from "@/shared/components/ui/Icon";
+import FileContextMenu, { FILE_MENU_ICONS } from "@/shared/components/ui/FileContextMenu";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 
@@ -145,9 +147,35 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
 
   // Open file in editor
   const handleOpenFile = useCallback((filePath) => {
-    const fullPath = `${workspace}/${filePath}`;
+    // git returns relative paths; join against absolute workspace root
+    const fullPath = workspace.endsWith("/")
+      ? `${workspace}${filePath}`
+      : `${workspace}/${filePath}`;
     onOpenFile?.(fullPath);
   }, [workspace, onOpenFile]);
+
+  // Right-click context menu
+  const [ctxMenu, setCtxMenu] = useState(null); // { file, x, y }
+  const copyToClipboard = useCallback(async (text) => {
+    try { await navigator.clipboard.writeText(text); } catch {}
+  }, []);
+  const openCtxMenu = useCallback((file, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    vibrate();
+    setCtxMenu({ file, x: e.clientX, y: e.clientY });
+  }, []);
+  const buildMenuItems = useCallback((file) => {
+    const absPath = workspace.endsWith("/") ? `${workspace}${file.path}` : `${workspace}/${file.path}`;
+    return [
+      { key: "open", label: t("common.open", { defaultValue: "Open" }), icon: FILE_MENU_ICONS.ExternalLink,
+        disabled: file.status === "D", onClick: () => handleOpenFile(file.path) },
+      { key: "copyPath", label: t("files.copyPath", { defaultValue: "Copy Path" }), icon: FILE_MENU_ICONS.Copy, onClick: () => copyToClipboard(absPath) },
+      { key: "copyRel", label: t("files.copyRelPath", { defaultValue: "Copy Relative Path" }), icon: FILE_MENU_ICONS.FileText, onClick: () => copyToClipboard(file.path) },
+      { key: "copyName", label: t("files.copyName", { defaultValue: "Copy Filename" }), icon: FILE_MENU_ICONS.FileText, onClick: () => copyToClipboard(file.path.split("/").pop()) },
+      { key: "discard", label: t("git.discardChangesTitle", { defaultValue: "Discard Changes" }), icon: FILE_MENU_ICONS.Undo2, danger: true, onClick: () => handleDiscardFile(file.path, file.status) },
+    ];
+  }, [workspace, t, handleOpenFile, copyToClipboard, handleDiscardFile]);
 
   // Track viewport: desktop => diff2html side-by-side (VSCode-like); mobile => custom unified rows
   const [isDesktop, setIsDesktop] = useState(false);
@@ -191,18 +219,17 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
     const fileName = file.path.split("/").pop();
     const dirPath = file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/") + 1) : "";
     const showStats = file.added > 0 || file.deleted > 0;
-    
+
     return (
       <div
         key={file.path}
         className="px-3 py-2 bg-surface rounded hover:bg-surface-2 transition"
+        onContextMenu={(e) => openCtxMenu(file, e)}
       >
         <div className="flex items-center gap-2">
-          {/* Status badge */}
-          <span className={`font-mono font-bold w-5 flex-shrink-0 ${GIT_STATUS_COLORS[file.status]}`}>
-            {file.status}
-          </span>
-          
+          {/* File icon (vscode-style by extension) */}
+          <span className="flex-shrink-0 flex items-center">{resolveFileIcon({ name: fileName, path: file.path, type: "file" }, 18)}</span>
+
           {/* File info - clickable to view diff */}
           <button
             onClick={() => { vibrate(); loadDiff(file.path, file.status); setActiveTab("diff"); }}
@@ -213,7 +240,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
               <div className="text-text-muted text-xs truncate">{dirPath}</div>
             )}
           </button>
-          
+
           {/* Stats */}
           {showStats && (
             <div className="flex items-center gap-1 text-xs flex-shrink-0">
@@ -221,7 +248,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
               {file.deleted > 0 && <span className="text-red-400">-{file.deleted}</span>}
             </div>
           )}
-          
+
           {/* Open file button (not for deleted) */}
           {file.status !== "D" && (
             <button
@@ -234,7 +261,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
               </svg>
             </button>
           )}
-          
+
           {/* Discard button */}
           <button
             onClick={(e) => { e.stopPropagation(); vibrate(); handleDiscardFile(file.path, file.status); }}
@@ -245,6 +272,11 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
             </svg>
           </button>
+
+          {/* Status letter (vscode-style: trailing colored badge, last) */}
+          <span className={`font-mono font-bold w-5 h-5 flex items-center justify-center text-[11px] rounded flex-shrink-0 bg-surface-2 ${GIT_STATUS_COLORS[file.status]}`}>
+            {file.status}
+          </span>
         </div>
       </div>
     );
@@ -527,6 +559,14 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           changedCount={statusFiles.length}
           onDone={loadStatus}
           onClose={() => setActionsOpen(false)}
+        />
+      )}
+      {ctxMenu && (
+        <FileContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={buildMenuItems(ctxMenu.file)}
+          onClose={() => setCtxMenu(null)}
         />
       )}
     </div>

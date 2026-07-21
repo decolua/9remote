@@ -65,7 +65,7 @@ export default function EditorArea({
       <Breadcrumbs workspace={workspace} filePath={activeFile} />
       <div className="flex-1 min-h-0 overflow-hidden">
         {isDiffPath(activeFile) ? (
-          <DiffView key={activeFile} diffPath={activeFile} workspace={workspace} fileSocket={fileSocket} onOpenFile={onOpenFile} />
+          <DiffView key={activeFile} diffPath={activeFile} workspace={workspace} fileSocket={fileSocket} />
         ) : isPdfFile(activeFile) ? (
           <PdfViewer key={activeFile} filePath={activeFile} fileSocket={fileSocket} />
         ) : isVideoFile(activeFile) || isAudioFile(activeFile) ? (
