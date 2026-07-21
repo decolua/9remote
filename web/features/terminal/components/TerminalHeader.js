@@ -314,6 +314,7 @@ export default function TerminalHeader({
         allSessions={allSessions}
         sessionStatus={sessionStatus}
         onSwitchSession={onSwitchSession}
+        groups={groups}
       />
 
       <button

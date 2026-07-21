@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bell, Bot, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
+import { statusVisual } from "@/shared/utils/statusVisual";
 
 // Compact relative time (e.g. "now", "3m", "2h", "1d")
 const timeAgo = (ts) => {
@@ -16,21 +17,51 @@ const timeAgo = (ts) => {
 
 // Notifications bell + badge + dropdown list. Shown on desktop only (hidden sm:flex);
 // mobile keeps using the slide-out menu. Reads from sessionStatus (already on TerminalHeader).
-export default function NotificationsBell({ sessions = [], allSessions = [], sessionStatus = {}, onSwitchSession }) {
+export default function NotificationsBell({ sessions = [], allSessions = [], sessionStatus = {}, onSwitchSession, groups = [] }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
 
-  // done/blocked = need user attention; working is live, idle is nothing
-  const items = Object.entries(sessionStatus)
-    .map(([id, st]) => ({ id, ...st }))
-    .filter((it) => it.state === "done" || it.state === "blocked")
-    .sort((a, b) => (b.since || 0) - (a.since || 0));
-  const count = items.length;
+  // All sessions surface; state from sessionStatus (idle if none). Non-idle first (by since), idle last.
+  const stateRank = { working: 0, blocked: 1, done: 2, idle: 3 };
+  const items = allSessions.length
+    ? allSessions.map((s) => {
+        const st = sessionStatus[s.id];
+        return { id: s.id, state: st?.state || "idle", tool: st?.tool, since: st?.since };
+      })
+    : Object.entries(sessionStatus).map(([id, st]) => ({ id, ...st }));
+  items.sort((a, b) => {
+    const r = (stateRank[a.state] ?? 9) - (stateRank[b.state] ?? 9);
+    if (r !== 0) return r;
+    return (b.since || 0) - (a.since || 0);
+  });
+  const count = items.filter((it) => it.state === "done" || it.state === "blocked").length;
 
   // Resolve name from the full session list so cross-group notifications show
   // their real name instead of a truncated id.
   const nameOf = (id) => allSessions.find((s) => s.id === id)?.name || sessions.find((s) => s.id === id)?.name || id.slice(0, 8);
+
+  // Map sessionId -> groupId, then group name (ungrouped fallback)
+  const groupOf = (id) => allSessions.find((s) => s.id === id)?.groupId ?? null;
+  const groupNameOf = (gid) => groups.find((g) => g.id === gid)?.name || t("groups.ungrouped");
+
+  // Group items: ordered by `groups` array, ungrouped last; sessions within a group sorted by since
+  const grouped = (() => {
+    const buckets = new Map();
+    for (const it of items) {
+      const gid = groupOf(it.id);
+      if (!buckets.has(gid)) buckets.set(gid, []);
+      buckets.get(gid).push(it);
+    }
+    const ordered = [];
+    for (const g of groups) {
+      const list = buckets.get(g.id);
+      if (list?.length) ordered.push({ id: g.id, name: g.name, items: list });
+    }
+    const ungrouped = buckets.get(null);
+    if (ungrouped?.length) ordered.push({ id: null, name: t("groups.ungrouped"), items: ungrouped });
+    return ordered;
+  })();
 
   // Close on outside click / Escape
   useEffect(() => {
@@ -55,7 +86,12 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
   };
 
   return (
-    <div ref={wrapRef} className="relative hidden sm:flex flex-shrink-0">
+    <div
+      ref={wrapRef}
+      className="relative hidden sm:flex flex-shrink-0"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <button
         onClick={() => setOpen((v) => !v)}
         className="relative p-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
@@ -70,7 +106,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-surface-2 border border-border-subtle rounded-brand-lg shadow-lg w-72 max-h-[60vh] overflow-y-auto flex flex-col">
+        <div className="absolute right-0 top-full mt-1 z-[70] bg-surface-2 border border-border-subtle rounded-brand-lg shadow-lg w-72 max-h-[60vh] overflow-y-auto flex flex-col">
           <div className="flex items-center justify-between px-3 py-2 border-b border-border-subtle flex-shrink-0">
             <span className="text-sm font-semibold">{t("notifications.title")}</span>
             <button
@@ -86,32 +122,49 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
             <p className="px-3 py-6 text-center text-sm text-text-muted">{t("notifications.empty")}</p>
           ) : (
             <div className="flex flex-col">
-              {items.map((it) => {
-                const blocked = it.state === "blocked";
-                return (
-                  <button
-                    key={it.id}
-                    onClick={() => handlePick(it.id)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-3 text-left transition-colors"
-                    title={nameOf(it.id)}
-                  >
-                    {AGENT_ICONS[it.tool] ? (
-                      <img src={AGENT_ICONS[it.tool]} alt={it.tool} className="w-5 h-5 flex-shrink-0" />
-                    ) : (
-                      <Bot size={18} className="text-brand-500 flex-shrink-0" />
-                    )}
-                    <span className="flex-1 min-w-0 flex flex-col">
-                      <span className="text-sm font-medium truncate">{nameOf(it.id)}</span>
-                      <span className="text-xs text-text-muted truncate">
-                        {AGENT_LABELS[it.tool] || t("notifications.agent")}
-                        {" · "}
-                        {blocked ? t("notifications.needsInput") : t("notifications.replied")}
-                      </span>
-                    </span>
-                    <span className="text-[11px] text-text-muted flex-shrink-0">{timeAgo(it.since)}</span>
-                  </button>
-                );
-              })}
+              {grouped.map((grp) => (
+                <div key={grp.id ?? "ungrouped"} className="flex flex-col">
+                  <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-text-muted" />
+                    <span className="truncate">{grp.name}</span>
+                  </div>
+                  {grp.items.map((it) => {
+                    const v = statusVisual(it.state);
+                    const isIdle = it.state === "idle";
+                    const stateLabel = it.state === "working"
+                      ? t("common.statusWorking")
+                      : it.state === "blocked"
+                        ? t("notifications.needsInput")
+                        : isIdle
+                          ? t("common.statusIdle")
+                          : t("notifications.replied");
+                    return (
+                      <button
+                        key={it.id}
+                        onClick={() => handlePick(it.id)}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-3 text-left transition-colors ${isIdle ? "opacity-50" : ""}`}
+                        title={nameOf(it.id)}
+                      >
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
+                        {AGENT_ICONS[it.tool] ? (
+                          <img src={AGENT_ICONS[it.tool]} alt={it.tool} className="w-5 h-5 flex-shrink-0" />
+                        ) : (
+                          <Bot size={18} className="text-brand-500 flex-shrink-0" />
+                        )}
+                        <span className="flex-1 min-w-0 flex flex-col">
+                          <span className="text-sm font-medium truncate">{nameOf(it.id)}</span>
+                          <span className="text-xs text-text-muted truncate">
+                            {AGENT_LABELS[it.tool] || t("notifications.agent")}
+                            {" · "}
+                            {stateLabel}
+                          </span>
+                        </span>
+                        <span className="text-[11px] text-text-muted flex-shrink-0">{timeAgo(it.since)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           )}
         </div>

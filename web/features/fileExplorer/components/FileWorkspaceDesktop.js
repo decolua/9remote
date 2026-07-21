@@ -32,7 +32,8 @@ export default function FileWorkspaceDesktop({
   sessions,
   onCreateTerminalSession,
   onDeleteTerminalSession,
-  onRenameTerminalSession
+  onRenameTerminalSession,
+  initialActiveFile
 }) {
   const [activePanel, setActivePanel] = usePersistedState(STORAGE_KEYS.activityPanel, ACTIVITY_PANELS.explorer);
   const [sidebarVisible, setSidebarVisible] = usePersistedState(STORAGE_KEYS.sidebarVisible, true);
@@ -66,7 +67,7 @@ export default function FileWorkspaceDesktop({
 
   // Tabs state - lifted here so ActivityBar/Sidebar/Editor share
   const [openedFiles, setOpenedFiles] = useState(initialOpenedFiles || []);
-  const [activeFile, setActiveFile] = useState(initialOpenedFiles?.[0] || null);
+  const [activeFile, setActiveFile] = useState(initialActiveFile || initialOpenedFiles?.[0] || null);
 
   // Editor state for status bar
   const [editorState, setEditorState] = useState({ line: 1, column: 1, language: "", encoding: "UTF-8" });
@@ -76,10 +77,10 @@ export default function FileWorkspaceDesktop({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteMode, setPaletteMode] = useState("commands"); // "commands" | "files"
 
-  // Persist opened files
+  // Persist opened files + active file
   useEffect(() => {
-    onOpenedFilesChange?.(openedFiles);
-  }, [openedFiles, onOpenedFilesChange]);
+    onOpenedFilesChange?.(openedFiles, activeFile);
+  }, [openedFiles, activeFile, onOpenedFilesChange]);
 
   // Open file (from explorer/search/quick-open)
   const handleOpenFile = useCallback((filePath, opts = {}) => {

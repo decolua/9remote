@@ -61,12 +61,17 @@ export function togglePinWorkspace(workspacePath) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify([...pinned, ...unpinned]));
 }
 
-export function updateOpenedFiles(workspacePath, openedFiles) {
+export function updateOpenedFiles(workspacePath, openedFiles, activeFile) {
   if (typeof window === "undefined") return;
   const recent = getRecentWorkspaces();
   const idx = recent.findIndex(w => w.path === workspacePath);
-  if (idx === -1) return;
-  recent[idx] = { ...recent[idx], openedFiles };
+  // Auto-create entry so tabs persist even if workspace not yet in recent list
+  if (idx === -1) {
+    recent.unshift({ path: workspacePath, lastOpened: Date.now(), openedFiles, activeFile });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
+    return;
+  }
+  recent[idx] = { ...recent[idx], openedFiles, activeFile: activeFile ?? null };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
 }
 

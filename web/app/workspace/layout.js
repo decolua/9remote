@@ -800,6 +800,10 @@ export default function WorkspaceLayout({ children }) {
             const all = getRecentWorkspaces();
             return all.find(w => w.path === ws)?.openedFiles || [];
           })();
+          const recentActive = (() => {
+            const all = getRecentWorkspaces();
+            return all.find(w => w.path === ws)?.activeFile || null;
+          })();
           return (
             <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
               <FileWorkspaceDesktop
@@ -808,7 +812,8 @@ export default function WorkspaceLayout({ children }) {
                 onBack={popView}
                 onSwitchWorkspace={handleOpenWorkspaceList}
                 initialOpenedFiles={recentInitial}
-                onOpenedFilesChange={(files) => updateOpenedFiles(ws, files)}
+                initialActiveFile={recentActive}
+                onOpenedFilesChange={(files, activeFile) => updateOpenedFiles(ws, files, activeFile)}
                 socket={socket}
                 connected={connected}
                 sessions={sessions}

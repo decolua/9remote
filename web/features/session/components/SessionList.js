@@ -428,7 +428,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                             {/* Terminal window */}
                             <div
                               className={`rounded-xl overflow-hidden border border-text-muted/25 ring-1 ring-text-muted/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_8px_28px_-6px_rgba(0,0,0,0.7)] term-card ${v.cls} status-border-${st}${isDragOver ? " ring-2 ring-brand-500/50" : ""}`}
-                              style={{ background: connected ? "linear-gradient(155deg,#22242e 0%,#1a1b21 55%,#141519 100%)" : "linear-gradient(155deg,#1c1d20,#141416)" }}
+                              style={{ background: connected ? "linear-gradient(155deg,#1c1d1f 0%,#151617 55%,#0f1011 100%)" : "linear-gradient(155deg,#161719,#0e0f10)" }}
                             >
                               <div>
                                 {/* Titlebar */}
