@@ -100,7 +100,6 @@ export class WebRtcProtocol extends BaseProtocol {
   async connect(ctx) {
     this._ctx = ctx;
     this._setState(ADAPTER_STATE.connecting);
-    logger.info(`connect socketId=${ctx.auth?.socketId || "?"} turn=${!!ctx.profile?.rtc?.enableTurn}`);
 
     const rtcCfg = ctx.profile?.rtc || {};
     if (rtcCfg.enableTurn && ctx.auth?.apiKey && rtcCfg.turnApiUrl) {
@@ -112,7 +111,6 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   disconnect() {
-    logger.info(`disconnect socketId=${this._ctx?.auth?.socketId || "?"} state=${this._state}`);
     clearTimeout(this._refreshTimer);
     this._signaling?.off?.();
     this._signaling = null;
@@ -175,7 +173,7 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   _createPeer(rtcCfg) {
-    if (this._pc) logger.info(`peer recreate (had live pc, state=${this._state})`);
+    if (this._pc) logger.warn(`peer recreate while live (state=${this._state}) — reconnect race`);
     try { this._pc?.close(); } catch {}
     this._pc = null;
     this._dcControl = null;
@@ -195,19 +193,14 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pcState = "new";
     pc.onStateChange((state) => {
       this._pcState = state;
-      logger.info(`peer-${socketId} state=${state}`);
       if (state === "failed" || state === "closed") {
         if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
         this._setState(ADAPTER_STATE.closed);
       } else if (state === "disconnected") {
         if (this._iceGraceTimer) return;
-        logger.warn(`peer-${socketId} ICE disconnected — grace ${REMOTE_CONFIG.webrtc.iceDisconnectGraceMs}ms`);
         this._iceGraceTimer = setTimeout(() => {
           this._iceGraceTimer = null;
-          if (this._pcState !== "connected") {
-            logger.warn(`peer-${socketId} ICE grace expired → closed`);
-            this._setState(ADAPTER_STATE.closed);
-          }
+          if (this._pcState !== "connected") this._setState(ADAPTER_STATE.closed);
         }, REMOTE_CONFIG.webrtc.iceDisconnectGraceMs);
       } else if (state === "connected") {
         if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
@@ -216,7 +209,6 @@ export class WebRtcProtocol extends BaseProtocol {
 
     pc.onDataChannel((dc) => {
       const label = dc.getLabel?.() || "";
-      logger.info(`peer-${socketId} DC[${label}] opened`);
       const setOpen = () => {
         if (label === "control") this._dcControl = dc;
         else if (label === "binary") this._dcBinary = dc;
@@ -224,7 +216,6 @@ export class WebRtcProtocol extends BaseProtocol {
       };
       dc.onOpen(setOpen);
       dc.onClosed(() => {
-        logger.info(`peer-${socketId} DC[${label}] closed`);
         if (label === "control") this._dcControl = null;
         if (label === "binary") this._dcBinary = null;
         if (!this._dcControl && !this._dcBinary) this._setState(ADAPTER_STATE.closed);
@@ -245,7 +236,6 @@ export class WebRtcProtocol extends BaseProtocol {
 
   _processOffer(sdp, rtcCfg) {
     this._createPeer(rtcCfg);
-    logger.info(`offer received (buffered=${this._pendingCandidates.length})`);
     let settled = false;
     const clearAnswerTimer = () => {
       if (this._answerTimer) { clearTimeout(this._answerTimer); this._answerTimer = null; }

@@ -7,10 +7,20 @@ import { useI18n } from "@/shared/i18n";
 
 // Shared "New terminal" modal: name input + optional shell picker (Windows only).
 // Used by both workspace TerminalHeader and home SessionList. Remount via `key` from caller to reset form.
+const SHELL_PREF_KEY = "9remote.terminal.shellPref";
+
+export function loadShellPref() {
+  try { return localStorage.getItem(SHELL_PREF_KEY) || null; } catch { return null; }
+}
+
 export default function NewTerminalModal({ onClose, onCreate, shells = [], suggestName = "" }) {
   const { t } = useI18n();
   const [name, setName] = useState(suggestName || "");
-  const [shellId, setShellId] = useState("");
+  const [shellId, setShellId] = useState(() => {
+    const saved = loadShellPref();
+    if (saved && shells.some((s) => s.id === saved)) return saved;
+    return shells[0]?.id || "";
+  });
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -19,6 +29,7 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
 
   const submit = () => {
     vibrate();
+    if (shellId) { try { localStorage.setItem(SHELL_PREF_KEY, shellId); } catch {} }
     onCreate?.(name.trim() || null, shellId || null);
     onClose?.();
   };
@@ -70,7 +81,6 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
               onChange={(e) => setShellId(e.target.value)}
               className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40"
             >
-              <option value="">{t("common.default")}</option>
               {shells.map((s) => (
                 <option key={s.id} value={s.id}>{s.label}</option>
               ))}

@@ -199,6 +199,17 @@ export function useNotification(socketRef, connected) {
     };
   }, [socketRef, connected]);
 
+  // Sync in-app notification count → PWA icon badge (Android/desktop Chrome/Edge/Brave; iOS ignores)
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("setAppBadge" in navigator)) return;
+    const count = Object.keys(notifications).length;
+    if (count > 0) {
+      navigator.setAppBadge(count).catch(() => {});
+    } else {
+      navigator.clearAppBadge().catch(() => {});
+    }
+  }, [notifications]);
+
   const clearNotification = useCallback((sessionId) => {
     if (!sessionId) return;
     setNotifications((prev) => {

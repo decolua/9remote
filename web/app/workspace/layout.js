@@ -75,7 +75,7 @@ export default function WorkspaceLayout({ children }) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, retryStatus, approvalStatus, loadSessions, createSession, getShells, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession, reorderSession } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession, reorderSession } = useSocket();
   const [shells, setShells] = useState([]);
   const [updating, setUpdating] = useState(false);
 
@@ -94,10 +94,19 @@ export default function WorkspaceLayout({ children }) {
     });
   }, [doUpdate, t]);
 
+  // Hardcoded Windows shell picker: Command Prompt + PowerShell only.
+  // Non-Windows hides the picker. Override agent-reported list intentionally.
   useEffect(() => {
     if (!connected) return;
-    getShells((res) => { if (res?.shells) setShells(res.shells); });
-  }, [connected, getShells]);
+    if (platform === "win32") {
+      setShells([
+        { id: "cmd", label: "Command Prompt" },
+        { id: "powershell", label: "PowerShell" }
+      ]);
+    } else {
+      setShells([]);
+    }
+  }, [connected, platform]);
   const fileSocket = useFileSocket(socketRef);
   useClipboardSocket(socketRef, connected);
   const { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification } = useNotification(socketRef, connected);

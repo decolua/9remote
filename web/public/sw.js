@@ -48,6 +48,12 @@ self.addEventListener("push", (event) => {
           renotify: true
         };
         await self.registration.showNotification(title, options);
+
+        // PWA icon badge (Android/desktop Chrome/Edge/Brave) — iOS silently ignores
+        if (self.registration.setAppBadge) {
+          const badgeCount = typeof data.badge === "number" ? data.badge : 1;
+          await self.registration.setAppBadge(badgeCount);
+        }
       } catch (error) {
         console.error("Push event error:", error);
       }
@@ -58,6 +64,11 @@ self.addEventListener("push", (event) => {
 // Notification click - focus any same-origin client and deep-link into it
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+
+  // User acknowledged → clear icon badge
+  if (self.registration.clearAppBadge) {
+    self.registration.clearAppBadge().catch(() => {});
+  }
 
   const url = event.notification.data?.url || "/workspace";
 
