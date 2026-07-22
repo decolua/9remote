@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { SPECIAL_KEYS, CTRL_ARROW_KEYS } from "@/features/terminal/constants/keyMappings";
 import {
   TERMINAL_KEY_POOL,
@@ -18,7 +18,7 @@ import {
 import { vibrate } from "@/shared/utils/vibration";
 import { Paperclip, Settings, MoreHorizontal, X, CornerDownLeft, Mic, MicOff, History } from "@/shared/components/ui/Icon";
 import CommandHistoryModal from "@/shared/components/ui/CommandHistoryModal";
-import CommandSuggestions from "@/shared/components/ui/CommandSuggestions";
+import CommandSuggestions, { pickCommandItems } from "@/shared/components/ui/CommandSuggestions";
 import { useTerminalHistoryStore } from "@/shared/stores/historyStore";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
@@ -33,7 +33,7 @@ import PathSuggestion from "@/shared/components/ui/PathSuggestion";
 import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/utils/pathSuggest";
 import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 
-const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput }) => {
+const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex }) => {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   // Draft text lives in the store keyed by sessionId so it survives this component
@@ -49,6 +49,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   const [showHistory, setShowHistory] = useState(false);
   const addCommand = useTerminalHistoryStore((s) => s.addCommand);
   const resolveAlias = useTerminalHistoryStore((s) => s.resolveAlias);
+  const history = useTerminalHistoryStore((s) => s.history);
+  const pinned = useTerminalHistoryStore((s) => s.pinned);
   const textInputRef = useRef(null);
   const pasteInputRef = useRef(null);
   // Physical ArrowUp/Down navigate command history; -1 = editing live draft.
@@ -59,6 +61,20 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   // regex + caret at end. Dir listings cached client-side (TTL, FIFO cap).
   const cwd = useTerminalStore((s) => s.cwdBySession[sessionId]);
   const [pathItems, setPathItems] = useState([]);
+  // Keyboard-highlighted row in each suggest dropdown (-1 = none). Tab cycles,
+  // Enter selects; bare Tab falls through to session switch when no suggest is open.
+  const [pathActive, setPathActive] = useState(-1);
+  const [cmdActive, setCmdActive] = useState(-1);
+  // Same ranked list CommandSuggestions renders, lifted here so Tab can cycle it.
+  // Empty while path-suggest is open (mirrors the component's `disabled` prop) so the
+  // two dropdowns never compete for the same Tab.
+  const cmdItems = useMemo(
+    () => (pathItems.length > 0 ? [] : pickCommandItems(textInput, history, pinned, COMMON_COMMANDS, isMobile)),
+    [textInput, history, pinned, isMobile, pathItems]
+  );
+  // Clamp highlight into range as the list shrinks (derived — avoids a reset effect).
+  const pathActiveClamped = pathItems.length ? ((pathActive % pathItems.length) + pathItems.length) % pathItems.length : -1;
+  const cmdActiveClamped = cmdItems.length ? ((cmdActive % cmdItems.length) + cmdItems.length) % cmdItems.length : -1;
   const dirCacheRef = useRef(null);
   if (dirCacheRef.current == null) dirCacheRef.current = makeDirCache();
   const socketRef = useRef(socket);
@@ -216,7 +232,8 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     const openTextPanel = () => {
       setTimeout(() => textInputRef.current?.focus(), 100);
     };
-    onRegisterTextApi({ openTextPanel });
+    const focus = () => { textInputRef.current?.focus(); };
+    onRegisterTextApi({ openTextPanel, focus });
     return () => onRegisterTextApi(null);
   }, [onRegisterTextApi]);
 
@@ -507,6 +524,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
           <div className="relative flex-1 bg-surface-2 rounded-xl focus-within:ring-2 focus-within:ring-brand-500/40 transition-all duration-150 ease-out">
             <PathSuggestion
               items={pathItems}
+              activeIndex={pathActiveClamped}
               onSelect={(full) => { setTextInput(full); textInputRef.current?.focus(); }}
             />
             <CommandSuggestions
@@ -515,6 +533,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
               commonCommands={COMMON_COMMANDS}
               isMobile={isMobile}
               disabled={pathItems.length > 0}
+              activeIndex={cmdActiveClamped}
               onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
             />
             {attachments.length > 0 && (
@@ -554,33 +573,80 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
               }}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
+                if (hasPhysicalKeyboard && e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                  // Path suggest open → cycle it; else command suggest → cycle it; else switch session.
+                  if (pathItems.length > 0) {
+                    e.preventDefault();
+                    setPathActive((i) => (pathItems.length ? (((i + 1) % pathItems.length) + pathItems.length) % pathItems.length : -1));
+                    return;
+                  }
+                  if (cmdItems.length > 0) {
+                    e.preventDefault();
+                    setCmdActive((i) => (cmdItems.length ? (((i + 1) % cmdItems.length) + cmdItems.length) % cmdItems.length : -1));
+                    return;
+                  }
+                  e.preventDefault();
+                  onSwitchSession?.("next");
+                  return;
+                }
+                if (hasPhysicalKeyboard && e.key === "Tab") {
+                  // Any Tab combo (Shift/Ctrl/Alt/Meta+Tab) → send to terminal.
+                  if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) {
+                    e.preventDefault();
+                    const data = generateCombination("Tab", { ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey });
+                    onInput?.(sessionId);
+                    socket.emit("input", { sessionId, data });
+                    return;
+                  }
+                  e.preventDefault();
+                  onSwitchSession?.("next");
+                  return;
+                }
+                if (hasPhysicalKeyboard && (e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
+                  e.preventDefault();
+                  onSwitchToIndex?.(Number(e.key) - 1);
+                  return;
+                }
                 if (hasPhysicalKeyboard && e.key === "Enter" && !e.shiftKey) {
+                  // Accept a keyboard-highlighted suggestion instead of sending.
+                  if (pathItems.length > 0 && pathActiveClamped >= 0) {
+                    e.preventDefault();
+                    setTextInput(pathItems[pathActiveClamped].full);
+                    setPathActive(-1);
+                    textInputRef.current?.focus();
+                    return;
+                  }
+                  if (cmdItems.length > 0 && cmdActiveClamped >= 0) {
+                    e.preventDefault();
+                    setTextInput(cmdItems[cmdActiveClamped].cmd);
+                    setCmdActive(-1);
+                    textInputRef.current?.focus();
+                    return;
+                  }
                   e.preventDefault();
                   sendTextBatch();
                   return;
                 }
-                // Physical ArrowUp/Down (no modifier) navigate history only at caret boundaries (multi-line aware).
+                // Physical ArrowUp/Down (no modifier): if caret is on the first/last line, send
+                // the arrow to the terminal (walk shell history there); mid-text just moves the caret.
                 if (hasPhysicalKeyboard && (e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
                   const el = e.target;
-                  const atFirstLine = el.selectionStart <= (el.value.indexOf("\n") === -1 ? el.value.length : el.value.indexOf("\n"));
+                  const firstNL = el.value.indexOf("\n");
+                  const atFirstLine = el.selectionStart <= (firstNL === -1 ? el.value.length : firstNL);
                   const lastNL = el.value.lastIndexOf("\n");
                   const atLastLine = el.selectionEnd >= (lastNL === -1 ? 0 : lastNL + 1);
-                  if (e.key === "ArrowUp" && !atFirstLine) return;
-                  if (e.key === "ArrowDown" && !atLastLine) return;
-                  const hist = useTerminalHistoryStore.getState().history;
-                  if (!hist.length) return;
-                  e.preventDefault();
-                  if (historyIndexRef.current === -1) draftRef.current = e.target.value;
-                  let next = historyIndexRef.current + (e.key === "ArrowUp" ? 1 : -1);
-                  if (next >= hist.length) next = hist.length - 1;
-                  if (next < -1) next = -1;
-                  historyIndexRef.current = next;
-                  setTextInput(next === -1 ? draftRef.current : hist[next]);
-                  requestAnimationFrame(() => {
-                    const el = textInputRef.current;
-                    if (el) { el.selectionStart = el.selectionEnd = el.value.length; }
-                  });
-                  return;
+                  if (e.key === "ArrowUp" && atFirstLine) {
+                    e.preventDefault();
+                    onInput?.(sessionId);
+                    socket.emit("input", { sessionId, data: "\x1b[A" });
+                    return;
+                  }
+                  if (e.key === "ArrowDown" && atLastLine) {
+                    e.preventDefault();
+                    onInput?.(sessionId);
+                    socket.emit("input", { sessionId, data: "\x1b[B" });
+                    return;
+                  }
                 }
                 // Control keys (Esc, Ctrl+C/D/Z/L) → straight to terminal.
                 const cfg = INPUT_CONTROL_KEYS[e.key];

@@ -23,6 +23,9 @@ export default {
     failed: "ناموفق",
     retry: "تلاش مجدد",
     refresh: "تازه‌سازی",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "جستجو",
     create: "ایجاد",
     new: "جدید",
@@ -463,7 +466,7 @@ export default {
     toolbarRectDesc: "حالت انتخاب مستطیلی"
   },
   remoteControls: {
-    enterToSend: "Enter برای ارسال • Shift+Enter برای خط جدید",
+    enterToSend: "Tab / Ctrl+Num برای تغییر زبانه",
     typeToSend: "متنی برای ارسال تایپ کنید...",
     send: "ارسال",
     trackpadMode: "حالت Trackpad",
@@ -550,7 +553,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "اینجا بچسبانید (Cmd+V)",
-    enterToSend: "Enter برای ارسال • Shift+Enter برای خط جدید",
+    enterToSend: "Tab / Ctrl+Num برای تغییر زبانه",
     typeCommand: "دستور را تایپ و ارسال کنید...",
     send: "ارسال",
     toggleExtraKeys: "تغییر کلیدهای اضافی",

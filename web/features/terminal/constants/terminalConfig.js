@@ -98,6 +98,11 @@ export const ADDONS = {
 export const MIN_COLS = 10;
 export const MIN_ROWS = 2;
 
+// Debounce before force-refitting a freshly mounted pane whose size was under floor at
+// first fit (group-switch mount storm). Lets surrounding layout settle, then ResizeObserver
+// or this timer drives a settled resize that fires the deferred join at the right cols.
+export const SETTLE_DEBOUNCE_MS = 100;
+
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {
   lineHeight: 18, // px per line step

@@ -23,6 +23,9 @@ export default {
     failed: "실패",
     retry: "재시도",
     refresh: "새로고침",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "검색",
     create: "생성",
     new: "새로 만들기",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "사각형 선택 모드"
   },
   remoteControls: {
-    enterToSend: "Enter로 전송 • Shift+Enter로 줄 바꿈",
+    enterToSend: "Tab / Ctrl+Num 탭 전환",
     typeToSend: "전송할 텍스트 입력...",
     send: "전송",
     trackpadMode: "Trackpad 모드",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "여기에 붙여넣기 (Cmd+V)",
-    enterToSend: "Enter로 전송 • Shift+Enter로 줄 바꿈",
+    enterToSend: "Tab / Ctrl+Num 탭 전환",
     typeCommand: "명령어 입력 후 전송...",
     send: "전송",
     toggleExtraKeys: "추가 키 전환",

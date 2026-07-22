@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { History, Pin, Terminal, X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
@@ -20,58 +20,74 @@ const scoreOf = (key, q) => {
   return prefix + idx + key.length * 0.1;
 };
 
+// Pure item picker — shared with parents that need the same ranked list to drive
+// keyboard navigation (Tab cycling) outside this component.
+export function pickCommandItems(value, history, pinned, commonCommands, isMobile) {
+  const q = value.trim().toLowerCase();
+  if (!q) return [];
+
+  const seen = new Set();
+  const collect = (list, type, getCmd) => {
+    const out = [];
+    for (const entry of list) {
+      const cmd = getCmd(entry);
+      const key = cmd.toLowerCase();
+      if (!cmd || key === q || seen.has(key)) continue;
+      const score = scoreOf(key, q);
+      if (score === null) continue;
+      seen.add(key);
+      out.push({ cmd, type, score });
+    }
+    return out.sort((a, b) => a.score - b.score);
+  };
+
+  // Order matters: pinned first claims dedup priority, then history, then common.
+  const groups = {
+    pinned: collect(pinned, "pinned", (s) => s.cmd),
+    history: collect(history, "history", (c) => c),
+    common: collect(commonCommands, "common", (c) => c)
+  };
+
+  const quota = isMobile ? QUOTA.mobile : QUOTA.desktop;
+  const picked = [
+    ...groups.pinned.slice(0, quota.pinned),
+    ...groups.history.slice(0, quota.history),
+    ...groups.common.slice(0, quota.common)
+  ];
+  // Lend leftover slots (up to total cap) to whatever else matched, best-ranked first.
+  if (picked.length < quota.total) {
+    const chosen = new Set(picked.map((i) => i.cmd));
+    const rest = [...groups.pinned, ...groups.history, ...groups.common]
+      .filter((i) => !chosen.has(i.cmd))
+      .sort((a, b) => a.score - b.score)
+      .slice(0, quota.total - picked.length);
+    picked.push(...rest);
+  }
+  return picked.slice(0, quota.total);
+}
+
 // Inline command suggestions floating above an input. Ranks pinned snippets,
 // history and (optional) common commands by relevance to the typed text.
 // Absolute + translucent blurred background so it overlays content, not push it.
-export default function CommandSuggestions({ value, store, commonCommands = [], onSelect, isMobile = false, disabled = false }) {
+export default function CommandSuggestions({ value, store, commonCommands = [], onSelect, isMobile = false, disabled = false, activeIndex = -1 }) {
   const history = store((s) => s.history);
   const pinned = store((s) => s.pinned);
   // Dismiss the panel for the current text; typing more re-opens it.
   const [dismissed, setDismissed] = useState("");
 
   const items = useMemo(() => {
-    const q = value.trim().toLowerCase();
-    if (!q || disabled) return [];
+    if (disabled) return [];
+    return pickCommandItems(value, history, pinned, commonCommands, isMobile);
+  }, [value, history, pinned, commonCommands, isMobile, disabled]);
 
-    const seen = new Set();
-    const collect = (list, type, getCmd) => {
-      const out = [];
-      for (const entry of list) {
-        const cmd = getCmd(entry);
-        const key = cmd.toLowerCase();
-        if (!cmd || key === q || seen.has(key)) continue;
-        const score = scoreOf(key, q);
-        if (score === null) continue;
-        seen.add(key);
-        out.push({ cmd, type, score });
-      }
-      return out.sort((a, b) => a.score - b.score);
-    };
-
-    // Order matters: pinned first claims dedup priority, then history, then common.
-    const groups = {
-      pinned: collect(pinned, "pinned", (s) => s.cmd),
-      history: collect(history, "history", (c) => c),
-      common: collect(commonCommands, "common", (c) => c)
-    };
-
-    const quota = isMobile ? QUOTA.mobile : QUOTA.desktop;
-    const picked = [
-      ...groups.pinned.slice(0, quota.pinned),
-      ...groups.history.slice(0, quota.history),
-      ...groups.common.slice(0, quota.common)
-    ];
-    // Lend leftover slots (up to total cap) to whatever else matched, best-ranked first.
-    if (picked.length < quota.total) {
-      const chosen = new Set(picked.map((i) => i.cmd));
-      const rest = [...groups.pinned, ...groups.history, ...groups.common]
-        .filter((i) => !chosen.has(i.cmd))
-        .sort((a, b) => a.score - b.score)
-        .slice(0, quota.total - picked.length);
-      picked.push(...rest);
-    }
-    return picked.slice(0, quota.total);
-  }, [value, history, pinned, commonCommands, isMobile]);
+  // Scroll the keyboard-highlighted row into view inside the dropdown.
+  const listRef = useRef(null);
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || activeIndex < 0) return;
+    const child = el.children[activeIndex];
+    if (child) child.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
 
   if (items.length === 0 || dismissed === value) return null;
 
@@ -91,13 +107,13 @@ export default function CommandSuggestions({ value, store, commonCommands = [], 
       >
         <X size={12} />
       </button>
-      <div className="flex flex-col max-h-[25vh] overflow-y-auto modal-scrollable">
-        {items.map((it) => (
+      <div ref={listRef} className="flex flex-col max-h-[25vh] overflow-y-auto modal-scrollable">
+        {items.map((it, idx) => (
           <button
             key={`${it.type}-${it.cmd}`}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => { vibrate(); onSelect(it.cmd); }}
-            className="flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 transition-colors touch-none"
+            className={`flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 transition-colors touch-none ${idx === activeIndex ? "bg-brand-500/15" : ""}`}
           >
             <span className="flex-shrink-0">{iconOf(it.type)}</span>
             <span className="min-w-0 text-sm text-text font-mono truncate">{it.cmd}</span>

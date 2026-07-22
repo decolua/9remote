@@ -23,6 +23,9 @@ export default {
     failed: "Başarısız",
     retry: "Tekrar Dene",
     refresh: "Yenile",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "Ara",
     create: "Oluştur",
     new: "Yeni",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "Dikdörtgen seçim modu"
   },
   remoteControls: {
-    enterToSend: "Göndermek için Enter • Yeni satır için Shift+Enter",
+    enterToSend: "Tab / Ctrl+Num ile sekme değiştir",
     typeToSend: "Gönderilecek metni yazın...",
     send: "Gönder",
     trackpadMode: "Trackpad modu",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Buraya yapıştır (Cmd+V)",
-    enterToSend: "Göndermek için Enter • Yeni satır için Shift+Enter",
+    enterToSend: "Tab / Ctrl+Num ile sekme değiştir",
     typeCommand: "Komut yazın ve gönderin...",
     send: "Gönder",
     toggleExtraKeys: "Ekstra tuşları aç/kapat",

@@ -33,9 +33,16 @@ export default function FileWorkspaceDesktop({
   onCreateTerminalSession,
   onDeleteTerminalSession,
   onRenameTerminalSession,
-  initialActiveFile
+  initialActiveFile,
+  viewType
 }) {
   const [activePanel, setActivePanel] = usePersistedState(STORAGE_KEYS.activityPanel, ACTIVITY_PANELS.explorer);
+
+  // Sync sidebar panel with the view that opened this layout (folder → explorer, git → scm).
+  useEffect(() => {
+    if (viewType === "git") setActivePanel(ACTIVITY_PANELS.scm);
+    else if (viewType === "files") setActivePanel(ACTIVITY_PANELS.explorer);
+  }, [viewType, setActivePanel]);
   const [sidebarVisible, setSidebarVisible] = usePersistedState(STORAGE_KEYS.sidebarVisible, true);
   const [sidebarWidth, setSidebarWidth] = usePersistedState(STORAGE_KEYS.sidebarWidth, SIDEBAR_DEFAULT_WIDTH);
   const [bottomVisible, setBottomVisible] = usePersistedState(STORAGE_KEYS.bottomPanelVisible, false);

@@ -23,6 +23,9 @@ export default {
     failed: "失敗",
     retry: "再試行",
     refresh: "更新",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "検索",
     create: "作成",
     new: "新規",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "矩形選択モード"
   },
   remoteControls: {
-    enterToSend: "Enter で送信 • Shift+Enter で改行",
+    enterToSend: "Tab / Ctrl+Num でタブ切り替え",
     typeToSend: "送信するテキストを入力...",
     send: "送信",
     trackpadMode: "Trackpad モード",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "ここに貼り付け (Cmd+V)",
-    enterToSend: "Enter で送信 • Shift+Enter で改行",
+    enterToSend: "Tab / Ctrl+Num でタブ切り替え",
     typeCommand: "コマンドを入力して送信...",
     send: "送信",
     toggleExtraKeys: "追加キーを切替",

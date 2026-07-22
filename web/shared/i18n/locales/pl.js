@@ -23,6 +23,9 @@ export default {
     failed: "Niepowodzenie",
     retry: "Ponów",
     refresh: "Odśwież",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "Szukaj",
     create: "Utwórz",
     new: "Nowy",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "Tryb zaznaczania prostokątnego"
   },
   remoteControls: {
-    enterToSend: "Enter, aby wysłać • Shift+Enter dla nowej linii",
+    enterToSend: "Tab / Ctrl+Num aby przełączyć kartę",
     typeToSend: "Wpisz tekst do wysłania...",
     send: "Wyślij",
     trackpadMode: "Tryb Trackpad",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Wklej tutaj (Cmd+V)",
-    enterToSend: "Enter, aby wysłać • Shift+Enter dla nowej linii",
+    enterToSend: "Tab / Ctrl+Num aby przełączyć kartę",
     typeCommand: "Wpisz polecenie i wyślij...",
     send: "Wyślij",
     toggleExtraKeys: "Przełącz dodatkowe klawisze",

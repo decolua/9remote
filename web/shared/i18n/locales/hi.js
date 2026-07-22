@@ -23,6 +23,9 @@ export default {
     failed: "विफल",
     retry: "पुनः प्रयास करें",
     refresh: "रीफ्रेश करें",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "खोजें",
     create: "बनाएँ",
     new: "नया",
@@ -463,7 +466,7 @@ export default {
     toolbarRectDesc: "आयत चयन मोड"
   },
   remoteControls: {
-    enterToSend: "भेजने के लिए Enter • नई पंक्ति के लिए Shift+Enter",
+    enterToSend: "Tab / Ctrl+Num से टैब बदलें",
     typeToSend: "भेजने के लिए टेक्स्ट टाइप करें...",
     send: "भेजें",
     trackpadMode: "Trackpad मोड",
@@ -550,7 +553,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "यहाँ पेस्ट करें (Cmd+V)",
-    enterToSend: "भेजने के लिए Enter • नई पंक्ति के लिए Shift+Enter",
+    enterToSend: "Tab / Ctrl+Num से टैब बदलें",
     typeCommand: "कमांड टाइप करें और भेजें...",
     send: "भेजें",
     toggleExtraKeys: "अतिरिक्त कुंजियाँ टॉगल करें",

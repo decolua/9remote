@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, Bot, X } from "@/shared/components/ui/Icon";
+import { Bell, Bot, Terminal, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
 import { statusVisual } from "@/shared/utils/statusVisual";
 
 // Compact relative time (e.g. "now", "3m", "2h", "1d")
 const timeAgo = (ts) => {
+  if (!ts || !Number.isFinite(ts)) return "";
   const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (s < 60) return "now";
   if (s < 3600) return `${Math.floor(s / 60)}m`;
@@ -45,7 +46,9 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
   const groupOf = (id) => allSessions.find((s) => s.id === id)?.groupId ?? null;
   const groupNameOf = (gid) => groups.find((g) => g.id === gid)?.name || t("groups.ungrouped");
 
-  // Group items: ordered by `groups` array, ungrouped last; sessions within a group sorted by since
+  // Group items: ordered by `groups` array, ungrouped last; sessions within a group
+  // follow their order in allSessions (matches SessionList), not state/since.
+  const sessionOrder = new Map(allSessions.map((s, i) => [s.id, i]));
   const grouped = (() => {
     const buckets = new Map();
     for (const it of items) {
@@ -53,13 +56,18 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
       if (!buckets.has(gid)) buckets.set(gid, []);
       buckets.get(gid).push(it);
     }
+    const bySessionOrder = (list) => [...list].sort((a, b) => {
+      const ia = sessionOrder.has(a.id) ? sessionOrder.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const ib = sessionOrder.has(b.id) ? sessionOrder.get(b.id) : Number.MAX_SAFE_INTEGER;
+      return ia - ib;
+    });
     const ordered = [];
     for (const g of groups) {
       const list = buckets.get(g.id);
-      if (list?.length) ordered.push({ id: g.id, name: g.name, items: list });
+      if (list?.length) ordered.push({ id: g.id, name: g.name, items: bySessionOrder(list) });
     }
     const ungrouped = buckets.get(null);
-    if (ungrouped?.length) ordered.push({ id: null, name: t("groups.ungrouped"), items: ungrouped });
+    if (ungrouped?.length) ordered.push({ id: null, name: t("groups.ungrouped"), items: bySessionOrder(ungrouped) });
     return ordered;
   })();
 
@@ -85,12 +93,18 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
     onSwitchSession?.(id);
   };
 
+  // Delayed close so moving the pointer across the gap to the popup doesn't dismiss it
+  const closeTimer = useRef(null);
+  const cancelClose = () => { if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; } };
+  const scheduleClose = () => { cancelClose(); closeTimer.current = setTimeout(() => setOpen(false), 150); };
+  useEffect(() => () => cancelClose(), []);
+
   return (
     <div
       ref={wrapRef}
       className="relative hidden sm:flex flex-shrink-0"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={() => { cancelClose(); setOpen(true); }}
+      onMouseLeave={scheduleClose}
     >
       <button
         onClick={() => setOpen((v) => !v)}
@@ -106,7 +120,8 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-[70] bg-surface-2 border border-border-subtle rounded-brand-lg shadow-lg w-72 max-h-[60vh] overflow-y-auto flex flex-col">
+        <div className="absolute right-0 top-full pt-2 z-[70] flex flex-col">
+        <div className="bg-surface-2 border border-border-subtle rounded-brand-lg shadow-lg w-72 max-h-[60vh] overflow-y-auto flex flex-col">
           <div className="flex items-center justify-between px-3 py-2 border-b border-border-subtle flex-shrink-0">
             <span className="text-sm font-semibold">{t("notifications.title")}</span>
             <button
@@ -142,14 +157,18 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
                       <button
                         key={it.id}
                         onClick={() => handlePick(it.id)}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-3 text-left transition-colors ${isIdle ? "opacity-50" : ""}`}
+                        className={`w-full flex items-center gap-2 px-3 py-1 hover:bg-surface-3 text-left transition-colors ${isIdle ? "opacity-50" : ""}`}
                         title={nameOf(it.id)}
                       >
-                        <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
-                        {AGENT_ICONS[it.tool] ? (
+                        {isIdle ? (
+                          <span className="w-2 h-2 rounded-full flex-shrink-0 border border-text-muted/60" />
+                        ) : (
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
+                        )}
+                        {AGENT_ICONS[it.tool] && !isIdle ? (
                           <img src={AGENT_ICONS[it.tool]} alt={it.tool} className="w-5 h-5 flex-shrink-0" />
                         ) : (
-                          <Bot size={18} className="text-brand-500 flex-shrink-0" />
+                          <Terminal size={18} className="text-text-muted flex-shrink-0" />
                         )}
                         <span className="flex-1 min-w-0 flex flex-col">
                           <span className="text-sm font-medium truncate">{nameOf(it.id)}</span>
@@ -167,6 +186,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
               ))}
             </div>
           )}
+        </div>
         </div>
       )}
     </div>

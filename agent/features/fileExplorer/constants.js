@@ -3,7 +3,12 @@
 export const MAX_FILE_SIZE = 1024 * 1024; // 1MB text read limit
 // ponytail: media preview over base64 socket is slow for very large files;
 // upgrade to HTTP range streaming when users routinely open >5MB media.
-export const MAX_MEDIA_SIZE = 5 * 1024 * 1024; // 5MB previewable media limit
+export const MAX_MEDIA_SIZE = 5 * 1024 * 1024; // 5MB previewable media limit (video/audio/pdf)
+// Image path: scale server-side via sharp, so raw input cap is generous but bounded,
+// and the final data URL must fit under MAX_IMAGE_SCALED_SIZE to avoid base64 socket bloat.
+export const MAX_IMAGE_RAW_SIZE = 20 * 1024 * 1024; // raw image input cap (pre-scale)
+export const MAX_IMAGE_SCALED_SIZE = 3 * 1024 * 1024; // output data URL cap (post-scale)
+export const IMAGE_SCALE_MAX_DIM = 1600; // max width/height after downscale
 export const MAX_SEARCH_RESULTS = 200;
 export const MAX_MATCHES_PER_FILE = 10;
 export const DEFAULT_TREE_DEPTH = 3;

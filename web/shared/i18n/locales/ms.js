@@ -23,6 +23,9 @@ export default {
     failed: "Gagal",
     retry: "Cuba semula",
     refresh: "Muat semula",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "Cari",
     create: "Cipta",
     new: "Baharu",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "Mod pemilihan segi empat"
   },
   remoteControls: {
-    enterToSend: "Enter untuk hantar • Shift+Enter untuk baris baharu",
+    enterToSend: "Tab / Ctrl+Num untuk tukar tab",
     typeToSend: "Taip teks untuk hantar...",
     send: "Hantar",
     trackpadMode: "Mod Trackpad",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Tampal di sini (Cmd+V)",
-    enterToSend: "Enter untuk hantar • Shift+Enter untuk baris baharu",
+    enterToSend: "Tab / Ctrl+Num untuk tukar tab",
     typeCommand: "Taip arahan dan hantar...",
     send: "Hantar",
     toggleExtraKeys: "Togol kekunci tambahan",

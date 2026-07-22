@@ -3,7 +3,8 @@ import path from "path";
 import os from "os";
 import { execSync, spawn } from "child_process";
 import chokidar from "chokidar";
-import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH } from "../constants.js";
+import sharp from "sharp";
+import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH } from "../constants.js";
 import { isSensitivePath } from "../pathGuard.js";
 
 // Extension -> MIME. Covers all previewable (image/video/audio/pdf) types.
@@ -31,6 +32,33 @@ function formatSize(bytes) {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+// Downscale + re-encode an image buffer so the output stays under
+// MAX_IMAGE_SCALED_SIZE. Tries quality steps, then width steps. Never enlarges.
+// Returns { buffer, width, height, originalWidth, originalHeight }.
+async function scaleImageToDataUrl(buffer) {
+  const meta = await sharp(buffer).metadata();
+  const originalWidth = meta.width || 0;
+  const originalHeight = meta.height || 0;
+  const qualities = [80, 60, 40];
+  const widths = [IMAGE_SCALE_MAX_DIM, 1200, 800];
+  let out = buffer;
+  let outW = originalWidth;
+  let outH = originalHeight;
+  for (const w of widths) {
+    for (const q of qualities) {
+      out = await sharp(buffer)
+        .resize({ width: w, height: w, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: q, mozjpeg: true })
+        .toBuffer();
+      const m = await sharp(out).metadata();
+      outW = m.width || w;
+      outH = m.height || w;
+      if (out.length <= MAX_IMAGE_SCALED_SIZE) return { buffer: out, width: outW, height: outH, originalWidth, originalHeight };
+    }
+  }
+  return { buffer: out, width: outW, height: outH, originalWidth, originalHeight };
 }
 
 function searchFilesRecursive(dir, query, results, maxResults = 50) {
@@ -201,34 +229,64 @@ export function setupFileHandlers(socket) {
 
   // Previewable media (image/video/audio/pdf) as a data URL. Used by every viewer
   // so they share one size cap and MIME table. readImage kept as a back-compat alias.
-  socket.on("readMedia", ({ filePath }, callback) => {
+  socket.on("readMedia", async ({ filePath }, callback) => {
     try {
       if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(filePath)) return callback({ success: false, error: "File not found" });
       const stat = fs.statSync(filePath);
-      if (stat.size > MAX_MEDIA_SIZE) return callback({ success: false, error: `File too large (${formatSize(stat.size)}). Max ${formatSize(MAX_MEDIA_SIZE)}` });
       const ext = path.extname(filePath).toLowerCase().slice(1);
       const mime = MIME_BY_EXT[ext] || "application/octet-stream";
+      const isImage = mime.startsWith("image/");
+      // Images: generous raw cap (decoded + scaled down). Other media: hard base64 cap.
+      const cap = isImage ? MAX_IMAGE_RAW_SIZE : MAX_MEDIA_SIZE;
+      if (stat.size > cap) return callback({ success: false, error: `File too large (${formatSize(stat.size)}). Max ${formatSize(cap)}` });
       const buffer = fs.readFileSync(filePath);
-      const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
-      callback({ success: true, dataUrl, size: stat.size, mime });
+      if (isImage) {
+        const scaled = await scaleImageToDataUrl(buffer);
+        const dataUrl = `data:image/jpeg;base64,${scaled.buffer.toString("base64")}`;
+        callback({
+          success: true,
+          dataUrl,
+          size: stat.size,
+          mime,
+          originalSize: stat.size,
+          originalWidth: scaled.originalWidth,
+          originalHeight: scaled.originalHeight,
+          width: scaled.width,
+          height: scaled.height,
+          scaled: scaled.buffer.length < stat.size
+        });
+      } else {
+        const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+        callback({ success: true, dataUrl, size: stat.size, mime });
+      }
     } catch (error) {
       callback({ success: false, error: error.message });
     }
   });
 
   // readImage: back-compat alias for callers still on the old event name.
-  socket.on("readImage", ({ filePath }, callback) => {
+  socket.on("readImage", async ({ filePath }, callback) => {
     try {
       if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(filePath)) return callback({ success: false, error: "File not found" });
       const stat = fs.statSync(filePath);
-      if (stat.size > MAX_MEDIA_SIZE) return callback({ success: false, error: `Image too large (${formatSize(stat.size)})` });
-      const ext = path.extname(filePath).toLowerCase().slice(1);
-      const mime = MIME_BY_EXT[ext] || "application/octet-stream";
+      if (stat.size > MAX_IMAGE_RAW_SIZE) return callback({ success: false, error: `Image too large (${formatSize(stat.size)}). Max ${formatSize(MAX_IMAGE_RAW_SIZE)}` });
       const buffer = fs.readFileSync(filePath);
-      const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
-      callback({ success: true, dataUrl, size: stat.size, mime });
+      const scaled = await scaleImageToDataUrl(buffer);
+      const dataUrl = `data:image/jpeg;base64,${scaled.buffer.toString("base64")}`;
+      callback({
+        success: true,
+        dataUrl,
+        size: stat.size,
+        mime: "image/jpeg",
+        originalSize: stat.size,
+        originalWidth: scaled.originalWidth,
+        originalHeight: scaled.originalHeight,
+        width: scaled.width,
+        height: scaled.height,
+        scaled: scaled.buffer.length < stat.size
+      });
     } catch (error) {
       callback({ success: false, error: error.message });
     }

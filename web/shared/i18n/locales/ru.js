@@ -23,6 +23,9 @@ export default {
     failed: "Не удалось",
     retry: "Повторить",
     refresh: "Обновить",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "Поиск",
     create: "Создать",
     new: "Новый",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "Режим прямоугольного выделения"
   },
   remoteControls: {
-    enterToSend: "Enter — отправить • Shift+Enter — новая строка",
+    enterToSend: "Tab / Ctrl+Num для переключения вкладок",
     typeToSend: "Введите текст для отправки...",
     send: "Отправить",
     trackpadMode: "Режим Trackpad",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Вставьте здесь (Cmd+V)",
-    enterToSend: "Enter — отправить • Shift+Enter — новая строка",
+    enterToSend: "Tab / Ctrl+Num для переключения вкладок",
     typeCommand: "Введите команду и отправьте...",
     send: "Отправить",
     toggleExtraKeys: "Переключить дополнительные клавиши",

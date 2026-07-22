@@ -23,6 +23,9 @@ export default {
     failed: "Falhou",
     retry: "Tentar novamente",
     refresh: "Atualizar",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "Buscar",
     create: "Criar",
     new: "Novo",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "Modo seleção retangular"
   },
   remoteControls: {
-    enterToSend: "Enter para enviar • Shift+Enter para nova linha",
+    enterToSend: "Tab / Ctrl+Num para mudar de aba",
     typeToSend: "Digite o texto para enviar...",
     send: "Enviar",
     trackpadMode: "Modo trackpad",
@@ -447,7 +450,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Cole aqui (Cmd+V)",
-    enterToSend: "Enter para enviar • Shift+Enter para nova linha",
+    enterToSend: "Tab / Ctrl+Num para mudar de aba",
     typeCommand: "Digite o comando e envie...",
     send: "Enviar",
     toggleExtraKeys: "Alternar teclas extras",

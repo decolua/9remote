@@ -1,8 +1,10 @@
+import crypto from "crypto";
 import { unregisterProtocol } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
 import { ADAPTER_STATE } from "../../lib/transportConstants.js";
 import { wakeDisplay } from "../../lib/displayWaker.js";
 import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
+import { readClipboardText } from "./utils/clipboard.js";
 
 const logger = createLogger("remote");
 
@@ -133,6 +135,7 @@ export async function setupRemoteHandlers(socket, apiKey) {
       cleaned = true;
       if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
       if (rtc && onState) rtc.off("stateChange", onState);
+      if (clipboardTimer) { clearInterval(clipboardTimer); clipboardTimer = null; }
       resourceManager.removeClient(socket.id);
       protocol.close();
       unregisterProtocol(protocol);
@@ -145,6 +148,33 @@ export async function setupRemoteHandlers(socket, apiKey) {
   });
 
   socket.emit("remote:ready");
+
+  // Clipboard sync — poll host clipboard, emit only on content change.
+  // First poll seeds baseline WITHOUT emitting (count EMPTY clipboard too) so the
+  // first real change badges — otherwise an empty host clipboard makes the first
+  // copy look like the baseline and the user must copy twice.
+  let lastLen = -1;
+  let lastHash = "";
+  let seeded = false;
+  const pollClipboard = async () => {
+    try {
+      const text = await readClipboardText(REMOTE_CONFIG.clipboard.maxTextLength);
+      const len = text == null ? 0 : text.length;
+      const hash = text == null ? "" : crypto.createHash("md5").update(text).digest("hex");
+      if (len === lastLen && hash === lastHash) return;
+      lastLen = len;
+      lastHash = hash;
+      if (!seeded) { seeded = true; return; }
+      if (text != null) protocol.emit("clipboard-update", { text, hash });
+    } catch (err) {
+      logger.error(`clipboard poll: ${err.message}`);
+    }
+  };
+  let clipboardTimer = null;
+  if (REMOTE_CONFIG.clipboard.enabled) {
+    pollClipboard();
+    clipboardTimer = setInterval(pollClipboard, REMOTE_CONFIG.clipboard.pollInterval);
+  }
 }
 
 export async function setupRemoteSocket(io, apiKey) {

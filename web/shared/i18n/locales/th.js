@@ -23,6 +23,9 @@ export default {
     failed: "ล้มเหลว",
     retry: "ลองใหม่",
     refresh: "รีเฟรช",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "ค้นหา",
     create: "สร้าง",
     new: "ใหม่",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "โหมดเลือกแบบสี่เหลี่ยม"
   },
   remoteControls: {
-    enterToSend: "Enter เพื่อส่ง • Shift+Enter ขึ้นบรรทัดใหม่",
+    enterToSend: "Tab / Ctrl+Num เพื่อสลับแท็บ",
     typeToSend: "พิมพ์ข้อความเพื่อส่ง...",
     send: "ส่ง",
     trackpadMode: "โหมด Trackpad",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "วางที่นี่ (Cmd+V)",
-    enterToSend: "Enter เพื่อส่ง • Shift+Enter ขึ้นบรรทัดใหม่",
+    enterToSend: "Tab / Ctrl+Num เพื่อสลับแท็บ",
     typeCommand: "พิมพ์คำสั่งและส่ง...",
     send: "ส่ง",
     toggleExtraKeys: "สลับคีย์เพิ่มเติม",

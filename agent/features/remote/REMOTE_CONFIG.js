@@ -121,6 +121,13 @@ export const REMOTE_CONFIG = {
     paddingTiles: 4           // Buffer tiles around focus region
   },
 
+  // Clipboard sync (agent → web). Polls host clipboard, emits on change.
+  clipboard: {
+    enabled: true,
+    pollInterval: 1000,
+    maxTextLength: 20000
+  },
+
   // Display wake — nudge OS to wake display on remote activity
   displayWake: {
     enabled: true,

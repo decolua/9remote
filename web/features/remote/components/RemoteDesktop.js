@@ -16,6 +16,8 @@ import DebugPanel from "@/features/remote/components/DebugPanel";
 import { debugLog } from "@/shared/utils/debugLog";
 import Spinner from "@/shared/components/ui/Spinner";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import ClipboardModal from "@/features/remote/components/ClipboardModal";
+import { ClipboardPaste } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 
 const STORAGE_KEYS = {
@@ -29,6 +31,9 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   const { t } = useI18n();
   const [showHelp, setShowHelp] = useState(false);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
+  const [clipboardText, setClipboardText] = useState("");
+  const [clipboardNew, setClipboardNew] = useState(false);
+  const [showClipboard, setShowClipboard] = useState(false);
   const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, true);
   const [keyboardOn, setKeyboardOn] = usePersistedState(STORAGE_KEYS.keyboard, false);
   const [pointerMode, setPointerMode] = usePersistedState(STORAGE_KEYS.pointerMode, REMOTE_CONFIG.pointerMode);
@@ -356,6 +361,17 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     // Agent (re)attached remote handlers on a new socket → reset everything fresh.
     const onRemoteReady = () => doRestream();
 
+    // Host clipboard changed → stash text + badge. Agent seeds baseline on attach
+    // (covers empty clipboard), so every event here is a real change worth showing.
+    const onClipboardUpdate = ({ text, hash }) => {
+      setClipboardText((prev) => {
+        if (hash && hash === onClipboardUpdate._lastHash) return prev;
+        onClipboardUpdate._lastHash = hash || null;
+        return text || "";
+      });
+      setClipboardNew(true);
+    };
+
     socket.on("screen-dimensions", onScreenDimensions);
     socket.on("full-screen-data", onFullScreenData);
     socket.on("tiles-data", onTilesData);
@@ -364,6 +380,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     socket.on("tiles-meta", onTilesMeta);
     socket.on("screen-error", onScreenError);
     socket.on("remote:ready", onRemoteReady);
+    socket.on("clipboard-update", onClipboardUpdate);
 
     // Initial handshake on mount — agent may have emitted remote:ready before this
     // component mounted (socket already connected via terminal) so listener missed it.
@@ -379,6 +396,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       socket.off("tiles-meta", onTilesMeta);
       socket.off("screen-error", onScreenError);
       socket.off("remote:ready", onRemoteReady);
+      socket.off("clipboard-update", onClipboardUpdate);
       cleanupTiles();
       if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);
     };
@@ -521,6 +539,9 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
           onTouchMove={createInteractionHandler("touchmove")}
           onTouchEnd={createInteractionHandler("touchend")}
           onKeyDown={(e) => handleCanvasKeyPress(e, streaming)}
+          clipboardNew={clipboardNew}
+          clipboardText={clipboardText}
+          onOpenClipboard={() => { setClipboardNew(false); setShowClipboard(true); }}
         />
       )}
 
@@ -591,6 +612,13 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
             setShowHelp(false);
             if (keyboardOn) textInputRef.current?.focus();
           }}
+        />
+      )}
+
+      {showClipboard && (
+        <ClipboardModal
+          text={clipboardText}
+          onClose={() => setShowClipboard(false)}
         />
       )}
 

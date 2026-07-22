@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
+import { ClipboardPaste } from "@/shared/components/ui/Icon";
 
 // Remote Desktop Canvas component - handles screen rendering
 export default function RemoteCanvas({
@@ -30,7 +31,10 @@ export default function RemoteCanvas({
   onTouchStart,
   onTouchMove,
   onTouchEnd,
-  onKeyDown
+  onKeyDown,
+  clipboardNew,
+  clipboardText,
+  onOpenClipboard
 }) {
   // Canvas physical size = server resolution (set via canvas.width/height in handleCanvasDimensions).
   // CSS transform: scale(fitScale * canvasZoom) to fit into container then apply user zoom.
@@ -226,6 +230,20 @@ export default function RemoteCanvas({
           <div className="w-full h-full rounded-full border-2 border-blue-400 bg-blue-400/30 animate-ping" />
           <div className="absolute inset-0 w-full h-full rounded-full border-2 border-blue-400 bg-blue-400/50" />
         </div>
+      )}
+      {clipboardNew && clipboardText && (
+        <button
+          type="button"
+          onClick={onOpenClipboard}
+          onPointerDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          className="absolute bottom-2 left-2 z-20 flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-surface-2/90 hover:bg-surface-3 backdrop-blur text-text shadow-md text-xs font-semibold pointer-events-auto active:scale-95 transition-transform"
+        >
+          <ClipboardPaste size={14} />
+          <span className="max-w-[120px] truncate">{clipboardText}</span>
+          <span className="w-2 h-2 bg-brand-500 rounded-full" />
+        </button>
       )}
     </div>
   );

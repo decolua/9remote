@@ -23,6 +23,9 @@ export default {
     failed: "失败",
     retry: "重试",
     refresh: "刷新",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "搜索",
     create: "创建",
     new: "新建",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "矩形选择模式"
   },
   remoteControls: {
-    enterToSend: "Enter 发送 • Shift+Enter 换行",
+    enterToSend: "Tab / Ctrl+数字 切换标签页",
     typeToSend: "输入要发送的文本...",
     send: "发送",
     trackpadMode: "Trackpad 模式",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "在此粘贴 (Cmd+V)",
-    enterToSend: "Enter 发送 • Shift+Enter 换行",
+    enterToSend: "Tab / Ctrl+数字 切换标签页",
     typeCommand: "输入命令并发送...",
     send: "发送",
     toggleExtraKeys: "切换额外按键",

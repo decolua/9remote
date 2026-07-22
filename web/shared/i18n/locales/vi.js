@@ -23,6 +23,9 @@ export default {
     failed: "Thất bại",
     retry: "Thử lại",
     refresh: "Tải lại",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "Tìm kiếm",
     create: "Tạo",
     new: "Mới",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "Chế độ chọn vùng chữ nhật"
   },
   remoteControls: {
-    enterToSend: "Shift+Enter để xuống dòng • Ctrl+Số để chuyển tab",
+    enterToSend: "Tab / Ctrl+Số để chuyển tab",
     typeToSend: "Nhập văn bản để gửi...",
     send: "Gửi",
     trackpadMode: "Chế độ trackpad",
@@ -450,7 +453,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Dán vào đây (Cmd+V)",
-    enterToSend: "Shift+Enter để xuống dòng • Ctrl+Số để chuyển tab",
+    enterToSend: "Tab / Ctrl+Số để chuyển tab",
     typeCommand: "Nhập lệnh và gửi...",
     send: "Gửi",
     toggleExtraKeys: "Bật/tắt phím mở rộng",

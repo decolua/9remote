@@ -23,6 +23,9 @@ export default {
     failed: "Mislukt",
     retry: "Opnieuw proberen",
     refresh: "Vernieuwen",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "Zoeken",
     create: "Aanmaken",
     new: "Nieuw",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "Rechthoekige selectiemodus"
   },
   remoteControls: {
-    enterToSend: "Enter om te verzenden • Shift+Enter voor nieuwe regel",
+    enterToSend: "Tab / Ctrl+Num om van tabblad te wisselen",
     typeToSend: "Typ tekst om te verzenden...",
     send: "Verzenden",
     trackpadMode: "Trackpad-modus",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Hier plakken (Cmd+V)",
-    enterToSend: "Enter om te verzenden • Shift+Enter voor nieuwe regel",
+    enterToSend: "Tab / Ctrl+Num om van tabblad te wisselen",
     typeCommand: "Typ commando en verzend...",
     send: "Verzenden",
     toggleExtraKeys: "Extra toetsen wisselen",

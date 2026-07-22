@@ -23,6 +23,9 @@ export default {
     failed: "נכשל",
     retry: "נסה שוב",
     refresh: "רענן",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "חיפוש",
     create: "צור",
     new: "חדש",
@@ -463,7 +466,7 @@ export default {
     toolbarRectDesc: "מצב בחירה מלבנית"
   },
   remoteControls: {
-    enterToSend: "Enter לשליחה • Shift+Enter לשורה חדשה",
+    enterToSend: "Tab / Ctrl+Num למעבר בין כרטיסיות",
     typeToSend: "הקלד טקסט לשליחה...",
     send: "שלח",
     trackpadMode: "מצב Trackpad",
@@ -550,7 +553,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "הדבק כאן (Cmd+V)",
-    enterToSend: "Enter לשליחה • Shift+Enter לשורה חדשה",
+    enterToSend: "Tab / Ctrl+Num למעבר בין כרטיסיות",
     typeCommand: "הקלד פקודה ושלח...",
     send: "שלח",
     toggleExtraKeys: "החלף מקשים נוספים",

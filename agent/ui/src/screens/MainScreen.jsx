@@ -662,7 +662,7 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
 }
 
 /** Content header — per-menu title/icon/desc + global actions (9router pattern) */
-function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown, onMenuClick }) {
+function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown, onMenuClick, terminalFont, setTerminalFont, terminalTheme, setTerminalTheme }) {
   const { t } = useI18n();
   return (
     <header className="shrink-0 flex items-center justify-between gap-3 px-6 lg:px-10 pt-5 pb-1">
@@ -893,6 +893,10 @@ export default function MainScreen({
           onStop={() => setShowDisconnectConfirm(true)}
           onShutdown={() => setShowShutdownConfirm(true)}
           onMenuClick={() => setSidebarOpen(true)}
+          terminalFont={terminalFont}
+          setTerminalFont={setTerminalFont}
+          terminalTheme={terminalTheme}
+          setTerminalTheme={setTerminalTheme}
         />
         {!isConnecting && <UpdateBanner version={updateVersion} />}
         <div className="px-6 lg:px-10 pb-6 lg:pb-10 pt-5">

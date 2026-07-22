@@ -76,14 +76,15 @@ export const useTerminalStore = create(
       
       // Actions
       pushView: (view) => set((state) => ({
-        viewStack: [...state.viewStack, view]
+        viewStack: [...(Array.isArray(state.viewStack) ? state.viewStack : []), view]
       })),
-      
-      popView: () => set((state) => ({
-        viewStack: state.viewStack.length > 1 
-          ? state.viewStack.slice(0, -1) 
-          : state.viewStack
-      })),
+
+      popView: () => set((state) => {
+        const stack = Array.isArray(state.viewStack) ? state.viewStack : [];
+        return {
+          viewStack: stack.length > 1 ? stack.slice(0, -1) : stack
+        };
+      }),
       
       setViewStack: (viewStack) => set({ viewStack }),
       
@@ -142,7 +143,11 @@ export const useTerminalStore = create(
         getItem: (name) => {
           if (typeof window === "undefined") return null;
           const value = localStorage.getItem(name);
-          return value ? JSON.parse(value) : null;
+          if (!value) return null;
+          const parsed = JSON.parse(value);
+          // Sanitize corrupted persisted viewStack (non-array or empty)
+          if (parsed && !Array.isArray(parsed.viewStack)) parsed.viewStack = [{ type: "list" }];
+          return parsed;
         },
         setItem: (name, value) => {
           if (typeof window === "undefined") return;
@@ -151,6 +156,13 @@ export const useTerminalStore = create(
         removeItem: (name) => {
           if (typeof window === "undefined") return;
           localStorage.removeItem(name);
+        }
+      },
+      // Normalize corrupted persisted state (e.g. viewStack null/non-array)
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        if (!Array.isArray(state.viewStack) || state.viewStack.length === 0) {
+          state.viewStack = [{ type: "list" }];
         }
       }
     }

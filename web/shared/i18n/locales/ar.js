@@ -23,6 +23,9 @@ export default {
     failed: "فشل",
     retry: "إعادة المحاولة",
     refresh: "تحديث",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "بحث",
     create: "إنشاء",
     new: "جديد",
@@ -463,7 +466,7 @@ export default {
     toolbarRectDesc: "وضع تحديد المستطيل"
   },
   remoteControls: {
-    enterToSend: "Enter للإرسال • Shift+Enter لسطر جديد",
+    enterToSend: "Tab / Ctrl+Num للتبديل بين التبويبات",
     typeToSend: "اكتب نصًا للإرسال...",
     send: "إرسال",
     trackpadMode: "وضع Trackpad",
@@ -550,7 +553,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "الصق هنا (Cmd+V)",
-    enterToSend: "Enter للإرسال • Shift+Enter لسطر جديد",
+    enterToSend: "Tab / Ctrl+Num للتبديل بين التبويبات",
     typeCommand: "اكتب الأمر وأرسله...",
     send: "إرسال",
     toggleExtraKeys: "تبديل المفاتيح الإضافية",

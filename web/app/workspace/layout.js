@@ -147,6 +147,12 @@ export default function WorkspaceLayout({ children }) {
     else delete paneElementsRef.current[sessionId];
   }, []);
 
+  // Desktop: measure focused pane rect so the shared input bar aligns to it (width + left offset).
+  const panesContainerRef = useRef(null);
+  const [focusPaneRect, setFocusPaneRect] = useState(null);
+  // Per-inactive-pane rects (desktop) so ghost inputs align with the real overlay input.
+  const [ghostRects, setGhostRects] = useState([]);
+
   // MobileKeyboard text-input API (for long-press paste fallback)
   const keyboardTextApiRef = useRef(null);
   const registerKeyboardTextApi = useCallback((api) => {
@@ -156,11 +162,79 @@ export default function WorkspaceLayout({ children }) {
     keyboardTextApiRef.current?.openTextPanel?.();
   }, []);
 
-  // Current view is top of stack
-  const currentView = viewStack[viewStack.length - 1];
+  // Current view is top of stack (guard against empty/corrupted viewStack)
+  const currentView = viewStack[viewStack.length - 1] || { type: "list" };
   // Active session at component scope (needed by terminal IIFE)
   const isTerminalView = currentView?.type === "terminal";
   const activeSessionId = isTerminalView ? currentView?.sessionId : null;
+
+  // Measure focused pane rect (desktop only) so the input bar matches its width + left offset.
+  // Re-measures on focus change, pane/container resize, and horizontal scroll of the panes row.
+  // Coalesced via rAF so rapid scroll/mount churn doesn't storm re-renders (jank on last tab).
+  useEffect(() => {
+    if (!isDesktop) { setFocusPaneRect(null); return; }
+    const container = panesContainerRef.current;
+    const pane = activeSessionId ? paneElementsRef.current[activeSessionId] : null;
+    if (!container || !pane) { setFocusPaneRect(null); return; }
+    let rafId = 0;
+    const measure = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        const c = container.getBoundingClientRect();
+        const p = pane.getBoundingClientRect();
+        setFocusPaneRect({ left: p.left - c.left, width: p.width });
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(pane);
+    ro.observe(container);
+    container.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      ro.disconnect();
+      container.removeEventListener("scroll", measure);
+    };
+  }, [isDesktop, activeSessionId, sessions, activeGroupId]);
+
+  // Measure every desktop pane (except focused) so ghost inputs overlay the panes row aligned
+  // with the real MobileKeyboard below. Re-measures on resize + horizontal scroll (parity with
+  // the focused-pane measure above).
+  useEffect(() => {
+    if (!isDesktop) { setGhostRects([]); return; }
+    const container = panesContainerRef.current;
+    if (!container) { setGhostRects([]); return; }
+    let rafId = 0;
+    const measure = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        const c = container.getBoundingClientRect();
+        const activeGroup = new Set(
+          sessions.filter((s) => (s.groupId || null) === activeGroupId).map((s) => s.id)
+        );
+        const rects = [];
+        for (const [sid, el] of Object.entries(paneElementsRef.current)) {
+          if (!el || sid === activeSessionId) continue;
+          if (!activeGroup.has(sid)) continue;
+          const p = el.getBoundingClientRect();
+          rects.push({ sessionId: sid, left: p.left - c.left, width: p.width });
+        }
+        setGhostRects(rects);
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(container);
+    Object.values(paneElementsRef.current).forEach((el) => el && ro.observe(el));
+    container.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      ro.disconnect();
+      container.removeEventListener("scroll", measure);
+    };
+  }, [isDesktop, activeSessionId, sessions, activeGroupId]);
 
   // Lazy per-group mount: the FIRST time a group becomes active, mark it mounted so its panes'
   // XTterms initialize. Other groups stay as placeholders until visited — avoids mounting every
@@ -202,9 +276,14 @@ export default function WorkspaceLayout({ children }) {
   // syncs from URL via useRouteSync. Fallback to storePopView for deep-links with
   // no prior entry.
   const popView = useCallback(() => {
-    if (typeof history !== "undefined" && history.length > 1) router.back();
+    // Editor → pop viewStack directly: restore the files view with its saved
+    // currentPath (patched by handleOpenFile). router.back() would use the stale
+    // files history entry (p=workspace, since folder nav doesn't push URL) and
+    // clobber the saved folder.
+    if (currentView?.type === "editor") storePopView();
+    else if (typeof history !== "undefined" && history.length > 1) router.back();
     else storePopView();
-  }, [router, storePopView]);
+  }, [router, storePopView, currentView]);
 
   // Load sessions + groups when socket connects
   useEffect(() => {
@@ -382,6 +461,25 @@ export default function WorkspaceLayout({ children }) {
   }, [handleSelectSession]);
   // Keep activeGroupId unchanged (new session belongs to it); don't call handleSelectSession
   // because the session isn't in `sessions` yet (loadSessions is async) → would reset group.
+  // Tab/Shift+Tab in the PC input bar cycles sessions within the active group (wrap-round).
+  const switchSession = useCallback((direction) => {
+    const groupIds = sessions.filter((s) => (s.groupId || null) === activeGroupId).map((s) => s.id);
+    if (groupIds.length < 2) return;
+    const idx = groupIds.indexOf(activeSessionId);
+    if (idx === -1) return;
+    const next = direction === "prev"
+      ? (idx - 1 + groupIds.length) % groupIds.length
+      : (idx + 1) % groupIds.length;
+    handleSelectSession(groupIds[next]);
+  }, [sessions, activeGroupId, activeSessionId, handleSelectSession]);
+
+  // Ctrl+1..9 in the PC input bar jumps to the Nth session in the active group.
+  const switchToIndex = useCallback((i) => {
+    const groupIds = sessions.filter((s) => (s.groupId || null) === activeGroupId).map((s) => s.id);
+    if (i < 0 || i >= groupIds.length) return;
+    handleSelectSession(groupIds[i]);
+  }, [sessions, activeGroupId, handleSelectSession]);
+
   const handleQuickCreateSession = useCallback((shellId) => {
     createSession(null, shellId, activeGroupId, (result) => {
       if (!result.success) {
@@ -478,20 +576,24 @@ export default function WorkspaceLayout({ children }) {
   }, [pushView]);
 
   const handlePathChange = useCallback((workspacePath, currentPath) => {
-    // Persist last visited folder per workspace so next open restores it
+    // Persist last visited folder per workspace so next open restores it.
+    // NOTE: do NOT patch viewStack here — FileExplorer's onPathChange fires on
+    // every currentPath change (incl. agent-normalized paths), and writing it
+    // back into the view triggers a re-mount loop. Folder is saved on file open
+    // instead (handleOpenFile derives it from the file path).
     updateRecentWorkspacePath(workspacePath, currentPath);
   }, []);
 
   const handleOpenFile = useCallback((filePath, folderPath) => {
-    // Save current folder path so we can restore it when back from editor
-    if (folderPath) {
-      // Update files view with current folder path before opening editor
-      const filesViewIndex = viewStack.findIndex(v => v.type === "files");
-      if (filesViewIndex !== -1) {
-        const newStack = [...viewStack];
-        newStack[filesViewIndex] = { ...newStack[filesViewIndex], currentPath: folderPath };
-        setViewStack(newStack);
-      }
+    // Save current folder path so we can restore it when back from editor.
+    // Derive folder from filePath when caller omits it (e.g. search results,
+    // link detection) so every entry point restores the right folder.
+    const folder = folderPath || (filePath.includes("/") ? filePath.split("/").slice(0, -1).join("/") || "/" : "/");
+    const filesViewIndex = viewStack.findIndex(v => v.type === "files");
+    if (filesViewIndex !== -1) {
+      const newStack = [...viewStack];
+      newStack[filesViewIndex] = { ...newStack[filesViewIndex], currentPath: folder };
+      setViewStack(newStack);
     }
     pushView({ type: "editor", path: filePath });
   }, [pushView, viewStack, setViewStack]);
@@ -674,7 +776,8 @@ export default function WorkspaceLayout({ children }) {
 
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div
-                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-2 overflow-x-auto overflow-y-hidden px-2 pb-2.5" : "relative"}`}
+                ref={panesContainerRef}
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-2 overflow-x-auto overflow-y-hidden px-2 pb-14" : "relative"}`}
                 {...bindSwipeTab({
                   enabled: !isDesktop,
                   sessionIds: groupOpenedSessions,
@@ -740,20 +843,51 @@ export default function WorkspaceLayout({ children }) {
                 })}
               </div>
 
-              {/* Shared MobileKeyboard - routes to focused pane */}
+              {/* Ghost inputs — one per inactive desktop pane, aligned with the real overlay input.
+                  Click switches the tab and focuses the shared MobileKeyboard. */}
+              {isDesktop && ghostRects.map(({ sessionId, left, width }) => (
+                <button
+                  key={`ghost-${sessionId}`}
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => {
+                    handleSelectSession(sessionId);
+                    setTimeout(() => keyboardTextApiRef.current?.focus?.(), 60);
+                  }}
+                  className="group absolute bottom-0 z-10 px-2 py-2 hover:z-20"
+                  style={{ left: `${left}px`, width: `${width}px` }}
+                  aria-label="Focus this terminal input"
+                >
+                  <span className="block w-full text-left text-sm text-text-muted/60 rounded-xl bg-surface-2/40 border border-dashed border-border/50 px-3 py-2 group-hover:border-brand-500/60 group-hover:bg-surface-2/70 group-hover:text-text-muted transition-colors">
+                    {t("mobileKeyboard.typeCommand")}
+                  </span>
+                </button>
+              ))}
+
+              {/* Shared MobileKeyboard - routes to focused pane.
+                  Desktop: overlays the panes (absolute) so its height changes never resize
+                  the terminal above; width + left offset match the focused pane. Mobile: full width. */}
               {activeSessionId && (
+                <div
+                  className={isDesktop ? "absolute left-0 right-0 bottom-0 z-20" : ""}
+                  style={isDesktop && focusPaneRect
+                    ? { width: `${focusPaneRect.width}px`, marginLeft: `${focusPaneRect.left}px` }
+                    : undefined}
+                >
                 <MobileKeyboard
                   socket={socket}
                   sessionId={activeSessionId}
                   onExpandChange={() => {
-                    // Desktop split: bar height change needs re-fit. Mobile: fixed-height pane scrolls — skip resize.
-                    if (isDesktop) paneApisRef.current[activeSessionId]?.doResize?.();
+                    // Desktop: overlay now — terminal no longer resizes; nothing to refit.
                   }}
                   onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
                   onRegisterTextApi={registerKeyboardTextApi}
                   platform={platform}
                   onInput={clearNotification}
+                  onSwitchSession={switchSession}
+                  onSwitchToIndex={switchToIndex}
                 />
+                </div>
               )}
             </div>
           );
@@ -820,6 +954,7 @@ export default function WorkspaceLayout({ children }) {
                 onCreateTerminalSession={handleCreateSessionInline}
                 onDeleteTerminalSession={handleDeleteSession}
                 onRenameTerminalSession={handleRenameSession}
+                viewType={currentView.type}
               />
             </div>
           );

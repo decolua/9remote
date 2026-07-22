@@ -10,7 +10,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { trimEndToEsc } from "@/features/terminal/lib/ansiBoundary";
@@ -61,6 +61,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const resizeTimerRef = useRef(null);
   const doResizeRef = useRef(null);
   const doJoinSessionRef = useRef(null); // reload() calls this — no full socket reconnect
+  const fireJoinRef = useRef(null);      // emit joinSession at a size (set by doJoinSession, called by settle)
+  const forceNextRef = useRef(false);   // doResize({force}) flag carried into the settle timer
+  const joinNextRef = useRef(false);    // doResize({join}) flag — fire a deferred join at settled size
   const stopMomentumRef = useRef(null);
   const cwdRef = useRef(null); // Track current working directory
   const [cwd, setCwd] = useState(null); // Reactive cwd for toolbar UI
@@ -111,42 +114,43 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     socket.emit("resize", { sessionId, cols, rows });
   }, [socket, sessionId]);
 
-  // Resize with debounce singleton - uses rAF to ensure layout is stable
-  // Always re-fit canvas; skip PTY emit only when size unchanged AND not forced (soft-KB/tab dup guard).
-  // Multi-pane race guard: RO fires across panes during flex redistribute → wait for cols/rows
-  // to STABILIZE across frames before emitting, else a transient size makes the shell re-wrap
-  // scrollback narrow forever.
+  // Settle-and-emit: single debounce (SETTLE_DEBOUNCE_MS) after the LAST layout change.
+  // Each call resets the timer → fires only when the container has been quiet for the full
+  // debounce, i.e. the mount/group-switch/soft-KB storm is truly over. Then fit once + emit at
+  // the settled size. PTY cols is one-way (a transient narrow cols re-wraps scrollback narrow
+  // FOREVER) so we never accept a mid-transition size — the debounce IS the stability gate,
+  // event-driven via ResizeObserver, no frame polling, no cap to fall through.
+  // opts.force: always emit even if size unchanged (reconnect/redraw). opts.join: also fire the
+  // deferred join at this size (initial mount / group switch).
   const doResize = useCallback((opts = {}) => {
     const force = opts === true || opts?.force === true;
+    const join = !!opts?.join;
+    if (force) forceNextRef.current = true;
+    if (join) joinNextRef.current = true;
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = setTimeout(() => {
-      if (!fitAddonRef.current || !termRef.current || !socket) { resizeTimerRef.current = null; return; }
-      let lastSize = null;
-      let stableFrames = 0;
-      let attempts = 0;
-      const check = () => {
-        if (termRef.current?._isDisposed) { resizeTimerRef.current = null; return; }
-        attempts++;
-        const el = containerRef.current;
-        if (!el?.offsetWidth || !el?.offsetHeight) { resizeTimerRef.current = null; return; }
-        fitAddonRef.current.fit();
-        const { cols, rows } = termRef.current;
-        // Layout mid-transition (app-resume reconnect, soft-KB) → cols/rows below floor.
-        // Skip: emitting a tiny resize makes the shell re-wrap scrollback narrow forever.
-        if (cols < MIN_COLS || rows < MIN_ROWS) { resizeTimerRef.current = null; return; }
-        const cur = `${cols}x${rows}`;
-        // ALWAYS wait for size to stabilize across 2 frames — force included. A transient
-        // cols (above floor but mid-transition) makes Claude Code render narrow and stays so.
-        if (cur !== lastSize) { lastSize = cur; stableFrames = 1; if (attempts < 8) { requestAnimationFrame(check); return; } }
-        else if (++stableFrames < 2) { if (attempts < 8) { requestAnimationFrame(check); return; } }
-        const prev = lastPtySizeRef.current;
-        if (!force && prev && prev.cols === cols && prev.rows === rows) { resizeTimerRef.current = null; return; }
-        lastPtySizeRef.current = { cols, rows };
-        socket.emit("resize", { sessionId, cols, rows });
-        resizeTimerRef.current = null;
-      };
-      requestAnimationFrame(check);
-    }, 150);
+      resizeTimerRef.current = null;
+      const term = termRef.current;
+      const fitAddon = fitAddonRef.current;
+      const el = containerRef.current;
+      if (!term || term._isDisposed || !fitAddon || !socket) return;
+      if (!el?.offsetWidth || !el?.offsetHeight) return; // not laid out yet → RO will re-kick
+      fitAddon.fit();
+      const { cols, rows } = term;
+      if (cols < MIN_COLS || rows < MIN_ROWS) return; // mid-transition → RO will re-kick
+      const prev = lastPtySizeRef.current;
+      const force = forceNextRef.current;
+      const wantJoin = joinNextRef.current;
+      forceNextRef.current = false;
+      joinNextRef.current = false;
+      if (!force && prev && prev.cols === cols && prev.rows === rows && !wantJoin) return;
+      lastPtySizeRef.current = { cols, rows };
+      socket.emit("resize", { sessionId, cols, rows });
+      if (wantJoin && fireJoinRef.current) {
+        term.reset();
+        fireJoinRef.current(cols, rows);
+      }
+    }, SETTLE_DEBOUNCE_MS);
   }, [socket, sessionId, containerRef]);
 
   // Keep ref updated for use in useEffect without stale closure
@@ -428,32 +432,13 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       // Fit + emit resize BEFORE join so the daemon serializes the TUI snapshot
       // (alt-screen apps like Claude Code) at the client's real size. Join-first would
       // replay at the daemon's stale cols/rows → garbled until next SIGWINCH.
-      // On app-resume reconnect the layout is mid-transition (container shrunk), so fit
-      // waits for cols/rows to STABILIZE across frames + a sane-size floor before emitting:
-      // a transient tiny resize would make the shell re-wrap scrollback narrow forever
-      // (older lines stay narrow even after cols return to normal).
-      let lastSize = null;
-      let stableFrames = 0;
-      let attempts = 0;
-      const doFitAndJoin = () => {
-        if (term._isDisposed) return;
-        attempts++;
-        if (containerRef.current?.offsetWidth && containerRef.current?.offsetHeight) {
-          fitAddon.fit();
-        }
-        const { cols, rows } = term;
-        // During mount-in slide animation the container is briefly narrow → cols dips low → a tail
-        // snapshot at that width garbles content. Wait for the size to STABILIZE (two consecutive
-        // frames at the same value) AND be at least MIN_COLS wide. A genuinely tiny pane (e.g. a
-        // narrow split) still has a STABLE cols — it just won't reach MIN_COLS, so we cap retries
-        // and proceed once stable even if small, preferring a small-snapshot join over no join.
-        const cur = `${cols}x${rows}`;
-        if (cur !== lastSize) { lastSize = cur; stableFrames = 1; requestAnimationFrame(doFitAndJoin); return; }
-        if (++stableFrames < 2) { requestAnimationFrame(doFitAndJoin); return; }
-        // Settled. If still under floor after stabilizing, accept it (narrow split-view pane) —
-        // joining is better than leaving the pane blank forever.
-        socket.emit("resize", { sessionId, cols, rows });
-        lastPtySizeRef.current = { cols, rows }; // R4: record so doResize dedups after join
+      // The container is briefly narrow during mount-in / group-switch. A snapshot taken at a
+      // transient cols re-wraps scrollback narrow FOREVER (PTY cols is one-way). So don't poll
+      // here — delegate to doResize({join:true}): ResizeObserver + the settle debounce fire the
+      // emit+join once the container has been quiet for the full debounce, at the real size.
+      requestAnimationFrame(() => doResizeRef.current?.({ join: true }));
+      // Emit joinSession with the given size (used by the reconnect/visibility paths).
+      const fireJoin = (cols, rows) => {
         // Send the measured size in the join so a respawned PTY spawns at the right size.
         // Only when the agent advertises the capability — older agents expect a bare
         // sessionId string and would treat an object as an unknown session.
@@ -495,7 +480,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
           }
         });
       };
-      requestAnimationFrame(doFitAndJoin);
+      fireJoinRef.current = fireJoin;
     };
     // Stagger initial join by mountDelay so a freshly-entered group's panes don't all join at once
     // (focus pane = 0ms, siblings stagger ~120ms). Rejoins/visibility-driven calls pass 0.
@@ -515,7 +500,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       if (!termRef.current) return;
       // Reset transient state that may be stuck from the disconnect: mid-flight
       // requestHistory (R2) and mid-SGR TUI round-trip (R3). R4 (lastPtySize dedup)
-      // is handled in doFitAndJoin, which records the size it emits after rejoin.
+      // is handled in the settle path (doResize), which records the size it emits.
       resetReconnectState({
         historyFetching: historyFetchingRef,
         historyHaveAtEmit: historyHaveAtEmitRef,

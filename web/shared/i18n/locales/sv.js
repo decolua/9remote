@@ -23,6 +23,9 @@ export default {
     failed: "Misslyckades",
     retry: "Försök igen",
     refresh: "Uppdatera",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "Sök",
     create: "Skapa",
     new: "Ny",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "Rektangelmarkeringsläge"
   },
   remoteControls: {
-    enterToSend: "Enter för att skicka • Shift+Enter för ny rad",
+    enterToSend: "Tab / Ctrl+Num för att byta flik",
     typeToSend: "Skriv text för att skicka...",
     send: "Skicka",
     trackpadMode: "Trackpad-läge",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Klistra in här (Cmd+V)",
-    enterToSend: "Enter för att skicka • Shift+Enter för ny rad",
+    enterToSend: "Tab / Ctrl+Num för att byta flik",
     typeCommand: "Skriv kommando och skicka...",
     send: "Skicka",
     toggleExtraKeys: "Växla extra tangenter",

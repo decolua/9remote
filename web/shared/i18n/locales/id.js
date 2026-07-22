@@ -23,6 +23,9 @@ export default {
     failed: "Gagal",
     retry: "Coba lagi",
     refresh: "Segarkan",
+    clipboard: "Clipboard",
+    clipboardCopy: "Copy",
+    clipboardEmpty: "Clipboard is empty",
     search: "Cari",
     create: "Buat",
     new: "Baru",
@@ -361,7 +364,7 @@ export default {
     toolbarRectDesc: "Mode seleksi persegi"
   },
   remoteControls: {
-    enterToSend: "Enter untuk kirim • Shift+Enter untuk baris baru",
+    enterToSend: "Tab / Ctrl+Num untuk pindah tab",
     typeToSend: "Ketik teks untuk dikirim...",
     send: "Kirim",
     trackpadMode: "Mode Trackpad",
@@ -448,7 +451,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Tempel di sini (Cmd+V)",
-    enterToSend: "Enter untuk kirim • Shift+Enter untuk baris baru",
+    enterToSend: "Tab / Ctrl+Num untuk pindah tab",
     typeCommand: "Ketik perintah dan kirim...",
     send: "Kirim",
     toggleExtraKeys: "Alihkan tombol tambahan",
