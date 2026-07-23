@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Button from "@/shared/components/ui/Button";
 import {
-  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff, History
+  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff, History, ClipboardPaste
 } from "@/shared/components/ui/Icon";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
@@ -51,6 +51,9 @@ function Btn({ active, primary, pinned, children, className = "", onClick, ...re
 export default function RemoteControls({
   streaming,
   canvasZoom,
+  clipboardNew,
+  clipboardText,
+  onOpenClipboard,
   selectionMode,
   pointerMode,
   handMode,
@@ -353,9 +356,21 @@ export default function RemoteControls({
           <Btn onClick={() => v(onClose)} title={t("remote.back")} pinned>
             <ChevronLeft size={16} />
           </Btn>
-          <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-text" title={t("remote.resetZoom")}>
-            {Math.round(canvasZoom * 100)}%
-          </Btn>
+          {clipboardNew && clipboardText ? (
+            <Btn
+              onClick={() => v(onOpenClipboard)}
+              className="text-brand-400 max-w-[140px]"
+              title={t("common.clipboard")}
+            >
+              <ClipboardPaste size={14} className="shrink-0" />
+              <span className="truncate">{clipboardText}</span>
+              <span className="w-1.5 h-1.5 bg-brand-500 rounded-full shrink-0" />
+            </Btn>
+          ) : (
+            <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-text" title={t("remote.resetZoom")}>
+              {Math.round(canvasZoom * 100)}%
+            </Btn>
+          )}
           <Btn onClick={() => v(onRefresh)} disabled={!streaming} title={t("remote.refresh")}>
             <RefreshCw size={14} />
           </Btn>

@@ -57,6 +57,14 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   // Periodic console log for benchmark comparison (copy console output to share)
   const statsRef = useRef(stats);
   useEffect(() => { statsRef.current = stats; }, [stats]);
+
+  // Clipboard badge auto-dismiss — reverts the toolbar button from clipboard
+  // preview back to zoom-% after a timeout.
+  useEffect(() => {
+    if (!clipboardNew) return;
+    const id = setTimeout(() => setClipboardNew(false), REMOTE_CONFIG.clipboardBadgeTimeout);
+    return () => clearTimeout(id);
+  }, [clipboardNew, clipboardText]);
   useEffect(() => {
     debugLog("remote", `[stats] interval started, mode=${debugMode}`);
     const id = setInterval(() => {
@@ -539,15 +547,15 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
           onTouchMove={createInteractionHandler("touchmove")}
           onTouchEnd={createInteractionHandler("touchend")}
           onKeyDown={(e) => handleCanvasKeyPress(e, streaming)}
-          clipboardNew={clipboardNew}
-          clipboardText={clipboardText}
-          onOpenClipboard={() => { setClipboardNew(false); setShowClipboard(true); }}
         />
       )}
 
       <RemoteControls
         streaming={streaming}
         canvasZoom={canvasZoom}
+        clipboardNew={clipboardNew}
+        clipboardText={clipboardText}
+        onOpenClipboard={() => { setClipboardNew(false); setShowClipboard(true); }}
         onDesktopSwitch={emitDesktopSwitch}
         selectionMode={selectionMode}
         pointerMode={pointerMode}

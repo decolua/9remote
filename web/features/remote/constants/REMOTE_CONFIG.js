@@ -63,6 +63,10 @@ export const REMOTE_CONFIG = {
   trackpadCursorSize: 20,        // px — virtual cursor overlay size
   trackpadEdgeMarginRatio: 0.25, // keep virtual cursor inside viewport by this ratio of container size
 
+  // Clipboard badge: replaces the zoom-% button in the toolbar when the host
+  // clipboard changes. Reverts to zoom-% after this timeout.
+  clipboardBadgeTimeout: 10000,  // ms
+
   // Two-finger gesture lock (scroll vs zoom)
   gestureLockDelay: 80,          // ms — wait before locking gesture intent
   gestureDistanceThreshold: 15,  // px — Δdistance to consider zoom
