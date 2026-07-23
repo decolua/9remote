@@ -59,7 +59,8 @@ export default function WorkspaceLayout({ children }) {
     mountedGroups,
     markGroupMounted,
     isGroupMounted,
-    reset: resetStore
+    reset: resetStore,
+    cwdBySession
   } = useTerminalStore();
 
   // Lazy per-group mount: the FIRST time a group becomes active, mark it mounted so its panes'
@@ -114,6 +115,9 @@ export default function WorkspaceLayout({ children }) {
   const [systemInfo, setSystemInfo] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen); // Selector - only subscribe to function
+  // Mobile-only: file opened as overlay above the files view (no viewStack entry).
+  // Keeps the explorer mounted so Back (X) returns to the same folder without reload.
+  const [mobileEditor, setMobileEditor] = useState(null);
 
   // Desktop split-view detection
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -276,14 +280,11 @@ export default function WorkspaceLayout({ children }) {
   // syncs from URL via useRouteSync. Fallback to storePopView for deep-links with
   // no prior entry.
   const popView = useCallback(() => {
-    // Editor → pop viewStack directly: restore the files view with its saved
-    // currentPath (patched by handleOpenFile). router.back() would use the stale
-    // files history entry (p=workspace, since folder nav doesn't push URL) and
-    // clobber the saved folder.
-    if (currentView?.type === "editor") storePopView();
-    else if (typeof history !== "undefined" && history.length > 1) router.back();
+    // Mobile: close editor overlay first (it's not in the viewStack) before navigating back
+    if (!isDesktop && mobileEditor) { setMobileEditor(null); return; }
+    if (typeof history !== "undefined" && history.length > 1) router.back();
     else storePopView();
-  }, [router, storePopView, currentView]);
+  }, [router, storePopView, isDesktop, mobileEditor]);
 
   // Load sessions + groups when socket connects
   useEffect(() => {
@@ -401,8 +402,14 @@ export default function WorkspaceLayout({ children }) {
     return () => document.removeEventListener("focusin", handleFocusIn);
   }, []);
 
+  // Inherit cwd from the last session in the same group (null when none/ungrouped)
+  const lastGroupCwd = useCallback((groupId) => {
+    const groupSessions = sessions.filter((s) => (s.groupId || null) === groupId && s.cwd);
+    return groupSessions.length ? groupSessions[groupSessions.length - 1].cwd : null;
+  }, [sessions]);
+
   const handleCreateSession = useCallback((name, groupId = null, shellId = null) => {
-    createSession(name, shellId, groupId, (result) => {
+    createSession(name, shellId, groupId, lastGroupCwd(groupId), (result) => {
       if (!result.success) {
         alert(t("workspace.failedCreateSession", { error: result.error }));
       } else if (result.sessionId) {
@@ -481,7 +488,7 @@ export default function WorkspaceLayout({ children }) {
   }, [sessions, activeGroupId, handleSelectSession]);
 
   const handleQuickCreateSession = useCallback((shellId) => {
-    createSession(null, shellId, activeGroupId, (result) => {
+    createSession(null, shellId, activeGroupId, lastGroupCwd(activeGroupId), (result) => {
       if (!result.success) {
         alert(t("workspace.failedCreateSession", { error: result.error }));
         return;
@@ -553,7 +560,16 @@ export default function WorkspaceLayout({ children }) {
   }, [pushView, fileSocket, systemInfo]);
 
   const handleOpenFiles = useCallback(async () => {
-    // Auto-open most recent workspace (restore last visited folder); else show list
+    // From terminal: open explorer at the active terminal's cwd
+    if (currentView.type === "terminal") {
+      const cwd = currentView.sessionId ? cwdBySession[currentView.sessionId] : null;
+      if (cwd) {
+        addRecentWorkspace(cwd);
+        pushView({ type: "files", workspace: cwd, currentPath: cwd });
+        return;
+      }
+    }
+    // Fallback: auto-open most recent workspace (restore last visited folder); else show list
     const recent = getRecentWorkspaces();
     if (recent.length > 0) {
       const last = recent[0];
@@ -561,7 +577,7 @@ export default function WorkspaceLayout({ children }) {
       return;
     }
     handleOpenWorkspaceList();
-  }, [pushView, handleOpenWorkspaceList]);
+  }, [pushView, handleOpenWorkspaceList, currentView, cwdBySession, addRecentWorkspace]);
 
   const handleSelectWorkspace = useCallback((workspacePath) => {
     addRecentWorkspace(workspacePath);
@@ -584,10 +600,14 @@ export default function WorkspaceLayout({ children }) {
     updateRecentWorkspacePath(workspacePath, currentPath);
   }, []);
 
-  const handleOpenFile = useCallback((filePath, folderPath) => {
-    // Save current folder path so we can restore it when back from editor.
-    // Derive folder from filePath when caller omits it (e.g. search results,
-    // link detection) so every entry point restores the right folder.
+  const handleOpenFile = useCallback((filePath, folderPath, opts = {}) => {
+    // Mobile: render editor as an overlay above the files view (no viewStack push),
+    // so the explorer stays mounted and Back (X) returns to the same folder.
+    if (!isDesktop) {
+      setMobileEditor({ path: filePath, line: opts.line, column: opts.column });
+      return;
+    }
+    // Desktop: push editor view into the stack (tabs layout).
     const folder = folderPath || (filePath.includes("/") ? filePath.split("/").slice(0, -1).join("/") || "/" : "/");
     const filesViewIndex = viewStack.findIndex(v => v.type === "files");
     if (filesViewIndex !== -1) {
@@ -595,8 +615,8 @@ export default function WorkspaceLayout({ children }) {
       newStack[filesViewIndex] = { ...newStack[filesViewIndex], currentPath: folder };
       setViewStack(newStack);
     }
-    pushView({ type: "editor", path: filePath });
-  }, [pushView, viewStack, setViewStack]);
+    pushView({ type: "editor", path: filePath, line: opts.line, column: opts.column });
+  }, [isDesktop, pushView, viewStack, setViewStack]);
 
   const handleOpenGit = useCallback(() => {
     const filesView = viewStack.find(v => v.type === "files");
@@ -928,7 +948,12 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Desktop VSCode-like layout: replaces files/editor/git when wide screen */}
         {isDesktop && (currentView.type === "files" || currentView.type === "editor" || currentView.type === "git") && (() => {
-          const filesView = viewStack.find(v => v.type === "files");
+          // files view = currentView when opening explorer; for editor/git, fall back to the
+          // most recently pushed files view (last in stack, not first — stale files views may
+          // linger after group switches that only replace the top view).
+          const filesView = currentView.type === "files"
+            ? currentView
+            : [...viewStack].reverse().find(v => v.type === "files");
           const ws = filesView?.workspace || currentView.workspace;
           const recentInitial = (() => {
             const all = getRecentWorkspaces();
@@ -960,34 +985,37 @@ export default function WorkspaceLayout({ children }) {
           );
         })()}
 
-        {/* File Explorer (workspace mode) - mobile only */}
+        {/* File Explorer (workspace mode) - mobile only.
+            Editor renders as an overlay within this view (mobileEditor) so the
+            explorer stays mounted: Back (X) returns to the same folder without reload. */}
         {!isDesktop && currentView.type === "files" && (
-          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
-            <FileExplorer
-              workspace={currentView.workspace}
-              initialPath={currentView.currentPath}
-              fileSocket={fileSocket}
-              onBack={popView}
-              onOpenFile={handleOpenFile}
-              onOpenGit={handleOpenGit}
-              onSwitchWorkspace={handleOpenWorkspaceList}
-              onPathChange={(p) => handlePathChange(currentView.workspace, p)}
-            />
-          </div>
-        )}
+          <>
+            <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+              <FileExplorer
+                workspace={currentView.workspace}
+                initialPath={currentView.currentPath}
+                fileSocket={fileSocket}
+                onBack={popView}
+                onOpenFile={handleOpenFile}
+                onOpenGit={handleOpenGit}
+                onSwitchWorkspace={handleOpenWorkspaceList}
+                onPathChange={(p) => handlePathChange(currentView.workspace, p)}
+              />
+            </div>
 
-        {/* File Editor - mobile only */}
-        {!isDesktop && currentView.type === "editor" && (
-          <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
-            <FileEditor
-              filePath={currentView.path}
-              line={currentView.line}
-              column={currentView.column}
-              fileSocket={fileSocket}
-              onBack={popView}
-              workspace={viewStack.find(v => v.type === "files")?.workspace}
-            />
-          </div>
+            {mobileEditor && (
+              <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
+                <FileEditor
+                  filePath={mobileEditor.path}
+                  line={mobileEditor.line}
+                  column={mobileEditor.column}
+                  fileSocket={fileSocket}
+                  onBack={() => setMobileEditor(null)}
+                  workspace={currentView.workspace}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* Git Panel - mobile only */}

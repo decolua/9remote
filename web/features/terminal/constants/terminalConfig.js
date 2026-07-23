@@ -103,6 +103,12 @@ export const MIN_ROWS = 2;
 // or this timer drives a settled resize that fires the deferred join at the right cols.
 export const SETTLE_DEBOUNCE_MS = 100;
 
+// Delay after orientationchange before force-refitting. Mobile rotate fires a storm of
+// ResizeObserver events with intermediate widths; fitting too early locks cols to a
+// mid-transition width → content renders narrower than the real (settled) container width.
+// PTY cols is one-way, so wait for the layout to truly settle before emitting.
+export const ORIENTATION_SETTLE_MS = 600;
+
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {
   lineHeight: 18, // px per line step

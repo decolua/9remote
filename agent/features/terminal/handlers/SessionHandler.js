@@ -181,12 +181,14 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     callback?.({ success: true });
   });
 
-  socket.on("createSession", async ({ name, shellId, groupId }, callback) => {
+  socket.on("createSession", async ({ name, shellId, groupId, cwd }, callback) => {
     const sessionId = `session-${Date.now()}`;
     const shellConfig = resolveShell(shellId);
     const shellEnv = buildShellEnv();
     shellEnv.NINE_REMOTE_SESSION_ID = sessionId;
-    const cwd = getDefaultCwd(isCodespaces());
+    // Inherit cwd from last session in group (client-supplied); validate at this trust
+    // boundary — fall back to default if missing or not an existing directory.
+    const resolvedCwd = (cwd && fs.existsSync(cwd)) ? cwd : getDefaultCwd(isCodespaces());
 
     try {
       // Auto-name "Term N" if user didn't provide a custom name (cross-platform)
@@ -194,7 +196,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
 
       // Daemon mode
       if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
-        const result = await daemonClient.createSession(autoName, 80, 24, shellId, sessionId, cwd);
+        const result = await daemonClient.createSession(autoName, 80, 24, shellId, sessionId, resolvedCwd);
         if (result.success) {
           sessions.set(result.sessionId, { daemon: true, name: autoName, createdAt: Date.now(), cwd: result.cwd, shellId: result.shellId, shellLabel: result.shellLabel });
           if (groupId && groups.has(groupId)) { sessionGroups[result.sessionId] = groupId; persistGroups(); }
@@ -207,8 +209,8 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
       }
 
       // Buffer mode PTY
-      const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, { name: "xterm-256color", cols: 80, rows: 24, cwd, env: shellEnv, useConpty: false });
-      const sessionData = { pty: ptyProcess, name: autoName, createdAt: Date.now(), buffer: [], cwd, shellId: shellConfig.id, shellLabel: shellConfig.label };
+      const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, { name: "xterm-256color", cols: 80, rows: 24, cwd: resolvedCwd, env: shellEnv, useConpty: false });
+      const sessionData = { pty: ptyProcess, name: autoName, createdAt: Date.now(), buffer: [], cwd: resolvedCwd, shellId: shellConfig.id, shellLabel: shellConfig.label };
 
       attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions);
       sessions.set(sessionId, sessionData);

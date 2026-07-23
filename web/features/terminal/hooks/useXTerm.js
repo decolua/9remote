@@ -10,7 +10,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { trimEndToEsc } from "@/features/terminal/lib/ansiBoundary";
@@ -516,8 +516,18 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     };
     socket.on("connect", handleReconnect);
 
-    // Orientation change handler - delegate to doResize via ref
-    const handleOrientationChange = () => setTimeout(() => doResizeRef.current?.(), 300);
+    // Orientation change: wait for mobile layout to settle, then force-refit + re-emit cols.
+    // RO may not fire (container height locked against soft-KB shrink) or fire mid-transition
+    // with a stale width → cols lock to wrong value, content renders narrower than container.
+    // force bypasses the "same cols as last emit" skip; double-fit clears xterm's cached cellWidth.
+    const handleOrientationChange = () => setTimeout(() => {
+      const term = termRef.current;
+      const fitAddon = fitAddonRef.current;
+      if (!term || term._isDisposed || !fitAddon) return;
+      fitAddon.fit();
+      fitAddon.fit();
+      doResizeRef.current?.({ force: true });
+    }, ORIENTATION_SETTLE_MS);
     window.addEventListener("orientationchange", handleOrientationChange);
 
     // Force redraw when tab becomes visible again (WebGL renderer may not repaint after tab switch)

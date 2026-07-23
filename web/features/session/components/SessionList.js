@@ -102,7 +102,10 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     const onUp = () => {
       const d = dragRef.current;
       if (d) {
-        if (d.moved) suppressClickRef.current = true; // drop must not trigger a click
+        // Drag was activated (long-press timer fired) → swallow the synthesized click that follows,
+        // even if the finger barely moved. Without this, a long-press-and-release (no reorder)
+        // still opens the terminal.
+        suppressClickRef.current = true;
         resetCard(d.cardEl);
         if (d.fromIdx !== d.overIdx) {
           const ids = [...d.ids];
@@ -115,23 +118,13 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       dragRef.current = null;
       setDrag(null);
     };
-    // Swallow the synthesized click that follows a drag (capture phase beats React onClick)
-    const onClickCapture = (e) => {
-      if (dragRef.current || suppressClickRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        suppressClickRef.current = false;
-      }
-    };
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
-    window.addEventListener("click", onClickCapture, true);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
-      window.removeEventListener("click", onClickCapture, true);
     };
   }, [drag, onReorderSession]);
 
@@ -418,12 +411,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                             key={session.id}
                             data-session-card
                             data-card-idx={cardIdx}
-                            onPointerDown={draggable ? (e) => onGripPointerDown(e, section.id, groupIds, cardIdx) : undefined}
-                            onPointerUp={draggable ? clearPress : undefined}
-                            onPointerLeave={draggable ? clearPress : undefined}
-                            onPointerMove={draggable ? onCardPointerMove : undefined}
                             onClick={() => { if (suppressClickRef.current) { suppressClickRef.current = false; return; } if (!drag && connected) { vibrate(); onSelect(session.id); } }}
-                            className={`group relative select-none rounded-xl transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isDragOver ? "scale-[1.02] ring-2 ring-brand-500" : ""} ${connected && !drag ? "hover:-translate-y-1 cursor-grab active:cursor-grabbing" : ""} ${draggable ? "touch-none" : ""} ${!connected ? "opacity-60" : ""}`}
+                            className={`group relative select-none rounded-xl transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isDragOver ? "scale-[1.02] ring-2 ring-brand-500" : ""} ${connected && !drag ? "hover:-translate-y-1" : ""} ${!connected ? "opacity-60" : ""}`}
                           >
                             {/* Terminal window */}
                             <div
@@ -431,9 +420,13 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                               style={{ background: connected ? "linear-gradient(155deg,#1c1d1f 0%,#151617 55%,#0f1011 100%)" : "linear-gradient(155deg,#161719,#0e0f10)" }}
                             >
                               <div>
-                                {/* Titlebar */}
+                                {/* Titlebar — drag handle for mobile reorder (long-press to drag) */}
                                 <div
-                                  className="flex items-center gap-2 px-2.5 py-1.5 bg-[#2c2c2e]/90 border-b border-black/30"
+                                  onPointerDown={draggable ? (e) => onGripPointerDown(e, section.id, groupIds, cardIdx) : undefined}
+                                  onPointerUp={draggable ? clearPress : undefined}
+                                  onPointerLeave={draggable ? clearPress : undefined}
+                                  onPointerMove={draggable ? onCardPointerMove : undefined}
+                                  className={`flex items-center gap-2 px-2.5 py-1.5 bg-[#2c2c2e]/90 border-b border-black/30 ${draggable ? "cursor-grab active:cursor-grabbing touch-none" : ""}`}
                                 >
                                   <div className={`flex items-center gap-1.5 flex-shrink-0 ${dotBase}`}>
                                     <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />

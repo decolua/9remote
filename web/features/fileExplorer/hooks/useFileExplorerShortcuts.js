@@ -2,15 +2,6 @@
 
 import { useEffect } from "react";
 
-const EDITABLE_TAGS = new Set(["INPUT", "TEXTAREA"]);
-
-function isEditableTarget(target) {
-  if (!target) return false;
-  if (EDITABLE_TAGS.has(target.tagName)) return true;
-  if (target.isContentEditable) return true;
-  return false;
-}
-
 export function useFileExplorerShortcuts({
   onToggleSidebar,
   onSave,
@@ -54,9 +45,8 @@ export function useFileExplorerShortcuts({
         return;
       }
 
-      // mod+w → close tab (skip when typing in editable)
+      // mod+w → close active editor tab (VSCode behavior; always intercept)
       if (!shift && key === "w") {
-        if (isEditableTarget(e.target)) return;
         e.preventDefault();
         onCloseTab?.();
         return;

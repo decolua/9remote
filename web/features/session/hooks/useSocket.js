@@ -132,14 +132,15 @@ export function useSocket() {
     socketRef.current.emit("getGroups", (list) => setGroups(list || []));
   }, [socketRef]);
 
-  // Create new session (groupId optional)
-  const createSession = useCallback((name, shellId, groupId, callback) => {
+  // Create new session (groupId optional). cwd = inherit from last session in group.
+  const createSession = useCallback((name, shellId, groupId, cwd, callback) => {
     if (!socketRef.current) return;
     // Backward compat: createSession(name, callback) / createSession(name, shellId, callback)
-    if (typeof shellId === "function") { callback = shellId; shellId = null; groupId = null; }
-    else if (typeof groupId === "function") { callback = groupId; groupId = null; }
+    if (typeof shellId === "function") { callback = shellId; shellId = null; groupId = null; cwd = null; }
+    else if (typeof groupId === "function") { callback = groupId; groupId = null; cwd = null; }
+    else if (typeof cwd === "function") { callback = cwd; cwd = null; }
 
-    socketRef.current.emit("createSession", { name, shellId, groupId }, (result) => {
+    socketRef.current.emit("createSession", { name, shellId, groupId, cwd }, (result) => {
       if (result.success) {
         loadSessions();
       }

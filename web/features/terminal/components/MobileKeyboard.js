@@ -73,8 +73,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     [textInput, history, pinned, isMobile, pathItems]
   );
   // Clamp highlight into range as the list shrinks (derived — avoids a reset effect).
-  const pathActiveClamped = pathItems.length ? ((pathActive % pathItems.length) + pathItems.length) % pathItems.length : -1;
-  const cmdActiveClamped = cmdItems.length ? ((cmdActive % cmdItems.length) + cmdItems.length) % cmdItems.length : -1;
+  // -1 stays -1 (nothing selected yet); otherwise modular-wrap into range.
+  const wrap = (i, len) => (i < 0 || !len ? -1 : ((i % len) + len) % len);
+  const pathActiveClamped = wrap(pathActive, pathItems.length);
+  const cmdActiveClamped = wrap(cmdActive, cmdItems.length);
   const dirCacheRef = useRef(null);
   if (dirCacheRef.current == null) dirCacheRef.current = makeDirCache();
   const socketRef = useRef(socket);
@@ -627,26 +629,15 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                   sendTextBatch();
                   return;
                 }
-                // Physical ArrowUp/Down (no modifier): if caret is on the first/last line, send
-                // the arrow to the terminal (walk shell history there); mid-text just moves the caret.
-                if (hasPhysicalKeyboard && (e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                  const el = e.target;
-                  const firstNL = el.value.indexOf("\n");
-                  const atFirstLine = el.selectionStart <= (firstNL === -1 ? el.value.length : firstNL);
-                  const lastNL = el.value.lastIndexOf("\n");
-                  const atLastLine = el.selectionEnd >= (lastNL === -1 ? 0 : lastNL + 1);
-                  if (e.key === "ArrowUp" && atFirstLine) {
-                    e.preventDefault();
-                    onInput?.(sessionId);
-                    socket.emit("input", { sessionId, data: "\x1b[A" });
-                    return;
-                  }
-                  if (e.key === "ArrowDown" && atLastLine) {
-                    e.preventDefault();
-                    onInput?.(sessionId);
-                    socket.emit("input", { sessionId, data: "\x1b[B" });
-                    return;
-                  }
+                // Empty input → forward arrow to terminal (shell history walk);
+                // non-empty → caret moves within the textarea normally.
+                if (hasPhysicalKeyboard && (e.key === "ArrowUp" || e.key === "ArrowDown")
+                    && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey
+                    && !textInput) {
+                  e.preventDefault();
+                  onInput?.(sessionId);
+                  socket.emit("input", { sessionId, data: e.key === "ArrowUp" ? "\x1b[A" : "\x1b[B" });
+                  return;
                 }
                 // Control keys (Esc, Ctrl+C/D/Z/L) → straight to terminal.
                 const cfg = INPUT_CONTROL_KEYS[e.key];
