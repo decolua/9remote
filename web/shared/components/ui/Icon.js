@@ -57,6 +57,7 @@ export const {
   Pause,
   Square,
   Pencil,
+  StickyNote,
   Sparkles,
   Globe,
   Palette,

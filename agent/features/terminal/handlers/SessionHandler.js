@@ -1,6 +1,6 @@
 import pty from "node-pty";
 import * as daemonClient from "../ptyDaemonClient.js";
-import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveGroups, UPLOAD_DIR } from "../ptyHelper.js";
+import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveGroups, loadSessionNote, saveSessionNote, deleteSessionNote, UPLOAD_DIR } from "../ptyHelper.js";
 import { resolveShell, getShellList } from "../constants.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
@@ -329,6 +329,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
         await daemonClient.deleteSession(sessionId);
         sessions.delete(sessionId);
         if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
+        deleteSessionNote(sessionId);
         saveSessionMetadata(sessions);
         callback({ success: true });
       } catch (e) {
@@ -341,6 +342,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     sessions.delete(sessionId);
     if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
     deleteSessionBuffer(sessionId);
+    deleteSessionNote(sessionId);
     broadcast(io, "sessionClosed", sessionId);
     saveSessionMetadata(sessions);
     callback({ success: true });
@@ -355,5 +357,17 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     broadcast(io, "session-renamed", { sessionId, name });
     saveSessionMetadata(sessions);
     callback({ success: true });
+  });
+
+  // Per-session note (free-form text, persisted server-side, survives restarts)
+  socket.on("getNote", ({ sessionId } = {}, callback) => {
+    if (typeof callback !== "function") return;
+    callback({ success: true, text: loadSessionNote(sessionId) });
+  });
+
+  socket.on("saveNote", ({ sessionId, text } = {}, callback) => {
+    if (typeof callback !== "function") return;
+    const ok = saveSessionNote(sessionId, text);
+    callback({ success: ok });
   });
 }

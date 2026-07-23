@@ -4,10 +4,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import FileTree from "./FileTree";
 import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen, Eye, EyeOff } from "@/shared/components/ui/Icon";
+import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { STORAGE_KEYS } from "../constants/fileExplorer.js";
 
 export default function FileExplorer({ 
   workspace, 
@@ -19,7 +18,8 @@ export default function FileExplorer({
   onSetWorkspace,
   onSwitchWorkspace,
   onPathChange,
-  isBrowsing = false
+  isBrowsing = false,
+  hideSwitchWorkspace = false
 }) {
   const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(initialPath || workspace);
@@ -34,17 +34,7 @@ export default function FileExplorer({
   const [renameModal, setRenameModal] = useState(null);
   const [hasGit, setHasGit] = useState(false);
   const [gitStatusMap, setGitStatusMap] = useState({});
-  const [showHidden, setShowHidden] = useState(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEYS.showHidden);
-      if (raw === null) return true;
-      return JSON.parse(raw) !== false;
-    } catch {
-      return true;
-    }
-  });
-  
+
   // Search state
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -97,7 +87,7 @@ export default function FileExplorer({
     setLoading(true);
     setError("");
     
-    const result = await fileSocket.getFiles(dirPath, showHidden);
+    const result = await fileSocket.getFiles(dirPath, true);
     
     if (result.success) {
       let filteredFiles = result.files;
@@ -120,7 +110,7 @@ export default function FileExplorer({
     }
     
     setLoading(false);
-  }, [fileSocket, isBrowsing, showHidden]);
+  }, [fileSocket, isBrowsing]);
 
   // Search files with debounce
   const handleSearch = useCallback((query) => {
@@ -162,13 +152,6 @@ export default function FileExplorer({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace, initialPath, isBrowsing]); // Removed loadFiles, checkGit from deps to prevent loop
-
-  // Reload + persist when toggle hidden files
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEYS.showHidden, JSON.stringify(showHidden));
-    if (currentPath) loadFiles(currentPath);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showHidden]);
 
   // Cleanup search timer
   useEffect(() => {
@@ -309,26 +292,13 @@ export default function FileExplorer({
         )}
 
         {/* Workspace mode: Switch workspace button */}
-        {!isBrowsing && onSwitchWorkspace && (
+        {!isBrowsing && onSwitchWorkspace && !hideSwitchWorkspace && (
           <button
             onClick={() => { vibrate(); onSwitchWorkspace(); }}
             className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
             title={t("files.switchWorkspace")}
           >
             <FolderOpen className="text-brand-500" size={20} />
-          </button>
-        )}
-
-        {/* Workspace mode: Toggle hidden files */}
-        {!isBrowsing && (
-          <button
-            onClick={() => { vibrate(); setShowHidden(v => !v); }}
-            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
-            title={t("files.toggleHidden")}
-          >
-            {showHidden
-              ? <Eye className="text-brand-500" size={20} />
-              : <EyeOff className="text-text-muted" size={20} />}
           </button>
         )}
 

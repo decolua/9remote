@@ -573,6 +573,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                 setTextInput(e.target.value);
                 historyIndexRef.current = -1;
               }}
+              onFocus={(e) => {
+                const len = e.target.value.length;
+                e.target.selectionStart = e.target.selectionEnd = len;
+              }}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
                 if (hasPhysicalKeyboard && e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {

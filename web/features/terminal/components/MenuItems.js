@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, GitBranch, StickyNote } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -43,6 +43,12 @@ export default function MenuItems({
   const setFontSize = useTerminalStore((s) => s.setFontSize);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const setTerminalTheme = useTerminalStore((s) => s.setTerminalTheme);
+  const showFolderButton = useTerminalStore((s) => s.showFolderButton);
+  const setShowFolderButton = useTerminalStore((s) => s.setShowFolderButton);
+  const showGitButton = useTerminalStore((s) => s.showGitButton);
+  const setShowGitButton = useTerminalStore((s) => s.setShowGitButton);
+  const showNoteButton = useTerminalStore((s) => s.showNoteButton);
+  const setShowNoteButton = useTerminalStore((s) => s.setShowNoteButton);
   const { theme: appMode } = useTheme();
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
@@ -221,6 +227,38 @@ export default function MenuItems({
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${webglEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
                 </span>
               </button>
+
+              {/* Quick-action button visibility (folder / git / note) */}
+              <div className="flex items-center gap-2.5 pt-1.5">
+                <FolderOpen className="text-brand-500" size={16} />
+                <span className="text-sm">{t("menu.showFolder")}</span>
+                <button
+                  onClick={() => { vibrate(); setShowFolderButton(!showFolderButton); }}
+                  className={`ml-auto relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${showFolderButton ? "bg-brand-500" : "bg-surface-2"}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showFolderButton ? "translate-x-4" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <GitBranch className="text-brand-500" size={16} />
+                <span className="text-sm">{t("menu.showGit")}</span>
+                <button
+                  onClick={() => { vibrate(); setShowGitButton(!showGitButton); }}
+                  className={`ml-auto relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${showGitButton ? "bg-brand-500" : "bg-surface-2"}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showGitButton ? "translate-x-4" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <StickyNote className="text-brand-500" size={16} />
+                <span className="text-sm">{t("menu.showNote")}</span>
+                <button
+                  onClick={() => { vibrate(); setShowNoteButton(!showNoteButton); }}
+                  className={`ml-auto relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${showNoteButton ? "bg-brand-500" : "bg-surface-2"}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showNoteButton ? "translate-x-4" : "translate-x-0.5"}`} />
+                </button>
+              </div>
             </div>
           )}
         </div>

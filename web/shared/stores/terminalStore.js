@@ -73,6 +73,14 @@ export const useTerminalStore = create(
       // Terminal palette sub-theme (default = Vesper). Resolved against app mode in useXTerm.
       terminalTheme: "default",
       setTerminalTheme: (key) => set({ terminalTheme: key || "default" }),
+
+      // Per-pane quick-action button visibility (folder / git / note). Default all on.
+      showFolderButton: true,
+      showGitButton: true,
+      showNoteButton: true,
+      setShowFolderButton: (v) => set({ showFolderButton: !!v }),
+      setShowGitButton: (v) => set({ showGitButton: !!v }),
+      setShowNoteButton: (v) => set({ showNoteButton: !!v }),
       
       // Actions
       pushView: (view) => set((state) => ({
@@ -137,7 +145,10 @@ export const useTerminalStore = create(
         collapsedGroups: state.collapsedGroups,
         webglEnabled: state.webglEnabled,
         fontSize: state.fontSize,
-        terminalTheme: state.terminalTheme
+        terminalTheme: state.terminalTheme,
+        showFolderButton: state.showFolderButton,
+        showGitButton: state.showGitButton,
+        showNoteButton: state.showNoteButton
       }),
       storage: {
         getItem: (name) => {

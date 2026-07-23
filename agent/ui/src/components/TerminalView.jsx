@@ -491,6 +491,10 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 setTextInput(e.target.value);
                 historyIndexRef.current = -1;
               }}
+              onFocus={(e) => {
+                const len = e.target.value.length;
+                e.target.selectionStart = e.target.selectionEnd = len;
+              }}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
                 // Physical ArrowUp/Down (no modifier) navigate history only at caret boundaries (multi-line aware).

@@ -103,6 +103,10 @@ export default {
     fontSize: "Font Size",
     terminalTheme: "Terminal Theme",
     commandNotes: "Command Notes",
+    showButtons: "Quick Buttons",
+    showFolder: "Folder Button",
+    showGit: "Git Button",
+    showNote: "Note Button",
     community: "Community",
     installApp: "Install App",
     upgrade: "Upgrade",
@@ -590,7 +594,17 @@ export default {
     openFolder: "Open folder",
     changedFiles: "Changed files",
     pasteOrType: "Paste or type here",
-    paste: "Paste"
+    paste: "Paste",
+    note: "Session note",
+    addToNote: "Add to note"
+  },
+  note: {
+    title: "Session Note",
+    placeholder: "Write a note for this terminal session…",
+    copy: "Copy",
+    clear: "Clear",
+    saved: "Saved",
+    addSuccess: "Added to note"
   },
   pwaGuide: {
     copyYourKey: "Copy Your Key",

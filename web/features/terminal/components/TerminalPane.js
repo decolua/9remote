@@ -5,7 +5,8 @@ import "@xterm/xterm/css/xterm.css";
 import SelectionActionButton from "@/features/terminal/components/SelectionActionButton";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
-import { ChevronDown, Folder, GitBranch, RefreshCw } from "@/shared/components/ui/Icon";
+import { ChevronDown, Folder, GitBranch, RefreshCw, StickyNote } from "@/shared/components/ui/Icon";
+import NotePanel from "@/features/terminal/components/NotePanel";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
@@ -45,6 +46,13 @@ function TerminalPane({
 
   const { pushView } = useTerminalStore();
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
+  const showFolderButton = useTerminalStore((s) => s.showFolderButton);
+  const showGitButton = useTerminalStore((s) => s.showGitButton);
+  const showNoteButton = useTerminalStore((s) => s.showNoteButton);
+
+  // Note overlay state: open + optional text to append (from selection menu)
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteAppend, setNoteAppend] = useState(null);
 
 // Scroll wrapper so the cursor/content stays visible after a viewport shrink (soft KB).
 // Short content pinned to top; long content scrolls the cursor row into the visible rect.
@@ -254,16 +262,9 @@ function TerminalPane({
           <SelectionActionButton
             text={selection.text}
             position={selection}
-            onOpenFile={(path, line, column) => {
-              let finalPath = path;
-              if (!path.startsWith("/") && cwdRef.current) {
-                finalPath = `${cwdRef.current}/${path}`;
-              }
-              focus();
-              pushView({ type: "editor", path: finalPath, line, column });
-            }}
             onOpenUrl={(url) => window.open(url, "_blank")}
             onCopy={(txt) => { try { navigator.clipboard?.writeText(txt); } catch {} }}
+            onAddToNote={(txt) => { setSelection(null); setNoteAppend(txt); setNoteOpen(true); }}
             onClose={() => { termRef.current?.clearSelection(); setSelection(null); }}
           />
         )}
@@ -272,6 +273,17 @@ function TerminalPane({
       {/* Overlays stay on viewport, not inside scroll content */}
       {cwd && isFocused && (
         <div className="absolute top-2 right-2 z-50 flex flex-col gap-2 pointer-events-auto touch-none">
+          {showNoteButton && (
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); vibrate(); setNoteAppend(null); setNoteOpen(true); }}
+              className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+              title={t("terminalPane.note")}
+            >
+              <StickyNote size={16} />
+            </button>
+          )}
           <button
             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
             onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -288,16 +300,18 @@ function TerminalPane({
           >
             <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
           </button>
-          <button
-            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            onClick={(e) => { e.stopPropagation(); vibrate(); pushView({ type: "files", workspace: cwd, currentPath: cwd }); }}
-            className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
-            title={t("terminalPane.openFolder")}
-          >
-            <Folder size={16} />
-          </button>
-          {changedCount > 0 && (
+          {showFolderButton && (
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); vibrate(); pushView({ type: "files", workspace: cwd, currentPath: cwd, fromTerminal: true }); }}
+              className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+              title={t("terminalPane.openFolder")}
+            >
+              <Folder size={16} />
+            </button>
+          )}
+          {showGitButton && changedCount > 0 && (
             <button
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -329,6 +343,14 @@ function TerminalPane({
         </button>
       )}
 
+      {noteOpen && showNoteButton && (
+        <NotePanel
+          socket={socket}
+          sessionId={sessionId}
+          appendOnOpen={noteAppend}
+          onClose={() => { setNoteOpen(false); setNoteAppend(null); }}
+        />
+      )}
     </div>
   );
 }

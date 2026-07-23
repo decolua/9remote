@@ -1019,6 +1019,7 @@ export default function WorkspaceLayout({ children }) {
                 onOpenGit={handleOpenGit}
                 onSwitchWorkspace={handleOpenWorkspaceList}
                 onPathChange={(p) => handlePathChange(currentView.workspace, p)}
+                hideSwitchWorkspace={currentView.fromTerminal}
               />
             </div>
 

@@ -7,6 +7,7 @@ import { PATHS } from "../../lib/constants.js";
 const BUFFER_DIR = PATHS.BUFFERS;
 const SESSION_METADATA_FILE = path.join(PATHS.STATE, "sessions.json");
 const GROUPS_FILE = path.join(PATHS.STATE, "terminalGroups.json");
+const NOTES_DIR = path.join(PATHS.STATE, "notes");
 
 export const UPLOAD_DIR = "/tmp/9remote-uploads";
 
@@ -183,5 +184,50 @@ export function saveGroups(groups, sessionGroups, sessionOrder = []) {
     fs.writeFileSync(GROUPS_FILE, JSON.stringify(data, null, 2), "utf8");
   } catch (error) {
     console.log("⚠️  Failed to save groups:", error.message);
+  }
+}
+
+const MAX_NOTE_BYTES = 64 * 1024;
+
+// Per-session note (free-form text). Persisted to STATE/notes/<id>.json, survives restarts.
+function notePath(sessionId) {
+  return path.join(NOTES_DIR, `${sessionId}.json`);
+}
+
+export function loadSessionNote(sessionId) {
+  if (!sessionId) return "";
+  try {
+    const file = notePath(sessionId);
+    if (!fs.existsSync(file)) return "";
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    return typeof data.text === "string" ? data.text : "";
+  } catch (error) {
+    console.log("⚠️  Failed to load note:", error.message);
+    return "";
+  }
+}
+
+export function saveSessionNote(sessionId, text) {
+  if (!sessionId) return false;
+  try {
+    const value = typeof text === "string" ? text : "";
+    // Hard cap: reject oversized payload rather than truncate silently.
+    if (Buffer.byteLength(value, "utf8") > MAX_NOTE_BYTES) return false;
+    if (!fs.existsSync(NOTES_DIR)) fs.mkdirSync(NOTES_DIR, { recursive: true });
+    fs.writeFileSync(notePath(sessionId), JSON.stringify({ text: value }), "utf8");
+    return true;
+  } catch (error) {
+    console.log("⚠️  Failed to save note:", error.message);
+    return false;
+  }
+}
+
+export function deleteSessionNote(sessionId) {
+  if (!sessionId) return;
+  try {
+    const file = notePath(sessionId);
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch (error) {
+    console.log("⚠️  Failed to delete note:", error.message);
   }
 }

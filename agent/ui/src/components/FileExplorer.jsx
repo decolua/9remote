@@ -4,7 +4,6 @@ import ConfirmDialog from "./ConfirmDialog";
 import Icon from "./Icon";
 import { useI18n } from "../i18n";
 import { vibrate } from "../lib/vibrate";
-import { STORAGE_KEYS } from "../lib/fileExplorer/constants";
 
 // Port of web FileExplorer (Preact, agent UI). Local socket via useFileSocket.
 export default function FileExplorer({ workspace, initialPath, fileSocket, onBack, onOpenFile, onOpenGit, isBrowsing = false }) {
@@ -21,16 +20,6 @@ export default function FileExplorer({ workspace, initialPath, fileSocket, onBac
   const [renameModal, setRenameModal] = useState(null);
   const [hasGit, setHasGit] = useState(false);
   const [gitStatusMap, setGitStatusMap] = useState({});
-  const [showHidden, setShowHidden] = useState(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEYS.showHidden);
-      if (raw === null) return true;
-      return JSON.parse(raw) !== false;
-    } catch {
-      return true;
-    }
-  });
 
   // Search state
   const [showSearch, setShowSearch] = useState(false);
@@ -68,7 +57,7 @@ export default function FileExplorer({ workspace, initialPath, fileSocket, onBac
   const loadFiles = useCallback(async (dirPath) => {
     setLoading(true);
     setError("");
-    const result = await fileSocket.getFiles(dirPath, showHidden);
+    const result = await fileSocket.getFiles(dirPath, true);
     if (result.success) {
       let filteredFiles = result.files;
       if (isBrowsing) filteredFiles = result.files.filter((f) => f.type === "folder");
@@ -85,7 +74,7 @@ export default function FileExplorer({ workspace, initialPath, fileSocket, onBac
       setFiles([]);
     }
     setLoading(false);
-  }, [fileSocket, isBrowsing, showHidden]);
+  }, [fileSocket, isBrowsing]);
 
   const handleSearch = useCallback((query) => {
     setSearchQuery(query);
@@ -111,12 +100,6 @@ export default function FileExplorer({ workspace, initialPath, fileSocket, onBac
     if (!isBrowsing) checkGit(workspace);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace, initialPath, isBrowsing]);
-
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEYS.showHidden, JSON.stringify(showHidden));
-    if (currentPath) loadFiles(currentPath);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showHidden]);
 
   useEffect(() => {
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
@@ -193,16 +176,6 @@ export default function FileExplorer({ workspace, initialPath, fileSocket, onBac
         <div className="flex-1 min-w-0">
           <div className="text-text font-medium truncate text-sm">{getDisplayPath()}</div>
         </div>
-
-        {!isBrowsing && (
-          <button
-            onClick={() => { vibrate(); setShowHidden((v) => !v); }}
-            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
-            title={t("files.toggleHidden")}
-          >
-            <Icon name={showHidden ? "eye" : "eyeOff"} size={20} className={showHidden ? "text-brand-500" : "text-text-muted"} />
-          </button>
-        )}
 
         {!isBrowsing && (
           <button

@@ -1,33 +1,34 @@
 "use client";
 
-import { FileText, ExternalLink, Copy, X } from "@/shared/components/ui/Icon";
-import { parseFilePathWithLine } from "../utils/linkDetector";
+import { ExternalLink, Copy, X, StickyNote } from "@/shared/components/ui/Icon";
 import { LINK_PATTERNS } from "../constants/linkPatterns";
+import { useI18n } from "@/shared/i18n";
 
 /**
  * Floating Action Button for selected text in terminal
  * Shows context menu with actions based on selection content
  */
-export default function SelectionActionButton({ 
-  text, 
-  position, 
-  onOpenFile, 
-  onOpenUrl, 
-  onCopy, 
-  onClose 
+export default function SelectionActionButton({
+  text,
+  position,
+  onOpenUrl,
+  onCopy,
+  onAddToNote,
+  onClose
 }) {
+  const { t } = useI18n();
   // Detect selection type
   const detectedType = detectSelectionType(text);
 
   // Handle action execution
   const handleAction = (action) => {
-    if (action === "openFile" && detectedType.isFile) {
-      const { path, line, column } = parseFilePathWithLine(detectedType.match);
-      onOpenFile(path, line, column);
-    } else if (action === "openUrl" && detectedType.isUrl) {
+    if (action === "openUrl" && detectedType.isUrl) {
       onOpenUrl(detectedType.match);
     } else if (action === "copy") {
       onCopy(text);
+    } else if (action === "addNote" && onAddToNote) {
+      onAddToNote(text);
+      return; // don't close here — caller controls overlay swap
     }
     onClose();
   };
@@ -56,17 +57,6 @@ export default function SelectionActionButton({
 
         {/* Actions */}
         <div className="p-2">
-          {/* File action */}
-          {detectedType.isFile && (
-            <button
-              onClick={() => handleAction("openFile")}
-              className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-2 text-text text-left rounded-brand transition-colors mb-1"
-            >
-              <FileText size={20} />
-              <span>Open in Editor</span>
-            </button>
-          )}
-
           {/* URL action */}
           {detectedType.isUrl && (
             <button
@@ -86,6 +76,17 @@ export default function SelectionActionButton({
             <Copy size={20} />
             <span>Copy</span>
           </button>
+
+          {/* Add to session note */}
+          {onAddToNote && (
+            <button
+              onClick={() => handleAction("addNote")}
+              className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-2 text-text text-left rounded-brand transition-colors mb-1"
+            >
+              <StickyNote size={20} />
+              <span>{t("terminalPane.addToNote")}</span>
+            </button>
+          )}
 
           {/* Close action */}
           <button
