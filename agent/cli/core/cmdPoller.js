@@ -14,7 +14,7 @@ import { updateTunnelUrl } from "../tunnel/urlSync.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { showConnectionInfo } from "../session/display.js";
 import { shutdownAll } from "./lifecycle.js";
-import { runWebUpdate } from "../utils/updateChecker.js";
+import { runWebUpdate, runWebRestart } from "../utils/updateChecker.js";
 import { WORKER_URL, POLL, DELAYS } from "../config.js";
 
 export function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
@@ -37,6 +37,7 @@ export function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey) {
       else if (cmd === "regenerate-key") await handleRegenerate();
       else if (cmd === "shutdown") handleShutdown(getActiveTunnel, setActiveTunnel);
       else if (cmd === "update") await runWebUpdate();
+      else if (cmd === "restart") await runWebRestart();
     } finally {
       busy = false;
     }

@@ -123,6 +123,17 @@ export default function RemoteControls({
   const rowClass = "flex gap-1.5 overflow-auto scroll-thin-x py-0.5 pr-2 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center rounded-lg";
   const [showExtra, setShowExtra] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
+  // Countdown shown on the clipboard button — mirrors RemoteDesktop's badge
+  // timeout so the number reaches 0 just as the toolbar reverts to zoom-%.
+  const [clipboardCountdown, setClipboardCountdown] = useState(0);
+  useEffect(() => {
+    if (!clipboardNew) { setClipboardCountdown(0); return; }
+    setClipboardCountdown(Math.ceil(REMOTE_CONFIG.clipboardBadgeTimeout / 1000));
+    const id = setInterval(() => {
+      setClipboardCountdown(n => (n <= 1 ? 0 : n - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [clipboardNew, clipboardText]);
 
   const bottomCustom = useCustomKeys("remoteDesktop.bottomKeys", REMOTE_KEY_POOL, REMOTE_DEFAULT_BOTTOM, "flat");
   const extraCustom = useCustomKeys("remoteDesktop.extraKeys", REMOTE_KEY_POOL, REMOTE_DEFAULT_EXTRA, "grid");
@@ -359,12 +370,11 @@ export default function RemoteControls({
           {clipboardNew && clipboardText ? (
             <Btn
               onClick={() => v(onOpenClipboard)}
-              className="text-brand-400 max-w-[140px]"
+              className="text-brand-400"
               title={t("common.clipboard")}
             >
               <ClipboardPaste size={14} className="shrink-0" />
-              <span className="truncate">{clipboardText}</span>
-              <span className="w-1.5 h-1.5 bg-brand-500 rounded-full shrink-0" />
+              <span className="tabular-nums">{clipboardCountdown}</span>
             </Btn>
           ) : (
             <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-text" title={t("remote.resetZoom")}>

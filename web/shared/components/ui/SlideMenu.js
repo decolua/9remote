@@ -126,6 +126,17 @@ export default function SlideMenu() {
     callbacks.onStopCodespace?.();
   }, [close, callbacks]);
 
+  // Host update/restart: confirm dialog shows after menu closes
+  const handleUpdate = useCallback(() => {
+    close();
+    setTimeout(() => callbacks.onUpdate?.(), 50);
+  }, [close, callbacks]);
+
+  const handleRestart = useCallback(() => {
+    close();
+    setTimeout(() => callbacks.onRestart?.(), 50);
+  }, [close, callbacks]);
+
   const handleCloseSitesModal = useCallback(() => {
     setSitesModalOpen(false);
   }, []);
@@ -282,6 +293,8 @@ export default function SlideMenu() {
               socketRef={context.socketRef}
               subscribeToPush={context.subscribeToPush}
               unsubscribeFromPush={context.unsubscribeFromPush}
+              onUpdate={handleUpdate}
+              onRestart={handleRestart}
             />
           )}
 

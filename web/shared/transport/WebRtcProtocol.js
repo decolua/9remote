@@ -8,18 +8,37 @@ import { debugLog } from "@/shared/utils/debugLog";
 let _worker = null;
 let _workerMsgId = 0;
 const _workerPending = new Map();
+// Per-pending decode timeout — a worker suspended/killed by iOS background or a crash
+// stops answering; without this guard every pending decode promise hangs forever and
+// tiles never draw (black canvas on the RTC path). Mirror useTiles.resetBinWorker.
+const WORKER_DECODE_TIMEOUT_MS = 8000;
 
 function getWorker() {
   if (_worker) return _worker;
   _worker = new Worker(new URL("../../features/remote/workers/tileDecoder.worker.js", import.meta.url));
   _worker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
-    const resolve = _workerPending.get(id);
-    if (!resolve) return;
+    const entry = _workerPending.get(id);
+    if (!entry) return;
+    clearTimeout(entry.timer);
     _workerPending.delete(id);
-    resolve(error ? null : { tiles, timestamp, hasBitmap });
+    entry.resolve(error ? null : { tiles, timestamp, hasBitmap });
   };
-  _worker.onerror = (err) => console.error("[Worker] tileDecoder:", err.message);
+  _worker.onerror = (err) => {
+    console.error("[Worker] tileDecoder:", err.message);
+    // A crashed worker won't answer any pending decode — reset so the next tile spawns
+    // a fresh worker instead of posting into a dead one.
+    resetWorker();
+  };
   return _worker;
+}
+
+// Terminate the (possibly suspended/crashed) worker + drop pending decodes so the next
+// tile spawns a fresh worker. Mirrors useTiles.resetBinWorker (iOS background recovery).
+function resetWorker() {
+  if (_worker) { try { _worker.terminate(); } catch {} }
+  _worker = null;
+  for (const { resolve } of _workerPending.values()) { try { resolve(null); } catch {} }
+  _workerPending.clear();
 }
 
 /**
@@ -265,7 +284,14 @@ export class WebRtcProtocol extends BaseProtocol {
     const id = ++_workerMsgId;
     const bytes = buffer.byteLength;
     new Promise((resolve) => {
-      _workerPending.set(id, resolve);
+      // Per-pending timeout — if the worker is suspended (iOS background) or dead it
+      // never answers; resolve(null) drops this frame instead of hanging the promise.
+      const timer = setTimeout(() => {
+        if (!_workerPending.has(id)) return;
+        _workerPending.delete(id);
+        resolve(null);
+      }, WORKER_DECODE_TIMEOUT_MS);
+      _workerPending.set(id, { resolve, timer });
       getWorker().postMessage({ buffer, id, v: 2 }, [buffer]);
     }).then((result) => {
       if (!result) return;

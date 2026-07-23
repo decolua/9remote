@@ -540,3 +540,87 @@ export async function runWebUpdate() {
   setTimeout(() => process.exit(0), 500);
   return true;
 }
+
+// ── Web-triggered restart (no reinstall) ─────────────────────────────────────
+
+// Build a self-contained restart script: wait for agent to die → kill tracked
+// PIDs (never ptyDaemon → sessions survive) → relaunch agent in tray mode.
+// No npm install — just process restart with the current binary.
+function buildRestartScript({ agentPid }) {
+  const pidsDir = getPidsDir();
+  const nodeBin = getNodeBin();
+  const cliEntry = getCliEntry();
+  const restartArgs = "--tray --skip-update --start";
+
+  if (process.platform === "win32") {
+    const script = `@echo off
+:waitloop
+tasklist /FI "PID eq ${agentPid}" 2>nul | find "${agentPid}" >nul
+if not errorlevel 1 (
+  timeout /t 1 /nobreak >nul
+  goto waitloop
+)
+
+for %%N in (cloudflared agent) do (
+  if exist "${pidsDir}\\%%N.pid" (
+    for /f %%P in ('type "${pidsDir}\\%%N.pid"') do taskkill /F /T /PID %%P >nul 2>&1
+    del /f /q "${pidsDir}\\%%N.pid" >nul 2>&1
+  )
+)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %%a >nul 2>&1
+timeout /t 2 /nobreak >nul
+
+cscript //nologo "${path.join(os.tmpdir(), `${PACKAGE_NAME}-relaunch.vbs`)}"
+exit /b 0
+`;
+    const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-restart.bat`);
+    writeFileSync(scriptPath, script);
+    // Relaunch VBS mirrors autostart's buildWinVbs: invisible, detached node launch
+    writeFileSync(
+      path.join(os.tmpdir(), `${PACKAGE_NAME}-relaunch.vbs`),
+      `Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run """${nodeBin}"" ""${cliEntry}"" ${restartArgs}", 0, False
+`
+    );
+    // Launcher VBS runs the .bat invisibly (no console flash)
+    const vbsPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-restart-launch.vbs`);
+    writeFileSync(vbsPath, `CreateObject("WScript.Shell").Run "cmd /c ""${scriptPath}""", 0, False\n`);
+    return { shellCmd: ["wscript.exe", [vbsPath]], windowsVerbatim: false };
+  }
+
+  const script = `#!/bin/bash
+# Wait for agent to exit so it releases resources
+while kill -0 ${agentPid} 2>/dev/null; do sleep 1; done
+
+# Kill tracked PIDs only (never ptyDaemon → sessions survive)
+for name in cloudflared agent; do
+  f="${pidsDir}/\${name}.pid"
+  if [ -f "$f" ]; then
+    pid=$(cat "$f" 2>/dev/null)
+    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+    rm -f "$f"
+  done
+done
+lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true
+sleep 2
+
+"${nodeBin}" "${cliEntry}" ${restartArgs}
+`;
+  const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-restart.sh`);
+  writeFileSync(scriptPath, script, { mode: 0o755 });
+  return { shellCmd: ["sh", [scriptPath]], windowsVerbatim: false };
+}
+
+// Entry point for web-triggered restart (called by cmdPoller on "restart" command).
+// No version check, no npm install — just kill + relaunch the current binary.
+export async function runWebRestart() {
+  if (isRestrictedEnvironment()) return false;
+
+  const { shellCmd, windowsVerbatim } = buildRestartScript({ agentPid: process.pid });
+
+  const child = spawn(shellCmd[0], shellCmd[1], { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: windowsVerbatim });
+  child.unref();
+
+  setTimeout(() => process.exit(0), 500);
+  return true;
+}

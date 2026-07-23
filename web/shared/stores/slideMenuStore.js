@@ -29,6 +29,8 @@ export const useSlideMenuStore = create((set) => ({
     onLogout: null,
     onThemeChange: null,
     onStopCodespace: null,
+    onUpdate: null,
+    onRestart: null,
   },
 
   cachedSites: [],
@@ -66,6 +68,8 @@ export const useSlideMenuStore = create((set) => ({
       onLogout: null,
       onThemeChange: null,
       onStopCodespace: null,
+      onUpdate: null,
+      onRestart: null,
       ...callbacks
     }
   }),

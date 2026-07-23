@@ -238,8 +238,17 @@ export class TileManager {
       this._prefetchCapture = this.captureFullScreen();
       return data;
     }
-    // Await the prefetched capture (started during previous frame's encode)
-    const data = await this._prefetchCapture;
+    // Await the prefetched capture (started during previous frame's encode).
+    // A rejected prefetch must be dropped — otherwise it is held forever and
+    // every subsequent frame re-awaits the same rejected promise (capture
+    // stays dead until agent restart, even after the underlying monitor recovers).
+    let data;
+    try {
+      data = await this._prefetchCapture;
+    } catch (err) {
+      this._prefetchCapture = null;
+      throw err;
+    }
     // Immediately start capturing the next frame while we go encode this one
     this._prefetchCapture = this.captureFullScreen();
     return data;

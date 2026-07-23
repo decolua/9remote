@@ -81,6 +81,15 @@ export default {
     docs: "Tài liệu"
   },
   menu: {
+  reloadRestart: "Tải lại & Khởi động lại",
+  restartHost: "Khởi động lại 9remote host",
+  restartConfirmTitle: "Khởi động lại 9remote host?",
+  restartConfirmMessage: "Khởi động lại tiến trình agent (không cài lại). Phiên terminal được giữ. Mất vài giây.",
+  restartStarting: "Đang khởi động lại host…",
+  restartRestarting: "Đang khởi động lại 9remote…",
+  restartDone: "Đã khởi động lại! Đang kết nối lại…",
+  restartTimeout: "Khởi động lại quá lâu",
+  restartTimeoutHint: "Kết nối lại thủ công nếu không tự phục hồi.",
     title: "Menu",
     language: "Ngôn ngữ",
     theme: "Giao diện",

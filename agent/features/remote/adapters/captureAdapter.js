@@ -49,14 +49,24 @@ export async function captureFull() {
 
   // node-screenshots: DXGI on Win, XCap on Mac/Linux → RGBA bytes
   // Use async API — sync version leaks native Obj-C autoreleased objects on Mac
-  const m = await getMonitor();
-  const image = await m.captureImage();
-  const raw = await image.toRaw();
-  return {
-    buffer: raw,
-    width: image.width,
-    height: image.height,
-    channels: 4,
-    format: inputFormat
-  };
+  // On Win the DXGI Desktop Duplication handle goes stale after lock screen,
+  // RDP reconnect, display sleep, DPI change, or monitor unplug/replug — the
+  // cached Monitor then throws (or yields corrupt output) forever. Invalidate
+  // the cache on any failure so the next capture re-acquires a fresh handle.
+  let m;
+  try {
+    m = await getMonitor();
+    const image = await m.captureImage();
+    const raw = await image.toRaw();
+    return {
+      buffer: raw,
+      width: image.width,
+      height: image.height,
+      channels: 4,
+      format: inputFormat
+    };
+  } catch (err) {
+    monitorRef = null;
+    throw err;
+  }
 }

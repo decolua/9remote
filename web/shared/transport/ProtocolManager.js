@@ -2,6 +2,7 @@ import { WsProtocol } from "./WsProtocol";
 import { WebRtcProtocol } from "./WebRtcProtocol";
 import { registerProtocol, getProtocol } from "./registry";
 import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_RESTART } from "@/shared/constants/transport";
+import { isWsZombie } from "./wsZombie";
 import { debugLog } from "@/shared/utils/debugLog";
 
 // Auto-register built-in adapters
@@ -71,7 +72,29 @@ export class ProtocolManager {
     this._visibilityHandler = () => {
       if (document.visibilityState !== "visible") return;
       const ws = this._adapters.get("ws");
-      if (!ws?.ready) return; // Need WS alive to carry signaling for renegotiation
+      // WS zombie: socket.io still reports connected after background suspension
+      // froze its pings, so it looks ready but no bytes flow (terminal/remote go
+      // dead with NO disconnect modal, and only an app reload recovers). Break the
+      // zombie socket so the normal reconnect path replaces it.
+      // lastInboundAt comes from Engine.IO "pong" (true liveness, independent of
+      // app traffic or RTC) so an idle-but-alive WS is never mistaken for a zombie.
+      const wsZombie = ws?.ready && isWsZombie({
+        ready: true,
+        lastInboundAt: ws.lastInboundAt ?? 0,
+        now: Date.now()
+      });
+      if (wsZombie) {
+        debugLog("transport", "[pm] ws zombie on resume → force reconnect");
+        try { ws.forceReconnect?.(); } catch {}
+        // Fall through: WS may take time to reconnect; also restart RTC now so the
+        // binary channel recovers in parallel (RTC dies on background too, and the
+        // user's symptom is BOTH dead — fix them together, don't wait for WS open).
+      }
+      if (!ws?.ready) {
+        // WS not alive — can't carry signaling for a fresh RTC negotiation here;
+        // it will restart on WS open (isReconnect path). Nothing more to do now.
+        return;
+      }
       const rtc = this._adapters.get("rtc");
       if (!rtc || rtc.state === ADAPTER_STATE.closed || rtc.state === ADAPTER_STATE.degraded) {
         this._restartRtc();

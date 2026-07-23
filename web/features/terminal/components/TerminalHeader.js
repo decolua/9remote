@@ -23,6 +23,8 @@ export default function TerminalHeader({
   onOpenFiles,
   onLogout,
   onStopCodespace,
+  onUpdate,
+  onRestart,
   codespaceInfo,
   tunnelUrl,
   apiKey,
@@ -193,8 +195,10 @@ export default function TerminalHeader({
       onCodespace: null,
       onLogout,
       onStopCodespace,
+      onUpdate,
+      onRestart,
     });
-  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, transport, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
+  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, transport, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
     <div className="px-2 sm:px-4 pt-2 mb-1 flex items-center gap-2 flex-shrink-0 bg-bg">

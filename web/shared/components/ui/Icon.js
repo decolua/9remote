@@ -52,6 +52,7 @@ export const {
   Download,
   Upload,
   RefreshCw,
+  RotateCw,
   Play,
   Pause,
   Square,

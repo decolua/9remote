@@ -7,10 +7,26 @@ import { BEHAVIOR } from "@/shared/constants/features";
 
 const { installingAt, restartingAt, timeoutSec } = BEHAVIOR.update;
 
+// Phase labels per mode. Restart skips "installing" (no npm install).
+const UPDATE_LABELS = {
+  starting: "menu.updateStarting",
+  installing: "menu.updateInstalling",
+  restarting: "menu.updateRestarting",
+  done: "menu.updateDone",
+  timeout: "menu.updateTimeout",
+};
+const RESTART_LABELS = {
+  starting: "menu.restartStarting",
+  restarting: "menu.restartRestarting",
+  done: "menu.restartDone",
+  timeout: "menu.restartTimeout",
+};
+
 // Update progress overlay. Web only observes socket connect/disconnect (the update runs
 // in a detached script), so phases are time-estimated. Agent restart = connected true→false→true.
-export default function UpdateModal({ open, connected }) {
+export default function UpdateModal({ open, connected, mode = "update" }) {
   const { t } = useI18n();
+  const labels = mode === "restart" ? RESTART_LABELS : UPDATE_LABELS;
   const [seconds, setSeconds] = useState(0);
   const [timedOut, setTimedOut] = useState(false);
   const diedRef = useRef(false);
@@ -39,17 +55,13 @@ export default function UpdateModal({ open, connected }) {
   if (timedOut && !reconnected) phase = "timeout";
   else if (reconnected) phase = "done";
   else if (!connected) phase = "restarting";
+  else if (mode === "restart") phase = seconds < restartingAt ? "starting" : "restarting";
   else if (seconds < installingAt) phase = "starting";
   else if (seconds < restartingAt) phase = "installing";
   else phase = "restarting";
 
-  const label = {
-    starting: t("menu.updateStarting"),
-    installing: t("menu.updateInstalling"),
-    restarting: t("menu.updateRestarting"),
-    done: t("menu.updateDone"),
-    timeout: t("menu.updateTimeout"),
-  }[phase];
+  const label = t(labels[phase]);
+  const timeoutHint = mode === "restart" ? t("menu.restartTimeoutHint") : t("menu.updateTimeoutHint");
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -58,7 +70,7 @@ export default function UpdateModal({ open, connected }) {
           <>
             <div className="w-14 h-14 mx-auto bg-yellow-500/20 rounded-full flex items-center justify-center text-2xl">⚠️</div>
             <h3 className="text-text text-lg font-semibold mt-4">{label}</h3>
-            <p className="text-text-muted text-sm mt-2">{t("menu.updateTimeoutHint")}</p>
+            <p className="text-text-muted text-sm mt-2">{timeoutHint}</p>
             <button
               onClick={() => window.location.reload()}
               className="mt-4 w-full py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition-colors"

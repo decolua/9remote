@@ -81,6 +81,15 @@ export default {
     docs: "문서"
   },
   menu: {
+  reloadRestart: "Reload & Restart",
+  restartHost: "Restart 9remote host",
+  restartConfirmTitle: "Restart 9remote host?",
+  restartConfirmMessage: "This restarts the agent process (no reinstall). Terminal sessions are preserved. It takes a few seconds.",
+  restartStarting: "Restarting host…",
+  restartRestarting: "Restarting 9remote…",
+  restartDone: "Restarted! Reconnecting…",
+  restartTimeout: "Restart is taking too long",
+  restartTimeoutHint: "Reconnect manually if it doesn't recover.",
     title: "메뉴",
     language: "언어",
     theme: "테마",

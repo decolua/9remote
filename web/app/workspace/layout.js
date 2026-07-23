@@ -76,14 +76,20 @@ export default function WorkspaceLayout({ children }) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession, reorderSession } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession, reorderSession } = useSocket();
   const [shells, setShells] = useState([]);
   const [updating, setUpdating] = useState(false);
+  const [updateMode, setUpdateMode] = useState("update");
 
   // Run the actual update: drive UpdateModal + suppress ConnectionModal during restart
   const doUpdate = useCallback(() => {
-    if (triggerUpdate()) setUpdating(true);
+    if (triggerUpdate()) { setUpdateMode("update"); setUpdating(true); }
   }, [triggerUpdate]);
+
+  // Run host restart (no reinstall): drive UpdateModal in restart mode
+  const doRestart = useCallback(() => {
+    if (triggerRestart()) { setUpdateMode("restart"); setUpdating(true); }
+  }, [triggerRestart]);
 
   // Ask for confirmation before self-update (restarts connection, ~1 min)
   const handleUpdate = useCallback(() => {
@@ -94,6 +100,16 @@ export default function WorkspaceLayout({ children }) {
       onConfirm: doUpdate,
     });
   }, [doUpdate, t]);
+
+  // Ask for confirmation before host restart
+  const handleRestart = useCallback(() => {
+    setConfirmDialog({
+      isOpen: true,
+      title: t("menu.restartConfirmTitle"),
+      message: t("menu.restartConfirmMessage"),
+      onConfirm: doRestart,
+    });
+  }, [doRestart, t]);
 
   // Hardcoded Windows shell picker: Command Prompt + PowerShell only.
   // Non-Windows hides the picker. Override agent-reported list intentionally.
@@ -708,6 +724,8 @@ export default function WorkspaceLayout({ children }) {
             codespaceInfo={codespaceInfo}
             codespaceDisconnected={codespaceDisconnected}
             onStopCodespace={stopCodespace}
+            onUpdate={handleUpdate}
+            onRestart={handleRestart}
             retryStatus={retryStatus}
             isActive={currentView.type === "list"}
             socketRef={socketRef}
@@ -719,7 +737,6 @@ export default function WorkspaceLayout({ children }) {
             agentVersion={agentVersion}
             updateAvailable={updateAvailable}
             canSelfUpdate={canSelfUpdate}
-            onUpdate={handleUpdate}
             transport={transport}
             groups={groups}
             onCreateGroup={createGroup}
@@ -782,6 +799,8 @@ export default function WorkspaceLayout({ children }) {
                 onOpenFiles={handleOpenFiles}
                 onLogout={handleLogoutWithConfirm}
                 onStopCodespace={stopCodespace}
+                onUpdate={handleUpdate}
+                onRestart={handleRestart}
                 codespaceInfo={codespaceInfo}
                 tunnelUrl={auth?.tunnelUrl}
                 apiKey={auth?.apiKey}
@@ -1034,7 +1053,7 @@ export default function WorkspaceLayout({ children }) {
         {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} onLogout={handleDisconnect} />}
 
         {/* Update Modal - progress overlay during agent self-update */}
-        <UpdateModal open={updating} connected={connected} />
+        <UpdateModal open={updating} connected={connected} mode={updateMode} />
 
         {/* Global Slide Menu - single instance at page level */}
         <SlideMenu />

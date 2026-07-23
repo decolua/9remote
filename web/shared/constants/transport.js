@@ -17,6 +17,11 @@ export const RTC_RESTART = {
   backoffMs: [1000, 2000, 4000] // delay before each restart attempt
 };
 
+// WS zombie recovery — detect a socket.io socket that still reports connected
+// after OS background suspension froze its pings (data never flows again).
+// ~2 missed ping cycles (socket.io default pingInterval 25s) = certainly dead.
+export const WS_ZOMBIE_MS = 45000;
+
 export const ADAPTER_STATE = {
   idle: "idle",
   connecting: "connecting",

@@ -15,7 +15,7 @@ import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/
 
 const UNGROUPED_KEY = "ungrouped";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, sessionStatus = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup, onReorderSession, shells = [] }) {
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, sessionStatus = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup, onReorderSession, shells = [] }) {
   const { t } = useI18n();
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
@@ -164,15 +164,19 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       onLogout,
       onThemeChange: null,
       onStopCodespace,
+      onUpdate,
+      onRestart,
     });
   }, [
     isActive,
-    connected, 
-    onOpenRemote, 
-    onOpenFiles, 
-    codespaceInfo, 
-    onLogout, 
+    connected,
+    onOpenRemote,
+    onOpenFiles,
+    codespaceInfo,
+    onLogout,
     onStopCodespace,
+    onUpdate,
+    onRestart,
     setContext,
     setCallbacks,
     socketRef,

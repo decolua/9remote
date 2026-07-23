@@ -18,6 +18,9 @@ export function setupPushHandlers(socket, io) {
   // Trigger agent self-update via socket (authenticated, no HTTP through tunnel)
   socket.on("requestUpdate", () => writeCmd("update"));
 
+  // Restart agent host (no reinstall): kill + relaunch, ptyDaemon survives
+  socket.on("requestRestart", () => writeCmd("restart"));
+
   // Clear on focus/input/switch → idle. Only broadcast when a DONE entry was actually cleared;
   // working/blocked must survive focus so a running agent keeps its spinner.
   socket.on("clearStatus", (sessionId) => {

@@ -30,7 +30,14 @@ export class WsProtocol extends BaseProtocol {
     this._updating = false;
     this._connecting = false;
     this._visibilityHandler = null;
+    // Engine.IO liveness — updated by the built-in "pong" event (every pingInterval
+    // even when no app bytes flow), so an idle-but-alive socket is never mistaken
+    // for a zombie. PM reads this on resume to decide whether to force a reconnect.
+    this._lastInboundAt = Date.now();
   }
+
+  /** Last Engine.IO pong timestamp — real transport liveness (independent of RTC). */
+  get lastInboundAt() { return this._lastInboundAt; }
 
   get socket() { return this._socket; }
   get connectionMode() { return this._connectionMode; }
@@ -44,6 +51,16 @@ export class WsProtocol extends BaseProtocol {
       this._retryAttempt = 0;
       debugLog("transport", `[ws] updating=true maxAttempts=${this._maxAttempts}`);
     }
+  }
+
+  /**
+   * Force a reconnect from outside (e.g. ProtocolManager detected a zombie socket
+   * that still reports connected after background suspension). Public wrapper for
+   * the internal reconnect path so PM doesn't reach into private state.
+   */
+  forceReconnect() {
+    if (this._destroyed) return;
+    this._forceReconnect();
   }
 
   /** Dev/test: prevent reconnect attempts. When unblocked, schedule retry immediately. */
@@ -168,6 +185,14 @@ export class WsProtocol extends BaseProtocol {
       this._setState(ADAPTER_STATE.degraded);
       this._forceReconnect();
     });
+
+    // Engine.IO heartbeat — the "pong" reply arrives every pingInterval (~25s)
+    // regardless of app traffic, so it's a true liveness signal. Stamp it so the
+    // zombie probe (PM visibility handler) can distinguish an idle-but-alive
+    // socket from one frozen by OS background suspension.
+    socket.io?.on?.("pong", () => { this._lastInboundAt = Date.now(); });
+    // Also stamp on connect — a freshly opened socket is by definition alive.
+    socket.on("connect", () => { this._lastInboundAt = Date.now(); });
 
     // Forward all incoming events into unified bus as "message" (tagged source so PM
     // doesn't double-fire raw socket listeners — socket.io already invoked them natively)

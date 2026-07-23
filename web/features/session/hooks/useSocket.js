@@ -224,6 +224,15 @@ export function useSocket() {
     return true;
   }, [socketRef, protocolRef]);
 
+  // Restart agent host (no reinstall): kill + relaunch, ptyDaemon survives
+  const triggerRestart = useCallback(() => {
+    const sock = socketRef.current;
+    if (!sock?.connected) return false;
+    protocolRef.current?.setUpdating?.(true);
+    sock.emit("requestRestart");
+    return true;
+  }, [socketRef, protocolRef]);
+
   return {
     socket,
     socketRef,
@@ -243,6 +252,7 @@ export function useSocket() {
     updateAvailable,
     canSelfUpdate,
     triggerUpdate,
+    triggerRestart,
     groups,
     loadSessions,
     loadGroups,

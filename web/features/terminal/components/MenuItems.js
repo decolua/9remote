@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, Monitor, Type, Palette, Terminal, ChevronDown } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -31,7 +31,9 @@ export default function MenuItems({
   hideActions = [],
   socketRef = null,
   subscribeToPush = null,
-  unsubscribeFromPush = null
+  unsubscribeFromPush = null,
+  onUpdate,
+  onRestart
 }) {
   const { t } = useI18n();
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
@@ -43,6 +45,7 @@ export default function MenuItems({
   const setTerminalTheme = useTerminalStore((s) => s.setTerminalTheme);
   const { theme: appMode } = useTheme();
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
+  const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const terminalMenuRef = useRef(null);
 
   // Close terminal settings dropdown on outside click
@@ -56,6 +59,20 @@ export default function MenuItems({
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, [terminalMenuOpen]);
+
+  const powerMenuRef = useRef(null);
+
+  // Close power dropdown on outside click
+  useEffect(() => {
+    if (!powerMenuOpen) return;
+    const onClick = (e) => {
+      if (powerMenuRef.current && !powerMenuRef.current.contains(e.target)) {
+        setPowerMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [powerMenuOpen]);
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => { setIsMobile(window.innerWidth < 768); }, []);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
@@ -262,13 +279,37 @@ export default function MenuItems({
       )}
 
       {/* Reload app */}
-      <button
-        onClick={() => { vibrate(); window.location.reload(); }}
-        className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
-      >
-        <RefreshCw className="text-brand-500" size={16} />
-        <span className="text-sm">{t("menu.reload")}</span>
-      </button>
+      {/* Reload & Restart dropdown */}
+      <div ref={powerMenuRef} className="rounded-brand-lg overflow-hidden">
+        <button
+          onClick={() => { vibrate(); setPowerMenuOpen((v) => !v); }}
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+        >
+          <RefreshCw className="text-brand-500" size={16} />
+          <span className="text-sm flex-1">{t("menu.reloadRestart")}</span>
+          <ChevronDown className={`text-text-muted transition-transform duration-200 ${powerMenuOpen ? "rotate-180" : ""}`} size={16} />
+        </button>
+        {powerMenuOpen && (
+          <div className="bg-surface-2/50 px-3 pb-1.5 space-y-0">
+            <button
+              onClick={() => { vibrate(); window.location.reload(); }}
+              className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition-all duration-150 ease-out hover:text-brand-500 active:scale-[0.99]"
+            >
+              <RefreshCw size={16} className="ml-3" />
+              <span className="text-sm">{t("menu.reload")}</span>
+            </button>
+            {onRestart && (
+              <button
+                onClick={() => { vibrate(); setPowerMenuOpen(false); onRestart(); }}
+                className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition-all duration-150 ease-out hover:text-brand-500 active:scale-[0.99]"
+              >
+                <RotateCw size={16} className="ml-3" />
+                <span className="text-sm">{t("menu.restartHost")}</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Logout */}
       {onLogout && (

@@ -8,8 +8,12 @@ import os from "os";
 
 const require = createRequire(import.meta.url);
 
-// Avoid repeated heal attempts within one process lifetime.
-const _tried = new Set();
+// Avoid repeated heal attempts within a retry window. A transient heal failure
+// (DNS/GitHub down, AV quarantine, prebuild-install fetch blip) must not permanently
+// disable the native module for the process lifetime — after the window the next
+// loadNative call retries the heal instead of rethrowing the stale error forever.
+const HEAL_RETRY_MS = 5 * 60 * 1000;
+const _triedAt = new Map();
 
 /**
  * Load a native module, retrying via prebuild-install if the .node binary is missing.
@@ -22,8 +26,9 @@ export function loadNative(moduleName) {
     return require(moduleName);
   } catch (err) {
     if (err.code !== "MODULE_NOT_FOUND" && !_isMissingBinary(err)) throw err;
-    if (_tried.has(moduleName)) throw err;
-    _tried.add(moduleName);
+    const lastTried = _triedAt.get(moduleName);
+    if (lastTried != null && Date.now() - lastTried < HEAL_RETRY_MS) throw err;
+    _triedAt.set(moduleName, Date.now());
     _heal(moduleName);
     return require(moduleName); // throws again if still broken
   }
