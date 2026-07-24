@@ -9,6 +9,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { search } from "@codemirror/search";
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import { indentWithTab } from "@codemirror/commands";
 import { keymap } from "@codemirror/view";
 import {
   AUTO_SAVE_DELAY,
@@ -143,7 +144,7 @@ export default function EmbeddedEditor({ filePath, fileSocket, onEditorStateChan
         search(),
         autocompletion(),
         closeBrackets(),
-        keymap.of([...closeBracketsKeymap, ...completionKeymap]),
+        keymap.of([...closeBracketsKeymap, ...completionKeymap, indentWithTab]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             const currentContent = update.state.doc.toString();

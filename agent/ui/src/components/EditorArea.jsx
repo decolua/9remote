@@ -60,24 +60,30 @@ export default function EditorArea({
       />
       <Breadcrumbs workspace={workspace} filePath={activeFile} />
       <div className="flex-1 min-h-0 overflow-hidden">
-        {isDiffPath(activeFile) ? (
-          <DiffView key={activeFile} diffPath={activeFile} workspace={workspace} fileSocket={fileSocket} onOpenFile={onOpenFile} />
-        ) : isPdfFile(activeFile) ? (
-          <PdfViewer key={activeFile} filePath={activeFile} fileSocket={fileSocket} />
-        ) : isVideoFile(activeFile) || isAudioFile(activeFile) ? (
-          <MediaViewer key={activeFile} filePath={activeFile} fileSocket={fileSocket} />
-        ) : isImageFile(activeFile) ? (
-          <ImageViewer key={activeFile} filePath={activeFile} fileSocket={fileSocket} />
-        ) : (
-          <EmbeddedEditor
-            key={activeFile}
-            filePath={activeFile}
-            fileSocket={fileSocket}
-            workspace={workspace}
-            onEditorStateChange={onEditorStateChange}
-            onDirtyChange={handleDirtyChange}
-          />
-        )}
+        {openedFiles.map((path) => {
+          const isActive = path === activeFile;
+          return (
+            <div key={path} className={isActive ? "h-full" : "hidden"}>
+              {isDiffPath(path) ? (
+                <DiffView diffPath={path} workspace={workspace} fileSocket={fileSocket} onOpenFile={onOpenFile} />
+              ) : isPdfFile(path) ? (
+                <PdfViewer filePath={path} fileSocket={fileSocket} />
+              ) : isVideoFile(path) || isAudioFile(path) ? (
+                <MediaViewer filePath={path} fileSocket={fileSocket} />
+              ) : isImageFile(path) ? (
+                <ImageViewer filePath={path} fileSocket={fileSocket} />
+              ) : (
+                <EmbeddedEditor
+                  filePath={path}
+                  fileSocket={fileSocket}
+                  workspace={workspace}
+                  onEditorStateChange={onEditorStateChange}
+                  onDirtyChange={handleDirtyChange}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
