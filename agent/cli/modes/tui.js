@@ -180,7 +180,7 @@ export async function tuiMode() {
     shutdown: () => { tuiServerMgr.shutdown(); stopSSE(); clearInterval(pendingPoll); },
   }, tunnelProcess);
 
-  setupCmdPoller(() => tunnelRef.current, (t) => { tunnelRef.current = t; }, keyData.key);
+  setupCmdPoller(() => tunnelRef.current, (t) => { tunnelRef.current = t; }, keyData.key, () => tuiServerMgr);
 
   const onShutdown = () => {
     try { stopSSE(); } catch {}

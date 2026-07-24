@@ -34,6 +34,7 @@ export function killProcessOnPort(port) {
 export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
   let currentProcess = null;
   let isShuttingDown = false;
+  let isRestarting = false;
   let isFirstStart = true;
   let failCount = 0;
   let healthyTimer = null;
@@ -70,6 +71,14 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
       if (healthyTimer) { clearTimeout(healthyTimer); healthyTimer = null; }
       if (isShuttingDown) return;
 
+      // Intentional restart (web-triggered): respawn quietly, no fail-count bump
+      if (isRestarting) {
+        isRestarting = false;
+        logger.info("🔄 Restarting server (requested)...");
+        setTimeout(() => { spawnServer(); onRestarted?.(); }, 500);
+        return;
+      }
+
       logger.error(`💥 Server exited unexpectedly (code: ${code}, signal: ${signal})`);
       failCount++;
       const delay = computeDelay(RETRY_CONFIG.server, failCount);
@@ -104,7 +113,26 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
         try { if (currentProcess) currentProcess.kill("SIGKILL"); } catch {}
       }, 2000);
     },
+    // Restart ONLY the server child (CLI parent + tunnel + cloudflared untouched).
+    // Sets isRestarting so the exit handler respawns quietly instead of crash-retry.
+    restart: () => {
+      if (!currentProcess) return false;
+      isRestarting = true;
+      try { currentProcess.kill("SIGTERM"); } catch {}
+      // Force if SIGTERM doesn't land within 2s
+      setTimeout(() => {
+        try { if (currentProcess && isRestarting) currentProcess.kill("SIGKILL"); } catch {}
+      }, 2000);
+      return true;
+    },
   };
+}
+
+// Restart only the server child (keeps CLI parent + tunnel + cloudflared alive).
+// No-op if the server is already gone (e.g. alreadyRunning mode without a manager).
+export function restartServer(serverManager) {
+  if (!serverManager?.restart) return false;
+  return serverManager.restart();
 }
 
 export function shutdownAll({ serverManager, tunnelProcess, exit = true, code = 0 } = {}) {

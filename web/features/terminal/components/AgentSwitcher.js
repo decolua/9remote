@@ -109,17 +109,15 @@ export default function AgentSwitcher({
     <div className={isMenu ? "as-menu" : "as-login"}>
       <div className="as-head">
           <h3>{t("agentSwitcher.title")}</h3>
-          {localKeys.length > 1 && (
-            <button
-              type="button"
-              onClick={() => { vibrate(); setEditMode((v) => !v); setEditingId(null); }}
-              className={`as-edit-btn ${editMode ? "as-edit-btn--on" : ""}`}
-              aria-label={editMode ? t("common.done") : t("common.edit")}
-              title={editMode ? t("common.done") : t("common.edit")}
-            >
-              {editMode ? <Check size={15} /> : <Pencil size={15} />}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => { vibrate(); setEditMode((v) => !v); setEditingId(null); }}
+            className={`as-edit-btn ${editMode ? "as-edit-btn--on" : ""}`}
+            aria-label={editMode ? t("common.done") : t("common.edit")}
+            title={editMode ? t("common.done") : t("common.edit")}
+          >
+            {editMode ? <Check size={15} /> : <Pencil size={15} />}
+          </button>
         </div>
 
         <div className={`as-row ${editMode ? "as-row--edit" : ""}`}>

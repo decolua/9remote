@@ -42,7 +42,7 @@ export async function startTrayMode() {
   };
 
   setupExitHandler(serverManager, null);
-  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
+  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key, () => serverManager);
 
   try { clearPid("cloudflared"); } catch {}
 

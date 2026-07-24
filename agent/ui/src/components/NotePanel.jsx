@@ -55,6 +55,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, th
         extensions: [
           basicSetup,
           markdown(),
+          EditorView.lineWrapping,
           updateListener,
           EditorView.theme({
             "&": { height: "100%", fontSize: "13px" },
@@ -108,7 +109,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, th
       onMouseDown={(e) => { e.preventDefault(); onClose(); }}
     >
       <div
-        className="w-full max-w-lg h-[70vh] flex flex-col overflow-hidden"
+        className="w-full max-w-lg h-[55dvh] min-h-[300px] flex flex-col overflow-hidden"
         style={{ background: "var(--surface)", borderRadius: "var(--radius-brand-lg, 16px)", boxShadow: "var(--shadow-elev, 0 10px 30px rgba(0,0,0,0.3))" }}
         onMouseDown={(e) => { e.stopPropagation(); }}
         onClick={(e) => e.stopPropagation()}
@@ -140,7 +141,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, th
       </div>
       <style>{`
         .note-cm .cm-editor{height:100%;background:var(--surface)}
-        .note-cm .cm-scroller{background:var(--surface)}
+        .note-cm .cm-scroller{background:var(--surface);overflow:auto}
         .note-cm .cm-gutters{border-right:1px solid var(--border);background:transparent}
       `}</style>
     </div>

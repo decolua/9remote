@@ -87,9 +87,10 @@ export default function WorkspaceLayout({ children }) {
     if (triggerUpdate()) { setUpdateMode("update"); setUpdating(true); }
   }, [triggerUpdate]);
 
-  // Run host restart (no reinstall): drive UpdateModal in restart mode
+  // Run host restart (no reinstall): WS reconnect handles the gap (~2s).
+  // No modal — ConnectionModal shows "reconnecting" while server child respawns.
   const doRestart = useCallback(() => {
-    if (triggerRestart()) { setUpdateMode("restart"); setUpdating(true); }
+    triggerRestart();
   }, [triggerRestart]);
 
   // Ask for confirmation before self-update (restarts connection, ~1 min)

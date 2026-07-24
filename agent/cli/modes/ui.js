@@ -31,7 +31,7 @@ export async function startUiMode() {
   await pushUiState({ permanentKey: keyData.key, step: STEP.STOPPED, theme });
 
   setupExitHandler(serverManager, null);
-  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key);
+  setupCmdPoller(() => activeTunnel, (t) => { activeTunnel = t; }, keyData.key, () => serverManager);
 
   if (process.argv.includes("--start")) writeCmd("start-tunnel");
 

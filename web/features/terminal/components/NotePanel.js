@@ -62,6 +62,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
         extensions: [
           basicSetup,
           markdown(),
+          EditorView.lineWrapping,
           updateListener,
           EditorView.theme({
             "&": { height: "100%", fontSize: "13px" },
@@ -116,7 +117,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
       onMouseDown={(e) => { e.preventDefault(); onClose(); }}
     >
       <div
-        className="card-elev w-full max-w-lg h-[70vh] flex flex-col overflow-hidden"
+        className="card-elev w-full max-w-lg h-[55dvh] min-h-[300px] flex flex-col overflow-hidden"
         onMouseDown={(e) => { e.stopPropagation(); }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -144,6 +145,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
       </div>
       <style jsx global>{`
         .note-cm .cm-editor{height:100%}
+        .note-cm .cm-scroller{overflow:auto}
         .note-cm .cm-gutters{border-right:1px solid var(--border,#262e3a);background:transparent}
       `}</style>
     </div>
