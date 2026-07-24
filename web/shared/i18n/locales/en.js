@@ -43,7 +43,15 @@ export default {
     day: "d",
     minutesAgo: "{n} min ago",
     hoursAgo: "{n} hours ago",
-    daysAgo: "{n} days ago"
+    daysAgo: "{n} days ago",
+    done: "Done"
+  },
+  agentSwitcher: {
+    title: "Your devices",
+    active: "ACTIVE",
+    unnamed: "Untitled",
+    connecting: "Connecting…",
+    unreachable: "Can't reach this device. Is it online?"
   },
   login: {
     tagline: "Access your terminal from anywhere",

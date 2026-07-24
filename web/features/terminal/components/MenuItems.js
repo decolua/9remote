@@ -10,6 +10,12 @@ import { useTheme } from "@/shared/theme/ThemeProvider";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import UpgradeButton from "@/features/terminal/components/UpgradeButton";
+import AgentSwitcher from "@/features/terminal/components/AgentSwitcher";
+import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
+import { saveLastRoute, getLastRoute } from "@/shared/hooks/useLastRoute";
+import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS } from "@/shared/constants/API";
+import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
+import { verifyServerConnection } from "@/shared/hooks/useAuth";
 
 export default function MenuItems({
   onRemote,
@@ -52,7 +58,62 @@ export default function MenuItems({
   const { theme: appMode } = useTheme();
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
+  const [switchingKey, setSwitchingKey] = useState(null);
+  const [switchError, setSwitchError] = useState("");
   const terminalMenuRef = useRef(null);
+
+  const { loadKeys } = useApiKeyStorage();
+  const { setAuth } = useSessionStorage();
+  const savedKeys = typeof window !== "undefined" ? loadKeys() : [];
+  const currentApiKey = useSessionStorage().getAuth()?.apiKey;
+
+  // Switch to another saved agent: persist current URL, re-auth, verify tunnel, then reload.
+  // Only navigate when the new agent is actually reachable — avoids landing on a dead session.
+  // Currently hidden in the UI (managed from login); kept for re-enabling later.
+  const handleSwitchAgent = useCallback(async (newKey) => {
+    if (!newKey || newKey === currentApiKey) return;
+    vibrate();
+    setSwitchError("");
+    setSwitchingKey(newKey);
+    if (currentApiKey && typeof window !== "undefined") {
+      saveLastRoute(currentApiKey, window.location.pathname + window.location.search);
+    }
+    try {
+      const resp = await fetch(API_ENDPOINTS.connect, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: newKey })
+      });
+      if (!resp.ok) throw new Error("connect failed");
+      const data = await resp.json();
+
+      let connected = false;
+      for (let i = 0; i < TUNNEL_VERIFY_RETRY_MAX; i++) {
+        connected = await verifyServerConnection(data.tunnelUrl, newKey);
+        if (connected) break;
+        if (i < TUNNEL_VERIFY_RETRY_MAX - 1) {
+          await new Promise((r) => setTimeout(r, TUNNEL_VERIFY_RETRY_INTERVAL_MS));
+        }
+      }
+      if (!connected) {
+        setSwitchingKey(null);
+        setSwitchError(t("agentSwitcher.unreachable"));
+        return;
+      }
+
+      setAuth({
+        apiKey: newKey,
+        tunnelUrl: data.tunnelUrl,
+        mode: "remote",
+        localIp: data.localIp || null
+      });
+      const last = getLastRoute(newKey);
+      window.location.href = last || "/workspace/";
+    } catch {
+      setSwitchingKey(null);
+      setSwitchError(t("agentSwitcher.unreachable"));
+    }
+  }, [currentApiKey, setAuth, t]);
 
   // Close terminal settings dropdown on outside click
   useEffect(() => {
@@ -185,6 +246,20 @@ export default function MenuItems({
           </button>
           {terminalMenuOpen && (
             <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
+              <button
+                onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
+                className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+              >
+                <Monitor className="text-brand-500" size={16} />
+                <div className="flex flex-col flex-1">
+                  <span className="text-sm">{t("menu.webgl")}</span>
+                  <span className="text-xs text-text-muted">{t("menu.webglHint")}</span>
+                </div>
+                <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${webglEnabled ? "bg-brand-500" : "bg-surface-2"}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${webglEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                </span>
+              </button>
+
               <div className="flex items-center gap-2.5 pt-1.5">
                 <Type className="text-brand-500" size={16} />
                 <span className="text-sm">{t("menu.fontSize")}</span>
@@ -214,19 +289,6 @@ export default function MenuItems({
                     ))}
                 </select>
               </div>
-              <button
-                onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
-                className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
-              >
-                <Monitor className="text-brand-500" size={16} />
-                <div className="flex flex-col flex-1">
-                  <span className="text-sm">{t("menu.webgl")}</span>
-                  <span className="text-xs text-text-muted">{t("menu.webglHint")}</span>
-                </div>
-                <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${webglEnabled ? "bg-brand-500" : "bg-surface-2"}`}>
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${webglEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
-                </span>
-              </button>
 
               {/* Quick-action button visibility (folder / git / note) */}
               <div className="flex items-center gap-2.5 pt-1.5">
@@ -348,6 +410,23 @@ export default function MenuItems({
           </div>
         )}
       </div>
+
+      {/* Agent switcher — hidden from menu (managed from login). Re-enable by uncommenting.
+      {savedKeys.length > 1 && (
+        <div className="pt-2">
+          <AgentSwitcher
+            variant="menu"
+            keys={savedKeys}
+            currentApiKey={currentApiKey}
+            onSelect={handleSwitchAgent}
+            loadingKey={switchingKey}
+          />
+          {switchError && (
+            <p className="px-2 pt-1.5 text-xs text-danger">{switchError}</p>
+          )}
+        </div>
+      )}
+      */}
 
       {/* Logout */}
       {onLogout && (

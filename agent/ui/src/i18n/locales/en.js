@@ -62,6 +62,14 @@ export default {
   terminalPane: {
     openFolder: "Open file explorer",
     changedFiles: "Changed files",
+    note: "Note",
+    refresh: "Reload session",
+    scrollToBottom: "Scroll to bottom",
+  },
+  note: {
+    title: "Session Note",
+    copy: "Copy",
+    clear: "Clear",
   },
   system: {
     agent: "9Remote",
@@ -120,6 +128,14 @@ export default {
     terminalsDesc: "Live terminal sessions running on this host",
     logs: "Logs",
     logsDesc: "Server activity and diagnostics",
+    terminalSettings: "Terminal Settings",
+    fontSize: "Font Size",
+    terminalTheme: "Terminal Theme",
+    webgl: "WebGL Renderer",
+    webglHint: "GPU acceleration for smoother scrolling",
+    showFolder: "Show Folder Button",
+    showGit: "Show Git Button",
+    showNote: "Show Note Button",
   },
   recent: {
     title: "Recent",
@@ -127,6 +143,16 @@ export default {
     needsInput: "Needs your input",
     dismiss: "Dismiss",
     empty: "No recent activity",
+  },
+  notifications: {
+    title: "Notifications",
+    empty: "No new notifications",
+    needsInput: "Needs your input",
+    replied: "Replied",
+    agent: "Agent",
+  },
+  groups: {
+    ungrouped: "Ungrouped",
   },
   header: {
     settings: "Settings",

@@ -5,7 +5,7 @@ export default function ConfirmPopup({ message, confirmLabel = "Confirm", confir
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onCancel}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onCancel}>
       <div className="glass-card p-5 flex flex-col gap-4 w-72" onClick={(e) => e.stopPropagation()}>
         <p className="text-sm text-center" style={{ color: "var(--text-main)" }}>{message}</p>
         {hasInput && (

@@ -5,7 +5,7 @@ import { useSessionStorage } from "./useSessionStorage";
 
 
 // Verify server reachability via HTTP health check (avoids extra WS connection)
-async function verifyServerConnection(tunnelUrl, apiKey, timeout = 10000) {
+export async function verifyServerConnection(tunnelUrl, apiKey, timeout = 10000) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);

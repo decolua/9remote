@@ -22,6 +22,7 @@ import CodespaceList from "@/features/codespace/components/CodespaceList";
 import { useGithub } from "@/features/codespace/hooks/useGithub";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { buildCodespaceUrl } from "@/shared/constants/github";
+import AgentSwitcher from "@/features/terminal/components/AgentSwitcher";
 
 // Terminal-glyph laptop + phone hero illustration (brand-tinted, theme-agnostic)
 function LoginContent() {
@@ -36,6 +37,7 @@ function LoginContent() {
   const [editingKeyId, setEditingKeyId] = useState(null);
   const [editingLabel, setEditingLabel] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [loginLoadingKey, setLoginLoadingKey] = useState(null);
   const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
 
   const { token: githubToken, clearToken: clearGithubToken } = useGithub();
@@ -140,9 +142,12 @@ function LoginContent() {
   // Handle login with saved key
   const handleLoginWithSavedKey = async (key) => {
     if (!key) return;
+    setLoginLoadingKey(key);
     const result = await authenticateWithApiKey(key);
+    setLoginLoadingKey(null);
     if (result.success) {
       updateLastLogin(key);
+      // From login always land on workspace home — last-route restore is for in-app switching
       router.push("/workspace/");
     }
   };
@@ -335,88 +340,15 @@ function LoginContent() {
               </span>
             </Button>
 
-          {/* Saved Keys - inner section, same card */}
+          {/* Saved agents — inside the auth card, below the connect button */}
           {isHydrated && savedKeys.length > 0 && (
             <div className="mt-5 pt-5 border-t border-border-subtle">
-              <h3 className="text-base font-bold text-text mb-3">{t("login.savedKeys")}</h3>
-              <div className="space-y-2">
-                {savedKeys.map((item) => (
-                  <div key={item.id} className="bg-surface-2 rounded-xl p-3 hover:bg-surface-3 transition-all duration-150 ease-out">
-                    {editingKeyId === item.id ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={editingLabel}
-                          onChange={(e) => setEditingLabel(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSaveRename(item.id);
-                            if (e.key === "Escape") handleCancelRename();
-                          }}
-                          placeholder={t("login.namePlaceholder")}
-                          autoFocus
-                          className="flex-1 min-w-0 px-3 py-1.5 bg-surface rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-                        />
-                        <button onClick={() => handleSaveRename(item.id)} className="text-brand-500 hover:text-brand-400 transition-colors" type="button">
-                          <Check size={18} />
-                        </button>
-                        <button onClick={handleCancelRename} className="text-text-muted hover:text-text transition-colors" type="button">
-                          <X size={18} />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3">
-                        <div className="shrink-0 w-11 h-11 rounded-full bg-brand-500/10 flex items-center justify-center">
-                          <Icon name="KeyRound" className="text-brand-500" size={20} />
-                        </div>
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleStartRename(item)}
-                              disabled={loading}
-                              className="group flex items-center gap-1.5 min-w-0 disabled:opacity-50"
-                              type="button"
-                              aria-label={t("login.rename")}
-                            >
-                              <span className="text-sm font-semibold text-text group-hover:text-brand-500 truncate transition-colors">
-                                {item.label}
-                              </span>
-                              <Pencil size={13} className="shrink-0 text-text-muted group-hover:text-brand-500 transition-colors" />
-                            </button>
-                          </div>
-                          <code
-                            onClick={() => handleLoginWithSavedKey(item.key)}
-                            className="block text-xs text-text-muted hover:text-brand-500 font-mono truncate transition-colors cursor-pointer"
-                          >
-                            {maskApiKey(item.key)}
-                          </code>
-                        </div>
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                          {item.lastLoginDate && (
-                            <span className="text-xs text-text-muted">{formatLoginDate(item.lastLoginDate)}</span>
-                          )}
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => handleLoginWithSavedKey(item.key)}
-                              disabled={loading}
-                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border text-brand-500 hover:bg-brand-500/10 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <LogIn size={15} />
-                              {t("login.login")}
-                            </button>
-                            <button
-                              onClick={() => setDeleteTarget({ id: item.id, label: item.label })}
-                              disabled={loading}
-                              className="flex items-center p-2 rounded-lg border border-border text-text-muted hover:text-danger hover:border-danger/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <AgentSwitcher
+                variant="login"
+                keys={savedKeys}
+                onSelect={handleLoginWithSavedKey}
+                loadingKey={loginLoadingKey}
+              />
             </div>
           )}
           </div>

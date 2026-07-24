@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState, useCallback } from "preact/hooks";
 import Icon from "./Icon";
+import NotePanel from "./NotePanel";
+import { useI18n } from "../i18n";
+import { vibrate } from "../lib/vibrate";
 import "@xterm/xterm/css/xterm.css";
 import {
   resolveTerminalTheme,
@@ -21,11 +24,16 @@ import { HISTORY_FETCH } from "../lib/constants";
 
 // Single xterm pane bound local socket — direct protocol (output/input/resize/joinSession).
 // Core logic lives in @shared/terminal; this component only wires Preact lifecycle.
-export default function TerminalPane({ socket, sessionId, theme = "dark", terminalFont, terminalThemeKey = "default", isFocused, cwd, onActivate, onInput, onOpenFiles, onOpenGit, onCwd, showFocusBorder, showDoneBorder }) {
+export default function TerminalPane({ socket, sessionId, theme = "dark", terminalFont, terminalThemeKey = "default", isFocused, cwd, onActivate, onInput, onOpenFiles, onOpenGit, onCwd, showFocusBorder, showDoneBorder, showFolderButton = true, showGitButton = true, showNoteButton = true }) {
+  const { t } = useI18n();
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  // Expose effect-local doJoin for manual reload (re-fetch scrollback)
+  const doJoinRef = useRef(null);
 
   // Scrollback history mirror — raw bytes written to XTerm, replayed after fetching an older prefix on scroll-up.
   const historyMirrorRef = useRef([]);
@@ -188,6 +196,7 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", termin
         },
       });
     };
+    doJoinRef.current = doJoin;
     doJoin();
     if (isFocused) term.focus();
 
@@ -257,9 +266,18 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", termin
   }, [isFocused, sessionId, socket]);
 
   const scrollToBottom = () => termRef.current?.scrollToBottom();
-  // Done-border + focus glow coexist on the same node (status border lives on the wrapper).
+
+  // Manual per-pane reload: reset local XTerm + re-join to re-fetch scrollback (web parity)
+  const handleReload = useCallback(() => {
+    if (refreshing) return;
+    vibrate();
+    setRefreshing(true);
+    termRef.current?.reset();
+    doJoinRef.current?.();
+    setTimeout(() => setRefreshing(false), 700);
+  }, [refreshing]);
+  // Focus glow on the same node (status border lives on the wrapper).
   const glow = [
-    showDoneBorder ? "terminal-done-border" : "",
     showFocusBorder && isFocused ? "terminal-focus-glow" : ""
   ].filter(Boolean).join(" ");
 
@@ -305,21 +323,43 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", termin
           </div>
         )}
         {cwd && isFocused && (
-          <div className="absolute top-2 right-2 z-50 flex flex-col gap-2">
-            <button
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); onOpenFiles?.(cwd); }}
-              className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
-              title="Open file explorer"
-            >
-              <Icon name="folder" size={16} />
-            </button>
-            {changedCount > 0 && (
+          <div className="absolute top-2 right-2 z-50 flex flex-col items-end gap-2">
+            <div className="flex flex-row gap-2">
+              {showNoteButton && (
+                <button
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onClick={(e) => { e.stopPropagation(); vibrate(); setNoteOpen(true); }}
+                  className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+                  title={t("terminalPane.note")}
+                >
+                  <Icon name="squarePen" size={16} />
+                </button>
+              )}
+              <button
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); handleReload(); }}
+                className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+                title={t("terminalPane.refresh")}
+              >
+                <Icon name="refreshCw" size={16} className={refreshing ? "animate-spin" : ""} />
+              </button>
+            </div>
+            {showFolderButton && (
+              <button
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); onOpenFiles?.(cwd); }}
+                className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+                title={t("terminalPane.openFolder")}
+              >
+                <Icon name="folder" size={16} />
+              </button>
+            )}
+            {showGitButton && changedCount > 0 && (
               <button
                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onClick={(e) => { e.stopPropagation(); onOpenGit?.(cwd); }}
                 className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
-                title="Changed files"
+                title={t("terminalPane.changedFiles")}
               >
                 <Icon name="gitBranch" size={16} />
                 <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
@@ -335,12 +375,20 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", termin
             onClick={(e) => { e.stopPropagation(); scrollToBottom(); }}
             className="absolute bottom-5 right-7 z-50 p-2 rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
             style={{ background: "var(--surface-2)", color: "var(--text-main)" }}
-            title="Scroll to bottom"
+            title={t("terminalPane.scrollToBottom")}
           >
             <Icon name="chevronDown" size={20} />
           </button>
         )}
       </div>
+      {noteOpen && showNoteButton && (
+        <NotePanel
+          socket={socket}
+          sessionId={sessionId}
+          theme={theme}
+          onClose={() => setNoteOpen(false)}
+        />
+      )}
     </div>
   );
 }

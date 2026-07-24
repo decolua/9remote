@@ -1,13 +1,14 @@
-import { useState, useEffect, useRef } from "preact/hooks";
+import { useState, useEffect, useRef, useMemo } from "preact/hooks";
 import Icon from "./Icon";
 import { useI18n } from "../i18n";
 import { statusVisual } from "../lib/statusVisual";
 import TerminalPane from "./TerminalPane";
 import NotificationsBell from "./NotificationsBell";
+import SettingsMenu from "./SettingsMenu";
 import FileExplorer from "./FileExplorer";
 import GitPanel from "./GitPanel";
 import FileWorkspaceDesktop from "./FileWorkspaceDesktop";
-import CommandSuggestions from "./CommandSuggestions";
+import CommandSuggestions, { pickCommandItems } from "./CommandSuggestions";
 import PathSuggestion from "./PathSuggestion";
 import CommandHistoryModal from "./CommandHistoryModal";
 import { useFileSocket } from "../lib/fileExplorer/useFileSocket";
@@ -22,7 +23,7 @@ import {
 const UNGROUPED = { id: null, name: "Ungrouped" };
 
 // Full-screen terminal overlay — mirrors web workspace (split panes + tabs + group selector)
-export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", terminalFont, terminalThemeKey = "default", finishedIds, sessionStatus = {}, clearFinished, updateCwd, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
+export default function TerminalView({ socket, sessions, groups = [], openedIds, activeId, connected, theme = "dark", terminalFont, terminalThemeKey = "default", showFolderButton = true, showGitButton = true, showNoteButton = true, webglEnabled, onSetWebgl, onSetShowFolder, onSetShowGit, onSetShowNote, onSetTerminalFont, onSetTerminalTheme, onStop, onShutdown, finishedIds, sessionStatus = {}, clearFinished, updateCwd, onSwitch, onCreate, onCreateNamed, onRename, onDelete, onSelectGroup, onBack }) {
   const { t } = useI18n();
   const [isDesktop, setIsDesktop] = useState(typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
@@ -59,6 +60,19 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   const [pathItems, setPathItems] = useState([]);
   const dirCacheRef = useRef(makeDirCache());
   const lastSuggestRef = useRef(0);
+  // Keyboard-highlighted row in each suggest dropdown (-1 = none). Tab cycles, Enter accepts.
+  const [pathActive, setPathActive] = useState(-1);
+  const [cmdActive, setCmdActive] = useState(-1);
+  // Ranked command list (same as CommandSuggestions renders), lifted here so Tab can cycle it.
+  // Empty while path-suggest is open so the two dropdowns never compete for the same Tab.
+  const cmdItems = useMemo(
+    () => (pathItems.length > 0 ? [] : pickCommandItems(textInput, history, COMMON_COMMANDS)),
+    [textInput, history, pathItems]
+  );
+  // Clamp highlight into range as the list shrinks (-1 stays -1, else modular-wrap).
+  const wrap = (i, len) => (i < 0 || !len ? -1 : ((i % len) + len) % len);
+  const pathActiveClamped = wrap(pathActive, pathItems.length);
+  const cmdActiveClamped = wrap(cmdActive, cmdItems.length);
 
   useEffect(() => {
     const cwd = activeSession?.cwd;
@@ -84,6 +98,8 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
   useEffect(() => {
     dirCacheRef.current.clear();
     setPathItems([]);
+    setPathActive(-1);
+    setCmdActive(-1);
   }, [activeSession?.id]);
 
   // Read a File → base64 attachment entry, skipping oversized ones.
@@ -384,12 +400,32 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
           sessions={sessions}
           allSessions={sessions}
           sessionStatus={sessionStatus}
+          groups={groups}
           onSwitchSession={onSwitch}
+        />
+        <SettingsMenu
+          theme={theme}
+          terminalFont={terminalFont}
+          setTerminalFont={onSetTerminalFont}
+          terminalThemeKey={terminalThemeKey}
+          setTerminalTheme={onSetTerminalTheme}
+          webglEnabled={webglEnabled}
+          setWebglEnabled={onSetWebgl}
+          showFolderButton={showFolderButton}
+          setShowFolderButton={onSetShowFolder}
+          showGitButton={showGitButton}
+          setShowGitButton={onSetShowGit}
+          showNoteButton={showNoteButton}
+          setShowNoteButton={onSetShowNote}
+          isStopped={!connected}
+          onStop={onStop}
+          onShutdown={onShutdown}
+          variant="compact"
         />
       </div>
 
       {/* Panes: desktop = horizontal split, mobile = active pane only */}
-      <div className={`flex-1 min-h-0 relative z-10 ${isDesktop ? "flex flex-row gap-1.5 overflow-x-auto overflow-y-hidden px-2" : "relative"}`}>
+      <div className={`flex-1 min-h-0 relative z-10 ${isDesktop ? "flex flex-row gap-3 overflow-x-auto overflow-y-hidden p-2" : "relative p-2"}`}>
         {openedGroup.map((s) => {
           const isFocused = s.id === activeId;
           // Desktop: rounded pane with focus border on wrapper (web workspace parity).
@@ -421,6 +457,9 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 theme={theme}
                 terminalFont={terminalFont}
                 terminalThemeKey={terminalThemeKey}
+                showFolderButton={showFolderButton}
+                showGitButton={showGitButton}
+                showNoteButton={showNoteButton}
                 isFocused={isFocused}
                 cwd={s.cwd}
                 onActivate={onSwitch}
@@ -436,21 +475,24 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
         })}
       </div>
 
-      {/* Text input bar — web MobileKeyboard parity (send raw text or lone Enter) */}
-      {activeSession && (
+      {/* Text input bar — web MobileKeyboard parity (send raw text or lone Enter).
+          Temporarily hidden: incomplete vs web; xterm direct input suffices for now. */}
+      {false && activeSession && (
         <div className="flex items-end gap-2 px-2 py-1.5 flex-shrink-0 relative z-10" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
           <div className="relative flex-1 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
             {pathItems.length > 0 ? (
               <PathSuggestion
                 items={pathItems}
-                onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
+                activeIndex={pathActiveClamped}
+                onSelect={(cmd) => { setTextInput(cmd); setPathActive(-1); textInputRef.current?.focus(); }}
               />
             ) : (
               <CommandSuggestions
                 value={textInput}
                 history={history}
                 commonCommands={COMMON_COMMANDS}
-                onSelect={(cmd) => { setTextInput(cmd); textInputRef.current?.focus(); }}
+                activeIndex={cmdActiveClamped}
+                onSelect={(cmd) => { setTextInput(cmd); setCmdActive(-1); textInputRef.current?.focus(); }}
               />
             )}
             {attachments.length > 0 && (
@@ -520,8 +562,33 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                   });
                   return;
                 }
-                // Enter sends; Shift+Enter inserts newline (web parity)
+                // Tab cycles the active suggestion (path or command); bare Tab with none open falls through.
+                if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                  if (pathItems.length > 0) {
+                    e.preventDefault();
+                    setPathActive((i) => wrap(i + 1, pathItems.length));
+                    return;
+                  }
+                  if (cmdItems.length > 0) {
+                    e.preventDefault();
+                    setCmdActive((i) => wrap(i + 1, cmdItems.length));
+                    return;
+                  }
+                }
+                // Enter: accept a keyboard-highlighted suggestion, else send.
                 if (e.key === "Enter" && !e.shiftKey) {
+                  if (pathItems.length > 0 && pathActiveClamped >= 0) {
+                    e.preventDefault();
+                    setTextInput(pathItems[pathActiveClamped].full);
+                    setPathActive(-1);
+                    return;
+                  }
+                  if (cmdItems.length > 0 && cmdActiveClamped >= 0) {
+                    e.preventDefault();
+                    setTextInput(cmdItems[cmdActiveClamped].cmd);
+                    setCmdActive(-1);
+                    return;
+                  }
                   e.preventDefault();
                   sendText();
                   return;

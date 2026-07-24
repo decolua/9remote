@@ -5,7 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import SelectionActionButton from "@/features/terminal/components/SelectionActionButton";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
-import { ChevronDown, Folder, GitBranch, RefreshCw, StickyNote } from "@/shared/components/ui/Icon";
+import { ChevronDown, Folder, GitBranch, RefreshCw, SquarePen } from "@/shared/components/ui/Icon";
 import NotePanel from "@/features/terminal/components/NotePanel";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -272,34 +272,36 @@ function TerminalPane({
 
       {/* Overlays stay on viewport, not inside scroll content */}
       {cwd && isFocused && (
-        <div className="absolute top-2 right-2 z-50 flex flex-col gap-2 pointer-events-auto touch-none">
-          {showNoteButton && (
+        <div className="absolute top-2 right-2 z-50 flex flex-col items-end gap-2 pointer-events-auto touch-none">
+          <div className="flex flex-row gap-2">
+            {showNoteButton && (
+              <button
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); vibrate(); setNoteAppend(null); setNoteOpen(true); }}
+                className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+                title={t("terminalPane.note")}
+              >
+                <SquarePen size={16} />
+              </button>
+            )}
             <button
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); vibrate(); setNoteAppend(null); setNoteOpen(true); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (refreshing) return;
+                vibrate();
+                setRefreshing(true);
+                reload();
+                setTimeout(() => setRefreshing(false), 700);
+              }}
               className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
-              title={t("terminalPane.note")}
+              title={t("terminalPane.refresh")}
             >
-              <StickyNote size={16} />
+              <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
             </button>
-          )}
-          <button
-            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (refreshing) return;
-              vibrate();
-              setRefreshing(true);
-              reload();
-              setTimeout(() => setRefreshing(false), 700);
-            }}
-            className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
-            title={t("terminalPane.refresh")}
-          >
-            <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
-          </button>
+          </div>
           {showFolderButton && (
             <button
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}

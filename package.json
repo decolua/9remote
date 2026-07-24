@@ -1,11 +1,11 @@
 {
   "name": "9remote-monorepo",
-  "version": "2.1.16",
+  "version": "2.1.17",
   "private": true,
   "type": "module",
   "workspaces": [
     "agent",
-    "web",
+    "web", 
     "gitbook",
     "desktop"
   ],

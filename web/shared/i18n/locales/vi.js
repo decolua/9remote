@@ -43,7 +43,15 @@ export default {
     day: "ngày",
     minutesAgo: "{n} phút trước",
     hoursAgo: "{n} giờ trước",
-    daysAgo: "{n} ngày trước"
+    daysAgo: "{n} ngày trước",
+    done: "Xong"
+  },
+  agentSwitcher: {
+    title: "Thiết bị của bạn",
+    active: "ACTIVE",
+    unnamed: "Chưa đặt tên",
+    connecting: "Đang kết nối…",
+    unreachable: "Không kết nối được thiết bị này. Thiết bị có đang bật?"
   },
   login: {
     tagline: "Truy cập terminal của bạn từ mọi nơi",

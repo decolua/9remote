@@ -1,23 +1,18 @@
-"use client";
-
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "preact/hooks";
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState } from "@codemirror/state";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { Copy, X, Check, Trash2 } from "@/shared/components/ui/Icon";
-import { useI18n } from "@/shared/i18n";
-import { useTheme } from "@/shared/theme/ThemeProvider";
-import { vibrate } from "@/shared/utils/vibration";
+import Icon from "./Icon";
+import { useI18n } from "../i18n";
+import { vibrate } from "../lib/vibrate";
 
 const SAVE_DEBOUNCE_MS = 500;
 
-// Overlay markdown editor for a terminal session's note. CodeMirror is the single
-// source of truth: load once on mount, save directly to the socket on each edit.
-// No two-way echo → no keystroke race.
-export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) {
+// Overlay markdown editor for a terminal session's note (mirrors web NotePanel).
+// CodeMirror is the single source of truth: load once on mount, save to socket on each edit.
+export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, theme = "dark" }) {
   const { t } = useI18n();
-  const { theme } = useTheme();
   const editorRef = useRef(null);
   const viewRef = useRef(null);
   const saveTimerRef = useRef(null);
@@ -32,12 +27,10 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
       saveTimerRef.current = null;
       const view = viewRef.current;
       if (!view) return;
-      // Ack-style emit matches useFileSocket — keeps the proxy control channel reliable
       socket.emit("saveNote", { sessionId, text: view.state.doc.toString() }, () => {});
     }, SAVE_DEBOUNCE_MS);
   }, [socket, sessionId]);
 
-  // Load note once, build the editor with that content. Append selection text if requested.
   useEffect(() => {
     if (!socket || !sessionId || !editorRef.current) return;
     let view;
@@ -75,12 +68,10 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
       view = new EditorView({ state, parent: editorRef.current });
       viewRef.current = view;
       setHasText(initial.length > 0);
-      // If append produced new content, persist it
       if (initial !== (res?.success ? (res.text || "") : "")) save();
     });
     return () => {
       cancelled = true;
-      // Flush pending save on unmount
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
@@ -112,39 +103,45 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 z-[90] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.5)" }}
       onMouseDown={(e) => { e.preventDefault(); onClose(); }}
     >
       <div
-        className="card-elev w-full max-w-lg h-[70vh] flex flex-col overflow-hidden"
+        className="w-full max-w-lg h-[70vh] flex flex-col overflow-hidden"
+        style={{ background: "var(--surface)", borderRadius: "var(--radius-brand-lg, 16px)", boxShadow: "var(--shadow-elev, 0 10px 30px rgba(0,0,0,0.3))" }}
         onMouseDown={(e) => { e.stopPropagation(); }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface flex-shrink-0">
-          <span className="text-text text-sm font-medium">{t("note.title")}</span>
+        <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)", background: "var(--surface)" }}>
+          <span className="text-sm font-medium" style={{ color: "var(--text-main)" }}>{t("note.title")}</span>
           <div className="flex items-center gap-1">
             <button onClick={handleCopy} disabled={!hasText}
-              className="p-2 hover:bg-surface-2 text-text rounded-brand transition-colors disabled:opacity-40"
+              className="p-2 rounded-lg transition-colors disabled:opacity-40 card-act"
+              style={{ color: "var(--text-main)" }}
               title={t("note.copy")}>
-              {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
+              <Icon name={copied ? "check" : "copy"} size={16} color={copied ? "#4ade80" : undefined} />
             </button>
             <button onClick={handleClear} disabled={!hasText}
-              className="p-2 hover:bg-surface-2 text-red-400 rounded-brand transition-colors disabled:opacity-40"
+              className="p-2 rounded-lg transition-colors disabled:opacity-40 card-act"
+              style={{ color: "#f87171" }}
               title={t("note.clear")}>
-              <Trash2 size={16} />
+              <Icon name="trash" size={16} />
             </button>
             <button onClick={onClose}
-              className="p-2 hover:bg-surface-2 text-text rounded-brand transition-colors"
-              title="Close">
-              <X size={16} />
+              className="p-2 rounded-lg transition-colors card-act"
+              style={{ color: "var(--text-main)" }}
+              title={t("common.close")}>
+              <Icon name="x" size={16} />
             </button>
           </div>
         </div>
         <div ref={editorRef} className="flex-1 min-h-0 overflow-hidden note-cm" />
       </div>
-      <style jsx global>{`
-        .note-cm .cm-editor{height:100%}
-        .note-cm .cm-gutters{border-right:1px solid var(--border,#262e3a);background:transparent}
+      <style>{`
+        .note-cm .cm-editor{height:100%;background:var(--surface)}
+        .note-cm .cm-scroller{background:var(--surface)}
+        .note-cm .cm-gutters{border-right:1px solid var(--border);background:transparent}
       `}</style>
     </div>
   );

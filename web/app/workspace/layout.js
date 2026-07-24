@@ -34,6 +34,7 @@ import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
 import { useI18n } from "@/shared/i18n";
 import { useRouteSync } from "@/shared/hooks/useRouteSync";
+import { useLastRoute } from "@/shared/hooks/useLastRoute";
 
 // Workspace shell - holds socket/state/views; child routes are URL markers only
 export default function WorkspaceLayout({ children }) {
@@ -687,6 +688,8 @@ export default function WorkspaceLayout({ children }) {
 
   // Only show loading on initial mount or hydration
   const auth = getAuth();
+  // Persist current URL per-agent so switching agents restores the last view
+  useLastRoute(auth?.apiKey);
   const isInitializing = !hydrated || (!socket && !auth?.tunnelUrl);
 
   if (isInitializing) {
