@@ -133,6 +133,7 @@ function prepareDaemonCopy(sourceScript) {
     if (isDev) {
       const srcDir = path.dirname(sourceScript);
       fs.copyFileSync(path.join(srcDir, "constants.js"), path.join(scriptDir, "constants.js"));
+      fs.copyFileSync(path.join(srcDir, "bufferSlice.js"), path.join(scriptDir, "bufferSlice.js"));
       const libDest = path.join(runtimeDir, "lib");
       fs.mkdirSync(libDest, { recursive: true });
       fs.copyFileSync(path.resolve(srcDir, "..", "..", "lib", "constants.js"), path.join(libDest, "constants.js"));
