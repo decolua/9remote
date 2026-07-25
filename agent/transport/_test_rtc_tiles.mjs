@@ -62,7 +62,7 @@ const pm = new ProtocolManager(
   pm._profile.channels.binary.prefer = "rtc";
   pm._chunkOffset = 0;
   const tiles = Array.from({ length: 10 }, (_, i) => mkTile(i, 1000));
-  const sent = pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
+  const sent = await pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
   check("1. happy: sent.length === 10", sent.length === 10, `got ${sent.length}`);
   check("1. happy: all via rtc", rtc.sent.length === Math.ceil(10 / 8) === false ? true : true, "");
   check("1. happy: hashes match sent", sent.every(t => tiles.includes(t)));
@@ -78,7 +78,7 @@ const pm = new ProtocolManager(
   pm._profile.channels.binary.prefer = "rtc";
   pm._chunkOffset = 0;
   const tiles = Array.from({ length: 20 }, (_, i) => mkTile(i, 1000));
-  const sent = pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
+  const sent = await pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
   check("2. spillover: all 20 sent", sent.length === 20, `got ${sent.length}`);
   check("2. spillover: 8 via rtc", rtc.sent.length === 1, `rtc.sent=${rtc.sent.length}`);
   check("2. spillover: 12 via ws", ws.sent.length === 1, `ws.sent=${ws.sent.length}`);
@@ -94,7 +94,7 @@ const pm = new ProtocolManager(
   pm._chunkOffset = 0;
   pm._rtcPendingSince.clear();
   const tiles = Array.from({ length: 20 }, (_, i) => mkTile(i, 1000));
-  const sent = pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
+  const sent = await pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
   check("2b. ws-down: only rtc chunk sent (8)", sent.length === 8, `got ${sent.length}`);
   check("2b. ws-down: 12 tiles marked pending", pm._rtcPendingSince.size === 12, `pending=${pm._rtcPendingSince.size}`);
   check("2b. ws-down: ws unused", ws.sent.length === 0);
@@ -109,7 +109,7 @@ const pm = new ProtocolManager(
   pm._chunkOffset = 0;
   // 1 tile, 70000 bytes (> 65536 max) → chunkSize shrinks to 1, still >max → salvage WS
   const tiles = [mkTile(0, 70000)];
-  const sent = pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
+  const sent = await pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
   check("3. oversize: sent via WS salvage", sent.length === 1, `got ${sent.length}`);
   check("3. oversize: WS received the buf", ws.sent.length === 1, `ws got ${ws.sent.length}`);
   check("3. oversize: rtc NOT used", rtc.sent.length === 0);
@@ -124,7 +124,7 @@ const pm = new ProtocolManager(
   pm._chunkOffset = 40; // n=20 → start = 40%20 = 0... use n where offset matters
   const tiles = Array.from({ length: 16 }, (_, i) => mkTile(i, i >= 8 ? 30000 : 1000));
   pm._chunkOffset = 5; // start=5 → first chunk = tiles[5..12], mostly 30KB
-  const sent = pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
+  const sent = await pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
   // chunkSize must shrink so first real chunk fits; no infinite skip
   check("4. probe-offset: sent some tiles", sent.length > 0, `got ${sent.length}`);
   check("4. probe-offset: no throw", Array.isArray(sent));
@@ -140,7 +140,7 @@ const pm = new ProtocolManager(
   pm._profile.channels.binary.prefer = "rtc";
   pm._chunkOffset = 0;
   const tiles = Array.from({ length: 8 }, (_, i) => mkTile(i, 1000));
-  const sent = pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
+  const sent = await pm.sendTiles({ tiles, timestamp: 1 }, encodeBatch);
   check("5. failReturn: spillover to ws (8)", sent.length === 8, `got ${sent.length}`);
   check("5. failReturn: ws received", ws.sent.length >= 1);
 }

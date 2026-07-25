@@ -79,7 +79,12 @@ export const REMOTE_CONFIG = {
     // Answer SDP timeout
     answerTimeout: 10000,
     // Max buffered control messages while no adapter ready (bound reconnect window)
-    maxControlBuffer: 500
+    maxControlBuffer: 500,
+    // App-level flow control (window=1): agent holds at most ONE frame in flight
+    // until the browser acks. Caps the hidden SCTP buffer at ~1 frame so it can't
+    // grow into multi-second delay (bufferedAmount doesn't see SCTP buffer).
+    ackPollMs: 20,         // re-check interval while waiting for ack
+    ackTimeoutMs: 1500     // fallback: if ack lost, assume frame dropped and resume
   },
   // Robot settings
   robotSettings: {

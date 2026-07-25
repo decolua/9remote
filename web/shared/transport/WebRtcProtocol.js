@@ -3,6 +3,7 @@ import { encode, decode } from "./codec";
 import { API_ENDPOINTS } from "@/shared/constants/API";
 import { ADAPTER_STATE, CHANNELS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
+import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 // Shared decoder worker (one instance for all WebRtcProtocol instances)
 let _worker = null;
@@ -18,7 +19,12 @@ function getWorker() {
   _worker = new Worker(new URL("../../features/remote/workers/tileDecoder.worker.js", import.meta.url));
   _worker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
     const entry = _workerPending.get(id);
-    if (!entry) return;
+    if (!entry) {
+      // Batch was dropped by the queue cap before this result arrived — close the
+      // orphan bitmaps the worker decoded so they don't leak GPU memory.
+      if (tiles) for (const t of tiles) t.bitmap?.close?.();
+      return;
+    }
     clearTimeout(entry.timer);
     _workerPending.delete(id);
     entry.resolve(error ? null : { tiles, timestamp, hasBitmap });
@@ -291,6 +297,17 @@ export class WebRtcProtocol extends BaseProtocol {
         _workerPending.delete(id);
         resolve(null);
       }, WORKER_DECODE_TIMEOUT_MS);
+      // Bound the in-flight queue: if the worker can't keep up, drop the OLDEST
+      // batch (first inserted ≈ oldest frame) so the newest frame always wins.
+      const cap = REMOTE_CONFIG.decodeQueueCap;
+      while (_workerPending.size >= cap) {
+        const oldestId = _workerPending.keys().next().value;
+        const old = _workerPending.get(oldestId);
+        if (!old) break;
+        clearTimeout(old.timer);
+        _workerPending.delete(oldestId);
+        old.resolve(null);
+      }
       _workerPending.set(id, { resolve, timer });
       getWorker().postMessage({ buffer, id, v: 2 }, [buffer]);
     }).then((result) => {

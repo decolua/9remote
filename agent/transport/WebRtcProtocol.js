@@ -134,9 +134,8 @@ export class WebRtcProtocol extends BaseProtocol {
       try {
         // Single pre-sized chunk (Buffer) — PM splits by dcMaxMessageSize.
         const chunk = Array.isArray(payload) ? payload[0] : payload;
-        const bufThreshold = REMOTE_CONFIG.webrtc.dcBufferThreshold;
         // Backpressure — return false so PM stops and retries remaining tiles next frame
-        if (this._dcBinary.bufferedAmount() > bufThreshold) return false;
+        if (this._dcBinary.bufferedAmount() > REMOTE_CONFIG.webrtc.dcBufferThreshold) return false;
         // sendMessageBinary returns false on oversize/negotiated-max violation — treat as drop
         return this._dcBinary.sendMessageBinary(chunk);
       } catch (err) {

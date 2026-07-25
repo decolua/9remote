@@ -38,6 +38,10 @@ export const REMOTE_CONFIG = {
   tileLoadTimeout: 600,
   batchSize: 16,
   batchDelay: 3,
+  // Max batches awaiting decode in the worker queue. When exceeded, drop the
+  // OLDEST batch (FIFO ≈ oldest frame) so the worker always catches the newest
+  // frame — prevents unbounded queue growth → multi-second latency / freeze.
+  decodeQueueCap: 48,
 
   // Focus-based streaming — emit focus rect to server to save bandwidth/CPU
   focusDebounce: 50,         // ms debounce on pan/zoom before emitting focus rect

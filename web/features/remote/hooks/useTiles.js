@@ -24,10 +24,15 @@ function getBinWorker() {
       new URL("../workers/tileDecoder.worker.js", import.meta.url)
     );
     _binWorker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
-      const resolve = _binPending.get(id);
-      if (!resolve) return;
+      const entry = _binPending.get(id);
+      if (!entry) {
+        // Batch was dropped by the queue cap — close orphan bitmaps to avoid leak.
+        if (tiles) for (const t of tiles) t.bitmap?.close?.();
+        return;
+      }
+      clearTimeout(entry.timer);
       _binPending.delete(id);
-      resolve(error ? null : { tiles, timestamp, hasBitmap });
+      entry.resolve(error ? null : { tiles, timestamp, hasBitmap });
     };
     return _binWorker;
   } catch {
@@ -44,7 +49,7 @@ function resetBinWorker() {
     try { _binWorker.terminate(); } catch {}
   }
   _binWorker = null;
-  for (const resolve of _binPending.values()) { try { resolve(null); } catch {} }
+  for (const entry of _binPending.values()) { try { entry.resolve(null); } catch {} }
   _binPending.clear();
 }
 
@@ -98,6 +103,7 @@ export function useTiles(socketRef, streaming, canvasRef) {
     const canvas = canvasRef?.current;
     if (!canvas) { rafQueueRef.current.clear(); return; }
     const ctx = canvas.getContext("2d");
+    let maxTs = 0;
 
     for (const [tileIndex, entry] of rafQueueRef.current) {
       const { bitmap, x, y, width, height, frameTs, invalidateTileHash } = entry;
@@ -109,13 +115,17 @@ export function useTiles(socketRef, streaming, canvasRef) {
       try {
         ctx.drawImage(bitmap, x, y, width, height);
         renderedTilesRef.current.add(tileIndex);
+        if (frameTs > maxTs) maxTs = frameTs;
         bitmap?.close?.();
       } catch {
         invalidateTileHash();
       }
     }
     rafQueueRef.current.clear();
-  }, [canvasRef]);
+    // App-level flow control: ack the newest painted frame so the agent releases
+    // its window=1 slot and sends the next frame (caps hidden SCTP queue at ~1).
+    if (maxTs > 0) socketRef?.current?.emit("tile-ack", { ts: maxTs });
+  }, [canvasRef, socketRef]);
 
   const scheduleRaf = useCallback((forceReschedule = false) => {
     // For WebRTC: cancel and reschedule so we accumulate all chunks before flush
@@ -324,15 +334,23 @@ export function useTiles(socketRef, streaming, canvasRef) {
     const bytes = ab.byteLength;
     const id = ++_binMsgId;
     new Promise((resolve) => {
-      _binPending.set(id, resolve);
-      worker.postMessage({ buffer: ab, id, v }, [ab]);
-      // Guard against a silently-dead worker (iOS suspend) so a re-entry isn't stuck
-      // waiting forever for tiles that will never decode.
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (!_binPending.has(id)) return;
         _binPending.delete(id);
         resolve(null);
       }, REMOTE_CONFIG.tileLoadTimeout);
+      // Bound the in-flight queue — drop OLDEST batch when full (keep newest frame).
+      const cap = REMOTE_CONFIG.decodeQueueCap;
+      while (_binPending.size >= cap) {
+        const oldestId = _binPending.keys().next().value;
+        const old = _binPending.get(oldestId);
+        if (!old) break;
+        clearTimeout(old.timer);
+        _binPending.delete(oldestId);
+        old.resolve(null);
+      }
+      _binPending.set(id, { resolve, timer });
+      worker.postMessage({ buffer: ab, id, v }, [ab]);
     }).then((result) => {
       if (!result) return;
       if (v === 2) isRequestingRef.current = false;
