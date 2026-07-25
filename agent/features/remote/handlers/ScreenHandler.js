@@ -106,10 +106,11 @@ export class ScreenHandler {
           clientData.streamingTimeout = null;
           return;
         }
-        // App-level flow control (window=1): if the previous frame hasn't been
-        // acked yet, wait — caps the hidden SCTP queue at ~1 frame so it can't
-        // grow into multi-second delay (bufferedAmount doesn't reflect SCTP buf).
-        if (clientData.inFlightTs != null) {
+        // App-level flow control (window=N): if N frames are already in flight,
+        // wait — caps the hidden SCTP queue so it can't grow into multi-second
+        // delay (bufferedAmount doesn't reflect the SCTP buffer).
+        clientData.inFlight ??= new Set();
+        if (clientData.inFlight.size >= REMOTE_CONFIG.webrtc.ackWindow) {
           clientData.streamingTimeout = setTimeout(streamLoop, REMOTE_CONFIG.webrtc.ackPollMs);
           return;
         }
@@ -122,14 +123,15 @@ export class ScreenHandler {
               const sent = protocol.sendTiles({ tiles: result.tiles, timestamp: frameTs, currentHashes: result.currentHashes }, encodeTilesBatch);
               clientData.tileManager.commitHashes(sent || []);
               clientData.idleFrameCount = 0;
-              // Mark frame in-flight; cleared by "tile-ack" (browser) or ackTimeoutMs.
+              // Mark frame in-flight; cleared by "tile-ack" (browser) or per-frame timeout.
               if (sent?.length) {
-                clientData.inFlightTs = frameTs;
-                if (clientData.ackTimer) clearTimeout(clientData.ackTimer);
-                clientData.ackTimer = setTimeout(() => {
-                  if (clientData.inFlightTs === frameTs) clientData.inFlightTs = null;
-                  clientData.ackTimer = null;
+                clientData.inFlight.add(frameTs);
+                clientData.ackTimers ??= new Map();
+                const timer = setTimeout(() => {
+                  clientData.inFlight.delete(frameTs);
+                  clientData.ackTimers.delete(frameTs);
                 }, REMOTE_CONFIG.webrtc.ackTimeoutMs);
+                clientData.ackTimers.set(frameTs, timer);
               }
             } else {
             clientData.idleFrameCount++;
@@ -156,22 +158,31 @@ export class ScreenHandler {
         clearTimeout(clientData.streamingTimeout);
         clientData.streamingTimeout = null;
       }
-      if (clientData.ackTimer) { clearTimeout(clientData.ackTimer); clientData.ackTimer = null; }
-      clientData.inFlightTs = null;
+      clientData.inFlight?.clear?.();
+      if (clientData.ackTimers) {
+        for (const t of clientData.ackTimers.values()) clearTimeout(t);
+        clientData.ackTimers.clear();
+      }
     // Release screen buffers while idle — first frame after restart is full refresh
     clientData.tileManager?.clearMemory?.();
     remoteLog.lifecycle("⏹️ Remote streaming stopped");
   });
 
-    // Browser acks a rendered frame → release the window=1 slot so the next frame
-    // can be sent. Idempotent: any ack with ts >= inFlightTs clears it.
+    // Browser acks a rendered frame → release all in-flight frames with ts <= ack
+    // (those have been painted) so the window frees up for the next frame.
     socket.on("tile-ack", requireAuth((data) => {
       const clientData = this.resourceManager.getClient(socket.id);
       if (!clientData) return;
       const ts = data?.ts;
-      if (typeof ts === "number" && ts >= (clientData.inFlightTs ?? Infinity)) {
-        clientData.inFlightTs = null;
-        if (clientData.ackTimer) { clearTimeout(clientData.ackTimer); clientData.ackTimer = null; }
+      if (typeof ts !== "number") return;
+      clientData.inFlight ??= new Set();
+      clientData.ackTimers ??= new Map();
+      for (const fts of [...clientData.inFlight]) {
+        if (fts <= ts) {
+          clientData.inFlight.delete(fts);
+          const timer = clientData.ackTimers.get(fts);
+          if (timer) { clearTimeout(timer); clientData.ackTimers.delete(fts); }
+        }
       }
     }));
 

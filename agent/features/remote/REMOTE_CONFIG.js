@@ -80,9 +80,10 @@ export const REMOTE_CONFIG = {
     answerTimeout: 10000,
     // Max buffered control messages while no adapter ready (bound reconnect window)
     maxControlBuffer: 500,
-    // App-level flow control (window=1): agent holds at most ONE frame in flight
-    // until the browser acks. Caps the hidden SCTP buffer at ~1 frame so it can't
+    // App-level flow control (window=N): agent holds at most N frames in flight
+    // until the browser acks. Caps the hidden SCTP buffer at ~N frames so it can't
     // grow into multi-second delay (bufferedAmount doesn't see SCTP buffer).
+    ackWindow: 2,          // max frames in-flight before the loop pauses
     ackPollMs: 20,         // re-check interval while waiting for ack
     ackTimeoutMs: 1500     // fallback: if ack lost, assume frame dropped and resume
   },
