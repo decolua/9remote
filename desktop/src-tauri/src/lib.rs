@@ -134,6 +134,29 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+// macOS dock badge / Windows taskbar overlay. count <= 0 clears it.
+// Platforms without badge support (most Linux DEs) return an error → JS ignores.
+#[tauri::command]
+fn set_badge(app: AppHandle, count: i64) -> Result<(), String> {
+    let value = if count > 0 { Some(count) } else { None };
+    match app.get_webview_window("main") {
+        Some(win) => win.set_badge_count(value).map_err(|e| e.to_string()),
+        None => Err("main window not found".into()),
+    }
+}
+
+// Local OS notification banner. Rust-side so JS doesn't need plugin ACL.
+#[tauri::command]
+fn show_notif(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|e| e.to_string())
+}
+
 // ── Path helpers ────────────────────────────────────────────────────────────
 
 fn home_dir() -> String {
@@ -330,6 +353,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             // ── System tray ──
             let show = MenuItem::with_id(app, "show", "Show/Hide Window", true, Some("CmdOrCtrl+H"))?;
@@ -381,6 +405,8 @@ pub fn run() {
             check_permissions,
             request_permission,
             quit_app,
+            set_badge,
+            show_notif,
         ])
         .on_window_event(|window, event| {
             // Close button → hide window (keep agent alive in tray)

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "preact/hooks";
 import { io } from "socket.io-client";
 import { LOCAL_UI_DEVICE_ID } from "./constants";
+import { AGENT_LABELS } from "./agentLabels";
+import { setTauriBadge, showTauriNotification } from "./tauriBridge";
 
 // Single same-origin socket for the local UI.
 // Trusted via ephemeral local token (mem-only on server) — resists CSWSH.
@@ -50,7 +52,21 @@ export function useSessions() {
     const onReady = () => { refreshRef.current(); socket.emit("getNotificationState"); socket.emit("getStatusState"); };
     const onChanged = () => refreshRef.current();
     // Terminal command finished (AI hook) → mark session badge
-    const onFinish = (n) => { if (n?.sessionId) { setFinishedIds((p) => new Set(p).add(n.sessionId)); setNotifications((p) => ({ ...p, [n.sessionId]: n })); } };
+    const onFinish = (n) => {
+      if (!n?.sessionId) return;
+      setFinishedIds((p) => new Set(p).add(n.sessionId));
+      setNotifications((p) => ({ ...p, [n.sessionId]: n }));
+      // Local OS banner only when the window is backgrounded — mirrors the
+      // server-side hidden check for push. Skipped outside the Tauri shell.
+      if (typeof document !== "undefined" && document.hidden) {
+        const label = AGENT_LABELS[n.tool] || "AI";
+        const done = n.type === "stop" || n.state === "done";
+        showTauriNotification({
+          title: done ? `${label} ✅` : `${label} 🔔`,
+          body: done ? `${label} completed the task` : `${label} needs your input`,
+        });
+      }
+    };
     // Restore badge state from agent on connect/reload. Merge into Recent (history), never drop existing entries.
     const onState = (state) => { const s = state || {}; setFinishedIds(new Set(Object.keys(s))); setNotifications((p) => ({ ...p, ...s })); };
     // Another client cleared a badge → mirror badge only, keep it in Recent
@@ -89,6 +105,9 @@ export function useSessions() {
       socket.off("statusCleared", onStatusCleared);
     };
   }, []);
+
+  // Sync dock/taskbar badge to unread count. No-op outside the Tauri shell.
+  useEffect(() => { setTauriBadge(finishedIds.size); }, [finishedIds]);
 
   // Clear local badge + notify agent (keeps server state accurate)
   const clearFinished = (sessionId) => {
