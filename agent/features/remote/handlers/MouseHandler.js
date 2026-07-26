@@ -17,7 +17,11 @@ export class MouseHandler {
   _resolvePoint(socket, percentX, percentY) {
     const clientData = this.resourceManager.getClient(socket.id);
     const active = clientData?.monitorManager?.getActive();
-    if (active) {
+    // Off-primary display: node-screenshots origin+dims give the correct rect.
+    // On the primary, keep the legacy robot.getScreenSize() path — that's the
+    // coordinate space robotjs moveMouse uses, so single-monitor + scaled
+    // primary stays accurate (the multi-monitor path is off-by-DPI there).
+    if (active && !active.primary) {
       return {
         x: Math.round((percentX / 100) * active.w + active.x),
         y: Math.round((percentY / 100) * active.h + active.y)

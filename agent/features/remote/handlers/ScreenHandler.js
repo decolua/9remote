@@ -229,6 +229,20 @@ export class ScreenHandler {
       try {
         const dimensions = await clientData.tileManager.getScreenDimensions();
         protocol.emit("screen-dimensions", dimensions);
+        // Re-send monitor list: the initial "monitors" emit on socket setup
+        // races the client's listener registration (client opens the remote UI
+        // after connect), so the first event is lost and the switcher never
+        // renders. get-screen-dimensions is emitted on every mount, so
+        // piggyback here to guarantee the list reaches an active listener.
+        // refresh() re-detects displays first, so plug/unplug after connect
+        // shows up without restarting the agent.
+        if (clientData.monitorManager) {
+          clientData.monitorManager.refresh();
+          protocol.emit("monitors", {
+            list: clientData.monitorManager.list(),
+            activeIndex: clientData.monitorManager.getActiveIndex()
+          });
+        }
       } catch (error) {
         remoteLog.error("Get dimensions error:", error);
         protocol.emit("screen-error", { error: error.message });

@@ -79,6 +79,10 @@ async function enablePerMonitorDpiAwareness() {
   }
 }
 
+// Must precede any robotjs mouse API — invoked inside loadRemoteModules (the
+// first code path that imports robotjs), so the process is DPI-aware before
+// robotjs caches its view of the screen.
+
 async function loadRemoteModules() {
   if (robot && TileManager && ResourceManager) return true;
   try {

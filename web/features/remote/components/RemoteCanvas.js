@@ -122,15 +122,16 @@ export default function RemoteCanvas({
   }, [isDraggingMouse]);
 
   return (
-    <div
-      className="w-full h-full overflow-hidden relative flex-1"
-      ref={canvasContainerRef}
-      style={{ touchAction: "none" }}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
-      <canvas
+    <div className="w-full h-full overflow-hidden relative flex-1">
+      <div
+        className="absolute inset-0"
+        ref={canvasContainerRef}
+        style={{ touchAction: "none" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        <canvas
         ref={canvasRef}
         className={`block ${cursorClass} bg-black outline-none`}
         style={{
@@ -232,7 +233,9 @@ export default function RemoteCanvas({
         </div>
       )}
 
-      {/* Monitor selector (hidden when only one display) */}
+      </div>
+      {/* Monitor selector — sibling of the touch container so taps never bubble
+          into the canvas pointer/touch handlers. Independent overlay. */}
       <MonitorSwitcher
         list={monitors}
         activeIndex={activeMonitorIndex}
