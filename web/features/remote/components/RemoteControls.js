@@ -370,7 +370,7 @@ export default function RemoteControls({
           {clipboardNew && clipboardText ? (
             <Btn
               onClick={() => v(onOpenClipboard)}
-              className="text-brand-400"
+              className="text-red-500"
               title={t("common.clipboard")}
             >
               <ClipboardPaste size={14} className="shrink-0" />

@@ -18,7 +18,7 @@ export default function PathSuggestion({ items, onSelect, activeIndex = -1 }) {
   if (!items?.length) return null;
   return (
     <div className="absolute bottom-full left-0 right-0 mb-1 z-40 rounded-brand overflow-hidden bg-surface/95 backdrop-blur-xl shadow-xl ring-1 ring-border touch-none">
-      <div ref={listRef} className="flex flex-col max-h-[25vh] overflow-y-auto modal-scrollable">
+      <div ref={listRef} className="flex flex-col max-h-[25dvh] overflow-y-auto modal-scrollable">
         {items.map((it, idx) => (
           <button
             key={`${it.type}-${it.name}`}

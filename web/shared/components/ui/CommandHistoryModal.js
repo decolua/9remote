@@ -43,7 +43,7 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose, store =
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200 touch-none"
         onClick={onClose}
       />
-      <div className="relative card-elev max-w-lg w-full max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
+      <div className="relative card-elev max-w-lg w-full max-h-[90dvh] flex flex-col animate-in zoom-in-95 duration-200">
         <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
           <h3 className="text-lg font-semibold text-text">{t("history.title")}</h3>
           <div className="flex items-center gap-1">

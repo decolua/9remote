@@ -125,7 +125,7 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
 
-      <div className="relative card-elev w-full max-w-2xl max-h-[85vh] flex flex-col">
+      <div className="relative card-elev w-full max-w-2xl max-h-[85dvh] flex flex-col">
         {/* Header */}
         <div className="px-5 py-3 flex items-center justify-between">
           <h3 className="text-base font-semibold text-text">{title}</h3>

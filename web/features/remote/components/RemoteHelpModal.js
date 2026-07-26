@@ -84,11 +84,11 @@ export default function RemoteHelpModal({ onClose, inputMode = "touch", pointerM
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 bg-black/60 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="card-elev max-w-lg w-full max-h-[80vh] overflow-y-auto"
+        className="card-elev max-w-lg w-full max-h-full overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-surface z-10">

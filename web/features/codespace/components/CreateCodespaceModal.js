@@ -56,7 +56,7 @@ export default function CreateCodespaceModal({ isOpen, onClose, onCreated }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="card-elev p-6 max-w-md w-full max-h-[80vh] flex flex-col border border-border" onClick={(e) => e.stopPropagation()}>
+      <div className="card-elev p-6 max-w-md w-full max-h-[80dvh] flex flex-col border border-border" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-text">Select repository</h3>
           <button onClick={onClose} className="p-1 text-text-muted hover:text-text">

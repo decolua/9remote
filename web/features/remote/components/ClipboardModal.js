@@ -21,11 +21,11 @@ export default function ClipboardModal({ text, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 bg-black/60 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="card-elev max-w-lg w-full max-h-[80vh] flex flex-col"
+        className="card-elev max-w-lg w-full max-h-full flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border">
@@ -42,7 +42,7 @@ export default function ClipboardModal({ text, onClose }) {
         </div>
 
         <div className="p-4 overflow-y-auto flex-1">
-          <pre className="text-text text-sm whitespace-pre-wrap break-all bg-bg rounded p-3 font-mono min-h-[120px] max-h-[55vh] overflow-y-auto scroll-thin">
+          <pre className="text-text text-sm whitespace-pre-wrap break-all bg-bg rounded p-3 font-mono min-h-[120px] max-h-[55dvh] overflow-y-auto scroll-thin">
             {text || ""}
           </pre>
         </div>
