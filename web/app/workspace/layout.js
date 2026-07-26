@@ -136,6 +136,9 @@ export default function WorkspaceLayout({ children }) {
   // Mobile-only: file opened as overlay above the files view (no viewStack entry).
   // Keeps the explorer mounted so Back (X) returns to the same folder without reload.
   const [mobileEditor, setMobileEditor] = useState(null);
+  // Desktop: stable ref so GitPanel/explorer can ask FileWorkspaceDesktop to open a file
+  // in-place (add tab + activate) without pushing a new editor view onto the stack.
+  const openFileRef = useRef(null);
 
   // Desktop split-view detection
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -619,22 +622,15 @@ export default function WorkspaceLayout({ children }) {
   }, []);
 
   const handleOpenFile = useCallback((filePath, folderPath, opts = {}) => {
-    // Mobile: render editor as an overlay above the files view (no viewStack push),
-    // so the explorer stays mounted and Back (X) returns to the same folder.
+    // Mobile: render editor as an overlay above the current view (no viewStack push),
+    // so the explorer/git panel stays mounted and Back (X) returns to it.
     if (!isDesktop) {
-      setMobileEditor({ path: filePath, line: opts.line, column: opts.column });
+      setMobileEditor({ path: filePath, line: opts.line, column: opts.column, workspace: currentView.workspace });
       return;
     }
-    // Desktop: push editor view into the stack (tabs layout).
-    const folder = folderPath || (filePath.includes("/") ? filePath.split("/").slice(0, -1).join("/") || "/" : "/");
-    const filesViewIndex = viewStack.findIndex(v => v.type === "files");
-    if (filesViewIndex !== -1) {
-      const newStack = [...viewStack];
-      newStack[filesViewIndex] = { ...newStack[filesViewIndex], currentPath: folder };
-      setViewStack(newStack);
-    }
-    pushView({ type: "editor", path: filePath, line: opts.line, column: opts.column });
-  }, [isDesktop, pushView, viewStack, setViewStack]);
+    // Desktop: open in-place via the workspace tabs (no viewStack push → no nested back).
+    openFileRef.current?.(filePath, opts);
+  }, [isDesktop, currentView.workspace]);
 
   const handleOpenGit = useCallback(() => {
     const filesView = viewStack.find(v => v.type === "files");
@@ -1003,43 +999,27 @@ export default function WorkspaceLayout({ children }) {
                 onDeleteTerminalSession={handleDeleteSession}
                 onRenameTerminalSession={handleRenameSession}
                 viewType={currentView.type}
+                openFileRef={openFileRef}
               />
             </div>
           );
         })()}
 
-        {/* File Explorer (workspace mode) - mobile only.
-            Editor renders as an overlay within this view (mobileEditor) so the
-            explorer stays mounted: Back (X) returns to the same folder without reload. */}
+        {/* File Explorer (workspace mode) - mobile only. */}
         {!isDesktop && currentView.type === "files" && (
-          <>
-            <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
-              <FileExplorer
-                workspace={currentView.workspace}
-                initialPath={currentView.currentPath}
-                fileSocket={fileSocket}
-                onBack={popView}
-                onOpenFile={handleOpenFile}
-                onOpenGit={handleOpenGit}
-                onSwitchWorkspace={handleOpenWorkspaceList}
-                onPathChange={(p) => handlePathChange(currentView.workspace, p)}
-                hideSwitchWorkspace={currentView.fromTerminal}
-              />
-            </div>
-
-            {mobileEditor && (
-              <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
-                <FileEditor
-                  filePath={mobileEditor.path}
-                  line={mobileEditor.line}
-                  column={mobileEditor.column}
-                  fileSocket={fileSocket}
-                  onBack={() => setMobileEditor(null)}
-                  workspace={currentView.workspace}
-                />
-              </div>
-            )}
-          </>
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+            <FileExplorer
+              workspace={currentView.workspace}
+              initialPath={currentView.currentPath}
+              fileSocket={fileSocket}
+              onBack={popView}
+              onOpenFile={handleOpenFile}
+              onOpenGit={handleOpenGit}
+              onSwitchWorkspace={handleOpenWorkspaceList}
+              onPathChange={(p) => handlePathChange(currentView.workspace, p)}
+              hideSwitchWorkspace={currentView.fromTerminal}
+            />
+          </div>
         )}
 
         {/* Git Panel - mobile only */}
@@ -1050,6 +1030,21 @@ export default function WorkspaceLayout({ children }) {
               fileSocket={fileSocket}
               onBack={popView}
               onOpenFile={handleOpenFile}
+            />
+          </div>
+        )}
+
+        {/* Mobile editor overlay — rendered above whichever view opened it (files or git),
+            so Back (X) returns to that view without a viewStack push. */}
+        {!isDesktop && mobileEditor && (
+          <div className="absolute inset-0 z-40 transition-all duration-300 ease-out animate-in slide-in-from-right">
+            <FileEditor
+              filePath={mobileEditor.path}
+              line={mobileEditor.line}
+              column={mobileEditor.column}
+              fileSocket={fileSocket}
+              onBack={() => setMobileEditor(null)}
+              workspace={mobileEditor.workspace || currentView.workspace}
             />
           </div>
         )}

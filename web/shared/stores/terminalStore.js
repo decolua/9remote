@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { MAX_LIVE_PANES } from "@/features/terminal/constants/terminalConfig";
+import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
 
 // Terminal UI state store - persisted to sessionStorage
 export const useTerminalStore = create(
@@ -55,7 +56,12 @@ export const useTerminalStore = create(
 
       // Per-session working directory (OSC 7), consumed by path-aware suggestions.
       cwdBySession: {},
-      setCwd: (sessionId, cwd) => { if (!sessionId || !cwd) return; set((state) => state.cwdBySession[sessionId] === cwd ? state : ({ cwdBySession: { ...state.cwdBySession, [sessionId]: cwd } })); },
+      setCwd: (sessionId, cwd) => {
+        if (!sessionId || !cwd) return;
+        // OSC 7 cwd arrives OS-native (\\ on Windows) — normalize for web path helpers.
+        const norm = toPosixPath(cwd);
+        set((state) => state.cwdBySession[sessionId] === norm ? state : ({ cwdBySession: { ...state.cwdBySession, [sessionId]: norm } }));
+      },
 
       // WebGL renderer toggle (default on; off → canvas fallback). Applied on next mount.
       webglEnabled: true,

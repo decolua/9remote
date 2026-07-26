@@ -415,7 +415,7 @@ export default function FileExplorer({
           )}
 
           {/* File Tree or Grid (browse mode) */}
-          <div className="flex-1 min-h-0 overflow-auto">
+          <div className={`flex-1 min-h-0 overflow-auto ${!isBrowsing ? "pb-20" : ""}`}>
             {isBrowsing ? (
               // Grid view for browse mode
               <div className="p-4">

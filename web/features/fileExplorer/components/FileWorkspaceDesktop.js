@@ -34,7 +34,8 @@ export default function FileWorkspaceDesktop({
   onDeleteTerminalSession,
   onRenameTerminalSession,
   initialActiveFile,
-  viewType
+  viewType,
+  openFileRef
 }) {
   const [activePanel, setActivePanel] = usePersistedState(STORAGE_KEYS.activityPanel, ACTIVITY_PANELS.explorer);
 
@@ -96,6 +97,12 @@ export default function FileWorkspaceDesktop({
     setActiveFile(filePath);
     if (opts.line) setEditorState(s => ({ ...s, jumpLine: opts.line, jumpColumn: opts.column }));
   }, []);
+
+  // Expose openFile via ref so the parent layout can route GitPanel/explorer clicks
+  // into the workspace tabs without pushing a new editor view onto the stack.
+  useEffect(() => {
+    if (openFileRef) openFileRef.current = handleOpenFile;
+  }, [openFileRef, handleOpenFile]);
 
   const handleCloseFile = useCallback((filePath) => {
     setOpenedFiles(prev => {

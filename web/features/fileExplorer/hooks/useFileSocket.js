@@ -1,6 +1,13 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
+import { normalizePathsResponse } from "../constants/fileExplorer.js";
+
+// Wrap a socket callback so path fields in the response are normalized to POSIX
+// (agent sends OS-native separators — \\ on Windows — which break web path helpers).
+const normResolve = (resolve) => (res) => {
+  resolve(normalizePathsResponse(res));
+};
 
 // File Explorer socket hook - uses existing socket from useSocket
 export function useFileSocket(socketRef) {
@@ -22,7 +29,7 @@ export function useFileSocket(socketRef) {
         resolve({ success: false, error: "Not connected" });
         return;
       }
-      socketRef.current.emit("getFiles", { dirPath, showHidden }, resolve);
+      socketRef.current.emit("getFiles", { dirPath, showHidden }, normResolve(resolve));
     });
   }, [socketRef]);
 
@@ -104,7 +111,7 @@ export function useFileSocket(socketRef) {
         resolve({ success: false, error: "Not connected" });
         return;
       }
-      socketRef.current.emit("gitStatus", { repoPath }, resolve);
+      socketRef.current.emit("gitStatus", { repoPath }, normResolve(resolve));
     });
   }, [socketRef]);
 
@@ -126,7 +133,7 @@ export function useFileSocket(socketRef) {
         resolve({ success: false, error: "Not connected" });
         return;
       }
-      socketRef.current.emit("gitFileStatus", { repoPath, filePath }, resolve);
+      socketRef.current.emit("gitFileStatus", { repoPath, filePath }, normResolve(resolve));
     });
   }, [socketRef]);
 
@@ -148,7 +155,7 @@ export function useFileSocket(socketRef) {
         resolve({ success: false, error: "Not connected" });
         return;
       }
-      socketRef.current.emit("searchFiles", { workspace, query }, resolve);
+      socketRef.current.emit("searchFiles", { workspace, query }, normResolve(resolve));
     });
   }, [socketRef]);
 
@@ -178,7 +185,7 @@ export function useFileSocket(socketRef) {
       socketRef.current.emit(
         "searchInFiles",
         { workspace, query, caseSensitive, regex, includeGlob, excludeGlob },
-        resolve
+        normResolve(resolve)
       );
     });
   }, [socketRef]);
@@ -249,7 +256,7 @@ export function useFileSocket(socketRef) {
         resolve({ success: false, error: "Not connected" });
         return;
       }
-      socketRef.current.emit("getFileTree", { dirPath, depth, showHidden }, resolve);
+      socketRef.current.emit("getFileTree", { dirPath, depth, showHidden }, normResolve(resolve));
     });
   }, [socketRef]);
 
@@ -319,7 +326,7 @@ export function useFileSocket(socketRef) {
         resolve({ success: false, error: "Not connected" });
         return;
       }
-      socketRef.current.emit("gitLog", { repoPath, limit }, resolve);
+      socketRef.current.emit("gitLog", { repoPath, limit }, normResolve(resolve));
     });
   }, [socketRef]);
 

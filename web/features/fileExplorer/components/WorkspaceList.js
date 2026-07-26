@@ -6,15 +6,30 @@ import { Folder, Home, HardDrive, Sparkles } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 
-import { MAX_RECENT_WORKSPACES } from "../constants/fileExplorer.js";
+import { MAX_RECENT_WORKSPACES, toPosixPath } from "../constants/fileExplorer.js";
 
 const STORAGE_KEY = "recentWorkspaces";
 const MAX_RECENT = MAX_RECENT_WORKSPACES;
 
+// Normalize path-like fields on a persisted entry (migrates old \\ data + guards writes).
+const normEntry = (w) => {
+  if (!w) return w;
+  const next = { ...w };
+  if (typeof next.path === "string") next.path = toPosixPath(next.path);
+  if (typeof next.lastPath === "string") next.lastPath = toPosixPath(next.lastPath);
+  if (Array.isArray(next.openedFiles)) {
+    next.openedFiles = next.openedFiles.map((f) => (f && typeof f === "object"
+      ? { ...f, path: toPosixPath(f.path) }
+      : f));
+  }
+  if (typeof next.activeFile === "string") next.activeFile = toPosixPath(next.activeFile);
+  return next;
+};
+
 export function getRecentWorkspaces() {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").map(normEntry);
   } catch {
     return [];
   }
@@ -22,12 +37,13 @@ export function getRecentWorkspaces() {
 
 export function addRecentWorkspace(workspacePath) {
   if (typeof window === "undefined") return;
+  const norm = toPosixPath(workspacePath);
   const all = getRecentWorkspaces();
-  const existing = all.find(w => w.path === workspacePath);
-  const rest = all.filter(w => w.path !== workspacePath);
+  const existing = all.find(w => w.path === norm);
+  const rest = all.filter(w => w.path !== norm);
   // Preserve lastPath/name/pinned when re-adding existing workspace
   rest.unshift({
-    path: workspacePath,
+    path: norm,
     lastOpened: Date.now(),
     lastPath: existing?.lastPath,
     name: existing?.name,
@@ -42,8 +58,9 @@ export function addRecentWorkspace(workspacePath) {
 
 export function renameRecentWorkspace(workspacePath, name) {
   if (typeof window === "undefined") return;
+  const norm = toPosixPath(workspacePath);
   const recent = getRecentWorkspaces();
-  const idx = recent.findIndex(w => w.path === workspacePath);
+  const idx = recent.findIndex(w => w.path === norm);
   if (idx === -1) return;
   recent[idx] = { ...recent[idx], name: name?.trim() || undefined };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
@@ -51,8 +68,9 @@ export function renameRecentWorkspace(workspacePath, name) {
 
 export function togglePinWorkspace(workspacePath) {
   if (typeof window === "undefined") return;
+  const norm = toPosixPath(workspacePath);
   const recent = getRecentWorkspaces();
-  const idx = recent.findIndex(w => w.path === workspacePath);
+  const idx = recent.findIndex(w => w.path === norm);
   if (idx === -1) return;
   recent[idx] = { ...recent[idx], pinned: !recent[idx].pinned };
   // Re-sort: pinned first
@@ -63,30 +81,38 @@ export function togglePinWorkspace(workspacePath) {
 
 export function updateOpenedFiles(workspacePath, openedFiles, activeFile) {
   if (typeof window === "undefined") return;
+  const norm = toPosixPath(workspacePath);
   const recent = getRecentWorkspaces();
-  const idx = recent.findIndex(w => w.path === workspacePath);
+  const idx = recent.findIndex(w => w.path === norm);
+  // Normalize stored paths so tabs round-trip cleanly on Windows.
+  const files = Array.isArray(openedFiles)
+    ? openedFiles.map((f) => (f && typeof f === "object" ? { ...f, path: toPosixPath(f.path) } : f))
+    : openedFiles;
+  const active = typeof activeFile === "string" ? toPosixPath(activeFile) : activeFile;
   // Auto-create entry so tabs persist even if workspace not yet in recent list
   if (idx === -1) {
-    recent.unshift({ path: workspacePath, lastOpened: Date.now(), openedFiles, activeFile });
+    recent.unshift({ path: norm, lastOpened: Date.now(), openedFiles: files, activeFile: active });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
     return;
   }
-  recent[idx] = { ...recent[idx], openedFiles, activeFile: activeFile ?? null };
+  recent[idx] = { ...recent[idx], openedFiles: files, activeFile: active ?? null };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
 }
 
 export function updateRecentWorkspacePath(workspacePath, lastPath) {
   if (typeof window === "undefined") return;
+  const norm = toPosixPath(workspacePath);
   const recent = getRecentWorkspaces();
-  const idx = recent.findIndex(w => w.path === workspacePath);
+  const idx = recent.findIndex(w => w.path === norm);
   if (idx === -1) return;
-  recent[idx] = { ...recent[idx], lastPath };
+  recent[idx] = { ...recent[idx], lastPath: toPosixPath(lastPath) };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
 }
 
 export function removeRecentWorkspace(workspacePath) {
   if (typeof window === "undefined") return;
-  const recent = getRecentWorkspaces().filter(w => w.path !== workspacePath);
+  const norm = toPosixPath(workspacePath);
+  const recent = getRecentWorkspaces().filter(w => w.path !== norm);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
 }
 

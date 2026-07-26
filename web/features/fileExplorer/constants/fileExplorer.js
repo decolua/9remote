@@ -1,5 +1,45 @@
 // File Explorer constants
 
+// Agent returns OS-native separators (\\ on Windows). Web helpers assume POSIX (/),
+// so normalize at every boundary where a path enters web state.
+export const toPosixPath = (p) => (typeof p === "string" ? p.replace(/\\/g, "/") : p);
+
+// Field names that carry a filesystem path in socket responses — only these get
+// normalized, so file *content* (readFile/gitDiff) is never touched.
+const PATH_FIELDS = new Set([
+  "path", "currentPath", "parentPath", "dirPath", "filePath",
+  "repoPath", "oldPath", "newPath", "fullPath", "relativePath",
+]);
+
+// Recursively normalize path fields in a socket response (no clone unless needed).
+export function normalizePathsResponse(res) {
+  if (!res || typeof res !== "object") return res;
+  if (Array.isArray(res)) {
+    let changed = false;
+    const next = res.map((v) => {
+      const n = normalizePathsResponse(v);
+      if (n !== v) changed = true;
+      return n;
+    });
+    return changed ? next : res;
+  }
+  let next;
+  for (const k of Object.keys(res)) {
+    const v = res[k];
+    if (PATH_FIELDS.has(k) && typeof v === "string" && v.includes("\\")) {
+      next ||= { ...res };
+      next[k] = toPosixPath(v);
+    } else if (v && typeof v === "object") {
+      const n = normalizePathsResponse(v);
+      if (n !== v) {
+        next ||= { ...res };
+        next[k] = n;
+      }
+    }
+  }
+  return next || res;
+}
+
 export const MAX_FILE_SIZE = 1024 * 1024; // 1MB text read limit
 // ponytail: media preview over base64 socket is slow for very large files;
 // upgrade to HTTP range streaming when users routinely open >5MB media.

@@ -11,7 +11,7 @@ import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { AUTO_SAVE_DELAY, LANGUAGE_MAP, isImageFile, isVideoFile, isAudioFile, isPdfFile } from "../constants/fileExplorer.js";
-import { ChevronLeft, Save, Loader2, GitBranch } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Save, Loader2, GitBranch, Copy } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
@@ -45,6 +45,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState(false);
+  const [copiedIndicator, setCopiedIndicator] = useState(false);
   const [gitStatus, setGitStatus] = useState(null);
   const [showDiff, setShowDiff] = useState(false);
   const [diffContent, setDiffContent] = useState("");
@@ -83,6 +84,17 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
       setError(result.error);
     }
   }, [filePath, fileSocket, saving]);
+
+  // Copy full file content (latest in-editor text, including unsaved edits)
+  const copyContent = useCallback(async () => {
+    if (!viewRef.current) return;
+    const text = viewRef.current.state.doc.toString();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndicator(true);
+      setTimeout(() => setCopiedIndicator(false), 1500);
+    } catch {}
+  }, []);
 
   // Auto-save with debounce
   const scheduleAutoSave = useCallback(() => {
@@ -293,6 +305,9 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
           {savedIndicator && (
             <span className="text-green-400 text-xs flex-shrink-0">{t("editor.saved")}</span>
           )}
+          {copiedIndicator && (
+            <span className="text-green-400 text-xs flex-shrink-0">{t("editor.copied", { defaultValue: "Copied" })}</span>
+          )}
         </div>
 
         {/* Git button - only show if file has git changes */}
@@ -304,6 +319,17 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
             title={`Git: ${gitStatus.status === "M" ? t("editor.statusModified") : gitStatus.status === "A" ? t("editor.statusAdded") : gitStatus.status === "?" ? t("editor.statusUntracked") : gitStatus.status}`}
           >
             {loadingDiff ? <Loader2 className="animate-spin" size={16} /> : <GitBranch size={16} />}
+          </button>
+        )}
+
+        {/* Copy content - text files only */}
+        {!isPreviewable && (
+          <button
+            onClick={() => { vibrate(); copyContent(); }}
+            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
+            title={t("editor.copy", { defaultValue: "Copy" })}
+          >
+            <Copy size={16} />
           </button>
         )}
 
