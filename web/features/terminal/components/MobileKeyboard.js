@@ -14,7 +14,9 @@ import {
   CLIPBOARD_ATTACH_TIMEOUT,
   CLIPBOARD_ATTACH_GAP,
   INPUT_CONTROL_KEYS,
-  INPUT_ENTER_DELAY
+  INPUT_ENTER_DELAY,
+  INPUT_MAX_HEIGHT_MOBILE,
+  INPUT_MAX_HEIGHT_DESKTOP
 } from "@/features/terminal/constants/terminalConfig";
 import { vibrate } from "@/shared/utils/vibration";
 import { Paperclip, Settings, MoreHorizontal, X, CornerDownLeft, Mic, MicOff, History } from "@/shared/components/ui/Icon";
@@ -102,12 +104,14 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     },
   });
   // Auto-grow textarea from 1 row up to a max, then scroll internally.
+  // Desktop gets a taller cap so long pastes/edits stay readable.
   useEffect(() => {
     const el = textInputRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 72)}px`;
-  }, [textInput]);
+    const maxHeight = hasPhysicalKeyboard ? INPUT_MAX_HEIGHT_DESKTOP : INPUT_MAX_HEIGHT_MOBILE;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, [textInput, hasPhysicalKeyboard]);
   const toggleVoice = () => {
     if (voice.listening) { voice.stop(); return; }
     document.activeElement?.blur(); // hide soft keyboard while dictating

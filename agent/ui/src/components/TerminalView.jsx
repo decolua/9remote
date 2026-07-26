@@ -528,7 +528,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
             <textarea
               ref={textInputRef}
               value={textInput}
-              rows={Math.min(2, (textInput.match(/\n/g) || []).length + 1)}
+              rows={Math.min(10, (textInput.match(/\n/g) || []).length + 1)}
               onInput={(e) => {
                 setTextInput(e.target.value);
                 historyIndexRef.current = -1;
@@ -596,8 +596,8 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 handleControlKey(e);
               }}
               placeholder={t("terminal.typeCommand")}
-              className="term-input block w-full pl-9 pr-8 py-1.5 rounded-lg text-sm resize-none focus:outline-none leading-5"
-              style={{ background: "transparent", color: "var(--text-main)" }}
+              className="term-input block w-full pl-9 pr-8 py-1.5 rounded-lg text-sm resize-none focus:outline-none leading-5 overflow-y-auto"
+              style={{ background: "transparent", color: "var(--text-main)", maxHeight: 200 }}
             />
             {textInput ? (
               <button
