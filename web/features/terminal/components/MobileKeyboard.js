@@ -13,7 +13,8 @@ import {
   MAX_ATTACHMENTS,
   CLIPBOARD_ATTACH_TIMEOUT,
   CLIPBOARD_ATTACH_GAP,
-  INPUT_CONTROL_KEYS
+  INPUT_CONTROL_KEYS,
+  INPUT_ENTER_DELAY
 } from "@/features/terminal/constants/terminalConfig";
 import { vibrate } from "@/shared/utils/vibration";
 import { Paperclip, Settings, MoreHorizontal, X, CornerDownLeft, Mic, MicOff, History } from "@/shared/components/ui/Icon";
@@ -408,7 +409,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       // Send text first, then Enter after a short delay so PTY reliably
       // receives both (mobile/IME may otherwise drop the Enter).
       socket.emit("input", { sessionId, data: text });
-      setTimeout(() => socket.emit("input", { sessionId, data: "\r" }), 40);
+      setTimeout(() => socket.emit("input", { sessionId, data: "\r" }), INPUT_ENTER_DELAY);
       addCommand(text);
       setTextInput("");
       historyIndexRef.current = -1;
