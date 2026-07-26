@@ -70,6 +70,14 @@ $script:menu = New-Object System.Windows.Forms.ContextMenuStrip
 $script:notifyIcon.ContextMenuStrip = $script:menu
 $script:items = @()
 
+# Left-click also opens the menu (right-click is the Windows default)
+$script:notifyIcon.Add_MouseClick({
+  param($sender, $e)
+  if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+    $script:menu.Show([System.Windows.Forms.Cursor]::Position, [System.Windows.Forms.ToolStripDropDownDirection]::BelowRight)
+  }
+})
+
 function Write-Event($obj) {
   $json = $obj | ConvertTo-Json -Compress
   [Console]::Out.WriteLine($json)
