@@ -48,6 +48,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   const { stats, trackTilesReceived, resetStats } = useBenchmark();
   const [showDebug, setShowDebug] = useState(REMOTE_CONFIG.debug?.panel ?? false);
   const [wsBlocked, setWsBlocked] = useState(false);
+  const [monitors, setMonitors] = useState([]);
+  const [activeMonitorIndex, setActiveMonitorIndex] = useState(0);
   const debugMode = REMOTE_CONFIG.enableWebRTC ? "rtc" : "ws";
   const copyStats = useCallback(() => {
     const snapshot = { mode: debugMode, ...stats, ts: new Date().toISOString() };
@@ -380,6 +382,19 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       setClipboardNew(true);
     };
 
+    // Multi-monitor list from agent → drives the switcher UI.
+    const onMonitors = ({ list, activeIndex }) => {
+      setMonitors(Array.isArray(list) ? list : []);
+      if (typeof activeIndex === "number") setActiveMonitorIndex(activeIndex);
+    };
+    // Agent switched the active display → drop stale tiles + reset view so the
+    // next frame paints the new monitor cleanly on a resized canvas.
+    const onFrameMeta = (meta) => {
+      cleanupTiles();
+      resetZoom();
+      if (typeof meta?.monitorIndex === "number") setActiveMonitorIndex(meta.monitorIndex);
+    };
+
     socket.on("screen-dimensions", onScreenDimensions);
     socket.on("full-screen-data", onFullScreenData);
     socket.on("tiles-data", onTilesData);
@@ -389,6 +404,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     socket.on("screen-error", onScreenError);
     socket.on("remote:ready", onRemoteReady);
     socket.on("clipboard-update", onClipboardUpdate);
+    socket.on("monitors", onMonitors);
+    socket.on("frame_meta", onFrameMeta);
 
     // Initial handshake on mount — agent may have emitted remote:ready before this
     // component mounted (socket already connected via terminal) so listener missed it.
@@ -405,6 +422,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       socket.off("screen-error", onScreenError);
       socket.off("remote:ready", onRemoteReady);
       socket.off("clipboard-update", onClipboardUpdate);
+      socket.off("monitors", onMonitors);
+      socket.off("frame_meta", onFrameMeta);
       cleanupTiles();
       if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);
     };
@@ -479,6 +498,10 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
 
   const onHandRelease = useCallback(() => setHandMode(false), [setHandMode]);
 
+  const onSelectMonitor = useCallback((index) => {
+    socketRef?.current?.emit("select_monitor", { index });
+  }, [socketRef]);
+
   const createInteractionHandler = (type) => (e) => {
     handleCanvasInteraction(e, type, {
       streaming,
@@ -537,6 +560,9 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
           virtualCursor={virtualCursor}
           inputMode={inputMode}
           keyboardOn={keyboardOn}
+          monitors={monitors}
+          activeMonitorIndex={activeMonitorIndex}
+          onSelectMonitor={onSelectMonitor}
           onPointerDown={createInteractionHandler("pointerdown")}
           onPointerMove={createInteractionHandler("pointermove")}
           onPointerUp={createInteractionHandler("pointerup")}

@@ -31,7 +31,7 @@ export async function mapLimit(items, limit, fn) {
 }
 
 export class TileManager {
-  constructor(robot) {
+  constructor(robot, opts = {}) {
     this.robot = robot;
     this.metrics = new FrameMetrics();
     this.tileSize = REMOTE_CONFIG.pipeline.tileSize;
@@ -70,12 +70,65 @@ export class TileManager {
     // Holds a Promise resolving to next screenData, cutting capture latency off the critical path.
     this._prefetchCapture = null;
 
+    // Multi-monitor: when a node-screenshots Monitor is supplied, capture uses
+    // its native physical pixels directly (no robot.getScreenSize/DPI detection).
+    this._monitor = opts.monitor ?? null;
+
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
     }
 
     capture.initCapture(robot);
-    this.initializeScreenDimensions();
+    if (this._monitor) {
+      this._initFromMonitor(this._monitor);
+    } else {
+      this.initializeScreenDimensions();
+    }
+  }
+
+  // Initialize geometry from a node-screenshots Monitor (physical px, dpiScale=1).
+  _initFromMonitor(mon) {
+    this.screenWidth = mon.width();
+    this.screenHeight = mon.height();
+    this.dpiScale = 1;
+    this.captureWidth = mon.width();
+    this.captureHeight = mon.height();
+    this._applyTileGeometry();
+  }
+
+  // Switch the active monitor at runtime: re-pin capture ref, recompute tile
+  // grid, and invalidate every cache so the next frame is a full refresh.
+  setMonitor(mon) {
+    if (!mon) return;
+    this._monitor = mon;
+    this._initFromMonitor(mon);
+    this.lastTileChecksums.clear();
+    this.sharedScreenCache = null;
+    this.lastCaptureTime = 0;
+    this._prefetchCapture = null;
+    this._scratchExtract = [];
+    this._scratchSwap = [];
+    // Tile grid changed → old focus set indices are meaningless.
+    this.activeTileSet = null;
+  }
+
+  // Compute scaled dims + adaptive tileSize from current captureWidth/Height.
+  _applyTileGeometry() {
+    this.tileSize = REMOTE_CONFIG.pipeline.tileSize;
+    this.scaledWidth = this.captureWidth;
+    this.scaledHeight = this.captureHeight;
+    this.tilesPerRow = Math.ceil(this.scaledWidth / this.tileSize);
+    this.tilesPerColumn = Math.ceil(this.scaledHeight / this.tileSize);
+    this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
+
+    const MAX_TILES = 100;
+    if (this.totalTiles > MAX_TILES) {
+      const optimalTileSize = Math.ceil(Math.sqrt((this.scaledWidth * this.scaledHeight) / MAX_TILES));
+      this.tileSize = Math.max(optimalTileSize, 120);
+      this.tilesPerRow = Math.ceil(this.scaledWidth / this.tileSize);
+      this.tilesPerColumn = Math.ceil(this.scaledHeight / this.tileSize);
+      this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
+    }
   }
 
   initializeScreenDimensions() {
@@ -87,25 +140,7 @@ export class TileManager {
       // Detect DPI scale once at initialization
       this.detectDpiScale();
 
-      // Canvas dimensions == capture dimensions. scaleFactor is applied per-tile
-      // inside compressTileImage (not here) so adaptive profile changes don't
-      // resize the canvas — client keeps a stable coordinate system.
-      this.scaledWidth = this.captureWidth;
-      this.scaledHeight = this.captureHeight;
-      this.tilesPerRow = Math.ceil(this.scaledWidth / this.tileSize);
-      this.tilesPerColumn = Math.ceil(this.scaledHeight / this.tileSize);
-      this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
-
-      const MAX_TILES = 100;
-      if (this.totalTiles > MAX_TILES) {
-        const optimalTileSize = Math.ceil(Math.sqrt((this.scaledWidth * this.scaledHeight) / MAX_TILES));
-        this.tileSize = Math.max(optimalTileSize, 120);
-        this.tilesPerRow = Math.ceil(this.scaledWidth / this.tileSize);
-        this.tilesPerColumn = Math.ceil(this.scaledHeight / this.tileSize);
-        this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
-      }
-
-      // console.log(`🖥️ [TileManager Init] Logical: ${width}x${height} | DPI Scale: ${this.dpiScale}x | Capture: ${this.captureWidth}x${this.captureHeight} | Scaled: ${this.scaledWidth}x${this.scaledHeight} | Tiles: ${this.totalTiles}`);
+      this._applyTileGeometry();
     } catch (error) {
       remoteLog.error("Screen dimensions error:", error);
       this.screenWidth = 1920;
@@ -210,7 +245,7 @@ export class TileManager {
     // NOTE: downscale is NOT applied here anymore. scaleFactor is applied
     // per-tile in compressTileImage so canvas dimensions stay stable across
     // adaptive profile switches (client doesn't need to resync size).
-    const result = await capture.captureFull();
+    const result = await capture.captureFull(this._monitor);
     return {
       buffer: result.buffer,
       width: result.width,

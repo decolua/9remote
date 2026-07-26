@@ -31,7 +31,10 @@ export async function getScreenSize() {
   return { width: m.width, height: m.height };
 }
 
-export async function captureFull() {
+// preferredMonitor: per-client node-screenshots Monitor (multi-monitor).
+// When passed, capture uses it directly and skips the global cache so each
+// client can stream a different display concurrently.
+export async function captureFull(preferredMonitor = null) {
   const { captureLib, inputFormat } = REMOTE_CONFIG.pipeline;
 
   if (captureLib === "robotjs") {
@@ -55,7 +58,7 @@ export async function captureFull() {
   // the cache on any failure so the next capture re-acquires a fresh handle.
   let m;
   try {
-    m = await getMonitor();
+    m = preferredMonitor || await getMonitor();
     const image = await m.captureImage();
     const raw = await image.toRaw();
     return {
@@ -66,7 +69,7 @@ export async function captureFull() {
       format: inputFormat
     };
   } catch (err) {
-    monitorRef = null;
+    if (!preferredMonitor) monitorRef = null;
     throw err;
   }
 }

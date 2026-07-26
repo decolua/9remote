@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
+import MonitorSwitcher from "@/features/remote/components/MonitorSwitcher";
 
 // Remote Desktop Canvas component - handles screen rendering
 export default function RemoteCanvas({
@@ -21,6 +22,9 @@ export default function RemoteCanvas({
   virtualCursor,
   inputMode,
   keyboardOn,
+  monitors,
+  activeMonitorIndex,
+  onSelectMonitor,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -227,6 +231,13 @@ export default function RemoteCanvas({
           <div className="absolute inset-0 w-full h-full rounded-full border-2 border-blue-400 bg-blue-400/50" />
         </div>
       )}
+
+      {/* Monitor selector (hidden when only one display) */}
+      <MonitorSwitcher
+        list={monitors}
+        activeIndex={activeMonitorIndex}
+        onSelect={onSelectMonitor}
+      />
     </div>
   );
 }

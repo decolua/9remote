@@ -10,6 +10,26 @@ export class MouseHandler {
     this.buttonDown = null;
   }
 
+  // Map client percent (0-100) → host pixel. With a MonitorManager available
+  // (multi-monitor + DPI-aware process), use the active monitor's physical
+  // origin+dims so coords are correct on any display. Otherwise fall back to
+  // the legacy primary logical mapping.
+  _resolvePoint(socket, percentX, percentY) {
+    const clientData = this.resourceManager.getClient(socket.id);
+    const active = clientData?.monitorManager?.getActive();
+    if (active) {
+      return {
+        x: Math.round((percentX / 100) * active.w + active.x),
+        y: Math.round((percentY / 100) * active.h + active.y)
+      };
+    }
+    const d = this.robot.getScreenSize();
+    return {
+      x: Math.max(0, Math.min(d.width - 1, Math.round((percentX / 100) * d.width))),
+      y: Math.max(0, Math.min(d.height - 1, Math.round((percentY / 100) * d.height)))
+    };
+  }
+
   setupMouseHandlers(socket, requireAuth) {
     const robot = this.robot;
 
@@ -19,11 +39,7 @@ export class MouseHandler {
       this.lastMouseMove = now;
 
       try {
-        const dimensions = robot.getScreenSize();
-        const pcX = Math.round((data.x / 100) * dimensions.width);
-        const pcY = Math.round((data.y / 100) * dimensions.height);
-        const finalX = Math.max(0, Math.min(dimensions.width - 1, pcX));
-        const finalY = Math.max(0, Math.min(dimensions.height - 1, pcY));
+        const { x: finalX, y: finalY } = this._resolvePoint(socket, data.x, data.y);
 
         // macOS needs kCGEventLeftMouseDragged (not kCGEventMouseMoved) to drag a
         // window mid-press. dragMouse posts the correct event type; on Linux/Win
@@ -41,12 +57,7 @@ export class MouseHandler {
         const clientData = this.resourceManager.getClient(socket.id);
         if (!clientData) return;
 
-        const dimensions = robot.getScreenSize();
-        const pcX = Math.round((data.x / 100) * dimensions.width);
-        const pcY = Math.round((data.y / 100) * dimensions.height);
-        const finalX = Math.max(0, Math.min(dimensions.width - 1, pcX));
-        const finalY = Math.max(0, Math.min(dimensions.height - 1, pcY));
-
+        const { x: finalX, y: finalY } = this._resolvePoint(socket, data.x, data.y);
         robot.moveMouse(finalX, finalY);
         robot.mouseClick(data.button || "left", data.double || false);
 
@@ -63,12 +74,7 @@ export class MouseHandler {
         const clientData = this.resourceManager.getClient(socket.id);
         if (!clientData) return;
 
-        const dimensions = robot.getScreenSize();
-        const pcX = Math.round((data.x / 100) * dimensions.width);
-        const pcY = Math.round((data.y / 100) * dimensions.height);
-        const finalX = Math.max(0, Math.min(dimensions.width - 1, pcX));
-        const finalY = Math.max(0, Math.min(dimensions.height - 1, pcY));
-
+        const { x: finalX, y: finalY } = this._resolvePoint(socket, data.x, data.y);
         robot.moveMouse(finalX, finalY);
         const button = data.button || "left";
         robot.mouseToggle("down", button);
@@ -85,12 +91,7 @@ export class MouseHandler {
         const clientData = this.resourceManager.getClient(socket.id);
         if (!clientData) return;
 
-        const dimensions = robot.getScreenSize();
-        const pcX = Math.round((data.x / 100) * dimensions.width);
-        const pcY = Math.round((data.y / 100) * dimensions.height);
-        const finalX = Math.max(0, Math.min(dimensions.width - 1, pcX));
-        const finalY = Math.max(0, Math.min(dimensions.height - 1, pcY));
-
+        const { x: finalX, y: finalY } = this._resolvePoint(socket, data.x, data.y);
         robot.moveMouse(finalX, finalY);
         const button = this.buttonDown || data.button || "left";
         robot.mouseToggle("up", button);
@@ -118,7 +119,7 @@ export class MouseHandler {
         }
 
         robot.scrollMouse(scrollX, scrollY);
-        
+
         // Reset idle counter to speed up streaming after scroll
         clientData.idleFrameCount = 0;
         this.resourceManager.updateClientActivity(socket.id);
@@ -129,22 +130,12 @@ export class MouseHandler {
 
     socket.on("mouse-drag-select", requireAuth((data) => {
       try {
-        const { startX, startY, endX, endY } = data;
-        const dimensions = robot.getScreenSize();
+        const { x: sx, y: sy } = this._resolvePoint(socket, data.startX, data.startY);
+        const { x: ex, y: ey } = this._resolvePoint(socket, data.endX, data.endY);
 
-        const startPcX = Math.round((startX / 100) * dimensions.width);
-        const startPcY = Math.round((startY / 100) * dimensions.height);
-        const endPcX = Math.round((endX / 100) * dimensions.width);
-        const endPcY = Math.round((endY / 100) * dimensions.height);
-
-        const finalStartX = Math.max(0, Math.min(dimensions.width - 1, startPcX));
-        const finalStartY = Math.max(0, Math.min(dimensions.height - 1, startPcY));
-        const finalEndX = Math.max(0, Math.min(dimensions.width - 1, endPcX));
-        const finalEndY = Math.max(0, Math.min(dimensions.height - 1, endPcY));
-
-        robot.moveMouse(finalStartX, finalStartY);
+        robot.moveMouse(sx, sy);
         robot.mouseToggle("down", "left");
-        robot.dragMouse(finalEndX, finalEndY);
+        robot.dragMouse(ex, ey);
         robot.mouseToggle("up", "left");
 
         this.resourceManager.updateClientActivity(socket.id);

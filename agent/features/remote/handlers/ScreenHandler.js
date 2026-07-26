@@ -37,6 +37,43 @@ export class ScreenHandler {
   }
 
   setupScreenHandlers(socket, requireAuth, protocol) {
+    socket.on("select_monitor", requireAuth(async (data) => {
+      const clientData = this.resourceManager.getClient(socket.id);
+      if (!clientData?.monitorManager) return;
+      const index = typeof data?.index === "number" ? data.index : null;
+      if (index === null || !clientData.monitorManager.setActive(index)) return;
+      const entry = clientData.monitorManager.getActive();
+      if (!entry) return;
+
+      // Switch the TileManager to the new monitor: this recomputes the tile
+      // grid and clears all cached state so the next frame is a full refresh.
+      clientData.tileManager.setMonitor(entry.mon);
+
+      // Tell the client the new canvas size + tag the upcoming frame so it can
+      // swap its canvas before the first tiles of this monitor arrive. Dimensions
+      // come straight from metadata (no capture) so this can't fail mid-switch.
+      const tm = clientData.tileManager;
+      protocol.emit("screen-dimensions", {
+        width: tm.scaledWidth,
+        height: tm.scaledHeight,
+        tileWidth: tm.tileSize,
+        tileHeight: tm.tileSize,
+        tileCount: tm.totalTiles,
+        scaleFactor: tm.scaleFactor,
+        originalWidth: tm.screenWidth,
+        originalHeight: tm.screenHeight
+      });
+      protocol.emit("frame_meta", {
+        monitorIndex: entry.index,
+        captureW: entry.w,
+        captureH: entry.h
+      });
+
+      clientData.idleFrameCount = 0;
+      this.resourceManager.updateClientActivity(socket.id);
+      remoteLog.lifecycle(`🖥️ Monitor switched → #${entry.index} (${entry.name} ${entry.w}x${entry.h})`);
+    }));
+
     socket.on("request-screen", requireAuth(async () => {
       const clientData = this.resourceManager.getClient(socket.id);
       if (!clientData) return;

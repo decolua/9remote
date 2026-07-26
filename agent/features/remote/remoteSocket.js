@@ -54,11 +54,30 @@ let ScreenUpdateHelper = null;
 let MouseHandler = null;
 let KeyboardHandler = null;
 let ScreenHandler = null;
+let MonitorManager = null;
 let resourceManager = null;
 let screenUpdateHelper = null;
 let mouseHandler = null;
 let keyboardHandler = null;
 let screenHandler = null;
+
+// Multi-monitor + multi-DPI: robotjs is DPI-unaware, so mouse coords on a
+// non-primary display or any scaled display come out wrong. Make the agent
+// process per-monitor DPI-aware BEFORE any mouse API is called. Win32-only,
+// must run once at module load (a process-wide setting).
+async function enablePerMonitorDpiAwareness() {
+  if (process.platform !== "win32") return;
+  try {
+    const koffi = (await import("koffi")).default;
+    const user32 = koffi.load("user32.dll");
+    const setDpi = user32.func("bool __stdcall SetProcessDpiAwarenessContext(void* value)");
+    // PER_MONITOR_AWARE_V2 = -4. After this, mouse APIs use physical pixels.
+    setDpi(koffi.as(-4, "void*"));
+    logger.info("DPI awareness set: PER_MONITOR_AWARE_V2");
+  } catch (err) {
+    logger.warn(`DPI awareness setup failed: ${err.message}`);
+  }
+}
 
 async function loadRemoteModules() {
   if (robot && TileManager && ResourceManager) return true;
@@ -71,8 +90,11 @@ async function loadRemoteModules() {
     const { MouseHandler: MH } = await import("./handlers/MouseHandler.js");
     const { KeyboardHandler: KH } = await import("./handlers/KeyboardHandler.js");
     const { ScreenHandler: SH } = await import("./handlers/ScreenHandler.js");
+    const { MonitorManager: MM } = await import("./MonitorManager.js");
     TileManager = TM; ResourceManager = RM; ScreenUpdateHelper = SUH;
     MouseHandler = MH; KeyboardHandler = KH; ScreenHandler = SH;
+    MonitorManager = MM;
+    await enablePerMonitorDpiAwareness();
     robot.setMouseDelay(2);
     robot.setKeyboardDelay(2);
     return true;
@@ -112,8 +134,18 @@ export async function setupRemoteHandlers(socket, apiKey) {
   if (!protocol) { socket.emit("remote:unavailable"); return; }
 
   const clientApiKey = socket.handshake.auth?.apiKey;
-  const tileManager = new TileManager(robot);
-  resourceManager.addClient(socket.id, { tileManager, protocol, screenInterval: null, authenticated: true, apiKey: clientApiKey });
+  // Multi-monitor + per-monitor DPI mapping is Windows-only for now: on macOS
+  // monitor origin/dims mix points and pixels (Retina) and on Linux X11 the
+  // virtual-desktop coords differ, so the physical-pixel input formula would
+  // mis-target. Other OSes keep the legacy single-display path unchanged.
+  const useMultiMonitor = process.platform === "win32";
+  const monitorManager = useMultiMonitor ? new MonitorManager() : null;
+  const activeEntry = monitorManager?.getActive();
+  const tileManager = new TileManager(robot, activeEntry ? { monitor: activeEntry.mon } : {});
+  resourceManager.addClient(socket.id, {
+    tileManager, protocol, monitorManager,
+    screenInterval: null, authenticated: true, apiKey: clientApiKey
+  });
 
   socket.data.remoteAttached = true;
 
@@ -148,6 +180,16 @@ export async function setupRemoteHandlers(socket, apiKey) {
   });
 
   socket.emit("remote:ready");
+
+  // Send monitor list so the client can render a switcher (hidden if only 1).
+  // Only emitted on Windows — other OSes never send it, so the client keeps the
+  // switcher hidden and stays on the legacy single-display path.
+  if (monitorManager) {
+    protocol.emit("monitors", {
+      list: monitorManager.list(),
+      activeIndex: monitorManager.getActiveIndex()
+    });
+  }
 
   // Clipboard sync — poll host clipboard, emit only on content change.
   // First poll seeds baseline WITHOUT emitting (count EMPTY clipboard too) so the
