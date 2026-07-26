@@ -1,6 +1,6 @@
 {
   "name": "9remote-monorepo",
-  "version": "2.1.21",
+  "version": "2.1.22",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -26,6 +26,7 @@
     "docs:dev": "npm run dev --workspace=gitbook",
     "docs:deploy": "npm run build --workspace=gitbook && cd gitbook && npx wrangler pages deploy out --project-name=9remote-docs",
     "desktop:build": "npm run agent:build && npm run tauri build --prefix desktop",
+    "desktop:build:mac": "bash desktop/scripts/build-macos-signed.sh",
     "desktop:dev": "run-p agent:dev:ui desktop:tauri",
     "desktop:tauri": "NINEREMOTE_ENV=development npm run tauri dev --prefix desktop"
   },
