@@ -39,7 +39,10 @@ export class MouseHandler {
 
     socket.on("mouse-move", requireAuth((data) => {
       const now = Date.now();
-      if (now - this.lastMouseMove < REMOTE_CONFIG.throttling.mouseThrottle) return;
+      const throttle = process.platform === "win32" && this.buttonDown
+        ? REMOTE_CONFIG.throttling.dragMouseThrottleWin
+        : REMOTE_CONFIG.throttling.mouseThrottle;
+      if (now - this.lastMouseMove < throttle) return;
       this.lastMouseMove = now;
 
       try {

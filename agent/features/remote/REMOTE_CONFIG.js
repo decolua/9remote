@@ -96,6 +96,11 @@ export const REMOTE_CONFIG = {
   // Throttling
   throttling: {
     mouseThrottle: 8,
+    // dragMouse is a native sync call that blocks the event loop. On Win, rapid
+    // mouse-move during a drag (8ms = 125 calls/s) starves the stream loop →
+    // canvas freezes mid-drag. Use a longer throttle ONLY for Win drag so the
+    // stream loop gets gaps to run. Mac + non-drag keep 8ms (smooth).
+    dragMouseThrottleWin: 40,
     keyThrottle: 25,
     typeTextThrottle: 100,
     maxTextLength: 1000
