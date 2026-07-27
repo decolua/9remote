@@ -421,7 +421,14 @@ export default {
     latency: "השהיה",
     tilesPerSec: "אריחים/שנייה",
     bandwidth: "רוחב פס",
-    clearStats: "נקה סטטיסטיקות"
+    clearStats: "נקה סטטיסטיקות",
+    lockTitle: "Windows נעול",
+    lockGrantDesc: "עדיין לא ניתן להזין קוד PIN/סיסמה מרחוק. הפעל תחילה את „בטל נעילת מחשב מרחוק“ בממשק ה-agent במכשיר זה.",
+    lockDesc: "הזן את קוד ה-PIN או הסיסמה של Windows עבור מחשב זה",
+    lockPlaceholder: "קוד PIN או סיסמת Windows",
+    unlock: "בטל נעילה",
+    unlocking: "מבטל נעילה…",
+    unlockFailed: "ביטול נעילה נכשל — בדוק את קוד ה-PIN/הסיסמה ונסה שוב.",
   },
   remoteHelp: {
     modePc: "PC / עכבר",

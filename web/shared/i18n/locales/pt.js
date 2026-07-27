@@ -319,7 +319,14 @@ export default {
     latency: "Latência",
     tilesPerSec: "Tiles/seg",
     bandwidth: "Largura de banda",
-    clearStats: "Limpar Estatísticas"
+    clearStats: "Limpar Estatísticas",
+    lockTitle: "Windows está bloqueado",
+    lockGrantDesc: "A entrada remota de PIN/senha ainda não está disponível. Ative \"Desbloquear PC remotamente\" na interface do agent neste dispositivo primeiro.",
+    lockDesc: "Digite o PIN ou a senha do Windows para este computador",
+    lockPlaceholder: "PIN ou senha do Windows",
+    unlock: "Desbloquear",
+    unlocking: "Desbloqueando…",
+    unlockFailed: "Falha ao desbloquear — verifique seu PIN/senha e tente novamente.",
   },
   remoteHelp: {
     modePc: "PC / Mouse",

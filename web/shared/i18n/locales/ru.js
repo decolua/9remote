@@ -319,7 +319,14 @@ export default {
     latency: "Задержка",
     tilesPerSec: "Тайлов/сек",
     bandwidth: "Пропускная способность",
-    clearStats: "Очистить статистику"
+    clearStats: "Очистить статистику",
+    lockTitle: "Windows заблокирована",
+    lockGrantDesc: "Удалённый ввод PIN-кода/пароля пока недоступен. Сначала включите «Удалённо разблокировать ПК» в интерфейсе agent на этом устройстве.",
+    lockDesc: "Введите PIN-код или пароль Windows для этого компьютера",
+    lockPlaceholder: "PIN-код или пароль Windows",
+    unlock: "Разблокировать",
+    unlocking: "Разблокировка…",
+    unlockFailed: "Не удалось разблокировать — проверьте PIN-код/пароль и попробуйте снова.",
   },
   remoteHelp: {
     modePc: "PC / Мышь",

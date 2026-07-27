@@ -319,7 +319,14 @@ export default {
     latency: "Latenz",
     tilesPerSec: "Kacheln/Sek",
     bandwidth: "Bandbreite",
-    clearStats: "Statistiken löschen"
+    clearStats: "Statistiken löschen",
+    lockTitle: "Windows ist gesperrt",
+    lockGrantDesc: "PIN/Passwort können noch nicht remote eingegeben werden. Aktiviere zuerst „PC fernentriegeln“ in der Agent-Oberfläche auf diesem Gerät.",
+    lockDesc: "Windows-PIN oder -Passwort für diesen Computer eingeben",
+    lockPlaceholder: "Windows-PIN oder -Passwort",
+    unlock: "Entsperren",
+    unlocking: "Wird entsperrt…",
+    unlockFailed: "Entsperren fehlgeschlagen — PIN/Passwort prüfen und erneut versuchen.",
   },
   remoteHelp: {
     modePc: "PC / Maus",

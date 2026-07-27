@@ -319,7 +319,14 @@ export default {
     latency: "Latence",
     tilesPerSec: "Tuiles/sec",
     bandwidth: "Bande passante",
-    clearStats: "Effacer les statistiques"
+    clearStats: "Effacer les statistiques",
+    lockTitle: "Windows est verrouillé",
+    lockGrantDesc: "La saisie distante du code PIN/mot de passe n'est pas encore disponible. Activez d'abord « Déverrouiller le PC à distance » dans l'interface agent sur cet appareil.",
+    lockDesc: "Saisissez le code PIN ou le mot de passe Windows de cet ordinateur",
+    lockPlaceholder: "Code PIN ou mot de passe Windows",
+    unlock: "Déverrouiller",
+    unlocking: "Déverrouillage…",
+    unlockFailed: "Échec du déverrouillage — vérifiez votre code PIN/mot de passe et réessayez.",
   },
   remoteHelp: {
     modePc: "PC / Souris",

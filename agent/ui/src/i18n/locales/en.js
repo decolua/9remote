@@ -178,6 +178,11 @@ export default {
     disabledStart: "Disabled — start manually",
     preventSleep: "Prevent sleep",
     blockSleep: "Block system sleep so the network stays alive",
+    remoteUnlock: "Unlock PC remotely",
+    remoteUnlockDesc: "Let this PC be unlocked from your phone or browser when locked",
+    remoteUnlockReady: "Active — unlock from remote works",
+    grant: "Allow",
+    granted: "Active",
     sleepModes: {
       "30m": "Stop after 30 min idle",
       "1h": "Stop after 1 hr idle",

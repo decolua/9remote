@@ -67,6 +67,11 @@ export default {
     disabledStart: "비활성화 — 수동 시작",
     preventSleep: "컴퓨터 깨어있게 유지",
     blockSleep: "연결을 유지하기 위해 시스템 절전 방지",
+    remoteUnlock: "원격으로 PC 잠금 해제",
+    remoteUnlockDesc: "잠금 시 휴대폰이나 브라우저에서 이 PC를 잠금 해제하도록 허용",
+    remoteUnlockReady: "활성 — 원격 잠금 해제 작동 중",
+    grant: "허용",
+    granted: "활성",
   },
   clients: {
     autoApprove: "새 기기 자동 승인",

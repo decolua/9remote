@@ -319,7 +319,14 @@ export default {
     latency: "延迟",
     tilesPerSec: "瓦片/秒",
     bandwidth: "带宽",
-    clearStats: "清除统计"
+    clearStats: "清除统计",
+    lockTitle: "Windows 已锁定",
+    lockGrantDesc: "尚无法远程输入 PIN/密码。请先在此设备的 agent 界面启用“远程解锁电脑”。",
+    lockDesc: "输入此电脑的 Windows PIN 或密码",
+    lockPlaceholder: "Windows PIN 或密码",
+    unlock: "解锁",
+    unlocking: "正在解锁…",
+    unlockFailed: "解锁失败 — 请检查 PIN/密码后重试。",
   },
   remoteHelp: {
     modePc: "PC / 鼠标",

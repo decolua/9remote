@@ -319,7 +319,14 @@ export default {
     latency: "Opóźnienie",
     tilesPerSec: "Kafelki/s",
     bandwidth: "Przepustowość",
-    clearStats: "Wyczyść statystyki"
+    clearStats: "Wyczyść statystyki",
+    lockTitle: "Windows jest zablokowany",
+    lockGrantDesc: "Zdalne wprowadzanie PIN/hasła nie jest jeszcze dostępne. Najpierw włącz „Odblokuj PC zdalnie\" w interfejsie agenta na tym urządzeniu.",
+    lockDesc: "Wprowadź kod PIN lub hasło Windows dla tego komputera",
+    lockPlaceholder: "Kod PIN lub hasło Windows",
+    unlock: "Odblokuj",
+    unlocking: "Odblokowywanie…",
+    unlockFailed: "Odblokowywanie nieudane — sprawdź PIN/hasło i spróbuj ponownie.",
   },
   remoteHelp: {
     modePc: "PC / Mysz",

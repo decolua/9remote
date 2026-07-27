@@ -67,6 +67,11 @@ export default {
     disabledStart: "Deaktiviert — Manueller Start",
     preventSleep: "Computer wach halten",
     blockSleep: "System-Standby verhindern, um Verbindung aktiv zu halten",
+    remoteUnlock: "PC fernentriegeln",
+    remoteUnlockDesc: "Erlaube das Entsperren dieses PCs vom Telefon oder Browser, wenn er gesperrt ist",
+    remoteUnlockReady: "Aktiv — Fernentsperrung funktioniert",
+    grant: "Erlauben",
+    granted: "Aktiv",
   },
   clients: {
     autoApprove: "Neue Geräte automatisch genehmigen",

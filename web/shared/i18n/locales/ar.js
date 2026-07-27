@@ -421,7 +421,14 @@ export default {
     latency: "زمن الاستجابة",
     tilesPerSec: "بلاطات/ث",
     bandwidth: "عرض النطاق",
-    clearStats: "مسح الإحصائيات"
+    clearStats: "مسح الإحصائيات",
+    lockTitle: "Windows مقفل",
+    lockGrantDesc: "لا يمكن إدخال PIN/كلمة المرور عن بُعد بعد. فعّل \"إلغاء قفل الكمبيوتر عن بُعد\" في واجهة الـ agent على هذا الجهاز أولاً.",
+    lockDesc: "أدخل رمز PIN أو كلمة مرور Windows لهذا الكمبيوتر",
+    lockPlaceholder: "رمز PIN أو كلمة مرور Windows",
+    unlock: "إلغاء القفل",
+    unlocking: "جارٍ إلغاء القفل…",
+    unlockFailed: "فشل إلغاء القفل — تحقق من رمز PIN/كلمة المرور وحاول مجددًا.",
   },
   remoteHelp: {
     modePc: "PC / فأرة",

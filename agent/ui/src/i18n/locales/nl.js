@@ -67,6 +67,11 @@ export default {
     disabledStart: "Uitgeschakeld — handmatig starten",
     preventSleep: "Computer wakker houden",
     blockSleep: "Systeemruststand voorkomen om verbinding actief te houden",
+    remoteUnlock: "PC op afstand ontgrendelen",
+    remoteUnlockDesc: "Laat dit PC ontgrendeld worden vanaf telefoon of browser wanneer vergrendeld",
+    remoteUnlockReady: "Actief — ontgrendelen op afstand werkt",
+    grant: "Toestaan",
+    granted: "Actief",
   },
   clients: {
     autoApprove: "Nieuwe apparaten automatisch goedkeuren",

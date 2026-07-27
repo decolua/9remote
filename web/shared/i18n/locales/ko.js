@@ -319,7 +319,14 @@ export default {
     latency: "지연 시간",
     tilesPerSec: "타일/초",
     bandwidth: "대역폭",
-    clearStats: "통계 지우기"
+    clearStats: "통계 지우기",
+    lockTitle: "Windows 잠김",
+    lockGrantDesc: "원격 PIN/비밀번호 입력이 아직 불가능합니다. 먼저 이 기기의 agent UI에서 \"원격으로 PC 잠금 해제\"를 활성화하세요.",
+    lockDesc: "이 컴퓨터의 Windows PIN 또는 비밀번호 입력",
+    lockPlaceholder: "Windows PIN 또는 비밀번호",
+    unlock: "잠금 해제",
+    unlocking: "잠금 해제 중…",
+    unlockFailed: "잠금 해제 실패 — PIN/비밀번호를 확인하고 다시 시도하세요.",
   },
   remoteHelp: {
     modePc: "PC / 마우스",

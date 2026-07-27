@@ -421,7 +421,14 @@ export default {
     latency: "लेटेंसी",
     tilesPerSec: "टाइल/सेकंड",
     bandwidth: "बैंडविड्थ",
-    clearStats: "आँकड़े साफ़ करें"
+    clearStats: "आँकड़े साफ़ करें",
+    lockTitle: "Windows लॉक है",
+    lockGrantDesc: "दूरस्थ PIN/पासवर्ड दर्ज करना अभी उपलब्ध नहीं है। पहले इस डिवाइस पर agent UI में \"PC दूरस्थ रूप से अनलॉक करें\" सक्षम करें।",
+    lockDesc: "इस कंप्यूटर के लिए Windows PIN या पासवर्ड दर्ज करें",
+    lockPlaceholder: "Windows PIN या पासवर्ड",
+    unlock: "अनलॉक करें",
+    unlocking: "अनलॉक हो रहा है…",
+    unlockFailed: "अनलॉक विफल — अपना PIN/पासवर्ड जाँचें और पुनः प्रयास करें।",
   },
   remoteHelp: {
     modePc: "PC / माउस",

@@ -67,6 +67,11 @@ export default {
     disabledStart: "Devre Dışı — Manuel Başlatma",
     preventSleep: "Bilgisayarı Uyanık Tut",
     blockSleep: "Bağlantı etkin kalması için sistem uyusunun engellenmesi",
+    remoteUnlock: "PC'yi uzaktan kilidini aç",
+    remoteUnlockDesc: "Kilitliyken bu PC'nin telefondan veya tarayıcıdan kilidinin açılmasına izin ver",
+    remoteUnlockReady: "Etkin — uzaktan kilitleme açma çalışıyor",
+    grant: "İzin ver",
+    granted: "Etkin",
   },
   clients: {
     autoApprove: "Yeni cihazları otomatik olarak onayla",

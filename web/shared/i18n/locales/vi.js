@@ -327,7 +327,14 @@ export default {
     latency: "Độ trễ",
     tilesPerSec: "Tiles/giây",
     bandwidth: "Băng thông",
-    clearStats: "Xóa thống kê"
+    clearStats: "Xóa thống kê",
+    lockTitle: "Windows đang khóa",
+    lockGrantDesc: "Chưa nhập được PIN/mật khẩu từ xa. Bật \"Mở khóa máy từ xa\" trong giao diện agent trên máy này trước.",
+    lockDesc: "Nhập mã PIN hoặc mật khẩu Windows của máy này",
+    lockPlaceholder: "Mã PIN hoặc mật khẩu Windows",
+    unlock: "Mở khóa",
+    unlocking: "Đang mở khóa…",
+    unlockFailed: "Mở khóa thất bại — kiểm tra mã PIN/mật khẩu và thử lại.",
   },
   remoteHelp: {
     modePc: "PC / Chuột",

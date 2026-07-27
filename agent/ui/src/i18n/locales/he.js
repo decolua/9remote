@@ -67,6 +67,11 @@ export default {
     disabledStart: "מבוטל — הפעלה ידנית",
     preventSleep: "הוודא שהמחשב ער",
     blockSleep: "מנע שינת מערכת כדי לשמור על חיבור פעיל",
+    remoteUnlock: "בטל נעילת מחשב מרחוק",
+    remoteUnlockDesc: "אפשר ביטול נעילה של המחשב הזה מהטלפון או הדפדפן כשנעול",
+    remoteUnlockReady: "פעיל — נעילה מרחוק עובדת",
+    grant: "אפשר",
+    granted: "פעיל",
   },
   clients: {
     autoApprove: "אישור אוטומטי של התקנים חדשים",

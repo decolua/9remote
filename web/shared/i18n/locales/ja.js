@@ -319,7 +319,14 @@ export default {
     latency: "レイテンシ",
     tilesPerSec: "タイル/秒",
     bandwidth: "帯域幅",
-    clearStats: "統計をクリア"
+    clearStats: "統計をクリア",
+    lockTitle: "Windows がロックされています",
+    lockGrantDesc: "リモートでの PIN/パスワード入力はまだ利用できません。まずこのデバイスの agent UI で「リモートでPCをロック解除」を有効にしてください。",
+    lockDesc: "このコンピューターの Windows PIN またはパスワードを入力してください",
+    lockPlaceholder: "Windows PIN またはパスワード",
+    unlock: "ロック解除",
+    unlocking: "ロック解除中…",
+    unlockFailed: "ロック解除に失敗 — PIN/パスワードを確認して再試行してください。",
   },
   remoteHelp: {
     modePc: "PC / マウス",

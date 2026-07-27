@@ -319,7 +319,14 @@ export default {
     latency: "Kependaman",
     tilesPerSec: "Jubin/saat",
     bandwidth: "Lebar jalur",
-    clearStats: "Kosongkan Statistik"
+    clearStats: "Kosongkan Statistik",
+    lockTitle: "Windows dikunci",
+    lockGrantDesc: "Input PIN/kata laluan jauh belum tersedia. Aktifkan \"Buka kunci PC secara jauh\" dalam UI agent pada peranti ini dahulu.",
+    lockDesc: "Masukkan PIN atau kata laluan Windows untuk komputer ini",
+    lockPlaceholder: "PIN atau kata laluan Windows",
+    unlock: "Buka kunci",
+    unlocking: "Membuka kunci…",
+    unlockFailed: "Gagal membuka kunci — semak PIN/kata laluan anda dan cuba lagi.",
   },
   remoteHelp: {
     modePc: "PC / Tetikus",

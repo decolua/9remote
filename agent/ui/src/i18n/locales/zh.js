@@ -67,6 +67,11 @@ export default {
     disabledStart: "已禁用 — 手动启动",
     preventSleep: "保持计算机清醒",
     blockSleep: "阻止系统睡眠以保持连接活跃",
+    remoteUnlock: "远程解锁电脑",
+    remoteUnlockDesc: "允许在锁定时从手机或浏览器解锁此电脑",
+    remoteUnlockReady: "已启用 — 远程解锁可用",
+    grant: "允许",
+    granted: "已启用",
   },
   clients: {
     autoApprove: "自动批准新设备",

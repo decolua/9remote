@@ -67,6 +67,11 @@ export default {
     disabledStart: "غیرفعال — راه اندازی دستی",
     preventSleep: "نگه داشتن کامپیوتر بیدار",
     blockSleep: "جلوگیری از خواب سیستم برای نگه داشتن اتصال فعال",
+    remoteUnlock: "باز کردن قفل کامپیوتر از راه دور",
+    remoteUnlockDesc: "اجازه باز شدن قفل این کامپیوتر از تلفن یا مرورگر هنگام قفل بودن",
+    remoteUnlockReady: "فعال — باز کردن قفل از راه دور کار می‌کند",
+    grant: "اجازه",
+    granted: "فعال",
   },
   clients: {
     autoApprove: "تأیید خودکار دستگاه‌های جدید",

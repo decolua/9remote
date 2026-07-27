@@ -319,7 +319,14 @@ export default {
     latency: "Gecikme",
     tilesPerSec: "Karo/sn",
     bandwidth: "Bant genişliği",
-    clearStats: "İstatistikleri Temizle"
+    clearStats: "İstatistikleri Temizle",
+    lockTitle: "Windows kilitli",
+    lockGrantDesc: "Uzaktan PIN/parola girişi henüz kullanılamıyor. Önce bu cihazdaki agent arayüzünde „PC'yi uzaktan kilidini aç\" seçeneğini etkinleştirin.",
+    lockDesc: "Bu bilgisayar için Windows PIN veya parolasını girin",
+    lockPlaceholder: "Windows PIN veya parola",
+    unlock: "Kilidi aç",
+    unlocking: "Kilit açılıyor…",
+    unlockFailed: "Kilit açma başarısız — PIN/parolanızı kontrol edin ve tekrar deneyin.",
   },
   remoteHelp: {
     modePc: "PC / Fare",

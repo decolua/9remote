@@ -319,7 +319,14 @@ export default {
     latency: "Latensi",
     tilesPerSec: "Tiles/dtk",
     bandwidth: "Bandwidth",
-    clearStats: "Hapus Statistik"
+    clearStats: "Hapus Statistik",
+    lockTitle: "Windows terkunci",
+    lockGrantDesc: "Input PIN/kata sandi dari jarak jauh belum tersedia. Aktifkan \"Buka kunci PC dari jarak jauh\" di UI agent pada perangkat ini lebih dulu.",
+    lockDesc: "Masukkan PIN atau kata sandi Windows untuk komputer ini",
+    lockPlaceholder: "PIN atau kata sandi Windows",
+    unlock: "Buka kunci",
+    unlocking: "Membuka kunci…",
+    unlockFailed: "Gagal membuka kunci — periksa PIN/kata sandi Anda dan coba lagi.",
   },
   remoteHelp: {
     modePc: "PC / Tetikus",

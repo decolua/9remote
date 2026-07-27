@@ -441,7 +441,14 @@ export default {
     latency: "Latency",
     tilesPerSec: "Tiles/sec",
     bandwidth: "Bandwidth",
-    clearStats: "Clear Stats"
+    clearStats: "Clear Stats",
+    lockTitle: "Windows is locked",
+    lockGrantDesc: "Remote PIN/password entry isn't available yet. Enable \"Unlock PC remotely\" in the agent UI on this device first.",
+    lockDesc: "Enter the Windows PIN or password for this computer",
+    lockPlaceholder: "Windows PIN or password",
+    unlock: "Unlock",
+    unlocking: "Unlocking…",
+    unlockFailed: "Unlock failed — check your PIN/password and try again.",
   },
   remoteHelp: {
     modePc: "PC / Mouse",

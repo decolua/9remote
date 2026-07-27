@@ -67,6 +67,11 @@ export default {
     disabledStart: "Đã tắt — khởi chạy thủ công",
     preventSleep: "Giữ máy thức",
     blockSleep: "Chặn hệ thống ngủ để mạng luôn hoạt động",
+    remoteUnlock: "Mở khóa máy từ xa",
+    remoteUnlockDesc: "Cho phép mở khóa máy này từ điện thoại hoặc trình duyệt khi bị khóa",
+    remoteUnlockReady: "Đang bật — mở khóa từ xa hoạt động",
+    grant: "Cho phép",
+    granted: "Đang bật",
   },
   clients: {
     autoApprove: "Tự động duyệt thiết bị mới",

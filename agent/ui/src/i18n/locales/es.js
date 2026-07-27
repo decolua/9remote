@@ -67,6 +67,11 @@ export default {
     disabledStart: "Deshabilitado — inicio manual",
     preventSleep: "Mantener ordenador despierto",
     blockSleep: "Impedir que el sistema duerma para mantener conexión activa",
+    remoteUnlock: "Desbloquear PC remotamente",
+    remoteUnlockDesc: "Permite desbloquear esta PC desde tu teléfono o navegador cuando está bloqueada",
+    remoteUnlockReady: "Activo — el desbloqueo remoto funciona",
+    grant: "Permitir",
+    granted: "Activo",
   },
   clients: {
     autoApprove: "Aprobar automáticamente dispositivos nuevos",

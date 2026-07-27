@@ -67,6 +67,11 @@ export default {
     disabledStart: "無効 — 手動起動",
     preventSleep: "コンピュータを起動状態に保つ",
     blockSleep: "接続を有効にするために、システムスリープを防ぐ",
+    remoteUnlock: "リモートでPCをロック解除",
+    remoteUnlockDesc: "ロック時にスマホやブラウザからこのPCをロック解除できるようにする",
+    remoteUnlockReady: "有効 — リモートロック解除が機能しています",
+    grant: "許可",
+    granted: "有効",
   },
   clients: {
     autoApprove: "新しいデバイスを自動的に承認",

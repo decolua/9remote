@@ -319,7 +319,14 @@ export default {
     latency: "Latentie",
     tilesPerSec: "Tegels/sec",
     bandwidth: "Bandbreedte",
-    clearStats: "Statistieken wissen"
+    clearStats: "Statistieken wissen",
+    lockTitle: "Windows is vergrendeld",
+    lockGrantDesc: "Externe PIN/wachtwoord-invoer is nog niet beschikbaar. Schakel eerst „PC op afstand ontgrendelen\" in de agent-interface op dit apparaat in.",
+    lockDesc: "Voer de Windows-PIN of het wachtwoord in voor deze computer",
+    lockPlaceholder: "Windows-PIN of wachtwoord",
+    unlock: "Ontgrendel",
+    unlocking: "Ontgrendelen…",
+    unlockFailed: "Ontgrendelen mislukt — controleer je PIN/wachtwoord en probeer opnieuw.",
   },
   remoteHelp: {
     modePc: "PC / Muis",

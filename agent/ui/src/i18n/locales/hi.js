@@ -67,6 +67,11 @@ export default {
     disabledStart: "अक्षम — मैनुअल लॉन्च",
     preventSleep: "कंप्यूटर को जागृत रखें",
     blockSleep: "कनेक्शन को सक्रिय रखने के लिए सिस्टम स्लीप को रोकें",
+    remoteUnlock: "PC दूरस्थ रूप से अनलॉक करें",
+    remoteUnlockDesc: "लॉक होने पर इस PC को फ़ोन या ब्राउज़र से अनलॉक होने की अनुमति दें",
+    remoteUnlockReady: "सक्रिय — दूरस्थ अनलॉक काम कर रहा है",
+    grant: "अनुमति दें",
+    granted: "सक्रिय",
   },
   clients: {
     autoApprove: "नए डिवाइस को स्वचालित रूप से मंजूरी दें",

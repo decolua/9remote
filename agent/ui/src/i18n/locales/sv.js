@@ -67,6 +67,11 @@ export default {
     disabledStart: "Inaktiverad — manuell start",
     preventSleep: "Håll datorn vaken",
     blockSleep: "Förhindra systemvila för att hålla anslutningen aktiv",
+    remoteUnlock: "Lås upp PC på distans",
+    remoteUnlockDesc: "Tillåt att denna PC låses upp från telefon eller webbläsare när den är låst",
+    remoteUnlockReady: "Aktiv — fjärrupplåsning fungerar",
+    grant: "Tillåt",
+    granted: "Aktiv",
   },
   clients: {
     autoApprove: "Godkänn nya enheter automatiskt",

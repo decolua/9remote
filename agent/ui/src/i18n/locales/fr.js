@@ -67,6 +67,11 @@ export default {
     disabledStart: "Désactivé — lancement manuel",
     preventSleep: "Maintenir l'ordinateur actif",
     blockSleep: "Empêcher la mise en veille du système pour maintenir la connexion active",
+    remoteUnlock: "Déverrouiller le PC à distance",
+    remoteUnlockDesc: "Autoriser le déverrouillage de ce PC depuis votre téléphone ou navigateur lorsqu'il est verrouillé",
+    remoteUnlockReady: "Actif — le déverrouillage à distance fonctionne",
+    grant: "Autoriser",
+    granted: "Actif",
   },
   clients: {
     autoApprove: "Approuver automatiquement les nouveaux appareils",

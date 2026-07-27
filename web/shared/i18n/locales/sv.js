@@ -319,7 +319,14 @@ export default {
     latency: "Latens",
     tilesPerSec: "Tiles/sek",
     bandwidth: "Bandbredd",
-    clearStats: "Rensa statistik"
+    clearStats: "Rensa statistik",
+    lockTitle: "Windows är låst",
+    lockGrantDesc: "Fjärrinmatning av PIN-kod/lösenord är inte tillgängligt än. Aktivera „Lås upp PC på distans\" i agent-gränssnittet på den här enheten först.",
+    lockDesc: "Ange Windows PIN-kod eller lösenord för denna dator",
+    lockPlaceholder: "Windows PIN-kod eller lösenord",
+    unlock: "Lås upp",
+    unlocking: "Låser upp…",
+    unlockFailed: "Upplåsning misslyckades — kontrollera din PIN-kod/lösenord och försök igen.",
   },
   remoteHelp: {
     modePc: "PC / Mus",

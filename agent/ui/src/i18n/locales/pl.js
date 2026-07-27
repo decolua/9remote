@@ -67,6 +67,11 @@ export default {
     disabledStart: "Wyłączone — uruchamianie ręczne",
     preventSleep: "Utrzymuj komputer w stanie czuwania",
     blockSleep: "Uniemożliwij uśpienie systemu aby utrzymać aktywne połączenie",
+    remoteUnlock: "Odblokuj PC zdalnie",
+    remoteUnlockDesc: "Zezwól na odblokowanie tego PC z telefonu lub przeglądarki przy zablokowaniu",
+    remoteUnlockReady: "Aktywne — zdalne odblokowywanie działa",
+    grant: "Zezwól",
+    granted: "Aktywne",
   },
   clients: {
     autoApprove: "Automatycznie zatwierdź nowe urządzenia",

@@ -67,6 +67,11 @@ export default {
     disabledStart: "Dinonaktifkan — peluncuran manual",
     preventSleep: "Jaga komputer tetap aktif",
     blockSleep: "Cegah sistem tidur untuk menjaga koneksi tetap aktif",
+    remoteUnlock: "Buka kunci PC dari jarak jauh",
+    remoteUnlockDesc: "Izinkan PC ini dibuka kuncinya dari ponsel atau browser saat terkunci",
+    remoteUnlockReady: "Aktif — buka kunci jarak jauh berfungsi",
+    grant: "Izinkan",
+    granted: "Aktif",
   },
   clients: {
     autoApprove: "Setujui perangkat baru secara otomatis",

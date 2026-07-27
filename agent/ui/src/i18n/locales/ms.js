@@ -67,6 +67,11 @@ export default {
     disabledStart: "Dilumpuhkan — pelancaran manual",
     preventSleep: "Pastikan komputer sentiasa aktif",
     blockSleep: "Cegah tidur sistem untuk mengekalkan sambungan aktif",
+    remoteUnlock: "Buka kunci PC secara jauh",
+    remoteUnlockDesc: "Benarkan PC ini dibuka kunci dari telefon atau pelayar apabila dikunci",
+    remoteUnlockReady: "Aktif — buka kunci jauh berfungsi",
+    grant: "Benarkan",
+    granted: "Aktif",
   },
   clients: {
     autoApprove: "Lulus secara automatik peranti baharu",
