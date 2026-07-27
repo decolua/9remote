@@ -9,7 +9,7 @@ const PLATFORM_CMD = {
   win32:  () => ({
     cmd: "powershell.exe",
     args: ["-NonInteractive", "-NoProfile", "-WindowStyle", "Hidden", "-Command",
-      "Add-Type -Name K -Namespace W -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"kernel32\")]public static extern uint SetThreadExecutionState(uint e);'; [void][W.K]::SetThreadExecutionState(0x80000003)"]
+      "Add-Type -Name K -Namespace W -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"kernel32\")]public static extern uint SetThreadExecutionState(uint e);'; [void][W.K]::SetThreadExecutionState([uint32]2147483651)"]
   })
 };
 

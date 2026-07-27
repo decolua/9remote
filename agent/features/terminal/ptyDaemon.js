@@ -10,7 +10,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import pty from "node-pty";
-import { resolveShell, DAEMON_VERSION } from "./constants.js";
+import { resolveShell, buildShellArgs, DAEMON_VERSION } from "./constants.js";
 import { takeBufferTail, takeBufferRange, bufferTotal } from "./bufferSlice.js";
 
 // Socket path
@@ -150,6 +150,11 @@ function buildShellEnv(shellPath) {
     env.PROMPT_COMMAND = `printf "\\e]7;file://%s\\a" "\${HOSTNAME}\${PWD}"${existingPrompt ? `; ${existingPrompt}` : ""}`;
   }
 
+  // cmd.exe: OSC 7 via PROMPT env var (native default; setTimeout re-inject in createSession covers AutoRun override).
+  if (/cmd\.exe$/i.test(shellPath)) {
+    env.PROMPT = `$E]7;file://${process.env.COMPUTERNAME || ""}/$P$E\\$G$S`;
+  }
+
   return { env, zdotDir };
 }
 
@@ -194,7 +199,7 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
     const { env: shellEnv, zdotDir } = buildShellEnv(shellConfig.path);
     shellEnv.NINE_REMOTE_SESSION_ID = sessionId;
 
-    const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, {
+    const ptyProcess = pty.spawn(shellConfig.path, buildShellArgs(shellConfig), {
       name: "xterm-256color",
       cols,
       rows,
@@ -203,11 +208,8 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       useConpty: process.platform === "win32"
     });
 
-    // Inject OSC 7 cwd tracking for powershell/pwsh after spawn
-    if (shellConfig.id === "powershell" || shellConfig.id === "pwsh") {
-      const prompt = `function prompt { $p = $PWD.Path -replace '\\\\','/'; "$([char]27)]7;file://$([System.Net.Dns]::GetHostName())$p$([char]27)\\PS $($PWD.Path)> " }\r\n`;
-      setTimeout(() => { try { ptyProcess.write(prompt); } catch {} }, 500);
-    }
+    // PowerShell/pwsh: OSC 7 prompt is injected via `-NoExit -Command` arg (see buildShellArgs) —
+    // no stdin write, so PSReadLine never echoes the setup line. cmd keeps using PROMPT env.
 
     const session = {
       pty: ptyProcess,
@@ -252,6 +254,8 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       if (osc7) {
         let next;
         try { next = decodeURIComponent(osc7[1]); } catch { next = osc7[1]; }
+        // Win drive paths gain a leading slash from file://host/<drive>:/ — strip it.
+        if (process.platform === "win32" && /^\/[a-zA-Z]:[\\/]/.test(next)) next = next.slice(1);
         if (next && next !== session.cwd) {
           session.cwd = next;
           broadcast({ type: "cwdChange", sessionId, cwd: next });

@@ -103,6 +103,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       });
     },
   });
+  const inputMode = useInputMode();
+  // PC/laptop with physical keyboard → hide virtual key toolbar.
+  const hasPhysicalKeyboard = inputMode === "mouse";
   // Auto-grow textarea from 1 row up to a max, then scroll internally.
   // Desktop gets a taller cap so long pastes/edits stay readable.
   useEffect(() => {
@@ -149,9 +152,6 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   }, [sessionId]);
 
   const { isIosPwa } = useDeviceInfo();
-  const inputMode = useInputMode();
-  // PC/laptop with physical keyboard → hide virtual key toolbar.
-  const hasPhysicalKeyboard = inputMode === "mouse";
 
   const [ctrlPressed, setCtrlPressed] = useState(false);
   const [metaPressed, setMetaPressed] = useState(false);

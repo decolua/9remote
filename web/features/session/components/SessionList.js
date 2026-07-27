@@ -228,12 +228,12 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     setSitesModalOpen(false);
   };
 
-  // Group helpers — create group via modal, then auto-create one terminal inside it
+  // Group helpers — create group via modal, then prompt for the first terminal
   const submitCreateGroup = () => {
     const name = newGroupName.trim();
     if (!name) return;
     onCreateGroup?.(name, (result) => {
-      if (result?.success && result.group?.id) onCreate(null, result.group.id);
+      if (result?.success && result.group?.id) setTerminalModal({ open: true, groupId: result.group.id });
     });
     setNewGroupName("");
     setGroupModalOpen(false);

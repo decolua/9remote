@@ -645,9 +645,23 @@ function startNetworkMonitor() {
     if (!restartCallback || currentRestartArg == null) return;
 
     // Sleep/wake: gap >> poll interval → OS suspended us (clamshell, idle sleep).
-    // cloudflared edges timed out during suspend; process alive but tunnel dead. Restart.
+    // Probe first — cloudflared may have auto-reconnected after wake, no kill needed.
     if (gap > SLEEP_DETECT_MS) {
-      logger.info(`💤 Sleep/wake detected (gap=${gap}ms) → restart tunnel`);
+      logger.info(`💤 Sleep/wake detected (gap=${gap}ms)`);
+      if (activeTunnelUrl) {
+        let survived = false;
+        for (let i = 0; i < 3; i++) {
+          const probe = await probeTunnelOnce(activeTunnelUrl);
+          const detail = probe.ok ? "ok" : `fail(dns=${probe.dnsCode || "n/a"}, http=${probe.httpStatus || "n/a"})`;
+          logger.info(`sleep probe #${i + 1} ${detail} ${probe.elapsedMs}ms`);
+          if (probe.ok) { survived = true; break; }
+          if (i < 2) await new Promise((r) => setTimeout(r, 3000));
+        }
+        if (survived) { logger.info("✅ Tunnel survived sleep, skip restart"); return; }
+        logger.info("sleep probe failed after 3 attempts → kill + restart");
+      } else {
+        logger.info("no activeTunnelUrl → kill + restart");
+      }
       setLastStatus("unreachable");
       killCloudflared();
       scheduleRestart(currentRestartArg, "woke from sleep");

@@ -5,7 +5,23 @@
 // v35: add latency trace points (input.write/onData/broadcast) — temporary debugging.
 // v37: restore same-tick coalesce (setImmediate) — rapid-typing lag was the agent git spawn, not this.
 // v38: zsh PTY now sources ~/.zprofile + ~/.zlogin (ZDOTDIR=temp dir previously skipped them).
-export const DAEMON_VERSION = "44";
+// v45: OSC 7 cwd tracking for cmd.exe (PROMPT env + re-inject) + strip leading slash on Win drive paths.
+// v46: PowerShell OSC 7 injected via `-NoExit -Command` arg instead of stdin write (no echo, no race).
+export const DAEMON_VERSION = "46";
+
+// PowerShell prompt function emitting OSC 7 so the client can track cwd. Passed via
+// `-NoExit -Command` at spawn — running it pre-REPL avoids PSReadLine echoing the line.
+export function psOsc7PromptCommand() {
+  return `function prompt { $p = $PWD.Path -replace '\\\\','/'; "$([char]27)]7;file://$([System.Net.Dns]::GetHostName())$p$([char]27)\\PS $($PWD.Path)> " }`;
+}
+
+// Compute spawn args; PowerShell/pwsh get the OSC 7 prompt injected as a startup command.
+export function buildShellArgs(shellConfig) {
+  if (shellConfig.id === "powershell" || shellConfig.id === "pwsh") {
+    return [...shellConfig.args, "-NoExit", "-Command", psOsc7PromptCommand()];
+  }
+  return shellConfig.args;
+}
 
 // Shell options for terminal sessions
 export const SHELL_OPTIONS = {

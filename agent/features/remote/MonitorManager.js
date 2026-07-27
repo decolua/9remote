@@ -13,13 +13,16 @@ export class MonitorManager {
     return `${m.name()}|${m.width()}x${m.height()}|${m.x()},${m.y()}|scale=${m.scaleFactor()}`;
   }
 
+  // Re-enumerate monitors. Returns true if the set changed since the last call
+  // (identity = name+dims+pos+scale), so callers can re-pin stale capture handles.
   refresh() {
     let all = [];
     try {
       all = Monitor.all();
     } catch (err) {
-      return this._list;
+      return false;
     }
+    const prevIdentities = new Set(this._list.map((e) => e.identity));
     const next = all.map((mon, index) => {
       const identity = this._identity(mon);
       const entry = {
@@ -38,11 +41,13 @@ export class MonitorManager {
       return entry;
     });
     this._list = next;
+    const changed = prevIdentities.size !== next.length ||
+      next.some((e) => !prevIdentities.has(e.identity));
     if (!this._list.find((e) => e.index === this._activeIndex)) {
       const primary = this._list.find((e) => e.primary);
       this._activeIndex = primary ? primary.index : (this._list[0]?.index ?? 0);
     }
-    return next;
+    return changed;
   }
 
   list() {

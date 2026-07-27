@@ -129,7 +129,7 @@ export async function setupRemoteHandlers(socket, apiKey) {
     screenUpdateHelper = new ScreenUpdateHelper(resourceManager);
     mouseHandler = new MouseHandler(robot, resourceManager);
     keyboardHandler = new KeyboardHandler(robot, resourceManager);
-    screenHandler = new ScreenHandler(resourceManager, screenUpdateHelper);
+    screenHandler = new ScreenHandler(resourceManager, screenUpdateHelper, robot);
     resourceManager.startResourceMonitoring();
   }
 

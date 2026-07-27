@@ -146,7 +146,7 @@ export const REMOTE_CONFIG = {
     macDurationSec: 5
   },
 
-  // Sleep inhibitor — block system sleep, allow display sleep
+  // Sleep inhibitor — block system sleep + display sleep (Win: ES_DISPLAY_REQUIRED so remote capture works)
   // mode: idle-timeout preset key. "never" = always on; "30m/1h/2h/4h/24h" = auto-off after N idle.
   sleepInhibit: {
     defaultMode: "never",

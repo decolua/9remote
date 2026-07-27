@@ -29,7 +29,7 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
   const submitCreateGroup = () => {
     const name = newGroupName.trim();
     if (!name) return;
-    onCreateGroup?.(name, (r) => { if (r?.success && r.group?.id) onCreate(r.group.id); });
+    onCreateGroup?.(name, (r) => { if (r?.success && r.group?.id) { setNewTerminalName(suggestTerminalName(r.group.id)); setTerminalModal({ open: true, groupId: r.group.id }); } });
     setNewGroupName("");
     setGroupModalOpen(false);
   };

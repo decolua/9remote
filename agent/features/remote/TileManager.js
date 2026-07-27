@@ -650,7 +650,12 @@ export class TileManager {
       this.tilesPerColumn = Math.ceil(screenData.height / this.tileSize);
       this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
     } catch (error) {
-      remoteLog.error("Error getting dimensions:", error);
+      // Throttle log — repeats every frame while screen locked / display off.
+      const now = Date.now();
+      if (!this.lastDimErrorAt || now - this.lastDimErrorAt > 10000) {
+        remoteLog.error("Error getting dimensions:", error);
+        this.lastDimErrorAt = now;
+      }
     }
 
     return {

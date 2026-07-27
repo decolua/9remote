@@ -31,9 +31,10 @@ import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
 import { pushUiLog } from "../../../api/ui.js";
 
 export class ScreenHandler {
-  constructor(resourceManager, screenUpdateHelper) {
+  constructor(resourceManager, screenUpdateHelper, robot) {
     this.resourceManager = resourceManager;
     this.screenUpdateHelper = screenUpdateHelper;
+    this.robot = robot;
   }
 
   setupScreenHandlers(socket, requireAuth, protocol) {
@@ -179,7 +180,12 @@ export class ScreenHandler {
           const nextInterval = Math.max(0, baseInterval - (performance.now() - frameStart));
           clientData.streamingTimeout = setTimeout(streamLoop, nextInterval);
         } catch (error) {
-          remoteLog.error("Auto streaming error:", error);
+          // Throttle log — screen locked / display off throws "handle is invalid" every frame.
+          const now = Date.now();
+          if (!clientData.lastStreamErrorAt || now - clientData.lastStreamErrorAt > 10000) {
+            remoteLog.error("Auto streaming error:", error);
+            clientData.lastStreamErrorAt = now;
+          }
           clientData.streamingTimeout = setTimeout(streamLoop, 200);
         }
       };
@@ -227,6 +233,11 @@ export class ScreenHandler {
       const clientData = this.resourceManager.getClient(socket.id);
       if (!clientData) return;
       try {
+        // Refresh robotjs's cached virtual-screen metrics so mouse coords stay
+        // correct after the monitor layout changed since agent start (robotjs
+        // caches them on first moveMouse and never re-reads — robotjs#678).
+        // Cheap; called on every remote-desktop open.
+        this.robot?.updateScreenMetrics?.();
         const dimensions = await clientData.tileManager.getScreenDimensions();
         protocol.emit("screen-dimensions", dimensions);
         // Re-send monitor list: the initial "monitors" emit on socket setup
@@ -237,7 +248,14 @@ export class ScreenHandler {
         // refresh() re-detects displays first, so plug/unplug after connect
         // shows up without restarting the agent.
         if (clientData.monitorManager) {
-          clientData.monitorManager.refresh();
+          const changed = clientData.monitorManager.refresh();
+          // Monitor set changed since last open → the TileManager's pinned
+          // node-screenshots handle is stale (corrupt/throwing → black canvas).
+          // Re-pin to the (possibly new) active monitor so the next frame is fresh.
+          if (changed) {
+            const entry = clientData.monitorManager.getActive();
+            if (entry) clientData.tileManager.setMonitor(entry.mon);
+          }
           protocol.emit("monitors", {
             list: clientData.monitorManager.list(),
             activeIndex: clientData.monitorManager.getActiveIndex()
