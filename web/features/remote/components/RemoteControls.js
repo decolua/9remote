@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Button from "@/shared/components/ui/Button";
 import {
-  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff, History, ClipboardPaste
+  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff, History, Bell
 } from "@/shared/components/ui/Icon";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
@@ -370,10 +370,10 @@ export default function RemoteControls({
           {clipboardNew && clipboardText ? (
             <Btn
               onClick={() => v(onOpenClipboard)}
-              className="text-red-500"
+              className="!text-red-500"
               title={t("common.clipboard")}
             >
-              <ClipboardPaste size={14} className="shrink-0" />
+              <Bell size={14} className="shrink-0" />
               <span className="tabular-nums">{clipboardCountdown}</span>
             </Btn>
           ) : (

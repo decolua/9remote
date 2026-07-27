@@ -11,10 +11,10 @@ const PLATFORM_CMD = {
   linux:  { cmd: "systemd-inhibit", args: ["--what=idle:sleep:handle-lid-switch", "--who=9remote", "--why=remote-active", "sleep", "infinity"] },
   win32:  {
     cmd: "powershell.exe",
-    // PowerCreateRequest + PowerSetRequest. SystemRequired(1) ngăn sleep, ExecutionRequired(3) giữ process qua Modern Standby.
-    // Không set DisplayRequired(0) — display off OK, lock theo Win policy (đã có feature unlock riêng).
+    // PowerCreateRequest + PowerSetRequest. SystemRequired(1) ngăn sleep, ExecutionRequired(3) giữ process qua Modern Standby,
+    // DisplayRequired(0) chặn display off + auto-lock (MS doc) — remote capture cần display on.
     args: ["-NonInteractive", "-NoProfile", "-WindowStyle", "Hidden", "-Command",
-      "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;namespace W3{[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]public struct RC{public uint Version;public uint Flags;public string Simple;}public class K{[DllImport(\"kernel32\")]public static extern IntPtr PowerCreateRequest(ref RC c);[DllImport(\"kernel32\")]public static extern bool PowerSetRequest(IntPtr h,uint t);}}'; $c=New-Object W3.RC; $c.Version=0; $c.Flags=1; $c.Simple='9remote'; $h=[W3.K]::PowerCreateRequest([ref]$c); if($h -eq [IntPtr]::Zero){[Console]::Error.WriteLine('PowerCreateRequest failed')} else { [W3.K]::PowerSetRequest($h,1) | Out-Null; [W3.K]::PowerSetRequest($h,3) | Out-Null; while($true){Start-Sleep 3600} }"]
+      "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;namespace W3{[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]public struct RC{public uint Version;public uint Flags;public string Simple;}public class K{[DllImport(\"kernel32\")]public static extern IntPtr PowerCreateRequest(ref RC c);[DllImport(\"kernel32\")]public static extern bool PowerSetRequest(IntPtr h,uint t);}}'; $c=New-Object W3.RC; $c.Version=0; $c.Flags=1; $c.Simple='9remote'; $h=[W3.K]::PowerCreateRequest([ref]$c); if($h -eq [IntPtr]::Zero){[Console]::Error.WriteLine('PowerCreateRequest failed')} else { [W3.K]::PowerSetRequest($h,1) | Out-Null; [W3.K]::PowerSetRequest($h,3) | Out-Null; [W3.K]::PowerSetRequest($h,0) | Out-Null; while($true){Start-Sleep 3600} }"]
   }
 };
 
