@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "2.1.26",
+  "version": "2.2.1",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "dist/server.cjs",

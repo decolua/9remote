@@ -423,7 +423,7 @@ export default {
     bandwidth: "عرض النطاق",
     clearStats: "مسح الإحصائيات",
     lockTitle: "Windows مقفل",
-    lockGrantDesc: "لا يمكن إدخال PIN/كلمة المرور عن بُعد بعد. فعّل \"إلغاء قفل الكمبيوتر عن بُعد\" في واجهة الـ agent على هذا الجهاز أولاً.",
+    lockGrantDesc: "فعّل \"فتح الكمبيوتر عن بُعد\" في 9remote host على هذا الكمبيوتر.",
     lockDesc: "أدخل رمز PIN أو كلمة مرور Windows لهذا الكمبيوتر",
     lockPlaceholder: "رمز PIN أو كلمة مرور Windows",
     unlock: "إلغاء القفل",

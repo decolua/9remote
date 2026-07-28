@@ -259,9 +259,10 @@ export async function startServer() {
     else mode = REMOTE_CONFIG.sleepInhibit?.defaultMode || "never";
   }
   sleepInhibitor.setMode(mode);
-  // Silent worker upgrade — only if the worker is already running AND sources
-  // are newer. Never triggers UAC; first install comes from the Grant button.
-  // Deferred so the (async) build never competes with the UI's first paint.
+  // Silent rebuild only — never spawn (no UAC at startup). The logon scheduled
+  // task (registered when the user toggled On) re-spawns the worker at every
+  // boot, so there's nothing to auto-start here. Deferred so the (async) build
+  // never competes with the UI's first paint.
   if (desktopBridge.isSupported()) {
     setTimeout(() => desktopBridge.autoUpdate().catch(() => {}), 3000);
   }

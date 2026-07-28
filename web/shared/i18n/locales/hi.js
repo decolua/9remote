@@ -423,7 +423,7 @@ export default {
     bandwidth: "बैंडविड्थ",
     clearStats: "आँकड़े साफ़ करें",
     lockTitle: "Windows लॉक है",
-    lockGrantDesc: "दूरस्थ PIN/पासवर्ड दर्ज करना अभी उपलब्ध नहीं है। पहले इस डिवाइस पर agent UI में \"PC दूरस्थ रूप से अनलॉक करें\" सक्षम करें।",
+    lockGrantDesc: "इस PC के 9remote host में \"रिमोट अनलॉक PC\" चालू करें।",
     lockDesc: "इस कंप्यूटर के लिए Windows PIN या पासवर्ड दर्ज करें",
     lockPlaceholder: "Windows PIN या पासवर्ड",
     unlock: "अनलॉक करें",

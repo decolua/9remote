@@ -816,7 +816,7 @@ export default function WorkspaceLayout({ children }) {
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div
                 ref={panesContainerRef}
-                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-2 overflow-x-auto overflow-y-hidden px-2 pb-14" : "relative"}`}
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-2 overflow-x-auto overflow-y-hidden px-2 mb-16" : "relative"}`}
                 {...bindSwipeTab({
                   enabled: !isDesktop,
                   sessionIds: groupOpenedSessions,
@@ -893,7 +893,7 @@ export default function WorkspaceLayout({ children }) {
                     handleSelectSession(sessionId);
                     setTimeout(() => keyboardTextApiRef.current?.focus?.(), 60);
                   }}
-                  className="group absolute bottom-0 z-10 px-2 py-2 hover:z-20"
+                  className="group absolute bottom-2 z-10 px-2 py-2 hover:z-20"
                   style={{ left: `${left}px`, width: `${width}px` }}
                   aria-label="Focus this terminal input"
                 >
@@ -908,7 +908,7 @@ export default function WorkspaceLayout({ children }) {
                   the terminal above; width + left offset match the focused pane. Mobile: full width. */}
               {activeSessionId && (
                 <div
-                  className={isDesktop ? "absolute left-0 right-0 bottom-0 z-20" : ""}
+                  className={isDesktop ? "absolute left-0 right-0 bottom-2 z-20" : ""}
                   style={isDesktop && focusPaneRect
                     ? { width: `${focusPaneRect.width}px`, marginLeft: `${focusPaneRect.left}px` }
                     : undefined}

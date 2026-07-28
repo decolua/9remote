@@ -525,10 +525,14 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Text Input Panel */}
       <div
-        className={`transition-all duration-300 bg-bg overflow-visible ${attachments.length ? "max-h-40" : "max-h-24"} opacity-100`}
+        className={`transition-all duration-300 bg-bg overflow-visible ${hasPhysicalKeyboard ? "" : (attachments.length ? "max-h-40" : "max-h-24")} opacity-100`}
       >
         <div className="p-2 flex gap-2 items-end">
-          <div className="relative flex-1 bg-surface-2 rounded-xl focus-within:ring-2 focus-within:ring-brand-500/40 transition-all duration-150 ease-out">
+          <div className={`relative flex-1 bg-surface-2 rounded-xl transition-all duration-150 ease-out ${
+            hasPhysicalKeyboard
+              ? "input-focus-glow border border-border-subtle"
+              : "focus-within:ring-2 focus-within:ring-brand-500/40"
+          }`}>
             <PathSuggestion
               items={pathItems}
               activeIndex={pathActiveClamped}

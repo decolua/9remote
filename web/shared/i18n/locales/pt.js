@@ -321,7 +321,7 @@ export default {
     bandwidth: "Largura de banda",
     clearStats: "Limpar Estatísticas",
     lockTitle: "Windows está bloqueado",
-    lockGrantDesc: "A entrada remota de PIN/senha ainda não está disponível. Ative \"Desbloquear PC remotamente\" na interface do agent neste dispositivo primeiro.",
+    lockGrantDesc: "Ative \"Desbloquear PC remotamente\" no 9remote host deste PC.",
     lockDesc: "Digite o PIN ou a senha do Windows para este computador",
     lockPlaceholder: "PIN ou senha do Windows",
     unlock: "Desbloquear",

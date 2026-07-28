@@ -9,7 +9,7 @@
 // only kills cloudflared + agent PIDs, never this worker.
 
 import { spawn } from "child_process";
-import { existsSync, mkdirSync, copyFileSync, statSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, copyFileSync, statSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import net from "net";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -26,6 +26,11 @@ const BRIDGE_EXE = "desktop-bridge.exe";
 const ELEVATE_EXE = "desktop-elevate.exe";
 const BRIDGE_CS = "desktop-bridge.cs";
 const ELEVATE_CS = "desktop-elevate.cs";
+// Per-user scheduled task that re-spawns the launcher at every logon (console
+// session, /RL HIGHEST) so the worker survives reboots without a UAC prompt.
+// /RU user (not SYSTEM) keeps the worker in the console session — SYSTEM tasks
+// run in session 0 and SendInput misses the user's Winlogon desktop.
+const TASK_NAME = "9remote-unlock";
 
 // .cs sources ship inside the package: dev layout agent/lib/bin/, dist agent/dist/bin/.
 const SOURCE_DIR = (() => {
@@ -53,6 +58,18 @@ function findCsc() {
 }
 
 export function isSupported() { return isWin; }
+
+// Persisted "user toggled On" flag. The agent reads it at startup and re-spawns
+// the worker if it's gone (reboot killed the ad-hoc worker). This gives boot
+// persistence without a SYSTEM scheduled task (which ran the worker in session 0).
+const ENABLED_FLAG = path.join(PATHS.ROOT, "unlock.enabled");
+export function isEnabled() { return existsSync(ENABLED_FLAG); }
+function setEnabled(v) {
+  try {
+    if (v) writeFileSync(ENABLED_FLAG, "1");
+    else unlinkSync(ENABLED_FLAG);
+  } catch (e) { logger.warn(`setEnabled(${v}) failed: ${e.message}`); }
+}
 
 export function isBuilt() {
   return existsSync(path.join(RUNTIME_DIR, BRIDGE_EXE)) && existsSync(path.join(RUNTIME_DIR, ELEVATE_EXE));
@@ -113,8 +130,7 @@ async function buildBinaries() {
     const rtExe = path.join(RUNTIME_DIR, exe);
     if (!existsSync(srcCs)) { logger.warn(`source missing: ${cs}`); return false; }
     copyFileSync(srcCs, rtCs);
-    if (newer(rtExe, rtCs)) { logger.info(`up-to-date: ${exe}`); continue; }
-    logger.info(`building ${cs} → ${exe}`);
+    if (newer(rtExe, rtCs)) continue;
     const r = await runHidden(csc, ["-nologo", "-target:winexe", `-out:${rtExe}`, rtCs]);
     if (!r.ok) { logger.error(`csc build failed for ${cs}: ${r.err}`); return false; }
   }
@@ -134,9 +150,9 @@ function diagnoseWorkerProcess() {
     p.stdout.on("data", (d) => (out += d.toString()));
     p.on("exit", () => {
       const found = out.trim() && !/No tasks/i.test(out);
-      logger.info(`diagnose: desktop-bridge.exe ${found ? "RUNNING (pipe mismatch?)" : "NOT RUNNING (spawn failed)"} — ${out.trim().replace(/\s+/g, " ")}`);
+      logger.warn(`worker not reachable via pipe; process ${found ? "RUNNING" : "NOT RUNNING"}`);
     });
-    p.on("error", () => logger.info("diagnose: tasklist unavailable"));
+    p.on("error", () => {});
   } catch {}
 }
 
@@ -144,29 +160,35 @@ function diagnoseWorkerProcess() {
 // Escape a string for safe embedding inside a PowerShell single-quoted string.
 export function _escapePs(s) { return String(s).replace(/'/g, "''"); }
 
-// Build the UAC wrapper command: Start-Process launcher.exe -Verb RunAs.
-// Ad-hoc elevation — the launcher (elevated, console session) spawns the worker
-// into the console session, so SendInput reaches the user's Winlogon desktop.
-// No scheduled task (puts worker in session 0), no .ps1 (quoting hell), no
-// inline -Command (parse error). Mirrors .docs/login/unlock.cjs.
-export function _buildElevateCmd(launcherPath) {
-  return `Start-Process -FilePath '${_escapePs(launcherPath)}' -Verb RunAs`;
+// Build the UAC wrapper command that registers + runs the per-user logon task.
+// Inline PowerShell (no .ps1) — kept short and try/catch-free to avoid the
+// quoting hell that broke -Command earlier. Register-ScheduledTask handles the
+// launcher path natively (no /TR quoting).
+export function _buildElevateCmd(launcherPath, taskName) {
+  // Inner uses the raw values; the whole inner string is single-quote-escaped
+  // once when embedded in the -Command argument (double-escaping would turn
+  // one quote into four).
+  const inner = [
+    `$a = New-ScheduledTaskAction -Execute '${launcherPath}'`,
+    `$t = New-ScheduledTaskTrigger -AtLogon`,
+    `Register-ScheduledTask -TaskName '${taskName}' -Action $a -Trigger $t -RunLevel Highest -Force | Out-Null`,
+    `Start-ScheduledTask -TaskName '${taskName}'`,
+  ].join("; ");
+  return `Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','${_escapePs(inner)}' -Wait`;
 }
 
-// Spawn the launcher via UAC. Resolves true if the wrapper PowerShell exited 0
-// (UAC accepted). The worker itself comes up shortly after, polled separately
-// by the caller — Start-Process returns once the launcher has been launched.
+// Register the logon task (UAC) and start it once so the worker comes up now.
+// After this, every logon re-runs the task → worker auto-starts, no UAC.
 function elevate() {
   return new Promise((resolve) => {
     const launcher = path.join(RUNTIME_DIR, ELEVATE_EXE);
     if (!existsSync(launcher)) { logger.error("elevate: launcher exe missing"); return resolve(false); }
-    const ps = _buildElevateCmd(launcher);
-    logger.info("elevate: spawning launcher via UAC (expect prompt)");
+    const ps = _buildElevateCmd(launcher, TASK_NAME);
     try {
       const p = spawn("powershell.exe",
         ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
         { windowsHide: true, stdio: "ignore" });
-      p.on("exit", (code) => { logger.info(`elevate: powershell exit=${code}`); resolve(code === 0); });
+      p.on("exit", (code) => { if (code !== 0) logger.warn(`elevate: powershell exit=${code}`); resolve(code === 0); });
       p.on("error", (e) => { logger.error(`elevate: spawn error: ${e.message}`); resolve(false); });
     } catch (e) {
       logger.error(`elevate: throw: ${e.message}`);
@@ -175,18 +197,31 @@ function elevate() {
   });
 }
 
-// Off: ask the worker to exit. No scheduled task to remove (ad-hoc spawn),
-// so no UAC needed — STOP goes through the pipe the worker already serves.
+// Delete the logon task (UAC) so the worker doesn't come back next boot.
+function deleteTask() {
+  return new Promise((resolve) => {
+    const inner = `Unregister-ScheduledTask -TaskName '${_escapePs(TASK_NAME)}' -Confirm:$false -ErrorAction SilentlyContinue; exit 0`;
+    const ps = `Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','${_escapePs(inner)}' -Wait`;
+    try {
+      const p = spawn("powershell.exe",
+        ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+        { windowsHide: true, stdio: "ignore" });
+      p.on("exit", (code) => resolve(code === 0));
+      p.on("error", () => resolve(false));
+    } catch { resolve(false); }
+  });
+}
+
+// Off: STOP the worker + remove the logon task so it stays off across reboots.
 export async function uninstall() {
   if (!isWin) return { ok: false, reason: "unsupported" };
-  logger.info("uninstall: begin");
-  try { await pipeCmd("STOP", 2000); logger.info("uninstall: worker STOP sent"); }
-  catch (e) { logger.warn(`uninstall: pipe STOP failed (${e.message}) — worker may already be gone`); }
+  setEnabled(false);
+  try { await pipeCmd("STOP", 2000); }
+  catch (e) { logger.warn(`uninstall: pipe STOP failed (${e.message})`); }
+  await deleteTask();
   await sleep(500);
   const stillAlive = await isAlive();
-  const reason = stillAlive ? "worker_alive" : "stopped";
-  logger.info(`uninstall: done reason=${reason} alive=${stillAlive}`);
-  return { ok: !stillAlive, reason };
+  return { ok: !stillAlive, reason: stillAlive ? "worker_alive" : "stopped" };
 }
 
 // One-shot pipe command. Local pipe → fast; avoids stale persistent connections.
@@ -215,9 +250,8 @@ let _running = false;
 // it — the next toggle On / agent restart picks up the new binary via install().
 export async function autoUpdate() {
   if (!isWin) return { ok: false, reason: "unsupported" };
-  if (await isAlive()) { logger.info("autoUpdate: skip (worker running)"); return { ok: false, reason: "running" }; }
-  if (!sourcesNewer()) { logger.info("autoUpdate: skip (up-to-date)"); return { ok: false, reason: "up_to_date" }; }
-  logger.info("autoUpdate: rebuilding idle worker exe");
+  if (await isAlive()) return { ok: false, reason: "running" };
+  if (!sourcesNewer()) return { ok: false, reason: "up_to_date" };
   if (await buildBinaries()) return { ok: true, reason: "rebuilt" };
   return { ok: false, reason: "build_failed" };
 }
@@ -243,34 +277,26 @@ export function isRunningCached() { return _running; }
 // respawn via the same UAC path.
 export async function install() {
   if (!isWin) return { ok: false, reason: "unsupported" };
-  logger.info("install: begin");
   let alive = await isAlive();
   const updateNeeded = alive && sourcesNewer();
-  logger.info(`install: alive=${alive} updateNeeded=${updateNeeded}`);
+  setEnabled(true);  // persist so a reboot can re-spawn the worker
 
   if (updateNeeded) {
-    logger.info("install: stopping worker for rebuild");
     await stopWorker();              // free the locked exe so csc can overwrite
     _running = false;
     alive = false;
   }
   if (!await buildBinaries()) { logger.error("install: build failed"); return { ok: false, reason: "build_failed" }; }
 
-  if (alive) {
-    logger.info("install: already running, no-op");
-    return { ok: true, reason: "already_running" };
-  }
+  if (alive) return { ok: true, reason: "already_running" };
 
   // Worker dead (first install or just stopped for rebuild) → spawn via UAC.
-  logger.info("install: spawning launcher (UAC)");
   const elevated = await elevate();
   if (!elevated) { logger.warn("install: elevate failed (UAC denied?)"); return { ok: false, reason: "elevate_failed" }; }
 
   for (let i = 0; i < 40; i++) {
     await sleep(500);
-    const up = await isAlive();
-    if (up) { logger.info(`install: worker up after ${(i + 1) * 500}ms`); return { ok: true, reason: updateNeeded ? "updated" : "started" }; }
-    if (i % 4 === 3) logger.info(`install: waiting for worker (${(i + 1) * 500}ms)`);
+    if (await isAlive()) return { ok: true, reason: updateNeeded ? "updated" : "started" };
   }
   logger.error("install: worker did not come up in time");
   diagnoseWorkerProcess();

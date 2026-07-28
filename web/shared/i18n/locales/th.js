@@ -321,7 +321,7 @@ export default {
     bandwidth: "แบนด์วิดท์",
     clearStats: "ล้างสถิติ",
     lockTitle: "Windows ถูกล็อก",
-    lockGrantDesc: "ยังไม่สามารถป้อน PIN/รหัสผ่านระยะไกลได้ เปิดใช้ \"ปลดล็อกพีซีระยะไกล\" ในอินเทอร์เฟซ agent บนอุปกรณ์นี้ก่อน",
+    lockGrantDesc: "เปิด \"ปลดล็อกพีซีระยะไกล\" ใน 9remote host บนพีซีเครื่องนี้",
     lockDesc: "ป้อน PIN หรือรหัสผ่าน Windows สำหรับคอมพิวเตอร์เครื่องนี้",
     lockPlaceholder: "PIN หรือรหัสผ่าน Windows",
     unlock: "ปลดล็อก",

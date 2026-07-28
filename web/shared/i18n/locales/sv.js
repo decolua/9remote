@@ -321,7 +321,7 @@ export default {
     bandwidth: "Bandbredd",
     clearStats: "Rensa statistik",
     lockTitle: "Windows är låst",
-    lockGrantDesc: "Fjärrinmatning av PIN-kod/lösenord är inte tillgängligt än. Aktivera „Lås upp PC på distans\" i agent-gränssnittet på den här enheten först.",
+    lockGrantDesc: "Aktivera \"Lås upp PC fjärrstyrt\" i 9remote host på denna PC.",
     lockDesc: "Ange Windows PIN-kod eller lösenord för denna dator",
     lockPlaceholder: "Windows PIN-kod eller lösenord",
     unlock: "Lås upp",

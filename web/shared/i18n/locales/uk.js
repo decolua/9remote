@@ -321,7 +321,7 @@ export default {
     bandwidth: "Пропускна здатність",
     clearStats: "Очистити статистику",
     lockTitle: "Windows заблоковано",
-    lockGrantDesc: "Віддалене введення PIN-коду/пароля поки недоступне. Спочатку увімкніть «Розблокувати ПК віддалено» в інтерфейсі agent на цьому пристрої.",
+    lockGrantDesc: "Увімкніть «Віддалене розблокування ПК» у 9remote host на цьому ПК.",
     lockDesc: "Введіть PIN-код або пароль Windows для цього комп'ютера",
     lockPlaceholder: "PIN-код або пароль Windows",
     unlock: "Розблокувати",

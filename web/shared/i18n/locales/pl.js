@@ -321,7 +321,7 @@ export default {
     bandwidth: "Przepustowość",
     clearStats: "Wyczyść statystyki",
     lockTitle: "Windows jest zablokowany",
-    lockGrantDesc: "Zdalne wprowadzanie PIN/hasła nie jest jeszcze dostępne. Najpierw włącz „Odblokuj PC zdalnie\" w interfejsie agenta na tym urządzeniu.",
+    lockGrantDesc: "Włącz \"Odblokuj komputer zdalnie\" w 9remote host na tym komputerze.",
     lockDesc: "Wprowadź kod PIN lub hasło Windows dla tego komputera",
     lockPlaceholder: "Kod PIN lub hasło Windows",
     unlock: "Odblokuj",

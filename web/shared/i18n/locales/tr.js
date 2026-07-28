@@ -321,7 +321,7 @@ export default {
     bandwidth: "Bant genişliği",
     clearStats: "İstatistikleri Temizle",
     lockTitle: "Windows kilitli",
-    lockGrantDesc: "Uzaktan PIN/parola girişi henüz kullanılamıyor. Önce bu cihazdaki agent arayüzünde „PC'yi uzaktan kilidini aç\" seçeneğini etkinleştirin.",
+    lockGrantDesc: "Bu PC'deki 9remote host uygulamasında \"Bilgisayarı uzaktan kilidini aç\"ı etkinleştirin.",
     lockDesc: "Bu bilgisayar için Windows PIN veya parolasını girin",
     lockPlaceholder: "Windows PIN veya parola",
     unlock: "Kilidi aç",

@@ -423,7 +423,7 @@ export default {
     bandwidth: "רוחב פס",
     clearStats: "נקה סטטיסטיקות",
     lockTitle: "Windows נעול",
-    lockGrantDesc: "עדיין לא ניתן להזין קוד PIN/סיסמה מרחוק. הפעל תחילה את „בטל נעילת מחשב מרחוק“ בממשק ה-agent במכשיר זה.",
+    lockGrantDesc: "הפעל \"פתיחת נעילת מחשב מרחוק\" ב-9remote host במחשב זה.",
     lockDesc: "הזן את קוד ה-PIN או הסיסמה של Windows עבור מחשב זה",
     lockPlaceholder: "קוד PIN או סיסמת Windows",
     unlock: "בטל נעילה",

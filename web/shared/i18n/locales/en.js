@@ -443,7 +443,7 @@ export default {
     bandwidth: "Bandwidth",
     clearStats: "Clear Stats",
     lockTitle: "Windows is locked",
-    lockGrantDesc: "Remote PIN/password entry isn't available yet. Enable \"Unlock PC remotely\" in the agent UI on this device first.",
+    lockGrantDesc: "Turn on \"Unlock PC remotely\" in 9remote host on this PC.",
     lockDesc: "Enter the Windows PIN or password for this computer",
     lockPlaceholder: "Windows PIN or password",
     unlock: "Unlock",

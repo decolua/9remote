@@ -321,7 +321,7 @@ export default {
     bandwidth: "Bande passante",
     clearStats: "Effacer les statistiques",
     lockTitle: "Windows est verrouillé",
-    lockGrantDesc: "La saisie distante du code PIN/mot de passe n'est pas encore disponible. Activez d'abord « Déverrouiller le PC à distance » dans l'interface agent sur cet appareil.",
+    lockGrantDesc: "Activez « Déverrouiller le PC à distance » dans 9remote host sur ce PC.",
     lockDesc: "Saisissez le code PIN ou le mot de passe Windows de cet ordinateur",
     lockPlaceholder: "Code PIN ou mot de passe Windows",
     unlock: "Déverrouiller",

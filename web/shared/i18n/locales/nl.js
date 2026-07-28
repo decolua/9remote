@@ -321,7 +321,7 @@ export default {
     bandwidth: "Bandbreedte",
     clearStats: "Statistieken wissen",
     lockTitle: "Windows is vergrendeld",
-    lockGrantDesc: "Externe PIN/wachtwoord-invoer is nog niet beschikbaar. Schakel eerst „PC op afstand ontgrendelen\" in de agent-interface op dit apparaat in.",
+    lockGrantDesc: "Schakel \"PC op afstand ontgrendelen\" in 9remote host op deze PC in.",
     lockDesc: "Voer de Windows-PIN of het wachtwoord in voor deze computer",
     lockPlaceholder: "Windows-PIN of wachtwoord",
     unlock: "Ontgrendel",

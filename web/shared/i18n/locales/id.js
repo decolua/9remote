@@ -321,7 +321,7 @@ export default {
     bandwidth: "Bandwidth",
     clearStats: "Hapus Statistik",
     lockTitle: "Windows terkunci",
-    lockGrantDesc: "Input PIN/kata sandi dari jarak jauh belum tersedia. Aktifkan \"Buka kunci PC dari jarak jauh\" di UI agent pada perangkat ini lebih dulu.",
+    lockGrantDesc: "Aktifkan \"Buka kunci PC jarak jauh\" di 9remote host pada PC ini.",
     lockDesc: "Masukkan PIN atau kata sandi Windows untuk komputer ini",
     lockPlaceholder: "PIN atau kata sandi Windows",
     unlock: "Buka kunci",

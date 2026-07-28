@@ -321,7 +321,7 @@ export default {
     bandwidth: "帯域幅",
     clearStats: "統計をクリア",
     lockTitle: "Windows がロックされています",
-    lockGrantDesc: "リモートでの PIN/パスワード入力はまだ利用できません。まずこのデバイスの agent UI で「リモートでPCをロック解除」を有効にしてください。",
+    lockGrantDesc: "このPCの9remote hostで「リモートでロック解除」をオンにしてください。",
     lockDesc: "このコンピューターの Windows PIN またはパスワードを入力してください",
     lockPlaceholder: "Windows PIN またはパスワード",
     unlock: "ロック解除",

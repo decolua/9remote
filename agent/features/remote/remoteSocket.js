@@ -160,33 +160,45 @@ export async function setupRemoteHandlers(socket, apiKey) {
   keyboardHandler.setupKeyboardHandlers(socket, requireAuth);
   screenHandler.setupScreenHandlers(socket, requireAuth, protocol);
 
-  // Windows unlock bridge — poll desktop name, emit screen-locked on change.
-  // Two signals:
-  //   1. Worker alive + STATE ∈ lockedNames  → locked, ready (form input)
-  //   2. Worker not alive + capture keeps failing (secure desktop) → locked, not ready
-  //      (show the "grant permission on agent" prompt instead of the input form)
+  // Windows unlock bridge — poll liveness + emit screen-locked on change.
+  // Signals:
+  //   ready  = worker pipe responds (STATE ok). Debounced: a transient miss
+  //            (worker busy typing) holds the last verdict; persistent failure
+  //            (worker gone) flips to not-ready after 3 polls.
+  //   locked = capture keeps failing — Winlogon is a secure desktop, capture is
+  //            blocked there. Session-independent (the worker's OpenInputDesktop
+  //            would read session 0 when spawned by a SYSTEM task).
   let desktopPoll = null;
   let lastLocked = null;
   let lastReady = null;
+  let readyFailCount = 0;
   if (desktopBridge.isSupported()) {
     const cfg = REMOTE_CONFIG.desktopUnlock;
     const computeAndEmit = async (force = false) => {
       const cd = resourceManager.getClient(socket.id);
-      let ready = false;
-      // Worker liveness = ready (form input vs grant prompt). Read via pipe so
-      // it doubles as a heartbeat — if the worker died we drop to "not ready".
       const name = await desktopBridge.getDesktopState();
-      if (name != null) ready = true;
+      let ready;
+      if (name != null) {
+        readyFailCount = 0;
+        ready = true;
+      } else {
+        readyFailCount++;
+        // A transient STATE failure usually means the worker is busy typing
+        // (single-threaded pipe) — hold the last ready verdict instead of
+        // flipping to the grant prompt mid-unlock. Persistent failure (worker
+        // actually gone) crosses the threshold within a few seconds.
+        ready = readyFailCount >= 3 ? false : lastReady;
+      }
       // Locked = capture keeps failing. When Windows is on the Winlogon (secure)
       // desktop, screen capture is blocked → captureErrorCount climbs. This is
       // session-independent (unlike the worker's OpenInputDesktop, which reads
       // the worker's own session — wrong when the task runs as SYSTEM in session 0).
       const errCount = cd?.captureErrorCount || 0;
       const locked = errCount >= cfg.captureErrorThreshold;
-      logger.info(`unlock-state: desktop=${name} errCount=${errCount} → locked=${locked} ready=${ready}${force ? " (force)" : ""}`);
       if (force || locked !== lastLocked || ready !== lastReady) {
         lastLocked = locked;
         lastReady = ready;
+        logger.info(`unlock-state: locked=${locked} ready=${ready}`);
         protocol.emit("screen-locked", { locked, ready });
       }
     };
@@ -216,6 +228,8 @@ export async function setupRemoteHandlers(socket, apiKey) {
     try {
       await desktopBridge.typeText(text);
       await new Promise((r) => setTimeout(r, waitMs));
+      // Submit failed (wrong PIN) — Win11 refocuses the field after the Enter
+      // that ended the first typeText, so just retype.
       if (stillLocked()) {
         await desktopBridge.typeText(text);
         await new Promise((r) => setTimeout(r, waitMs));

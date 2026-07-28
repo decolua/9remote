@@ -321,7 +321,7 @@ export default {
     bandwidth: "대역폭",
     clearStats: "통계 지우기",
     lockTitle: "Windows 잠김",
-    lockGrantDesc: "원격 PIN/비밀번호 입력이 아직 불가능합니다. 먼저 이 기기의 agent UI에서 \"원격으로 PC 잠금 해제\"를 활성화하세요.",
+    lockGrantDesc: "이 PC의 9remote host에서 \"원격 잠금 해제\"를 켜세요.",
     lockDesc: "이 컴퓨터의 Windows PIN 또는 비밀번호 입력",
     lockPlaceholder: "Windows PIN 또는 비밀번호",
     unlock: "잠금 해제",

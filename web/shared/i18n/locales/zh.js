@@ -321,7 +321,7 @@ export default {
     bandwidth: "带宽",
     clearStats: "清除统计",
     lockTitle: "Windows 已锁定",
-    lockGrantDesc: "尚无法远程输入 PIN/密码。请先在此设备的 agent 界面启用“远程解锁电脑”。",
+    lockGrantDesc: "请先在此电脑的 9remote host 中开启\"远程解锁\"。",
     lockDesc: "输入此电脑的 Windows PIN 或密码",
     lockPlaceholder: "Windows PIN 或密码",
     unlock: "解锁",

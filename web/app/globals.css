@@ -207,6 +207,24 @@
   animation: slideInFromRight 0.3s ease-out 0.3s both;
 }
 
+/* Mac-like scrollbar — thin, floating, subtle. Specific component rules below override. */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(128, 128, 128, 0.65);
+  background-clip: content-box;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, 0.35) transparent;
+}
+
 /* Custom scrollbar for terminal tabs */
 .scrollbar-thin::-webkit-scrollbar {
   height: 4px;
@@ -308,6 +326,18 @@ html.terminal-page body {
   inset: 0;
   border: 2px solid #22c55e;
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* PC terminal-input focus glow — brand border */
+.input-focus-glow:focus-within::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--color-brand-500);
+  box-shadow: 0 0 8px rgba(var(--brand-rgb), 0.7);
+  border-radius: inherit;
   pointer-events: none;
   z-index: 2;
 }

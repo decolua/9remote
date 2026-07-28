@@ -522,10 +522,7 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
             >
               {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-full" style={{ background: "var(--brand-500)" }} />}
               <span className={`material-symbols-outlined text-[20px] flex-shrink-0 ${isActive ? "fill-1" : ""}`}>{m.icon}</span>
-              <span className="flex flex-col min-w-0">
-                <span className={`text-[13px] leading-tight ${isActive ? "font-semibold" : "font-medium"}`}>{t(`menu.${m.id}`)}</span>
-                <span className="text-[10px] leading-tight truncate mt-0.5" style={{ color: "var(--text-subtle)" }}>{t(`menu.${m.id}Desc`)}</span>
-              </span>
+              <span className={`text-[13px] leading-tight ${isActive ? "font-semibold" : "font-medium"}`}>{t(`menu.${m.id}`)}</span>
             </button>
           );
         })}

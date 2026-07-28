@@ -268,6 +268,21 @@ function TerminalPane({
             onClose={() => { termRef.current?.clearSelection(); setSelection(null); }}
           />
         )}
+
+        {showScrollButton && (
+          <button
+            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleScrollToBottom();
+            }}
+            className="absolute bottom-3 right-5 z-50 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94] touch-none"
+            title={t("terminalPane.scrollToBottom")}
+          >
+            <ChevronDown size={20} />
+          </button>
+        )}
       </div>
 
       {/* Overlays stay on viewport, not inside scroll content */}
@@ -328,21 +343,6 @@ function TerminalPane({
             </button>
           )}
         </div>
-      )}
-
-      {showScrollButton && (
-        <button
-          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-          onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleScrollToBottom();
-          }}
-          className="absolute bottom-5 right-7 z-50 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94] touch-none"
-          title={t("terminalPane.scrollToBottom")}
-        >
-          <ChevronDown size={20} />
-        </button>
       )}
 
       {noteOpen && showNoteButton && (

@@ -86,7 +86,10 @@ export function createRouter(routes, { fallback } = {}) {
 
     // Localhost guard — block non-public routes from remote/tunnel
     const isTunnel = !!req.headers["cf-connecting-ip"];
-    const isLocal = req.socket.remoteAddress === "127.0.0.1" || req.socket.remoteAddress === "::1";
+    const ra = req.socket.remoteAddress;
+    // Include ::ffff:127.0.0.1 (IPv4-mapped IPv6) — Node reports this for some
+    // localhost connections and it would otherwise 403 the agent UI intermittently.
+    const isLocal = ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1" || ra === "::ffff:0:0:0:1";
     if (!isPublic(pathname) && (isTunnel || !isLocal)) {
       jsonErr(res, 403, "Forbidden");
       return;

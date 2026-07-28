@@ -329,7 +329,7 @@ export default {
     bandwidth: "Băng thông",
     clearStats: "Xóa thống kê",
     lockTitle: "Windows đang khóa",
-    lockGrantDesc: "Chưa nhập được PIN/mật khẩu từ xa. Bật \"Mở khóa máy từ xa\" trong giao diện agent trên máy này trước.",
+    lockGrantDesc: "Bật \"Mở khóa máy từ xa\" trong 9remote host trên máy này.",
     lockDesc: "Nhập mã PIN hoặc mật khẩu Windows của máy này",
     lockPlaceholder: "Mã PIN hoặc mật khẩu Windows",
     unlock: "Mở khóa",

@@ -321,7 +321,7 @@ export default {
     bandwidth: "Bandbreite",
     clearStats: "Statistiken löschen",
     lockTitle: "Windows ist gesperrt",
-    lockGrantDesc: "PIN/Passwort können noch nicht remote eingegeben werden. Aktiviere zuerst „PC fernentriegeln“ in der Agent-Oberfläche auf diesem Gerät.",
+    lockGrantDesc: "Aktiviere „PC fernentsperren\" in 9remote host auf diesem PC.",
     lockDesc: "Windows-PIN oder -Passwort für diesen Computer eingeben",
     lockPlaceholder: "Windows-PIN oder -Passwort",
     unlock: "Entsperren",
