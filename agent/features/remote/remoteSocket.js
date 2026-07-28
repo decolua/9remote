@@ -3,6 +3,7 @@ import { unregisterProtocol } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
 import { ADAPTER_STATE } from "../../lib/transportConstants.js";
 import { wakeDisplay } from "../../lib/displayWaker.js";
+import * as desktopBridge from "../../lib/desktopBridge.js";
 import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 import { readClipboardText } from "./utils/clipboard.js";
 
@@ -159,6 +160,73 @@ export async function setupRemoteHandlers(socket, apiKey) {
   keyboardHandler.setupKeyboardHandlers(socket, requireAuth);
   screenHandler.setupScreenHandlers(socket, requireAuth, protocol);
 
+  // Windows unlock bridge — poll desktop name, emit screen-locked on change.
+  // Two signals:
+  //   1. Worker alive + STATE ∈ lockedNames  → locked, ready (form input)
+  //   2. Worker not alive + capture keeps failing (secure desktop) → locked, not ready
+  //      (show the "grant permission on agent" prompt instead of the input form)
+  let desktopPoll = null;
+  let lastLocked = null;
+  let lastReady = null;
+  if (desktopBridge.isSupported()) {
+    const cfg = REMOTE_CONFIG.desktopUnlock;
+    const computeAndEmit = async (force = false) => {
+      const cd = resourceManager.getClient(socket.id);
+      let ready = false;
+      // Worker liveness = ready (form input vs grant prompt). Read via pipe so
+      // it doubles as a heartbeat — if the worker died we drop to "not ready".
+      const name = await desktopBridge.getDesktopState();
+      if (name != null) ready = true;
+      // Locked = capture keeps failing. When Windows is on the Winlogon (secure)
+      // desktop, screen capture is blocked → captureErrorCount climbs. This is
+      // session-independent (unlike the worker's OpenInputDesktop, which reads
+      // the worker's own session — wrong when the task runs as SYSTEM in session 0).
+      const errCount = cd?.captureErrorCount || 0;
+      const locked = errCount >= cfg.captureErrorThreshold;
+      logger.info(`unlock-state: desktop=${name} errCount=${errCount} → locked=${locked} ready=${ready}${force ? " (force)" : ""}`);
+      if (force || locked !== lastLocked || ready !== lastReady) {
+        lastLocked = locked;
+        lastReady = ready;
+        protocol.emit("screen-locked", { locked, ready });
+      }
+    };
+    computeAndEmit();
+    desktopPoll = setInterval(() => computeAndEmit(false), cfg.pollIntervalMs);
+    // Web requests the current state on mount (its listener races the first
+    // emit) — re-emit unconditionally so the overlay shows even if the host
+    // was already locked before the client connected.
+    socket.on("get-unlock-state", requireAuth(() => computeAndEmit(true)));
+  }
+
+  // Client submitted unlock text (PIN/password). Orchestration lives in JS:
+  // type → wait → check; retry once on fail. Click-to-focus dropped — the user
+  // can remote-click the field directly if focus is lost.
+  socket.on("desktop-unlock", requireAuth(async (data) => {
+    if (!desktopBridge.isSupported()) return;
+    const text = typeof data?.text === "string" ? data.text : "";
+    if (!text) return;
+    const cfg = REMOTE_CONFIG.desktopUnlock;
+    const waitMs = cfg.retryWaitMs;
+    // Success = capture recovering (count drops below threshold once back on
+    // the Default desktop). Same session-independent signal as the lock poll.
+    const stillLocked = () => {
+      const cd = resourceManager.getClient(socket.id);
+      return (cd?.captureErrorCount || 0) >= cfg.captureErrorThreshold;
+    };
+    try {
+      await desktopBridge.typeText(text);
+      await new Promise((r) => setTimeout(r, waitMs));
+      if (stillLocked()) {
+        await desktopBridge.typeText(text);
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+      const ok = !stillLocked();
+      socket.emit("unlock-result", { ok, reason: ok ? null : "still_locked" });
+    } catch (err) {
+      socket.emit("unlock-result", { ok: false, reason: err.message || "error" });
+    }
+  }));
+
   // WS rớt + RTC ready → giữ vô hạn, cleanup khi RTC tự closed.
   // RTC chưa ready → cleanup ngay (giữ retry behavior cũ).
   socket.on("disconnect", () => {
@@ -172,6 +240,7 @@ export async function setupRemoteHandlers(socket, apiKey) {
       if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
       if (rtc && onState) rtc.off("stateChange", onState);
       if (clipboardTimer) { clearInterval(clipboardTimer); clipboardTimer = null; }
+      if (desktopPoll) { clearInterval(desktopPoll); desktopPoll = null; }
       resourceManager.removeClient(socket.id);
       protocol.close();
       unregisterProtocol(protocol);

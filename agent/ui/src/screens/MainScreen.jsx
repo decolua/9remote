@@ -119,7 +119,7 @@ function SrvRow({ icon, active, name, desc, children, extra }) {
 }
 
 /** Remote Services card — Terminal (always on) + Desktop + startup rows (pro5 .srv pattern) */
-function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle, sleepInhibitMode, sleepInhibitPresets, onSleepInhibitChange, t }) {
+function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle, sleepInhibitMode, sleepInhibitPresets, onSleepInhibitChange, unlockStatus, onRequestUnlockInstall, onRequestUnlockUninstall, t }) {
   const permEntries = Object.entries(getPermissionMeta(t));
   // Desktop toggle requires all permissions granted
   const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
@@ -178,6 +178,24 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
           ))}
         </select>
       </SrvRow>
+
+      {/* Remote unlock — toggle the Windows login-screen bridge. On = worker
+          runs as SYSTEM + boot task; Off = stop worker + remove task (exe kept).
+          Hidden on non-Windows. */}
+      {unlockStatus?.supported && (
+        <SrvRow
+          icon="lock_open"
+          active={!!unlockStatus.running}
+          name={t("remote.remoteUnlock")}
+          desc={unlockStatus.running ? t("remote.remoteUnlockReady") : t("remote.remoteUnlockDesc")}
+        >
+          <Toggle
+            on={!!unlockStatus.running}
+            disabled={!!unlockStatus.busy}
+            onClick={() => (unlockStatus.running ? onRequestUnlockUninstall?.() : onRequestUnlockInstall?.())}
+          />
+        </SrvRow>
+      )}
     </div>
   );
 }
@@ -590,6 +608,7 @@ export default function MainScreen({
   autoApprove = false, onAutoApproveToggle,
   autoStart = false, onAutoStartToggle,
   sleepInhibitMode = "never", sleepInhibitPresets = [], onSleepInhibitChange,
+  unlockStatus = null, onRequestUnlockInstall, onRequestUnlockUninstall,
   sessions = [], onSessionDelete, onSessionRefresh,
   onStopTunnel,
 }) {
@@ -814,6 +833,9 @@ export default function MainScreen({
                         sleepInhibitMode={sleepInhibitMode}
                         sleepInhibitPresets={sleepInhibitPresets}
                         onSleepInhibitChange={onSleepInhibitChange}
+                        unlockStatus={unlockStatus}
+                        onRequestUnlockInstall={onRequestUnlockInstall}
+                        onRequestUnlockUninstall={onRequestUnlockUninstall}
                         t={t}
                       />
 

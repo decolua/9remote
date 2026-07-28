@@ -34,6 +34,9 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   const [clipboardText, setClipboardText] = useState("");
   const [clipboardNew, setClipboardNew] = useState(false);
   const [showClipboard, setShowClipboard] = useState(false);
+  const [screenLocked, setScreenLocked] = useState(false);
+  const [unlockReady, setUnlockReady] = useState(false);
+  const [unlockResult, setUnlockResult] = useState(null); // {ok, reason} | null
   const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, true);
   const [keyboardOn, setKeyboardOn] = usePersistedState(STORAGE_KEYS.keyboard, false);
   const [pointerMode, setPointerMode] = usePersistedState(STORAGE_KEYS.pointerMode, REMOTE_CONFIG.pointerMode);
@@ -313,6 +316,17 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     };
     const onScreenError = (err) => console.error("Screen error:", err);
 
+    // Host desktop locked (Winlogon) → show unlock overlay. Emitted by the
+    // Windows desktop bridge; ignored on other platforms.
+    const onScreenLocked = ({ locked, ready } = {}) => {
+      setScreenLocked(!!locked);
+      setUnlockReady(!!ready);
+      if (locked) setUnlockResult(null);
+    };
+
+    // Agent finished the unlock attempt — {ok, reason}.
+    const onUnlockResult = (r) => setUnlockResult(r || null);
+
     const onTilesBinary = (buffer) => {
       const ab = buffer instanceof ArrayBuffer ? buffer : buffer?.buffer;
       const bytes = ab?.byteLength || 0;
@@ -361,6 +375,9 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     const doRestream = () => {
       cleanupTiles();
       socket.emit("get-screen-dimensions");
+      // Ask the agent to re-emit the current lock state — the initial
+      // screen-locked event fires before this listener mounts (race).
+      socket.emit("get-unlock-state");
       // start-streaming alone clears agent checksums + pushes a full frame. Do NOT also
       // emit request-screen-with-hashes: it races the stream loop, fills the agent's
       // lastTileChecksums without delivering a full frame → agent thinks client is
@@ -402,6 +419,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     socket.on("tiles-bin-v2", onTilesBinV2);
     socket.on("tiles-meta", onTilesMeta);
     socket.on("screen-error", onScreenError);
+    socket.on("screen-locked", onScreenLocked);
+    socket.on("unlock-result", onUnlockResult);
     socket.on("remote:ready", onRemoteReady);
     socket.on("clipboard-update", onClipboardUpdate);
     socket.on("monitors", onMonitors);
@@ -420,6 +439,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       socket.off("tiles-bin-v2", onTilesBinV2);
       socket.off("tiles-meta", onTilesMeta);
       socket.off("screen-error", onScreenError);
+      socket.off("screen-locked", onScreenLocked);
+      socket.off("unlock-result", onUnlockResult);
       socket.off("remote:ready", onRemoteReady);
       socket.off("clipboard-update", onClipboardUpdate);
       socket.off("monitors", onMonitors);
@@ -573,7 +594,14 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
           onTouchMove={createInteractionHandler("touchmove")}
           onTouchEnd={createInteractionHandler("touchend")}
           onKeyDown={(e) => handleCanvasKeyPress(e, streaming)}
-        />
+        screenLocked={screenLocked}
+        unlockReady={unlockReady}
+        unlockResult={unlockResult}
+        onUnlockSubmit={(text) => {
+          setUnlockResult(null);
+          socketRef?.current?.emit("desktop-unlock", { text });
+        }}
+      />
       )}
 
       <RemoteControls

@@ -146,6 +146,18 @@ export const REMOTE_CONFIG = {
     macDurationSec: 5
   },
 
+  // Windows desktop-unlock bridge — emit screen-locked when capture keeps
+  // failing (Winlogon is a secure desktop → capture blocked) so the client
+  // shows the unlock overlay. Session-independent (does not rely on the
+  // worker reading the desktop name, which is wrong under SYSTEM session 0).
+  desktopUnlock: {
+    pollIntervalMs: 2000,
+    // After typing the PIN, wait this long before re-checking the desktop.
+    retryWaitMs: 3000,
+    // Consecutive capture failures (secure desktop) to treat as "locked".
+    captureErrorThreshold: 5
+  },
+
   // Sleep inhibitor — block system sleep + display sleep (Win: ES_DISPLAY_REQUIRED so remote capture works)
   // mode: idle-timeout preset key. "never" = always on; "30m/1h/2h/4h/24h" = auto-off after N idle.
   sleepInhibit: {

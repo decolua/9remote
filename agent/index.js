@@ -39,9 +39,11 @@ import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove, handleSetLabel } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
 import { handleSleepInhibitGet, handleSleepInhibitPost } from "./api/sleepInhibit.js";
+import { handleDesktopUnlockGet, handleDesktopUnlockInstall, handleDesktopUnlockType, handleDesktopUnlockUninstall } from "./api/desktopUnlock.js";
 import { handleSessionsList, handleSessionDelete } from "./api/sessions.js";
 import { handleSystemStats } from "./api/system.js";
 import * as sleepInhibitor from "./lib/sleepInhibitor.js";
+import * as desktopBridge from "./lib/desktopBridge.js";
 import { loadSettings } from "./cli/utils/state.js";
 import { REMOTE_CONFIG } from "./features/remote/REMOTE_CONFIG.js";
 
@@ -199,6 +201,10 @@ const ROUTES = [
   { path: "/api/autostart",        method: "POST", handler: handleAutoStartPost },
   { path: "/api/sleep-inhibit",    method: "GET",  handler: handleSleepInhibitGet },
   { path: "/api/sleep-inhibit",    method: "POST", handler: handleSleepInhibitPost },
+  { path: "/api/desktop-unlock",   method: "GET",  handler: handleDesktopUnlockGet },
+  { path: "/api/desktop-unlock/install", method: "POST", handler: handleDesktopUnlockInstall },
+  { path: "/api/desktop-unlock/uninstall", method: "POST", handler: handleDesktopUnlockUninstall },
+  { path: "/api/desktop-unlock/type",    method: "POST", handler: handleDesktopUnlockType },
   { path: "/api/sessions",         method: "GET",  handler: handleSessionsList },
   { path: "/api/sessions/delete",  method: "POST", handler: handleSessionDelete },
   { path: "/api/local-sites",      method: "*",    public: true, handler: handleLocalSites },
@@ -253,6 +259,12 @@ export async function startServer() {
     else mode = REMOTE_CONFIG.sleepInhibit?.defaultMode || "never";
   }
   sleepInhibitor.setMode(mode);
+  // Silent worker upgrade — only if the worker is already running AND sources
+  // are newer. Never triggers UAC; first install comes from the Grant button.
+  // Deferred so the (async) build never competes with the UI's first paint.
+  if (desktopBridge.isSupported()) {
+    setTimeout(() => desktopBridge.autoUpdate().catch(() => {}), 3000);
+  }
   await initializeTerminal();
   proxyServer = createProxyServer();
   startViteDev();

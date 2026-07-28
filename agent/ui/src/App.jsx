@@ -38,6 +38,7 @@ export default function App() {
   const [autoStart, setAutoStartState] = useState(false);
   const [sleepInhibitMode, setSleepInhibitMode] = useState("never");
   const [sleepInhibitPresets, setSleepInhibitPresets] = useState([]);
+  const [unlockStatus, setUnlockStatus] = useState(null); // {supported, built, running}
   const [version, setVersion] = useState("");
   const [theme, setTheme] = useState(() => {
     // Will be overridden by server state if provided
@@ -153,6 +154,16 @@ export default function App() {
       if (Array.isArray(d?.presets)) setSleepInhibitPresets(d.presets);
     }).catch(() => {});
 
+    // Load desktop-unlock status (Windows-only — empty on other OS)
+    const refreshUnlock = () => fetch("/api/desktop-unlock").then(r => r.json()).then(d => {
+      if (d?.supported) setUnlockStatus(prev => prev?.busy ? prev : d);
+    }).catch(() => {});
+    refreshUnlock();
+    // Poll liveness — toggle follows the real worker state even if it dies
+    // outside this app (Windows update, crash, manual schtasks). 10s is light
+    // and well below the 2s agent→web lock-poll cadence.
+    const unlockPollId = setInterval(refreshUnlock, 10000);
+
     // Fallback poll: recover pending approvals if SSE event was missed
     // (UI mounted after event fired, SSE reconnect, etc.)
     const pollId = setInterval(async () => {
@@ -168,7 +179,7 @@ export default function App() {
       } catch {}
     }, PENDING_POLL_MS);
 
-    return () => { es.close(); clearInterval(pollId); };
+    return () => { es.close(); clearInterval(pollId); clearInterval(unlockPollId); };
   }, []);
 
   // Keep ref in sync so interval closure sees latest value without re-subscribing
@@ -316,6 +327,28 @@ export default function App() {
     }
   };
 
+  const handleRequestUnlockInstall = async () => {
+    setUnlockStatus(prev => ({ ...(prev || { supported: true }), busy: true }));
+    try {
+      const r = await fetch("/api/desktop-unlock/install", { method: "POST" });
+      const d = await r.json().catch(() => null);
+      if (d) setUnlockStatus({ supported: true, ...d, busy: false });
+    } catch {
+      setUnlockStatus(prev => ({ ...(prev || { supported: true }), busy: false }));
+    }
+  };
+
+  const handleRequestUnlockUninstall = async () => {
+    setUnlockStatus(prev => ({ ...(prev || { supported: true }), busy: true }));
+    try {
+      const r = await fetch("/api/desktop-unlock/uninstall", { method: "POST" });
+      const d = await r.json().catch(() => null);
+      if (d) setUnlockStatus({ supported: true, ...d, busy: false });
+    } catch {
+      setUnlockStatus(prev => ({ ...(prev || { supported: true }), busy: false }));
+    }
+  };
+
   const handleAutoApproveToggle = async () => {
     const next = !autoApprove;
     setAutoApproveState(next); // optimistic
@@ -405,6 +438,9 @@ export default function App() {
       onAutoStartToggle={handleAutoStartToggle}
       sleepInhibitMode={sleepInhibitMode}
       sleepInhibitPresets={sleepInhibitPresets}
+      unlockStatus={unlockStatus}
+      onRequestUnlockInstall={handleRequestUnlockInstall}
+      onRequestUnlockUninstall={handleRequestUnlockUninstall}
       onSleepInhibitChange={handleSleepInhibitChange}
     />
   );

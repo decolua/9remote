@@ -161,6 +161,8 @@ export class ScreenHandler {
               const sent = protocol.sendTiles({ tiles: result.tiles, timestamp: frameTs, currentHashes: result.currentHashes }, encodeTilesBatch);
               clientData.tileManager.commitHashes(sent || []);
               clientData.idleFrameCount = 0;
+              // Capture succeeded → clear the secure-desktop error counter.
+              clientData.captureErrorCount = 0;
               // Mark frame in-flight; cleared by "tile-ack" (browser) or per-frame timeout.
               if (sent?.length) {
                 clientData.inFlight.add(frameTs);
@@ -186,6 +188,9 @@ export class ScreenHandler {
             remoteLog.error("Auto streaming error:", error);
             clientData.lastStreamErrorAt = now;
           }
+          // Count consecutive capture failures — used by remoteSocket as a fallback
+          // "host locked" signal when the unlock worker isn't running yet.
+          clientData.captureErrorCount = (clientData.captureErrorCount || 0) + 1;
           clientData.streamingTimeout = setTimeout(streamLoop, 200);
         }
       };

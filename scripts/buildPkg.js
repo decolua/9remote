@@ -128,6 +128,21 @@ function copyAssets() {
   console.log(`✅ Assets → agent/dist/assets/`);
 }
 
+// Ship C# sources for the Windows desktop-unlock bridge. .exe are compiled at
+// runtime into ~/.9remote/bin/ (PATHS.BIN) so they survive autoupdate.
+function copyDesktopBridge() {
+  console.log("\n🖥️  Copying desktop-bridge sources...");
+  const srcDir = path.join(SERVER_DIR, "lib/bin");
+  const destDir = path.join(DIST_DIR, "bin");
+  if (!fs.existsSync(srcDir)) return;
+  ensureDir(destDir);
+  for (const file of fs.readdirSync(srcDir)) {
+    if (!file.endsWith(".cs")) continue;
+    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+  }
+  console.log(`✅ desktop-bridge .cs → agent/dist/bin/`);
+}
+
 async function build() {
   console.log("🔨 Building npm package...\n");
 
@@ -139,6 +154,7 @@ async function build() {
   await buildDaemon();
   await buildInstall();
   copyAssets();
+  copyDesktopBridge();
 
   // Disabled: obfuscation triggers Defender false positive (Trojan:JS/NpmSteal)
   // console.log("\n🔒 Obfuscating bundles...");

@@ -27,6 +27,7 @@ export const {
   X,
   Eye,
   EyeOff,
+  Lock,
   LogIn,
   Trash2,
   Plus,
