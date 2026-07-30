@@ -11,6 +11,8 @@ const NODE_CACHE_DIR: &str = ".9remote/node";
 const NPM_PACKAGE: &str = "9remote";
 const CLI_REL_PATH: &str = "node_modules/9remote/dist/cli.cjs";
 const HEALTH_TIMEOUT_SECS: u64 = 60;
+const NPM_INSTALL_TIMEOUT_SECS: u64 = 300;
+const NODE_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 
 // Track full PID chain for clean shutdown
 static AGENT_PID: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<Option<u32>>>> =
@@ -171,31 +173,85 @@ fn cli_path() -> String {
     format!("{}/{}", npm_prefix(), CLI_REL_PATH)
 }
 
+// Parse "v22.22.0" / "22.22" into comparable numeric tuple
+fn parse_version(name: &str) -> (u32, u32, u32) {
+    let mut parts = name.trim_start_matches('v').split('.');
+    let mut next = || parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+    (next(), next(), next())
+}
+
+// Highest-versioned node under a version-manager dir, optionally filtered by prefix
+fn newest_node_in(dir: &str, prefix: Option<&str>) -> Option<String> {
+    let mut best: Option<((u32, u32, u32), String)> = None;
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if let Some(p) = prefix {
+            let stripped = name.trim_start_matches('v');
+            if stripped != p && !stripped.starts_with(&format!("{p}.")) { continue; }
+        }
+        let node = entry.path().join("bin/node");
+        if !node.exists() { continue; }
+        let version = parse_version(&name);
+        if best.as_ref().is_none_or(|(b, _)| version > *b) {
+            best = Some((version, node.to_string_lossy().to_string()));
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
 fn find_node_binary() -> String {
     let home = home_dir();
     let cached = format!("{home}/{NODE_CACHE_DIR}/bin/node");
     if std::path::Path::new(&cached).exists() {
         return cached;
     }
-    let candidates = ["/usr/local/bin/node", "/usr/bin/node", "/opt/homebrew/bin/node"];
+
+    // nvm: resolve alias ("22") to the highest matching install ("v22.22.0")
+    let nvm_dir = format!("{home}/.nvm/versions/node");
+    if let Ok(alias) = std::fs::read_to_string(format!("{home}/.nvm/alias/default")) {
+        let alias = alias.trim();
+        let exact = format!("{nvm_dir}/{alias}/bin/node");
+        if std::path::Path::new(&exact).exists() { return exact; }
+        if let Some(node) = newest_node_in(&nvm_dir, Some(alias.trim_start_matches('v'))) {
+            return node;
+        }
+    }
+    if let Some(node) = newest_node_in(&nvm_dir, None) { return node; }
+
+    // Other version managers
+    for dir in [format!("{home}/.local/share/fnm/node-versions"), format!("{home}/Library/Application Support/fnm/node-versions")] {
+        if let Some(node) = newest_node_in(&dir, None) { return node; }
+    }
+    let volta = format!("{home}/.volta/bin/node");
+    if std::path::Path::new(&volta).exists() { return volta; }
+
+    let candidates = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"];
     for path in &candidates {
         if std::path::Path::new(path).exists() { return path.to_string(); }
     }
-    let nvm_default = format!("{home}/.nvm/alias/default");
-    if let Ok(version) = std::fs::read_to_string(&nvm_default) {
-        let nvm_node = format!("{home}/.nvm/versions/node/{}/bin/node", version.trim());
-        if std::path::Path::new(&nvm_node).exists() { return nvm_node; }
-    }
-    let nvm_dir = format!("{home}/.nvm/versions/node");
-    if let Ok(mut entries) = std::fs::read_dir(&nvm_dir) {
-        let mut versions: Vec<_> = entries.by_ref().flatten().map(|e| e.path()).collect();
-        versions.sort();
-        if let Some(latest) = versions.last() {
-            let node = latest.join("bin/node");
-            if node.exists() { return node.to_string_lossy().to_string(); }
+    // Homebrew versioned formulae (node@22, node@20, ...)
+    for cellar in ["/opt/homebrew/opt", "/usr/local/opt"] {
+        if let Ok(entries) = std::fs::read_dir(cellar) {
+            let mut best: Option<((u32, u32, u32), String)> = None;
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let Some(ver) = name.strip_prefix("node@") else { continue };
+                let node = entry.path().join("bin/node");
+                if !node.exists() { continue; }
+                let version = parse_version(ver);
+                if best.as_ref().is_none_or(|(b, _)| version > *b) {
+                    best = Some((version, node.to_string_lossy().to_string()));
+                }
+            }
+            if let Some((_, path)) = best { return path; }
         }
     }
     "node".to_string()
+}
+
+// True when no real Node was found (bare name only resolvable via PATH, which GUI apps lack)
+fn node_missing() -> bool {
+    find_node_binary() == "node"
 }
 
 fn find_npm_binary() -> String {
@@ -213,28 +269,106 @@ fn is_9remote_installed() -> bool {
     std::path::Path::new(&cli_path()).exists()
 }
 
-fn run_npm_install(target: &str) -> bool {
+// Streams npm output so the UI shows live progress; kills the run past the timeout.
+// `progress` None = silent (background update).
+fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
     let prefix = npm_prefix();
     if let Err(e) = std::fs::create_dir_all(&prefix) {
         eprintln!("[Desktop] mkdir prefix failed: {e}");
+        if let Some(app) = progress {
+            let _ = app.emit("setup_error", format!("Cannot create {prefix}: {e}"));
+        }
         return false;
     }
+
+    if node_missing() {
+        eprintln!("[Desktop] Node.js not found on this system");
+        if let Some(app) = progress {
+            let _ = app.emit("setup_error", format!("Node.js not found. Install it from {NODE_DOWNLOAD_URL}, then reopen 9Remote."));
+        }
+        return false;
+    }
+
     let npm = find_npm_binary();
-    match std::process::Command::new(&npm)
-        .args(["install", "--prefix", &prefix, "--no-audit", "--no-fund", target])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
+    let mut child = match Command::new(&npm)
+        .args(["install", "--prefix", &prefix, "--no-audit", "--no-fund", "--loglevel", "http", target])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
     {
-        Ok(o) if o.status.success() => true,
-        Ok(o) => {
-            eprintln!("[Desktop] npm install {target} failed:");
-            eprintln!("stdout: {}", String::from_utf8_lossy(&o.stdout));
-            eprintln!("stderr: {}", String::from_utf8_lossy(&o.stderr));
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[Desktop] npm spawn failed ({npm}): {e}");
+            if let Some(app) = progress {
+                let _ = app.emit("setup_error", format!("Cannot run npm ({npm}): {e}"));
+            }
+            return false;
+        }
+    };
+
+    if let Some(app) = progress {
+        let _ = app.emit("setup_progress", format!("Downloading {target}..."));
+    }
+
+    // npm writes progress to stderr; count fetched packages for a live counter
+    if let Some(err) = child.stderr.take() {
+        let app = progress.cloned();
+        std::thread::spawn(move || {
+            let mut fetched = 0usize;
+            for line in BufReader::new(err).lines().map_while(Result::ok) {
+                eprintln!("[npm] {line}");
+                if !line.contains("http fetch") { continue; }
+                fetched += 1;
+                if fetched % 10 != 0 { continue; }
+                if let Some(app) = &app {
+                    let _ = app.emit("setup_progress", format!("Downloading packages... ({fetched})"));
+                }
+            }
+        });
+    }
+    if let Some(out) = child.stdout.take() {
+        std::thread::spawn(move || {
+            for line in BufReader::new(out).lines().map_while(Result::ok) {
+                eprintln!("[npm] {line}");
+            }
+        });
+    }
+
+    // Watchdog: kill the install if it exceeds the timeout
+    let done = Arc::new(AtomicBool::new(false));
+    let killer = done.clone();
+    let pid = child.id();
+    std::thread::spawn(move || {
+        for _ in 0..NPM_INSTALL_TIMEOUT_SECS {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            if killer.load(Ordering::Relaxed) { return; }
+        }
+        eprintln!("[Desktop] npm install timed out after {NPM_INSTALL_TIMEOUT_SECS}s, killing {pid}");
+        let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+    });
+
+    let status = child.wait();
+    done.store(true, Ordering::Relaxed);
+
+    match status {
+        Ok(s) if s.success() => true,
+        Ok(s) => {
+            eprintln!("[Desktop] npm install {target} failed: {s}");
+            if let Some(app) = progress {
+                let _ = app.emit("setup_error", "Install failed. Check that you are online, then reopen 9Remote.");
+            }
             false
         }
         Err(e) => {
-            eprintln!("[Desktop] npm spawn failed: {e}");
+            eprintln!("[Desktop] npm wait failed: {e}");
+            if let Some(app) = progress {
+                let _ = app.emit("setup_error", format!("Install failed: {e}"));
+            }
             false
         }
     }
@@ -247,11 +381,11 @@ fn ensure_9remote_installed(app: &AppHandle) -> bool {
     }
     eprintln!("[Desktop] Installing {NPM_PACKAGE} to {} ...", npm_prefix());
     let _ = app.emit("setup_progress", "Installing 9Remote (first time)...");
-    if run_npm_install(NPM_PACKAGE) {
+    if run_npm_install(NPM_PACKAGE, Some(app)) {
         eprintln!("[Desktop] Install OK");
+        let _ = app.emit("setup_progress", "Install complete, starting...");
         is_9remote_installed()
     } else {
-        let _ = app.emit("setup_progress", "Installation failed - check logs");
         false
     }
 }
@@ -261,9 +395,12 @@ fn spawn_background_update(app: AppHandle) {
     tauri::async_runtime::spawn_blocking(move || {
         eprintln!("[Desktop] Checking for updates in background...");
         let target = format!("{NPM_PACKAGE}@latest");
-        if run_npm_install(&target) {
+        if run_npm_install(&target, None) {
             eprintln!("[Desktop] Background update complete (applies on next launch)");
             let _ = app.emit("update_ready", ());
+        } else {
+            eprintln!("[Desktop] Background update failed — staying on current version");
+            let _ = app.emit("update_failed", ());
         }
     });
 }
