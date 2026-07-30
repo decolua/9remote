@@ -11,7 +11,9 @@ const basePreset = {
   controlFlowFlattening: false,
   deadCodeInjection: false,
   stringArray: true,
-  stringArrayEncoding: ["base64"],
+  // Plain encoding: base64 decode is a common source of runtime errors
+  // on already-minified vendor chunks; plain keeps the string array but skips the risk.
+  stringArrayEncoding: [],
   stringArrayThreshold: 0.75,
   splitStrings: false,
   identifierNamesGenerator: "hexadecimal",

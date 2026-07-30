@@ -14,14 +14,22 @@ import { browserPreset } from "./obfuscatorConfig.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const TARGET_DIR = path.join(ROOT, "web/.next/static/chunks");
-function walk(dir, files = []) {
-  if (!fs.existsSync(dir)) return files;
+
+// Next internals are public, already minified — obfuscating only adds breakage risk.
+const SKIP_PREFIX = ["framework-", "main-", "main-app-", "polyfills-", "webpack-"];
+
+function walk(dir, files = [], skipped = []) {
+  if (!fs.existsSync(dir)) return { files, skipped };
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, files);
-    else if (entry.isFile() && full.endsWith(".js")) files.push(full);
+    if (entry.isDirectory()) {
+      walk(full, files, skipped);
+    } else if (entry.isFile() && full.endsWith(".js")) {
+      if (SKIP_PREFIX.some((p) => entry.name.startsWith(p))) skipped.push(full);
+      else files.push(full);
+    }
   }
-  return files;
+  return { files, skipped };
 }
 
 function run() {
@@ -30,8 +38,8 @@ function run() {
     process.exit(1);
   }
 
-  const files = walk(TARGET_DIR);
-  console.log(`🔒 Obfuscating ${files.length} client chunk(s)...`);
+  const { files, skipped } = walk(TARGET_DIR);
+  console.log(`🔒 Obfuscating ${files.length} client chunk(s)... (skipped ${skipped.length} Next internal chunk(s))`);
 
   let totalBefore = 0;
   let totalAfter = 0;
