@@ -105,7 +105,10 @@ export class ScreenHandler {
         }
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
-        remoteLog.error("Tile capture with hashes error:", error);
+        // "The handle is invalid" is expected when the host is on the Winlogon
+        // (secure) desktop — capture is blocked there. Skip the spam; other
+        // errors still log.
+        if (!/handle is invalid/i.test(error.message)) remoteLog.error("Tile capture with hashes error:", error);
         protocol.emit("screen-error", { error: error.message });
       }
     }));
