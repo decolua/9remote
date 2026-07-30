@@ -27,28 +27,18 @@ ok(_escapePs("C:\\path\\exe") === "C:\\path\\exe", "backslashes untouched (PS si
 // the user's Winlogon desktop.
 console.log("\n[_buildElevateCmd]");
 {
-  const cmd = _buildElevateCmd("C:\\Users\\me\\.9remote\\bin\\desktop-elevate.exe", "9remote-unlock");
+  const cmd = _buildElevateCmd("C:\\Users\\me\\.9remote\\bin\\desktop-elevate.exe");
   includes(cmd, "Start-Process", "uses Start-Process");
+  includes(cmd, "-FilePath", "explicit -FilePath (not positional collision)");
+  includes(cmd, "'C:\\Users\\me\\.9remote\\bin\\desktop-elevate.exe'", "embeds launcher path");
   includes(cmd, "-Verb RunAs", "elevates via RunAs (UAC prompt)");
-  includes(cmd, "-Wait", "waits for the elevated child");
-  includes(cmd, "New-ScheduledTaskAction -Execute", "action runs launcher");
-  includes(cmd, "desktop-elevate.exe", "action targets the launcher exe");
-  includes(cmd, "New-ScheduledTaskTrigger -AtLogon", "triggers at logon (not AtStartup → session 0)");
-  includes(cmd, "Register-ScheduledTask -TaskName", "registers task");
-  includes(cmd, "9remote-unlock", "task name present");
-  includes(cmd, "-RunLevel Highest", "elevated task (launcher can impersonate SYSTEM)");
-  includes(cmd, "Start-ScheduledTask -TaskName", "starts task immediately");
-  // No session-0 footgun: AtStartup + SYSTEM principal would run the worker in
-  // session 0 where SendInput misses the user's Winlogon desktop.
-  ok(!/AtStartup|UserId.*SYSTEM|-Principal /i.test(cmd), "no AtStartup/SYSTEM (session 0)");
-  // No quoting-hell / .ps1 / -FilePath-collision regressions.
-  ok(!cmd.includes("-FilePath "), "does NOT use -FilePath (positional collision)");
+  ok(!cmd.includes("'-Command'"), "does NOT inline -Command");
+  ok(!cmd.includes("-File "), "does NOT use -File script");
+  ok(!/Register-ScheduledTask|schtasks|New-ScheduledTask/i.test(cmd), "no scheduled task (session 0 footgun)");
 }
-// Quote in launcher path / task name is escaped (doubled inside the -Command arg).
 {
-  const cmd = _buildElevateCmd("C:\\a'b\\exe.exe", "ta'sk");
-  includes(cmd, "C:\\a''b\\exe.exe", "launcher path quote doubled");
-  includes(cmd, "ta''sk", "task name quote doubled");
+  const cmd = _buildElevateCmd("C:\\a'b\\exe.exe");
+  includes(cmd, "'C:\\a''b\\exe.exe'", "launcher path quote escaped");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

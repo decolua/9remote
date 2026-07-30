@@ -26,11 +26,6 @@ const BRIDGE_EXE = "desktop-bridge.exe";
 const ELEVATE_EXE = "desktop-elevate.exe";
 const BRIDGE_CS = "desktop-bridge.cs";
 const ELEVATE_CS = "desktop-elevate.cs";
-// Per-user scheduled task that re-spawns the launcher at every logon (console
-// session, /RL HIGHEST) so the worker survives reboots without a UAC prompt.
-// /RU user (not SYSTEM) keeps the worker in the console session — SYSTEM tasks
-// run in session 0 and SendInput misses the user's Winlogon desktop.
-const TASK_NAME = "9remote-unlock";
 
 // .cs sources ship inside the package: dev layout agent/lib/bin/, dist agent/dist/bin/.
 const SOURCE_DIR = (() => {
@@ -160,30 +155,22 @@ function diagnoseWorkerProcess() {
 // Escape a string for safe embedding inside a PowerShell single-quoted string.
 export function _escapePs(s) { return String(s).replace(/'/g, "''"); }
 
-// Build the UAC wrapper command that registers + runs the per-user logon task.
-// Inline PowerShell (no .ps1) — kept short and try/catch-free to avoid the
-// quoting hell that broke -Command earlier. Register-ScheduledTask handles the
-// launcher path natively (no /TR quoting).
-export function _buildElevateCmd(launcherPath, taskName) {
-  // Inner uses the raw values; the whole inner string is single-quote-escaped
-  // once when embedded in the -Command argument (double-escaping would turn
-  // one quote into four).
-  const inner = [
-    `$a = New-ScheduledTaskAction -Execute '${launcherPath}'`,
-    `$t = New-ScheduledTaskTrigger -AtLogon`,
-    `Register-ScheduledTask -TaskName '${taskName}' -Action $a -Trigger $t -RunLevel Highest -Force | Out-Null`,
-    `Start-ScheduledTask -TaskName '${taskName}'`,
-  ].join("; ");
-  return `Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','${_escapePs(inner)}' -Wait`;
+// UAC wrapper: Start-Process launcher.exe -Verb RunAs. Ad-hoc elevation — the
+// launcher (elevated, console session) spawns the worker into the console
+// session, so SendInput reaches the user's Winlogon desktop. No scheduled task
+// (session 0), no .ps1 (quoting hell), no inline -Command (parse error).
+export function _buildElevateCmd(launcherPath) {
+  return `Start-Process -FilePath '${_escapePs(launcherPath)}' -Verb RunAs`;
 }
 
-// Register the logon task (UAC) and start it once so the worker comes up now.
-// After this, every logon re-runs the task → worker auto-starts, no UAC.
+// Spawn the launcher via UAC. Resolves true if the wrapper PowerShell exited 0
+// (UAC accepted). The worker itself comes up shortly after, polled separately
+// by the caller.
 function elevate() {
   return new Promise((resolve) => {
     const launcher = path.join(RUNTIME_DIR, ELEVATE_EXE);
     if (!existsSync(launcher)) { logger.error("elevate: launcher exe missing"); return resolve(false); }
-    const ps = _buildElevateCmd(launcher, TASK_NAME);
+    const ps = _buildElevateCmd(launcher);
     try {
       const p = spawn("powershell.exe",
         ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
@@ -197,28 +184,12 @@ function elevate() {
   });
 }
 
-// Delete the logon task (UAC) so the worker doesn't come back next boot.
-function deleteTask() {
-  return new Promise((resolve) => {
-    const inner = `Unregister-ScheduledTask -TaskName '${_escapePs(TASK_NAME)}' -Confirm:$false -ErrorAction SilentlyContinue; exit 0`;
-    const ps = `Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','${_escapePs(inner)}' -Wait`;
-    try {
-      const p = spawn("powershell.exe",
-        ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
-        { windowsHide: true, stdio: "ignore" });
-      p.on("exit", (code) => resolve(code === 0));
-      p.on("error", () => resolve(false));
-    } catch { resolve(false); }
-  });
-}
-
-// Off: STOP the worker + remove the logon task so it stays off across reboots.
+// Off: STOP the worker (no UAC, no task to remove — ad-hoc spawn only).
 export async function uninstall() {
   if (!isWin) return { ok: false, reason: "unsupported" };
   setEnabled(false);
   try { await pipeCmd("STOP", 2000); }
   catch (e) { logger.warn(`uninstall: pipe STOP failed (${e.message})`); }
-  await deleteTask();
   await sleep(500);
   const stillAlive = await isAlive();
   return { ok: !stillAlive, reason: stillAlive ? "worker_alive" : "stopped" };

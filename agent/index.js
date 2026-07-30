@@ -259,12 +259,15 @@ export async function startServer() {
     else mode = REMOTE_CONFIG.sleepInhibit?.defaultMode || "never";
   }
   sleepInhibitor.setMode(mode);
-  // Silent rebuild only — never spawn (no UAC at startup). The logon scheduled
-  // task (registered when the user toggled On) re-spawns the worker at every
-  // boot, so there's nothing to auto-start here. Deferred so the (async) build
-  // never competes with the UI's first paint.
+  // Re-spawn the worker if the user previously toggled On (persisted flag) and
+  // it's no longer alive (e.g. after a reboot). Deferred 15s so the UAC prompt
+  // never collides with the tunnel "Verifying" step at startup. Falls back to a
+  // silent rebuild (autoUpdate) when the flag is off.
   if (desktopBridge.isSupported()) {
-    setTimeout(() => desktopBridge.autoUpdate().catch(() => {}), 3000);
+    setTimeout(() => {
+      const op = desktopBridge.isEnabled() ? "install" : "autoUpdate";
+      desktopBridge[op]().catch(() => {});
+    }, 15000);
   }
   await initializeTerminal();
   proxyServer = createProxyServer();
