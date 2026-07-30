@@ -6,13 +6,14 @@ import { usePathname } from "next/navigation";
 import Spinner from "@/shared/components/ui/Spinner";
 import Container from "@/shared/components/ui/Container";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
-import { LayoutDashboard, Users, Shield, LogOut, Menu, X } from "@/shared/components/ui/Icon";
+import { LayoutDashboard, Users, Shield, LogOut, Menu, X, Package } from "@/shared/components/ui/Icon";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/admin/modes", label: "Modes", icon: Shield },
-  { href: "/admin/admins", label: "Admins", icon: Users }
+  { href: "/admin/admins", label: "Admins", icon: Users },
+  { href: "/admin/ota", label: "OTA Updates", icon: Package }
 ];
 
 export default function AdminShell({ children }) {

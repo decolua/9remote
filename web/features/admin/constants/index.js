@@ -4,7 +4,9 @@ export const PERMISSIONS = {
   modeView: "mode.view",
   modeManage: "mode.manage",
   adminView: "admin.view",
-  adminManage: "admin.manage"
+  adminManage: "admin.manage",
+  otaView: "ota.view",
+  otaManage: "ota.manage"
 };
 
 export const PERMISSION_LIST = Object.values(PERMISSIONS);
@@ -39,5 +41,6 @@ export const ADMIN_API = {
   sessions: "/api/admin/sessions",
   stats: "/api/admin/stats",
   modes: "/api/admin/modes",
-  admins: "/api/admin/admins"
+  admins: "/api/admin/admins",
+  ota: "/api/admin/ota"
 };
