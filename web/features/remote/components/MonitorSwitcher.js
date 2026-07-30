@@ -15,7 +15,7 @@ export default function MonitorSwitcher({ list, activeIndex, onSelect }) {
     <div className="absolute bottom-1.5 right-1.5 z-40 flex gap-1.5">
       {list.map((m) => {
         const active = m.index === activeIndex;
-        const label = m.name && m.name.length <= 8 ? m.name : `${m.index + 1}`;
+        const label = `${m.index + 1}`;
         return (
           <button
             key={m.index}

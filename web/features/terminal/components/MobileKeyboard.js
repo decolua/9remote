@@ -36,7 +36,7 @@ import PathSuggestion from "@/shared/components/ui/PathSuggestion";
 import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/utils/pathSuggest";
 import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 
-const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex }) => {
+const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange }) => {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   // Draft text lives in the store keyed by sessionId so it survives this component
@@ -239,7 +239,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     const openTextPanel = () => {
       setTimeout(() => textInputRef.current?.focus(), 100);
     };
-    const focus = () => { textInputRef.current?.focus(); };
+    const focus = () => { textInputRef.current?.focus({ preventScroll: true }); };
     onRegisterTextApi({ openTextPanel, focus });
     return () => onRegisterTextApi(null);
   }, [onRegisterTextApi]);
@@ -479,7 +479,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   };
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col w-full">
       {/* Paste Input Fallback */}
       {showPasteInput && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPasteInput(false)}>
@@ -525,14 +525,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Text Input Panel */}
       <div
-        className={`transition-all duration-300 bg-bg overflow-visible ${hasPhysicalKeyboard ? "" : (attachments.length ? "max-h-40" : "max-h-24")} opacity-100`}
+        className={`transition-all duration-300 overflow-visible ${hasPhysicalKeyboard ? "" : (attachments.length ? "max-h-40" : "max-h-24")} opacity-100`}
       >
         <div className="p-2 flex gap-2 items-end">
-          <div className={`relative flex-1 bg-surface-2 rounded-xl transition-all duration-150 ease-out ${
-            hasPhysicalKeyboard
-              ? "input-focus-glow border border-border-subtle"
-              : "focus-within:ring-2 focus-within:ring-brand-500/40"
-          }`}>
+          <div className="relative flex-1 bg-surface-2 rounded-xl transition-all duration-150 ease-out input-focus-glow border border-border-subtle">
             <PathSuggestion
               items={pathItems}
               activeIndex={pathActiveClamped}
@@ -585,7 +581,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
               onFocus={(e) => {
                 const len = e.target.value.length;
                 e.target.selectionStart = e.target.selectionEnd = len;
+                onInputFocusChange?.(true);
               }}
+              onBlur={() => onInputFocusChange?.(false)}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
                 if (hasPhysicalKeyboard && e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {

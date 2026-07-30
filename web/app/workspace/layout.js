@@ -172,11 +172,8 @@ export default function WorkspaceLayout({ children }) {
     else delete paneElementsRef.current[sessionId];
   }, []);
 
-  // Desktop: measure focused pane rect so the shared input bar aligns to it (width + left offset).
+  // Panes row container (used for scroll-into-view on focus change).
   const panesContainerRef = useRef(null);
-  const [focusPaneRect, setFocusPaneRect] = useState(null);
-  // Per-inactive-pane rects (desktop) so ghost inputs align with the real overlay input.
-  const [ghostRects, setGhostRects] = useState([]);
 
   // MobileKeyboard text-input API (for long-press paste fallback)
   const keyboardTextApiRef = useRef(null);
@@ -186,80 +183,15 @@ export default function WorkspaceLayout({ children }) {
   const handlePasteFallback = useCallback(() => {
     keyboardTextApiRef.current?.openTextPanel?.();
   }, []);
+  // Track whether the active pane's input is focused so we can preserve input focus across tab switches.
+  const inputFocusedRef = useRef(false);
+  const handleInputFocusChange = useCallback((focused) => { inputFocusedRef.current = focused; }, []);
 
   // Current view is top of stack (guard against empty/corrupted viewStack)
   const currentView = viewStack[viewStack.length - 1] || { type: "list" };
   // Active session at component scope (needed by terminal IIFE)
   const isTerminalView = currentView?.type === "terminal";
   const activeSessionId = isTerminalView ? currentView?.sessionId : null;
-
-  // Measure focused pane rect (desktop only) so the input bar matches its width + left offset.
-  // Re-measures on focus change, pane/container resize, and horizontal scroll of the panes row.
-  // Coalesced via rAF so rapid scroll/mount churn doesn't storm re-renders (jank on last tab).
-  useEffect(() => {
-    if (!isDesktop) { setFocusPaneRect(null); return; }
-    const container = panesContainerRef.current;
-    const pane = activeSessionId ? paneElementsRef.current[activeSessionId] : null;
-    if (!container || !pane) { setFocusPaneRect(null); return; }
-    let rafId = 0;
-    const measure = () => {
-      if (rafId) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = 0;
-        const c = container.getBoundingClientRect();
-        const p = pane.getBoundingClientRect();
-        setFocusPaneRect({ left: p.left - c.left, width: p.width });
-      });
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(pane);
-    ro.observe(container);
-    container.addEventListener("scroll", measure, { passive: true });
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      ro.disconnect();
-      container.removeEventListener("scroll", measure);
-    };
-  }, [isDesktop, activeSessionId, sessions, activeGroupId]);
-
-  // Measure every desktop pane (except focused) so ghost inputs overlay the panes row aligned
-  // with the real MobileKeyboard below. Re-measures on resize + horizontal scroll (parity with
-  // the focused-pane measure above).
-  useEffect(() => {
-    if (!isDesktop) { setGhostRects([]); return; }
-    const container = panesContainerRef.current;
-    if (!container) { setGhostRects([]); return; }
-    let rafId = 0;
-    const measure = () => {
-      if (rafId) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = 0;
-        const c = container.getBoundingClientRect();
-        const activeGroup = new Set(
-          sessions.filter((s) => (s.groupId || null) === activeGroupId).map((s) => s.id)
-        );
-        const rects = [];
-        for (const [sid, el] of Object.entries(paneElementsRef.current)) {
-          if (!el || sid === activeSessionId) continue;
-          if (!activeGroup.has(sid)) continue;
-          const p = el.getBoundingClientRect();
-          rects.push({ sessionId: sid, left: p.left - c.left, width: p.width });
-        }
-        setGhostRects(rects);
-      });
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(container);
-    Object.values(paneElementsRef.current).forEach((el) => el && ro.observe(el));
-    container.addEventListener("scroll", measure, { passive: true });
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      ro.disconnect();
-      container.removeEventListener("scroll", measure);
-    };
-  }, [isDesktop, activeSessionId, sessions, activeGroupId]);
 
   // Lazy per-group mount: the FIRST time a group becomes active, mark it mounted so its panes'
   // XTterms initialize. Other groups stay as placeholders until visited — avoids mounting every
@@ -445,17 +377,29 @@ export default function WorkspaceLayout({ children }) {
     });
   }, [createSession, addOpenedSession, t, currentView, viewStack, setViewStack]);
 
-  // Smooth-scroll focused pane to center of viewport (desktop split-view only)
+  // Smooth-scroll a pane to center of the panes row (desktop split-view only).
+  const scrollPaneIntoView = useCallback((sessionId) => {
+    if (!isDesktop) return;
+    const el = paneElementsRef.current[sessionId];
+    if (el) el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [isDesktop]);
+
+  // Scroll the focused pane whenever it changes (tab click, ghost click, swipe, deep-link).
   useEffect(() => {
-    if (!isDesktop || currentView.type !== "terminal") return;
-    const el = paneElementsRef.current[currentView.sessionId];
-    if (!el) return;
-    // Defer to next frame so layout is stable (e.g. after mount)
-    const id = requestAnimationFrame(() => {
-      el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-    });
+    if (currentView.type !== "terminal") return;
+    const id = requestAnimationFrame(() => scrollPaneIntoView(currentView.sessionId));
     return () => cancelAnimationFrame(id);
-  }, [isDesktop, currentView, openedSessions]);
+  }, [currentView, openedSessions, scrollPaneIntoView]);
+
+  // Preserve input focus across tab switches: with per-pane inputs, switching tabs unmounts the
+  // focused input — refocus the new pane's input only if the previous one was focused (Ctrl+num,
+  // swipe, Tab key) so we don't yank focus when the user is interacting with the terminal body.
+  useEffect(() => {
+    if (!isDesktop || !isTerminalView) return;
+    if (!inputFocusedRef.current) return;
+    const id = setTimeout(() => keyboardTextApiRef.current?.focus?.(), 60);
+    return () => clearTimeout(id);
+  }, [activeSessionId, isDesktop, isTerminalView]);
 
   // Entering terminal view: open sessions of the selected session's group, set active group
   const handleSelectSession = useCallback((sessionId) => {
@@ -816,7 +760,7 @@ export default function WorkspaceLayout({ children }) {
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div
                 ref={panesContainerRef}
-                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-2 overflow-x-auto overflow-y-hidden px-2 mb-16" : "relative"}`}
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-2 overflow-x-auto overflow-y-hidden px-2 pb-2" : "relative"}`}
                 {...bindSwipeTab({
                   enabled: !isDesktop,
                   sessionIds: groupOpenedSessions,
@@ -837,41 +781,106 @@ export default function WorkspaceLayout({ children }) {
                         !inActiveGroup
                           ? "hidden"
                           : isDesktop
-                          ? `flex-1 h-full rounded-xl overflow-hidden ${(() => {
+                          ? "flex-1 h-full relative"
+                          : `absolute inset-0 ${isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
+                      }
+                      style={inActiveGroup && isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
+                    >
+                      {mountedSet.has(sessionId) ? (
+                        isDesktop ? (
+                          <>
+                            <div className={`absolute inset-x-0 top-0 bottom-16 rounded-xl overflow-hidden ${(() => {
                               if (isFocused) return "p-0 border-2 border-brand-500";
                               const st = sessionStatus[sessionId]?.state || "idle";
                               if (st === "working") return "p-px border border-dashed status-border-working";
                               if (st === "blocked") return "p-px border border-dashed status-border-blocked";
                               if (st === "done") return "p-px border border-dashed status-border-done";
                               return "p-px border border-text-muted/25";
-                            })()}`
-                          : `absolute inset-0 ${isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
-                      }
-                      style={inActiveGroup && isDesktop ? { minWidth: `${PANE_MIN_WIDTH}px` } : undefined}
-                    >
-                      {mountedSet.has(sessionId) ? (
-                        <TerminalPane
-                          socket={socket}
-                          connected={connected}
-                          sessionId={sessionId}
-                          isVisible={isVisible}
-                          isFocused={isFocused}
-                          onActivate={handleSelectSession}
-                          onRegisterApi={registerPaneApi}
-                          onPasteFallback={handlePasteFallback}
-                          showFocusBorder={false}
-                          notifications={notifications}
-                          sessionStatus={sessionStatus}
-                          clearNotification={clearNotification}
-                          fileSocket={fileSocket}
-                          mountDelay={(() => {
-                            // Focus pane joins immediately; other panes in the freshly-active group
-                            // stagger by tab order so joins don't pile up. Panes already alive
-                            // (revisit) pass 0 — no delay, their PTY is already running.
-                            if (!isFocused && groupIndex.has(sessionId)) return groupIndex.get(sessionId) * STAGGER_MS;
-                            return 0;
-                          })()}
-                        />
+                            })()}`}>
+                              <TerminalPane
+                                socket={socket}
+                                connected={connected}
+                                sessionId={sessionId}
+                                isVisible={isVisible}
+                                isFocused={isFocused}
+                                onActivate={handleSelectSession}
+                                onRegisterApi={registerPaneApi}
+                                onPasteFallback={handlePasteFallback}
+                                showFocusBorder={false}
+                                notifications={notifications}
+                                sessionStatus={sessionStatus}
+                                clearNotification={clearNotification}
+                                fileSocket={fileSocket}
+                                mountDelay={(() => {
+                                  // Focus pane joins immediately; other panes in the freshly-active group
+                                  // stagger by tab order so joins don't pile up. Panes already alive
+                                  // (revisit) pass 0 — no delay, their PTY is already running.
+                                  if (!isFocused && groupIndex.has(sessionId)) return groupIndex.get(sessionId) * STAGGER_MS;
+                                  return 0;
+                                })()}
+                              />
+                            </div>
+                            {/* Per-pane input slot — absolute, reserved below the terminal (terminal is
+                                fixed-height via bottom-16, so it never resizes). Full MobileKeyboard on the
+                                focused pane, ghost on others. Width follows the pane so no horizontal slide. */}
+                            <div className="absolute inset-x-0 bottom-0 z-20 h-16 px-1 pb-1 flex items-end">
+                              {isFocused ? (
+                                <MobileKeyboard
+                                  socket={socket}
+                                  sessionId={sessionId}
+                                  onExpandChange={() => {
+                                    // Terminal is fixed-height (bottom-16); expanded keys overlay it.
+                                  }}
+                                  onRefocus={() => paneApisRef.current[sessionId]?.focus?.()}
+                                  onRegisterTextApi={registerKeyboardTextApi}
+                                  onInputFocusChange={handleInputFocusChange}
+                                  platform={platform}
+                                  onInput={clearNotification}
+                                  onSwitchSession={switchSession}
+                                  onSwitchToIndex={switchToIndex}
+                                />
+                              ) : (
+                                <button
+                                  type="button"
+                                  tabIndex={-1}
+                                  onClick={() => {
+                                    handleSelectSession(sessionId);
+                                    setTimeout(() => keyboardTextApiRef.current?.focus?.(), 60);
+                                  }}
+                                  className="group block w-full p-2 text-left"
+                                  aria-label="Focus this terminal input"
+                                >
+                                  <span className="block w-full pl-9 pr-16 py-2 text-sm text-text-muted/60 rounded-xl border border-dashed border-border/50 group-hover:border-brand-500/60 group-hover:bg-surface-2/70 group-hover:text-text-muted transition-colors">
+                                    {t("mobileKeyboard.typeCommand")}
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <TerminalPane
+                            socket={socket}
+                            connected={connected}
+                            sessionId={sessionId}
+                            isVisible={isVisible}
+                            isFocused={isFocused}
+                            onActivate={handleSelectSession}
+                            onRegisterApi={registerPaneApi}
+                            onPasteFallback={handlePasteFallback}
+                            showFocusBorder={false}
+                            notifications={notifications}
+                            sessionStatus={sessionStatus}
+                            clearNotification={clearNotification}
+                            fileSocket={fileSocket}
+                            mountDelay={(() => {
+                              // Focus pane joins immediately; other panes in the freshly-active group
+                              // stagger by tab order so joins don't pile up. Panes already alive
+                              // (revisit) pass 0 — no delay, their PTY is already running.
+                              if (!isFocused && groupIndex.has(sessionId)) return groupIndex.get(sessionId) * STAGGER_MS;
+                              return 0;
+                            })()}
+                          />
+                        )
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-text-muted text-xs">
                           {/* Placeholder — group not yet visited; mount on first entry */}
@@ -882,51 +891,24 @@ export default function WorkspaceLayout({ children }) {
                 })}
               </div>
 
-              {/* Ghost inputs — one per inactive desktop pane, aligned with the real overlay input.
-                  Click switches the tab and focuses the shared MobileKeyboard. */}
-              {isDesktop && ghostRects.map(({ sessionId, left, width }) => (
-                <button
-                  key={`ghost-${sessionId}`}
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => {
-                    handleSelectSession(sessionId);
-                    setTimeout(() => keyboardTextApiRef.current?.focus?.(), 60);
-                  }}
-                  className="group absolute bottom-2 z-10 px-2 py-2 hover:z-20"
-                  style={{ left: `${left}px`, width: `${width}px` }}
-                  aria-label="Focus this terminal input"
-                >
-                  <span className="block w-full text-left text-sm text-text-muted/60 rounded-xl bg-surface-2/40 border border-dashed border-border/50 px-3 py-2 group-hover:border-brand-500/60 group-hover:bg-surface-2/70 group-hover:text-text-muted transition-colors">
-                    {t("mobileKeyboard.typeCommand")}
-                  </span>
-                </button>
-              ))}
-
-              {/* Shared MobileKeyboard - routes to focused pane.
-                  Desktop: overlays the panes (absolute) so its height changes never resize
-                  the terminal above; width + left offset match the focused pane. Mobile: full width. */}
-              {activeSessionId && (
-                <div
-                  className={isDesktop ? "absolute left-0 right-0 bottom-2 z-20" : ""}
-                  style={isDesktop && focusPaneRect
-                    ? { width: `${focusPaneRect.width}px`, marginLeft: `${focusPaneRect.left}px` }
-                    : undefined}
-                >
+              {/* Mobile: shared MobileKeyboard below the active pane. Desktop renders its own
+                  per-pane input inside each pane wrapper above (full on focused, ghost on others),
+                  so no overlay is needed there. */}
+              {!isDesktop && activeSessionId && (
                 <MobileKeyboard
                   socket={socket}
                   sessionId={activeSessionId}
                   onExpandChange={() => {
-                    // Desktop: overlay now — terminal no longer resizes; nothing to refit.
+                    // Mobile: terminal auto-refits via ResizeObserver on input height change.
                   }}
                   onRefocus={() => paneApisRef.current[activeSessionId]?.focus?.()}
                   onRegisterTextApi={registerKeyboardTextApi}
+                  onInputFocusChange={handleInputFocusChange}
                   platform={platform}
                   onInput={clearNotification}
                   onSwitchSession={switchSession}
                   onSwitchToIndex={switchToIndex}
                 />
-                </div>
               )}
             </div>
           );

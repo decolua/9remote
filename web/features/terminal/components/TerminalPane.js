@@ -269,23 +269,23 @@ function TerminalPane({
           />
         )}
 
-        {showScrollButton && (
-          <button
-            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleScrollToBottom();
-            }}
-            className="absolute bottom-3 right-5 z-50 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94] touch-none"
-            title={t("terminalPane.scrollToBottom")}
-          >
-            <ChevronDown size={20} />
-          </button>
-        )}
       </div>
 
       {/* Overlays stay on viewport, not inside scroll content */}
+      {showScrollButton && (
+        <button
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleScrollToBottom();
+          }}
+          className="absolute bottom-3 right-5 z-50 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94] touch-none"
+          title={t("terminalPane.scrollToBottom")}
+        >
+          <ChevronDown size={20} />
+        </button>
+      )}
       {cwd && isFocused && (
         <div className="absolute top-2 right-2 z-50 flex flex-col items-end gap-2 pointer-events-auto touch-none">
           <div className="flex flex-row gap-2">
