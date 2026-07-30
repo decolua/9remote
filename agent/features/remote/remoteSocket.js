@@ -139,11 +139,10 @@ export async function setupRemoteHandlers(socket, apiKey) {
   if (!protocol) { socket.emit("remote:unavailable"); return; }
 
   const clientApiKey = socket.handshake.auth?.apiKey;
-  // Multi-monitor + per-monitor DPI mapping is Windows-only for now: on macOS
-  // monitor origin/dims mix points and pixels (Retina) and on Linux X11 the
-  // virtual-desktop coords differ, so the physical-pixel input formula would
-  // mis-target. Other OSes keep the legacy single-display path unchanged.
-  const useMultiMonitor = process.platform === "win32";
+  // Multi-monitor is Win + Mac. Win maps input in physical px, Mac in points
+  // (robotjs-mac takes points, matching node-screenshots origin/dims). Linux X11
+  // virtual-desktop coords differ, so it keeps the legacy single-display path.
+  const useMultiMonitor = process.platform === "win32" || process.platform === "darwin";
   const monitorManager = useMultiMonitor ? new MonitorManager() : null;
   const activeEntry = monitorManager?.getActive();
   const tileManager = new TileManager(robot, activeEntry ? { monitor: activeEntry.mon } : {});
@@ -269,7 +268,7 @@ export async function setupRemoteHandlers(socket, apiKey) {
   socket.emit("remote:ready");
 
   // Send monitor list so the client can render a switcher (hidden if only 1).
-  // Only emitted on Windows — other OSes never send it, so the client keeps the
+  // Only emitted on Win/Mac — Linux never sends it, so the client keeps the
   // switcher hidden and stays on the legacy single-display path.
   if (monitorManager) {
     protocol.emit("monitors", {

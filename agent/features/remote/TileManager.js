@@ -86,13 +86,16 @@ export class TileManager {
     }
   }
 
-  // Initialize geometry from a node-screenshots Monitor (physical px, dpiScale=1).
+  // Initialize geometry from a node-screenshots Monitor.
+  // Win: width()/height() are already physical px → dpiScale stays 1.
+  // Mac: they are logical points while captureImage() returns points × scaleFactor
+  // (Retina), so capture dims must be scaled up or tiling reads past the buffer.
   _initFromMonitor(mon) {
     this.screenWidth = mon.width();
     this.screenHeight = mon.height();
-    this.dpiScale = 1;
-    this.captureWidth = mon.width();
-    this.captureHeight = mon.height();
+    this.dpiScale = process.platform === "darwin" ? (mon.scaleFactor() || 1) : 1;
+    this.captureWidth = Math.round(this.screenWidth * this.dpiScale);
+    this.captureHeight = Math.round(this.screenHeight * this.dpiScale);
     this._applyTileGeometry();
   }
 

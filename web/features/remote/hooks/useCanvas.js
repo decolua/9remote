@@ -149,6 +149,10 @@ export function useCanvas(socketEmitFunctions) {
     setCanvasPan({ x: 0, y: 0 });
   }, []);
 
+  // Pan-only reset — zoom is a ratio so it survives a canvas resize, but pan is
+  // absolute px against the old canvas and would point off-screen on a new one.
+  const resetPan = useCallback(() => setCanvasPan({ x: 0, y: 0 }), []);
+
   // Keyboard auto-pan: when the on-screen keyboard opens the container shrinks
   // from the bottom (--app-height follows visualViewport). At zoom>1 the point of
   // interest can fall behind the keyboard. Re-pan so that point sits ~1/3 down the
@@ -1293,6 +1297,7 @@ export function useCanvas(socketEmitFunctions) {
     scrollLock,
     getCanvasCoordinates,
     resetZoom,
+    resetPan,
     panForKeyboard,
     centerVirtualCursor,
     startHandHold,

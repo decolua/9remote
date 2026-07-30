@@ -6,6 +6,7 @@ import { vibrate } from "@/shared/utils/vibration";
 // Renders nothing when there is only one monitor (common case).
 export default function MonitorSwitcher({ list, activeIndex, onSelect }) {
   if (!Array.isArray(list) || list.length <= 1) return null;
+  // onMouseDown.preventDefault() — prevents focus-steal so native keyboard stays on.
   // Stop propagation on BOTH pointer and touch chains: the canvas container
   // listens to onTouchStart (mobile) and the canvas to onPointerDown (PC).
   // Without this, a tap on the button bubbles up → canvas handler fires →
@@ -20,6 +21,7 @@ export default function MonitorSwitcher({ list, activeIndex, onSelect }) {
           <button
             key={m.index}
             onClick={() => { vibrate(); onSelect?.(m.index); }}
+            onMouseDown={(e) => e.preventDefault()}
             onPointerDown={stop}
             onPointerUp={stop}
             onPointerMove={stop}

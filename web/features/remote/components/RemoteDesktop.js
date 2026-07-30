@@ -172,6 +172,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     scrollLock,
     getCanvasCoordinates,
     resetZoom,
+    resetPan,
     panForKeyboard,
     centerVirtualCursor,
     startHandHold,
@@ -404,11 +405,12 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       setMonitors(Array.isArray(list) ? list : []);
       if (typeof activeIndex === "number") setActiveMonitorIndex(activeIndex);
     };
-    // Agent switched the active display → drop stale tiles + reset view so the
-    // next frame paints the new monitor cleanly on a resized canvas.
+    // Agent switched the active display → drop stale tiles + reset pan so the
+    // next frame paints the new monitor cleanly on a resized canvas. Zoom is
+    // kept: it is a ratio, so it stays meaningful across monitor sizes.
     const onFrameMeta = (meta) => {
       cleanupTiles();
-      resetZoom();
+      resetPan();
       if (typeof meta?.monitorIndex === "number") setActiveMonitorIndex(meta.monitorIndex);
     };
 
