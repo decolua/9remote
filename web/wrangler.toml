@@ -22,12 +22,14 @@ OTA_DEFAULT_CHANNEL = "production"
 #   TURN_KEY_SECRET
 #   API_KEY_SECRET, ADMIN_JWT_SECRET, TOKEN_SECRET, CRON_SECRET
 #   OTA_SIGNING_PRIVATE_KEY, OTA_SIGNING_KEY_ID, OTA_PUBLISH_TOKEN
+#   IAP Apple: APPLE_KEY_ID, APPLE_ISSUER_ID, APPLE_PRIVATE_KEY, APPLE_BUNDLE_ID
+#   IAP Google: GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_PACKAGE_NAME
 
 # OTA manifest cache (signed payload) — create then set id:
 #   wrangler kv:namespace create OTA_KV
 [[kv_namespaces]]
 binding = "OTA_KV"
-id = "REPLACE_WITH_KV_ID"
+id = "81ee3ab504b542ba90e8179f95f5cbf0"
 
 [[d1_databases]]
 binding = "DB"
@@ -60,7 +62,7 @@ OTA_DEFAULT_CHANNEL = "preview"
 
 [[env.dev.kv_namespaces]]
 binding = "OTA_KV"
-id = "REPLACE_WITH_KV_ID_DEV"
+id = "a36a2b65355945448c246928f4b3f517"
 
 [[env.dev.d1_databases]]
 binding = "DB"

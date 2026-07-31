@@ -27,6 +27,13 @@ export const DOCS_CONFIG = {
         { title: "Troubleshooting", slug: "troubleshooting" },
         { title: "FAQ", slug: "faq" },
       ]
+    },
+    {
+      title: "Legal",
+      items: [
+        { title: "Privacy Policy", slug: "privacy" },
+        { title: "Terms of Service", slug: "terms" },
+      ]
     }
   ]
 };

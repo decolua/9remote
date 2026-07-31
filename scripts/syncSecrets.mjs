@@ -25,7 +25,8 @@ for (const raw of lines) {
   const line = raw.trim();
   if (!line || line.startsWith("#")) continue;
   const m = line.match(/^([A-Z_][A-Z0-9_]*)\s*=\s*"?(.*?)"?$/);
-  if (m) secrets[m[1]] = m[2];
+  // empty value = placeholder not filled in yet; wrangler rejects empty secrets
+  if (m && m[2]) secrets[m[1]] = m[2];
 }
 
 const names = Object.keys(secrets);

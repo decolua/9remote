@@ -6,7 +6,7 @@ Quick answers to common questions about 9Remote.
 
 ### Is 9Remote free?
 
-Yes! 9Remote is completely free and open source. No subscriptions, no hidden fees.
+Yes — the core of 9Remote is free and open source. An optional Pro subscription, available in the mobile app, unlocks extra features and helps fund development.
 
 ### Do I need a public IP address?
 
