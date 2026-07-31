@@ -29,6 +29,19 @@ class DesktopBridge {
   const ushort VK_RETURN = 0x0D;
   const ushort VK_SHIFT = 0x10;
   const string PIPE = "9remote-desktop";
+  // Bump on every change to this file. The agent reads the same constant out of
+  // the shipped .cs and compares it against what the running worker reports, so
+  // a stale worker is detected without relying on file mtimes. Same contract as
+  // DAEMON_VERSION for the pty daemon.
+  const string VERSION = "2";
+  // Global\ (not Local\): the boot task runs in session 0 while a user-triggered
+  // launcher runs in the console session — a per-session mutex would not see across them.
+  const string MUTEX_NAME = "Global\\9remote-desktop-bridge";
+  // How long a starting worker waits for a shutting-down one to release the lock.
+  const int HANDOFF_WAIT_MS = 10000;
+
+  // Static so the GC never collects it while Main loops forever.
+  static Mutex _instanceLock;
 
   [StructLayout(LayoutKind.Sequential)]
   struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr dwExtraInfo; }
@@ -128,6 +141,28 @@ class DesktopBridge {
   }
 
   static void Main() {
+    // Single-instance guard. The pipe is created with maxInstances=1, so a second
+    // worker could never serve — it would spin in the retry loop forever while
+    // holding a lock on this .exe, blocking every future csc rebuild.
+    //
+    // Held in a static field, not a local: GC.KeepAlive only protects up to the
+    // call, after which nothing references a local mutex for the rest of this
+    // infinite loop — the finalizer would release it mid-run and let a second
+    // worker in. A static root lives as long as the process.
+    // Never let the guard itself kill the worker: if the mutex can't be created
+    // or opened (ACL, exotic session), carry on unguarded — the pipe's own
+    // maxInstances=1 still prevents two workers from serving at once.
+    try {
+      bool isNew;
+      _instanceLock = new Mutex(true, MUTEX_NAME, out isNew);
+      if (!isNew) {
+        // The previous worker may be shutting down right now (agent issued STOP,
+        // then relaunched us via the task). Wait for it to release rather than
+        // exiting into a gap where no worker is running at all.
+        if (!_instanceLock.WaitOne(HANDOFF_WAIT_MS)) { L("another worker still holds the lock — exiting"); return; }
+        L("took over from a previous instance");
+      }
+    } catch (Exception e) { L("mutex guard unavailable: " + e.Message); }
     try { L("start session=" + Process.GetCurrentProcess().SessionId + " pid=" + Process.GetCurrentProcess().Id + " user=" + WindowsIdentity.GetCurrent().Name); } catch {}
     // ACL: SYSTEM + Administrators + Authenticated Users so the user-scope agent can connect.
     var sec = new PipeSecurity();
@@ -150,17 +185,20 @@ class DesktopBridge {
         while ((line = sr.ReadLine()) != null) {
           line = line.Trim();
           if (line.Length == 0) continue;
-          if (line == "STATE") {
+          if (line == "VERSION") {
+            sw.WriteLine("VERSION " + VERSION);
+          } else if (line == "STATE") {
             sw.WriteLine("DESKTOP " + ActiveDesktop());
           } else if (line.StartsWith("TYPE ")) {
             TypeText(line.Substring(5));
             sw.WriteLine("OK");
           } else if (line == "STOP") {
             sw.WriteLine("OK");
-            // Non-zero exit so the scheduled task's restart-on-failure policy
-            // fires and re-launches the worker (with the freshly rebuilt exe).
+            // Clean exit: STOP is an intentional shutdown (user toggled Off, or
+            // the agent is freeing the locked exe for a rebuild). Restarting here
+            // would defeat both. The boot task brings it back next reboot.
             try { srv.Dispose(); } catch { }
-            Environment.Exit(1);
+            Environment.Exit(0);
           } else {
             sw.WriteLine("ERR unknown");
           }

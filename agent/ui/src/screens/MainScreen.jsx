@@ -187,12 +187,19 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
           icon="lock_open"
           active={!!unlockStatus.running}
           name={t("remote.remoteUnlock")}
-          desc={unlockStatus.running ? t("remote.remoteUnlockReady") : t("remote.remoteUnlockDesc")}
+          desc={
+            unlockStatus.stale
+              ? t("remote.remoteUnlockStale")
+              : unlockStatus.running ? t("remote.remoteUnlockReady") : t("remote.remoteUnlockDesc")
+          }
         >
+          {/* Toggle follows `enabled` (persisted intent), not `running`: the worker
+              can be briefly down (reboot, rebuild) without the switch flipping itself
+              off. `active`/`desc` still show real liveness. */}
           <Toggle
-            on={!!unlockStatus.running}
+            on={!!unlockStatus.enabled}
             disabled={!!unlockStatus.busy}
-            onClick={() => (unlockStatus.running ? onRequestUnlockUninstall?.() : onRequestUnlockInstall?.())}
+            onClick={() => (unlockStatus.enabled ? onRequestUnlockUninstall?.() : onRequestUnlockInstall?.())}
           />
         </SrvRow>
       )}

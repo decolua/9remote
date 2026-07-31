@@ -43,7 +43,6 @@ import { handleDesktopUnlockGet, handleDesktopUnlockInstall, handleDesktopUnlock
 import { handleSessionsList, handleSessionDelete } from "./api/sessions.js";
 import { handleSystemStats } from "./api/system.js";
 import * as sleepInhibitor from "./lib/sleepInhibitor.js";
-import * as desktopBridge from "./lib/desktopBridge.js";
 import { loadSettings } from "./cli/utils/state.js";
 import { REMOTE_CONFIG } from "./features/remote/REMOTE_CONFIG.js";
 
@@ -259,16 +258,10 @@ export async function startServer() {
     else mode = REMOTE_CONFIG.sleepInhibit?.defaultMode || "never";
   }
   sleepInhibitor.setMode(mode);
-  // Re-spawn the worker if the user previously toggled On (persisted flag) and
-  // it's no longer alive (e.g. after a reboot). Deferred 15s so the UAC prompt
-  // never collides with the tunnel "Verifying" step at startup. Falls back to a
-  // silent rebuild (autoUpdate) when the flag is off.
-  if (desktopBridge.isSupported()) {
-    setTimeout(() => {
-      const op = desktopBridge.isEnabled() ? "install" : "autoUpdate";
-      desktopBridge[op]().catch(() => {});
-    }, 15000);
-  }
+  // Startup does NOT touch the desktop-unlock worker: no build, no spawn, no
+  // stop, no UAC. The AtStartup scheduled task restores the worker after every
+  // reboot, and install() rebuilds when the user toggles On — the only two
+  // moments where touching it is warranted.
   await initializeTerminal();
   proxyServer = createProxyServer();
   startViteDev();

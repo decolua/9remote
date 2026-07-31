@@ -181,6 +181,7 @@ export default {
     remoteUnlock: "Unlock PC remotely",
     remoteUnlockDesc: "Let this PC be unlocked from your phone or browser when locked",
     remoteUnlockReady: "Active — unlock from remote works",
+    remoteUnlockStale: "Update ready — applies after you restart this PC",
     grant: "Allow",
     granted: "Active",
     sleepModes: {
