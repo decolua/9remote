@@ -9,13 +9,13 @@ import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
-import UpgradeButton from "@/features/terminal/components/UpgradeButton";
 import AgentSwitcher from "@/features/terminal/components/AgentSwitcher";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import { saveLastRoute, getLastRoute } from "@/shared/hooks/useLastRoute";
 import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS } from "@/shared/constants/API";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { verifyServerConnection } from "@/shared/hooks/useAuth";
+import { USER_DISABLED_KEY } from "@/shared/hooks/useNotification";
 
 export default function MenuItems({
   onRemote,
@@ -150,16 +150,21 @@ export default function MenuItems({
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || isExpoWebView
   );
-  // WebPush available on any SW+PushManager browser (desktop included), not just installed PWA
-  const pushSupported = !isExpoWebView &&
-    typeof navigator !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
+  // WebPush on any SW+PushManager browser (desktop included), or native push in the Expo shell
+  const pushSupported = isExpoWebView ||
+    (typeof navigator !== "undefined" && "serviceWorker" in navigator && "PushManager" in window);
 
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
 
   // Source of truth = actual push subscription, not Notification.permission (can't be revoked via JS)
   useEffect(() => {
-    if (typeof window === "undefined" || isExpoWebView) return;
+    if (typeof window === "undefined") return;
+    // Expo has no PushManager — the user toggle flag is the only local state
+    if (isExpoWebView) {
+      setPushEnabled(localStorage.getItem(USER_DISABLED_KEY) !== "1");
+      return;
+    }
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
     navigator.serviceWorker.ready
       .then((reg) => reg.pushManager?.getSubscription())
@@ -363,9 +368,6 @@ export default function MenuItems({
           <span className="text-sm">{t("menu.community")}</span>
         </button>
       )}
-
-      {/* IAP upgrade — mobile app only (web flow is separate) */}
-      <UpgradeButton />
 
       {/* Codespace */}
       {codespaceInfo?.isCodespaces && onCodespace && (

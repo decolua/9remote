@@ -11,7 +11,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
  * the agent preact UI uses a Set `finishedIds` (see agent/ui/src/lib/terminalSocket.js) — equivalent semantics.
  */
 // Persisted across reloads; survives SW updates so toggle-off sticks
-const USER_DISABLED_KEY = "9remote:push:userDisabled";
+export const USER_DISABLED_KEY = "9remote:push:userDisabled";
 
 export function useNotification(socketRef, connected) {
   const subscriptionRef = useRef(null);
@@ -38,6 +38,17 @@ export function useNotification(socketRef, connected) {
       try { delete window.handleNotificationTap; } catch (e) { window.handleNotificationTap = undefined; }
     };
   }, [pushView, addOpenedSession]);
+
+  // Native shell drives focus state: document.hidden never flips inside a WebView
+  useEffect(() => {
+    if (typeof window === "undefined" || !isExpoWebView) return;
+    window.handleAppStateChange = (hidden) => {
+      socketRef?.current?.emit("visibilityChange", !!hidden);
+    };
+    return () => {
+      try { delete window.handleAppStateChange; } catch (e) { window.handleAppStateChange = undefined; }
+    };
+  }, [socketRef, isExpoWebView]);
 
   // Subscribe to push notifications and send subscription to server
   const subscribeToPush = useCallback(async () => {
