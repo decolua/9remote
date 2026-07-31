@@ -94,3 +94,7 @@ agent/graphify-out/*
 
 .handoff/
 agent/tester/*
+# OTA code signing certificate — public, must be committed (referenced by expo/app.json)
+!expo/certs/*.pem
+desktop/release/*
+expo/fastlane/metadata/review_information/demo_account_required.txt

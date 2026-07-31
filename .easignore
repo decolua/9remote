@@ -1,0 +1,32 @@
+# Excluded from the EAS Build upload tarball (repo root — EAS clones from here).
+# .codegraph holds a unix socket, which makes the archive step fail with EINVAL.
+.codegraph/
+
+# Workspaces the mobile build never needs
+agent/
+web/
+gitbook/
+desktop/
+benchmark/
+9remote_public/
+
+# Local scratch/caches — large and irrelevant to the build
+.source/
+.bin/
+.seeding/
+.cursor/
+.git/
+.docs/
+.devloop/
+.handoff/
+.win/
+.release/
+*.tgz
+
+# Local prebuild output — EAS regenerates native projects from app.json.
+# Shipping it makes EAS read stale native config instead (921 MB, gitignored).
+expo/ios/
+expo/android/
+
+expo/keys/
+node_modules/
