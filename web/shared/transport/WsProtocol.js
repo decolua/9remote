@@ -63,6 +63,31 @@ export class WsProtocol extends BaseProtocol {
     this._forceReconnect();
   }
 
+  /**
+   * User-triggered retry — skips the pending backoff timer and starts a fresh
+   * attempt window. Unlike forceReconnect() this also revives the "failed"
+   * terminal state (attempt counter exhausted, adapter closed).
+   */
+  retryNow() {
+    if (this._blocked) return;
+    clearTimeout(this._retryTimer);
+    clearTimeout(this._connectingTimer);
+    this._retryTimer = null;
+    this._retryScheduled = false;
+    this._retryAttempt = 0;
+    this._connecting = false;
+    // Drop the old socket under the destroyed flag — its "disconnect" handler fires
+    // synchronously and would otherwise race the _connectInternal below.
+    this._destroyed = true;
+    this._detachSocketEvents();
+    this._socket?.disconnect();
+    this._socket = null;
+    this._destroyed = false;
+    this._ctx?.onRetryStatus?.({ isRetrying: true, attempt: 1, maxAttempts: this._maxAttempts, failed: false });
+    this._setState(ADAPTER_STATE.connecting);
+    this._connectInternal();
+  }
+
   /** Dev/test: prevent reconnect attempts. When unblocked, schedule retry immediately. */
   setBlocked(blocked) {
     this._blocked = blocked;

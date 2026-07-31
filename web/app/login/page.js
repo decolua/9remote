@@ -143,9 +143,13 @@ function LoginContent() {
   const handleLoginWithSavedKey = async (key) => {
     if (!key) return;
     setLoginLoadingKey(key);
-    const result = await authenticateWithApiKey(key);
-    setLoginLoadingKey(null);
-    if (result.success) {
+    let result;
+    try {
+      result = await authenticateWithApiKey(key);
+    } finally {
+      setLoginLoadingKey(null);
+    }
+    if (result?.success) {
       updateLastLogin(key);
       // From login always land on workspace home — last-route restore is for in-app switching
       router.push("/workspace/");
@@ -399,16 +403,30 @@ function LoginContent() {
   );
 }
 
+// Pre-hydration fallback. The reload escape hatch is a plain <a> so it still works
+// when the page JS never arrives (dead network) — a React onClick would not.
+function LoginFallback() {
+  return (
+    <>
+      <AnimatedBackground />
+      <Container>
+        <div className="flex flex-col items-center gap-4">
+          <Spinner text="Loading..." />
+          <a
+            href="/login"
+            className="text-sm text-text-muted hover:text-brand-500 underline underline-offset-4 transition-colors"
+          >
+            Reload
+          </a>
+        </div>
+      </Container>
+    </>
+  );
+}
+
 export default function LoginPage() {
   return (
-    <Suspense fallback={
-      <>
-        <AnimatedBackground />
-        <Container>
-          <Spinner text="Loading..." />
-        </Container>
-      </>
-    }>
+    <Suspense fallback={<LoginFallback />}>
       <LoginContent />
     </Suspense>
   );

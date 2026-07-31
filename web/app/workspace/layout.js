@@ -600,11 +600,16 @@ export default function WorkspaceLayout({ children }) {
     }
   }, [getAuth]);
 
+  const handleRetryNow = useCallback(() => {
+    protocolRef.current?.retryNow();
+  }, [protocolRef]);
+
+  // Full page load, not router.push — a lazy chunk fetch can hang forever on a dead network
   const handleDisconnect = useCallback(() => {
     resetStore();
     sessionStorage.clear();
-    router.push("/login");
-  }, [resetStore, router]);
+    window.location.replace("/login");
+  }, [resetStore]);
 
   // Redirect to login when codespace is stopping
   useEffect(() => {
@@ -1032,7 +1037,7 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Connection Modal - overlay when retrying/failed (suppressed during self-update) */}
-        {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} onLogout={handleDisconnect} />}
+        {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Update Modal - progress overlay during agent self-update */}
         <UpdateModal open={updating} connected={connected} mode={updateMode} />

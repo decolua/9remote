@@ -1,11 +1,11 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS } from "@/shared/constants/API";
+import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS, TUNNEL_VERIFY_TIMEOUT_MS, CONNECT_TIMEOUT_MS } from "@/shared/constants/API";
 import { useSessionStorage } from "./useSessionStorage";
 
 
 // Verify server reachability via HTTP health check (avoids extra WS connection)
-export async function verifyServerConnection(tunnelUrl, apiKey, timeout = 10000) {
+export async function verifyServerConnection(tunnelUrl, apiKey, timeout = TUNNEL_VERIFY_TIMEOUT_MS) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
@@ -30,14 +30,24 @@ export function useAuth() {
     setError("");
 
     try {
-      const response = await fetch(API_ENDPOINTS.connect, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(credentials)
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CONNECT_TIMEOUT_MS);
+      let response;
+      try {
+        response = await fetch(API_ENDPOINTS.connect, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credentials),
+          signal: controller.signal
+        });
+      } catch (e) {
+        throw new Error(e?.name === "AbortError" ? "Connection timed out. Please try again." : "Network error. Please try again.");
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (!response.ok) {
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
         throw new Error(data.error || "Authentication failed");
       }
 

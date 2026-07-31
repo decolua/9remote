@@ -19,3 +19,6 @@ export const API_ENDPOINTS = {
 // Retry config when tunnel not reachable yet after /api/connect succeeds
 export const TUNNEL_VERIFY_RETRY_MAX = 5;
 export const TUNNEL_VERIFY_RETRY_INTERVAL_MS = 2000;
+export const TUNNEL_VERIFY_TIMEOUT_MS = 5000;
+// Hard cap on /api/connect — without it a stalled request leaves the UI spinning forever
+export const CONNECT_TIMEOUT_MS = 10000;

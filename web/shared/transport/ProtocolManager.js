@@ -164,6 +164,14 @@ export class ProtocolManager {
     this._adapters.get("ws")?.setUpdating(updating);
   }
 
+  /** User-triggered immediate reconnect — skips backoff and revives a failed adapter. */
+  retryNow() {
+    const ws = this._adapters.get("ws");
+    if (ws) { ws.retryNow?.(); return; }
+    // Adapter was torn down (PM.disconnect) — rebuild from scratch
+    this.connect();
+  }
+
   // ─── Public API ────────────────────────────────────────────────────────────
 
   on(event, handler) {

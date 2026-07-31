@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import Spinner from "./Spinner";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -10,18 +9,19 @@ import { useI18n } from "@/shared/i18n";
  * @param {Object} retryStatus - { isRetrying, attempt, maxAttempts, failed }
  * @param {string|null} approvalStatus - null | "pending" | "approved" | "rejected"
  * @param {Function} onLogout - Callback to clear session and redirect
+ * @param {Function} onRetryNow - Force an immediate reconnect attempt
  */
-export default function ConnectionModal({ retryStatus, approvalStatus, onLogout }) {
-  const router = useRouter();
+export default function ConnectionModal({ retryStatus, approvalStatus, onLogout, onRetryNow }) {
   const { t } = useI18n();
 
   const handleBackToLogin = () => {
     if (onLogout) {
       onLogout();
-    } else {
-      sessionStorage.clear();
-      router.push("/login");
+      return;
     }
+    sessionStorage.clear();
+    // Full load — a lazy chunk fetch can hang forever on the dead network that got us here
+    window.location.replace("/login");
   };
 
   // Device approval: pending
@@ -105,9 +105,17 @@ export default function ConnectionModal({ retryStatus, approvalStatus, onLogout 
                 style={{ width: `${(retryStatus.attempt / retryStatus.maxAttempts) * 100}%` }}
               />
             </div>
+            {onRetryNow && (
+              <button
+                onClick={() => { vibrate(); onRetryNow(); }}
+                className="mt-4 w-full py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition-all duration-150 ease-out active:scale-[0.98]"
+              >
+                {t("connection.retry")}
+              </button>
+            )}
             <button
               onClick={() => { vibrate(); handleBackToLogin(); }}
-              className="mt-4 w-full py-2 bg-surface-2 hover:bg-surface-3 text-text font-medium rounded-brand transition-all duration-150 ease-out active:scale-[0.98]"
+              className="mt-2 w-full py-2 bg-surface-2 hover:bg-surface-3 text-text font-medium rounded-brand transition-all duration-150 ease-out active:scale-[0.98]"
             >
               {t("connection.exit")}
             </button>
@@ -126,9 +134,17 @@ export default function ConnectionModal({ retryStatus, approvalStatus, onLogout 
             <p className="text-text-muted mt-2">
               {t("connection.failedDescription", { n: retryStatus.maxAttempts })}
             </p>
+            {onRetryNow && (
+              <button
+                onClick={() => { vibrate(); onRetryNow(); }}
+                className="mt-6 w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition-all duration-150 ease-out active:scale-[0.98]"
+              >
+                {t("connection.retry")}
+              </button>
+            )}
             <button
               onClick={() => { vibrate(); handleBackToLogin(); }}
-              className="mt-6 w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition-all duration-150 ease-out active:scale-[0.98]"
+              className={`w-full py-3 bg-surface-2 hover:bg-surface-3 text-text font-medium rounded-brand transition-all duration-150 ease-out active:scale-[0.98] ${onRetryNow ? "mt-2" : "mt-6"}`}
             >
               {t("connection.backToLogin")}
             </button>
