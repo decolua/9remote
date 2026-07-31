@@ -11,8 +11,22 @@ const NODE_CACHE_DIR: &str = ".9remote/node";
 const NPM_PACKAGE: &str = "9remote";
 const CLI_REL_PATH: &str = "node_modules/9remote/dist/cli.cjs";
 const HEALTH_TIMEOUT_SECS: u64 = 60;
+const HEALTH_POLL_MS: u64 = 200;
 const NPM_INSTALL_TIMEOUT_SECS: u64 = 300;
 const NODE_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
+// macOS-only: WKWebView mishandles the synthetic backspace+char sequence Vietnamese
+// IMEs (OpenKey/EVKey) emit, so render the UI in a Chromium window instead.
+#[cfg(target_os = "macos")]
+const BRIDGE_PORT: u16 = 2209;
+#[cfg(target_os = "macos")]
+const CHROME_PROFILE_DIR: &str = ".9remote/chrome";
+#[cfg(target_os = "macos")]
+const CHROMIUM_PATHS: &[&str] = &[
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+];
 
 // Track full PID chain for clean shutdown
 static AGENT_PID: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<Option<u32>>>> =
@@ -169,8 +183,31 @@ fn npm_prefix() -> String {
     format!("{}/{}", home_dir(), NPM_PREFIX_DIR)
 }
 
+// Global `npm i -g 9remote` install, if the user already has one.
+// Reusing it avoids a redundant 270-package install into our private prefix.
+fn global_cli_path() -> Option<String> {
+    let home = home_dir();
+    let mut roots = vec![
+        "/usr/local/lib/node_modules".to_string(),
+        "/opt/homebrew/lib/node_modules".to_string(),
+        format!("{home}/.volta/tools/image/packages/{NPM_PACKAGE}/lib/node_modules"),
+    ];
+    // Version-manager installs live next to the node binary: <prefix>/bin/node → <prefix>/lib/node_modules
+    let node = find_node_binary();
+    if let Some(prefix) = std::path::Path::new(&node).parent().and_then(|p| p.parent()) {
+        roots.insert(0, prefix.join("lib/node_modules").to_string_lossy().to_string());
+    }
+    roots.into_iter().find_map(|root| {
+        let cli = format!("{root}/{NPM_PACKAGE}/dist/cli.cjs");
+        std::path::Path::new(&cli).exists().then_some(cli)
+    })
+}
+
+// Private prefix wins when present (we control its version); otherwise reuse a global install.
 fn cli_path() -> String {
-    format!("{}/{}", npm_prefix(), CLI_REL_PATH)
+    let private = format!("{}/{}", npm_prefix(), CLI_REL_PATH);
+    if std::path::Path::new(&private).exists() { return private; }
+    global_cli_path().unwrap_or(private)
 }
 
 // Parse "v22.22.0" / "22.22" into comparable numeric tuple
@@ -376,7 +413,9 @@ fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
 
 fn ensure_9remote_installed(app: &AppHandle) -> bool {
     if is_9remote_installed() {
-        eprintln!("[Desktop] Found cli.cjs at {}", cli_path());
+        let path = cli_path();
+        let source = if global_cli_path().as_deref() == Some(path.as_str()) { "global" } else { "private" };
+        eprintln!("[Desktop] Found cli.cjs ({source}) at {path}");
         return true;
     }
     eprintln!("[Desktop] Installing {NPM_PACKAGE} to {} ...", npm_prefix());
@@ -393,6 +432,11 @@ fn ensure_9remote_installed(app: &AppHandle) -> bool {
 // Silent background update; runs after agent is up so user is never blocked
 fn spawn_background_update(app: AppHandle) {
     tauri::async_runtime::spawn_blocking(move || {
+        // A global install updates itself (agent's own updateChecker) — don't shadow it with a private copy
+        if global_cli_path().is_some_and(|g| g == cli_path()) {
+            eprintln!("[Desktop] Using global install — skipping private update");
+            return;
+        }
         eprintln!("[Desktop] Checking for updates in background...");
         let target = format!("{NPM_PACKAGE}@latest");
         if run_npm_install(&target, None) {
@@ -417,9 +461,18 @@ fn spawn_9remote_ui(app: AppHandle) {
         let _ = app.emit("setup_progress", "Starting 9Remote server...");
 
         let mut cmd = Command::new(&node);
-        cmd.arg(&cli).arg("ui")
+        cmd.arg(&cli).arg("ui").arg("--start") // --start: open the tunnel without waiting for a click
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null()); // GUI apps have no usable stdin — don't let the agent inherit it
+
+        // The agent respawns its server as bare `node`, resolved via PATH. A Finder-launched
+        // GUI only inherits /usr/bin:/bin:/usr/sbin:/sbin, so nvm/fnm/volta installs are invisible
+        // and the child dies with ENOENT. Put our resolved node dir first.
+        if let Some(dir) = std::path::Path::new(&node).parent() {
+            let existing = std::env::var("PATH").unwrap_or_default();
+            cmd.env("PATH", format!("{}:{existing}", dir.display()));
+        }
 
         // New process group so SIGTERM to -pid kills entire tree on shutdown
         #[cfg(unix)]
@@ -460,21 +513,32 @@ fn spawn_9remote_ui(app: AppHandle) {
             });
         }
 
-        // Poll health until ready
+        // Poll health until ready — sub-second interval so a fast boot isn't rounded up to 1s
+        let _ = app.emit("setup_progress", "Starting server...");
         let url = format!("http://localhost:{SERVER_PORT}/api/health");
-        for i in 0..HEALTH_TIMEOUT_SECS {
-            std::thread::sleep(std::time::Duration::from_secs(1));
+        let attempts = HEALTH_TIMEOUT_SECS * 1000 / HEALTH_POLL_MS;
+        let almost_ready_at = 15 * 1000 / HEALTH_POLL_MS;
+        for i in 0..attempts {
+            if i == almost_ready_at { let _ = app.emit("setup_progress", "Almost ready..."); }
             if let Ok(resp) = ureq::get(&url).call() {
                 if resp.status() == 200 {
-                    eprintln!("[Desktop] Server ready after {}s", i + 1);
+                    eprintln!("[Desktop] Server ready after {}ms", (i + 1) * HEALTH_POLL_MS);
                     let _ = app.emit("setup_ready", ());
+                    // Navigate from Rust: the splash cannot fetch/redirect itself
+                    // (tauri://localhost → http://localhost is cross-origin, blocked by WKWebView)
+                    if let Some(win) = app.get_webview_window("main") {
+                        let _ = win.eval(&format!("window.location.href = 'http://localhost:{SERVER_PORT}'"));
+                    }
+                    // Update only once the agent is serving — never overwrite files it is reading
+                    spawn_background_update(app.clone());
                     break;
                 }
             }
-            if i + 1 == HEALTH_TIMEOUT_SECS {
+            if i + 1 == attempts {
                 eprintln!("[Desktop] Server timeout {HEALTH_TIMEOUT_SECS}s");
-                let _ = app.emit("setup_progress", "Server timeout - check Console.app logs");
+                let _ = app.emit("setup_error", "Server did not start in time. Check Console.app for [9remote] logs.");
             }
+            std::thread::sleep(std::time::Duration::from_millis(HEALTH_POLL_MS));
         }
 
         let _ = child.wait();
@@ -528,10 +592,9 @@ pub fn run() {
             } else {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn_blocking(move || {
+                    // spawn_9remote_ui navigates the webview and kicks the update once healthy
                     if ensure_9remote_installed(&app_handle) {
-                        spawn_9remote_ui(app_handle.clone());
-                        // Silent background update — applies on next launch
-                        spawn_background_update(app_handle);
+                        spawn_9remote_ui(app_handle);
                     }
                 });
             }

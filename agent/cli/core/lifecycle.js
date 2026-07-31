@@ -2,7 +2,7 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import { SERVER_PORT, RETRY_CONFIG } from "../../lib/constants.js";
+import { SERVER_PORT, RETRY_CONFIG, NODE_BIN, nodeSpawnEnv } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
 import { computeDelay } from "../utils/backoff.js";
 
@@ -56,12 +56,12 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
     const spawnEnv = { ...process.env, PORT: String(SERVER_PORT) };
     if (!useDevServer) delete spawnEnv.NODE_ENV;
 
-    currentProcess = spawn("node", [serverPath], {
+    currentProcess = spawn(NODE_BIN, [serverPath], {
       cwd: path.dirname(serverPath),
       stdio: ["ignore", "inherit", "inherit"],
       detached: false,
       windowsHide: true,
-      env: spawnEnv,
+      env: nodeSpawnEnv(spawnEnv),
     });
 
     if (healthyTimer) clearTimeout(healthyTimer);

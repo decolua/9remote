@@ -10,6 +10,7 @@ import os from "os";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { DAEMON_VERSION } from "./constants.js";
+import { NODE_BIN, nodeSpawnEnv } from "../../lib/constants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -395,10 +396,11 @@ async function startDaemon() {
     logFd = "ignore";
   }
   
-  const daemon = spawn("node", [script], {
+  const daemon = spawn(NODE_BIN, [script], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
-    cwd: cwd // Run from script's directory so it can find node_modules
+    cwd: cwd, // Run from script's directory so it can find node_modules
+    env: nodeSpawnEnv(),
   });
 
   daemon.unref();

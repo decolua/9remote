@@ -26,8 +26,8 @@ npm run agent:build        # sync version + build npm pkg (scripts/buildPkg.js, 
 npm run agent:publish      # build + npm publish
 npm run web:deploy         # deploy web to Cloudflare Workers
 
-npm run desktop:dev        # Tauri dev (agent UI + native shell)
-npm run desktop:build      # build agent pkg then tauri build
+npm run pc:dev             # Electron dev (agent UI + native shell)
+npm run pc:build           # build agent pkg, then sign + notarize the macOS app
 
 npm run secrets:sync       # push web/.dev.vars secrets to Cloudflare (--env=production|dev)
 ```

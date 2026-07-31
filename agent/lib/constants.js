@@ -48,6 +48,12 @@ dns.lookup = (hostname, options, cb) => {
 // Local agent HTTP server port (UI + API)
 export const SERVER_PORT = 2208;
 
+// Spawn children with the running interpreter: a Finder-launched app has a bare
+// PATH, so literal "node" is not found. Under Electron, its Node needs the flag.
+export const NODE_BIN = process.execPath;
+export const nodeSpawnEnv = (env = process.env) =>
+  process.versions.electron ? { ...env, ELECTRON_RUN_AS_NODE: "1" } : { ...env };
+
 // Vite dev server port (dev-mode UI origin)
 export const VITE_DEV_PORT = 5173;
 
