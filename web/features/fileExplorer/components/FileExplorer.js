@@ -4,9 +4,47 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import FileTree from "./FileTree";
 import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen } from "@/shared/components/ui/Icon";
+import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen, Upload, Download } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { useI18n } from "@/shared/i18n";
+
+// Read all entries from a DirectoryReader (readEntries returns batches).
+function readAllEntries(reader) {
+  return new Promise((resolve) => {
+    const out = [];
+    const step = () => reader.readEntries((batch) => {
+      if (!batch.length) resolve(out);
+      else { out.push(...batch); step(); }
+    }, () => resolve(out));
+    step();
+  });
+}
+
+// Recursively walk a DataTransferItem entry into [{ file, relativePath }].
+async function traverseEntry(entry, prefix, out) {
+  const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+  if (entry.isFile) {
+    const file = await new Promise((res, rej) => entry.file(res, rej));
+    out.push({ file, relativePath: rel });
+  } else if (entry.isDirectory) {
+    const children = await readAllEntries(entry.createReader());
+    for (const child of children) await traverseEntry(child, rel, out);
+  }
+}
+
+// Convert a drop/paste DataTransfer into upload items (folders preserved).
+async function dataTransferToItems(dataTransfer) {
+  const out = [];
+  const itemList = [...(dataTransfer.items || [])];
+  const entries = itemList.map((it) => it.webkitGetAsEntry?.()).filter(Boolean);
+  if (entries.length) {
+    for (const e of entries) await traverseEntry(e, "", out);
+  } else {
+    for (const f of (dataTransfer.files || [])) out.push({ file: f, relativePath: f.name });
+  }
+  return out;
+}
 
 export default function FileExplorer({ 
   workspace, 
@@ -112,6 +150,54 @@ export default function FileExplorer({
     setLoading(false);
   }, [fileSocket, isBrowsing]);
 
+  // File copy (upload) state: progress + conflict prompt.
+  const [transfer, setTransfer] = useState(null); // { total, done, current, ratio }
+  const [dragOver, setDragOver] = useState(false);
+  const [conflict, setConflict] = useState(null); // { name, resolve }
+  // Download state + desktop gate (download is PC-to-PC only).
+  const [downloadState, setDownloadState] = useState(null); // { name, ratio }
+  const [isDesktop, setIsDesktop] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false));
+
+  // Kick off an upload batch into the current directory.
+  const startUpload = useCallback(async (items) => {
+    if (!items.length || !fileSocket.uploadFiles) return;
+    setTransfer({ total: items.length, done: 0, current: items[0]?.file?.name || "", ratio: 0 });
+    await fileSocket.uploadFiles(currentPath, items, {
+      onConflict: ({ file }, relativePath) => new Promise((resolve) => {
+        setConflict({ name: relativePath || file.name, resolve });
+      }),
+      onProgress: (file, ratio) => setTransfer((p) => p ? { ...p, current: file.name, ratio } : p),
+      onFileDone: (file) => setTransfer((p) => p ? { ...p, done: p.done + 1 } : p)
+    });
+    setTransfer(null);
+    loadFiles(currentPath);
+  }, [fileSocket, currentPath, loadFiles]);
+
+  const handleDrop = useCallback(async (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (isBrowsing) return;
+    const items = await dataTransferToItems(e.dataTransfer);
+    if (items.length) { vibrate(); startUpload(items); }
+  }, [isBrowsing, startUpload]);
+
+  const handleDragOver = useCallback((e) => { e.preventDefault(); if (!isBrowsing) setDragOver(true); }, [isBrowsing]);
+  const handleDragLeave = useCallback((e) => { e.preventDefault(); setDragOver(false); }, []);
+
+  // Paste files from OS clipboard (folders aren't exposed via clipboard — files only).
+  useEffect(() => {
+    if (isBrowsing) return;
+    const onPaste = async (e) => {
+      const files = Array.from(e.clipboardData?.files || []);
+      if (!files.length) return;
+      const items = files.map((f) => ({ file: f, relativePath: f.name }));
+      vibrate();
+      startUpload(items);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [isBrowsing, startUpload]);
+
   // Search files with debounce
   const handleSearch = useCallback((query) => {
     setSearchQuery(query);
@@ -203,6 +289,27 @@ export default function FileExplorer({
   };
 
   const closeContextMenu = () => setContextMenu(null);
+
+  // Trigger a browser save for a file or folder (folder arrives as .zip).
+  const handleDownload = useCallback((file) => {
+    closeContextMenu();
+    if (!fileSocket.downloadFile) return;
+    setDownloadState({ name: file.name, ratio: 0 });
+    fileSocket.downloadFile(file.path, {
+      onSave: (blob, meta) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = meta?.fileName || file.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+        setDownloadState(null);
+      },
+      onProgress: (ratio) => setDownloadState((p) => p ? { ...p, ratio } : p),
+      onError: (e) => { setError(e.message || "Download failed"); setDownloadState(null); }
+    });
+  }, [fileSocket]);
 
   const handleDelete = (file) => {
     closeContextMenu();
@@ -361,6 +468,30 @@ export default function FileExplorer({
         </div>
       )}
 
+      {/* Upload progress */}
+      {transfer && (
+        <div className="bg-brand-500/10 border-b border-brand-500/30 px-4 py-2 text-text text-xs flex items-center gap-2">
+          <Loader2 className="animate-spin flex-shrink-0" size={14} />
+          <span className="truncate flex-1">
+            {t("files.copying")} {transfer.done + 1}/{transfer.total}: {transfer.current}
+          </span>
+          <div className="w-16 h-1.5 bg-surface-2 rounded-full overflow-hidden flex-shrink-0">
+            <div className="h-full bg-brand-500 transition-all" style={{ width: `${Math.round((transfer.ratio || 0) * 100)}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* Download progress */}
+      {downloadState && (
+        <div className="bg-brand-500/10 border-b border-brand-500/30 px-4 py-2 text-text text-xs flex items-center gap-2">
+          <Loader2 className="animate-spin flex-shrink-0" size={14} />
+          <span className="truncate flex-1">{t("files.downloading")}: {downloadState.name}</span>
+          <div className="w-16 h-1.5 bg-surface-2 rounded-full overflow-hidden flex-shrink-0">
+            <div className="h-full bg-brand-500 transition-all" style={{ width: `${Math.round((downloadState.ratio || 0) * 100)}%` }} />
+          </div>
+        </div>
+      )}
+
       {/* Search results or File tree */}
       {showSearch && searchQuery.length >= 2 ? (
         <div className="flex-1 min-h-0 overflow-auto">
@@ -415,7 +546,12 @@ export default function FileExplorer({
           )}
 
           {/* File Tree or Grid (browse mode) */}
-          <div className={`flex-1 min-h-0 overflow-auto ${!isBrowsing ? "pb-20" : ""}`}>
+          <div
+            className={`flex-1 min-h-0 overflow-auto ${!isBrowsing ? "pb-20" : ""} ${dragOver ? "bg-brand-500/5 ring-2 ring-inset ring-brand-500/40" : ""}`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+          >
             {isBrowsing ? (
               // Grid view for browse mode
               <div className="p-4">
@@ -493,6 +629,15 @@ export default function FileExplorer({
               <Copy size={16} />
               {t("files.copyPath")}
             </button>
+            {isDesktop && (
+              <button
+                onClick={() => { vibrate(); handleDownload(contextMenu.file); }}
+                className="w-full px-4 py-3 text-left text-text hover:bg-surface-2 flex items-center gap-3 transition-colors"
+              >
+                <Download size={16} />
+                {t("files.download")}
+              </button>
+            )}
             <button
               onClick={() => { vibrate(); handleDelete(contextMenu.file); }}
               className="w-full px-4 py-3 text-left text-red-400 hover:bg-surface-2 flex items-center gap-3 transition-colors"
@@ -607,6 +752,39 @@ export default function FileExplorer({
         title={confirmDialog.title}
         message={confirmDialog.message}
       />
+
+      {/* Copy Conflict Dialog (Skip / Replace / Skip all / Replace all) */}
+      {conflict && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
+          <div className="relative card-elev w-full max-w-sm">
+            <div className="px-4 py-3">
+              <h3 className="text-text font-semibold">{t("files.conflictTitle")}</h3>
+            </div>
+            <div className="px-4 pb-3 text-text-muted text-sm break-all">
+              {t("files.conflictMessage", { name: conflict.name })}
+            </div>
+            <div className="p-4 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => { vibrate(); conflict.resolve("skip"); setConflict(null); }}
+                className="py-2 bg-surface-2 text-text rounded-brand hover:bg-surface-3 text-sm"
+              >{t("files.skip")}</button>
+              <button
+                onClick={() => { vibrate(); conflict.resolve("skipAll"); setConflict(null); }}
+                className="py-2 bg-surface-2 text-text rounded-brand hover:bg-surface-3 text-sm"
+              >{t("files.skipAll")}</button>
+              <button
+                onClick={() => { vibrate(); conflict.resolve("replace"); setConflict(null); }}
+                className="py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 text-sm"
+              >{t("files.replace")}</button>
+              <button
+                onClick={() => { vibrate(); conflict.resolve("replaceAll"); setConflict(null); }}
+                className="py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 text-sm"
+              >{t("files.replaceAll")}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

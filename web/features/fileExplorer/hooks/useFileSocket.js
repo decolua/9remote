@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { normalizePathsResponse } from "../constants/fileExplorer.js";
+import { uploadFiles as transferUpload, downloadFile as transferDownload } from "../lib/fileTransfer.js";
 
 // Wrap a socket callback so path fields in the response are normalized to POSIX
 // (agent sends OS-native separators — \\ on Windows — which break web path helpers).
@@ -9,8 +10,9 @@ const normResolve = (resolve) => (res) => {
   resolve(normalizePathsResponse(res));
 };
 
-// File Explorer socket hook - uses existing socket from useSocket
-export function useFileSocket(socketRef) {
+// File Explorer socket hook - uses existing socket from useSocket.
+// protocolRef (optional) enables binary file transfer over the FILE channel.
+export function useFileSocket(socketRef, protocolRef) {
   // Get system info (OS, drives)
   const getSystemInfo = useCallback(() => {
     return new Promise((resolve) => {
@@ -330,6 +332,28 @@ export function useFileSocket(socketRef) {
     });
   }, [socketRef]);
 
+  // Copy files/folders from client into a target dir on the agent (OS-like:
+  // byte-identical, preserves structure + mtime, asks Skip/Replace on conflict).
+  const uploadFiles = useCallback((targetDir, items, callbacks) => {
+    return transferUpload({
+      socket: socketRef?.current,
+      protocolRef,
+      targetDir,
+      items,
+      callbacks
+    });
+  }, [socketRef, protocolRef]);
+
+  // Download a file from the agent into a client-side Blob.
+  const downloadFile = useCallback((filePath, callbacks) => {
+    return transferDownload({
+      socket: socketRef?.current,
+      protocolRef,
+      filePath,
+      ...callbacks
+    });
+  }, [socketRef, protocolRef]);
+
   // Memoize the returned object so the ref stays stable across renders.
   // Without this, consumers' effects keyed on `fileSocket` re-run every render
   // (e.g. TerminalPane re-runs git/watch setup on every keystroke → agent git spawn storm).
@@ -362,9 +386,12 @@ export function useFileSocket(socketRef) {
     gitCommit,
     gitPush,
     gitPull,
-    gitLog
+    gitLog,
+    uploadFiles,
+    downloadFile
   }), [getSystemInfo, getFiles, readFile, readImage, readMedia, writeFile, createItem, deleteItem,
     renameItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
     searchInFiles, replaceInFiles, watchDir, unwatchDir, revealInOS, openInTerminal,
-    getFileTree, gitBranch, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog]);
+    getFileTree, gitBranch, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog,
+    uploadFiles, downloadFile]);
 }

@@ -126,7 +126,7 @@ export default function WorkspaceLayout({ children }) {
       setShells([]);
     }
   }, [connected, platform]);
-  const fileSocket = useFileSocket(socketRef);
+  const fileSocket = useFileSocket(socketRef, protocolRef);
   useClipboardSocket(socketRef, connected);
   const { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification } = useNotification(socketRef, connected);
 
