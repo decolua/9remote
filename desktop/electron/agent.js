@@ -11,16 +11,18 @@ import { join } from "path";
 import { app } from "electron";
 import {
   SERVER_PORT, NPM_PREFIX_DIR, NPM_PACKAGE, CLI_REL_PATH,
-  HEALTH_TIMEOUT_MS, HEALTH_POLL_MS, GLOBAL_NODE_MODULES,
+  HEALTH_TIMEOUT_MS, HEALTH_POLL_MS, GLOBAL_NODE_MODULES, ALLOW_SCRIPTS,
+  NPM_INSTALL_TIMEOUT_MS,
 } from "./constants.js";
 
 let agentChild = null;
 
-// Bundled copy shipped inside the .app (extraResources), then any user install.
+const bundledNpmCli = () => join(process.resourcesPath || "", "npm", "bin", "npm-cli.js");
+
+// Our own prefix first — that's where installAgent puts it — then any global install.
 function cliCandidates() {
   const home = homedir();
   return [
-    join(process.resourcesPath || "", "agent", "dist", "cli.cjs"),
     join(home, NPM_PREFIX_DIR, CLI_REL_PATH),
     ...GLOBAL_NODE_MODULES.map((root) => join(root, NPM_PACKAGE, "dist", "cli.cjs")),
     join(home, ".volta/tools/image/packages", NPM_PACKAGE, "lib/node_modules", NPM_PACKAGE, "dist", "cli.cjs"),
@@ -31,13 +33,44 @@ export function findCli() {
   return cliCandidates().find((p) => p && existsSync(p)) || null;
 }
 
+// npm ships inside the .app; Electron's own Node runs it, so no system Node needed.
+// Installs into ~/.9remote/npm — a user-owned prefix, never sudo.
+export function installAgent(onLog) {
+  const npmCli = bundledNpmCli();
+  if (!existsSync(npmCli)) return Promise.resolve(false);
+
+  const prefix = join(homedir(), NPM_PREFIX_DIR);
+  return new Promise((resolve) => {
+    const p = spawn(
+      process.execPath,
+      [npmCli, "install", "-g", NPM_PACKAGE, "--prefix", prefix,
+       "--no-audit", "--no-fund", `--allow-scripts=${ALLOW_SCRIPTS.join(",")}`],
+      { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "pipe"] }
+    );
+    // A stalled network would otherwise hang the app on "Installing..." forever.
+    const timer = setTimeout(() => {
+      onLog?.("[npm] install timed out");
+      p.kill();
+      resolve(false);
+    }, NPM_INSTALL_TIMEOUT_MS);
+    const done = (ok) => { clearTimeout(timer); resolve(ok); };
+
+    p.stdout?.on("data", (b) => onLog?.(`[npm] ${b.toString().trimEnd()}`));
+    p.stderr?.on("data", (b) => onLog?.(`[npm] ${b.toString().trimEnd()}`));
+    p.on("error", (e) => { onLog?.(`[npm] spawn failed: ${e.message}`); done(false); });
+    p.on("exit", (code) => done(code === 0));
+  });
+}
+
 // Spawn the agent as a detached group so one signal takes down server + cloudflared.
 export function startAgent(onLog) {
   const cli = findCli();
-  if (!cli) return { error: "9remote agent not found in this build." };
+  if (!cli) return { error: "9remote agent not installed." };
 
+  // NREMOTE_NPM_CLI lets the agent's own self-update reuse our bundled npm —
+  // the host may have no system Node/npm at all.
   agentChild = spawn(process.execPath, [cli, "ui", "--start"], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NREMOTE_NPM_CLI: bundledNpmCli() },
     stdio: ["ignore", "pipe", "pipe"],
     detached: process.platform !== "win32",
   });

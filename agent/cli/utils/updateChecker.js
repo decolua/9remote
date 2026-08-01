@@ -6,7 +6,7 @@ import path from "path";
 import os from "os";
 import { browserFetch, NPM_REGISTRY_URL, NPM_INSTALL_SPEC, PACKAGE_NAME, PATHS } from "../../lib/constants.js";
 import { killAll as killAllPids, getPidsDir } from "./pids.js";
-import { getCliEntry, getNodeBin } from "./autostart.js";
+import { getCliEntry, getNodeBin, nodeBinEnvPrefix } from "./autostart.js";
 import { UPDATE } from "../config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -394,6 +394,31 @@ function registryFlag() {
   return "";
 }
 
+// Install back into the prefix we're running from. The Electron shell installs the
+// agent into ~/.9remote/npm, so a bare `npm install -g` would target the wrong root
+// and the verify step would then roll back the user's system-global install.
+function prefixFlag() {
+  const cli = getCliEntry();
+  const sep = path.sep;
+  for (const marker of [`${sep}lib${sep}node_modules${sep}`, `${sep}node_modules${sep}`]) {
+    const i = cli.indexOf(marker);
+    if (i > 0) return `--prefix "${cli.slice(0, i)}"`;
+  }
+  return "";
+}
+
+// The shell that runs npm. Under Electron there may be no system Node/npm at all,
+// so fall back to the npm bundled in the app, run by Electron's own Node.
+function npmCommand() {
+  const bundled = process.env.NREMOTE_NPM_CLI;
+  if (bundled && existsSync(bundled)) {
+    return process.platform === "win32"
+      ? `"${getNodeBin()}" "${bundled}"`
+      : `env ELECTRON_RUN_AS_NODE=1 "${getNodeBin()}" "${bundled}"`;
+  }
+  return "npm";
+}
+
 // Build the self-contained update script. Runs detached from the agent:
 // waits for agent to die → kills tracked PIDs (never ptyDaemon) → npm install
 // with retry → verifies version == latest → rolls back on mismatch → restarts.
@@ -401,10 +426,12 @@ function buildUpdateScript({ currentVersion, latest, agentPid }) {
   const pidsDir = getPidsDir();
   const reg = registryFlag();
   const nodeBin = getNodeBin();
+  const nodeEnv = nodeBinEnvPrefix();
   const cliEntry = getCliEntry();
   const lock = LOCK_PATH;
   // Shared npm flags: prefer-online (revalidate cache), skip audit/fund round-trips
-  const npmFlags = `--prefer-online --no-audit --no-fund ${reg}`.trim();
+  const npmFlags = `--prefer-online --no-audit --no-fund ${reg} ${prefixFlag()}`.trim();
+  const npm = npmCommand();
 
   if (process.platform === "win32") {
     const restartVbsPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-restart.vbs`);
@@ -412,6 +439,7 @@ function buildUpdateScript({ currentVersion, latest, agentPid }) {
 setlocal EnableDelayedExpansion
 set "NODE=${nodeBin}"
 set "CLI=${cliEntry}"
+${process.env.NREMOTE_NPM_CLI ? 'set "ELECTRON_RUN_AS_NODE=1"' : ""}
 
 :waitloop
 tasklist /FI "PID eq ${agentPid}" 2>nul | find "${agentPid}" >nul
@@ -432,10 +460,10 @@ timeout /t 3 /nobreak >nul
 set ATTEMPT=0
 :installloop
 set /a ATTEMPT+=1
-call npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} >nul 2>&1
+call ${npm} install -g ${NPM_INSTALL_SPEC} ${npmFlags} >nul 2>&1
 if !ERRORLEVEL! EQU 0 goto verify
 if !ATTEMPT! GEQ ${UPDATE.maxRetry} (
-  call npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional >nul 2>&1
+  call ${npm} install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional >nul 2>&1
   goto verify
 )
 timeout /t 3 /nobreak >nul
@@ -454,7 +482,7 @@ for /f "usebackq tokens=* delims= " %%V in ("%VERFILE%") do (
 del /f /q "%VERFILE%" >nul 2>&1
 if defined NEWVER set "NEWVER=!NEWVER: =!"
 if not "!NEWVER!"=="${latest}" (
-  call npm install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} >nul 2>&1
+  call ${npm} install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} >nul 2>&1
 )
 del /f /q "${lock}" >nul 2>&1
 
@@ -496,23 +524,23 @@ attempt=0
 while [ $attempt -lt ${UPDATE.maxRetry} ]; do
   attempt=$((attempt+1))
   echo "Installing (attempt $attempt)..."
-  if npm install -g ${NPM_INSTALL_SPEC} ${npmFlags}; then break; fi
+  if ${npm} install -g ${NPM_INSTALL_SPEC} ${npmFlags}; then break; fi
   if [ $attempt -eq ${UPDATE.maxRetry} ]; then
-    npm install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional || true
+    ${npm} install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional || true
   fi
   sleep 3
 done
 
 # Verify version == latest; roll back if the new binary is broken/wrong (R2)
 # Take first line + strip ANSI escapes so trailing cursor codes don't corrupt compare
-NEWVER=$("${nodeBin}" "${cliEntry}" --version 2>/dev/null | head -1 | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tr -d '[:space:]')
+NEWVER=$(${nodeEnv}"${nodeBin}" "${cliEntry}" --version 2>/dev/null | head -1 | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tr -d '[:space:]')
 if [ "$NEWVER" != "${latest}" ]; then
   echo "Verify failed (got $NEWVER, want ${latest}), rolling back to ${currentVersion}..."
-  npm install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} || true
+  ${npm} install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} || true
 fi
 
 rm -f "${lock}"
-"${nodeBin}" "${cliEntry}" --tray --skip-update --start
+${nodeEnv}"${nodeBin}" "${cliEntry}" --tray --skip-update --start
 `;
   const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update.sh`);
   writeFileSync(scriptPath, script, { mode: 0o755 });

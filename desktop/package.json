@@ -34,13 +34,19 @@
       "src-tauri/icons/trayIcon.png"
     ],
     "extraResources": [
-      { "from": "../agent/dist", "to": "agent/dist" }
+      {
+        "from": "node_modules/npm",
+        "to": "npm"
+      }
     ],
     "asar": true,
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "src-tauri/icons/icon.icns",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "hardenedRuntime": true,
       "notarize": false,
       "gatekeeperAssess": false,
@@ -50,5 +56,8 @@
     "dmg": {
       "title": "9Remote"
     }
+  },
+  "dependencies": {
+    "npm": "^12.0.2"
   }
 }

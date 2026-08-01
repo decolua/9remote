@@ -59,6 +59,12 @@ export function getNodeBin() {
   return process.execPath;
 }
 
+// Under the Electron shell execPath is the app binary, so any script spawning it
+// must set this flag or it relaunches the GUI instead of running the CLI.
+export function nodeBinEnvPrefix() {
+  return process.versions.electron ? "env ELECTRON_RUN_AS_NODE=1 " : "";
+}
+
 /**
  * Spawn the agent fully detached and hidden (no console flash).
  * Windows: node.exe is a console app — even windowsHide flashes a window when

@@ -10,9 +10,10 @@ import { fileURLToPath } from "url";
 import chalk from "chalk";
 
 import { createRouter, jsonOk, jsonErr } from "./lib/router.js";
-import { STEP, browserFetch, PERMISSION_POLL_MS, NPM_REGISTRY_URL } from "./lib/constants.js";
+import { STEP, browserFetch, PERMISSION_POLL_MS, NPM_REGISTRY_URL, hideDockIcon } from "./lib/constants.js";
 import { initLogger, createLogger } from "./lib/logger.js";
 
+hideDockIcon();
 initLogger();
 const logger = createLogger("server");
 import { startTransportServer, getIO } from "./transport/server.js";

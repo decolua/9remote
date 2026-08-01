@@ -8,7 +8,7 @@ import { app, BrowserWindow, Tray, Menu, Notification, ipcMain, shell, nativeIma
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { SERVER_PORT, VITE_PORT, WINDOW, ALMOST_READY_MS, TRAY_ICON_SIZE } from "./constants.js";
-import { startAgent, stopAgent, waitForHealth, waitForUrl } from "./agent.js";
+import { startAgent, stopAgent, waitForHealth, waitForUrl, findCli, installAgent } from "./agent.js";
 import { checkPermissions, requestPermission } from "./permissions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +77,13 @@ async function boot() {
     return;
   }
 
+  // First run has no agent yet — install it globally with the bundled npm.
+  if (!findCli()) {
+    emit("setup_progress", "Installing 9Remote agent (first run)...");
+    if (!(await installAgent((line) => console.log(line))))
+      return emit("setup_error", "Failed to install the 9Remote agent. Check your internet connection.");
+  }
+
   emit("setup_progress", "Starting 9Remote server...");
   const { error } = startAgent((line) => console.log(line));
   if (error) {
@@ -106,10 +113,10 @@ ipcMain.handle("check_permissions", () => checkPermissions());
 ipcMain.handle("request_permission", (_e, args) => requestPermission(args?.permissionType ?? args));
 ipcMain.handle("quit_app", () => app.quit());
 
+// setBadgeCount handles the macOS dock badge and the Linux Unity launcher;
+// it no-ops elsewhere. setOverlayIcon(null) only ever cleared, never drew.
 ipcMain.handle("set_badge", (_e, args) => {
-  const count = args?.count ?? 0;
-  if (process.platform === "darwin") app.dock.setBadge(count > 0 ? String(count) : "");
-  else win?.setOverlayIcon?.(null, count > 0 ? `${count} finished` : "");
+  app.setBadgeCount(Math.max(0, args?.count ?? 0));
 });
 
 ipcMain.handle("show_notif", (_e, { title, body } = {}) => {

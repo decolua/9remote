@@ -54,6 +54,19 @@ export const NODE_BIN = process.execPath;
 export const nodeSpawnEnv = (env = process.env) =>
   process.versions.electron ? { ...env, ELECTRON_RUN_AS_NODE: "1" } : { ...env };
 
+// A child spawned from the Electron bundle gets its own Dock icon: macOS sees
+// execPath inside the .app and registers it as a second application. Demote it.
+export async function hideDockIcon() {
+  if (process.platform !== "darwin" || !process.versions.electron) return;
+  try {
+    const koffi = (await import("koffi")).default;
+    const lib = koffi.load("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices");
+    const PSN = koffi.struct("ProcessSerialNumber", { highLongOfPSN: "uint32", lowLongOfPSN: "uint32" });
+    const transform = lib.func("TransformProcessType", "int", [koffi.pointer(PSN), "int"]);
+    transform([{ highLongOfPSN: 0, lowLongOfPSN: 2 }], 4); // kCurrentProcess → UIElement
+  } catch {}
+}
+
 // Vite dev server port (dev-mode UI origin)
 export const VITE_DEV_PORT = 5173;
 
