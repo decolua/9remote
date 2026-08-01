@@ -66,6 +66,7 @@ export default function ExplorerPanel({
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
   const [dragOverPath, setDragOverPath] = useState(null);
+  const [truncatedDirs, setTruncatedDirs] = useState(() => new Set());
   const [showHidden, setShowHidden] = useState(() => {
     if (typeof window === "undefined") return true;
     try {
@@ -105,6 +106,13 @@ export default function ExplorerPanel({
         setTree((prev) => {
           const next = new Map(prev);
           next.set(dirPath, res.files || []);
+          return next;
+        });
+        setTruncatedDirs((prev) => {
+          const has = Boolean(res.truncated);
+          if (has === prev.has(dirPath)) return prev;
+          const next = new Set(prev);
+          has ? next.add(dirPath) : next.delete(dirPath);
           return next;
         });
         return res.files || [];
@@ -526,6 +534,11 @@ export default function ExplorerPanel({
         {isFolder && isExpanded && (
           <div>
             {(tree.get(file.path) || []).map((child) => renderRow(child, depth + 1))}
+            {truncatedDirs.has(file.path) && (
+              <div className="text-[11px] text-text-muted italic py-0.5 pr-2" style={{ paddingLeft: INDENT_BASE + (depth + 1) * INDENT_STEP }}>
+                Showing first 300 entries — use search for the rest.
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -678,7 +691,14 @@ export default function ExplorerPanel({
         {rootFiles.length === 0 && !loading.has(workspace) ? (
           <div className="text-text-subtle text-xs px-3 py-4 text-center">Empty workspace</div>
         ) : (
-          rootFiles.map((file) => renderRow(file, 0))
+          <>
+            {rootFiles.map((file) => renderRow(file, 0))}
+            {truncatedDirs.has(workspace) && (
+              <div className="text-[11px] text-text-muted italic py-0.5 px-3">
+                Showing first 300 entries — use search for the rest.
+              </div>
+            )}
+          </>
         )}
       </div>
 

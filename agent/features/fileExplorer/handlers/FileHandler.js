@@ -4,7 +4,7 @@ import os from "os";
 import { execSync, spawn } from "child_process";
 import chokidar from "chokidar";
 import sharp from "sharp";
-import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH } from "../constants.js";
+import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES } from "../constants.js";
 import { isSensitivePath } from "../pathGuard.js";
 
 // Extension -> MIME. Covers all previewable (image/video/audio/pdf) types.
@@ -129,7 +129,6 @@ function buildFileTree(dir, depth, showHidden) {
   const children = [];
   for (const entry of entries) {
     if (!showHidden && entry.name.startsWith(".") && entry.name !== ".env" && entry.name !== ".env.example") continue;
-    if (isIgnoredDir(entry.name)) continue;
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       const node = { name: entry.name, path: fullPath, type: "folder" };
@@ -170,24 +169,32 @@ export function setupFileHandlers(socket) {
       if (isSensitivePath(resolvedPath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(resolvedPath)) return callback({ success: false, error: "Directory not found" });
 
+      // Read names once (cheap), sort by type+name, then cap before stat-ing —
+      // so huge dirs (node_modules) don't pay stat cost for truncated entries.
+      let entries;
+      try { entries = fs.readdirSync(resolvedPath, { withFileTypes: true }); } catch (e) { return callback({ success: false, error: e.message }); }
+      if (!showHidden) {
+        entries = entries.filter((e) => !(e.name.startsWith(".") && e.name !== ".env" && e.name !== ".env.example"));
+      }
+      entries.sort((a, b) => {
+        const ad = a.isDirectory(), bd = b.isDirectory();
+        if (ad && !bd) return -1;
+        if (!ad && bd) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      const truncated = entries.length > MAX_DIR_ENTRIES;
+      const slice = truncated ? entries.slice(0, MAX_DIR_ENTRIES) : entries;
+
       const files = [];
-      for (const name of fs.readdirSync(resolvedPath)) {
-        if (!showHidden && name.startsWith(".") && name !== ".env" && name !== ".env.example") continue;
-        if (isIgnoredDir(name)) continue;
+      for (const entry of slice) {
         try {
-          const fullPath = path.join(resolvedPath, name);
+          const fullPath = path.join(resolvedPath, entry.name);
           const stat = fs.statSync(fullPath);
-          files.push({ name, path: fullPath, type: getFileType(stat, name), size: stat.isFile() ? stat.size : null, sizeFormatted: stat.isFile() ? formatSize(stat.size) : null, modified: stat.mtime.getTime() });
+          files.push({ name: entry.name, path: fullPath, type: getFileType(stat, entry.name), size: stat.isFile() ? stat.size : null, sizeFormatted: stat.isFile() ? formatSize(stat.size) : null, modified: stat.mtime.getTime() });
         } catch {}
       }
 
-      files.sort((a, b) => {
-        if (a.type === "folder" && b.type !== "folder") return -1;
-        if (a.type !== "folder" && b.type === "folder") return 1;
-        return a.name.localeCompare(b.name);
-      });
-
-      callback({ success: true, files, currentPath: resolvedPath, parentPath: path.dirname(resolvedPath) });
+      callback({ success: true, files, currentPath: resolvedPath, parentPath: path.dirname(resolvedPath), truncated });
     } catch (error) {
       callback({ success: false, error: error.message });
     }

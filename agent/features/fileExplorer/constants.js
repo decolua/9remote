@@ -14,6 +14,12 @@ export const MAX_MATCHES_PER_FILE = 10;
 export const DEFAULT_TREE_DEPTH = 3;
 export const DEFAULT_GIT_LOG_LIMIT = 20;
 
+// Cap entries returned per directory listing to protect against huge dirs
+// (e.g. node_modules). Beyond this, results are truncated with a flag.
+export const MAX_DIR_ENTRIES = 300;
+
+// Only used to prune search + watch (NOT the browser listing). Keeps slow
+// generated/dep dirs out of full-tree scans and event floods.
 export const IGNORED_DIRS = [
   "node_modules",
   ".git",
@@ -23,8 +29,6 @@ export const IGNORED_DIRS = [
   "coverage",
   "__pycache__",
   ".cache",
-  ".vscode",
-  ".idea",
   ".turbo",
   ".vercel",
   ".output",
@@ -32,15 +36,6 @@ export const IGNORED_DIRS = [
   ".nuxt",
   ".svelte-kit",
   "target",
-  "vendor",
-  ".gradle",
-  ".pytest_cache",
-  ".mypy_cache",
-  ".tox",
-  ".venv",
-  "venv",
-  "env",
-  ".DS_Store",
   ".parcel-cache",
   ".rollup.cache"
 ];
