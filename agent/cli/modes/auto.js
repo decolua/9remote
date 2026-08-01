@@ -20,7 +20,7 @@ import { maskApiKey } from "../utils/apiKey.js";
 import { WORKER_URL, DELAYS, POLL } from "../config.js";
 
 async function startServerAndTunnel(selectedKey) {
-  logger.info("🚀 Starting server...");
+  logger.info("Starting server...");
   await setStep(STEP.PREPARING);
 
   try { killCloudflared(); await new Promise((r) => setTimeout(r, DELAYS.killCloudflaredMs)); } catch {}
@@ -31,9 +31,9 @@ async function startServerAndTunnel(selectedKey) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey: selectedKey }),
     });
-    if (!res.ok) { logger.error(`❌ Session create failed: ${res.status}`); return null; }
+    if (!res.ok) { logger.error(`Session create failed: ${res.status}`); return null; }
   } catch (e) {
-    logger.error(`❌ Session create failed: ${e.message}`); return null;
+    logger.error(`Session create failed: ${e.message}`); return null;
   }
 
   const alreadyRunning = await isServerRunning();
@@ -43,13 +43,13 @@ async function startServerAndTunnel(selectedKey) {
 
   if (!alreadyRunning) await new Promise((r) => setTimeout(r, DELAYS.serverBootMs));
 
-  logger.info("✅ Starting tunnel...");
+  logger.info("Starting tunnel...");
   await setStep(STEP.CONNECTING);
 
   const tunnelRef = { current: null };
   let tunnelUrl;
   const onUrlUpdate = async (newUrl) => {
-    logger.info(`🔄 Tunnel URL rotated: ${newUrl}`);
+    logger.info(`Tunnel URL rotated: ${newUrl}`);
     await updateTunnelUrl(selectedKey, newUrl);
     pushUiState({ tunnelUrl: newUrl });
     updateTunnelHealthUrl(newUrl);
@@ -63,13 +63,13 @@ async function startServerAndTunnel(selectedKey) {
     tunnelRef.current = result.child;
     tunnelUrl = result.tunnelUrl;
   } catch (error) {
-    logger.error(`❌ Failed to start tunnel: ${error.message}`);
+    logger.error(`Failed to start tunnel: ${error.message}`);
     serverManager.shutdown();
     return null;
   }
 
   if (!(await waitForTunnelReady(tunnelUrl))) {
-    logger.warn("⚠️  Tunnel health check timed out, proceeding anyway...");
+    logger.warn("Tunnel health check timed out, proceeding anyway...");
   }
 
   await updateTunnelUrl(selectedKey, tunnelUrl);

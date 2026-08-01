@@ -51,7 +51,7 @@ async function handleStop(getActiveTunnel, setActiveTunnel) {
   if (tunnel) {
     tunnel.kill();
     setActiveTunnel(null);
-    logger.info("🛑 Tunnel stopped");
+    logger.info("Tunnel stopped");
   }
   await setStep(STEP.STOPPED, { tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
   updateTrayTooltip({ tunnelUrl: "", running: true });
@@ -68,7 +68,7 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
       return "alreadyRunning";
     }
   }
-  logger.info("🚀 Starting tunnel...");
+  logger.info("Starting tunnel...");
   try {
     await setStep(STEP.PREPARING);
     await ensureCloudflared(onBinaryProgress);
@@ -96,7 +96,7 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
 
     await setStep(STEP.VERIFYING);
     const tunnelOk = await waitForTunnelReady(result.tunnelUrl);
-    if (!tunnelOk) logger.warn("⚠️  Tunnel health check timed out, proceeding anyway...");
+    if (!tunnelOk) logger.warn("Tunnel health check timed out, proceeding anyway...");
 
     await updateTunnelUrl(apiKey, result.tunnelUrl);
     updateTrayTooltip({ tunnelUrl: result.tunnelUrl, running: true });
@@ -104,7 +104,7 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     await new Promise((r) => setTimeout(r, DELAYS.postReadyHoldMs));
     await showConnectionInfo(apiKey, result.tunnelUrl);
   } catch (err) {
-    logger.error(`❌ Failed to start tunnel: ${err.message}`);
+    logger.error(`Failed to start tunnel: ${err.message}`);
     await setStep(STEP.STOPPED);
   }
 }
@@ -115,13 +115,13 @@ async function handleRegenerate() {
   const existing = loadKey();
   saveKey(machineId, key, existing?.name || "Default");
   await pushUiState({ permanentKey: key });
-  logger.info(`✅ Key regenerated: ${maskApiKey(key)}`);
+  logger.info(`Key regenerated: ${maskApiKey(key)}`);
 }
 
 function handleShutdown(getActiveTunnel, setActiveTunnel) {
-  logger.info("🛑 Shutting down 9Remote completely...");
+  logger.info("Shutting down 9Remote completely...");
   const tunnel = getActiveTunnel();
   setActiveTunnel(null);
   shutdownAll({ tunnelProcess: tunnel });
-  logger.info("✅ 9Remote stopped");
+  logger.info("9Remote stopped");
 }

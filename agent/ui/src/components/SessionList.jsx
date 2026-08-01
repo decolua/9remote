@@ -159,7 +159,7 @@ export default function SessionList({ sessions, groups, connected, finishedIds, 
                             {connected ? (
                               <>
                                 <div className="truncate" style={{ color: "rgba(255,255,255,0.35)" }}><span style={{ color: "#34d399" }}>✓</span> connected</div>
-                                {s.createdAt && <div className="truncate" style={{ color: "rgba(255,255,255,0.35)" }}><span style={{ color: "#fbbf24" }}>●</span> Created {new Date(s.createdAt).toLocaleTimeString()}</div>}
+                                {s.createdAt && <div className="truncate" style={{ color: "rgba(255,255,255,0.35)" }}><span style={{ color: "#fbbf24" }}>●</span> Created {new Date(s.createdAt).toLocaleTimeString(undefined, { hour12: false })}</div>}
                               </>
                             ) : (
                               <div className="truncate" style={{ color: "rgba(255,255,255,0.3)" }}><span style={{ color: "rgba(248,113,113,0.7)" }}>✕</span> disconnected</div>

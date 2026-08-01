@@ -67,7 +67,7 @@ export async function tuiMode() {
     });
     if (!res.ok) throw new Error(`Session create failed: ${res.status}`);
   } catch (err) {
-    logger.error(`❌ Failed to connect: ${err.message}`);
+    logger.error(`Failed to connect: ${err.message}`);
     process.exit(1);
   }
 
@@ -90,13 +90,13 @@ export async function tuiMode() {
     tunnelUrl = result.tunnelUrl;
     tunnelRef.current = tunnelProcess;
   } catch (err) {
-    logger.error(`❌ Tunnel failed: ${err.message}`);
+    logger.error(`Tunnel failed: ${err.message}`);
     process.exit(1);
   }
 
   await setStep(STEP.VERIFYING);
   if (!(await waitForTunnelReady(tunnelUrl))) {
-    logger.warn("⚠️  Tunnel health check timed out, proceeding anyway...");
+    logger.warn("Tunnel health check timed out, proceeding anyway...");
   }
 
   await updateTunnelUrl(keyData.key, tunnelUrl);
@@ -262,7 +262,7 @@ async function tuiKeysMenu(keyData, tunnelUrl, setHeader, getHeader) {
       await pushUiState({ oneTimeKey: newTempKey.tempKey, oneTimeKeyExpiresAt: newTempKey.expiresAt, qrUrl: newConnectUrl });
     }
   } else if (action === "regen") {
-    const confirmed = await tuiConfirm(chalk.yellow("⚠️  Replace current key and disconnect all sessions? Continue?"));
+    const confirmed = await tuiConfirm(chalk.yellow("Replace current key and disconnect all sessions? Continue?"));
     if (confirmed) {
       const machineId = await getConsistentMachineId();
       const { key } = generateApiKeyWithMachine(machineId);

@@ -503,7 +503,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                                             <span className="text-emerald-400">✓</span> connected
                                           </div>
                                           <div className="text-white/35 truncate">
-                                            <span className="text-amber-400">●</span> {t("sessions.created", { time: new Date(session.createdAt).toLocaleTimeString() })}
+                                            <span className="text-amber-400">●</span> {t("sessions.created", { time: new Date(session.createdAt).toLocaleTimeString(undefined, { hour12: false }) })}
                                           </div>
                                         </>
                                       ) : (

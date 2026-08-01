@@ -49,7 +49,7 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
     const serverPath = useDevServer ? DEV_SERVER : STANDALONE_SERVER;
 
     if (!fs.existsSync(serverPath)) {
-      logger.error(`❌ Server not found: ${serverPath}`);
+      logger.error(`Server not found: ${serverPath}`);
       process.exit(1);
     }
 
@@ -74,18 +74,17 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
       // Intentional restart (web-triggered): respawn quietly, no fail-count bump
       if (isRestarting) {
         isRestarting = false;
-        logger.info("🔄 Restarting server (requested)...");
+        logger.info("Restarting server (requested)...");
         setTimeout(() => { spawnServer(); onRestarted?.(); }, 500);
         return;
       }
 
-      logger.error(`💥 Server exited unexpectedly (code: ${code}, signal: ${signal})`);
+      logger.error(`Server exited unexpectedly (code: ${code}, signal: ${signal})`);
       failCount++;
       const delay = computeDelay(RETRY_CONFIG.server, failCount);
-      logger.warn(`🔄 Restarting server in ${delay}ms (fail#${failCount})`);
+      logger.warn(`Restarting server in ${delay}ms (fail#${failCount})`);
 
       if (onServerCrash) {
-        logger.info("✅ Restarting tunnel connection...");
         onServerCrash();
       }
 
@@ -93,7 +92,7 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
     });
 
     currentProcess.on("error", (err) => {
-      logger.error(`❌ Server error: ${err.message}`);
+      logger.error(`Server error: ${err.message}`);
     });
 
     onReady?.(currentProcess);
@@ -163,9 +162,9 @@ export function setupExitHandler(serverManager, tunnelProcess) {
   const onSignal = (sig) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    logger.info(`🛑 Stopping 9Remote (${sig})...`);
+    logger.info(`Stopping 9Remote (${sig})...`);
     shutdownAll({ serverManager, tunnelProcess });
-    logger.info("✅ Server stopped");
+    logger.info("Server stopped");
   };
 
   process.on("SIGINT", () => onSignal("SIGINT"));

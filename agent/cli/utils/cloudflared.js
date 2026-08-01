@@ -102,16 +102,14 @@ async function waitForInternet() {
  */
 async function scheduleRestart(arg, reason) {
   if (!restartCallback) {
-    logger.warn("⚠️  No restartCallback registered — skip");
+    logger.warn("No restartCallback registered — skip");
     return;
   }
   if (restartInFlight) {
-    logger.info(`⏭ restart already in flight, skip (${reason})`);
     return;
   }
   // Debounce: collapse bursts (network change + exit handler) within 5s window
   if (Date.now() - lastScheduleAt < SCHEDULE_DEBOUNCE_MS) {
-    logger.info(`⏭ restart debounced, skip (${reason})`);
     return;
   }
   lastScheduleAt = Date.now();
@@ -125,7 +123,7 @@ async function scheduleRestart(arg, reason) {
     lastScheduleAt = 0;
   } catch (err) {
     restartFailCount++;
-    logger.error(`❌ restart failed (#${restartFailCount}): ${err?.message || err}`);
+    logger.error(`restart failed (#${restartFailCount}): ${err?.message || err}`);
     // Re-queue next attempt asynchronously to avoid recursion stack growth
     setImmediate(() => {
       restartInFlight = false;
@@ -280,7 +278,7 @@ export async function ensureCloudflared(onProgress) {
     return BIN_PATH;
   } catch (error) {
     try { if (fs.existsSync(downloadDest)) fs.unlinkSync(downloadDest); } catch {}
-    console.error("❌ Failed to download cloudflared:", error.message);
+    console.error("Failed to download cloudflared:", error.message);
     throw error;
   }
 }
@@ -306,19 +304,18 @@ async function verifyCloudflaredSha256(downloadUrl, filePath) {
   try {
     manifest = await fetchText(`${GITHUB_BASE_URL}/sha256sum.txt`);
   } catch (e) {
-    logger.warn(`⚠️ sha256 manifest unavailable (${e.message}), skipping verify`);
+    logger.warn(`sha256 manifest unavailable (${e.message}), skipping verify`);
     return;
   }
   const line = manifest.split("\n").find((l) => l.includes(filename));
   if (!line) {
-    logger.warn(`⚠️ No sha256 entry for ${filename}, skipping verify`);
+    logger.warn(`No sha256 entry for ${filename}, skipping verify`);
     return;
   }
   const expected = line.trim().split(/\s+/)[0];
   const { createHash } = await import("crypto");
   const actual = createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
   if (actual !== expected) throw new Error(`Integrity check failed: SHA256 mismatch (expected ${expected}, got ${actual})`);
-  logger.info(`✓ cloudflared SHA256 verified`);
 }
 
 // Log patterns to filter cloudflared output
@@ -410,14 +407,14 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
         clearTimeout(timeout);
         cleanup();
         startNetworkMonitor();
-        logger.info(`✅ tunnel ready: ${tunnelUrl}`);
+        logger.info(`tunnel ready: ${tunnelUrl}`);
         resolve({ child, tunnelUrl });
         return;
       }
 
       // URL rotated after initial connect — notify caller
       if (tunnelUrl !== lastUrl) {
-        logger.info(`🔄 URL rotated: ${tunnelUrl}`);
+        logger.info(`URL rotated: ${tunnelUrl}`);
         lastUrl = tunnelUrl;
         activeTunnelUrl = tunnelUrl;
         tunnelReadyAt = Date.now();
@@ -438,7 +435,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
     child.on("exit", (code, signal) => {
       cleanup();
-      logger.info(`💥 cloudflared exit pid=${child.pid} code=${code} signal=${signal} intentional=${isIntentionalShutdown}`);
+      logger.info(`cloudflared exited (intentional=${isIntentionalShutdown})`);
       if (!isIntentionalShutdown) setLastStatus("unreachable");
       if (!resolved) {
         resolved = true;
@@ -477,8 +474,7 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
   });
   
   isIntentionalShutdown = false;
-  logger.info(`✅ Cloudflared spawned with PID: ${child.pid}`);
-  
+
   // Wait for 4 connections before resolving (tunnel is truly ready)
   await new Promise((resolve, reject) => {
     let connectionCount = 0;
@@ -494,7 +490,7 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
       if (msg.includes("Registered tunnel connection")) {
         connectionCount++;
         if (connectionCount <= 4) {
-          process.stdout.write(`\r   ✔ Connection ${connectionCount}/4 established`);
+          process.stdout.write(`\r   Connection ${connectionCount}/4 established`);
           if (connectionCount === 4) {
             process.stdout.write("\n");
             if (!resolved) { resolved = true; clearTimeout(timeout); resolve(child); }
@@ -511,11 +507,11 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
   });
 
   child.on("error", (error) => {
-    console.error("❌ cloudflared error:", error);
+    console.error("cloudflared error:", error);
   });
   
   child.on("exit", (code, signal) => {
-    logger.warn(`⚠️  Cloudflared process exited (code: ${code}, signal: ${signal}, intentional: ${isIntentionalShutdown})`);
+    logger.warn(`Cloudflared process exited (code: ${code}, signal: ${signal}, intentional: ${isIntentionalShutdown})`);
     if (isIntentionalShutdown) return;
     scheduleRestart(tunnelToken, `tunnel exit code ${code}${signal ? `/${signal}` : ""}`);
   });
@@ -553,7 +549,7 @@ function killCloudflaredByPort(port) {
       );
       pids = out.split("\n").map((s) => +s.trim()).filter(Boolean);
     }
-    for (const p of new Set(pids)) { killPid(p); logger.info(`✅ killed orphan cloudflared pid=${p}`); }
+    for (const p of new Set(pids)) { killPid(p); }
   } catch {}
 }
 
@@ -577,7 +573,6 @@ export function killCloudflared() {
     isIntentionalShutdown = true;
     if (pid) {
       killPid(pid);
-      logger.info(`✅ Cloudflared killed`);
       clearPid("cloudflared");
     }
 
@@ -647,20 +642,16 @@ function startNetworkMonitor() {
     // Sleep/wake: gap >> poll interval → OS suspended us (clamshell, idle sleep).
     // Probe first — cloudflared may have auto-reconnected after wake, no kill needed.
     if (gap > SLEEP_DETECT_MS) {
-      logger.info(`💤 Sleep/wake detected (gap=${gap}ms)`);
+      logger.info(`Sleep/wake detected (gap=${gap}ms)`);
       if (activeTunnelUrl) {
         let survived = false;
         for (let i = 0; i < 3; i++) {
           const probe = await probeTunnelOnce(activeTunnelUrl);
-          const detail = probe.ok ? "ok" : `fail(dns=${probe.dnsCode || "n/a"}, http=${probe.httpStatus || "n/a"})`;
-          logger.info(`sleep probe #${i + 1} ${detail} ${probe.elapsedMs}ms`);
           if (probe.ok) { survived = true; break; }
           if (i < 2) await new Promise((r) => setTimeout(r, 3000));
         }
-        if (survived) { logger.info("✅ Tunnel survived sleep, skip restart"); return; }
-        logger.info("sleep probe failed after 3 attempts → kill + restart");
-      } else {
-        logger.info("no activeTunnelUrl → kill + restart");
+        if (survived) { return; }
+        logger.info("tunnel unresponsive after sleep → restarting");
       }
       setLastStatus("unreachable");
       killCloudflared();
@@ -681,12 +672,11 @@ function startNetworkMonitor() {
 
     // Cooldown: skip network-change kill within 30s of tunnel ready (avoids killing during DHCP stabilization)
     if (fingerprintChanged && !cloudflaredDead && tunnelReadyAt && Date.now() - tunnelReadyAt < NETWORK_CHANGE_COOLDOWN_MS) {
-      logger.info("⏸ Network change in cooldown, skip");
       return;
     }
 
-    if (fingerprintChanged) logger.info("🔄 Network change detected");
-    if (cloudflaredDead) logger.info("🔍 Liveness watchdog: cloudflared not alive");
+    if (fingerprintChanged) logger.info("Network change detected");
+    if (cloudflaredDead) logger.warn("cloudflared not alive — watchdog");
     setLastStatus("unreachable");
 
     // Wait briefly for network to stabilize (DHCP, RA, VPN auto-connect)
@@ -703,7 +693,7 @@ function startNetworkMonitor() {
         if (i === 0) await new Promise((r) => setTimeout(r, 2000));
       }
       if (survived) {
-        logger.info("✅ Tunnel survived network change, skip restart");
+        logger.info("Tunnel survived network change, skip restart");
         return;
       }
     }

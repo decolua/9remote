@@ -125,7 +125,7 @@ class DesktopBridge {
       short k = VkKeyScanW(c);
       ushort vk = (ushort)(k & 0xFF);
       bool shift = (k & 0x0100) != 0;
-      L("  char='" + c + "' vk=0x" + vk.ToString("X2") + " shift=" + shift);
+      // Never log the char or its vk — TYPE carries the user's password.
       if (shift) {
         SendKey(VK_SHIFT, false);
         SendKey(vk, false); Thread.Sleep(25); SendKey(vk, true);

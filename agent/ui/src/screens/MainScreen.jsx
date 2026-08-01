@@ -341,7 +341,7 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
   const isPending = client.status === "pending";
   const timeLabel =
     client.status === "online"
-      ? `${client.ip ? client.ip + " · " : ""}connected ${client.connectedAt ? new Date(client.connectedAt).toLocaleTimeString() : ""}`
+      ? `${client.ip ? client.ip + " · " : ""}connected ${client.connectedAt ? new Date(client.connectedAt).toLocaleTimeString(undefined, { hour12: false }) : ""}`
       : isPending
         ? "Waiting for approval"
         : client.approvedAt
@@ -586,7 +586,7 @@ function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown,
 
 function TunnelHealthBadge({ tunnelHealth, onResetTunnel }) {
   const meta = TUNNEL_HEALTH_META[tunnelHealth?.status] || TUNNEL_HEALTH_META.unknown;
-  const time = tunnelHealth?.checkedAt ? new Date(tunnelHealth.checkedAt).toLocaleTimeString() : "--:--:--";
+  const time = tunnelHealth?.checkedAt ? new Date(tunnelHealth.checkedAt).toLocaleTimeString(undefined, { hour12: false }) : "--:--:--";
   const isHealthy = tunnelHealth?.status === "healthy";
   return (
     <button

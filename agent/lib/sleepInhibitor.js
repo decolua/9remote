@@ -54,7 +54,6 @@ function spawnProc() {
     proc.on("error", (err) => { logger.warn(`inhibitor error: ${err.message}`); proc = null; });
     proc.on("exit", () => { proc = null; });
     registerExitHook();
-    logger.info(`💤 Sleep inhibitor started (${c.cmd})`);
   } catch (err) {
     logger.warn(`Failed to start sleep inhibitor: ${err.message}`);
     proc = null;
@@ -65,7 +64,6 @@ function killProc() {
   if (!proc) return;
   try { proc.kill(); } catch {}
   proc = null;
-  logger.info("💤 Sleep inhibitor stopped");
 }
 
 function clearIdleTimer() {

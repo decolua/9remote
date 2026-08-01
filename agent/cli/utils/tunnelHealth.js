@@ -35,7 +35,7 @@ async function runCheck() {
   pendingCount++;
   if (pendingCount < HEALTH_FLAP_STABLE_CHECKS) return;
 
-  logger.info(`🩺 ${lastStatus ?? "init"} → ${status}${res.ok ? "" : ` (http=${res.httpStatus ?? "-"} dns=${res.dnsCode ?? "-"})`}`);
+  logger.info(`${lastStatus ?? "init"} → ${status}${res.ok ? "" : ` (http=${res.httpStatus ?? "-"} dns=${res.dnsCode ?? "-"})`}`);
   lastStatus = status;
   pendingStatus = null;
   pendingCount = 0;

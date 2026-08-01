@@ -17,7 +17,6 @@ let lastSyncedAt = 0;
 
 export async function updateTunnelUrl(selectedKey, tunnelUrl) {
   if (tunnelUrl && tunnelUrl === lastSyncedUrl && Date.now() - lastSyncedAt < URL_SYNC_DEBOUNCE_MS) {
-    logger.info(`⏭ urlSync debounced (same URL): ${tunnelUrl}`);
     return;
   }
   if (urlSyncCtx) urlSyncCtx.cancelled = true;
@@ -40,12 +39,11 @@ export async function updateTunnelUrl(selectedKey, tunnelUrl) {
       if (res.ok) {
         lastSyncedUrl = tunnelUrl;
         lastSyncedAt = Date.now();
-        logger.info(`✅ urlSync ok`);
         runFastHealthProbe(tunnelUrl);
         return true;
       }
       const txt = await res.text().catch(() => "");
-      logger.warn(`⚠️  urlSync HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      logger.warn(`urlSync HTTP ${res.status}: ${txt.slice(0, 200)}`);
       return false;
     },
   });
@@ -66,7 +64,6 @@ async function runFastHealthProbe(tunnelUrl) {
     if (fastProbeCtx !== ctx) return;
     if (ok) {
       setLastStatus("healthy");
-      logger.info(`✅ fast probe healthy`);
     }
   } catch {} finally {
     if (fastProbeCtx === ctx) fastProbeCtx = null;

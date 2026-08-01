@@ -449,16 +449,6 @@ export async function getDesktopState() {
   } catch { _running = false; return null; }
 }
 
-// Tail worker.log (written by the SYSTEM worker) — surfaces SendInput failures,
-// wrong session/desktop, and per-char vk resolution so the agent can diagnose
-// why typed text doesn't reach the login field.
-function tailLog(name, n) {
-  try {
-    const lines = readFileSync(path.join(RUNTIME_DIR, name), "utf8").trim().split(/\r?\n/);
-    return lines.slice(-n).join(" | ") || "(empty)";
-  } catch { return `(no ${name})`; }
-}
-
 export async function typeText(text) {
   if (!isWin) return { ok: false, reason: "unsupported" };
   if (typeof text !== "string" || !text) return { ok: false, reason: "empty" };
@@ -468,9 +458,6 @@ export async function typeText(text) {
   try {
     const r = await pipeCmd("TYPE " + text, 15000);
     _running = true;
-    // Launcher line first: it reports the session the worker was spawned into,
-    // which is what decides whether SendInput reaches the real lock screen.
-    logger.info(`typeText: reply=${r} | launcher: ${tailLog("launcher.log", 2)} | worker: ${tailLog("worker.log", 12)}`);
     return { ok: r === "OK" };
   } catch (e) { _running = false; return { ok: false, reason: e.message }; }
 }

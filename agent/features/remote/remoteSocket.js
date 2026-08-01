@@ -24,7 +24,7 @@ export async function checkRemoteAvailable() {
   if (remoteAvailable !== null) return remoteAvailable;
   if (isKnownHeadless()) {
     remoteAvailable = false;
-    logger.info("✅ Remote desktop not available (headless environment)");
+    logger.warn("Remote desktop not available (headless environment)");
     return remoteAvailable;
   }
   try {
@@ -34,7 +34,7 @@ export async function checkRemoteAvailable() {
     remoteAvailable = true;
   } catch {
     remoteAvailable = false;
-    logger.info("✅ Remote desktop not available (no display or robotjs not installed)");
+    logger.warn("Remote desktop not available (no display or robotjs not installed)");
   }
   return remoteAvailable;
 }
@@ -74,7 +74,6 @@ async function enablePerMonitorDpiAwareness() {
     const setDpi = user32.func("bool __stdcall SetProcessDpiAwarenessContext(void* value)");
     // PER_MONITOR_AWARE_V2 = -4. After this, mouse APIs use physical pixels.
     setDpi(koffi.as(-4, "void*"));
-    logger.info("DPI awareness set: PER_MONITOR_AWARE_V2");
   } catch (err) {
     logger.warn(`DPI awareness setup failed: ${err.message}`);
   }
@@ -197,7 +196,6 @@ export async function setupRemoteHandlers(socket, apiKey) {
       if (force || locked !== lastLocked || ready !== lastReady) {
         lastLocked = locked;
         lastReady = ready;
-        logger.info(`unlock-state: locked=${locked} ready=${ready}`);
         protocol.emit("screen-locked", { locked, ready });
       }
     };

@@ -13,7 +13,7 @@ export async function spawnQuickTunnelWithRetry(localPort, onUrlUpdate, onRestar
       return await spawnQuickTunnel(localPort, onUrlUpdate, onRestart);
     } catch (err) {
       const delay = computeDelay(RETRY_CONFIG.tunnelSpawn, attempt);
-      logger.warn(`⚠️  spawn attempt ${attempt} failed: ${err?.message || err} — retry in ${delay}ms`);
+      logger.warn(`spawn attempt ${attempt} failed: ${err?.message || err} — retry in ${delay}ms`);
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -26,9 +26,9 @@ export function makeTunnelRestartHandler({ onUrlUpdate, setTunnel }) {
       const r = await spawnQuickTunnelWithRetry(port, onUrlUpdate);
       setTunnel(r.child);
       await onUrlUpdate(r.tunnelUrl);
-      logger.info(`✅ Tunnel restarted: ${r.tunnelUrl}`);
+      logger.info(`Tunnel restarted: ${r.tunnelUrl}`);
     } catch (err) {
-      logger.error(`❌ Tunnel restart failed: ${err?.message || err}`);
+      logger.error(`Tunnel restart failed: ${err?.message || err}`);
     }
   };
 }
