@@ -1,7 +1,7 @@
 import { loadNative } from "./nativeSelfHeal.js";
 import { BaseProtocol } from "./BaseProtocol.js";
 import { encode, decode } from "./codec.js";
-import { ADAPTER_STATE, CHANNELS } from "../lib/transportConstants.js";
+import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER } from "../lib/transportConstants.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { resolveCandidate } from "../lib/mdnsResolver.js";
 import { createLogger } from "../lib/logger.js";
@@ -74,14 +74,15 @@ async function fetchTurnIceServers(turnApiUrl, apiKey) {
  */
 export class WebRtcProtocol extends BaseProtocol {
   static id = "rtc";
-  static capabilities = { control: true, binary: true, signaling: "external" };
-  static priority = { control: 50, binary: 100 };
+  static capabilities = { control: true, binary: true, file: true, signaling: "external" };
+  static priority = { control: 50, binary: 100, file: 100 };
 
   constructor() {
     super();
     this._pc = null;
     this._dcControl = null;
     this._dcBinary = null;
+    this._dcFile = null;
     this._iceServers = DEFAULT_ICE;
     this._refreshTimer = null;
     this._remoteSet = false;
@@ -143,6 +144,20 @@ export class WebRtcProtocol extends BaseProtocol {
         return false;
       }
     }
+    if (channel === CHANNELS.file) {
+      if (!this._dcFile) return false;
+      try {
+        const raw = Array.isArray(payload) ? payload[0] : payload;
+        // node-datachannel expects Buffer; encodeFileFrame yields Uint8Array.
+        const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+        // Generous threshold — file transfer is throughput, not real-time.
+        if (this._dcFile.bufferedAmount() > FILE_TRANSFER.dcBufferThreshold) return false;
+        return this._dcFile.sendMessageBinary(chunk);
+      } catch (err) {
+        logger.error(`send file failed: ${err.message}`);
+        return false;
+      }
+    }
     return false;
   }
 
@@ -177,6 +192,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pc = null;
     this._dcControl = null;
     this._dcBinary = null;
+    this._dcFile = null;
     this._remoteSet = false;
     // NOTE: do NOT clear _pendingCandidates here — _processOffer flushes them
     // after setRemoteDescription. Wiping them drops early ICE (pre-offer) silently,
@@ -211,16 +227,25 @@ export class WebRtcProtocol extends BaseProtocol {
       const setOpen = () => {
         if (label === "control") this._dcControl = dc;
         else if (label === "binary") this._dcBinary = dc;
+        else if (label === "file") this._dcFile = dc;
+        // Adapter is "open" once control+binary (tiles) are up; the file DC is a
+        // secondary channel that may open slightly later and is optional for state.
         if (this._dcControl && this._dcBinary) this._setState(ADAPTER_STATE.open);
       };
       dc.onOpen(setOpen);
       dc.onClosed(() => {
         if (label === "control") this._dcControl = null;
         if (label === "binary") this._dcBinary = null;
+        if (label === "file") this._dcFile = null;
         if (!this._dcControl && !this._dcBinary) this._setState(ADAPTER_STATE.closed);
       });
       dc.onError((err) => logger.error(`DC[${label}] error: ${err?.message || err}`));
       dc.onMessage((data) => {
+        // File DC carries raw binary frames (upload chunks from client).
+        if (label === "file") {
+          this._emit("binary", { channel: "file", buffer: data, source: "rtc" });
+          return;
+        }
         if (label !== "control") return;
         let parsed;
         try { parsed = decode(data); }
@@ -283,6 +308,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pc = null;
     this._dcControl = null;
     this._dcBinary = null;
+    this._dcFile = null;
   }
 
   async _refreshTurn(rtcCfg) {

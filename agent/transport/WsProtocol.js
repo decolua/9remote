@@ -7,8 +7,8 @@ import { ADAPTER_STATE, CHANNELS } from "../lib/transportConstants.js";
  */
 export class WsProtocol extends BaseProtocol {
   static id = "ws";
-  static capabilities = { control: true, binary: true, signaling: "ws" };
-  static priority = { control: 100, binary: 10 };
+  static capabilities = { control: true, binary: true, file: true, signaling: "ws" };
+  static priority = { control: 100, binary: 10, file: 10 };
 
   constructor() {
     super();
@@ -51,6 +51,12 @@ export class WsProtocol extends BaseProtocol {
       const transport = this._socket.conn?.transport;
       if (transport && transport.writable === false) return false;
       emit("tiles-bin-v2", payload);
+      return true;
+    }
+    if (channel === CHANNELS.file) {
+      const transport = this._socket.conn?.transport;
+      if (transport && transport.writable === false) return false;
+      emit("file-bin", payload);
       return true;
     }
     return false;

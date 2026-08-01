@@ -1,7 +1,7 @@
 import { BaseProtocol } from "./BaseProtocol";
 import { encode, decode } from "./codec";
 import { API_ENDPOINTS } from "@/shared/constants/API";
-import { ADAPTER_STATE, CHANNELS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
@@ -59,14 +59,15 @@ function resetWorker() {
  */
 export class WebRtcProtocol extends BaseProtocol {
   static id = "rtc";
-  static capabilities = { control: true, binary: true, signaling: "external" };
-  static priority = { control: 50, binary: 100 };
+  static capabilities = { control: true, binary: true, file: true, signaling: "external" };
+  static priority = { control: 50, binary: 100, file: 100 };
 
   constructor() {
     super();
     this._pc = null;
     this._dcControl = null;
     this._dcBinary = null;
+    this._dcFile = null;
     this._typeDetail = "dc-stun";
 
     this._pendingEmit = null;
@@ -120,10 +121,13 @@ export class WebRtcProtocol extends BaseProtocol {
     const ordered = ctx.profile?.rtc?.dcControl?.ordered ?? true;
     const dcControl = pc.createDataChannel("control", { ordered });
     const dcBinary = pc.createDataChannel("binary", { ordered: false, maxPacketLifeTime: 500 });
+    const dcFile = pc.createDataChannel("file", { ordered: true });
     dcBinary.binaryType = "arraybuffer";
     dcControl.binaryType = "arraybuffer";
+    dcFile.binaryType = "arraybuffer";
     this._dcControl = dcControl;
     this._dcBinary = dcBinary;
+    this._dcFile = dcFile;
 
     const checkOpen = async () => {
       if (dcControl.readyState !== "open" || dcBinary.readyState !== "open") return;
@@ -146,7 +150,8 @@ export class WebRtcProtocol extends BaseProtocol {
     dcControl.onopen = checkOpen;
     dcBinary.onopen = checkOpen;
 
-    // Closed only when BOTH DCs gone — single DC close = degraded
+    // Closed only when BOTH control+binary gone — single DC close = degraded.
+    // The file DC is secondary: its close doesn't govern adapter state.
     const handleClose = () => {
       const cClosed = !this._dcControl || this._dcControl.readyState === "closed";
       const bClosed = !this._dcBinary || this._dcBinary.readyState === "closed";
@@ -155,6 +160,7 @@ export class WebRtcProtocol extends BaseProtocol {
     };
     dcControl.onclose = handleClose;
     dcBinary.onclose = handleClose;
+    dcFile.onclose = () => { this._dcFile = null; };
 
     dcControl.onerror = (e) => {
       const msg = e.error?.message ?? "unknown";
@@ -163,6 +169,10 @@ export class WebRtcProtocol extends BaseProtocol {
     dcBinary.onerror = (e) => {
       const msg = e.error?.message ?? "unknown";
       if (!msg.includes("User-Initiated")) console.error("[rtc] dcBinary ERROR:", msg);
+    };
+    dcFile.onerror = (e) => {
+      const msg = e.error?.message ?? "unknown";
+      if (!msg.includes("User-Initiated")) console.error("[rtc] dcFile ERROR:", msg);
     };
 
     dcControl.onmessage = ({ data }) => {
@@ -174,6 +184,11 @@ export class WebRtcProtocol extends BaseProtocol {
 
     dcBinary.onmessage = ({ data }) => {
       if (data instanceof ArrayBuffer) this._receiveTile(data);
+    };
+
+    // File DC carries raw binary frames (download chunks from agent).
+    dcFile.onmessage = ({ data }) => {
+      if (data instanceof ArrayBuffer) this._emit("binary", { channel: "file", buffer: data, source: "rtc" });
     };
 
     pc.onicecandidate = ({ candidate }) => {
@@ -237,6 +252,18 @@ export class WebRtcProtocol extends BaseProtocol {
         return false;
       }
     }
+    if (channel === CHANNELS.file) {
+      if (this._dcFile?.readyState !== "open") return false;
+      try {
+        // Backpressure — generous threshold for throughput (not real-time).
+        if (this._dcFile.bufferedAmount > FILE_TRANSFER.dcBufferThreshold) return false;
+        this._dcFile.send(payload);
+        return true;
+      } catch (err) {
+        console.error("[rtc] send file error:", err.message);
+        return false;
+      }
+    }
     return false;
   }
 
@@ -268,13 +295,14 @@ export class WebRtcProtocol extends BaseProtocol {
   // ─── Internal ──────────────────────────────────────────────────────────────
 
   _cleanupPeer() {
-    for (const dc of [this._dcControl, this._dcBinary]) {
+    for (const dc of [this._dcControl, this._dcBinary, this._dcFile]) {
       if (!dc) continue;
       dc.onopen = null; dc.onclose = null; dc.onerror = null; dc.onmessage = null;
       try { dc.close(); } catch {}
     }
     this._dcControl = null;
     this._dcBinary = null;
+    this._dcFile = null;
     if (this._pc) {
       this._pc.onicecandidate = null;
       this._pc.oniceconnectionstatechange = null;

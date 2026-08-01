@@ -10,8 +10,8 @@ import { ADAPTER_STATE } from "../lib/transportConstants.js";
  */
 export class BaseProtocol {
   static id = "base";
-  static capabilities = { control: false, binary: false, signaling: "none" };
-  static priority = { control: 0, binary: 0 };
+  static capabilities = { control: false, binary: false, file: false, signaling: "none" };
+  static priority = { control: 0, binary: 0, file: 0 };
 
   constructor() {
     this._listeners = new Map();

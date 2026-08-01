@@ -60,6 +60,7 @@ export class ProtocolManager {
         inst = new Adapter();
         inst.on("stateChange", (state) => this._onAdapterStateChange(id, state));
         inst.on("message", ({ event, data, source }) => this._dispatch(event, data, source));
+        inst.on("binary", (msg) => this._onBinary(msg));
         await inst.connect(this._buildCtx(id));
       } catch (err) {
         // Native addon missing/broken (e.g. blocked install script) — degrade to WS-only.
@@ -81,6 +82,22 @@ export class ProtocolManager {
   /** Always control channel — same as legacy "WS emit" */
   emit(event, ...args) {
     this._sendControl(event, args);
+  }
+
+  /**
+   * Send a binary payload on a channel (file transfer). Picks the best adapter
+   * (RTC preferred), falls back to WS on RTC backpressure/death — same pattern
+   * as _sendControl. Returns true if delivered on any adapter.
+   */
+  sendBinary(channel, payload) {
+    const adapter = this._pickAdapter(channel);
+    if (!adapter) return false;
+    if (adapter.send(channel, payload)) return true;
+    if (adapter.constructor.id === "rtc") {
+      const ws = this._adapters.get("ws");
+      if (ws?.ready && ws.send(channel, payload)) return true;
+    }
+    return false;
   }
 
   /**
@@ -323,6 +340,17 @@ export class ProtocolManager {
     // WS source — socket.io already fired raw listeners; only invoke PM bus
     const set = this._listeners.get(event);
     if (set) for (const h of set) h(payload);
+  }
+
+  /**
+   * Incoming binary frame from an adapter's "binary" event (RTC DC "file").
+   * Route to socket.io-style "file-bin" listeners so WS and RTC paths share one
+   * handler (WS delivers "file-bin" natively via socket.io onAny).
+   */
+  _onBinary(msg) {
+    if (!msg || msg.channel !== "file") return;
+    const fns = this._socket?.listeners?.("file-bin") || [];
+    for (const fn of fns) fn(msg.buffer);
   }
 
   _sendAck(ackId, resp) {

@@ -15,8 +15,8 @@ const RETRY = BEHAVIOR.retry;
  */
 export class WsProtocol extends BaseProtocol {
   static id = "ws";
-  static capabilities = { control: true, binary: true, signaling: "ws" };
-  static priority = { control: 100, binary: 10 };
+  static capabilities = { control: true, binary: true, file: true, signaling: "ws" };
+  static priority = { control: 100, binary: 10, file: 10 };
 
   constructor() {
     super();
@@ -136,6 +136,10 @@ export class WsProtocol extends BaseProtocol {
     }
     if (channel === CHANNELS.binary) {
       this._socket.emit("tiles-bin-v2", payload);
+      return true;
+    }
+    if (channel === CHANNELS.file) {
+      this._socket.emit("file-bin", payload);
       return true;
     }
     return false;
