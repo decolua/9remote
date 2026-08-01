@@ -419,7 +419,7 @@ function ConnectionEmpty({ onStart, t }) {
   const [connecting, setConnecting] = useState(false);
   const handleConnect = () => { setConnecting(true); onStart?.(); };
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-8 text-center max-w-md mx-auto w-full">
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-8 text-center max-w-lg w-full">
       <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: "var(--glass-bg)" }}>
         <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--text-muted)" }}>cloud_off</span>
       </div>
@@ -502,7 +502,7 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
   const handleSelect = (id) => { onSelect(id); onClose?.(); };
   const handleSelectSession = (id) => { onSelectSession?.(id); onClose?.(); };
   return (
-    <aside className="flex flex-col sidebar w-[264px] flex-shrink-0 h-full">
+    <aside className="flex flex-col sidebar w-[232px] xl:w-[264px] flex-shrink-0 h-full">
       {/* Brand */}
       <div className="flex items-center gap-3 px-5 py-5">
         <img src="/favicon.svg" alt="9Remote" className="w-10 h-10 rounded-xl flex-shrink-0" />
@@ -806,7 +806,7 @@ export default function MainScreen({
               )}
 
               {activeMenu === "connection" && isConnecting && (
-                <div className="flex-1 flex flex-col gap-4 max-w-2xl mx-auto w-full">
+                <div className="flex-1 flex flex-col gap-4 max-w-2xl w-full">
                   <StepProgress currentStep={step} activeDesc={stepDesc} healthCheck={healthCheck} t={t} />
                 </div>
               )}
@@ -814,7 +814,7 @@ export default function MainScreen({
               {activeMenu === "connection" && isReady && (
                 <>
                   {/* QR (1fr) left + Config & Clients (1.7fr) right — pro5 ratio */}
-                  <div className="grid grid-cols-1 md:grid-cols-[1fr_1.7fr] gap-4 items-stretch">
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,1fr)_1.7fr] gap-4 items-stretch">
                     <div>
                       <QRCard
                         qrUrl={qrUrl}

@@ -106,8 +106,10 @@ export function useSessions() {
     };
   }, []);
 
-  // Sync dock/taskbar badge to unread count. No-op outside the Tauri shell.
-  useEffect(() => { setTauriBadge(finishedIds.size); }, [finishedIds]);
+  // Dock badge counts only DONE: a blocked session can't be cleared by focus,
+  // so counting it would pin the badge at a number the user cannot dismiss.
+  const doneCount = Object.values(sessionStatus).filter((s) => s?.state === "done").length;
+  useEffect(() => { setTauriBadge(doneCount); }, [doneCount]);
 
   // Clear local badge + notify agent (keeps server state accurate)
   const clearFinished = (sessionId) => {
