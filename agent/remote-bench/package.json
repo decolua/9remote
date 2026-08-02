@@ -1,0 +1,11 @@
+{
+  "name": "remote-bench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Full remote-desktop pipeline benchmark: capture/resize/encode, GPU (OpenCL) + native DXGI DDA, with leak + Win compat checks.",
+  "scripts": {
+    "test": "node test/run_tests.mjs",
+    "start": "node run.mjs"
+  }
+}
