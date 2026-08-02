@@ -1,19 +1,10 @@
-// Encoder adapter — sharp (RGBA) | jpeg-turbo (BGRA/RGBA native)
-// No BGRA→RGBA conversion needed: jpeg-turbo accepts BGRA via FORMAT_BGRA;
-// sharp requires RGBA so convert only when sharp is paired with a BGRA source.
+// Encoder adapter — sharp only. BGRA sources are swapped to RGBA in-place.
 import sharp from "sharp";
-import jpegTurboModule from "@julusian/jpeg-turbo";
 import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
-
-const jpegTurbo = jpegTurboModule.default || jpegTurboModule;
 
 // libvips holds RAM via malloc arena — disable cache, single-thread (tiles already parallel)
 sharp.cache(false);
 sharp.concurrency(1);
-
-function turboFormat(format) {
-  return format === "bgra" ? jpegTurbo.FORMAT_BGRA : jpegTurbo.FORMAT_RGBA;
-}
 
 // Swap R↔B in-place for BGRA→RGBA (4x faster than byte loop via Uint32)
 export function bgraToRgbaInPlace(buf) {
@@ -25,23 +16,11 @@ export function bgraToRgbaInPlace(buf) {
 }
 
 export async function encodeJpeg(buffer, width, height, channels = 4, quality, formatOverride) {
-  const { encoder, inputFormat, jpegQuality, tileFormat, webpEffort } = REMOTE_CONFIG.pipeline;
-  // Caller-supplied quality overrides config default (adaptive profile)
+  const { inputFormat, jpegQuality, tileFormat, webpEffort } = REMOTE_CONFIG.pipeline;
   const q = quality ?? jpegQuality;
-  // formatOverride lets caller pass pre-swapped RGBA buffer (e.g. per-tile resize)
   const fmt = formatOverride ?? inputFormat;
 
-  // jpeg-turbo only encodes JPEG; WebP always routes through sharp
-  if (encoder === "jpegTurbo" && tileFormat !== "webp") {
-    return jpegTurbo.compressSync(buffer, {
-      width,
-      height,
-      format: turboFormat(fmt),
-      quality: q
-    });
-  }
-
-  // sharp path — needs RGBA
+  // sharp needs RGBA
   let input = buffer;
   if (fmt === "bgra") {
     // Copy so we don't mutate shared screen buffer
