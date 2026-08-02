@@ -146,5 +146,24 @@ await test("D9 focus pan to new area clears checksums of newly-exposed tiles", (
   assert(cleared === newlyExposed, `cleared ${cleared} != exposed ${newlyExposed}`);
 });
 
+// --- compressTileImage fallback ---
+// On a non-Win host (or when OpenCL init failed) gpuResize is null and the
+// tile must still encode via the sharp path — never crash, never return empty.
+await test("D12 scale<1 + no GPU → sharp fallback encodes a valid tile", async () => {
+  const tm = makeTM({ w: 128, h: 128, tileSize: 128 });
+  tm.scaleFactor = 0.5;
+  tm.compressionQuality = 65;
+  const out = await tm.compressTileImage(screenBuf(128, 128, 90).buffer, 128, 128);
+  assert(Buffer.isBuffer(out) && out.length > 0, "sharp path returned a buffer");
+});
+
+await test("D13 scale=1 → no resize, encodeJpeg direct", async () => {
+  const tm = makeTM({ w: 128, h: 128, tileSize: 128 });
+  tm.scaleFactor = 1;
+  tm.compressionQuality = 65;
+  const out = await tm.compressTileImage(screenBuf(128, 128, 90).buffer, 128, 128);
+  assert(Buffer.isBuffer(out) && out.length > 0, "encodeJpeg returned a buffer");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

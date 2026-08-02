@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 import * as capture from "./adapters/captureAdapter.js";
 import { encodeJpeg, bgraToRgbaInPlace } from "./adapters/encoderAdapter.js";
+import { getGpuResize, resizeTile } from "./adapters/gpuResize.js";
 import { FrameMetrics } from "./metrics.js";
 import { remoteLog } from "./utils/remoteLog.js";
 
@@ -540,6 +541,19 @@ export class TileManager {
           buffer.copy(raw);
         }
         bgraToRgbaInPlace(raw);
+      }
+      // GPU OpenCL resize (win32 only). Bench: bilinear ~11ms full-frame vs
+      // sharp lanczos3 ~140ms; per-tile with buffer reuse is faster still.
+      // Handle is null on non-win / init-failed → falls through to sharp.
+      const gpu = REMOTE_CONFIG.pipeline.gpuResize ? getGpuResize() : null;
+      if (gpu) {
+        try {
+          const resized = resizeTile(gpu, "bilinear", raw, width, height, targetW, targetH);
+          return encodeJpeg(resized, targetW, targetH, channels, this.compressionQuality);
+        } catch (e) {
+          // One bad tile must not poison the frame — log + fall back to sharp.
+          remoteLog.error("gpuResize failed, sharp fallback:", e.message);
+        }
       }
       // Single pipeline: resize + encode in one pass (avoids second sharp instance)
       const { tileFormat, webpEffort } = REMOTE_CONFIG.pipeline;

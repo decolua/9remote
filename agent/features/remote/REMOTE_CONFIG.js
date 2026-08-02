@@ -17,6 +17,9 @@ export const REMOTE_CONFIG = {
     captureLib: platformCfg.capture,      // "robotjs" | "nodeScreenshots"
     inputFormat: platformCfg.inputFormat, // "bgra" | "rgba" — source color order
     tileSize: platformCfg.tileSize,
+    // Win: OpenCL per-tile resize instead of sharp lanczos3 when scale<1 (bench
+    // ~10× faster). Lazy-init; falls back to sharp if OpenCL is unavailable.
+    gpuResize: process.platform === "win32",
     // Tile output codec — "webp" (smaller ~⅓ size, faster at effort 0) | "jpeg"
     // Web client sniffs magic bytes, so it decodes either regardless of agent version.
     tileFormat: "webp",
