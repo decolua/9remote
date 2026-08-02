@@ -48,7 +48,7 @@ export class FrameMetrics {
     const lib = REMOTE_CONFIG.pipeline;
 
     const msg =
-      `[Metrics] ${lib.captureLib}+${lib.encoder} tile=${lib.tileSize} q${lib.jpegQuality} scale=${lib.outputScale} | ` +
+      `[Metrics] ${lib.captureLib}+sharp tile=${lib.tileSize} q${lib.jpegQuality} scale=${lib.outputScale} | ` +
       `fps=${fps} | capture=${avg("capture")}ms enc=${avg("encode")}ms total=${avg("total")}ms | ` +
       `tiles=${avgChanged}/${totalTiles} (${changePct}%) | ` +
       `data=${avgBytesPerFrame}KB/frame | tileAvg=${avgTileKB}KB (min ${minTileKB}, max ${maxTileKB}) | ` +

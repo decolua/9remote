@@ -11,7 +11,7 @@ export const CLI_REL_PATH = process.platform === "win32"
   : "lib/node_modules/9remote/dist/cli.cjs";
 // npm 11 blocks install scripts by default; native deps need theirs to place binaries
 export const ALLOW_SCRIPTS = [
-  "9remote", "@hurdlegroup/robotjs", "@julusian/jpeg-turbo", "bufferutil",
+  "9remote", "@hurdlegroup/robotjs", "bufferutil",
   "koffi", "node-datachannel", "node-pty", "sharp", "utf-8-validate", "fsevents",
 ];
 

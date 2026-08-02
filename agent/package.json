@@ -57,7 +57,6 @@
   },
   "optionalDependencies": {
     "@hurdlegroup/robotjs": "^0.12.1",
-    "@julusian/jpeg-turbo": "3.0.1",
     "node-datachannel": "0.32.3",
     "node-pty": "1.2.0-beta.12"
   },

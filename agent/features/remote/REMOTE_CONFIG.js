@@ -1,12 +1,12 @@
 // Remote Desktop Server Configuration
 
-// Per-OS optimal libs based on benchmark (see benchmark/RESULT.md)
+// Per-OS optimal libs based on screen capture benchmarks
 // darwin: node-screenshots async (robotjs leaks native CGImageRef on Mac)
 // win32:  node-screenshots DXGI GPU + sharp (RGBA, AVX2 prebuilt optimal)
 const PLATFORM_DEFAULTS = {
-  darwin: { capture: "nodeScreenshots", encoder: "sharp", tileSize: 128, inputFormat: "rgba" },
-  win32: { capture: "nodeScreenshots", encoder: "sharp", tileSize: 256, inputFormat: "rgba" },
-  linux: { capture: "nodeScreenshots", encoder: "sharp", tileSize: 256, inputFormat: "rgba" }
+  darwin: { capture: "nodeScreenshots", tileSize: 128, inputFormat: "rgba" },
+  win32: { capture: "nodeScreenshots", tileSize: 256, inputFormat: "rgba" },
+  linux: { capture: "nodeScreenshots", tileSize: 256, inputFormat: "rgba" }
 };
 
 const platformCfg = PLATFORM_DEFAULTS[process.platform] || PLATFORM_DEFAULTS.linux;
@@ -15,7 +15,6 @@ export const REMOTE_CONFIG = {
   // Capture & encoding pipeline (platform-driven)
   pipeline: {
     captureLib: platformCfg.capture,      // "robotjs" | "nodeScreenshots"
-    encoder: platformCfg.encoder,         // "sharp" | "jpegTurbo"
     inputFormat: platformCfg.inputFormat, // "bgra" | "rgba" — source color order
     tileSize: platformCfg.tileSize,
     // Tile output codec — "webp" (smaller ~⅓ size, faster at effort 0) | "jpeg"

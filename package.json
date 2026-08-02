@@ -35,7 +35,6 @@
     "agent:dev:ui:start": "npm run dev:ui:start --prefix agent"
   },
   "devDependencies": {
-    "@julusian/jpeg-turbo": "^3.0.1",
     "@napi-rs/image": "^1.12.0",
     "@tauri-apps/cli": "^2.5.0",
     "esbuild": "^0.27.2",

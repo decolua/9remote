@@ -296,35 +296,74 @@ export function useCanvas(socketEmitFunctions) {
     setBaseCanvasSize({ width: serverWidth * scale, height: serverHeight * scale });
   }, []);
 
-  // Handle resize/rotate
+  // Handle resize/rotate. Debounce collapses the burst (resize + orientationchange +
+  // visualViewport.resize all fire during one turn), then an rAF poll waits for the
+  // container's clientWidth/Height to actually stabilize before recomputing fitScale.
+  // On Android Chrome the layout flip + --app-height reflow straddles the 100ms
+  // debounce, so without the poll we'd read a mid-transition width and pick a wrong
+  // scale (→ offset mouse + canvas overshoot in portrait). Mirrors the rAF-until-
+  // reflowed pattern already used for panForKeyboard.
   useEffect(() => {
     let resizeTimeout = null;
-    
+    let rafId = null;
+
+    const pollAndRecalculate = () => {
+      const container = canvasContainerRef.current;
+      if (!container) { recalculateDisplaySize(); return; }
+
+      let lastW = container.clientWidth;
+      let lastH = container.clientHeight;
+      let stable = 0;
+      let tries = 0;
+
+      const tick = () => {
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (w === lastW && h === lastH) {
+          if (++stable >= REMOTE_CONFIG.resizeStableFrames) {
+            rafId = null;
+            recalculateDisplaySize();
+            return;
+          }
+        } else {
+          stable = 0;
+          lastW = w;
+          lastH = h;
+        }
+        if (tries++ >= REMOTE_CONFIG.resizeMaxFrames) {
+          rafId = null;
+          recalculateDisplaySize();
+          return;
+        }
+        rafId = requestAnimationFrame(tick);
+      };
+      rafId = requestAnimationFrame(tick);
+    };
+
     const handleResize = () => {
-      // Debounce to ensure container has updated dimensions
       if (resizeTimeout) clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => {
-        recalculateDisplaySize();
-      }, 100);
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      resizeTimeout = setTimeout(pollAndRecalculate, REMOTE_CONFIG.resizeDebounceMs);
     };
 
     window.addEventListener("resize", handleResize);
     window.addEventListener("orientationchange", handleResize);
-    
+
     // Also listen for visual viewport changes (iOS Safari)
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", handleResize);
     }
-    
+
     return () => {
       if (resizeTimeout) clearTimeout(resizeTimeout);
+      if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("orientationchange", handleResize);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener("resize", handleResize);
       }
     };
-  }, [recalculateDisplaySize]);
+  }, [recalculateDisplaySize, canvasContainerRef]);
 
   // Accumulate vertical scroll delta and emit to server when threshold reached.
   // Shared by 1-finger direct-mode scroll and 2-finger trackpad-mode scroll.
@@ -1235,6 +1274,25 @@ export function useCanvas(socketEmitFunctions) {
       return prev;
     });
   }, [baseCanvasSize]);
+
+  // Re-clamp pan whenever the display size or zoom changes (orientation change,
+  // container resize, server dims change). Mirrors panForKeyboard's clamp path but
+  // runs on every baseCanvasSize/zoom change, so pan can't go stale on Android when
+  // visualViewport.resize doesn't fire for an orientation change (→ canvas would
+  // drift out of the viewport while mouse coords, being pan-relative, stayed right).
+  useEffect(() => {
+    setCanvasPan(prev => {
+      const container = canvasContainerRef.current;
+      if (!container) return prev;
+      const displayW = baseCanvasSize.width * canvasZoom;
+      const displayH = baseCanvasSize.height * canvasZoom;
+      const maxPanX = Math.min(0, container.clientWidth - displayW);
+      const maxPanY = Math.min(0, container.clientHeight - displayH);
+      const x = Math.max(maxPanX, Math.min(0, prev.x));
+      const y = Math.max(maxPanY, Math.min(0, prev.y));
+      return x === prev.x && y === prev.y ? prev : { x, y };
+    });
+  }, [baseCanvasSize, canvasZoom]);
 
   // Move virtual cursor to the center of the VISIBLE viewport (not full canvas).
   // When zoomed, only part of canvas is visible — cursor should appear where user is looking.
