@@ -20,6 +20,12 @@ export async function initCapture(robot) {
   if (REMOTE_CONFIG.pipeline.captureLib === "nodeScreenshots") {
     await getMonitor();
   }
+  // Win-only GPU resize accelerator. Lazy/background: a failure here MUST NOT
+  // break startup — compressTileImage falls back to sharp when getGpuResize()
+  // returns null.
+  if (REMOTE_CONFIG.pipeline.gpuResize) {
+    import("./gpuResize.js").then(({ initGpuResize }) => initGpuResize()).catch(() => {});
+  }
 }
 
 export async function getScreenSize() {
