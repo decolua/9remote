@@ -1,6 +1,9 @@
 // Capture adapter — unified API over robotjs (BGRA) and node-screenshots (RGBA/DXGI GPU)
 // Returns { buffer, width, height, channels, format }
 import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
+import { createLogger } from "../../../lib/logger.js";
+
+const log = createLogger("capture-adapter");
 
 let robotRef = null;
 let monitorRef = null;
@@ -24,7 +27,9 @@ export async function initCapture(robot) {
   // break startup — compressTileImage falls back to sharp when getGpuResize()
   // returns null.
   if (REMOTE_CONFIG.pipeline.gpuResize) {
-    import("./gpuResize.js").then(({ initGpuResize }) => initGpuResize()).catch(() => {});
+    import("./gpuResize.js").then(({ initGpuResize }) => initGpuResize())
+      .then((gpu) => log.info(`gpuResize init: ${gpu ? "ok (OpenCL up)" : "unavailable → sharp fallback"}`))
+      .catch((e) => log.warn(`gpuResize init error: ${e.message}`));
   }
 }
 
