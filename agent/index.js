@@ -342,14 +342,6 @@ export async function startServer() {
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
   if (process.platform === "win32") process.on("SIGBREAK", () => gracefulShutdown("SIGBREAK"));
 
-  // Keep server alive on unexpected errors — supervisor will restart if we exit anyway
-  process.on("uncaughtException", (err) => {
-    logger.error(`⚠️  uncaughtException: ${err?.stack || err}`);
-  });
-  process.on("unhandledRejection", (reason) => {
-    logger.error(`⚠️  unhandledRejection: ${reason?.stack || reason}`);
-  });
-
   return server;
 }
 
