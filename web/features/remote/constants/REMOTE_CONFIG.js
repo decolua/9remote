@@ -43,6 +43,14 @@ export const REMOTE_CONFIG = {
   // frame — prevents unbounded queue growth → multi-second latency / freeze.
   decodeQueueCap: 48,
 
+  // Resize / orientation reflow — fitScale is recomputed from container clientWidth/
+  // Height, which on Android Chrome lags 200-400ms behind orientationchange (layout
+  // flips flex-col↔flex-row + --app-height reflows). A fixed debounce caught a
+  // mid-transition width → wrong fitScale → offset mouse + canvas overshoot.
+  resizeDebounceMs: 100,     // ms — collapse burst of resize/orientation/vv events
+  resizeStableFrames: 3,     // rAF frames clientWidth/Height must stay unchanged
+  resizeMaxFrames: 30,       // rAF frames before bailing (~500ms) and using current dims
+
   // Focus-based streaming — emit focus rect to server to save bandwidth/CPU
   focusDebounce: 50,         // ms debounce on pan/zoom before emitting focus rect
 
