@@ -70,6 +70,13 @@ export class TransferManager {
     catch { return; }
     const up = this._uploads.get(frame.uploadId);
     if (!up) return;
+    // Reject chunks beyond the declared size — otherwise a client could declare a
+    // small file then stream unbounded bytes (cap bypass / disk fill).
+    const end = frame.offset + frame.payload.byteLength;
+    if (end > up.size) {
+      this._failUpload(frame.uploadId, "Chunk exceeds declared file size");
+      return;
+    }
     if (!up.ws) {
       // First chunk — open stream now (truncate-on-write, intended for Replace).
       try { fs.mkdirSync(path.dirname(up.targetPath), { recursive: true }); }
