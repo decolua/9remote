@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Dikdörtgen seçimi",
     handMode: "El modu",
     toggleKeyboard: "Yerel klavyeyi aç/kapat",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Toplu metin girişi",
     extraKeys: "Ekstra tuşlar",
     customizeRemoteKeys: "Uzak Tuşları Özelleştir",

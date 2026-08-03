@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Rechteckauswahl",
     handMode: "Handmodus",
     toggleKeyboard: "Native Tastatur umschalten",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Text-Stapeleingabe",
     extraKeys: "Zusatztasten",
     customizeRemoteKeys: "Remote-Tasten anpassen",

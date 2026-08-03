@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Прямоугольное выделение",
     handMode: "Режим руки",
     toggleKeyboard: "Переключить системную клавиатуру",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Пакетный ввод текста",
     extraKeys: "Дополнительные клавиши",
     customizeRemoteKeys: "Настроить удалённые клавиши",

@@ -325,6 +325,8 @@ export default {
     rectangleSelection: "Chọn vùng chữ nhật",
     handMode: "Chế độ tay",
     toggleKeyboard: "Bật/tắt bàn phím hệ thống",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Nhập văn bản hàng loạt",
     extraKeys: "Phím mở rộng",
     customizeRemoteKeys: "Tùy chỉnh phím Remote",

@@ -418,6 +418,8 @@ export default {
     rectangleSelection: "انتخاب مستطیلی",
     handMode: "حالت دست",
     toggleKeyboard: "تغییر صفحه‌کلید بومی",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "ورود متنی دسته‌ای",
     extraKeys: "کلیدهای اضافی",
     customizeRemoteKeys: "سفارشی‌سازی کلیدهای از راه دور",

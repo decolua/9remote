@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "矩形选择",
     handMode: "手型模式",
     toggleKeyboard: "切换原生键盘",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "文本批量输入",
     extraKeys: "额外按键",
     customizeRemoteKeys: "自定义远程按键",

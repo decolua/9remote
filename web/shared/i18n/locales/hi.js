@@ -418,6 +418,8 @@ export default {
     rectangleSelection: "आयत चयन",
     handMode: "हैंड मोड",
     toggleKeyboard: "नेटिव कीबोर्ड टॉगल करें",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "टेक्स्ट बैच इनपुट",
     extraKeys: "अतिरिक्त कुंजियाँ",
     customizeRemoteKeys: "रिमोट कुंजियाँ अनुकूलित करें",

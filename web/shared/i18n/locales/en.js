@@ -438,6 +438,8 @@ export default {
     rectangleSelection: "Rectangle selection",
     handMode: "Hand mode",
     toggleKeyboard: "Toggle native keyboard",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Text batch input",
     extraKeys: "Extra keys",
     customizeRemoteKeys: "Customize Remote Keys",

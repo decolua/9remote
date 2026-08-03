@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Zaznaczanie prostokątne",
     handMode: "Tryb dłoni",
     toggleKeyboard: "Przełącz natywną klawiaturę",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Wprowadzanie partii tekstu",
     extraKeys: "Dodatkowe klawisze",
     customizeRemoteKeys: "Dostosuj klawisze zdalne",

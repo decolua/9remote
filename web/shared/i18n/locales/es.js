@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Selección rectangular",
     handMode: "Modo mano",
     toggleKeyboard: "Alternar teclado nativo",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Entrada de texto por lotes",
     extraKeys: "Teclas extra",
     customizeRemoteKeys: "Personalizar teclas remotas",

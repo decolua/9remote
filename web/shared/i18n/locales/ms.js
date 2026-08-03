@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Pemilihan segi empat",
     handMode: "Mod tangan",
     toggleKeyboard: "Togol papan kekunci asli",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Input teks berkelompok",
     extraKeys: "Kekunci tambahan",
     customizeRemoteKeys: "Sesuaikan Kekunci Jauh",

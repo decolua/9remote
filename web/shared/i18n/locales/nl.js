@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Rechthoekige selectie",
     handMode: "Handmodus",
     toggleKeyboard: "Native toetsenbord wisselen",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Tekst-batchinvoer",
     extraKeys: "Extra toetsen",
     customizeRemoteKeys: "Externe toetsen aanpassen",

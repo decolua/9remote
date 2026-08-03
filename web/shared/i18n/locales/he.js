@@ -418,6 +418,8 @@ export default {
     rectangleSelection: "בחירה מלבנית",
     handMode: "מצב יד",
     toggleKeyboard: "החלף מקלדת מקורית",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "קלט טקסט באצווה",
     extraKeys: "מקשים נוספים",
     customizeRemoteKeys: "התאם מקשי Remote",

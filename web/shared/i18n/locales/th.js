@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "เลือกแบบสี่เหลี่ยม",
     handMode: "โหมดมือ",
     toggleKeyboard: "สลับคีย์บอร์ดเนทีฟ",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "ป้อนข้อความเป็นชุด",
     extraKeys: "คีย์เพิ่มเติม",
     customizeRemoteKeys: "ปรับแต่งคีย์รีโมต",

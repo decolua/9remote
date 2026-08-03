@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "사각형 선택",
     handMode: "핸드 모드",
     toggleKeyboard: "기본 키보드 전환",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "텍스트 일괄 입력",
     extraKeys: "추가 키",
     customizeRemoteKeys: "원격 키 사용자 지정",

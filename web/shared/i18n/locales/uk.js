@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Прямокутне виділення",
     handMode: "Режим руки",
     toggleKeyboard: "Перемкнути нативну клавіатуру",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Пакетне введення тексту",
     extraKeys: "Додаткові клавіші",
     customizeRemoteKeys: "Налаштувати клавіші віддаленого керування",

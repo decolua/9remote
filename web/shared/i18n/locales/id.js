@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Seleksi persegi",
     handMode: "Mode tangan",
     toggleKeyboard: "Alihkan papan ketik bawaan",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Input teks batch",
     extraKeys: "Tombol tambahan",
     customizeRemoteKeys: "Sesuaikan Tombol Remote",

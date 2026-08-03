@@ -317,6 +317,8 @@ export default {
     rectangleSelection: "Rektangelmarkering",
     handMode: "Handläge",
     toggleKeyboard: "Växla inbyggt tangentbord",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "Textbatchinmatning",
     extraKeys: "Extra tangenter",
     customizeRemoteKeys: "Anpassa fjärrtangenter",

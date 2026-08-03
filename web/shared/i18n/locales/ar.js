@@ -418,6 +418,8 @@ export default {
     rectangleSelection: "تحديد مستطيل",
     handMode: "وضع اليد",
     toggleKeyboard: "تبديل لوحة المفاتيح الأصلية",
+    hideControls: "Hide controls",
+    showControls: "Show controls",
     textBatchInput: "إدخال نص دفعة واحدة",
     extraKeys: "مفاتيح إضافية",
     customizeRemoteKeys: "تخصيص مفاتيح سطح المكتب البعيد",
