@@ -89,11 +89,12 @@ export function pushUiEvent(type, data) {
 }
 
 export function pushUiLog(message) {
-  pushUiEvent("log", { message: `[${new Date().toLocaleTimeString()}] ${message}` });
+  pushUiEvent("log", { message: `[${new Date().toLocaleTimeString(undefined, { hour12: false })}] ${message}` });
 }
 
-// Bridge logger → SSE so every console/crash message reaches TUI + Web UI
-setSseEmitter(pushUiLog);
+// Bridge logger → SSE. Forward the formatted line as-is — it already carries a 24h
+// timestamp from logger.js (shortTs), so wrapping via pushUiLog would double-stamp.
+setSseEmitter((line) => pushUiEvent("log", { message: line }));
 
 // ── Getters / Setters (used by other modules) ────────────────────────────────
 

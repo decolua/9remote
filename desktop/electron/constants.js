@@ -13,6 +13,7 @@ export const CLI_REL_PATH = process.platform === "win32"
 export const ALLOW_SCRIPTS = [
   "9remote", "@hurdlegroup/robotjs", "bufferutil",
   "koffi", "node-datachannel", "node-pty", "sharp", "utf-8-validate", "fsevents",
+  "@julusian/jpeg-turbo",
 ];
 
 export const HEALTH_TIMEOUT_MS = 60_000;
