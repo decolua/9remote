@@ -17,14 +17,16 @@ import { debugLog } from "@/shared/utils/debugLog";
 import Spinner from "@/shared/components/ui/Spinner";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import ClipboardModal from "@/features/remote/components/ClipboardModal";
-import { ClipboardPaste } from "@/shared/components/ui/Icon";
+import { ClipboardPaste, ChevronLeft, HelpCircle, Keyboard, RefreshCw, Hand } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 
 const STORAGE_KEYS = {
   pointerMode: "remoteDesktop.pointerMode",
   showTextPanel: "remoteDesktop.showTextPanel",
   handMode: "remoteDesktop.handMode",
-  keyboard: "remoteDesktop.keyboard"
+  keyboard: "remoteDesktop.keyboard",
+  controlsHidden: "remoteDesktop.controlsHidden"
 };
 
 export default function RemoteDesktop({ onClose, socketRef, protocolRef, connected, transport, hostPlatform }) {
@@ -39,10 +41,24 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   const [unlockResult, setUnlockResult] = useState(null); // {ok, reason} | null
   const [showTextPanel, setShowTextPanel] = usePersistedState(STORAGE_KEYS.showTextPanel, true);
   const [keyboardOn, setKeyboardOn] = usePersistedState(STORAGE_KEYS.keyboard, false);
+  const [controlsHidden, setControlsHidden] = usePersistedState(STORAGE_KEYS.controlsHidden, false);
   const [pointerMode, setPointerMode] = usePersistedState(STORAGE_KEYS.pointerMode, REMOTE_CONFIG.pointerMode);
   const [handMode, setHandMode] = usePersistedState(STORAGE_KEYS.handMode, false);
 
   const inputMode = useInputMode();
+  const pcCfg = REMOTE_CONFIG.pcModeControls;
+  const show = (k) => inputMode !== "mouse" || pcCfg?.[k];
+  // Tall landscape (iPad/tablet): full-width controls below canvas. Phone landscape keeps the
+  // right sidebar. screen dimensions are physical — unaffected by soft keyboard shrinking viewport.
+  const [isLandscape, setIsLandscape] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(orientation: landscape)");
+    const update = () => setIsLandscape(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
+  const tallLandscape = isLandscape && Math.min(window.screen.width, window.screen.height) >= 700;
   // PC mode forces direct absolute pointing
   useEffect(() => {
     if (inputMode === "mouse" && pointerMode !== "direct") setPointerMode("direct");
@@ -53,6 +69,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   const [wsBlocked, setWsBlocked] = useState(false);
   const [monitors, setMonitors] = useState([]);
   const [activeMonitorIndex, setActiveMonitorIndex] = useState(0);
+  const [cursorShape, setCursorShape] = useState(null);
   const debugMode = REMOTE_CONFIG.enableWebRTC ? "rtc" : "ws";
   const copyStats = useCallback(() => {
     const snapshot = { mode: debugMode, ...stats, ts: new Date().toISOString() };
@@ -427,6 +444,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     socket.on("clipboard-update", onClipboardUpdate);
     socket.on("monitors", onMonitors);
     socket.on("frame_meta", onFrameMeta);
+    const onCursorShape = (data) => setCursorShape(data?.shape ?? null);
+    socket.on("cursor-shape", onCursorShape);
 
     // Initial handshake on mount — agent may have emitted remote:ready before this
     // component mounted (socket already connected via terminal) so listener missed it.
@@ -447,6 +466,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       socket.off("clipboard-update", onClipboardUpdate);
       socket.off("monitors", onMonitors);
       socket.off("frame_meta", onFrameMeta);
+      socket.off("cursor-shape", onCursorShape);
       cleanupTiles();
       if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);
     };
@@ -552,7 +572,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
 
   return (
     <div
-      className="bg-bg text-text flex flex-col landscape:flex-row h-[var(--app-height,100vh)] w-full"
+      className={`bg-bg text-text flex flex-col h-[var(--app-height,100vh)] w-full ${tallLandscape ? "" : "landscape:flex-row"}`}
       style={{
         userSelect: "none",
         WebkitUserSelect: "none",
@@ -561,6 +581,100 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
+      <div className="flex flex-row flex-1 min-h-0">
+      {/* Left toolbar — landscape only: back, refresh, zoom, pointer, keyboard, info, select */}
+      {connected && (
+        <div className="hidden landscape:flex flex-col items-center gap-1.5 py-2 px-1 bg-bg shrink-0 landscape:w-12 z-20">
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { vibrate(); handleClose(); }}
+            title={t("remote.back")}
+            className="shrink-0 w-9 h-9 rounded-brand flex items-center justify-center bg-brand-500/15 hover:bg-brand-500/25 text-brand-400 transition-all duration-150 active:scale-[0.94]"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { vibrate(); if (streaming) emitRequestScreenWithHashes([]); }}
+            disabled={!streaming}
+            title={t("remote.refresh")}
+            className="shrink-0 w-9 h-9 rounded-brand flex items-center justify-center bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text transition-all duration-150 active:scale-[0.94] disabled:opacity-50"
+          >
+            <RefreshCw size={16} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { vibrate(); resetZoom(); }}
+            disabled={!streaming}
+            title={t("remote.resetZoom")}
+            className="shrink-0 w-9 h-9 rounded-brand text-[10px] font-semibold flex items-center justify-center bg-surface-2 hover:bg-surface-3 text-text transition-all duration-150 active:scale-[0.94] disabled:opacity-50"
+          >
+            {Math.round(canvasZoom * 100)}%
+          </button>
+          {show("pointerModeToggle") && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { vibrate(); togglePointerMode(); }}
+              disabled={!streaming}
+              title={pointerMode === "trackpad" ? t("remoteControls.trackpadMode") : t("remoteControls.directMode")}
+              className={`shrink-0 w-9 h-9 rounded-brand flex items-center justify-center text-base leading-none transition-all duration-150 active:scale-[0.94] disabled:opacity-50 ${pointerMode === "trackpad" ? "bg-brand-500 text-white" : "bg-surface-2 hover:bg-surface-3 text-text"}`}
+            >
+              🖱️
+            </button>
+          )}
+          {show("handMode") && pointerMode === "trackpad" && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { vibrate(); toggleHandMode(); }}
+              disabled={!streaming}
+              title={t("remote.handMode")}
+              className={`shrink-0 w-9 h-9 rounded-brand flex items-center justify-center transition-all duration-150 active:scale-[0.94] disabled:opacity-50 ${handMode ? "bg-brand-500 text-white" : "bg-surface-2 hover:bg-surface-3 text-text"}`}
+            >
+              <Hand size={16} />
+            </button>
+          )}
+          {show("keyboardToggle") && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { vibrate(); toggleKeyboard(); }}
+              disabled={!streaming}
+              title={t("remote.toggleKeyboard")}
+              className={`shrink-0 w-9 h-9 rounded-brand flex items-center justify-center transition-all duration-150 active:scale-[0.94] disabled:opacity-50 ${keyboardOn ? "bg-brand-500 text-white" : "bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text"}`}
+            >
+              <Keyboard size={16} />
+            </button>
+          )}
+          {show("help") && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { vibrate(); setShowHelp(true); }}
+              title={t("remote.help")}
+              className="shrink-0 w-9 h-9 rounded-brand flex items-center justify-center bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text transition-all duration-150 active:scale-[0.94]"
+            >
+              <HelpCircle size={16} />
+            </button>
+          )}
+          {show("rectangleSelect") && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { vibrate(); if (handMode) setHandMode(false); toggleSelectionMode(); }}
+              disabled={!streaming}
+              title={t("remote.rectangleSelection")}
+              className={`shrink-0 w-9 h-9 rounded-brand flex items-center justify-center transition-all duration-150 active:scale-[0.94] disabled:opacity-50 ${selectionMode ? "bg-brand-500 text-white" : "bg-surface-2 hover:bg-surface-3 text-text"}`}
+            >
+              □
+            </button>
+          )}
+        </div>
+      )}
       {!connected ? (
         <div className="flex-1 flex items-center justify-center bg-bg">
           <Spinner size="lg" text={t("remote.connecting")} />
@@ -581,6 +695,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
           handHolding={handHolding}
           scrollLock={scrollLock}
           virtualCursor={virtualCursor}
+          cursorShape={cursorShape}
           inputMode={inputMode}
           keyboardOn={keyboardOn}
           monitors={monitors}
@@ -605,6 +720,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
         }}
       />
       )}
+      </div>
 
       <RemoteControls
         streaming={streaming}
@@ -633,6 +749,9 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
         onToggleModifier={toggleModifierKey}
         onToggleKeyboard={toggleKeyboard}
         onToggleTextPanel={toggleTextPanel}
+        controlsHidden={controlsHidden}
+        onToggleControlsHidden={setControlsHidden}
+        tallLandscape={tallLandscape}
         onToggleHelp={() => setShowHelp(true)}
         onEmitKey={emitKeyDirect}
         onTextInputChange={setTextInputValue}

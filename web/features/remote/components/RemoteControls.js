@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Button from "@/shared/components/ui/Button";
 import {
-  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff, History, Bell
+  ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff, History, Bell, Eye, EyeOff
 } from "@/shared/components/ui/Icon";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
@@ -82,7 +82,10 @@ export default function RemoteControls({
   onDirectInputChange,
   onSendText,
   onClose,
-  onDesktopSwitch
+  onDesktopSwitch,
+  controlsHidden,
+  onToggleControlsHidden,
+  tallLandscape
 }) {
   const { t, locale } = useI18n();
   const { isIosPwa } = useDeviceInfo();
@@ -120,7 +123,10 @@ export default function RemoteControls({
     if (voice.listening) voice.stop();
     v(onSendText, streaming);
   };
-  const rowClass = "flex gap-1.5 overflow-auto scroll-thin-x py-0.5 pr-2 landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center rounded-lg";
+  // Tall landscape renders like portrait (single horizontal scroll row, no wrapping).
+  // Phone landscape wraps the keys into the narrow sidebar.
+  const landscapeRow = tallLandscape ? "" : "landscape:flex-wrap landscape:overflow-y-auto landscape:overflow-x-hidden landscape:py-2 landscape:pr-0 landscape:content-center landscape:justify-center";
+  const rowClass = `flex gap-1.5 overflow-auto scroll-thin-x py-0.5 pr-2 ${landscapeRow} rounded-lg`;
   const [showExtra, setShowExtra] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
   // Countdown shown on the clipboard button — mirrors RemoteDesktop's badge
@@ -199,7 +205,7 @@ export default function RemoteControls({
   };
 
   return (
-    <div className="bg-bg select-none relative landscape:h-full landscape:flex landscape:flex-col landscape:w-72 landscape:shrink-0">
+    <div className={`bg-bg select-none relative landscape:flex landscape:flex-col landscape:shrink-0 ${tallLandscape || controlsHidden ? "" : "landscape:h-full landscape:justify-end"} ${controlsHidden ? "landscape:w-12" : tallLandscape ? "landscape:w-full landscape:pl-12" : "landscape:w-64"}`}>
       {/* Hidden sink drives native keyboard. */}
       <textarea
         ref={textInputRef}
@@ -227,7 +233,16 @@ export default function RemoteControls({
         }}
       />
 
-      <div className={`${showTextPanel ? "flex" : "hidden landscape:flex"} relative z-30 px-2 py-1 gap-2 items-end landscape:order-last`}>
+      {/* Eye (collapse sidebar) — absolute top-right, landscape only, hidden when already collapsed */}
+      <div className={`absolute top-1 right-1 z-30 ${controlsHidden || tallLandscape ? "hidden" : "hidden landscape:flex"}`}>
+        <Btn onClick={() => { vibrate(); onToggleControlsHidden?.(true); }} title={t("remote.hideControls")}>
+          <EyeOff size={14} />
+        </Btn>
+      </div>
+
+      {/* Full controls — hidden in landscape when controlsHidden (sink stays for soft keyboard) */}
+      <div className={controlsHidden ? "landscape:hidden" : "contents"}>
+      <div className={`${showTextPanel ? "flex" : "hidden"} landscape:flex ${tallLandscape ? "" : "landscape:flex-col"} relative z-30 px-2 py-1 gap-2 ${tallLandscape ? "landscape:px-0" : "landscape:gap-1 landscape:order-last"}`}>
         <div className="relative flex-1">
           <CommandSuggestions
             value={textInputValue}
@@ -238,6 +253,7 @@ export default function RemoteControls({
           <textarea
             ref={panelInputRef}
             rows={1}
+            cols={1}
             value={textInputValue}
             onChange={(e) => onTextInputChange(e.target.value)}
             onFocus={onTextInputFocus}
@@ -256,7 +272,7 @@ export default function RemoteControls({
             data-1p-ignore="true"
             data-form-type="other"
             name="remote-batch-input"
-            className="block w-full px-3 py-2 pr-8 bg-surface-2 rounded text-text text-sm placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none overflow-y-auto landscape:!h-32"
+            className={`block w-full px-3 py-2 pr-8 bg-surface-2 rounded text-text text-sm placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out resize-none overflow-y-auto ${tallLandscape ? "" : "landscape:!h-16"}`}
             disabled={!streaming}
           />
           {textInputValue ? (
@@ -281,6 +297,7 @@ export default function RemoteControls({
             </button>
           )}
         </div>
+        <div className="flex gap-2 items-center justify-end">
         {voice.supported && (
           <div className="relative shrink-0">
             {voice.listening && (
@@ -318,11 +335,12 @@ export default function RemoteControls({
         >
           {textInputValue.trim() ? t("remoteControls.send") : <CornerDownLeft size={16} strokeWidth={2.5} />}
         </Button>
+        </div>
       </div>
 
       {/* Extra keys panel — slides in ABOVE toolbar, 3 scrollable rows */}
       <div
-        className={`overflow-hidden transition-all duration-300 ${showExtra ? "max-h-56 opacity-100" : "max-h-0 opacity-0"}`}
+        className={`overflow-hidden transition-all duration-300 ${showExtra ? "max-h-56 opacity-100" : "hidden"}`}
       >
         <div className="px-2 py-1">
           <div className="space-y-1">
@@ -361,31 +379,31 @@ export default function RemoteControls({
         </div>
       </div>
 
-      {/* Top toolbar — pin "..." at end, scroll rest */}
-      <div className="flex items-center gap-1.5 px-2 py-1 landscape:py-2">
+      {/* Top toolbar — portrait only (landscape buttons moved to left toolbar / bottom) */}
+      <div className="flex items-center gap-1.5 px-2 py-1 landscape:hidden">
         <div className={`${rowClass} flex-1 min-w-0 px-0 py-0 landscape:py-0`}>
-          <Btn onClick={() => v(onClose)} title={t("remote.back")} pinned>
+          <Btn onClick={() => v(onClose)} title={t("remote.back")} pinned className="landscape:hidden">
             <ChevronLeft size={16} />
           </Btn>
           {clipboardNew && clipboardText ? (
             <Btn
               onClick={() => v(onOpenClipboard)}
-              className="!text-red-500"
+              className="!text-red-500 landscape:hidden"
               title={t("common.clipboard")}
             >
               <Bell size={14} className="shrink-0" />
               <span className="tabular-nums">{clipboardCountdown}</span>
             </Btn>
           ) : (
-            <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-text" title={t("remote.resetZoom")}>
+            <Btn onClick={() => v(onResetZoom)} disabled={!streaming} className="text-text landscape:hidden" title={t("remote.resetZoom")}>
               {Math.round(canvasZoom * 100)}%
             </Btn>
           )}
-          <Btn onClick={() => v(onRefresh)} disabled={!streaming} title={t("remote.refresh")}>
+          <Btn onClick={() => v(onRefresh)} disabled={!streaming} title={t("remote.refresh")} className="landscape:hidden">
             <RefreshCw size={14} />
           </Btn>
           {show("rectangleSelect") && (
-            <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title={t("remote.rectangleSelection")}>
+            <Btn onClick={() => v(onToggleSelection)} disabled={!streaming} active={selectionMode} title={t("remote.rectangleSelection")} className="landscape:hidden">
               □
             </Btn>
           )}
@@ -395,6 +413,7 @@ export default function RemoteControls({
               disabled={!streaming}
               active={pointerMode === "trackpad"}
               title={pointerMode === "trackpad" ? t("remoteControls.trackpadMode") : t("remoteControls.directMode")}
+              className="landscape:hidden"
             >
               <span className="text-base leading-none">🖱️</span>
             </Btn>
@@ -405,12 +424,13 @@ export default function RemoteControls({
               disabled={!streaming}
               active={handMode}
               title={t("remote.handMode")}
+              className="landscape:hidden"
             >
               <Hand size={14} />
             </Btn>
           )}
           {show("keyboardToggle") && (
-            <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title={t("remote.toggleKeyboard")}>
+            <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title={t("remote.toggleKeyboard")} className="landscape:hidden">
               <Keyboard size={14} />
             </Btn>
           )}
@@ -420,32 +440,67 @@ export default function RemoteControls({
             </Btn>
           )}
           {show("help") && (
-            <Btn onClick={() => v(onToggleHelp)} title={t("remote.help")}>
+            <Btn onClick={() => v(onToggleHelp)} title={t("remote.help")} className="landscape:hidden">
               <HelpCircle size={14} />
             </Btn>
           )}
         </div>
-        {/* Pinned expand button — always visible */}
-        <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} pinned title={t("remote.extraKeys")}>
+        {/* Pinned extra keys toggle — portrait only, outside scroll */}
+        <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} pinned className="landscape:hidden shrink-0" title={t("remote.extraKeys")}>
           {showExtra ? <X size={16} /> : <MoreHorizontal size={16} />}
         </Btn>
       </div>
 
-      {/* Bottom row (customizable) — pin Enter at end */}
-      {show("modifierRow") && (
-        <div className={`flex items-center gap-1.5 px-2 py-1 landscape:py-2 ${isIosPwa ? "safe-area-bottom" : ""}`}>
-          <div className={`${rowClass} flex-1 min-w-0 px-0 py-0 landscape:py-0`}>
-            {bottomCustom.keys
-              .filter(kc => kc.id !== REMOTE_PINNED_KEY_ID)
-              .map((kc, idx) => renderPoolKey(kc, idx))}
+      {/* Bottom row (customizable) — pin Enter at end. */}
+      {show("modifierRow") && (() => {
+        const mods = bottomCustom.keys.filter(kc => kc.id !== REMOTE_PINNED_KEY_ID);
+        const pinned = REMOTE_KEY_POOL.find(p => p.id === REMOTE_PINNED_KEY_ID);
+        const extraBtn = (
+          <Btn onClick={() => { vibrate(); setShowExtra(s => !s); }} active={showExtra} pinned title={t("remote.extraKeys")}>
+            {showExtra ? <X size={16} /> : <MoreHorizontal size={16} />}
+          </Btn>
+        );
+        const enterBtn = pinned ? renderPoolKey(pinned, "pinned", true) : null;
+        return (
+          <div className={`px-2 py-1 ${tallLandscape ? "landscape:px-0" : "landscape:py-2"} ${isIosPwa ? "safe-area-bottom" : ""}`}>
+            {/* Portrait: modifier scroll + pinned Enter */}
+            <div className="flex items-center gap-1.5 landscape:hidden">
+              <div className={`${rowClass} flex-1 min-w-0`}>
+                {mods.map((kc, idx) => renderPoolKey(kc, idx))}
+              </div>
+              {enterBtn}
+            </div>
+            {/* Tall landscape: single scroll row with ... + Enter */}
+            <div className={`${rowClass} hidden ${tallLandscape ? "landscape:flex" : ""}`}>
+              {mods.map((kc, idx) => renderPoolKey(kc, idx))}
+              {extraBtn}
+              {enterBtn}
+            </div>
+            {/* Phone landscape: 2 rows — 5 keys each, ... end row 1, Enter end row 2 */}
+            <div className={`hidden ${tallLandscape ? "" : "landscape:flex"} landscape:flex-col gap-1`}>
+              <div className="flex gap-1.5 overflow-x-auto scroll-thin-x">
+                {mods.slice(0, 5).map((kc, idx) => renderPoolKey(kc, idx))}
+                {extraBtn}
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto scroll-thin-x">
+                {mods.slice(5).map((kc, idx) => renderPoolKey(kc, idx))}
+                {enterBtn}
+              </div>
+            </div>
           </div>
-          {/* Pinned Enter — always visible */}
-          {(() => {
-            const pinned = REMOTE_KEY_POOL.find(p => p.id === REMOTE_PINNED_KEY_ID);
-            return pinned ? renderPoolKey(pinned, "pinned", true) : null;
-          })()}
-        </div>
-      )}
+        );
+      })()}
+      </div>
+
+      {/* Compact strip — landscape only when controlsHidden. Keeps eye (expand) + keyboard toggle. */}
+      <div className={`flex-col gap-1.5 p-1.5 ${controlsHidden ? "hidden landscape:flex" : "hidden"}`}>
+        <Btn onClick={() => { vibrate(); onToggleControlsHidden?.(false); }} title={t("remote.showControls")}>
+          <Eye size={16} />
+        </Btn>
+        <Btn onClick={() => v(onToggleKeyboard)} disabled={!streaming} active={keyboardOn} title={t("remote.toggleKeyboard")}>
+          <Keyboard size={16} />
+        </Btn>
+      </div>
 
       <KeyCustomizeModal
         isOpen={showCustomize}
