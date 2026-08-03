@@ -4,9 +4,9 @@
 // darwin: node-screenshots async (robotjs leaks native CGImageRef on Mac)
 // win32:  node-screenshots DXGI GPU + sharp (RGBA, AVX2 prebuilt optimal)
 const PLATFORM_DEFAULTS = {
-  darwin: { capture: "nodeScreenshots", tileSize: 128, inputFormat: "rgba" },
-  win32: { capture: "nodeScreenshots", tileSize: 256, inputFormat: "rgba" },
-  linux: { capture: "nodeScreenshots", tileSize: 256, inputFormat: "rgba" }
+  darwin: { capture: "nodeScreenshots", tileSize: 128, inputFormat: "rgba", tileFormat: "webp" },
+  win32: { capture: "nodeScreenshots", tileSize: 256, inputFormat: "rgba", tileFormat: "jpeg" },
+  linux: { capture: "nodeScreenshots", tileSize: 256, inputFormat: "rgba", tileFormat: "webp" }
 };
 
 const platformCfg = PLATFORM_DEFAULTS[process.platform] || PLATFORM_DEFAULTS.linux;
@@ -20,9 +20,23 @@ export const REMOTE_CONFIG = {
     // Win: OpenCL per-tile resize instead of sharp lanczos3 when scale<1 (bench
     // ~10× faster). Lazy-init; falls back to sharp if OpenCL is unavailable.
     gpuResize: process.platform === "win32",
-    // Tile output codec — "webp" (smaller ~⅓ size, faster at effort 0) | "jpeg"
-    // Web client sniffs magic bytes, so it decodes either regardless of agent version.
-    tileFormat: "webp",
+    // Win: pack N equally-sized tiles into one GPU dispatch (3 round-trips
+    // instead of 3N). Only square full-size tiles qualify; edge tiles and any
+    // batch failure fall back to the per-tile GPU path, then sharp.
+    gpuBatchResize: process.platform === "win32",
+    gpuBatchMaxTiles: 32,
+    gpuBatchMinTiles: 2,
+    // Mac: vImage (Accelerate) per-tile resize instead of sharp lanczos3 when
+    // scale<1 (bench ~18× faster, matches sharp at exact-half ratios). Applied
+    // to square tiles only; edge tiles keep sharp. Falls back if unavailable.
+    vImageResize: process.platform === "darwin",
+    // Tile output codec — "webp" (smaller ~⅓ size) | "jpeg".
+    // Win uses jpeg so encode goes through direct libjpeg-turbo (5-6× faster);
+    // Mac/Linux keep webp. Web client sniffs magic bytes, decodes either.
+    tileFormat: platformCfg.tileFormat,
+    // Win: direct libjpeg-turbo compressSync instead of sharp/libvips for JPEG tiles.
+    // Lazy + cached; falls back to sharp if the prebuilt is unavailable.
+    useJpegTurbo: process.platform === "win32",
     webpEffort: 0,
     jpegQuality: 50,
     // Bound parallel tile encodes — caps peak sharp instances / RAM per frame
@@ -106,6 +120,12 @@ export const REMOTE_CONFIG = {
     keyThrottle: 25,
     typeTextThrottle: 100,
     maxTextLength: 1000
+  },
+
+  // OS cursor shape sync — emit resize-handle direction to client (Win only).
+  // Piggybacks on remote mouse-move; throttleMs bounds emit rate on rapid change.
+  cursorShape: {
+    throttleMs: 80
   },
 
   // Resource management
@@ -216,6 +236,11 @@ export const REMOTE_CONFIG = {
     metricsEveryFrames: 30,
 
     // WebRTC signaling/ICE/TURN events
-    webrtc: false
+    webrtc: false,
+
+    // Resize path stats — which path ran (gpuBatch/gpu/vImage/sharp), tiles,
+    // ms, fallbacks. Off by default (noisy every N frames); flip on to measure.
+    resizeStats: false,
+    resizeStatsEveryFrames: 60
   }
 };

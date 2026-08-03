@@ -154,7 +154,7 @@ export async function setupRemoteHandlers(socket, apiKey) {
 
   // Wake display on every remote action (mouse/key/screen) — throttled internally
   const requireAuth = (handler) => (...args) => { wakeDisplay(); return handler(...args); };
-  mouseHandler.setupMouseHandlers(socket, requireAuth);
+  mouseHandler.setupMouseHandlers(socket, requireAuth, protocol);
   keyboardHandler.setupKeyboardHandlers(socket, requireAuth);
   screenHandler.setupScreenHandlers(socket, requireAuth, protocol);
 

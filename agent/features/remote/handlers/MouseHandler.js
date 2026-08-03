@@ -1,5 +1,9 @@
 // Mouse Handler for Remote Desktop
 import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
+import { getResizeShape } from "../utils/winCursorShape.js";
+import { createLogger } from "../../../lib/logger.js";
+
+const log = createLogger("cursorShape");
 
 export class MouseHandler {
   constructor(robot, resourceManager) {
@@ -8,6 +12,9 @@ export class MouseHandler {
     this.lastMouseMove = 0;
     // Tracks button held between press→release so mouse-move routes to dragMouse.
     this.buttonDown = null;
+    // OS cursor shape sync — last emitted resize direction + emit timestamp.
+    this.lastShape = null;
+    this.lastShapeEmit = 0;
   }
 
   // Map client percent (0-100) → host pixel. With a MonitorManager available
@@ -34,7 +41,21 @@ export class MouseHandler {
     };
   }
 
-  setupMouseHandlers(socket, requireAuth) {
+  // Sync OS resize-cursor direction to the client. Piggybacks on remote
+  // mouse-move (no polling). Emits only on change, throttled so a rapid
+  // shape flicker can't spam. Win-only — getResizeShape() is null elsewhere.
+  _emitResizeShape(protocol, now) {
+    const shape = getResizeShape();
+    if (shape === this.lastShape) return;
+    const passed = now - this.lastShapeEmit >= REMOTE_CONFIG.cursorShape.throttleMs;
+    if (!passed) return;
+    this.lastShape = shape;
+    this.lastShapeEmit = now;
+    log.info(`emit shape=${shape} (was ${this.lastShape})`);
+    protocol?.emit?.("cursor-shape", { shape });
+  }
+
+  setupMouseHandlers(socket, requireAuth, protocol) {
     const robot = this.robot;
 
     socket.on("mouse-move", requireAuth((data) => {
@@ -53,6 +74,7 @@ export class MouseHandler {
         // it falls back to moveMouse so behavior is unchanged.
         if (this.buttonDown) robot.dragMouse(finalX, finalY, this.buttonDown);
         else robot.moveMouse(finalX, finalY);
+        this._emitResizeShape(protocol, now);
         this.resourceManager.updateClientActivity(socket.id);
       } catch (error) {
         console.error("Mouse move error:", error.message);

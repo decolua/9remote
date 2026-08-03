@@ -7,7 +7,8 @@ import { fileURLToPath } from "url";
 import { REMOTE_CONFIG } from "./REMOTE_CONFIG.js";
 import * as capture from "./adapters/captureAdapter.js";
 import { encodeJpeg, bgraToRgbaInPlace } from "./adapters/encoderAdapter.js";
-import { getGpuResize, resizeTile } from "./adapters/gpuResize.js";
+import { getGpuResize, resizeTile, resizeTilesBatch } from "./adapters/gpuResize.js";
+import { getVImageResize, resizeTileVImage } from "./adapters/vImageResize.js";
 import { FrameMetrics } from "./metrics.js";
 import { remoteLog } from "./utils/remoteLog.js";
 
@@ -67,6 +68,10 @@ export class TileManager {
     // Sized to the largest tile (tileSize² × 4 channels). Lazily allocated.
     this._scratchExtract = [];
     this._scratchSwap = [];
+    // Batch-resize scratch (win GPU path): packed input + packed output. Single
+    // slot — the batch runs once per frame, before the concurrent encode pool.
+    this._scratchPack = [];
+    this._scratchPackOut = [];
     // Prefetch: capture frame N+1 starts while frame N is still encoding.
     // Holds a Promise resolving to next screenData, cutting capture latency off the critical path.
     this._prefetchCapture = null;
@@ -112,6 +117,8 @@ export class TileManager {
     this._prefetchCapture = null;
     this._scratchExtract = [];
     this._scratchSwap = [];
+    this._scratchPack = [];
+    this._scratchPackOut = [];
     // Tile grid changed → old focus set indices are meaningless.
     this.activeTileSet = null;
   }
@@ -340,7 +347,7 @@ export class TileManager {
           if (activeSet && !activeSet.has(i)) continue;
           indices.push(i);
         }
-        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, (i, _idx, slot) => this.processTileAsync(screenData, i, null, currentTileHashes.get(i), slot));
+        const results = await this._runTiles(screenData, indices, currentTileHashes);
         changedTiles.push(...results);
         this._recordFrame(tStart, tCaptureEnd, tChecksumEnd, changedTiles, screenData);
         return { tiles: changedTiles, currentHashes };
@@ -365,11 +372,11 @@ export class TileManager {
           if (activeSet && !activeSet.has(i)) continue;
           indices.push(i);
         }
-        const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, (i, _idx, slot) => this.processTileAsync(screenData, i, null, currentTileHashes.get(i), slot));
+        const results = await this._runTiles(screenData, indices, currentTileHashes);
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
         // Only extract changed tiles (lazy extraction benefit)
-        const results = await mapLimit(changedTileIndices, REMOTE_CONFIG.pipeline.tileConcurrency, (i, _idx, slot) => this.processTileAsync(screenData, i, null, currentTileHashes.get(i), slot));
+        const results = await this._runTiles(screenData, changedTileIndices, currentTileHashes);
         changedTiles.push(...results);
       }
 
@@ -381,11 +388,31 @@ export class TileManager {
     }
   }
 
-  async processTileAsync(screenData, tileIndex, cachedTileData = null, hashOverride = null, slotId = null) {
+  async processTileAsync(screenData, tileIndex, cachedTileData = null, hashOverride = null, slotId = null, preResized = null) {
+    // Batch path already resized this tile on the GPU — encode straight from it
+    // and skip both extractTile and the per-tile resize. Header still reports
+    // the original tile rect so the client stretches it as before.
+    const pre = preResized?.get(tileIndex);
+    const { row, col } = this.getTilePosition(tileIndex);
+    if (pre) {
+      const imageBuffer = await encodeJpeg(pre.buffer, pre.width, pre.height, 4, this.compressionQuality, "rgba");
+      return {
+        type: "tile-update",
+        tileIndex,
+        x: col * this.tileSize,
+        y: row * this.tileSize,
+        width: pre.srcWidth,
+        height: pre.srcHeight,
+        imageBuffer,
+        hash: hashOverride ?? this.lastTileChecksums.get(tileIndex) ?? 0,
+        timestamp: Date.now(),
+        frameCount: this.frameCount
+      };
+    }
+
     const tileData = cachedTileData || this.extractTile(screenData, tileIndex, slotId);
     // Don't overwrite checksum here - detectChangedTilesWithHashes already updated it correctly
     const imageBuffer = await this.compressTileImage(tileData.buffer, tileData.width, tileData.height, slotId);
-    const { row, col } = this.getTilePosition(tileIndex);
 
     return {
       type: "tile-update",
@@ -516,6 +543,116 @@ export class TileManager {
     return { buffer: tileBuffer, width: tileWidth, height: tileHeight, channels, tileIndex, x: startX, y: startY };
   }
 
+  // Resize-path counters, lazily created so prototype-only instances work too.
+  _stats() {
+    if (!this._resizeStats) {
+      this._resizeStats = { frames: 0, tiles: 0, gpuBatch: 0, gpu: 0, vImage: 0, sharp: 0, fallbacks: 0, batchMs: 0, procMs: 0 };
+    }
+    return this._resizeStats;
+  }
+
+  // Win GPU batch: resize every full-size (square, non-edge) tile of this frame
+  // in ONE dispatch instead of 3 blocking round-trips per tile. Returns
+  // Map(tileIndex → {buffer, width, height, srcWidth, srcHeight}) for the tiles
+  // it handled; anything absent (edge tiles, overflow past maxBatchTiles, any
+  // failure) is left to the existing per-tile path. Never throws.
+  _batchResize(screenData, indices) {
+    const p = REMOTE_CONFIG.pipeline;
+    const scale = this.scaleFactor;
+    if (!p.gpuBatchResize || !(scale > 0 && scale < 1)) return null;
+    const gpu = getGpuResize();
+    if (!gpu) return null;
+
+    const ts = this.tileSize;
+    // The kernel reads uchar4 and the pre-allocated buffers bound tile size —
+    // check both here so an oversized grid skips the batch silently instead of
+    // throwing (and logging) once per frame.
+    if (screenData.channels !== 4 || ts * ts * 4 > gpu.maxTileBytes) return null;
+    const targetW = Math.max(1, Math.floor(ts * scale));
+    const targetH = targetW;
+    // Only interior tiles: edge tiles are clipped by the screen bounds and so
+    // don't share dimensions with the rest of the batch.
+    const full = indices.filter((i) => {
+      const { row, col } = this.getTilePosition(i);
+      return col * ts + ts <= screenData.width && row * ts + ts <= screenData.height;
+    });
+    if (full.length < (p.gpuBatchMinTiles || 2)) return null;
+
+    const channels = screenData.channels;
+    const tileBytes = ts * ts * channels;
+    const rowBytes = ts * channels;
+    const outTileBytes = targetW * targetH * 4;
+    const chunkMax = gpu.maxBatchTiles;
+    // One accumulator for the whole frame; each chunk resizes into its own
+    // slice, so a full refresh (>chunkMax tiles) still avoids the slow path.
+    const outAll = this._getScratch(this._scratchPackOut, 0, full.length * outTileBytes);
+    const packed = this._getScratch(this._scratchPack, 0, Math.min(full.length, chunkMax) * tileBytes);
+
+    const map = new Map();
+    for (let start = 0; start < full.length; start += chunkMax) {
+      const n = Math.min(chunkMax, full.length - start);
+      for (let t = 0; t < n; t++) {
+        const { row, col } = this.getTilePosition(full[start + t]);
+        const base = t * tileBytes;
+        for (let y = 0; y < ts; y++) {
+          const src = ((row * ts + y) * screenData.width + col * ts) * channels;
+          screenData.buffer.copy(packed, base + y * rowBytes, src, src + rowBytes);
+        }
+      }
+      if (p.inputFormat === "bgra") bgraToRgbaInPlace(packed.subarray(0, n * tileBytes));
+
+      const slice = outAll.subarray(start * outTileBytes, (start + n) * outTileBytes);
+      try {
+        resizeTilesBatch(gpu, packed, n, ts, ts, targetW, targetH, slice);
+      } catch (e) {
+        this._stats().fallbacks++;
+        remoteLog.error("gpu batch resize failed, per-tile fallback:", e.message);
+        return map.size ? map : null;
+      }
+      for (let t = 0; t < n; t++) {
+        const off = (start + t) * outTileBytes;
+        map.set(full[start + t], {
+          buffer: outAll.subarray(off, off + outTileBytes),
+          width: targetW,
+          height: targetH,
+          srcWidth: ts,
+          srcHeight: ts
+        });
+      }
+      this._stats().gpuBatch += n;
+    }
+    return map;
+  }
+
+  // Run the frame's tiles: one batched GPU resize (when eligible) then the
+  // bounded encode pool. Shared by every call site so stats stay consistent.
+  async _runTiles(screenData, indices, currentTileHashes) {
+    const t0 = performance.now();
+    const pre = this._batchResize(screenData, indices);
+    const t1 = performance.now();
+    const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency,
+      (i, _idx, slot) => this.processTileAsync(screenData, i, null, currentTileHashes.get(i), slot, pre));
+    this._recordResizeStats(indices.length, t1 - t0, performance.now() - t1);
+    return results;
+  }
+
+  // Aggregate resize-path counters; flush a single line every N frames so a
+  // real-hardware run shows which path actually ran and what it cost.
+  _recordResizeStats(tiles, batchMs, procMs) {
+    if (!REMOTE_CONFIG.logging.resizeStats) return;
+    const s = this._stats();
+    s.frames++; s.tiles += tiles; s.batchMs += batchMs; s.procMs += procMs;
+    const every = REMOTE_CONFIG.logging.resizeStatsEveryFrames || 60;
+    if (s.frames < every) return;
+    const per = (v) => (v / s.frames).toFixed(2);
+    // "resized" is 0 when scaleFactor==1 (nothing to downscale) — that is why
+    // it can be far below the scanned tile count. Printed so the gap reads as
+    // "no resize needed", not "tiles went missing".
+    const resized = s.gpuBatch + s.gpu + s.vImage + s.sharp;
+    remoteLog.stats(`📐 [Resize/${s.frames}f] ${per(s.tiles)} tiles/f | scale ${this.scaleFactor} | resized ${resized}/${Math.round(s.tiles)} → gpuBatch ${s.gpuBatch} gpu ${s.gpu} vImage ${s.vImage} sharp ${s.sharp} | fallback ${s.fallbacks} | batch ${per(s.batchMs)}ms encode ${per(s.procMs)}ms per frame`);
+    this._resizeStats = { frames: 0, tiles: 0, gpuBatch: 0, gpu: 0, vImage: 0, sharp: 0, fallbacks: 0, batchMs: 0, procMs: 0 };
+  }
+
   async compressTileImage(buffer, width, height, slotId = null) {
     // Adaptive per-tile downscale: when scaleFactor < 1, resize raw RGBA/BGRA
     // tile buffer before JPEG encode. Tile header still reports original
@@ -549,13 +686,30 @@ export class TileManager {
       if (gpu) {
         try {
           const resized = resizeTile(gpu, "bilinear", raw, width, height, targetW, targetH);
+          this._stats().gpu++;
           return encodeJpeg(resized, targetW, targetH, channels, this.compressionQuality);
         } catch (e) {
           // One bad tile must not poison the frame — log + fall back to sharp.
+          this._stats().fallbacks++;
           remoteLog.error("gpuResize failed, sharp fallback:", e.message);
         }
       }
+      // Mac: vImage matches sharp closely on square tiles (bench RMSE <=0.67)
+      // but diverges on non-square ones at non-even ratios, so edge tiles at the
+      // screen's right/bottom keep the sharp path.
+      const vi = REMOTE_CONFIG.pipeline.vImageResize && width === height ? getVImageResize() : null;
+      if (vi) {
+        try {
+          const resized = resizeTileVImage(vi, raw, width, height, targetW, targetH, slotId);
+          this._stats().vImage++;
+          return encodeJpeg(resized, targetW, targetH, channels, this.compressionQuality);
+        } catch (e) {
+          this._stats().fallbacks++;
+          remoteLog.error("vImageResize failed, sharp fallback:", e.message);
+        }
+      }
       // Single pipeline: resize + encode in one pass (avoids second sharp instance)
+      this._stats().sharp++;
       const { tileFormat, webpEffort } = REMOTE_CONFIG.pipeline;
       const resized = sharp(raw, { raw: { width, height, channels } })
         .resize(targetW, targetH, { kernel: "lanczos3", fastShrinkOnLoad: false });

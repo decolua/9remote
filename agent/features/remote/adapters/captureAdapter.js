@@ -27,9 +27,22 @@ export async function initCapture(robot) {
   // break startup — compressTileImage falls back to sharp when getGpuResize()
   // returns null.
   if (REMOTE_CONFIG.pipeline.gpuResize) {
-    import("./gpuResize.js").then(({ initGpuResize }) => initGpuResize())
+    import("./gpuResize.js").then(({ initGpuResize }) => initGpuResize(REMOTE_CONFIG.pipeline.gpuBatchMaxTiles))
       .then((gpu) => log.info(`gpuResize init: ${gpu ? "ok (OpenCL up)" : "unavailable → sharp fallback"}`))
       .catch((e) => log.warn(`gpuResize init error: ${e.message}`));
+  }
+  // Mac equivalent — same contract: failure here only costs the fast path.
+  if (REMOTE_CONFIG.pipeline.vImageResize) {
+    import("./vImageResize.js").then(({ initVImageResize }) => initVImageResize())
+      .then((h) => log.info(`vImageResize init: ${h ? "ok (Accelerate up)" : "unavailable → sharp fallback"}`))
+      .catch((e) => log.warn(`vImageResize init error: ${e.message}`));
+  }
+  // Win JPEG encode fast path (libjpeg-turbo) — same contract: a missing/broken
+  // prebuilt only costs the fast path; encodeJpeg falls back to sharp.
+  if (REMOTE_CONFIG.pipeline.useJpegTurbo) {
+    import("./encoderAdapter.js").then(({ initTurboEncoder }) => initTurboEncoder())
+      .then((turbo) => log.info(`jpeg-turbo init: ${turbo ? "ok (libjpeg-turbo up)" : "unavailable → sharp fallback"}`))
+      .catch((e) => log.warn(`jpeg-turbo init error: ${e.message}`));
   }
 }
 

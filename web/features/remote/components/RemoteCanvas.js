@@ -22,6 +22,7 @@ export default function RemoteCanvas({
   handHolding,
   scrollLock,
   virtualCursor,
+  cursorShape,
   inputMode,
   keyboardOn,
   monitors,
@@ -68,17 +69,24 @@ export default function RemoteCanvas({
   // - selection → crosshair
   // - hand mode → grab/grabbing
   // - PC mode + holding button → grabbing
+  // - PC mode + OS resize handle → matching resize cursor
   // - trackpad touch → grab
   // - otherwise → default (show local cursor so user can aim, matching RDP/VNC)
+  const RESIZE_CSS = {
+    ew: "cursor-ew-resize", ns: "cursor-ns-resize",
+    nwse: "cursor-nwse-resize", nesw: "cursor-nesw-resize", all: "cursor-move"
+  };
   const cursorClass = selectionMode
     ? "cursor-crosshair"
     : handMode
       ? (handHolding ? "cursor-grabbing" : "cursor-grab")
       : isMouseInput && isDraggingMouse
         ? "cursor-grabbing"
-        : pointerMode === "trackpad"
-          ? "cursor-grab active:cursor-grabbing"
-          : "cursor-default";
+        : (isMouseInput && cursorShape && RESIZE_CSS[cursorShape])
+          ? RESIZE_CSS[cursorShape]
+          : pointerMode === "trackpad"
+            ? "cursor-grab active:cursor-grabbing"
+            : "cursor-default";
 
   // Wheel event: attach via useEffect with { passive: false } so we can call
   // preventDefault() (React's onWheel is always passive and cannot preventDefault).
@@ -196,7 +204,7 @@ export default function RemoteCanvas({
             top: `${virtualCursor.y * totalScale + canvasPan.y}px`,
             width: `${REMOTE_CONFIG.trackpadCursorSize}px`,
             height: `${REMOTE_CONFIG.trackpadCursorSize}px`,
-            transform: (handMode || scrollLock || selectionMode) ? "translate(-50%, -50%)" : "translate(-2px, -2px)"
+            transform: (cursorShape || handMode || scrollLock || selectionMode) ? "translate(-50%, -50%)" : "translate(-2px, -2px)"
           }}
         >
           {scrollLock ? (
@@ -223,6 +231,26 @@ export default function RemoteCanvas({
             >
               {handHolding ? "✊" : "✋"}
             </div>
+          ) : cursorShape ? (
+            <svg
+              viewBox="0 0 24 24"
+              className="w-full h-full drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
+              style={{ transform: `rotate(${cursorShape === "ns" ? 90 : cursorShape === "nwse" ? 45 : cursorShape === "nesw" ? -45 : 0}deg)` }}
+            >
+              {cursorShape === "all" ? (
+                <path
+                  d="M12 3 V21 M3 12 H21 M8 6 L12 2 L16 6 M8 18 L12 22 L16 18 M6 8 L2 12 L6 16 M18 8 L22 12 L18 16"
+                  fill="#ffffff" stroke="#000000" strokeWidth="1.2"
+                  strokeLinecap="round" strokeLinejoin="round"
+                />
+              ) : (
+                <path
+                  d="M3 12 H21 M7 8 L3 12 L7 16 M17 8 L21 12 L17 16"
+                  fill="#ffffff" stroke="#000000" strokeWidth="1.2"
+                  strokeLinecap="round" strokeLinejoin="round"
+                />
+              )}
+            </svg>
           ) : (
             <svg viewBox="0 0 24 24" className="w-full h-full drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
               <path
