@@ -18,6 +18,7 @@ export class KeyboardHandler {
   constructor(robot, resourceManager) {
     this.robot = robot;
     this.resourceManager = resourceManager;
+    this.lastKey = null;
     this.lastKeyPress = 0;
     this.lastTypeText = 0;
   }
@@ -27,8 +28,12 @@ export class KeyboardHandler {
 
     socket.on("key-press", requireAuth((data) => {
       const now = Date.now();
-      if (now - this.lastKeyPress < REMOTE_CONFIG.throttling.keyThrottle) return;
+      // Drop only true duplicates (same key re-emitted within 10ms by a client
+      // race), not legit double-letter typing (c→o→m→m lands 25-100ms apart).
+      const isDup = data.key === this.lastKey && now - this.lastKeyPress < 10;
+      this.lastKey = data.key;
       this.lastKeyPress = now;
+      if (isDup) return;
 
       try {
         if (!data.key || typeof data.key !== "string") return;
