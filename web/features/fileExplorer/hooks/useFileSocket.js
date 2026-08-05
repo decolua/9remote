@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { normalizePathsResponse } from "../constants/fileExplorer.js";
-import { uploadFiles as transferUpload, downloadFile as transferDownload } from "../lib/fileTransfer.js";
+import { uploadFiles as transferUpload, downloadFile as transferDownload, streamMedia as transferStream } from "../lib/fileTransfer.js";
 
 // Wrap a socket callback so path fields in the response are normalized to POSIX
 // (agent sends OS-native separators — \\ on Windows — which break web path helpers).
@@ -354,6 +354,15 @@ export function useFileSocket(socketRef, protocolRef) {
     });
   }, [socketRef, protocolRef]);
 
+  // Stream media for progressive playback (MSE). Returns a cancel() fn.
+  const streamMedia = useCallback((filePath, callbacks) => {
+    return transferStream({
+      socket: socketRef?.current,
+      filePath,
+      ...callbacks
+    });
+  }, [socketRef, protocolRef]);
+
   // Memoize the returned object so the ref stays stable across renders.
   // Without this, consumers' effects keyed on `fileSocket` re-run every render
   // (e.g. TerminalPane re-runs git/watch setup on every keystroke → agent git spawn storm).
@@ -388,10 +397,11 @@ export function useFileSocket(socketRef, protocolRef) {
     gitPull,
     gitLog,
     uploadFiles,
-    downloadFile
+    downloadFile,
+    streamMedia
   }), [getSystemInfo, getFiles, readFile, readImage, readMedia, writeFile, createItem, deleteItem,
     renameItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
     searchInFiles, replaceInFiles, watchDir, unwatchDir, revealInOS, openInTerminal,
     getFileTree, gitBranch, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog,
-    uploadFiles, downloadFile]);
+    uploadFiles, downloadFile, streamMedia]);
 }

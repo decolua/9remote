@@ -48,6 +48,27 @@ export const BINARY_EXTENSIONS = [
   ".class", ".jar", ".war", ".pyc", ".o", ".obj"
 ];
 
+// Extension -> MIME. Covers all previewable (image/video/audio/pdf) types.
+export const MIME_BY_EXT = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", svg: "image/svg+xml", ico: "image/x-icon", bmp: "image/bmp",
+  avif: "image/avif", apng: "image/apng", tif: "image/tiff", tiff: "image/tiff",
+  mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", ogv: "video/ogg",
+  mov: "video/quicktime", mkv: "video/x-matroska", avi: "video/x-msvideo", "3gp": "video/3gpp",
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg",
+  flac: "audio/flac", m4a: "audio/mp4", aac: "audio/aac", opus: "audio/opus",
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  csv: "text/csv", tsv: "text/tab-separated-values"
+};
+
+export function getMimeType(filePath) {
+  const ext = filePath.toLowerCase().split(".").pop();
+  return MIME_BY_EXT[ext] || "application/octet-stream";
+}
+
 export const IMAGE_EXTENSIONS = [
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp",
   ".svg", ".avif", ".apng", ".tif", ".tiff"

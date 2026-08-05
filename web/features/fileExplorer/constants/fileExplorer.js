@@ -84,6 +84,10 @@ export const AUDIO_EXTENSIONS = [
 
 export const PDF_EXTENSIONS = [".pdf"];
 
+export const DOCX_EXTENSIONS = [".docx"];
+
+export const SHEET_EXTENSIONS = [".xlsx", ".xls", ".csv", ".tsv"];
+
 export function hasExt(filePath, exts) {
   if (!filePath) return false;
   const lower = filePath.toLowerCase();
@@ -93,10 +97,13 @@ export const isImageFile = (p) => hasExt(p, IMAGE_EXTENSIONS);
 export const isVideoFile = (p) => hasExt(p, VIDEO_EXTENSIONS);
 export const isAudioFile = (p) => hasExt(p, AUDIO_EXTENSIONS);
 export const isPdfFile = (p) => hasExt(p, PDF_EXTENSIONS);
-// Previewable = browser can render native (image/video/audio/pdf). Used to route
+export const isDocxFile = (p) => hasExt(p, DOCX_EXTENSIONS);
+export const isSheetFile = (p) => hasExt(p, SHEET_EXTENSIONS);
+// Previewable = browser/lib can render without the text editor. Used to route
 // away from the text editor and the binary rejection in readFile.
 export const isPreviewableFile = (p) =>
-  isImageFile(p) || isVideoFile(p) || isAudioFile(p) || isPdfFile(p);
+  isImageFile(p) || isVideoFile(p) || isAudioFile(p) || isPdfFile(p)
+  || isDocxFile(p) || isSheetFile(p);
 
 export const LANGUAGE_MAP = {
   ".js": "javascript", ".jsx": "javascript", ".ts": "javascript",

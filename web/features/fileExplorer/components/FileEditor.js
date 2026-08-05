@@ -10,7 +10,7 @@ import { css } from "@codemirror/lang-css";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { AUTO_SAVE_DELAY, LANGUAGE_MAP, isImageFile, isVideoFile, isAudioFile, isPdfFile } from "../constants/fileExplorer.js";
+import { AUTO_SAVE_DELAY, LANGUAGE_MAP, isImageFile, isVideoFile, isAudioFile, isPdfFile, isDocxFile, isSheetFile } from "../constants/fileExplorer.js";
 import { ChevronLeft, Save, Loader2, GitBranch, Copy } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -18,6 +18,7 @@ import { useTheme } from "@/shared/theme/ThemeProvider";
 import ImageViewer from "./ImageViewer.js";
 import MediaViewer from "./MediaViewer.js";
 import PdfViewer from "./PdfViewer.js";
+import OfficeViewer from "./OfficeViewer.js";
 
 const languageExtensions = {
   javascript: javascript(),
@@ -62,7 +63,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
   const fileName = filePath.split("/").pop();
   // ponytail: previewable files bypass CodeMirror entirely and render in a native viewer;
   // they never hit the binary rejection in readFile.
-  const isPreviewable = isImageFile(filePath) || isVideoFile(filePath) || isAudioFile(filePath) || isPdfFile(filePath);
+  const isPreviewable = isImageFile(filePath) || isVideoFile(filePath) || isAudioFile(filePath) || isPdfFile(filePath) || isDocxFile(filePath) || isSheetFile(filePath);
 
   // Save file
   const saveFile = useCallback(async () => {
@@ -363,6 +364,8 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
         {isPreviewable ? (
           isPdfFile(filePath) ? (
             <PdfViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />
+          ) : isDocxFile(filePath) || isSheetFile(filePath) ? (
+            <OfficeViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />
           ) : isVideoFile(filePath) || isAudioFile(filePath) ? (
             <MediaViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />
           ) : (

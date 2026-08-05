@@ -31,7 +31,8 @@ export const FILE_TRANSFER = {
   windowSize: 64,                 // pipelining: in-flight unacked chunks
   dcBufferThreshold: 8 * 1024 * 1024,
   maxUploadSize: 50 * 1024 * 1024, // per-file cap
-  maxDownloadSize: 200 * 1024 * 1024 // folder-zip cap (sum of file sizes)
+  maxDownloadSize: 200 * 1024 * 1024, // folder-zip cap (sum of file sizes)
+  maxStreamMediaSize: 500 * 1024 * 1024 // progressive MSE streaming cap (audio/video)
 };
 
 export const ADAPTER_STATE = {

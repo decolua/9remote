@@ -3,25 +3,46 @@
 import { useState, useEffect } from "react";
 import { Loader2 } from "@/shared/components/ui/Icon";
 
-// Ponytail: PDF embedded via iframe data URL. Large PDFs inflate the socket
-// payload; add a PDF.js range loader if users hit the 50MB cap often.
+// PDF preview. Streamed over the FILE channel and assembled into a Blob URL
+// (lighter than a base64 data URL, no socket bloat) → built-in browser viewer.
 export default function PdfViewer({ filePath, fileSocket }) {
-  const [dataUrl, setDataUrl] = useState("");
+  const [src, setSrc] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    let revoke = null;
+    const chunks = [];
+    let mime = "application/pdf";
+
     setLoading(true);
     setError("");
-    setDataUrl("");
-    fileSocket.readMedia(filePath).then(r => {
-      if (cancelled) return;
-      if (r.success) setDataUrl(r.dataUrl);
-      else setError(r.error || "Failed to load PDF");
-      setLoading(false);
+    setSrc("");
+
+    const cancel = fileSocket.streamMedia(filePath, {
+      onMeta: ({ mime: m }) => { if (!cancelled && m) mime = m; },
+      onChunk: (payload) => { if (!cancelled) chunks.push(payload); },
+      onDone: () => {
+        if (cancelled) return;
+        const blob = new Blob(chunks, { type: mime });
+        const url = URL.createObjectURL(blob);
+        revoke = url;
+        setSrc(url);
+        setLoading(false);
+      },
+      onError: (e) => {
+        if (cancelled) return;
+        setError(e.message || "Failed to load PDF");
+        setLoading(false);
+      }
     });
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      cancel();
+      if (revoke) URL.revokeObjectURL(revoke);
+    };
   }, [filePath, fileSocket]);
 
   if (loading) {
@@ -36,7 +57,5 @@ export default function PdfViewer({ filePath, fileSocket }) {
     return <div className="h-full flex items-center justify-center text-red-400 text-sm">{error}</div>;
   }
 
-  return (
-    <iframe src={dataUrl} title="PDF preview" className="h-full w-full bg-bg" />
-  );
+  return <iframe src={src} title="PDF preview" className="h-full w-full bg-bg" />;
 }

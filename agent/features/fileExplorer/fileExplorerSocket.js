@@ -19,6 +19,7 @@ function setupTransferHandlers(socket) {
   socket.on("upload:end", (payload, cb) => tx.endUpload(payload, cb));
   socket.on("upload:cancel", (payload, cb) => tx.cancelUpload(payload, cb));
   socket.on("download:start", (payload, cb) => tx.startDownload(payload, cb));
+  socket.on("streamMedia:start", (payload, cb) => tx.startStreamMedia(payload, cb));
   socket.on("download:cancel", (payload, cb) => tx.cancelDownload(payload, cb));
 
   // Binary frames arrive here from BOTH transports: WS via socket.io onAny,

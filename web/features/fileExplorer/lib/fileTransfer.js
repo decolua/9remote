@@ -203,3 +203,65 @@ export function downloadFile({ socket, protocolRef: _protocolRef, filePath, onSa
   }).catch((e) => onError?.(e));
 }
 
+/**
+ * Stream a media file for progressive playback via MediaSource Extensions.
+ * Frames arrive ordered (file DC is ordered, reliable) but may land before the
+ * caller's SourceBuffer is open — caller must queue onChunk until ready.
+ * @param {object} ctx - { socket, filePath, onMeta({mime,size}), onChunk(Uint8Array), onDone(), onError(err) }
+ * @returns {Function} cancel()
+ */
+export function streamMedia({ socket, filePath, onMeta, onChunk, onDone, onError }) {
+  let streamId = null;
+  const pending = new Map(); // offset → payload (drain in order; guards reordering)
+  let nextOffset = 0;
+
+  const drain = () => {
+    while (pending.has(nextOffset)) {
+      const p = pending.get(nextOffset);
+      pending.delete(nextOffset);
+      onChunk?.(p);
+      nextOffset += p.byteLength;
+    }
+  };
+  const onFrame = (buffer) => {
+    if (streamId == null) return;
+    let frame;
+    try { frame = decodeFileFrame(buffer); } catch { return; }
+    if (frame.uploadId !== streamId) return;
+    pending.set(frame.offset, frame.payload);
+    drain();
+  };
+  const onDoneEv = ({ downloadId }) => {
+    if (downloadId !== streamId) return;
+    cleanup();
+    onDone?.();
+  };
+  const onErrEv = ({ downloadId, error }) => {
+    if (downloadId !== streamId) return;
+    cleanup();
+    onError?.(new Error(error));
+  };
+  function cleanup() {
+    socket.off("file-bin", onFrame);
+    socket.off("download:done", onDoneEv);
+    socket.off("download:error", onErrEv);
+  }
+
+  // Register before the ack resolves so early frames buffer into `pending`.
+  socket.on("file-bin", onFrame);
+  socket.on("download:done", onDoneEv);
+  socket.on("download:error", onErrEv);
+
+  emitAck(socket, "streamMedia:start", { filePath }).then((res) => {
+    if (!res.success) { cleanup(); onError?.(new Error(res.error)); return; }
+    streamId = res.streamId;
+    onMeta?.({ mime: res.mime, size: res.size });
+    drain();
+  }).catch((e) => { cleanup(); onError?.(e); });
+
+  return () => {
+    cleanup();
+    if (streamId != null) socket.emit("download:cancel", { downloadId: streamId });
+  };
+}
+

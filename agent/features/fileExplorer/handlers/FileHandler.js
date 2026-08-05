@@ -4,20 +4,8 @@ import os from "os";
 import { execSync, spawn } from "child_process";
 import chokidar from "chokidar";
 import sharp from "sharp";
-import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES } from "../constants.js";
+import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES, MIME_BY_EXT } from "../constants.js";
 import { isSensitivePath } from "../pathGuard.js";
-
-// Extension -> MIME. Covers all previewable (image/video/audio/pdf) types.
-const MIME_BY_EXT = {
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
-  webp: "image/webp", svg: "image/svg+xml", ico: "image/x-icon", bmp: "image/bmp",
-  avif: "image/avif", apng: "image/apng", tif: "image/tiff", tiff: "image/tiff",
-  mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", ogv: "video/ogg",
-  mov: "video/quicktime", mkv: "video/x-matroska", avi: "video/x-msvideo", "3gp": "video/3gpp",
-  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg",
-  flac: "audio/flac", m4a: "audio/mp4", aac: "audio/aac", opus: "audio/opus",
-  pdf: "application/pdf"
-};
 
 function isIgnoredDir(name) { return IGNORED_DIRS.includes(name); }
 function isBinaryFile(filename) {

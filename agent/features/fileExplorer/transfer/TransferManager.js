@@ -12,6 +12,7 @@ import { AckTracker } from "./ackTracker.js";
 import { planChunks } from "./chunkPlan.js";
 import { resolveSafePath } from "./sanitize.js";
 import { isSensitivePath } from "../pathGuard.js";
+import { getMimeType } from "../constants.js";
 
 let _idSeq = 1;
 
@@ -170,6 +171,26 @@ export class TransferManager {
         cb?.({ success: true, downloadId, size: stat.size, fileName: path.basename(filePath), mtime: stat.mtimeMs });
         this._streamDownload(downloadId, filePath, stat.size);
       }
+    } catch (e) {
+      cb?.({ success: false, error: e.message });
+    }
+  }
+
+  // Stream a media file for progressive playback (MSE on the client) over FILE
+  // frames. Reuses _streamDownload — only the entry validation differs: a higher
+  // cap (media is streamed, not held in memory on either side) + MIME in the ack.
+  startStreamMedia({ filePath }, cb) {
+    try {
+      if (isSensitivePath(filePath)) return cb?.({ success: false, error: "Access denied" });
+      if (!fs.existsSync(filePath)) return cb?.({ success: false, error: "Not found" });
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) return cb?.({ success: false, error: "Not a file" });
+      if (stat.size > FILE_TRANSFER.maxStreamMediaSize) {
+        return cb?.({ success: false, error: `File too large (max ${FILE_TRANSFER.maxStreamMediaSize} bytes)` });
+      }
+      const streamId = _idSeq++;
+      cb?.({ success: true, streamId, size: stat.size, mime: getMimeType(filePath) });
+      this._streamDownload(streamId, filePath, stat.size);
     } catch (e) {
       cb?.({ success: false, error: e.message });
     }

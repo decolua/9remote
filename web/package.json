@@ -38,6 +38,7 @@
     "codemirror": "^6.0.2",
     "crypto-js": "^4.2.0",
     "diff2html": "^3.4.55",
+    "docx-preview": "^0.4.0",
     "hterm-umd": "^1.0.1",
     "jose": "^6.2.3",
     "libsodium-wrappers": "^0.8.4",
@@ -49,6 +50,7 @@
     "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.3",
     "styled-jsx": "^5.1.6",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
