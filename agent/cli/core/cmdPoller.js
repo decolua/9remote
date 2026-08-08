@@ -90,11 +90,17 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
       await pushUiState({ tunnelUrl: newUrl });
       updateTunnelHealthUrl(newUrl);
     };
+    // Surface retry progress — a silent loop looks identical to a hang in the UI
+    const onRetry = ({ attempt, delay, rateLimited }) => {
+      pushUiState({ tunnelRetry: { attempt, delay, rateLimited, at: Date.now() } });
+    };
     const result = await spawnQuickTunnelWithRetry(
       SERVER_PORT,
       onUrlUpdate,
-      makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => setActiveTunnel(c) }),
+      makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => setActiveTunnel(c), onRetry }),
+      onRetry,
     );
+    pushUiState({ tunnelRetry: null });
     setActiveTunnel(result.child);
 
     await setStep(STEP.VERIFYING);

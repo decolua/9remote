@@ -136,6 +136,9 @@ export const RETRY_CONFIG = {
   server:        { strategy: "exp",    baseMs: 1000, maxMs: 60000  },
   tunnelRestart: { strategy: "exp",    baseMs: 2000, maxMs: 300000 },
   tunnelSpawn:   { strategy: "linear", baseMs: 5000, maxMs: 60000  },
+  // trycloudflare rate-limits account-less tunnel creation — retrying every few
+  // seconds keeps the block alive, so back off in minutes instead.
+  tunnelRateLimit: { strategy: "exp",  baseMs: 60000, maxMs: 900000 },
   internet:      { strategy: "linear", baseMs: 3000, maxMs: 60000  },
   sse:           { strategy: "linear", baseMs: 2000, maxMs: 2000   },
   urlSync:       { strategy: "linear", baseMs: 5000, maxMs: 60000  },

@@ -334,6 +334,40 @@ const LOG_IGNORE = [
   "Updated to new configuration"
 ];
 
+// QUIC handshake failure signatures (UDP 7844 blocked). cloudflared's first QUIC
+// attempt fails within ~10s (handshake timeout) — catching it here lets us fall
+// back to http2 immediately instead of waiting out cloudflared's own retry chain.
+const QUIC_FAIL_PATTERNS = [
+  "Failed to dial a quic connection",
+  "Failed to create new quic connection"
+];
+
+// Edge connection lifecycle events — logged so a silently dead tunnel (process
+// alive, edge lost) is traceable in agent.log instead of vanishing without trace.
+const TUNNEL_CONN_EVENTS = [
+  "Registered tunnel connection",
+  "Unregistered tunnel connection",
+  "Lost connection with the edge",
+  "Serve tunnel error",
+  "Retrying connection",
+  "Connection terminated",
+  "Switching to fallback protocol"
+];
+
+// trycloudflare rate-limit signatures. cloudflared's RunQuickTunnel does a single
+// POST /tunnel with no retry: a 429 body fails to unmarshal (or yields an empty
+// Result.ID), so those parse errors are how the limit actually surfaces.
+const RATE_LIMIT_PATTERNS = [
+  "429",
+  "Too Many Requests",
+  "failed to unmarshal quick Tunnel",
+  "failed to parse quick Tunnel ID"
+];
+
+function isRateLimited(output) {
+  return RATE_LIMIT_PATTERNS.some((p) => output.includes(p));
+}
+
 /**
  * Parse trycloudflare.com URL from cloudflared log output
  */
@@ -351,9 +385,10 @@ function parseQuickTunnelUrl(message) {
  * Spawn cloudflared quick tunnel (no account needed)
  * @param {number} localPort - Local port to tunnel
  * @param {Function} onUrlUpdate - Called when URL changes after initial connect
+ * @param {string} protocol - "quic" (default, detect UDP block + early fail) | "http2"
  * @returns {Promise<{child, tunnelUrl}>}
  */
-export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart = null) {
+export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart = null, protocol = "quic") {
   const binaryPath = await ensureCloudflared();
 
   if (onRestart) restartCallback = onRestart;
@@ -373,7 +408,8 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
   const child = spawn(
     binaryPath,
-    ["tunnel", "--url", `http://localhost:${localPort}`, "--config", configPath, "--no-autoupdate", "--protocol", "http2"],
+    // quic first; spawnQuickTunnelDetect falls back to http2 if UDP 7844 is blocked.
+    ["tunnel", "--url", `http://localhost:${localPort}`, "--config", configPath, "--no-autoupdate", "--protocol", protocol],
     { detached: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }
   );
 
@@ -385,29 +421,63 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
     let lastUrl = null;
     let lastOutput = "";
 
+    // Room for trycloudflare API + edge handshake; if QUIC retries before the
+    // fail pattern logs, worst case spans several handshake timeouts (~10s each).
     const timeout = setTimeout(() => {
       if (resolved) return;
       resolved = true;
       cleanup();
-      reject(new Error("Quick tunnel timed out after 90s"));
-    }, 90000);
+      reject(new Error("Quick tunnel timed out after 150s"));
+    }, 150000);
 
     const handleLog = (data) => {
       const msg = data.toString();
       lastOutput += msg;
       if (lastOutput.length > 4096) lastOutput = lastOutput.slice(-4096);
+      // Surface edge connection events to agent.log — otherwise a silently dead
+      // tunnel (process alive, edge lost) leaves no trace for diagnosis.
+      for (const ev of TUNNEL_CONN_EVENTS) {
+        if (msg.includes(ev)) { logger.info(`[cloudflared] ${msg.trim()}`); break; }
+      }
+
+      // QUIC blocked: UDP 7844 unreachable. Fail fast so the caller can respawn
+      // with http2 instead of waiting out cloudflared's own retry chain (~2.5min).
+      if (protocol === "quic" && !resolved && QUIC_FAIL_PATTERNS.some((p) => msg.includes(p))) {
+        resolved = true;
+        clearTimeout(timeout);
+        cleanup();
+        // Kill the QUIC-retrying child + mark intentional so its exit handler
+        // doesn't also scheduleRestart (we handle fallback ourselves).
+        isIntentionalShutdown = true;
+        try { child.kill(); } catch {}
+        clearPid("cloudflared");
+        const err = new Error("QUIC handshake failed — UDP 7844 likely blocked");
+        err.quicBlocked = true;
+        logger.warn("QUIC blocked (UDP 7844 unreachable) — will retry with http2");
+        reject(err);
+        return;
+      }
+
       const tunnelUrl = parseQuickTunnelUrl(msg);
       if (!tunnelUrl) return;
 
-      if (!resolved) {
-        resolved = true;
+      // Track the latest URL even before resolve (URL prints before edge connect)
+      if (!lastUrl) {
         lastUrl = tunnelUrl;
         activeTunnelUrl = tunnelUrl;
+      }
+
+      if (!resolved) {
+        // quic needs an actual edge connection — URL alone isn't enough (it may
+        // print before QUIC fails). http2 connects over TCP right after the URL.
+        const ready = protocol === "quic" ? msg.includes("Registered tunnel connection") : true;
+        if (!ready) return;
+        resolved = true;
         tunnelReadyAt = Date.now();
         clearTimeout(timeout);
         cleanup();
         startNetworkMonitor();
-        logger.info(`tunnel ready: ${tunnelUrl}`);
+        logger.info(`tunnel ready: ${tunnelUrl} (protocol=${protocol})`);
         resolve({ child, tunnelUrl });
         return;
       }
@@ -441,7 +511,11 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
         resolved = true;
         clearTimeout(timeout);
         const tail = lastOutput.trim().split("\n").slice(-5).join(" | ");
-        reject(new Error(`cloudflared exited (code=${code}, signal=${signal}) output: ${tail || "(empty)"}`));
+        const err = new Error(`cloudflared exited (code=${code}, signal=${signal}) output: ${tail || "(empty)"}`);
+        // Flag lets the retry loop back off in minutes instead of seconds
+        err.rateLimited = isRateLimited(lastOutput);
+        if (err.rateLimited) logger.warn("trycloudflare rate limit detected");
+        reject(err);
         // Initial spawn failed (e.g. trycloudflare API timeout) — still retry
         if (!isIntentionalShutdown) {
           scheduleRestart(localPort, `initial spawn failed (code ${code})`);
@@ -453,6 +527,30 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
       }
     });
   });
+}
+
+// Cached across the process lifetime: once QUIC proves unreachable (UDP 7844
+// blocked), skip the ~10s fail on every subsequent spawn and go straight to http2.
+// Resets when the agent restarts — a network change may re-enable QUIC.
+let quicKnownBlocked = false;
+
+/**
+ * Spawn quick tunnel with QUIC-first + http2 fallback.
+ * Tries QUIC; if UDP 7844 is blocked (detected from cloudflared's own logs within
+ * ~10s), kills and respawns with http2. Avoids cloudflared's slow self-fallback.
+ */
+export async function spawnQuickTunnelDetect(localPort, onUrlUpdate = null, onRestart = null) {
+  if (quicKnownBlocked) return spawnQuickTunnel(localPort, onUrlUpdate, onRestart, "http2");
+  try {
+    return await spawnQuickTunnel(localPort, onUrlUpdate, onRestart, "quic");
+  } catch (err) {
+    if (err.quicBlocked) {
+      quicKnownBlocked = true;
+      logger.warn("QUIC blocked — cached; future spawns skip to http2");
+      return await spawnQuickTunnel(localPort, onUrlUpdate, onRestart, "http2");
+    }
+    throw err;
+  }
 }
 
 /**

@@ -33,6 +33,9 @@ export const DELAYS = {
   bgSpawnFlushMs: 400,
 };
 
+// Minimum gap between two cloudflared spawns — trycloudflare rate-limits bursts
+export const TUNNEL_SPAWN = { minGapMs: 3000 };
+
 export const TUI = { maxLogLines: 200, headerWidth: 44 };
 
 export const UPDATE = {
