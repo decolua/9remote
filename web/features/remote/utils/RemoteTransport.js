@@ -12,6 +12,10 @@
 
 let _worker = null;
 let _workerMsgId = 0;
+// Consecutive worker crashes before giving up — a worker that fails to load (CSP)
+// errors again on every respawn, so bound the retries instead of looping forever.
+const MAX_WORKER_RESPAWNS = 3;
+let _workerFailures = 0;
 // Map<id, resolve> for pending worker messages
 const _workerPending = new Map();
 // Track latest server timestamp seen per tileIndex — drop stale batches before emit
@@ -21,12 +25,19 @@ let _pendingEmit = null;
 let _flushTimer = null;
 
 function getWorker() {
+  if (_worker === false) return null; // previously failed (CSP / unsupported)
   if (_worker) return _worker;
-  // Next.js: use URL constructor for worker bundling
-  _worker = new Worker(
-    new URL("../workers/tileDecoder.worker.js", import.meta.url)
-  );
+  try {
+    // Next.js: use URL constructor for worker bundling
+    _worker = new Worker(
+      new URL("../workers/tileDecoder.worker.js", import.meta.url)
+    );
+  } catch {
+    _worker = false;
+    return null;
+  }
   _worker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
+    _workerFailures = 0; // worker answered — the crash streak is broken
     const resolve = _workerPending.get(id);
     if (!resolve) return;
     _workerPending.delete(id);
@@ -34,8 +45,20 @@ function getWorker() {
   };
   _worker.onerror = (err) => {
     console.error("[Worker] tileDecoder error:", err.message);
+    // A crashed worker never answers — reset so the next tile spawns a fresh one
+    resetWorker();
+    if (++_workerFailures >= MAX_WORKER_RESPAWNS) _worker = false;
   };
   return _worker;
+}
+
+// Terminate the (possibly suspended/crashed) worker + drop pending decodes.
+// Mirrors WebRtcProtocol.resetWorker / useTiles.resetBinWorker.
+function resetWorker() {
+  if (_worker && _worker !== false) { try { _worker.terminate(); } catch {} }
+  _worker = null;
+  for (const resolve of _workerPending.values()) { try { resolve(null); } catch {} }
+  _workerPending.clear();
 }
 
 export class RemoteTransport {
@@ -163,8 +186,10 @@ export class RemoteTransport {
     const id = ++_workerMsgId;
 
     new Promise((resolve) => {
+      const worker = getWorker();
+      if (!worker) return resolve(null);
       _workerPending.set(id, resolve);
-      getWorker().postMessage({ buffer, id }, [buffer]);
+      worker.postMessage({ buffer, id }, [buffer]);
     }).then((result) => {
       if (!result) return;
       const { tiles, timestamp, hasBitmap } = result;

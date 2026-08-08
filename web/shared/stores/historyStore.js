@@ -83,12 +83,16 @@ const createHistoryStore = (storageName) => create(
       storage: {
         getItem: (name) => {
           if (typeof window === "undefined") return null;
-          const value = localStorage.getItem(name);
-          return value ? JSON.parse(value) : null;
+          // Corrupted storage must not blank the app — start from defaults
+          try {
+            const value = localStorage.getItem(name);
+            return value ? JSON.parse(value) : null;
+          } catch { return null; }
         },
         setItem: (name, value) => {
           if (typeof window === "undefined") return;
-          localStorage.setItem(name, JSON.stringify(value));
+          // Quota exceeded / private mode throws — persistence is best-effort
+          try { localStorage.setItem(name, JSON.stringify(value)); } catch {}
         },
         removeItem: (name) => {
           if (typeof window === "undefined") return;

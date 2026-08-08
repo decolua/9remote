@@ -5,5 +5,11 @@ import { handleManifestRequest } from "@/features/ota/lib/manifestRoute.js";
 // GET only; other methods are rejected by the platform.
 export async function GET(request) {
   const { env } = getCloudflareContext();
-  return handleManifestRequest(env, request);
+  // A corrupt DB row (bad manifestJson) must not surface as an unhandled throw
+  try {
+    return await handleManifestRequest(env, request);
+  } catch (err) {
+    console.error("[ota] manifest failed:", err?.message || err);
+    return new Response(null, { status: 500 });
+  }
 }

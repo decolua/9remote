@@ -448,7 +448,8 @@ export function subscribeSSE(port, onEvent) {
           } else if (line === "" && eventData) {
             try {
               const parsed = JSON.parse(eventData);
-              onEvent(parsed.type, parsed);
+              // onEvent may be async — a rejection escapes this try and kills the CLI parent
+              Promise.resolve(onEvent(parsed.type, parsed)).catch(() => {});
             } catch {}
             eventData = "";
           }

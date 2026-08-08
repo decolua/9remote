@@ -12,12 +12,17 @@ export class ResourceManager {
 
   startResourceMonitoring() {
     this.memoryCheckInterval = setInterval(() => {
-      const usage = process.memoryUsage();
-      const memoryMB = Math.round(usage.heapUsed / 1024 / 1024);
-      
-      if (memoryMB > REMOTE_CONFIG.resourceManagement.memoryWarningThreshold) {
-        console.warn(`⚠️ High memory: ${memoryMB}MB`);
-        this.cleanupInactiveClients();
+      // A throw during cleanup would escape the timer as an uncaught exception
+      try {
+        const usage = process.memoryUsage();
+        const memoryMB = Math.round(usage.heapUsed / 1024 / 1024);
+
+        if (memoryMB > REMOTE_CONFIG.resourceManagement.memoryWarningThreshold) {
+          console.warn(`⚠️ High memory: ${memoryMB}MB`);
+          this.cleanupInactiveClients();
+        }
+      } catch (err) {
+        console.error("Memory monitor error:", err.message);
       }
     }, REMOTE_CONFIG.resourceManagement.memoryCheckInterval);
   }

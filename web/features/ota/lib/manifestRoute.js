@@ -34,6 +34,11 @@ export async function handleManifestRequest(env, request) {
   }
 
   const manifest = updateGroup.manifestJson;
+  // Corrupt row — parseRow falls back to {} so assets/launchAsset are missing.
+  // Serve "no update" instead of throwing on the spread below.
+  if (!Array.isArray(manifest?.assets) || !manifest.launchAsset) {
+    return new Response(null, { status: 204, headers });
+  }
   const manifestBody = updateGroup.manifestString;
   const signature = updateGroup.signature || null;
 

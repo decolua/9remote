@@ -199,12 +199,14 @@ export async function setupRemoteHandlers(socket, apiKey) {
         protocol.emit("screen-locked", { locked, ready });
       }
     };
-    computeAndEmit();
-    desktopPoll = setInterval(() => computeAndEmit(false), cfg.pollIntervalMs);
+    // computeAndEmit is async — an unguarded rejection would escape the timer
+    const pollDesktop = (force) => computeAndEmit(force).catch((err) => logger.error(`desktop poll: ${err.message}`));
+    pollDesktop();
+    desktopPoll = setInterval(() => pollDesktop(false), cfg.pollIntervalMs);
     // Web requests the current state on mount (its listener races the first
     // emit) — re-emit unconditionally so the overlay shows even if the host
     // was already locked before the client connected.
-    socket.on("get-unlock-state", requireAuth(() => computeAndEmit(true)));
+    socket.on("get-unlock-state", requireAuth(() => pollDesktop(true)));
   }
 
   // Client submitted unlock text (PIN/password). Orchestration lives in JS:

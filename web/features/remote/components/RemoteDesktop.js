@@ -73,7 +73,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   const debugMode = REMOTE_CONFIG.enableWebRTC ? "rtc" : "ws";
   const copyStats = useCallback(() => {
     const snapshot = { mode: debugMode, ...stats, ts: new Date().toISOString() };
-    navigator.clipboard?.writeText(JSON.stringify(snapshot, null, 2));
+    navigator.clipboard?.writeText(JSON.stringify(snapshot, null, 2)).catch(() => {});
   }, [stats, debugMode]);
 
   // Periodic console log for benchmark comparison (copy console output to share)

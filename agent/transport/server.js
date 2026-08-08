@@ -110,7 +110,7 @@ export function approveSocketDevice(socketId) {
   socket.emit("device:approved");
 
   // Setup features — emits "terminal:ready" when handlers are registered
-  setupSocketFeatures(socket);
+  setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
   pushUiLog(`Device approved: ${pending.deviceId.slice(0, 8)}...`);
 
   return true;
@@ -129,7 +129,7 @@ export function approveRejectedDevice(deviceId) {
     if (socket.handshake.auth?.deviceId === deviceId) {
       socket.data.approved = true;
       socket.emit("device:approved");
-      setupSocketFeatures(socket);
+      setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
     }
   }
   pushUiLog(`Device approved from pending: ${deviceId.slice(0, 8)}...`);
@@ -226,7 +226,8 @@ export async function startTransportServer(server) {
       socket.data.approved = true;
       socket.data.localUi = true;
       pushUiLog("Local UI connected — trusted (token)");
-      setupSocketFeatures(socket); // emits "terminal:ready" when handlers registered
+      // emits "terminal:ready" when handlers registered
+      setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
       return; // do not track in Clients list
     }
 
@@ -258,7 +259,8 @@ export async function startTransportServer(server) {
       // Known device — allow immediately
       pushUiLog(`Device recognized: ${deviceId.slice(0, 8)}...`);
       socket.data.approved = true;
-      setupSocketFeatures(socket); // emits "terminal:ready" when handlers registered
+      // emits "terminal:ready" when handlers registered
+      setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
       // Notify client so it reloads sessions/groups after handlers are registered
       socket.once("device:clientReady", () => socket.emit("device:approved"));
     } else if (deviceId && isDeviceRejected(deviceId)) {
@@ -273,7 +275,8 @@ export async function startTransportServer(server) {
       clearRejectedDevice(deviceId);
       socket.data.approved = true;
       pushUiLog(`Auto-approved device: ${deviceId.slice(0, 8)}...`);
-      setupSocketFeatures(socket); // emits "terminal:ready" when handlers registered
+      // emits "terminal:ready" when handlers registered
+      setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
       // Notify client after it signals ready so listeners are attached
       socket.once("device:clientReady", () => socket.emit("device:approved"));
       pushUiEvent("deviceApproval", { action: "refresh" });

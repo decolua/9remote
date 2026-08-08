@@ -3,7 +3,7 @@
  */
 
 import { STEP, PERMISSION_POLL_FAST_MS, PERMISSION_POLL_FAST_DURATION } from "../lib/constants.js";
-import { setSseEmitter, readRecentLogs } from "../lib/logger.js";
+import { setSseEmitter, readRecentLogs, createLogger } from "../lib/logger.js";
 import { LOG_TAIL_LINES } from "../lib/constants.js";
 import { writeCmd } from "../cli/utils/state.js";
 import { checkPermissions, openPermissionPane } from "../cli/utils/permissions.js";
@@ -17,6 +17,7 @@ import { PATHS } from "../lib/constants.js";
 import { readSettings, writeSettings } from "../lib/settings.js";
 
 const UI_STATE_FILE = join(PATHS.STATE, "ui-state.json");
+const logger = createLogger("ui");
 
 function ensureDir() {
   mkdirSync(PATHS.STATE, { recursive: true });
@@ -304,8 +305,13 @@ export async function handlePermissionsRequest(req, res) {
     // Fast-poll while user is in System Settings — reuses refreshPermissionsAsync to stay DRY
     const started = Date.now();
     const poll = setInterval(async () => {
-      const p = await refreshPermissionsAsync();
-      if (p[type] || Date.now() - started > PERMISSION_POLL_FAST_DURATION) clearInterval(poll);
+      let granted = false;
+      try {
+        granted = !!(await refreshPermissionsAsync())[type];
+      } catch (err) {
+        logger.error(`permission poll failed: ${err?.message || err}`);
+      }
+      if (granted || Date.now() - started > PERMISSION_POLL_FAST_DURATION) clearInterval(poll);
     }, PERMISSION_POLL_FAST_MS);
   }
   jsonOk(res);

@@ -621,7 +621,7 @@ export default function FileExplorer({
             <button
               onClick={() => {
                 vibrate();
-                navigator.clipboard.writeText(contextMenu.file.path);
+                navigator.clipboard?.writeText(contextMenu.file.path).catch(() => {});
                 closeContextMenu();
               }}
               className="w-full px-4 py-3 text-left text-text hover:bg-surface-2 flex items-center gap-3 transition-colors"

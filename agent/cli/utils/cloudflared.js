@@ -630,6 +630,9 @@ function startNetworkMonitor() {
   lastTickAt = Date.now();
 
   networkMonitorInterval = setInterval(async () => {
+    // Runs in the CLI parent — a throw here would surface as an unhandled
+    // rejection and take the whole agent down.
+    try {
     // Time gap between ticks — must track before any early return so a long
     // restartInFlight / waitForInternet window isn't misread as sleep on the next tick.
     const now = Date.now();
@@ -700,6 +703,9 @@ function startNetworkMonitor() {
 
     if (fingerprintChanged && !cloudflaredDead) killCloudflared();
     scheduleRestart(currentRestartArg, fingerprintChanged ? "network change" : "liveness watchdog");
+    } catch (err) {
+      logger.error(`network monitor tick failed: ${err?.message || err}`);
+    }
   }, TUNNEL_CONFIG.networkCheckIntervalMs);
 }
 

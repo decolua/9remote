@@ -157,10 +157,12 @@ export async function tuiMode() {
         safeRedraw();
       }
     } else if (type === "permissions") {
-      if (!deviceApprovalBusy) activeSubmenuRefresh?.();
+      // refresh is async — a rejection here would escape and kill the CLI parent
+      if (!deviceApprovalBusy) Promise.resolve(activeSubmenuRefresh?.()).catch(() => {});
       safeRedraw();
     } else if (type === "autostart" || type === "sleepInhibit") {
-      if (!deviceApprovalBusy) activeSubmenuRefresh?.();
+      // refresh is async — a rejection here would escape and kill the CLI parent
+      if (!deviceApprovalBusy) Promise.resolve(activeSubmenuRefresh?.()).catch(() => {});
       safeRedraw();
     } else if (type === "deviceApproval" && data.action === "pending") {
       await handlePendingApproval(data.socketId, data.deviceId, data.ip);
@@ -170,9 +172,12 @@ export async function tuiMode() {
   // Fallback: recover from missed SSE pending events
   const pendingPoll = setInterval(async () => {
     if (deviceApprovalBusy) return;
-    const d = await apiGet("/api/device/pending");
-    const first = d?.pending?.[0];
-    if (first) await handlePendingApproval(first.socketId, first.deviceId, first.ip);
+    // A throw here would surface as an unhandled rejection and take the CLI down
+    try {
+      const d = await apiGet("/api/device/pending");
+      const first = d?.pending?.[0];
+      if (first) await handlePendingApproval(first.socketId, first.deviceId, first.ip);
+    } catch {}
   }, POLL.pendingApprovalMs);
 
   setupExitHandler({

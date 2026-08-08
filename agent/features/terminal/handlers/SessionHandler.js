@@ -92,21 +92,26 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
   const persistGroups = () => saveGroups(groups, sessionGroups, sessionOrder);
 
   socket.on("getSessions", async (callback) => {
-    const list = [];
-    // Fetch live cwd for daemon sessions (OSC 7 updates daemon-side, not agent cache)
-    const useDaemon = PERSISTENCE_MODE === "daemon" && daemonClient.isConnected();
-    for (const [id, session] of sessions) {
-      let cwd = session.cwd;
-      if (useDaemon && session.daemon) {
-        const liveCwd = await daemonClient.getSessionCwd(id);
-        if (liveCwd) { cwd = liveCwd; if (session.cwd !== liveCwd) session.cwd = liveCwd; }
+    try {
+      const list = [];
+      // Fetch live cwd for daemon sessions (OSC 7 updates daemon-side, not agent cache)
+      const useDaemon = PERSISTENCE_MODE === "daemon" && daemonClient.isConnected();
+      for (const [id, session] of sessions) {
+        let cwd = session.cwd;
+        if (useDaemon && session.daemon) {
+          const liveCwd = await daemonClient.getSessionCwd(id);
+          if (liveCwd) { cwd = liveCwd; if (session.cwd !== liveCwd) session.cwd = liveCwd; }
+        }
+        list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false, shellId: session.shellId, shellLabel: session.shellLabel, groupId: sessionGroups[id] || null, cwd });
       }
-      list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false, shellId: session.shellId, shellLabel: session.shellLabel, groupId: sessionGroups[id] || null, cwd });
+      // Sort by persisted order; unranked ids (new sessions) fall to the end, stable
+      const rank = new Map(sessionOrder.map((id, i) => [id, i]));
+      list.sort((a, b) => (rank.has(a.id) ? rank.get(a.id) : Infinity) - (rank.has(b.id) ? rank.get(b.id) : Infinity));
+      callback(list);
+    } catch (error) {
+      console.error("Failed to list sessions:", error);
+      callback([]);
     }
-    // Sort by persisted order; unranked ids (new sessions) fall to the end, stable
-    const rank = new Map(sessionOrder.map((id, i) => [id, i]));
-    list.sort((a, b) => (rank.has(a.id) ? rank.get(a.id) : Infinity) - (rank.has(b.id) ? rank.get(b.id) : Infinity));
-    callback(list);
   });
 
   socket.on("getShells", (callback) => {
@@ -138,25 +143,30 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
 
   socket.on("deleteGroup", async ({ groupId }, callback) => {
     if (!groups.delete(groupId)) return callback({ success: false, error: "Group not found" });
-    // Close all terminals belonging to this group
-    const targetIds = Object.keys(sessionGroups).filter((sid) => sessionGroups[sid] === groupId);
-    for (const sid of targetIds) {
-      const session = sessions.get(sid);
-      if (session) {
-        if (session.daemon && daemonClient.isConnected()) {
-          try { await daemonClient.deleteSession(sid); } catch {}
-        } else if (session.pty) {
-          session.pty.kill();
-          deleteSessionBuffer(sid);
+    try {
+      // Close all terminals belonging to this group
+      const targetIds = Object.keys(sessionGroups).filter((sid) => sessionGroups[sid] === groupId);
+      for (const sid of targetIds) {
+        const session = sessions.get(sid);
+        if (session) {
+          if (session.daemon && daemonClient.isConnected()) {
+            try { await daemonClient.deleteSession(sid); } catch {}
+          } else if (session.pty) {
+            session.pty.kill();
+            deleteSessionBuffer(sid);
+          }
+          sessions.delete(sid);
+          broadcast(io, "sessionClosed", sid);
         }
-        sessions.delete(sid);
-        broadcast(io, "sessionClosed", sid);
+        delete sessionGroups[sid];
       }
-      delete sessionGroups[sid];
+      persistGroups();
+      broadcast(io, "groupsChanged");
+      callback({ success: true });
+    } catch (error) {
+      console.error("Failed to delete group:", error);
+      callback({ success: false, error: error.message });
     }
-    persistGroups();
-    broadcast(io, "groupsChanged");
-    callback({ success: true });
   });
 
   socket.on("moveSession", ({ sessionId, groupId }, callback) => {
@@ -183,14 +193,17 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
 
   socket.on("createSession", async ({ name, shellId, groupId, cwd }, callback) => {
     const sessionId = `session-${Date.now()}`;
-    const shellConfig = resolveShell(shellId);
-    const shellEnv = buildShellEnv();
-    shellEnv.NINE_REMOTE_SESSION_ID = sessionId;
-    // Inherit cwd from last session in group (client-supplied); validate at this trust
-    // boundary — fall back to default if missing or not an existing directory.
-    const resolvedCwd = (cwd && fs.existsSync(cwd)) ? cwd : getDefaultCwd(isCodespaces());
 
     try {
+      const shellConfig = resolveShell(shellId);
+      const shellEnv = buildShellEnv();
+      shellEnv.NINE_REMOTE_SESSION_ID = sessionId;
+      // Inherit cwd from last session in group (client-supplied); validate at this trust
+      // boundary — fall back to default if missing or not an existing directory.
+      let resolvedCwd = getDefaultCwd(isCodespaces());
+      // A malformed cwd (NUL byte, non-string) makes existsSync throw
+      try { if (cwd && fs.existsSync(cwd)) resolvedCwd = cwd; } catch {}
+
       // Auto-name "Term N" if user didn't provide a custom name (cross-platform)
       const autoName = name || `Term ${sessions.size + 1}`;
 
@@ -233,16 +246,20 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
 
     // Session gone (daemon killed / restarted, metadata lost) → recreate a fresh PTY in the same tab
     if (!session && PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
-      const autoName = `Term ${sessions.size + 1}`;
-      const cwd = getDefaultCwd(isCodespaces());
-      const { cols, rows } = pickRespawnSize({ lastCols: joinCols, lastRows: joinRows });
-      const created = await daemonClient.createSession(autoName, cols, rows, undefined, sessionId, cwd);
-      if (!created.success) return callback({ success: false, error: created.error });
-      session = { daemon: true, name: autoName, createdAt: Date.now(), cwd: created.cwd, shellId: created.shellId, shellLabel: created.shellLabel, lastCols: cols, lastRows: rows };
-      sessions.set(sessionId, session);
-      saveSessionMetadata(sessions);
-      const result = await daemonClient.joinSession(sessionId);
-      return callback({ success: result.success, name: session.name, cwd: result.cwd || session.cwd, recreated: true, error: result.error });
+      try {
+        const autoName = `Term ${sessions.size + 1}`;
+        const cwd = getDefaultCwd(isCodespaces());
+        const { cols, rows } = pickRespawnSize({ lastCols: joinCols, lastRows: joinRows });
+        const created = await daemonClient.createSession(autoName, cols, rows, undefined, sessionId, cwd);
+        if (!created.success) return callback({ success: false, error: created.error });
+        session = { daemon: true, name: autoName, createdAt: Date.now(), cwd: created.cwd, shellId: created.shellId, shellLabel: created.shellLabel, lastCols: cols, lastRows: rows };
+        sessions.set(sessionId, session);
+        saveSessionMetadata(sessions);
+        const result = await daemonClient.joinSession(sessionId);
+        return callback({ success: result.success, name: session.name, cwd: result.cwd || session.cwd, recreated: true, error: result.error });
+      } catch (e) {
+        return callback({ success: false, error: e.message });
+      }
     }
 
     if (!session) return callback({ success: false, error: "Session not found" });
@@ -352,11 +369,15 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     const session = sessions.get(sessionId);
     if (!session) return callback({ success: false, error: "Session not found" });
 
-    // Name is agent-owned (single source of truth) for both daemon and buffer mode
-    session.name = name;
-    broadcast(io, "session-renamed", { sessionId, name });
-    saveSessionMetadata(sessions);
-    callback({ success: true });
+    try {
+      // Name is agent-owned (single source of truth) for both daemon and buffer mode
+      session.name = name;
+      broadcast(io, "session-renamed", { sessionId, name });
+      saveSessionMetadata(sessions);
+      callback({ success: true });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
   });
 
   // Per-session note (free-form text, persisted server-side, survives restarts)

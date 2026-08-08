@@ -11,9 +11,12 @@ import { ProtocolManager } from "@/shared/transport/ProtocolManager";
  */
 function persistAuthUpdate({ tunnelUrl, localIp }) {
   if (typeof window === "undefined") return;
-  if (tunnelUrl) sessionStorage.setItem("tunnelUrl", tunnelUrl);
-  if (localIp) sessionStorage.setItem("localIp", localIp);
-  else if (localIp === null) sessionStorage.removeItem("localIp");
+  // Storage may be blocked (private mode / sandboxed iframe) — best-effort
+  try {
+    if (tunnelUrl) sessionStorage.setItem("tunnelUrl", tunnelUrl);
+    if (localIp) sessionStorage.setItem("localIp", localIp);
+    else if (localIp === null) sessionStorage.removeItem("localIp");
+  } catch {}
 }
 
 /**

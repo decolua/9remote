@@ -13,11 +13,22 @@ const _workerPending = new Map();
 // stops answering; without this guard every pending decode promise hangs forever and
 // tiles never draw (black canvas on the RTC path). Mirror useTiles.resetBinWorker.
 const WORKER_DECODE_TIMEOUT_MS = 8000;
+// Consecutive worker crashes before giving up — a worker that fails to load (CSP)
+// errors again on every respawn, so bound the retries instead of looping forever.
+const MAX_WORKER_RESPAWNS = 3;
+let _workerFailures = 0;
 
 function getWorker() {
+  if (_worker === false) return null; // previously failed (CSP / unsupported)
   if (_worker) return _worker;
-  _worker = new Worker(new URL("../../features/remote/workers/tileDecoder.worker.js", import.meta.url));
+  try {
+    _worker = new Worker(new URL("../../features/remote/workers/tileDecoder.worker.js", import.meta.url));
+  } catch {
+    _worker = false;
+    return null;
+  }
   _worker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
+    _workerFailures = 0; // worker answered — the crash streak is broken
     const entry = _workerPending.get(id);
     if (!entry) {
       // Batch was dropped by the queue cap before this result arrived — close the
@@ -34,6 +45,7 @@ function getWorker() {
     // A crashed worker won't answer any pending decode — reset so the next tile spawns
     // a fresh worker instead of posting into a dead one.
     resetWorker();
+    if (++_workerFailures >= MAX_WORKER_RESPAWNS) _worker = false;
   };
   return _worker;
 }
@@ -336,8 +348,10 @@ export class WebRtcProtocol extends BaseProtocol {
         _workerPending.delete(oldestId);
         old.resolve(null);
       }
+      const worker = getWorker();
+      if (!worker) { clearTimeout(timer); _workerPending.delete(id); resolve(null); return; }
       _workerPending.set(id, { resolve, timer });
-      getWorker().postMessage({ buffer, id, v: 2 }, [buffer]);
+      worker.postMessage({ buffer, id, v: 2 }, [buffer]);
     }).then((result) => {
       if (!result) return;
       const { tiles, timestamp, hasBitmap } = result;

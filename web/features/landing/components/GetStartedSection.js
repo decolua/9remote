@@ -7,7 +7,7 @@ export default function GetStartedSection() {
   const [copied, setCopied] = useState(false);
 
   const copyCommand = () => {
-    navigator.clipboard.writeText("npm install -g 9remote");
+    navigator.clipboard?.writeText("npm install -g 9remote").catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

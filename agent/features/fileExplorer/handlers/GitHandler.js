@@ -192,20 +192,24 @@ export function setupGitHandlers(socket) {
   });
 
   socket.on("gitBranch", async ({ repoPath }, callback) => {
-    const r = await runGit(["branch", "--show-current"], repoPath);
-    if (r.code !== 0) return callback({ success: false });
-    const result = { success: true, branch: r.stdout.trim() };
-    // ahead/behind upstream @{u}; absent upstream → null (still success).
-    const ab = await runGit(["rev-list", "--left-right", "--count", "@{u}...HEAD"], repoPath);
-    if (ab.code === 0) {
-      const [behind, ahead] = ab.stdout.trim().split(/\s+/).map((n) => parseInt(n, 10));
-      result.ahead = Number.isFinite(ahead) ? ahead : null;
-      result.behind = Number.isFinite(behind) ? behind : null;
-    } else {
-      result.ahead = null;
-      result.behind = null;
+    try {
+      const r = await runGit(["branch", "--show-current"], repoPath);
+      if (r.code !== 0) return callback({ success: false });
+      const result = { success: true, branch: r.stdout.trim() };
+      // ahead/behind upstream @{u}; absent upstream → null (still success).
+      const ab = await runGit(["rev-list", "--left-right", "--count", "@{u}...HEAD"], repoPath);
+      if (ab.code === 0) {
+        const [behind, ahead] = ab.stdout.trim().split(/\s+/).map((n) => parseInt(n, 10));
+        result.ahead = Number.isFinite(ahead) ? ahead : null;
+        result.behind = Number.isFinite(behind) ? behind : null;
+      } else {
+        result.ahead = null;
+        result.behind = null;
+      }
+      callback(result);
+    } catch (error) {
+      callback({ success: false, error: error.message });
     }
-    callback(result);
   });
 
   socket.on("gitAdd", async ({ repoPath, files }, callback) => {

@@ -39,6 +39,9 @@ export function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey, getServ
       else if (cmd === "shutdown") handleShutdown(getActiveTunnel, setActiveTunnel);
       else if (cmd === "update") await runWebUpdate();
       else if (cmd === "restart") restartServer(getServerManager?.());
+    } catch (err) {
+      // A throw here would surface as an unhandled rejection and take the CLI down
+      logger.error(`cmd "${cmd}" failed: ${err?.message || err}`);
     } finally {
       busy = false;
     }

@@ -20,14 +20,18 @@ export function useSessionStorage() {
   const getAuth = useCallback(() => {
     if (typeof window === "undefined") return null;
     
-    const apiKey = sessionStorage.getItem("apiKey");
-    const tunnelUrl = sessionStorage.getItem("tunnelUrl");
-    const mode = sessionStorage.getItem("mode");
-    const tempKey = sessionStorage.getItem("tempKey");
-    const localIp = sessionStorage.getItem("localIp");
-    
+    // sessionStorage access throws in sandboxed iframes / blocked-cookie modes
+    let apiKey, tunnelUrl, mode, tempKey, localIp;
+    try {
+      apiKey = sessionStorage.getItem("apiKey");
+      tunnelUrl = sessionStorage.getItem("tunnelUrl");
+      mode = sessionStorage.getItem("mode");
+      tempKey = sessionStorage.getItem("tempKey");
+      localIp = sessionStorage.getItem("localIp");
+    } catch { return null; }
+
     if (!apiKey || !tunnelUrl) return null;
-    
+
     // Ensure cookie is set when reading auth (in case page was refreshed)
     setAuthCookie(apiKey);
     
@@ -37,29 +41,33 @@ export function useSessionStorage() {
   const setAuth = useCallback((data) => {
     if (typeof window === "undefined") return;
     
-    sessionStorage.setItem("apiKey", data.apiKey);
-    sessionStorage.setItem("tunnelUrl", data.tunnelUrl);
-    sessionStorage.setItem("mode", data.mode || "remote");
-    
-    if (data.tempKey) {
-      sessionStorage.setItem("tempKey", data.tempKey);
-    } else {
-      sessionStorage.removeItem("tempKey");
-    }
+    // Storage may be unavailable (private mode / blocked cookies) — the auth
+    // cookie below still carries the key, so persistence is best-effort.
+    try {
+      sessionStorage.setItem("apiKey", data.apiKey);
+      sessionStorage.setItem("tunnelUrl", data.tunnelUrl);
+      sessionStorage.setItem("mode", data.mode || "remote");
 
-    if (data.localIp) {
-      sessionStorage.setItem("localIp", data.localIp);
-    } else {
-      sessionStorage.removeItem("localIp");
-    }
-    
+      if (data.tempKey) {
+        sessionStorage.setItem("tempKey", data.tempKey);
+      } else {
+        sessionStorage.removeItem("tempKey");
+      }
+
+      if (data.localIp) {
+        sessionStorage.setItem("localIp", data.localIp);
+      } else {
+        sessionStorage.removeItem("localIp");
+      }
+    } catch {}
+
     // Set cookie for proxy auth
     setAuthCookie(data.apiKey);
   }, []);
 
   const clearAuth = useCallback(() => {
     if (typeof window === "undefined") return;
-    sessionStorage.clear();
+    try { sessionStorage.clear(); } catch {}
     clearAuthCookie();
   }, []);
 
