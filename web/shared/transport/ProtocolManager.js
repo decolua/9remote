@@ -494,6 +494,15 @@ export class ProtocolManager {
         this._rawSocket = ws?.socket || null;
         // Re-attach proxy listeners to new raw socket
         this._rebindProxyListeners();
+        // On WS reconnect (resume from background), the new socket is already
+        // connected by the time we bind "connect" handlers — Socket.IO won't fire
+        // the event again. Manually notify so terminal panes rejoin for fresh
+        // scrollback.
+        if (isReconnect) {
+          for (const h of this._proxySocket?._proxyListeners?.get("connect") || []) {
+            try { h(); } catch {}
+          }
+        }
         if (this._lastWsState !== ADAPTER_STATE.open) {
           // First WS open after RTC already fired onConnect → just note the tunnel
           // is up (mode/transport update); don't re-fire onConnect (handlers would
@@ -524,6 +533,7 @@ export class ProtocolManager {
     }
 
     if (adapterId === "rtc" && state === ADAPTER_STATE.open) {
+      const isRtcReconnect = this._onConnectFired;
       clearTimeout(this._wsFallbackTimer);
       this._rtcCallbacks.onUpgrade?.(this._adapters.get("rtc")?.typeDetail || "dc-stun");
       // RTC opened first (tunnel not up yet) — fire onConnect so workspace hooks
@@ -538,6 +548,15 @@ export class ProtocolManager {
       this._rtcRestartAttempts = 0;
       clearTimeout(this._rtcRestartTimer);
       this._rtcRestartTimer = null;
+      // On RTC reconnect (resume from background/mobility), fire "connect" on the
+      // proxy so terminal panes rejoin and fetch fresh scrollback. The proxy was
+      // already bound during first open — this just re-notifies listeners the
+      // transport is ready again (mirrors WS reconnect path).
+      if (isRtcReconnect) {
+        for (const h of this._proxySocket?._proxyListeners?.get("connect") || []) {
+          try { h(); } catch {}
+        }
+      }
     }
     if (adapterId === "rtc" && state === ADAPTER_STATE.closed) {
       this._rtcCallbacks.onFallback?.("ws");

@@ -619,10 +619,6 @@ export default function MainScreen({
           isReady={isReady}
           transport={transport}
           onTransportChange={onTransportChange}
-          notifications={term.notifications}
-          sessions={term.sessions}
-          onSelectSession={openRecent}
-          onDismissRecent={term.dismissRecent}
         />
       </div>
 
