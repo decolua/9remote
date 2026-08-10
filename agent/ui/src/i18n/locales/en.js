@@ -124,8 +124,8 @@ export default {
   menu: {
     connection: "Connection",
     connectionDesc: "Pair devices and manage your secure tunnel",
-    terminals: "Terminals",
-    terminalsDesc: "Live terminal sessions running on this host",
+    terminals: "Terminal",
+    terminalsDesc: "Open the web terminal in a new tab",
     logs: "Logs",
     logsDesc: "Server activity and diagnostics",
     terminalSettings: "Terminal Settings",

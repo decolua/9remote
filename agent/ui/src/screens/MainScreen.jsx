@@ -522,7 +522,6 @@ export default function MainScreen({
   autoStart = false, onAutoStartToggle,
   sleepInhibitMode = "never", sleepInhibitPresets = [], onSleepInhibitChange,
   unlockStatus = null, onRequestUnlockInstall, onRequestUnlockUninstall,
-  sessions = [], onSessionDelete, onSessionRefresh,
   onStopTunnel,
 }) {
   const { t } = useI18n();
@@ -536,11 +535,10 @@ export default function MainScreen({
   const logEndRef = useRef(null);
   const scrollRef = useRef(null);
 
-  // Navigate menu → leaving terminals also closes any open terminal
+  // Terminal is not a page — it launches the web app in a new tab.
   const navigateMenu = (id) => {
     if (id === TERMINALS_MENU) { openWebTerminal(); return; }
     setActiveMenu(id);
-    if (id !== TERMINALS_MENU) setActiveSessionId(null);
   };
 
   // Open the web app with auto-login via one-time key. Reuses the existing key if

@@ -30,7 +30,6 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [updateVersion, setUpdateVersion] = useState(null);
   const [connections, setConnections] = useState([]);
-  const [sessions, setSessions] = useState([]);
   const [pendingDevice, setPendingDevice] = useState(null);
   const [approvedDevices, setApprovedDevices] = useState([]);
   const [rejectedDevices, setRejectedDevices] = useState([]);
@@ -246,22 +245,6 @@ export default function App() {
     } catch {}
   };
 
-  const fetchSessions = async () => {
-    try {
-      const r = await fetch("/api/sessions");
-      if (r.ok) { const d = await r.json(); setSessions(d.sessions || []); }
-    } catch {}
-  };
-
-  const handleSessionDelete = async (sessionId) => {
-    await fetch("/api/sessions/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
-    }).catch(() => {});
-    fetchSessions();
-  };
-
   const handleDeviceRemove = async (client) => {
     // Pending (rejected) devices → clear from rejected map; approved → remove from disk
     const endpoint = client.status === "pending" ? "/api/device/clear-rejected" : "/api/device/remove";
@@ -427,9 +410,6 @@ export default function App() {
       rejectedDevices={rejectedDevices}
       onDeviceRemove={handleDeviceRemove}
       onFetchDevices={fetchDevices}
-      sessions={sessions}
-      onSessionRefresh={fetchSessions}
-      onSessionDelete={handleSessionDelete}
       onDeviceApproveRejected={handleDeviceApproveRejected}
       onDeviceLabel={handleDeviceLabel}
       autoApprove={autoApprove}
