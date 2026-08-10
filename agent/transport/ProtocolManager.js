@@ -319,6 +319,7 @@ export class ProtocolManager {
   }
 
   _onAdapterStateChange(adapterId, state) {
+    if (this._closed) return; // PM torn down — adapter state changes are noise
     pushTransportState();
     if (state === ADAPTER_STATE.open) {
       // Peer came back (re-offer after resume/handover) — cancel the teardown.
