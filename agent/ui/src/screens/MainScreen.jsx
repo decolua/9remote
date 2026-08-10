@@ -2,50 +2,26 @@ import { useState, useRef, useEffect } from "preact/hooks";
 import StepProgress from "../components/StepProgress";
 import QRCard from "../components/QRCard";
 import ConfirmPopup from "../components/ConfirmPopup";
-import SessionList from "../components/SessionList";
-import TerminalView from "../components/TerminalView";
 import SettingsMenu from "../components/SettingsMenu";
 import SystemPane from "../components/SystemPane";
-import { useSessions } from "../lib/terminalSocket";
-import { updateTitle } from "../lib/titleMarquee";
 import { useI18n } from "../i18n";
 import { UPDATE_UI } from "../lib/constants";
-import { usePersistedState } from "../lib/usePersistedState";
 
 // Left menu — config-driven nav + per-menu header meta (9router pattern)
 const MENU = [
   { id: "connection", label: "Connection", icon: "hub", desc: "Pair devices and manage your secure tunnel" },
-  { id: "terminals", label: "Terminals", icon: "terminal", desc: "Live terminal sessions running on this host" },
+  { id: "terminals", label: "Terminal", icon: "open_in_new", desc: "Open the web terminal" },
   { id: "logs", label: "Logs", icon: "description", desc: "Server activity and diagnostics" },
 ];
 
 const DEFAULT_MENU = "connection";
 const TERMINALS_MENU = "terminals";
 
-// Recent activity — AI tool → brand logo svg (public/agents/). type "stop"=replied, else needs input
-const AGENT_ICON = { claude: "/agents/claude.svg", codex: "/agents/codex.svg", gemini: "/agents/gemini.svg", opencode: "/agents/opencode.svg" };
-const RECENT_LIMIT = 6;
-
-// Compact relative time (e.g. "now", "3m", "2h", "1d")
-const timeAgo = (ts) => {
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return "now";
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-};
-
-// Parse URL pathname → { menu, sessionId } (sessionId only under /terminals/:id)
+// Parse URL pathname → { menu }
 const parsePath = () => {
-  const [seg, sub] = window.location.pathname.replace(/^\/+/, "").split("/");
-  const menu = MENU.some((m) => m.id === seg) ? seg : DEFAULT_MENU;
-  const sessionId = menu === TERMINALS_MENU && sub ? decodeURIComponent(sub) : null;
-  return { menu, sessionId };
+  const [seg] = window.location.pathname.replace(/^\/+/, "").split("/");
+  return { menu: MENU.some((m) => m.id === seg) ? seg : DEFAULT_MENU };
 };
-
-// Build pathname from current menu + open terminal
-const buildPath = (menu, sessionId) =>
-  menu === TERMINALS_MENU && sessionId ? `/${menu}/${encodeURIComponent(sessionId)}` : `/${menu}`;
 
 const getPermissionMeta = (t) => ({
   screenRecording: { label: t("remote.screenRecording"), icon: "screenshot_monitor", desc: t("remote.captureScreen") },
@@ -448,56 +424,8 @@ function ConnectionEmpty({ onStart, t }) {
   );
 }
 
-/** Language switcher — globe button + dropdown (header global action) */
-/** Recent agent activity — sessions whose AI just finished/needs input (bottom of sidebar) */
-function RecentActivity({ notifications, sessions, onSelect, onDismiss, t }) {
-  const items = Object.values(notifications || {})
-    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-    .slice(0, RECENT_LIMIT);
-  const nameOf = (id) => sessions.find((s) => s.id === id)?.name || id.slice(0, 8);
-  return (
-    <div className="flex flex-col min-h-0 flex-shrink px-4 py-3 border-t select-none" style={{ borderColor: "var(--border-subtle)" }}>
-      <p className="text-[10px] font-semibold uppercase tracking-wide px-1 mb-1.5 flex-shrink-0" style={{ color: "var(--text-muted)" }}>{t("recent.title")}</p>
-      {!items.length ? (
-        <p className="text-[11px] px-1 py-2" style={{ color: "var(--text-muted)" }}>{t("recent.empty")}</p>
-      ) : (
-      <div className="flex flex-col gap-0.5 min-h-0 overflow-y-auto">
-        {items.map((n) => (
-          <div
-            key={n.sessionId}
-            onClick={() => onSelect(n.sessionId)}
-            className="group w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-all text-left cursor-pointer"
-            style={{ color: "var(--text-muted)" }}
-            title={nameOf(n.sessionId)}
-          >
-            {AGENT_ICON[n.tool] ? (
-              <img src={AGENT_ICON[n.tool]} alt={n.tool} className="w-4 h-4 flex-shrink-0" />
-            ) : (
-              <span className="material-symbols-outlined text-[16px] flex-shrink-0" style={{ color: "var(--brand-400)" }}>smart_toy</span>
-            )}
-            <span className="flex-1 min-w-0">
-              <span className="block text-[12px] font-medium truncate" style={{ color: "var(--text-main)" }}>{nameOf(n.sessionId)}</span>
-              <span className="block text-[10px] truncate">{n.type === "stop" ? t("recent.replied") : t("recent.needsInput")}</span>
-            </span>
-            <span className="text-[10px] flex-shrink-0 group-hover:hidden">{timeAgo(n.timestamp)}</span>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDismiss(n.sessionId); }}
-              title={t("recent.dismiss")}
-              className="material-symbols-outlined text-[16px] flex-shrink-0 hidden group-hover:block"
-              style={{ color: "var(--text-muted)" }}
-            >
-              close
-            </button>
-          </div>
-        ))}
-      </div>
-      )}
-    </div>
-  );
-}
-
 /** Primary left navigation — logo top, menu mid, controls bottom (9router pattern) */
-function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onResetTunnel, onClose, notifications, sessions = [], onSelectSession, onDismissRecent }) {
+function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onResetTunnel, onClose }) {
   const { t } = useI18n();
   const handleSelect = (id) => { onSelect(id); onClose?.(); };
   const handleSelectSession = (id) => { onSelectSession?.(id); onClose?.(); };
@@ -534,14 +462,12 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
           );
         })}
       </nav>
-
-      <RecentActivity notifications={notifications} sessions={sessions} onSelect={handleSelectSession} onDismiss={onDismissRecent} t={t} />
     </aside>
   );
 }
 
 /** Content header — per-menu title/icon/desc + global actions (9router pattern) */
-function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown, onMenuClick, terminalFont, setTerminalFont, terminalTheme, setTerminalTheme, webglEnabled, setWebglEnabled, showFolderButton, setShowFolderButton, showGitButton, setShowGitButton, showNoteButton, setShowNoteButton }) {
+function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown, onMenuClick }) {
   const { t } = useI18n();
   return (
     <header className="shrink-0 flex items-center justify-between gap-3 px-6 lg:px-10 pt-5 pb-1">
@@ -561,24 +487,7 @@ function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown,
           title={theme === "dark" ? t("header.lightMode") : t("header.darkMode")}
           onClick={onToggleTheme}
         />
-        <SettingsMenu
-          isStopped={isStopped}
-          onStop={onStop}
-          onShutdown={onShutdown}
-          theme={theme}
-          terminalFont={terminalFont}
-          setTerminalFont={setTerminalFont}
-          terminalThemeKey={terminalTheme}
-          setTerminalTheme={setTerminalTheme}
-          webglEnabled={webglEnabled}
-          setWebglEnabled={setWebglEnabled}
-          showFolderButton={showFolderButton}
-          setShowFolderButton={setShowFolderButton}
-          showGitButton={showGitButton}
-          setShowGitButton={setShowGitButton}
-          showNoteButton={showNoteButton}
-          setShowNoteButton={setShowNoteButton}
-        />
+        <SettingsMenu isStopped={isStopped} onStop={onStop} onShutdown={onShutdown} />
       </div>
     </header>
   );
@@ -618,24 +527,14 @@ export default function MainScreen({
 }) {
   const { t } = useI18n();
   const [activeMenu, setActiveMenu] = useState(() => parsePath().menu);
-  // Terminal appearance prefs — shared with web's terminalStore keys for parity.
-  const [terminalFont, setTerminalFont] = usePersistedState("term.fontSize", null);
-  const [terminalTheme, setTerminalTheme] = usePersistedState("term.theme", "default");
-  const [webglEnabled, setWebglEnabled] = usePersistedState("term.webgl", true);
-  const [showFolderButton, setShowFolderButton] = usePersistedState("term.showFolder", true);
-  const [showGitButton, setShowGitButton] = usePersistedState("term.showGit", true);
-  const [showNoteButton, setShowNoteButton] = usePersistedState("term.showNote", true);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [deviceToLabel, setDeviceToLabel] = useState(null);
   const [labelInput, setLabelInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeSessionId, setActiveSessionId] = useState(null);
-  const [openedIds, setOpenedIds] = useState([]);
   const logEndRef = useRef(null);
   const scrollRef = useRef(null);
-  const term = useSessions();
 
   // Navigate menu → leaving terminals also closes any open terminal
   const navigateMenu = (id) => {
@@ -661,64 +560,17 @@ export default function MainScreen({
 
   // Sync state with browser back/forward
   useEffect(() => {
-    const onPop = () => {
-      const { menu, sessionId } = parsePath();
-      setActiveMenu(menu);
-      setActiveSessionId(sessionId);
-    };
+    const onPop = () => setActiveMenu(parsePath().menu);
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // Single source of truth: push URL whenever menu / open terminal changes.
-  // Gate the very first run so a deep-linked :id isn't wiped before reopen kicks in;
-  // once unlocked, closing a terminal correctly drops the :id from the URL.
-  const routeReadyRef = useRef(false);
+  // Push URL whenever menu changes
   useEffect(() => {
-    if (!routeReadyRef.current) {
-      if (!activeSessionId && parsePath().sessionId) return; // wait for reopen
-      routeReadyRef.current = true;
-    }
-    const next = buildPath(activeMenu, activeSessionId);
+    const next = `/${activeMenu}`;
     if (window.location.pathname !== next) window.history.pushState(null, "", next);
-  }, [activeMenu, activeSessionId]);
+  }, [activeMenu]);
 
-  // Clear badge only when SWITCHING into a terminal (B); a badge arriving while already focused stays until input (A)
-  useEffect(() => { if (activeSessionId) term.clearFinished(activeSessionId); }, [activeSessionId]);
-
-  // Reflect unseen finished-terminal count in document title (marquee)
-  useEffect(() => { updateTitle(term.finishedIds.size); return () => updateTitle(0); }, [term.finishedIds]);
-
-  // Open a session → also open all sessions in its group as split panes (web parity)
-  const openSession = (sessionId) => {
-    const sel = term.sessions.find((s) => s.id === sessionId);
-    const gid = sel?.groupId || null;
-    const groupIds = term.sessions.filter((s) => (s.groupId || null) === gid).map((s) => s.id);
-    setOpenedIds((prev) => Array.from(new Set([...prev, ...groupIds, sessionId])));
-    setActiveSessionId(sessionId);
-  };
-
-  // Reopen terminal from deep-link URL once its session has loaded.
-  // If the id no longer exists after sessions load, drop it from the URL.
-  useEffect(() => {
-    const { menu, sessionId } = parsePath();
-    if (!sessionId || activeSessionId) return;
-    if (term.sessions.some((s) => s.id === sessionId)) openSession(sessionId);
-    else if (term.sessions.length) window.history.replaceState(null, "", `/${menu}`);
-  }, [term.sessions]);
-
-  // Prune opened list to existing sessions (don't touch activeSessionId — avoids race on create)
-  useEffect(() => {
-    const ids = term.sessions.map((s) => s.id);
-    setOpenedIds((prev) => prev.filter((id) => ids.includes(id)));
-  }, [term.sessions]);
-
-  // Close overlay only when the active session is actually closed (sessionClosed event)
-  useEffect(() => {
-    const onClosed = (id) => { if (id === activeSessionId) setActiveSessionId(null); };
-    term.socket.on("sessionClosed", onClosed);
-    return () => term.socket.off("sessionClosed", onClosed);
-  }, [activeSessionId, term.socket]);
   // STEP enum: STOPPED=0, PREPARING=1, CONNECTING=2, TUNNELING=3, VERIFYING=4, READY=5
   const isReady = step === 5;
   const isStopped = step === 0;
@@ -726,28 +578,14 @@ export default function MainScreen({
 
   // Refresh devices list whenever tab active or state updates (so offline/online stays in sync)
   useEffect(() => {
-    // Scroll the logs list itself (bounded height, internal scroll) to bottom
     if (activeMenu === "logs" && logEndRef.current) logEndRef.current.scrollTop = logEndRef.current.scrollHeight;
     if (activeMenu === "connection") onFetchDevices?.();
-    if (activeMenu === "terminals") term.refresh();
   }, [logs, activeMenu, connections.length]);
-
-  // Retry fetching sessions once after 1s if still empty in terminals view
-  // (guards against rare race where terminal:ready reply arrives too late)
-  useEffect(() => {
-    if (activeMenu !== "terminals") return;
-    if (term.sessions.length || term.groups.length) return;
-    const timer = setTimeout(() => term.refresh(), 1000);
-    return () => clearTimeout(timer);
-  }, [activeMenu, term.sessions.length, term.groups.length]);
 
   const clients = mergeClients(approvedDevices, connections, rejectedDevices);
   const onlineCount = clients.filter((c) => c.status === "online").length;
 
   const currentMenu = MENU.find((m) => m.id === activeMenu);
-
-  // Recent activity click → jump to terminals, open that session, clear its badge
-  const openRecent = (sessionId) => { navigateMenu(TERMINALS_MENU); term.clearFinished(sessionId); openSession(sessionId); };
 
   return (
     <div className="h-full w-full flex overflow-hidden isolate" style={{ background: "var(--bg-body)" }}>
@@ -764,10 +602,6 @@ export default function MainScreen({
           isReady={isReady}
           tunnelHealth={tunnelHealth}
           onResetTunnel={() => setShowDisconnectConfirm(true)}
-          notifications={term.notifications}
-          sessions={term.sessions}
-          onSelectSession={openRecent}
-          onDismissRecent={term.dismissRecent}
         />
       </div>
 
@@ -784,10 +618,6 @@ export default function MainScreen({
           tunnelHealth={tunnelHealth}
           onResetTunnel={() => setShowDisconnectConfirm(true)}
           onClose={() => setSidebarOpen(false)}
-          notifications={term.notifications}
-          sessions={term.sessions}
-          onSelectSession={openRecent}
-          onDismissRecent={term.dismissRecent}
         />
       </div>
 
@@ -801,18 +631,6 @@ export default function MainScreen({
           onStop={() => setShowDisconnectConfirm(true)}
           onShutdown={() => setShowShutdownConfirm(true)}
           onMenuClick={() => setSidebarOpen(true)}
-          terminalFont={terminalFont}
-          setTerminalFont={setTerminalFont}
-          terminalTheme={terminalTheme}
-          setTerminalTheme={setTerminalTheme}
-          webglEnabled={webglEnabled}
-          setWebglEnabled={setWebglEnabled}
-          showFolderButton={showFolderButton}
-          setShowFolderButton={setShowFolderButton}
-          showGitButton={showGitButton}
-          setShowGitButton={setShowGitButton}
-          showNoteButton={showNoteButton}
-          setShowNoteButton={setShowNoteButton}
         />
         {!isConnecting && <UpdateBanner version={updateVersion} />}
         <div className="px-6 lg:px-10 pb-6 lg:pb-10 pt-5">
@@ -902,24 +720,6 @@ export default function MainScreen({
                     </div>
                   </div>
                   </>
-                )}
-
-                {activeMenu === "terminals" && (
-                  <SessionList
-                    sessions={term.sessions}
-                    groups={term.groups}
-                    connected={term.connected}
-                    finishedIds={term.finishedIds}
-                    sessionStatus={term.sessionStatus}
-                    onSelect={(s) => { term.clearFinished(s.id); openSession(s.id); }}
-                    onCreate={(groupId) => term.createSession(groupId)}
-                    onCreateNamed={(groupId, name) => term.createSession(groupId, undefined, name)}
-                    onDelete={(id) => term.deleteSession(id)}
-                    onRename={(id, name) => term.renameSession(id, name)}
-                    onCreateGroup={(name, cb) => term.createGroup(name, cb)}
-                    onRenameGroup={(id, name) => term.renameGroup(id, name)}
-                    onDeleteGroup={(id) => term.deleteGroup(id)}
-                  />
                 )}
 
                 {activeMenu === "logs" && (
@@ -1024,57 +824,6 @@ export default function MainScreen({
         </div>
       )}
 
-      {/* Full-screen terminal overlay (mirrors web) */}
-      {activeSessionId && (
-        <TerminalView
-          socket={term.socket}
-          sessions={term.sessions}
-          openedIds={openedIds}
-          activeId={activeSessionId}
-          connected={term.connected}
-          theme={theme}
-          terminalFont={terminalFont}
-          terminalThemeKey={terminalTheme}
-          showFolderButton={showFolderButton}
-          showGitButton={showGitButton}
-          showNoteButton={showNoteButton}
-          groups={term.groups}
-          finishedIds={term.finishedIds}
-          sessionStatus={term.sessionStatus}
-          clearFinished={term.clearFinished}
-          updateCwd={term.updateCwd}
-          onSwitch={(id) => { term.clearFinished(id); setActiveSessionId(id); }}
-          onSelectGroup={(gid) => {
-            const groupIds = term.sessions.filter((s) => (s.groupId || null) === gid).map((s) => s.id);
-            setOpenedIds((prev) => Array.from(new Set([...prev, ...groupIds])));
-            if (groupIds[0]) setActiveSessionId(groupIds[0]);
-          }}
-          onCreate={(groupId) => term.createSession(groupId, (r) => {
-            if (r?.success && r.sessionId) {
-              setOpenedIds((prev) => Array.from(new Set([...prev, r.sessionId])));
-              setActiveSessionId(r.sessionId);
-            }
-          })}
-          onCreateNamed={(groupId, name) => term.createSession(groupId, (r) => {
-            if (r?.success && r.sessionId) {
-              setOpenedIds((prev) => Array.from(new Set([...prev, r.sessionId])));
-              setActiveSessionId(r.sessionId);
-            }
-          }, name)}
-          onRename={(id, name) => term.renameSession(id, name)}
-          onDelete={(id) => term.deleteSession(id)}
-          onBack={() => setActiveSessionId(null)}
-          onStop={() => setShowDisconnectConfirm(true)}
-          onShutdown={() => setShowShutdownConfirm(true)}
-          webglEnabled={webglEnabled}
-          onSetWebgl={setWebglEnabled}
-          onSetShowFolder={setShowFolderButton}
-          onSetShowGit={setShowGitButton}
-          onSetShowNote={setShowNoteButton}
-          onSetTerminalFont={setTerminalFont}
-          onSetTerminalTheme={setTerminalTheme}
-        />
-      )}
     </div>
   );
 }
