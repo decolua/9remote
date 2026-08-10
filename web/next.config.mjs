@@ -30,7 +30,7 @@ const nextConfig = {
     "172.16.*.*"
   ],
   env: {
-    NEXT_PUBLIC_WORKER_URL: "https://9remote.cc",
+    NEXT_PUBLIC_WORKER_URL: process.env.NEXT_PUBLIC_WORKER_URL || "https://9remote.cc",
     NEXT_PUBLIC_SERVER_VERSION: rootPkg.version,
   },
   async headers() {

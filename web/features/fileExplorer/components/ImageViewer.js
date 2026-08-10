@@ -33,28 +33,61 @@ export default function ImageViewer({ filePath, fileSocket }) {
 
   useEffect(() => {
     let cancelled = false;
+    let revoke = null;
+    const chunks = [];
+    let blobMime = "";
+
     setLoading(true);
     setError("");
     setDataUrl("");
     setMeta(null);
     setScale(1);
     setPos({ x: 0, y: 0 });
-    fileSocket.readMedia(filePath).then(r => {
-      if (cancelled) return;
-      if (r.success) {
-        setDataUrl(r.dataUrl);
-        setMeta({
-          size: r.originalSize || r.size,
-          width: r.width,
-          height: r.height,
-          scaled: r.scaled,
-          originalWidth: r.originalWidth,
-          originalHeight: r.originalHeight
-        });
-      } else setError(r.error || "Failed to load image");
-      setLoading(false);
+
+    // TIFF → browser can't render natively → keep readMedia (Sharp converts to JPEG).
+    // All other image formats stream via the file DC (avoids control-channel overflow).
+    const lower = filePath.toLowerCase();
+    const isTiff = lower.endsWith(".tif") || lower.endsWith(".tiff");
+
+    if (isTiff) {
+      fileSocket.readMedia(filePath).then(r => {
+        if (cancelled) return;
+        if (r.success) {
+          setDataUrl(r.dataUrl);
+          setMeta({ size: r.originalSize || r.size, width: r.width, height: r.height, scaled: r.scaled, originalWidth: r.originalWidth, originalHeight: r.originalHeight });
+        } else setError(r.error || "Failed to load image");
+        setLoading(false);
+      });
+      return () => { cancelled = true; };
+    }
+
+    const cancel = fileSocket.streamMedia(filePath, {
+      onMeta: ({ mime: m, size: s }) => {
+        if (cancelled) return;
+        blobMime = m || "image/*";
+        setMeta(prev => ({ ...prev, size: s }));
+      },
+      onChunk: (payload) => { if (!cancelled) chunks.push(payload); },
+      onDone: () => {
+        if (cancelled) return;
+        const blob = new Blob(chunks, { type: blobMime });
+        const url = URL.createObjectURL(blob);
+        revoke = url;
+        setDataUrl(url);
+        setLoading(false);
+      },
+      onError: (e) => {
+        if (cancelled) return;
+        setError(e.message || "Failed to load image");
+        setLoading(false);
+      }
     });
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      cancel?.();
+      if (revoke) URL.revokeObjectURL(revoke);
+    };
   }, [filePath, fileSocket]);
 
   // Clamp pan so the image can't be dragged off-screen
@@ -192,6 +225,7 @@ export default function ImageViewer({ filePath, fileSocket }) {
           src={dataUrl}
           alt={filePath}
           draggable={false}
+          onLoad={(e) => setMeta(prev => ({ ...prev, width: e.target.naturalWidth, height: e.target.naturalHeight }))}
           style={{ transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`, transformOrigin: "center", willChange: "transform" }}
           className="max-w-full max-h-full object-contain select-none"
         />

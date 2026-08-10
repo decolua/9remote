@@ -1,5 +1,7 @@
 // Remote Desktop Server Configuration
 
+import { WORKER_URL } from "../../cli/config.js";
+
 // Per-OS optimal libs based on screen capture benchmarks
 // darwin: node-screenshots async (robotjs leaks native CGImageRef on Mac)
 // win32:  node-screenshots DXGI GPU + sharp (RGBA, AVX2 prebuilt optimal)
@@ -75,6 +77,11 @@ export const REMOTE_CONFIG = {
     enableWebRTC: true,
     enableTurn: false,
     turnApiUrl: "https://9remote.cc/api/webrtc/turn-credentials",
+    // DO signaling relay — fallback RTC signaling carrier when tunnel WS is down.
+    // apiKey-gated; room = client deviceId. Derives from WORKER_URL so dev mode
+    // (npm run agent:dev) auto-targets the dev DO. Explicit override wins.
+    signalingDoUrl: process.env.NREMOTE_SIGNALING_DO_URL
+      || WORKER_URL.replace(/^http/, "ws") + "/signaling",
     // TTL is 24h, refresh 1h before expiry
     turnRefreshInterval: (24 - 1) * 60 * 60 * 1000,
     // 64KB — SCTP hard limit per message in node-datachannel

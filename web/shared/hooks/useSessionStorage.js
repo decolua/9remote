@@ -30,7 +30,7 @@ export function useSessionStorage() {
       localIp = sessionStorage.getItem("localIp");
     } catch { return null; }
 
-    if (!apiKey || !tunnelUrl) return null;
+    if (!apiKey) return null; // RTC-first: tunnelUrl optional (fallback only)
 
     // Ensure cookie is set when reading auth (in case page was refreshed)
     setAuthCookie(apiKey);

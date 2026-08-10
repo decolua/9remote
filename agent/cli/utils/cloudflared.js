@@ -52,6 +52,10 @@ const LEGACY_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 
 // Track intentional shutdown to suppress exit logs
 let isIntentionalShutdown = false;
+// PID of the cloudflared this module currently owns. A spawn that gets superseded
+// (timeout, stale cleanup) leaves its exit handler attached, and that handler must
+// not schedule a restart for a process we already replaced.
+let currentChildPid = null;
 
 // Pin stable version — avoid "latest" renaming/breakage
 const CLOUDFLARED_VERSION = "2026.6.1";
@@ -334,40 +338,6 @@ const LOG_IGNORE = [
   "Updated to new configuration"
 ];
 
-// QUIC handshake failure signatures (UDP 7844 blocked). cloudflared's first QUIC
-// attempt fails within ~10s (handshake timeout) — catching it here lets us fall
-// back to http2 immediately instead of waiting out cloudflared's own retry chain.
-const QUIC_FAIL_PATTERNS = [
-  "Failed to dial a quic connection",
-  "Failed to create new quic connection"
-];
-
-// Edge connection lifecycle events — logged so a silently dead tunnel (process
-// alive, edge lost) is traceable in agent.log instead of vanishing without trace.
-const TUNNEL_CONN_EVENTS = [
-  "Registered tunnel connection",
-  "Unregistered tunnel connection",
-  "Lost connection with the edge",
-  "Serve tunnel error",
-  "Retrying connection",
-  "Connection terminated",
-  "Switching to fallback protocol"
-];
-
-// trycloudflare rate-limit signatures. cloudflared's RunQuickTunnel does a single
-// POST /tunnel with no retry: a 429 body fails to unmarshal (or yields an empty
-// Result.ID), so those parse errors are how the limit actually surfaces.
-const RATE_LIMIT_PATTERNS = [
-  "429",
-  "Too Many Requests",
-  "failed to unmarshal quick Tunnel",
-  "failed to parse quick Tunnel ID"
-];
-
-function isRateLimited(output) {
-  return RATE_LIMIT_PATTERNS.some((p) => output.includes(p));
-}
-
 /**
  * Parse trycloudflare.com URL from cloudflared log output
  */
@@ -385,11 +355,22 @@ function parseQuickTunnelUrl(message) {
  * Spawn cloudflared quick tunnel (no account needed)
  * @param {number} localPort - Local port to tunnel
  * @param {Function} onUrlUpdate - Called when URL changes after initial connect
- * @param {string} protocol - "quic" (default, detect UDP block + early fail) | "http2"
  * @returns {Promise<{child, tunnelUrl}>}
  */
-export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart = null, protocol = "quic") {
+export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart = null) {
   const binaryPath = await ensureCloudflared();
+
+  // Clear any cloudflared left over from an earlier spawn or a hard agent restart.
+  // Uses the PID file, not the port: a cloudflared that never finished connecting
+  // has no ESTABLISHED socket, so the port lookup would miss exactly the orphans
+  // a timeout leaves behind. The stale process is a different PID than the one we
+  // are about to spawn, so its exit event can't be confused with ours.
+  const stalePid = readPid("cloudflared");
+  if (stalePid && isAlive(stalePid)) {
+    logger.info(`killing stale cloudflared pid=${stalePid}`);
+    killPid(stalePid);
+    clearPid("cloudflared");
+  }
 
   if (onRestart) restartCallback = onRestart;
   currentRestartArg = localPort;
@@ -408,12 +389,12 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
   const child = spawn(
     binaryPath,
-    // quic first; spawnQuickTunnelDetect falls back to http2 if UDP 7844 is blocked.
-    ["tunnel", "--url", `http://localhost:${localPort}`, "--config", configPath, "--no-autoupdate", "--protocol", protocol],
+    ["tunnel", "--url", `http://localhost:${localPort}`, "--config", configPath, "--no-autoupdate", "--protocol", "http2"],
     { detached: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }
   );
 
   writePid("cloudflared", child.pid);
+  currentChildPid = child.pid;
   isIntentionalShutdown = false;
 
   return new Promise((resolve, reject) => {
@@ -421,63 +402,35 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
     let lastUrl = null;
     let lastOutput = "";
 
-    // Room for trycloudflare API + edge handshake; if QUIC retries before the
-    // fail pattern logs, worst case spans several handshake timeouts (~10s each).
     const timeout = setTimeout(() => {
       if (resolved) return;
       resolved = true;
       cleanup();
-      reject(new Error("Quick tunnel timed out after 150s"));
-    }, 150000);
+      // Kill the child — otherwise the retry loop spawns a second cloudflared
+      // while this one keeps running, and they pile up across timeouts. Clearing
+      // currentChildPid marks it superseded so its exit handler stays quiet.
+      if (currentChildPid === child.pid) currentChildPid = null;
+      try { child.kill("SIGKILL"); } catch {}
+      clearPid("cloudflared");
+      reject(new Error("Quick tunnel timed out after 90s"));
+    }, 90000);
 
     const handleLog = (data) => {
       const msg = data.toString();
       lastOutput += msg;
       if (lastOutput.length > 4096) lastOutput = lastOutput.slice(-4096);
-      // Surface edge connection events to agent.log — otherwise a silently dead
-      // tunnel (process alive, edge lost) leaves no trace for diagnosis.
-      for (const ev of TUNNEL_CONN_EVENTS) {
-        if (msg.includes(ev)) { logger.info(`[cloudflared] ${msg.trim()}`); break; }
-      }
-
-      // QUIC blocked: UDP 7844 unreachable. Fail fast so the caller can respawn
-      // with http2 instead of waiting out cloudflared's own retry chain (~2.5min).
-      if (protocol === "quic" && !resolved && QUIC_FAIL_PATTERNS.some((p) => msg.includes(p))) {
-        resolved = true;
-        clearTimeout(timeout);
-        cleanup();
-        // Kill the QUIC-retrying child + mark intentional so its exit handler
-        // doesn't also scheduleRestart (we handle fallback ourselves).
-        isIntentionalShutdown = true;
-        try { child.kill(); } catch {}
-        clearPid("cloudflared");
-        const err = new Error("QUIC handshake failed — UDP 7844 likely blocked");
-        err.quicBlocked = true;
-        logger.warn("QUIC blocked (UDP 7844 unreachable) — will retry with http2");
-        reject(err);
-        return;
-      }
-
       const tunnelUrl = parseQuickTunnelUrl(msg);
       if (!tunnelUrl) return;
 
-      // Track the latest URL even before resolve (URL prints before edge connect)
-      if (!lastUrl) {
+      if (!resolved) {
+        resolved = true;
         lastUrl = tunnelUrl;
         activeTunnelUrl = tunnelUrl;
-      }
-
-      if (!resolved) {
-        // quic needs an actual edge connection — URL alone isn't enough (it may
-        // print before QUIC fails). http2 connects over TCP right after the URL.
-        const ready = protocol === "quic" ? msg.includes("Registered tunnel connection") : true;
-        if (!ready) return;
-        resolved = true;
         tunnelReadyAt = Date.now();
         clearTimeout(timeout);
         cleanup();
         startNetworkMonitor();
-        logger.info(`tunnel ready: ${tunnelUrl} (protocol=${protocol})`);
+        logger.info(`tunnel ready: ${tunnelUrl}`);
         resolve({ child, tunnelUrl });
         return;
       }
@@ -505,52 +458,28 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
     child.on("exit", (code, signal) => {
       cleanup();
-      logger.info(`cloudflared exited (intentional=${isIntentionalShutdown})`);
-      if (!isIntentionalShutdown) setLastStatus("unreachable");
+      // Superseded child (timed out, or replaced by a newer spawn) — its death is
+      // expected and must not drive status or trigger another restart.
+      const superseded = currentChildPid !== child.pid;
+      const quiet = isIntentionalShutdown || superseded;
+      logger.info(`cloudflared exited (intentional=${isIntentionalShutdown} superseded=${superseded})`);
+      if (!quiet) setLastStatus("unreachable");
       if (!resolved) {
         resolved = true;
         clearTimeout(timeout);
         const tail = lastOutput.trim().split("\n").slice(-5).join(" | ");
-        const err = new Error(`cloudflared exited (code=${code}, signal=${signal}) output: ${tail || "(empty)"}`);
-        // Flag lets the retry loop back off in minutes instead of seconds
-        err.rateLimited = isRateLimited(lastOutput);
-        if (err.rateLimited) logger.warn("trycloudflare rate limit detected");
-        reject(err);
-        // Initial spawn failed (e.g. trycloudflare API timeout) — still retry
-        if (!isIntentionalShutdown) {
-          scheduleRestart(localPort, `initial spawn failed (code ${code})`);
-        }
+        // Died before the tunnel came up: reject only. The caller's retry loop
+        // (spawnQuickTunnelWithRetry) owns the retry — also calling
+        // scheduleRestart here would spawn two cloudflared for one failure.
+        currentChildPid = null;
+        reject(new Error(`cloudflared exited (code=${code}, signal=${signal}) output: ${tail || "(empty)"}`));
         return;
       }
-      if (!isIntentionalShutdown) {
+      if (!quiet) {
         scheduleRestart(localPort, `quick tunnel exit code ${code}`);
       }
     });
   });
-}
-
-// Cached across the process lifetime: once QUIC proves unreachable (UDP 7844
-// blocked), skip the ~10s fail on every subsequent spawn and go straight to http2.
-// Resets when the agent restarts — a network change may re-enable QUIC.
-let quicKnownBlocked = false;
-
-/**
- * Spawn quick tunnel with QUIC-first + http2 fallback.
- * Tries QUIC; if UDP 7844 is blocked (detected from cloudflared's own logs within
- * ~10s), kills and respawns with http2. Avoids cloudflared's slow self-fallback.
- */
-export async function spawnQuickTunnelDetect(localPort, onUrlUpdate = null, onRestart = null) {
-  if (quicKnownBlocked) return spawnQuickTunnel(localPort, onUrlUpdate, onRestart, "http2");
-  try {
-    return await spawnQuickTunnel(localPort, onUrlUpdate, onRestart, "quic");
-  } catch (err) {
-    if (err.quicBlocked) {
-      quicKnownBlocked = true;
-      logger.warn("QUIC blocked — cached; future spawns skip to http2");
-      return await spawnQuickTunnel(localPort, onUrlUpdate, onRestart, "http2");
-    }
-    throw err;
-  }
 }
 
 /**
@@ -669,6 +598,7 @@ export function killCloudflared() {
 
     const pid = readPid("cloudflared");
     isIntentionalShutdown = true;
+    currentChildPid = null;
     if (pid) {
       killPid(pid);
       clearPid("cloudflared");
@@ -728,9 +658,6 @@ function startNetworkMonitor() {
   lastTickAt = Date.now();
 
   networkMonitorInterval = setInterval(async () => {
-    // Runs in the CLI parent — a throw here would surface as an unhandled
-    // rejection and take the whole agent down.
-    try {
     // Time gap between ticks — must track before any early return so a long
     // restartInFlight / waitForInternet window isn't misread as sleep on the next tick.
     const now = Date.now();
@@ -801,9 +728,6 @@ function startNetworkMonitor() {
 
     if (fingerprintChanged && !cloudflaredDead) killCloudflared();
     scheduleRestart(currentRestartArg, fingerprintChanged ? "network change" : "liveness watchdog");
-    } catch (err) {
-      logger.error(`network monitor tick failed: ${err?.message || err}`);
-    }
   }, TUNNEL_CONFIG.networkCheckIntervalMs);
 }
 

@@ -36,6 +36,16 @@ binding = "DB"
 database_name = "9remote"
 database_id = "df1dac06-213c-444d-8751-b7918e044356"
 
+# Signaling DO — WebSocket Hibernation relay for WebRTC signaling fallback.
+# Injected into .open-next/worker.js by scripts/injectSignalingDO.mjs at build time.
+[[durable_objects.bindings]]
+name = "SIGNALING_DO"
+class_name = "SignalingDO"
+
+[[migrations]]
+tag = "v1-signaling"
+new_sqlite_classes = ["SignalingDO"]
+
 [triggers]
 crons = ["0 * * * *"]
 
@@ -68,6 +78,10 @@ id = "a36a2b65355945448c246928f4b3f517"
 binding = "DB"
 database_name = "9remote"
 database_id = "df1dac06-213c-444d-8751-b7918e044356"
+
+[[env.dev.durable_objects.bindings]]
+name = "SIGNALING_DO"
+class_name = "SignalingDO"
 
 [env.dev.triggers]
 crons = ["0 * * * *"]

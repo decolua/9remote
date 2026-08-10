@@ -204,7 +204,10 @@ export class WebRtcProtocol extends BaseProtocol {
     };
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) this._sendSignaling({ type: "ice", candidate: candidate.candidate, mid: candidate.sdpMid });
+      if (!candidate) return;
+      const srflx = publicIpOf(candidate.candidate);
+      if (srflx) this._emit("netFingerprint", srflx);
+      this._sendSignaling({ type: "ice", candidate: candidate.candidate, mid: candidate.sdpMid });
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -288,14 +291,16 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   async _handleSignal(msg) {
+    debugLog("transport", `[rtc] signal: ${msg.type}`);
     if (!this._pc) return;
     try {
       if (msg.type === "answer") {
         await this._pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
+        debugLog("transport", "[rtc] answer set");
       } else if (msg.type === "ice") {
         await this._pc.addIceCandidate(new RTCIceCandidate({ candidate: msg.candidate, sdpMid: msg.mid })).catch(() => {});
       } else if (msg.type === "error") {
-        console.error("[rtc] server error:", msg.message);
+        debugLog("transport", `[rtc] server error: ${msg.message}`);
         this._cleanupPeer();
         this._setState(ADAPTER_STATE.closed);
       }
@@ -387,4 +392,14 @@ export class WebRtcProtocol extends BaseProtocol {
       }, 0);
     });
   }
+}
+
+// Public IP from a server-reflexive candidate — the NAT address STUN observed.
+// It changes on every real network handover (wifi ⇄ cellular ⇄ another AP), so
+// it's a reliable network identity where navigator.connection isn't available.
+// Candidate form: "candidate:<foundation> <comp> <proto> <pri> <ip> <port> typ srflx ..."
+function publicIpOf(candidate) {
+  if (!candidate || !candidate.includes("typ srflx")) return null;
+  const parts = candidate.split(" ");
+  return parts[4] || null;
 }

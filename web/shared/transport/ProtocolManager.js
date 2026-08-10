@@ -1,7 +1,8 @@
 import { WsProtocol } from "./WsProtocol";
 import { WebRtcProtocol } from "./WebRtcProtocol";
 import { registerProtocol, getProtocol } from "./registry";
-import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_RESTART } from "@/shared/constants/transport";
+import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_RESTART, SIGNALING_CONFIG, NET_RECOVERY, SIGNALING_ERRORS } from "@/shared/constants/transport";
+import { WORKER_API } from "@/shared/constants/API";
 import { isWsZombie } from "./wsZombie";
 import { debugLog } from "@/shared/utils/debugLog";
 
@@ -29,6 +30,7 @@ export class ProtocolManager {
       localIp: wsConfig.localIp,
       apiKey: wsConfig.apiKey,
       tempKey: wsConfig.tempKey,
+      deviceId: wsConfig.deviceId,
       namespace: wsConfig.namespace,
       socketOptions: wsConfig.socketOptions
     };
@@ -36,13 +38,21 @@ export class ProtocolManager {
       onConnect: wsConfig.onConnect,
       onDisconnect: wsConfig.onDisconnect,
       onRetryStatus: wsConfig.onRetryStatus,
-      onUrlUpdate: wsConfig.onUrlUpdate
+      onUrlUpdate: wsConfig.onUrlUpdate,
+      onApproval: wsConfig.onApproval
     };
     this._rtcCallbacks = rtcConfig ? {
       onUpgrade: rtcConfig.onUpgrade,
       onFallback: rtcConfig.onFallback,
       onTransportChange: rtcConfig.onTransportChange
     } : {};
+
+    // Signaling identity — per PM instance, so two tabs of the same browser
+    // (same deviceId, shared localStorage) get independent RTC sessions.
+    this._peerId = `${wsConfig.deviceId}:${_randomTag()}`;
+    // Socket.io carries the peerId so the agent can match a tunnel connection to
+    // an existing RTC-only session instead of building a second PM.
+    if (this._auth.socketOptions?.auth) this._auth.socketOptions.auth.peerId = this._peerId;
 
     this._adapters = new Map();   // id → adapter instance
     this._listeners = new Map();  // event → Set<handler>
@@ -54,6 +64,11 @@ export class ProtocolManager {
     // RTC zombie recovery — restart with backoff when acks time out (dead-but-open DC)
     this._rtcRestartAttempts = 0;
     this._rtcRestartTimer = null;
+    // Public IP last seen via STUN — identity of the network we negotiated on.
+    this._netFingerprint = null;
+    // Set when the agent answers "not approved" — pauses RTC recovery until the
+    // host acts, so we don't spin offers the agent will only refuse again.
+    this._awaitingApproval = false;
     this._ackTimeoutMs = RTC_RESTART.ackTimeoutMs;
 
     this._connected = false;
@@ -66,6 +81,10 @@ export class ProtocolManager {
     this._rawSocket = null;
     this._proxySocket = this._createProxySocket();
     this.socketRef = { current: this._proxySocket };
+    // onConnect fires once when the FIRST adapter opens (RTC or WS) so the app is
+    // usable before the tunnel comes up. Without this, workspace hooks wait for WS
+    // and fail with "Connection Failed" when the tunnel is slow/dead.
+    this._onConnectFired = false;
     // Visibility-based RTC health check — restart frozen RTC when tab becomes visible.
     // WS may survive background suspension (socket.io keepalive) while the RTC
     // PeerConnection freezes/closes; without this, RTC never recovers on resume.
@@ -86,13 +105,18 @@ export class ProtocolManager {
       if (wsZombie) {
         debugLog("transport", "[pm] ws zombie on resume → force reconnect");
         try { ws.forceReconnect?.(); } catch {}
-        // Fall through: WS may take time to reconnect; also restart RTC now so the
-        // binary channel recovers in parallel (RTC dies on background too, and the
-        // user's symptom is BOTH dead — fix them together, don't wait for WS open).
       }
-      if (!ws?.ready) {
-        // WS not alive — can't carry signaling for a fresh RTC negotiation here;
-        // it will restart on WS open (isReconnect path). Nothing more to do now.
+      // WS not ready but not a zombie → leave it alone. WsProtocol's own
+      // visibility handler already calls _forceReconnect, and calling retryNow
+      // here would kill a healthy mid-handshake socket on every tab focus →
+      // onConnect → handleSocketReady → UI flash.
+      // Signaling rides the tunnel WS *or* the DO relay — an RTC-only session
+      // has no ws adapter at all, so gating on WS here left it stuck forever.
+      if (this._awaitingApproval) return; // host hasn't approved yet — nothing to retry
+      if (!this._canSignal()) {
+        // Both carriers down (background froze them too) — kick the relay and
+        // let its onReady restart RTC once a path exists again.
+        this._sig?.retryNow();
         return;
       }
       const rtc = this._adapters.get("rtc");
@@ -102,8 +126,37 @@ export class ProtocolManager {
     };
     document.addEventListener("visibilitychange", this._visibilityHandler);
 
+    // Network handover (wifi ⇄ cellular ⇄ another AP) invalidates the NAT
+    // bindings ICE negotiated, so RTC is dead well before its own timers notice.
+    // Both signals are hints only (onLine is unreliable per MDN; the Network
+    // Information API is missing on Safari) — the srflx check does the deciding.
+    this._netHandler = () => {
+      clearTimeout(this._netDebounceTimer);
+      this._netDebounceTimer = setTimeout(() => {
+        if (navigator.onLine === false) return; // still down — wait for "online"
+        debugLog("transport", "[pm] network change → probe rtc");
+        this._sig?.retryNow();
+        // Fresh network deserves a fresh budget, else a session that burned its
+        // 3 restarts on a bad network is locked to the tunnel forever.
+        this._rtcRestartAttempts = 0;
+        // No carrier yet — the relay just reconnected; its onReady fires the
+        // restart. Renegotiating now would only buffer an offer nobody reads.
+        if (this._shouldRenegotiate()) this._restartRtc();
+      }, NET_RECOVERY.debounceMs);
+    };
+    window.addEventListener("online", this._netHandler);
+    navigator.connection?.addEventListener?.("change", this._netHandler);
+
     // Cross-adapter signaling — RTC pulls this from connect ctx
     this._rtcSignalingHandler = null;
+    // DO signaling relay (fallback carrier). Lazy-init in connect() once deviceId is known.
+    this._sig = null;
+    this._sigDestroyed = false;
+    // Outbound signaling that arrived before any carrier was ready (RTC created
+    // its offer before the tunnel WS or DO relay finished connecting). Flushed
+    // the moment either carrier opens.
+    this._sigBuffer = [];
+    this._wsFallbackTimer = null;
   }
 
   _createProxySocket() {
@@ -130,7 +183,19 @@ export class ProtocolManager {
         pm._rawSocket?.off(event, handler);
       },
       once(event, handler) {
-        pm._rawSocket?.once(event, handler);
+        // Track via proxyListeners so RTC dispatch invokes it even before the
+        // raw socket is bound (RTC-first). fired guard prevents double fire.
+        let fired = false;
+        const wrapper = (...args) => {
+          if (fired) return;
+          fired = true;
+          proxyListeners.get(event)?.delete(wrapper);
+          pm._rawSocket?.off(event, wrapper);
+          try { handler(...args); } catch {}
+        };
+        if (!proxyListeners.has(event)) proxyListeners.set(event, new Set());
+        proxyListeners.get(event).add(wrapper);
+        pm._rawSocket?.on(event, wrapper);
       },
       listeners(event) {
         return [...(proxyListeners.get(event) || [])];
@@ -196,18 +261,82 @@ export class ProtocolManager {
   sendBinary(channel, payload) {
     const adapter = this._pickAdapter(channel);
     if (!adapter) return false;
-    if (adapter.send(channel, payload)) return true;
-    if (adapter.constructor.id === "rtc") {
-      const ws = this._adapters.get("ws");
-      if (ws?.ready && ws.send(channel, payload)) return true;
-    }
-    return false;
+    return adapter.send(channel, payload);
   }
 
   connect() {
-    // Phase 1: connect primary (WS). Other adapters wait for WS open.
+    // RTC-first: bring up RTC (via DO signaling) immediately. The tunnel WS is
+    // lazy — only spawned when RTC fails or never opens, so a working P2P path
+    // isn't shadowed by tunnel-connect noise/errors.
+    this._sigDestroyed = false;
+    this._initSignalingClient();
+    this._startSecondaryAdapters();
+    debugLog("transport", "[pm] connect: RTC-first (DO signaling). WS tunnel deferred until RTC fails.");
+    // Safety: if RTC hasn't opened within the grace window, fall back to WS so
+    // the app is never stuck with no transport at all.
+    this._wsFallbackTimer = setTimeout(() => {
+      if (this._onConnectFired) return; // RTC (or WS) already up
+      debugLog("transport", "[pm] RTC grace expired without open → starting WS tunnel fallback");
+      this._startWsFallback();
+    }, RTC_RESTART.ackTimeoutMs * 2);
+  }
+
+  // Spawn the WS tunnel adapter on demand (RTC failed or grace expired).
+  async _startWsFallback() {
+    if (this._adapters.has("ws")) return;
+    // RTC-only sessions have no WS connection to push URL updates through, so the
+    // cached tunnelUrl may be stale (cloudflared restarted → new trycloudflare URL).
+    // Re-fetch the latest URL from the Worker before connecting.
+    await this._refreshTunnelUrl();
     this._instantiate("ws");
     this._adapters.get("ws")?.connect(this._buildCtx("ws"));
+  }
+
+  async _refreshTunnelUrl() {
+    try {
+      debugLog("transport", `[pm] refreshTunnelUrl: fetching from ${WORKER_API}/api/connect`);
+      const res = await fetch(`${WORKER_API}/api/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: this._auth.apiKey }),
+      });
+      if (!res.ok) {
+        debugLog("transport", `[pm] refreshTunnelUrl: HTTP ${res.status}`);
+        return;
+      }
+      const data = await res.json();
+      debugLog("transport", `[pm] refreshTunnelUrl: got ${data.tunnelUrl} (was ${this._auth.tunnelUrl})`);
+      if (data.tunnelUrl && data.tunnelUrl !== this._auth.tunnelUrl) {
+        this._auth.tunnelUrl = data.tunnelUrl;
+      }
+    } catch (e) {
+      debugLog("transport", `[pm] refreshTunnelUrl: error ${e.message}`);
+    }
+  }
+
+  _initSignalingClient() {
+    if (!SIGNALING_CONFIG.enabled || this._sig || this._sigDestroyed) return;
+    if (!this._auth.deviceId || !this._auth.apiKey) return;
+    // DO endpoint follows WORKER_API (env override → localhost UI talks to deployed DO).
+    const doUrl = WORKER_API.replace(/^http/, "ws") + "/signaling";
+    import("./SignalingClient").then(({ SignalingClient }) => {
+      // Guard: disconnect may have run while the dynamic import was pending.
+      if (this._sig || this._sigDestroyed) return;
+      this._sig = new SignalingClient({
+        url: doUrl,
+        role: "client",
+        roomId: this._auth.apiKey,
+        apiKey: this._auth.apiKey,
+        from: this._peerId,
+        onReady: () => this._onSignalingReady(),
+        pingMs: SIGNALING_CONFIG.pingMs
+      });
+      this._sig.on((msg) => {
+        if (this._handleApprovalSignal(msg)) return;
+        this._rtcSignalingHandler?.(msg);
+      });
+      this._sig.connect();
+    }).catch((err) => debugLog("transport", `[pm] SignalingClient load failed: ${err?.message || err}`));
   }
 
   _instantiate(id) {
@@ -218,10 +347,23 @@ export class ProtocolManager {
     inst.on("stateChange", (state) => this._onAdapterStateChange(id, state));
     inst.on("message", ({ event, data, source }) => this._dispatch(event, data, source));
     inst.on("binary", (msg) => this._onBinary(msg));
+    if (id === "rtc") inst.on("netFingerprint", (ip) => this._onNetFingerprint(ip));
     this._adapters.set(id, inst);
   }
 
+  /** STUN reported a different public IP → we are on another network. Restores
+   * the restart budget so a session that exhausted it elsewhere can retry here. */
+  _onNetFingerprint(ip) {
+    if (!ip || ip === this._netFingerprint) return;
+    const prev = this._netFingerprint;
+    this._netFingerprint = ip;
+    if (!prev) return; // first gather of the session — nothing changed yet
+    debugLog("transport", "[pm] network identity changed → reset rtc restart budget");
+    this._rtcRestartAttempts = 0;
+  }
+
   _startSecondaryAdapters() {
+    debugLog("transport", `[pm] startSecondary enabled=${this._profile.enabled}`);
     for (const id of this._profile.enabled) {
       if (id === "ws") continue;
       if (this._adapters.has(id)) continue;
@@ -230,9 +372,50 @@ export class ProtocolManager {
     }
   }
 
+  /** The agent answered "not approved" rather than failing to connect. Surface it
+   * as approval UI and stop renegotiating — retrying can't change a policy answer,
+   * and letting it reach the RTC adapter would tear the peer down and fall back to
+   * the tunnel, hiding the approval screen behind a connection error.
+   * @returns {boolean} true when handled (caller must not forward the message) */
+  _handleApprovalSignal(msg) {
+    if (msg?.type !== "error") return false;
+    const status = msg.message === SIGNALING_ERRORS.pending ? "pending"
+      : msg.message === SIGNALING_ERRORS.rejected ? "rejected"
+      : null;
+    if (!status) return false;
+    debugLog("transport", `[pm] device ${status} → approval UI`);
+    this._awaitingApproval = true;
+    this._wsCallbacks.onApproval?.(status);
+    return true;
+  }
+
+  /** Relay (re)connected — drain queued signaling, and renegotiate if RTC died
+   * while we had no carrier (resume from background, network handover). */
+  _onSignalingReady() {
+    this._flushSigBuffer();
+    if (this._awaitingApproval) return; // policy answer pending — a re-offer changes nothing
+    // First connect already has RTC negotiating — only step in once it's dead.
+    const rtc = this._adapters.get("rtc");
+    if (rtc && rtc.state === ADAPTER_STATE.closed) this._restartRtc();
+  }
+
+  /** Can a fresh offer/answer reach the agent? DO is the sole signaling carrier. */
+  _canSignal() {
+    return !!this._sig?.ready;
+  }
+
+  /** Waiting on the host to approve this device — a new offer would just be
+   * refused again, so recovery paths stand down until approval arrives. */
+  _shouldRenegotiate() {
+    return !this._awaitingApproval && this._canSignal();
+  }
+
   /** Tear down RTC + renegotiate via new WS socket (called on WS reconnect). */
   _restartRtc() {
     const rtc = this._adapters.get("rtc");
+    // Another recovery path (visibility, signaling-ready, net handler) already
+    // spun up a new peer — don't kill it mid-handshake. Only restart dead/idle.
+    if (rtc && (rtc.state === ADAPTER_STATE.connecting || rtc.state === ADAPTER_STATE.open)) return;
     if (!rtc) { this._startSecondaryAdapters(); return; }
     debugLog("transport", "[pm] ws reconnected → restart rtc");
     try { rtc.disconnect(); } catch {}
@@ -246,6 +429,18 @@ export class ProtocolManager {
       document.removeEventListener("visibilitychange", this._visibilityHandler);
       this._visibilityHandler = null;
     }
+    if (this._netHandler) {
+      window.removeEventListener("online", this._netHandler);
+      navigator.connection?.removeEventListener?.("change", this._netHandler);
+      this._netHandler = null;
+    }
+    clearTimeout(this._netDebounceTimer);
+    this._netDebounceTimer = null;
+    try { this._sig?.disconnect(); } catch {}
+    this._sig = null;
+    this._sigDestroyed = true;
+    this._sigBuffer = [];
+    clearTimeout(this._wsFallbackTimer);
     for (const inst of this._adapters.values()) {
       try { inst.disconnect(); } catch {}
     }
@@ -280,8 +475,8 @@ export class ProtocolManager {
     if (adapterId === "rtc") {
       ctx.signaling = {
         send: (msg) => this._sendSignaling(msg),
-        on: (handler) => { this._rtcSignalingHandler = handler; this._installSignalingListeners(); },
-        off: () => { this._rtcSignalingHandler = null; this._removeSignalingListeners(); }
+        on: (handler) => { this._rtcSignalingHandler = handler; },
+        off: () => { this._rtcSignalingHandler = null; }
       };
     }
     return ctx;
@@ -299,21 +494,27 @@ export class ProtocolManager {
         this._rawSocket = ws?.socket || null;
         // Re-attach proxy listeners to new raw socket
         this._rebindProxyListeners();
-        // Stale listeners on dead socket — recreate on new socket
-        this._sigListeners = null;
-        this._installSignalingListeners();
         if (this._lastWsState !== ADAPTER_STATE.open) {
-          // Pass proxy socket so consumer's onConnect handlers register listeners on PROXY
-          // (which auto re-binds to new raw socket after reconnect)
-          this._wsCallbacks.onConnect?.(this._proxySocket, this._connectionMode);
+          // First WS open after RTC already fired onConnect → just note the tunnel
+          // is up (mode/transport update); don't re-fire onConnect (handlers would
+          // double-register listeners on the proxy).
+          if (this._onConnectFired) {
+            this._wsCallbacks.onUrlUpdate?.({});
+          } else {
+            this._onConnectFired = true;
+            // Pass proxy socket so consumer's onConnect handlers register listeners on PROXY
+            // (which auto re-binds to new raw socket after reconnect)
+            this._wsCallbacks.onConnect?.(this._proxySocket, this._connectionMode);
+          }
         }
-        // On WS reconnect, server creates new PM → must renegotiate RTC via new socket
-        if (isReconnect) this._restartRtc();
-        else this._startSecondaryAdapters();
+        // RTC is started from connect() (signaling via DO, independent of WS).
+        // WS reconnect no longer needs to renegotiate RTC — the DO relay carries
+        // signaling without the tunnel.
       } else if (this._lastWsState === ADAPTER_STATE.open) {
         this._rawSocket = null;
         // Only signal disconnect if NO other adapter is keeping connection alive
         if (!this._anyAdapterReady()) {
+          this._onConnectFired = false;
           this._wsCallbacks.onDisconnect?.(state);
         } else {
           debugLog("transport", "[pm] ws down but rtc alive → skip onDisconnect");
@@ -323,7 +524,16 @@ export class ProtocolManager {
     }
 
     if (adapterId === "rtc" && state === ADAPTER_STATE.open) {
+      clearTimeout(this._wsFallbackTimer);
       this._rtcCallbacks.onUpgrade?.(this._adapters.get("rtc")?.typeDetail || "dc-stun");
+      // RTC opened first (tunnel not up yet) — fire onConnect so workspace hooks
+      // get the proxy socket and stop waiting for the tunnel. Data rides RTC.
+      if (!this._onConnectFired) {
+        this._onConnectFired = true;
+        this._connected = true;
+        this._connectionMode = "webrtc";
+        this._wsCallbacks.onConnect?.(this._proxySocket, this._connectionMode);
+      }
       // Successful RTC open → reset zombie recovery attempts
       this._rtcRestartAttempts = 0;
       clearTimeout(this._rtcRestartTimer);
@@ -331,6 +541,10 @@ export class ProtocolManager {
     }
     if (adapterId === "rtc" && state === ADAPTER_STATE.closed) {
       this._rtcCallbacks.onFallback?.("ws");
+      // RTC down → bring up the WS tunnel now so there's a data path while RTC
+      // retries via DO. If RTC comes back, _pickAdapter prefers it again.
+      this._startWsFallback();
+      clearTimeout(this._wsFallbackTimer);
       // Reject acks of requests sent over the now-dead RTC DC so callers fail
       // fast instead of hanging until the 30s cleanup silently drops them.
       for (const cb of this._pendingAcks.values()) {
@@ -339,8 +553,13 @@ export class ProtocolManager {
       this._pendingAcks.clear();
       for (const t of this._ackTimers.values()) clearTimeout(t);
       this._ackTimers.clear();
+      // RTC died → retry RTC via DO signaling (STUN again). Only after maxAttempts
+      // of repeated failure does the tunnel (ws) own the session permanently.
+      this._scheduleRtcRestart();
       // RTC died — if WS also down, emit disconnect now (was suppressed earlier)
       if (!this._anyAdapterReady()) {
+        // All adapters down → next "ready" should fire onConnect again.
+        this._onConnectFired = false;
         this._wsCallbacks.onDisconnect?.("rtc-closed");
       }
     }
@@ -459,6 +678,16 @@ export class ProtocolManager {
       }
       return;
     }
+    // Host approved (from either carrier) → recovery paths may renegotiate again.
+    // If ICE timed out while waiting (host took >30s), the peer is gone — the
+    // agent's buffered answer can't revive it, so renegotiate a fresh offer.
+    if (event === "device:approved") {
+      this._awaitingApproval = false;
+      const rtc = this._adapters.get("rtc");
+      if (this._canSignal() && (!rtc || rtc.state === ADAPTER_STATE.closed)) {
+        this._restartRtc();
+      }
+    }
     // RTC control envelope carries {event, args}; binary path (tiles-data) keeps raw data
     const args = source === "rtc" && Array.isArray(payload?.args)
       ? payload.args
@@ -500,25 +729,24 @@ export class ProtocolManager {
     this._ackTimers.set(ackId, timer);
   }
 
-  // Schedule a restart attempt with backoff. Caps at maxAttempts → gives up (WS owns).
+  // Two-phase RTC recovery: fast backoff (1s/2s/4s) right after failure, then a
+  // slow probe (30s) that keeps trying P2P while the tunnel carries data. Never
+  // gives up — network conditions improve, and a cheap STUN probe every 30s is
+  // negligible next to tunnel bandwidth. Reset-on-open and net-change restore the
+  // fast phase. DO-down skips the probe (_onSignalingReady restarts when it's back).
   _scheduleRtcRestart() {
-    if (this._rtcRestartAttempts >= RTC_RESTART.maxAttempts) {
-      debugLog("transport", `[pm] rtc restart cap reached (${RTC_RESTART.maxAttempts}) → ws owns`);
-      return;
-    }
     const attempt = this._rtcRestartAttempts;
-    const delay = RTC_RESTART.backoffMs[attempt] ?? RTC_RESTART.backoffMs[RTC_RESTART.backoffMs.length - 1];
+    const isProbe = attempt >= RTC_RESTART.maxAttempts;
+    const delay = isProbe
+      ? RTC_RESTART.probeIntervalMs
+      : (RTC_RESTART.backoffMs[attempt] ?? RTC_RESTART.backoffMs.at(-1));
     this._rtcRestartAttempts++;
-    debugLog("transport", `[pm] schedule rtc restart #${this._rtcRestartAttempts} in ${delay}ms`);
+    debugLog("transport", `[pm] schedule rtc ${isProbe ? "probe" : "restart"} #${this._rtcRestartAttempts} in ${delay}ms`);
     clearTimeout(this._rtcRestartTimer);
     this._rtcRestartTimer = setTimeout(() => {
       this._rtcRestartTimer = null;
-      // Only restart if WS is alive (signaling needs WS to renegotiate)
-      const ws = this._adapters.get("ws");
-      if (!ws?.ready) {
-        debugLog("transport", "[pm] skip rtc restart — ws down (no signaling)");
-        return;
-      }
+      if (this._awaitingApproval) return;
+      if (!this._sig?.ready) return; // DO down — _onSignalingReady will restart
       this._restartRtc();
     }, delay);
   }
@@ -526,55 +754,23 @@ export class ProtocolManager {
   // ─── Signaling routing (cross-adapter for RTC) ────────────────────────────
 
   _sendSignaling(msg) {
-    const ws = this._adapters.get("ws");
-    if (ws?.ready) {
-      ws.send(CHANNELS.control, { event: this._sigEvent(msg.type), args: [this._sigData(msg)] });
-      return;
-    }
-    // No fallback signaling — RTC stays alive on its own DC after established
-    debugLog("transport", "[pm] signal dropped: ws down");
+    // DO is the sole signaling carrier — the tunnel carries data only.
+    if (this._sig?.ready && this._sig.send(msg)) return;
+    this._sigBuffer.push(msg);
+    if (this._sigBuffer.length > 32) this._sigBuffer.shift();
   }
 
-  _sigEvent(type) {
-    return type === "offer" ? "webrtc:offer"
-      : type === "answer" ? "webrtc:answer"
-      : type === "ice" ? "webrtc:ice-candidate"
-      : "webrtc:error";
+  _flushSigBuffer() {
+    if (!this._sigBuffer.length) return;
+    const queued = this._sigBuffer;
+    this._sigBuffer = [];
+    for (const msg of queued) this._sendSignaling(msg);
   }
+}
 
-  _sigData(msg) {
-    if (msg.type === "offer" || msg.type === "answer") return { sdp: msg.sdp };
-    if (msg.type === "ice") return { candidate: msg.candidate, mid: msg.mid };
-    return msg;
-  }
-
-  _installSignalingListeners() {
-    if (!this._rtcSignalingHandler || this._sigListeners) return;
-    const ws = this._adapters.get("ws");
-    if (!ws?.socket) return;
-
-    const onOffer = ({ sdp }) => this._rtcSignalingHandler?.({ type: "offer", sdp });
-    const onAnswer = ({ sdp }) => this._rtcSignalingHandler?.({ type: "answer", sdp });
-    const onIce = ({ candidate, mid }) => this._rtcSignalingHandler?.({ type: "ice", candidate, mid });
-    const onErr = ({ message }) => this._rtcSignalingHandler?.({ type: "error", message });
-
-    this._sigListeners = { onOffer, onAnswer, onIce, onErr };
-    ws.onRaw("webrtc:offer", onOffer);
-    ws.onRaw("webrtc:answer", onAnswer);
-    ws.onRaw("webrtc:ice-candidate", onIce);
-    ws.onRaw("webrtc:error", onErr);
-  }
-
-  _removeSignalingListeners() {
-    const ws = this._adapters.get("ws");
-    if (!ws?.socket || !this._sigListeners) return;
-    const { onOffer, onAnswer, onIce, onErr } = this._sigListeners;
-    ws.offRaw("webrtc:offer", onOffer);
-    ws.offRaw("webrtc:answer", onAnswer);
-    ws.offRaw("webrtc:ice-candidate", onIce);
-    ws.offRaw("webrtc:error", onErr);
-    this._sigListeners = null;
-  }
+// Short per-tab tag appended to deviceId so concurrent tabs don't collide.
+function _randomTag() {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 // Approximate serialized size of control args — cheap upper bound for SCTP limit check.

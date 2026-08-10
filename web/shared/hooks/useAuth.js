@@ -53,19 +53,10 @@ export function useAuth() {
 
       const data = await response.json();
 
-      // Verify tunnel reachability, retry if not ready (agent may still be starting)
-      const resolvedApiKey = credentials.apiKey || data.apiKey;
-      let connected = false;
-      for (let i = 0; i < TUNNEL_VERIFY_RETRY_MAX; i++) {
-        connected = await verifyServerConnection(data.tunnelUrl, resolvedApiKey);
-        if (connected) break;
-        if (i < TUNNEL_VERIFY_RETRY_MAX - 1) {
-          await new Promise((r) => setTimeout(r, TUNNEL_VERIFY_RETRY_INTERVAL_MS));
-        }
-      }
-      if (!connected) {
-        throw new Error("Server not reachable. Please try again.");
-      }
+      // /api/connect already validated the apiKey/session — agent is alive.
+      // Tunnel liveness is no longer probed here: RTC is established via the DO
+      // signaling relay (independent of the tunnel), and the tunnel is a fallback
+      // transport that ProtocolManager brings up in parallel.
 
       // Save auth data to session storage (include tempKey and localIp if provided)
       setAuth({

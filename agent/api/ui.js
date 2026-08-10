@@ -15,6 +15,9 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { PATHS } from "../lib/constants.js";
 import { readSettings, writeSettings } from "../lib/settings.js";
+import { getSignalingState } from "../lib/signalingGlobal.js";
+import { getTransportStats } from "../transport/broadcast.js";
+import { isRtcTestDisabled, setRtcTestDisabled } from "../transport/server.js";
 
 const UI_STATE_FILE = join(PATHS.STATE, "ui-state.json");
 const logger = createLogger("ui");
@@ -171,6 +174,26 @@ export function handleLocalToken(req, res) {
   jsonOk(res, { localToken: getLocalToken() });
 }
 
+// ── Transport status (DO signaling / RTC / tunnel WS) ────────────────────────
+
+export function getTransportState() {
+  const { started, ready } = getSignalingState();
+  return { signaling: ready ? "connected" : started ? "connecting" : "off", rtcDisabled: isRtcTestDisabled(), ...getTransportStats() };
+}
+
+export async function handleRtcToggle(req, res) {
+  const { parseJsonBody } = await import("../lib/router.js");
+  const data = await parseJsonBody(req, res);
+  if (!data) return;
+  setRtcTestDisabled(!!data.disabled);
+  pushTransportState();
+  jsonOk(res, { rtcDisabled: isRtcTestDisabled() });
+}
+
+export function pushTransportState() {
+  pushUiEvent("transport", getTransportState());
+}
+
 export function trackConnection(socketId, ip, deviceId = null, type = "ws") {
   activeConnections.set(socketId, { socketId, ip, deviceId, type, connectedAt: Date.now() });
   pushUiEvent("connections", { connections: [...activeConnections.values()] });
@@ -201,13 +224,14 @@ export function handleSseEvents(req, res) {
   res.write(`data: ${JSON.stringify({ type: "state", ...uiState })}\n\n`);
   res.write(`data: ${JSON.stringify({ type: "connections", connections: [...activeConnections.values()] })}\n\n`);
   res.write(`data: ${JSON.stringify({ type: "permissions", ...cachedPermissions, desktopEnabled })}\n\n`);
+  res.write(`data: ${JSON.stringify({ type: "transport", ...getTransportState() })}\n\n`);
   if (updateInfo) res.write(`data: ${JSON.stringify({ type: "updateAvailable", ...updateInfo })}\n\n`);
   sseClients.add(res);
   req.on("close", () => sseClients.delete(res));
 }
 
 export function handleStateGet(req, res) {
-  jsonOk(res, { ...uiState, ...cachedPermissions, desktopEnabled, remoteAvailable });
+  jsonOk(res, { ...uiState, ...cachedPermissions, desktopEnabled, remoteAvailable, transport: getTransportState() });
 }
 
 export async function handleStatePost(req, res) {

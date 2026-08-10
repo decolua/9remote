@@ -33,8 +33,11 @@ export default function MediaViewer({ filePath, fileSocket }) {
     setMime("");
     setSize(0);
 
+    let useBlob = false; // MSE unsupported → collect chunks into a Blob
+    let blobMime = "";
+
     const flush = () => {
-      if (cancelled || !sb || sb.updating) return;
+      if (cancelled || useBlob || !sb || sb.updating) return;
       if (queue.length) { sb.appendBuffer(queue.shift()); return; }
       if (done && ms && ms.readyState === "open") { try { ms.endOfStream(); } catch {} }
     };
@@ -46,14 +49,10 @@ export default function MediaViewer({ filePath, fileSocket }) {
         setSize(s);
         const canMSE = typeof MediaSource !== "undefined" && MediaSource.isTypeSupported(m);
         if (!canMSE) {
-          // wav/flac/ogg on Safari etc. — fall back to base64 (bounded by readMedia cap).
-          cancel?.();
-          fileSocket.readMedia(filePath).then(r => {
-            if (cancelled) return;
-            if (r.success) { setSrc(r.dataUrl); setMime(r.mime || m); setSize(r.originalSize || r.size || s); }
-            else setError(r.error || "Failed to load media");
-            setLoading(false);
-          });
+          // No MSE (mp3 on Safari, etc.) — keep streaming via file DC but collect
+          // into a Blob instead of base64 (which overflows the RTC control DC).
+          useBlob = true;
+          blobMime = m;
           return;
         }
         ms = new MediaSource();
@@ -67,8 +66,23 @@ export default function MediaViewer({ filePath, fileSocket }) {
           flush();
         });
       },
-      onChunk: (payload) => { if (!cancelled) { queue.push(payload); flush(); } },
-      onDone: () => { if (!cancelled) { done = true; flush(); } },
+      onChunk: (payload) => {
+        if (cancelled) return;
+        queue.push(payload);
+        if (!useBlob) flush();
+      },
+      onDone: () => {
+        if (cancelled) return;
+        if (useBlob) {
+          const blob = new Blob(queue, { type: blobMime || "application/octet-stream" });
+          url = URL.createObjectURL(blob);
+          setSrc(url);
+          setLoading(false);
+        } else {
+          done = true;
+          flush();
+        }
+      },
       onError: (e) => { if (!cancelled) { setError(e.message || "Stream error"); setLoading(false); } }
     });
 

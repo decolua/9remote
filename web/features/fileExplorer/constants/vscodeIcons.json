@@ -117,14 +117,19 @@
     "tif": "image"
   },
   "fileNameMapping": {
-    "dockerfile": "docker",
-    "makefile": "gnu",
-    ".gitignore": "git",
-    ".gitattributes": "git",
-    ".npmrc": "npm",
     ".editorconfig": "editorconfig",
     ".env": "dotenv",
-    "license": "license"
+    ".gitattributes": "git",
+    ".gitignore": "git",
+    ".npmrc": "npm",
+    "docker-compose.yaml": "docker",
+    "docker-compose.yml": "docker",
+    "dockerfile": "docker",
+    "license": "license",
+    "makefile": "gnu",
+    "package-lock.json": "npm",
+    "package.json": "npm",
+    "tsconfig.json": "typescript"
   },
   "folderMapping": {
     "src": "src",
