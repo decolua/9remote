@@ -403,7 +403,6 @@ export default function App() {
       step={mainState.step}
       stepDesc={mainState.stepDesc}
       healthCheck={mainState.healthCheck}
-      tunnelHealth={mainState.tunnelHealth}
       transport={transport}
       onTransportChange={setTransport}
       tunnelUrl={mainState.tunnelUrl}

@@ -399,11 +399,6 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
   );
 }
 
-const TUNNEL_HEALTH_META = {
-  healthy:     { color: "var(--success)",    label: "Tunnel healthy",  dot: "var(--success)" },
-  unreachable: { color: "var(--danger)",     label: "Tunnel offline",  dot: "var(--danger)" },
-  unknown:     { color: "var(--text-muted)", label: "Checking tunnel", dot: "var(--text-muted)" },
-};
 
 /** Header icon-only button — uses native tooltip for clarity */
 function HeaderIconBtn({ icon, title, danger, onClick }) {
@@ -498,7 +493,7 @@ function RecentActivity({ notifications, sessions, onSelect, onDismiss, t }) {
 }
 
 /** Primary left navigation — logo top, menu mid, controls bottom (9router pattern) */
-function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, transport, onTransportChange, onResetTunnel, onClose, notifications, sessions = [], onSelectSession, onDismissRecent }) {
+function Sidebar({ activeMenu, onSelect, version, isReady, transport, onTransportChange, onClose, notifications, sessions = [], onSelectSession, onDismissRecent }) {
   const { t } = useI18n();
   const handleSelect = (id) => { onSelect(id); onClose?.(); };
   const handleSelectSession = (id) => { onSelectSession?.(id); onClose?.(); };
@@ -514,9 +509,8 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, transpo
       </div>
 
       {isReady && (
-        <div className="px-4 pb-3 space-y-2">
-          <TunnelHealthBadge tunnelHealth={tunnelHealth} onResetTunnel={onResetTunnel} />
-          <TransportBadges transport={transport} onTransportChange={onTransportChange} />
+        <div className="px-4 pb-3">
+          <ConnectionStatus transport={transport} onTransportChange={onTransportChange} />
         </div>
       )}
 
@@ -590,76 +584,45 @@ function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown,
   );
 }
 
-// Carrier status row — DO signaling / RTC peers. Tunnel keeps its own badge.
-function CarrierRow({ label, ok, detail }) {
-  return (
-    <div className="flex items-center gap-2 px-3 py-1.5">
-      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: ok ? "var(--success)" : "var(--text-muted)" }} />
-      <span className="text-[11.5px] font-medium" style={{ color: "var(--text-main)" }}>{label}</span>
-      <span className="ml-auto text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>{detail}</span>
-    </div>
-  );
-}
-
-function TransportBadges({ transport, onTransportChange }) {
+// One status line: green if RTC or Tunnel has peers, yellow if DO up but no peers, red if DO down.
+function ConnectionStatus({ transport, onTransportChange }) {
   const sig = transport?.signaling || "off";
   const rtc = transport?.rtcPeers || 0;
   const ws = transport?.wsPeers || 0;
   const rtcDisabled = transport?.rtcDisabled;
+  const alive = rtc > 0 || ws > 0;
+  const dot = alive ? "var(--success)" : sig === "connected" ? "var(--warn)" : "var(--danger)";
+  const label = alive ? "Connected" : sig === "connected" ? "Ready" : "Offline";
+  const detail = alive ? `${rtc > 0 ? `RTC ${rtc}` : ""}${rtc > 0 && ws > 0 ? " · " : ""}${ws > 0 ? `WS ${ws}` : ""}`.trim() : "";
+
   const toggleRtc = async () => {
     const next = !rtcDisabled;
-    onTransportChange?.({ ...transport, rtcDisabled: next }); // optimistic; SSE confirms
+    onTransportChange?.({ ...transport, rtcDisabled: next });
     await fetch("/api/ui/rtc-toggle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ disabled: next })
     }).catch(() => onTransportChange?.({ ...transport, rtcDisabled: !next }));
   };
+
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-      <CarrierRow label="DO signaling" ok={sig === "connected"} detail={sig} />
-      <div className="flex items-center gap-2 px-3 py-1.5">
-        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: rtcDisabled ? "var(--danger)" : rtc > 0 ? "var(--success)" : "var(--text-muted)" }} />
-        <span className="text-[11.5px] font-medium" style={{ color: rtcDisabled ? "var(--danger)" : "var(--text-main)" }}>RTC</span>
-        <span className="text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>
-          {rtcDisabled ? "off" : `${rtc} peer${rtc === 1 ? "" : "s"}`}
-        </span>
-        {/* Debug switch — force clients onto the tunnel to test the fallback path */}
-        <button
-          onClick={toggleRtc}
-          title={rtcDisabled ? "RTC disabled for testing — click to re-enable" : "Disable RTC (debug) — clients fall back to the tunnel"}
-          className="ml-auto flex-shrink-0 w-9 h-5 rounded-full transition-all relative"
-          style={{ background: rtcDisabled ? "rgba(140,145,160,0.35)" : "var(--success)", border: rtcDisabled ? "1px solid rgba(140,145,160,0.55)" : "1px solid transparent" }}
-        >
-          <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
-            style={{ left: rtcDisabled ? "2px" : "calc(100% - 18px)", boxShadow: "0 1px 4px rgba(0,0,0,0.35)" }} />
-        </button>
-      </div>
-      <CarrierRow label="Tunnel WS" ok={ws > 0} detail={`${ws} peer${ws === 1 ? "" : "s"}`} />
+    <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${alive ? "health-dot" : ""}`} style={{ background: dot }} />
+      <span className="text-[12.5px] font-medium" style={{ color: "var(--text-main)" }}>{label}</span>
+      {detail && <span className="text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>{detail}</span>}
+      {/* Debug toggle — hidden behind long-press / title; not for end users */}
+      <button
+        onClick={toggleRtc}
+        title={rtcDisabled ? "RTC OFF (debug) — click to enable" : "Disable RTC (debug)"}
+        className="ml-auto flex-shrink-0 w-2.5 h-2.5 rounded-full transition-all"
+        style={{ background: rtcDisabled ? "var(--danger)" : "transparent", border: rtcDisabled ? "none" : "1px solid var(--text-muted)", opacity: 0.4 }}
+      />
     </div>
   );
 }
 
-function TunnelHealthBadge({ tunnelHealth, onResetTunnel }) {
-  const meta = TUNNEL_HEALTH_META[tunnelHealth?.status] || TUNNEL_HEALTH_META.unknown;
-  const time = tunnelHealth?.checkedAt ? new Date(tunnelHealth.checkedAt).toLocaleTimeString(undefined, { hour12: false }) : "--:--:--";
-  const isHealthy = tunnelHealth?.status === "healthy";
-  return (
-    <button
-      onClick={onResetTunnel}
-      className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl card-act"
-      style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
-      title={`${meta.label} · last check ${time}`}
-    >
-      <span className={`w-2 h-2 rounded-full ${isHealthy ? "health-dot" : ""}`} style={{ background: meta.dot }} />
-      <span className="text-[12.5px] font-medium" style={{ color: "var(--text-main)" }}>{meta.label}</span>
-      <span className="ml-auto text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>{time}</span>
-    </button>
-  );
-}
-
 export default function MainScreen({
-  step, stepDesc = "", healthCheck, tunnelHealth, transport, onTransportChange, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
+  step, stepDesc = "", healthCheck, transport, onTransportChange, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
   onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey,   onRegenerateKey, logs = [], onClearLogs,
   theme, onToggleTheme,
@@ -802,10 +765,8 @@ export default function MainScreen({
           onSelect={navigateMenu}
           version={version}
           isReady={isReady}
-          tunnelHealth={tunnelHealth}
           transport={transport}
           onTransportChange={onTransportChange}
-          onResetTunnel={() => setShowDisconnectConfirm(true)}
           notifications={term.notifications}
           sessions={term.sessions}
           onSelectSession={openRecent}
@@ -823,10 +784,8 @@ export default function MainScreen({
           onSelect={navigateMenu}
           version={version}
           isReady={isReady}
-          tunnelHealth={tunnelHealth}
           transport={transport}
           onTransportChange={onTransportChange}
-          onResetTunnel={() => setShowDisconnectConfirm(true)}
           onClose={() => setSidebarOpen(false)}
           notifications={term.notifications}
           sessions={term.sessions}
