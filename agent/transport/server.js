@@ -200,6 +200,12 @@ function releaseRtcPeers(deviceId) {
 /** Fire-and-forget build — every caller is a sync signaling/approval path. */
 function startRtcSession(peerId, deviceId) {
   buildRtcSession(peerId, deviceId).catch((e) => {
+    const stale = rtcSessions.get(peerId);
+    if (stale) {
+      try { stale.data.protocol?.close(); } catch {}
+      unregisterProtocol(stale.data.protocol);
+      stale.disconnect();
+    }
     rtcSessions.delete(peerId);
     pushUiLog(`RTC session failed: ${e.message}`);
   });
