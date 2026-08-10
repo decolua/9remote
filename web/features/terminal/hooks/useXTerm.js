@@ -101,7 +101,6 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
   const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers in other effects
   const userAtTopRef = useRef(false); // set true only when user actively scrolls up to top (not mount transient)
-  const joinTimeoutRef = useRef(null); // safety: clear spinner if join ack never arrives
 
   // Emit resize only if cols/rows are above the sane-size floor. A transient tiny size
   // (layout mid-transition, app-resume reconnect) makes the shell re-wrap scrollback
@@ -450,13 +449,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         joiningRef.current = true;
         setJoining(true);
         joinQueueRef.current = [];
-        // Safety: clear spinner if ack is lost (flaky tunnel, socket died mid-ack).
-        clearTimeout(joinTimeoutRef.current);
-        joinTimeoutRef.current = setTimeout(() => {
-          if (joiningRef.current) { joiningRef.current = false; setJoining(false); }
-        }, 10000);
         socket.emit("joinSession", joinPayload, (result) => {
-          clearTimeout(joinTimeoutRef.current);
           // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
           setTimeout(() => {
             joiningRef.current = false;
@@ -557,7 +550,6 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       term.textarea?.removeEventListener("keyup", maybeFetchHistory);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
-      if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
       if (webglAddonRef.current) webglAddonRef.current.dispose();
       if (writeBatcherRef.current) writeBatcherRef.current.dispose();
       fitAddon.dispose();
