@@ -639,8 +639,24 @@ export default function MainScreen({
 
   // Navigate menu → leaving terminals also closes any open terminal
   const navigateMenu = (id) => {
+    if (id === TERMINALS_MENU) { openWebTerminal(); return; }
     setActiveMenu(id);
     if (id !== TERMINALS_MENU) setActiveSessionId(null);
+  };
+
+  // Open the web app with auto-login via one-time key. Reuses the existing key if
+  // still valid; creates a new one if expired or missing.
+  const openWebTerminal = async () => {
+    const expired = !oneTimeKeyExpiresAt || Date.now() > oneTimeKeyExpiresAt;
+    if (!expired && qrUrl) { window.open(qrUrl, "_blank"); return; }
+    // Need a new key — open blank tab first so the popup isn't blocked after the fetch.
+    const win = window.open("", "_blank");
+    if (!win) return;
+    try {
+      const res = await fetch("/api/key/one-time", { method: "POST" });
+      if (res.ok) { const data = await res.json(); win.location.href = data.qrUrl; return; }
+    } catch {}
+    win.close();
   };
 
   // Sync state with browser back/forward
