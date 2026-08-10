@@ -11,7 +11,6 @@ import { generateApiKeyWithMachine, maskApiKey } from "../utils/apiKey.js";
 import { apiGet, pushUiState, setStep, onBinaryProgress } from "./localApi.js";
 import { spawnQuickTunnelWithRetry, makeTunnelRestartHandler } from "../tunnel/manager.js";
 import { updateTunnelUrl } from "../tunnel/urlSync.js";
-import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { showConnectionInfo } from "../session/display.js";
 import { shutdownAll } from "./lifecycle.js";
 import { runWebUpdate } from "../utils/updateChecker.js";
@@ -71,7 +70,7 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
       return "alreadyRunning";
     }
   }
-  logger.info("Starting tunnel...");
+  logger.info("Starting...");
   try {
     await setStep(STEP.PREPARING);
     await ensureCloudflared(onBinaryProgress);
@@ -84,36 +83,36 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     });
     if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
 
-    await setStep(STEP.TUNNELING);
+    // Ready immediately — DO signaling is up, clients can connect via RTC.
+    // The tunnel spawns in the background and pushes its URL when ready.
+    await showConnectionInfo(apiKey, "");
+
+    // Background tunnel spawn — non-blocking. Failure is non-fatal (RTC works
+    // without it). URL updates flow to the UI via onUrlUpdate → pushUiState.
     const onUrlUpdate = async (newUrl) => {
       await updateTunnelUrl(apiKey, newUrl);
       await pushUiState({ tunnelUrl: newUrl });
       updateTunnelHealthUrl(newUrl);
+      updateTrayTooltip({ tunnelUrl: newUrl, running: true });
     };
-    // Surface retry progress — a silent loop looks identical to a hang in the UI
-    const onRetry = ({ attempt, delay, rateLimited }) => {
-      pushUiState({ tunnelRetry: { attempt, delay, rateLimited, at: Date.now() } });
+    const onRetry = ({ attempt, delay }) => {
+      pushUiState({ tunnelRetry: { attempt, delay, at: Date.now() } });
     };
-    const result = await spawnQuickTunnelWithRetry(
+    spawnQuickTunnelWithRetry(
       SERVER_PORT,
       onUrlUpdate,
       makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => setActiveTunnel(c), onRetry }),
       onRetry,
-    );
-    pushUiState({ tunnelRetry: null });
-    setActiveTunnel(result.child);
-
-    await setStep(STEP.VERIFYING);
-    const tunnelOk = await waitForTunnelReady(result.tunnelUrl);
-    if (!tunnelOk) logger.warn("Tunnel health check timed out, proceeding anyway...");
-
-    await updateTunnelUrl(apiKey, result.tunnelUrl);
-    updateTrayTooltip({ tunnelUrl: result.tunnelUrl, running: true });
-
-    await new Promise((r) => setTimeout(r, DELAYS.postReadyHoldMs));
-    await showConnectionInfo(apiKey, result.tunnelUrl);
+    ).then((result) => {
+      setActiveTunnel(result.child);
+      pushUiState({ tunnelRetry: null });
+      onUrlUpdate(result.tunnelUrl);
+    }).catch((err) => {
+      logger.error(`Tunnel background spawn gave up: ${err?.message || err}`);
+      pushUiState({ tunnelRetry: null });
+    });
   } catch (err) {
-    logger.error(`Failed to start tunnel: ${err.message}`);
+    logger.error(`Failed to start: ${err.message}`);
     await setStep(STEP.STOPPED);
   }
 }
