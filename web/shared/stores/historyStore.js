@@ -3,10 +3,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 100;
 // Skip entries longer than this — pasted file contents / long blobs aren't reuseable
 // as suggestions and would bloat localStorage + crowd the history list.
-const MAX_COMMAND_LEN = 250;
+const MAX_COMMAND_LEN = 500;
 
 // Auto-suggest a short alias from a command: first letter of each word.
 // "npm run dev" -> "nrd", "git status" -> "gs". Dedup against existing aliases.
@@ -36,9 +36,9 @@ const createHistoryStore = (storageName) => create(
         return { history: [text, ...state.history.filter((c) => c !== text)].slice(0, MAX_HISTORY) };
       }),
 
+      // Pinned snippets are independent: deleting from history never unpins.
       removeCommand: (cmd) => set((state) => ({
-        history: state.history.filter((c) => c !== cmd),
-        pinned: state.pinned.filter((s) => s.cmd !== cmd)
+        history: state.history.filter((c) => c !== cmd)
       })),
 
       togglePin: (cmd) => set((state) => {

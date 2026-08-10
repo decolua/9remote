@@ -19,7 +19,6 @@ import { startServerWithRestart, setupExitHandler, shutdownAll } from "../core/l
 import { setupCmdPoller } from "../core/cmdPoller.js";
 import { spawnQuickTunnelWithRetry, makeTunnelRestartHandler } from "../tunnel/manager.js";
 import { updateTunnelUrl } from "../tunnel/urlSync.js";
-import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { ensureKeyData } from "../session/key.js";
 import { buildMenuHeader } from "../session/display.js";
 import { WORKER_URL, DELAYS, TUI, POLL } from "../config.js";
@@ -71,42 +70,17 @@ export async function tuiMode() {
     process.exit(1);
   }
 
-  await setStep(STEP.TUNNELING);
+  await setStep(STEP.CONNECTING);
 
-  let tunnelProcess, tunnelUrl;
-  const tunnelRef = { current: null };
-  const onUrlUpdate = async (newUrl) => {
-    await updateTunnelUrl(keyData.key, newUrl);
-    await pushUiState({ tunnelUrl: newUrl });
-    updateTunnelHealthUrl(newUrl);
-  };
-  try {
-    const result = await spawnQuickTunnelWithRetry(
-      SERVER_PORT,
-      onUrlUpdate,
-      makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => { tunnelRef.current = c; } }),
-    );
-    tunnelProcess = result.child;
-    tunnelUrl = result.tunnelUrl;
-    tunnelRef.current = tunnelProcess;
-  } catch (err) {
-    logger.error(`Tunnel failed: ${err.message}`);
-    process.exit(1);
-  }
-
-  await setStep(STEP.VERIFYING);
-  if (!(await waitForTunnelReady(tunnelUrl))) {
-    logger.warn("Tunnel health check timed out, proceeding anyway...");
-  }
-
-  await updateTunnelUrl(keyData.key, tunnelUrl);
-  saveState({ apiKey: keyData.key, tunnelUrl, tunnelPid: tunnelProcess.pid });
-
+  // tempKey first — connect URL is Worker-based, doesn't depend on the tunnel.
+  // RTC signaling goes via the DO; the tunnel is a fallback transport.
   const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
   const connectUrl = tempKeyData ? `${WORKER_URL}/login?k=${tempKeyData.tempKey}` : `${WORKER_URL}/login`;
 
+  // Ready immediately. The tunnel spawns in the background and updates the URL
+  // when it comes up — agent is usable via DO signaling without it.
   await setStep(STEP.READY, {
-    tunnelUrl,
+    tunnelUrl: "",
     oneTimeKey: tempKeyData?.tempKey || "",
     oneTimeKeyExpiresAt: tempKeyData?.expiresAt || null,
     permanentKey: keyData.key,
@@ -117,7 +91,27 @@ export async function tuiMode() {
 
   let currentOneTimeKey = tempKeyData?.tempKey || "";
   let currentConnectUrl = connectUrl;
-  let currentTunnelUrl = tunnelUrl;
+  let currentTunnelUrl = "";
+  const tunnelRef = { current: null };
+  const onTunnelUrl = async (newUrl) => {
+    currentTunnelUrl = newUrl;
+    await updateTunnelUrl(keyData.key, newUrl);
+    await pushUiState({ tunnelUrl: newUrl });
+    updateTunnelHealthUrl(newUrl);
+    // Rebuild header so the menu shows the live tunnel URL, then redraw.
+    menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
+    triggerMenuRedraw?.();
+  };
+  // Background spawn — never blocks READY. Failure is non-fatal (DO signaling owns RTC).
+  spawnQuickTunnelWithRetry(
+    SERVER_PORT,
+    onTunnelUrl,
+    makeTunnelRestartHandler({ onUrlUpdate: onTunnelUrl, setTunnel: (c) => { tunnelRef.current = c; } }),
+  ).then((result) => {
+    tunnelRef.current = result.child;
+    saveState({ apiKey: keyData.key, tunnelUrl: result.tunnelUrl, tunnelPid: result.child?.pid });
+    return onTunnelUrl(result.tunnelUrl);
+  }).catch((err) => logger.error(`Tunnel background spawn gave up: ${err?.message || err}`));
 
   let menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
   const logBuffer = [];
@@ -182,19 +176,26 @@ export async function tuiMode() {
 
   setupExitHandler({
     getProcess: tuiServerMgr.getProcess,
-    shutdown: () => { tuiServerMgr.shutdown(); stopSSE(); clearInterval(pendingPoll); },
-  }, tunnelProcess);
+    shutdown: () => {
+      tuiServerMgr.shutdown();
+      // tunnelRef.current is null until the background spawn resolves — read at
+      // exit time so a late-arriving tunnel is still cleaned up.
+      try { tunnelRef.current?.kill(); } catch {}
+      stopSSE();
+      clearInterval(pendingPoll);
+    },
+  });
 
   setupCmdPoller(() => tunnelRef.current, (t) => { tunnelRef.current = t; }, keyData.key, () => tuiServerMgr);
 
   const onShutdown = () => {
     try { stopSSE(); } catch {}
     try { clearInterval(pendingPoll); } catch {}
-    shutdownAll({ serverManager: tuiServerMgr, tunnelProcess, exit: false });
+    shutdownAll({ serverManager: tuiServerMgr, tunnelProcess: tunnelRef.current, exit: false });
   };
 
   await tuiMenuLoop(
-    keyData, tunnelUrl,
+    keyData, currentTunnelUrl,
     () => menuHeader,
     (h) => { menuHeader = h; },
     (cb) => { triggerMenuRedraw = cb; },
