@@ -260,7 +260,7 @@ export class WsProtocol extends BaseProtocol {
   }
 
   _forceReconnect() {
-    if (this._destroyed || this._blocked || this._retryScheduled) return;
+    if (this._destroyed || this._blocked || this._retryScheduled || this._connecting) return;
     this._retryAttempt++;
     if (this._retryAttempt > BEHAVIOR.reconnect.fastFailThreshold) {
       this._retryAttempt = 0;
