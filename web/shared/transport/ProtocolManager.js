@@ -747,6 +747,15 @@ export class ProtocolManager {
       this._rtcRestartTimer = null;
       if (this._awaitingApproval) return;
       if (!this._sig?.ready) return; // DO down — _onSignalingReady will restart
+      // Kill a stale connecting adapter — its offer was already refused or its
+      // ICE is stuck. Waiting for ICE timeout wastes a probe cycle; _restartRtc's
+      // guard would otherwise block the restart and strand the probe loop.
+      const rtc = this._adapters.get("rtc");
+      if (rtc && rtc.state === ADAPTER_STATE.connecting) {
+        try { rtc.disconnect(); } catch {}
+        this._adapters.delete("rtc");
+        this._rtcSignalingHandler = null;
+      }
       this._restartRtc();
     }, delay);
   }
