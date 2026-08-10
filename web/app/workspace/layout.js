@@ -1037,7 +1037,7 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Connection Modal - overlay when retrying/failed (suppressed during self-update) */}
-        {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
+        {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Update Modal - progress overlay during agent self-update */}
         <UpdateModal open={updating} connected={connected} mode={updateMode} />

@@ -19,7 +19,8 @@ export function useBaseSocket(config = {}) {
     socketOptions = {},
     redirectOnNoAuth = "/",
     onConnect,
-    onDisconnect
+    onDisconnect,
+    onApproval
   } = config;
 
   const router = useRouter();
@@ -38,7 +39,7 @@ export function useBaseSocket(config = {}) {
 
   useEffect(() => {
     const auth = getAuth();
-    if (!auth?.tunnelUrl) {
+    if (!auth?.apiKey) {
       router.push(redirectOnNoAuth);
       return;
     }
@@ -49,6 +50,7 @@ export function useBaseSocket(config = {}) {
       namespace,
       socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, tempKey: auth.tempKey ?? null, deviceId, ...socketOptions.auth } },
       apiKey: auth.apiKey,
+      deviceId,
       tempKey: auth.tempKey ?? null,
       onConnect: (socket, mode) => {
         socketRef.current = socket;
@@ -63,6 +65,8 @@ export function useBaseSocket(config = {}) {
         setConnected(false);
         onDisconnect?.(reason);
       },
+      // Device-approval answer over signaling (no tunnel needed to show the modal)
+      onApproval,
       onRetryStatus: setRetryStatus
     };
 

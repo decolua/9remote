@@ -1,6 +1,8 @@
 // Sync web/.dev.vars → Cloudflare Workers secrets (prod + dev env)
-// Usage: node scripts/syncSecrets.mjs [--env=production|dev|all]
-import { readFileSync, existsSync } from "fs";
+// Usage: node scripts/syncSecrets.mjs [--env=production|dev|all] [--force]
+// Skips envs whose .dev.vars hash is unchanged since last sync (cache in web/.secrets-hash-<env>).
+import { readFileSync, existsSync, writeFileSync } from "fs";
+import { createHash } from "crypto";
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -11,6 +13,7 @@ const WEB_DIR = path.resolve(__dirname, "../web");
 
 const args = process.argv.slice(2);
 const envArg = args.find(a => a.startsWith("--env="))?.split("=")[1] || "all";
+const force = args.includes("--force");
 const targets = envArg === "all" ? ["production", "dev"] : [envArg];
 
 if (!existsSync(ENV_FILE)) {
@@ -18,8 +21,11 @@ if (!existsSync(ENV_FILE)) {
   process.exit(1);
 }
 
+const rawEnv = readFileSync(ENV_FILE, "utf8");
+const fileHash = createHash("sha256").update(rawEnv).digest("hex").slice(0, 16);
+
 // Parse KEY="value" lines (skip comments + empty)
-const lines = readFileSync(ENV_FILE, "utf8").split("\n");
+const lines = rawEnv.split("\n");
 const secrets = {};
 for (const raw of lines) {
   const line = raw.trim();
@@ -38,8 +44,15 @@ if (!names.length) {
 console.log(`📦 Found ${names.length} secrets: ${names.join(", ")}`);
 console.log(`🎯 Targets: ${targets.join(", ")}\n`);
 
+let syncedAny = false;
 for (const target of targets) {
+  const hashPath = path.join(WEB_DIR, `.secrets-hash-${target}`);
+  if (!force && existsSync(hashPath) && readFileSync(hashPath, "utf8") === fileHash) {
+    console.log(`━━━ ${target} ━━━ ⏭️  unchanged (use --force to re-sync)`);
+    continue;
+  }
   console.log(`━━━ ${target} ━━━`);
+  syncedAny = true;
   for (const name of names) {
     const value = secrets[name];
     const envFlag = target === "production" ? "" : ` --env ${target}`;
@@ -53,7 +66,9 @@ for (const target of targets) {
       console.error(`❌ Failed: ${name} (${target})`);
     }
   }
+  writeFileSync(hashPath, fileHash);
   console.log();
 }
 
-console.log("✅ Done.");
+if (!syncedAny) console.log("✅ All targets up to date.");
+else console.log("✅ Done.");

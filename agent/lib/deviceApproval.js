@@ -101,6 +101,15 @@ export function isDevicePending(deviceId) {
   return false;
 }
 
+// socketId currently holding this device's pending entry (approval is per device)
+export function getPendingSocketId(deviceId) {
+  if (!deviceId) return null;
+  for (const [socketId, data] of pendingApprovals) {
+    if (data.deviceId === deviceId) return socketId;
+  }
+  return null;
+}
+
 export function getAllPendingApprovals() {
   return [...pendingApprovals.entries()].map(([socketId, data]) => ({ socketId, ...data }));
 }

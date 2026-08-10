@@ -9,6 +9,18 @@ import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
+import { python } from "@codemirror/lang-python";
+import { yaml } from "@codemirror/lang-yaml";
+import { sql } from "@codemirror/lang-sql";
+import { cpp } from "@codemirror/lang-cpp";
+import { rust } from "@codemirror/lang-rust";
+import { java } from "@codemirror/lang-java";
+import { php } from "@codemirror/lang-php";
+import { go } from "@codemirror/lang-go";
+import { xml } from "@codemirror/lang-xml";
+import { StreamLanguage } from "@codemirror/language";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { AUTO_SAVE_DELAY, LANGUAGE_MAP, isImageFile, isVideoFile, isAudioFile, isPdfFile, isDocxFile, isSheetFile } from "../constants/fileExplorer.js";
 import { ChevronLeft, Save, Loader2, GitBranch, Copy } from "@/shared/components/ui/Icon";
@@ -25,7 +37,18 @@ const languageExtensions = {
   html: html(),
   css: css(),
   json: json(),
-  markdown: markdown()
+  markdown: markdown(),
+  python: python(),
+  yaml: yaml(),
+  sql: sql(),
+  cpp: cpp(),
+  rust: rust(),
+  java: java(),
+  php: php(),
+  go: go(),
+  xml: xml(),
+  shell: StreamLanguage.define(shell),
+  dockerfile: StreamLanguage.define(dockerFile)
 };
 
 function getLanguageExtension(filePath) {
@@ -120,8 +143,23 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
         return;
       }
 
-      originalContentRef.current = result.content;
-      setContent(result.content);
+      let textContent = result.content;
+      // Large files (> 64KB) arrive as binary chunks via the file DC (SCTP limit).
+      if (result.streamInstead) {
+        const chunks = [];
+        await new Promise((resolve, reject) => {
+          fileSocket.streamMedia(filePath, {
+            onMeta: () => {},
+            onChunk: (payload) => chunks.push(payload),
+            onDone: resolve,
+            onError: reject
+          });
+        });
+        textContent = await new Blob(chunks).text();
+      }
+
+      originalContentRef.current = textContent;
+      setContent(textContent);
       setLoading(false);
     };
 

@@ -52,7 +52,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
 
   const handleCopy = useCallback((id, cmd) => {
     vibrate();
-    navigator.clipboard.writeText(cmd);
+    navigator.clipboard?.writeText(cmd).catch(() => {});
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   }, []);

@@ -281,6 +281,7 @@ function mergeClients(approvedDevices, connections, rejectedDevices = []) {
       deviceId: d.deviceId,
       status: conn ? "online" : "offline",
       ip: conn?.ip || null,
+      connType: conn?.type || null,
       connectedAt: conn?.connectedAt || null,
       approvedAt: d.approvedAt || null,
       label: d.label || "",
@@ -317,7 +318,7 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
   const isPending = client.status === "pending";
   const timeLabel =
     client.status === "online"
-      ? `${client.ip ? client.ip + " · " : ""}connected ${client.connectedAt ? new Date(client.connectedAt).toLocaleTimeString(undefined, { hour12: false }) : ""}`
+      ? `${client.ip ? client.ip + " · " : ""}${client.connType ? client.connType.toUpperCase() + " · " : ""}connected ${client.connectedAt ? new Date(client.connectedAt).toLocaleTimeString(undefined, { hour12: false }) : ""}`
       : isPending
         ? "Waiting for approval"
         : client.approvedAt
@@ -374,11 +375,6 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
   );
 }
 
-const TUNNEL_HEALTH_META = {
-  healthy:     { color: "var(--success)",    label: "Tunnel healthy",  dot: "var(--success)" },
-  unreachable: { color: "var(--danger)",     label: "Tunnel offline",  dot: "var(--danger)" },
-  unknown:     { color: "var(--text-muted)", label: "Checking tunnel", dot: "var(--text-muted)" },
-};
 
 /** Header icon-only button — uses native tooltip for clarity */
 function HeaderIconBtn({ icon, title, danger, onClick }) {
@@ -425,7 +421,7 @@ function ConnectionEmpty({ onStart, t }) {
 }
 
 /** Primary left navigation — logo top, menu mid, controls bottom (9router pattern) */
-function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onResetTunnel, onClose }) {
+function Sidebar({ activeMenu, onSelect, version, isReady, transport, onTransportChange, onClose, notifications, sessions = [], onSelectSession, onDismissRecent }) {
   const { t } = useI18n();
   const handleSelect = (id) => { onSelect(id); onClose?.(); };
   const handleSelectSession = (id) => { onSelectSession?.(id); onClose?.(); };
@@ -440,7 +436,11 @@ function Sidebar({ activeMenu, onSelect, version, isReady, tunnelHealth, onReset
         </div>
       </div>
 
-      {isReady && <div className="px-4 pb-3"><TunnelHealthBadge tunnelHealth={tunnelHealth} onResetTunnel={onResetTunnel} /></div>}
+      {isReady && (
+        <div className="px-4 pb-3">
+          <ConnectionStatus transport={transport} onTransportChange={onTransportChange} />
+        </div>
+      )}
 
       {/* Menu */}
       <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto select-none">
@@ -493,26 +493,45 @@ function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown,
   );
 }
 
-function TunnelHealthBadge({ tunnelHealth, onResetTunnel }) {
-  const meta = TUNNEL_HEALTH_META[tunnelHealth?.status] || TUNNEL_HEALTH_META.unknown;
-  const time = tunnelHealth?.checkedAt ? new Date(tunnelHealth.checkedAt).toLocaleTimeString(undefined, { hour12: false }) : "--:--:--";
-  const isHealthy = tunnelHealth?.status === "healthy";
+// One status line: green if RTC or Tunnel has peers, yellow if DO up but no peers, red if DO down.
+function ConnectionStatus({ transport, onTransportChange }) {
+  const sig = transport?.signaling || "off";
+  const rtc = transport?.rtcPeers || 0;
+  const ws = transport?.wsPeers || 0;
+  const rtcDisabled = transport?.rtcDisabled;
+  const alive = rtc > 0 || ws > 0;
+  const dot = alive ? "var(--success)" : sig === "connected" ? "var(--warn)" : "var(--danger)";
+  const label = alive ? "Connected" : sig === "connected" ? "Ready" : "Offline";
+  const detail = alive ? `${rtc > 0 ? `RTC ${rtc}` : ""}${rtc > 0 && ws > 0 ? " · " : ""}${ws > 0 ? `WS ${ws}` : ""}`.trim() : "";
+
+  const toggleRtc = async () => {
+    const next = !rtcDisabled;
+    onTransportChange?.({ ...transport, rtcDisabled: next });
+    await fetch("/api/ui/rtc-toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ disabled: next })
+    }).catch(() => onTransportChange?.({ ...transport, rtcDisabled: !next }));
+  };
+
   return (
-    <button
-      onClick={onResetTunnel}
-      className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl card-act"
-      style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
-      title={`${meta.label} · last check ${time}`}
-    >
-      <span className={`w-2 h-2 rounded-full ${isHealthy ? "health-dot" : ""}`} style={{ background: meta.dot }} />
-      <span className="text-[12.5px] font-medium" style={{ color: "var(--text-main)" }}>{meta.label}</span>
-      <span className="ml-auto text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>{time}</span>
-    </button>
+    <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${alive ? "health-dot" : ""}`} style={{ background: dot }} />
+      <span className="text-[12.5px] font-medium" style={{ color: "var(--text-main)" }}>{label}</span>
+      {detail && <span className="text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>{detail}</span>}
+      {/* Debug toggle — hidden behind long-press / title; not for end users */}
+      <button
+        onClick={toggleRtc}
+        title={rtcDisabled ? "RTC OFF (debug) — click to enable" : "Disable RTC (debug)"}
+        className="ml-auto flex-shrink-0 w-2.5 h-2.5 rounded-full transition-all"
+        style={{ background: rtcDisabled ? "var(--danger)" : "transparent", border: rtcDisabled ? "none" : "1px solid var(--text-muted)", opacity: 0.4 }}
+      />
+    </div>
   );
 }
 
 export default function MainScreen({
-  step, stepDesc = "", healthCheck, tunnelHealth, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
+  step, stepDesc = "", healthCheck, transport, onTransportChange, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
   onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey,   onRegenerateKey, logs = [], onClearLogs,
   theme, onToggleTheme,
@@ -598,8 +617,12 @@ export default function MainScreen({
           onSelect={navigateMenu}
           version={version}
           isReady={isReady}
-          tunnelHealth={tunnelHealth}
-          onResetTunnel={() => setShowDisconnectConfirm(true)}
+          transport={transport}
+          onTransportChange={onTransportChange}
+          notifications={term.notifications}
+          sessions={term.sessions}
+          onSelectSession={openRecent}
+          onDismissRecent={term.dismissRecent}
         />
       </div>
 
@@ -613,8 +636,8 @@ export default function MainScreen({
           onSelect={navigateMenu}
           version={version}
           isReady={isReady}
-          tunnelHealth={tunnelHealth}
-          onResetTunnel={() => setShowDisconnectConfirm(true)}
+          transport={transport}
+          onTransportChange={onTransportChange}
           onClose={() => setSidebarOpen(false)}
         />
       </div>

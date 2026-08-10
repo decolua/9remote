@@ -159,16 +159,22 @@ export const useTerminalStore = create(
       storage: {
         getItem: (name) => {
           if (typeof window === "undefined") return null;
-          const value = localStorage.getItem(name);
-          if (!value) return null;
-          const parsed = JSON.parse(value);
-          // Sanitize corrupted persisted viewStack (non-array or empty)
-          if (parsed && !Array.isArray(parsed.viewStack)) parsed.viewStack = [{ type: "list" }];
-          return parsed;
+          try {
+            const value = localStorage.getItem(name);
+            if (!value) return null;
+            const parsed = JSON.parse(value);
+            // Sanitize corrupted persisted viewStack (non-array or empty)
+            if (parsed && !Array.isArray(parsed.viewStack)) parsed.viewStack = [{ type: "list" }];
+            return parsed;
+          } catch {
+            // Corrupted storage must not blank the app — start from defaults
+            return null;
+          }
         },
         setItem: (name, value) => {
           if (typeof window === "undefined") return;
-          localStorage.setItem(name, JSON.stringify(value));
+          // Quota exceeded / private mode throws — persistence is best-effort
+          try { localStorage.setItem(name, JSON.stringify(value)); } catch {}
         },
         removeItem: (name) => {
           if (typeof window === "undefined") return;

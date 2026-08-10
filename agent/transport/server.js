@@ -2,16 +2,19 @@
 import { Server } from "socket.io";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { initSignalingGlobal, setOfferFallback, sendSignaling, dropPending, pendingPeersOf, onSignalingReady } from "../lib/signalingGlobal.js";
+import { VirtualSocket } from "./VirtualSocket.js";
 import { PATHS, LOCAL_UI_ORIGINS, LOCAL_UI_DEVICE_ID } from "../lib/constants.js";
 import { verifyLocalToken } from "../lib/localToken.js";
 import { ProtocolManager } from "./ProtocolManager.js";
+import { SIGNALING_ERRORS } from "../lib/transportConstants.js";
 import { registerProtocol, unregisterProtocol } from "./broadcast.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { setupTerminalSocket, setupTerminalHandlers } from "../features/terminal/terminalSocket.js";
 import { checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerHandlers } from "../features/fileExplorer/fileExplorerSocket.js";
 import { setupClipboardHandlers } from "../features/clipboard/clipboardSocket.js";
-import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey, pushUiEvent, setRemoteAvailable } from "../api/ui.js";
+import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey, pushUiEvent, setRemoteAvailable, pushTransportState } from "../api/ui.js";
 import {
   loadApprovedDevices,
   isDeviceApproved,
@@ -20,9 +23,11 @@ import {
   addPendingApproval,
   removePendingApproval,
   getPendingApproval,
+  getPendingSocketId,
   markDeviceRejected,
   isDeviceRejected,
   updateRejectedSocket,
+  getRejectedDevices,
   clearRejectedDevice,
   loadAutoApprove,
   isAutoApprove
@@ -78,9 +83,25 @@ async function attachTransportBus(socket) {
     dcMaxTilesPerFrame: webrtc.dcMaxTilesPerFrame,
     answerTimeout: webrtc.answerTimeout,
     maxControlBuffer: webrtc.maxControlBuffer,
-    wsChunkSize: streaming.chunkSize
+    wsChunkSize: streaming.chunkSize,
+    // DO signaling relay — room = client deviceId, gated by apiKey on the Worker.
+    signaling: {
+      // Virtual sessions route by peerId (deviceId:tab); socket.io by deviceId.
+      deviceId: socket.peerId || socket.handshake.auth?.deviceId || null,
+      doUrl: webrtc.signalingDoUrl,
+      apiKey: loadApiKey()
+    }
   });
   socket.data.protocol = pm;
+  // Virtual session: RTC dying with no WS fallback means the session is over.
+  if (socket.isVirtual) {
+    pm._onDead = () => {
+      pushUiLog(`RTC session closed: ${socket.handshake.auth?.deviceId?.slice(0, 8)}...`);
+      try { pm.close(); } catch {}
+      unregisterProtocol(pm);
+      socket.disconnect();
+    };
+  }
   registerProtocol(pm);
   pm.attachAsBus(socket);
   try {
@@ -91,14 +112,146 @@ async function attachTransportBus(socket) {
   }
 }
 
+// RTC-only sessions keyed by client peerId ("deviceId:tab") — created when an
+// offer arrives over DO signaling before the tunnel brought socket.io up.
+const rtcSessions = new Map();
+
+// Debug toggle — when false, the agent refuses RTC offers so clients fall back
+// to the tunnel. Lets you test the fallback path without pulling the network.
+let rtcTestDisabled = false;
+
+export function isRtcTestDisabled() { return rtcTestDisabled; }
+export function setRtcTestDisabled(disabled) {
+  rtcTestDisabled = disabled;
+  if (!disabled) return;
+  // Kill all live RTC adapters so connected clients drop to the tunnel now.
+  for (const [, vs] of rtcSessions) {
+    try { vs.data.protocol?._adapters?.get("rtc")?.disconnect(); } catch {}
+  }
+}
+
+// Synthetic socketId for a DO peer — lets pending approvals and the Clients
+// list address an RTC session with the same key shape as a socket.io socket.
+const rtcSocketId = (peerId) => `rtc-${peerId}`;
+const rtcPeerId = (socketId) => (socketId.startsWith("rtc-") ? socketId.slice(4) : null);
+const sendSignalingTo = (peerId, msg) => sendSignaling({ ...msg, to: peerId });
+
+/** Route an RTC offer that arrived over DO signaling: approved → build the
+ * session; unknown → raise the same approval modal as the socket.io path
+ * (the offer stays buffered until Approve); rejected → tell the client. */
+function handleRtcOffer(peerId) {
+  if (!peerId) return;
+  // Debug toggle — refuse RTC so the client falls back to the tunnel immediately.
+  if (rtcTestDisabled) {
+    sendSignalingTo(peerId, { type: "error", message: "rtc-disabled" });
+    return;
+  }
+  // peerId = "deviceId:tab" — one session per tab, approval per device.
+  const deviceId = peerId.split(":")[0];
+
+  const existing = rtcSessions.get(peerId);
+  if (existing) {
+    // Live (or still building — protocol not attached yet) → the offer is
+    // already routed to its PM. Only a closed PM is stale and worth rebuilding.
+    if (!existing.data.protocol?._closed) return;
+    pushUiLog(`Stale RTC session ${deviceId.slice(0, 8)} — rebuilding`);
+    try { existing.disconnect(); } catch {}
+    rtcSessions.delete(peerId);
+  }
+
+  if (isDeviceApproved(deviceId)) return void startRtcSession(peerId, deviceId);
+
+  if (isDeviceRejected(deviceId)) {
+    updateRejectedSocket(deviceId, rtcSocketId(peerId), "rtc");
+    sendSignalingTo(peerId, { type: "error", message: SIGNALING_ERRORS.rejected });
+    dropPending(peerId); // nothing will consume it — don't hold the SDP in RAM
+    pushUiLog(`Rejected device via RTC: ${deviceId.slice(0, 8)} — waiting in Clients list`);
+    pushUiEvent("deviceApproval", { action: "refresh" });
+    return;
+  }
+
+  if (isAutoApprove()) {
+    approveDevice(deviceId);
+    clearRejectedDevice(deviceId);
+    pushUiLog(`Auto-approved device: ${deviceId.slice(0, 8)}...`);
+    pushUiEvent("deviceApproval", { action: "refresh" });
+    return void startRtcSession(peerId, deviceId);
+  }
+
+  // Unknown device — same pending flow as socket.io. The offer stays buffered
+  // in signalingGlobal; approveSocketDevice builds the session and flushes it.
+  // Tell the client so it shows the "waiting for approval" screen (the socket.io
+  // path sends device:pendingApproval; over DO the only channel is signaling).
+  sendSignalingTo(peerId, { type: "error", message: SIGNALING_ERRORS.pending });
+  // Approval is per device — a second tab reuses the first tab's pending entry.
+  if (isDevicePending(deviceId)) return;
+  const socketId = rtcSocketId(peerId);
+  addPendingApproval(socketId, { deviceId, ip: "rtc", peerId });
+  pushUiLog(`Unknown device (RTC): ${deviceId.slice(0, 8)} — waiting for approval`);
+  pushUiEvent("deviceApproval", { socketId, deviceId, ip: "rtc", action: "pending" });
+}
+
+/** Approval is per device — build a session for every tab of it still waiting
+ * on a buffered offer, so one Approve unblocks all of them. */
+function releaseRtcPeers(deviceId) {
+  for (const peerId of pendingPeersOf(deviceId)) startRtcSession(peerId, deviceId);
+}
+
+/** Fire-and-forget build — every caller is a sync signaling/approval path. */
+function startRtcSession(peerId, deviceId) {
+  buildRtcSession(peerId, deviceId).catch((e) => {
+    const stale = rtcSessions.get(peerId);
+    if (stale) {
+      try { stale.data.protocol?.close(); } catch {}
+      unregisterProtocol(stale.data.protocol);
+      stale.disconnect();
+    }
+    rtcSessions.delete(peerId);
+    pushUiLog(`RTC session failed: ${e.message}`);
+  });
+}
+
+/** Build the virtual socket + PM for an approved RTC peer. */
+async function buildRtcSession(peerId, deviceId) {
+  if (rtcSessions.has(peerId)) return;
+  const socket = new VirtualSocket({ deviceId, peerId, apiKey: loadApiKey() });
+  socket.data.approved = true;
+  socket.data.rtcSession = true;
+  rtcSessions.set(peerId, socket);
+  trackConnection(socket.id, "rtc", deviceId, "rtc");
+  socket.on("disconnect", () => {
+    if (rtcSessions.get(peerId) === socket) rtcSessions.delete(peerId);
+    untrackConnection(socket.id);
+  });
+  pushUiLog(`RTC session: ${deviceId.slice(0, 8)}...`);
+  await setupSocketFeatures(socket);
+  // Client waits for this before loading sessions (mirrors the socket.io path).
+  socket.once("device:clientReady", () => socket.emit("device:approved"));
+  socket.emit("device:approved");
+}
+
 /** Approve a pending socket by socketId */
 export function approveSocketDevice(socketId) {
   const io = ioInstance;
   if (!io) return false;
 
-  const socket = io.sockets.sockets.get(socketId);
   const pending = getPendingApproval(socketId);
-  if (!socket || !pending) return false;
+  if (!pending) return false;
+
+  // RTC-only peer (no socket.io) — approve, then build a session per waiting
+  // tab so every buffered offer flushes through its new PM handler.
+  if (rtcPeerId(socketId)) {
+    approveDevice(pending.deviceId);
+    removePendingApproval(socketId);
+    clearRejectedDevice(pending.deviceId);
+    releaseRtcPeers(pending.deviceId);
+    pushUiLog(`Device approved (RTC): ${pending.deviceId.slice(0, 8)}...`);
+    pushUiEvent("deviceApproval", { action: "refresh" });
+    return true;
+  }
+
+  const socket = io.sockets.sockets.get(socketId);
+  if (!socket) return false;
 
   // Save device as approved; clear any prior rejection
   approveDevice(pending.deviceId);
@@ -110,7 +263,9 @@ export function approveSocketDevice(socketId) {
   socket.emit("device:approved");
 
   // Setup features — emits "terminal:ready" when handlers are registered
-  setupSocketFeatures(socket);
+  setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
+  // Other tabs of this device may be waiting on RTC — approval is per device.
+  releaseRtcPeers(pending.deviceId);
   pushUiLog(`Device approved: ${pending.deviceId.slice(0, 8)}...`);
 
   return true;
@@ -121,15 +276,21 @@ export function approveRejectedDevice(deviceId) {
   const io = ioInstance;
   if (!io || !deviceId) return false;
 
+  const rejected = getRejectedDevices().find((d) => d.deviceId === deviceId);
+  const rtcPeer = rejected?.socketId ? rtcPeerId(rejected.socketId) : null;
+
   approveDevice(deviceId);
   clearRejectedDevice(deviceId);
+  if (rtcPeer) removePendingApproval(rtcSocketId(rtcPeer));
+  // Any RTC tab of this device still holding a buffered offer → build now.
+  releaseRtcPeers(deviceId);
 
   // Notify any active socket for this device
   for (const socket of io.sockets.sockets.values()) {
     if (socket.handshake.auth?.deviceId === deviceId) {
       socket.data.approved = true;
       socket.emit("device:approved");
-      setupSocketFeatures(socket);
+      setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
     }
   }
   pushUiLog(`Device approved from pending: ${deviceId.slice(0, 8)}...`);
@@ -146,6 +307,15 @@ export function disconnectDeviceSockets(deviceId) {
       socket.disconnect(true);
       count++;
     }
+  }
+  // RTC-only sessions have no socket.io entry — kill them by peerId prefix.
+  for (const [peerId, vs] of rtcSessions) {
+    if (peerId.split(":")[0] !== deviceId) continue;
+    try { vs.data.protocol?.close(); } catch {}
+    unregisterProtocol(vs.data.protocol);
+    dropPending(peerId);
+    vs.disconnect();
+    count++;
   }
   if (count) pushUiLog(`Disconnected ${count} socket(s) for device ${deviceId.slice(0, 8)}...`);
   return count;
@@ -170,6 +340,13 @@ export function rejectSocketDevice(socketId) {
     socket.disconnect(true);
   }
 
+  // RTC peer — no socket to notify; answer over DO and drop the buffered offer.
+  const peerId = rtcPeerId(socketId);
+  if (peerId) {
+    sendSignalingTo(peerId, { type: "error", message: SIGNALING_ERRORS.rejected });
+    dropPending(peerId);
+  }
+
   // Notify UI to refresh pending/approved list
   pushUiEvent("deviceApproval", { action: "refresh" });
   pushUiLog(`Device rejected: ${pending?.deviceId?.slice(0, 8) || "unknown"}...`);
@@ -180,6 +357,13 @@ export async function startTransportServer(server) {
   // Load approved devices + auto-approve setting from disk
   loadApprovedDevices();
   loadAutoApprove();
+
+  // Join the DO signaling room (room = apiKey) at server boot — independent of
+  // any socket.io/tunnel connection. Lets RTC establish before the tunnel is up.
+  initSignalingGlobal(loadApiKey());
+  // Offer with no PM → build an RTC-only session so login works without a tunnel.
+  setOfferFallback(handleRtcOffer);
+  onSignalingReady(() => pushTransportState());
 
   const io = new Server(server, {
     cors: {
@@ -226,7 +410,8 @@ export async function startTransportServer(server) {
       socket.data.approved = true;
       socket.data.localUi = true;
       pushUiLog("Local UI connected — trusted (token)");
-      setupSocketFeatures(socket); // emits "terminal:ready" when handlers registered
+      // emits "terminal:ready" when handlers registered
+      setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
       return; // do not track in Clients list
     }
 
@@ -253,12 +438,28 @@ export async function startTransportServer(server) {
       }
     });
 
+    // Existing RTC-only session for this device — attach WS as fallback carrier
+    // instead of building a second PM (handlers stay on the virtual socket).
+    // Keyed by peerId (deviceId:tab) — two tabs of one browser share deviceId.
+    const peerId = socket.handshake.auth?.peerId || null;
+    const rtcSession = peerId ? rtcSessions.get(peerId) : null;
+    if (rtcSession && isDeviceApproved(deviceId)) {
+      socket.data.approved = true;
+      socket.data.rtcHost = rtcSession;
+      rtcSession.data.protocol?.attachSocket(socket)
+        .catch((e) => pushUiLog(`RTC session attachSocket failed: ${e.message}`));
+      pushUiLog(`Tunnel attached to RTC session: ${deviceId.slice(0, 8)}...`);
+      socket.once("device:clientReady", () => socket.emit("device:approved"));
+      return;
+    }
+
     // Check device approval
     if (deviceId && isDeviceApproved(deviceId)) {
       // Known device — allow immediately
       pushUiLog(`Device recognized: ${deviceId.slice(0, 8)}...`);
       socket.data.approved = true;
-      setupSocketFeatures(socket); // emits "terminal:ready" when handlers registered
+      // emits "terminal:ready" when handlers registered
+      setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
       // Notify client so it reloads sessions/groups after handlers are registered
       socket.once("device:clientReady", () => socket.emit("device:approved"));
     } else if (deviceId && isDeviceRejected(deviceId)) {
@@ -273,19 +474,23 @@ export async function startTransportServer(server) {
       clearRejectedDevice(deviceId);
       socket.data.approved = true;
       pushUiLog(`Auto-approved device: ${deviceId.slice(0, 8)}...`);
-      setupSocketFeatures(socket); // emits "terminal:ready" when handlers registered
+      // emits "terminal:ready" when handlers registered
+      setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
       // Notify client after it signals ready so listeners are attached
       socket.once("device:clientReady", () => socket.emit("device:approved"));
       pushUiEvent("deviceApproval", { action: "refresh" });
     } else {
       // Unknown device — hold and request approval
       pushUiLog(`Unknown device: ${deviceId?.slice(0, 8) || "no-id"} — waiting for approval`);
-      // Skip if same deviceId already pending (client reconnected)
-      if (isDevicePending(deviceId)) {
+      // Already pending — an RTC peer raised it first. Hand the entry to this
+      // real socket so Approve unlocks it and the client gets the waiting modal.
+      const prevId = getPendingSocketId(deviceId);
+      if (prevId && !rtcPeerId(prevId)) {
         pushUiLog(`Device ${deviceId?.slice(0, 8)} already pending, ignoring duplicate`);
         socket.disconnect(true);
         return;
       }
+      if (prevId) removePendingApproval(prevId);
 
       addPendingApproval(socket.id, { deviceId, ip });
 

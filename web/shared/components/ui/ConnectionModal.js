@@ -8,10 +8,11 @@ import { useI18n } from "@/shared/i18n";
  * Connection overlay modal - shows when retrying, failed, or waiting for device approval
  * @param {Object} retryStatus - { isRetrying, attempt, maxAttempts, failed }
  * @param {string|null} approvalStatus - null | "pending" | "approved" | "rejected"
+ * @param {boolean} connected - true when any transport (RTC or WS) is alive → suppress retry/failed modal
  * @param {Function} onLogout - Callback to clear session and redirect
  * @param {Function} onRetryNow - Force an immediate reconnect attempt
  */
-export default function ConnectionModal({ retryStatus, approvalStatus, onLogout, onRetryNow }) {
+export default function ConnectionModal({ retryStatus, approvalStatus, connected, onLogout, onRetryNow }) {
   const { t } = useI18n();
 
   const handleBackToLogin = () => {
@@ -81,8 +82,8 @@ export default function ConnectionModal({ retryStatus, approvalStatus, onLogout,
     );
   }
 
-  // Only show when retrying or failed
-  if (!retryStatus?.isRetrying && !retryStatus?.failed) {
+  // Only show when retrying or failed — suppress if a transport is alive (RTC working)
+  if (connected || (!retryStatus?.isRetrying && !retryStatus?.failed)) {
     return null;
   }
 

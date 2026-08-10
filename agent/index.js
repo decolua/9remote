@@ -29,7 +29,7 @@ import {
   loadUiState, loadDesktopState, refreshPermissionsAsync, pushUiEvent, setRemoteAvailable,
   handleSseEvents, handleStateGet, handleStatePost,
   handleStop, handleStart, handleStopTunnel, handleShutdown,
-  handleConnections, handleDesktopToggle, handleLogsGet,
+  handleConnections, handleDesktopToggle, handleRtcToggle, handleLogsGet,
   handlePermissionsGet, handlePermissionsRequest,
   handleAutoStartGet, handleAutoStartPost,
   handleLocalToken, handleUpdate, setUpdateInfo,
@@ -197,6 +197,7 @@ const ROUTES = [
   { path: "/api/permissions",      method: "GET",  handler: handlePermissionsGet },
   { path: "/api/permissions/request", method: "POST", handler: handlePermissionsRequest },
   { path: "/api/desktop/toggle",   method: "POST", handler: handleDesktopToggle },
+  { path: "/api/ui/rtc-toggle",    method: "POST", handler: handleRtcToggle },
   { path: "/api/autostart",        method: "GET",  handler: handleAutoStartGet },
   { path: "/api/autostart",        method: "POST", handler: handleAutoStartPost },
   { path: "/api/sleep-inhibit",    method: "GET",  handler: handleSleepInhibitGet },
@@ -296,13 +297,22 @@ export async function startServer() {
   generateLocalToken();
   loadUiState();
   loadDesktopState();
-  refreshPermissionsAsync();
+  const refreshPermissionsSafe = () =>
+    refreshPermissionsAsync().catch((err) => logger.error(`permission refresh failed: ${err?.message || err}`));
+  refreshPermissionsSafe();
   // macOS TCC has no change event — poll to detect permission revoke/grant
   if (process.platform === "darwin") {
-    setInterval(refreshPermissionsAsync, PERMISSION_POLL_MS);
+    setInterval(refreshPermissionsSafe, PERMISSION_POLL_MS);
   }
 
   await startTransportServer(server);
+
+  // listen() reports bind failures (EADDRINUSE) via "error", not the callback —
+  // without this they surface as uncaughtException. Exit so the CLI restarts us.
+  server.on("error", (err) => {
+    logger.error(`HTTP server error: ${err?.message || err}`);
+    if (err?.code === "EADDRINUSE") process.exit(1);
+  });
 
   server.listen(port, (err) => {
     if (err) throw err;
@@ -345,4 +355,8 @@ export async function startServer() {
   return server;
 }
 
-startServer();
+// Boot failure must be loud + fatal — the parent CLI restarts us with backoff
+startServer().catch((err) => {
+  logger.error(`Server failed to start: ${err?.stack || err?.message || err}`);
+  process.exit(1);
+});

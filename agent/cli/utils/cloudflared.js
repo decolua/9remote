@@ -52,6 +52,10 @@ const LEGACY_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 
 // Track intentional shutdown to suppress exit logs
 let isIntentionalShutdown = false;
+// PID of the cloudflared this module currently owns. A spawn that gets superseded
+// (timeout, stale cleanup) leaves its exit handler attached, and that handler must
+// not schedule a restart for a process we already replaced.
+let currentChildPid = null;
 
 // Pin stable version — avoid "latest" renaming/breakage
 const CLOUDFLARED_VERSION = "2026.6.1";
@@ -356,6 +360,18 @@ function parseQuickTunnelUrl(message) {
 export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart = null) {
   const binaryPath = await ensureCloudflared();
 
+  // Clear any cloudflared left over from an earlier spawn or a hard agent restart.
+  // Uses the PID file, not the port: a cloudflared that never finished connecting
+  // has no ESTABLISHED socket, so the port lookup would miss exactly the orphans
+  // a timeout leaves behind. The stale process is a different PID than the one we
+  // are about to spawn, so its exit event can't be confused with ours.
+  const stalePid = readPid("cloudflared");
+  if (stalePid && isAlive(stalePid)) {
+    logger.info(`killing stale cloudflared pid=${stalePid}`);
+    killPid(stalePid);
+    clearPid("cloudflared");
+  }
+
   if (onRestart) restartCallback = onRestart;
   currentRestartArg = localPort;
 
@@ -378,6 +394,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
   );
 
   writePid("cloudflared", child.pid);
+  currentChildPid = child.pid;
   isIntentionalShutdown = false;
 
   return new Promise((resolve, reject) => {
@@ -389,6 +406,12 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
       if (resolved) return;
       resolved = true;
       cleanup();
+      // Kill the child — otherwise the retry loop spawns a second cloudflared
+      // while this one keeps running, and they pile up across timeouts. Clearing
+      // currentChildPid marks it superseded so its exit handler stays quiet.
+      if (currentChildPid === child.pid) currentChildPid = null;
+      try { child.kill("SIGKILL"); } catch {}
+      clearPid("cloudflared");
       reject(new Error("Quick tunnel timed out after 90s"));
     }, 90000);
 
@@ -435,20 +458,24 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
     child.on("exit", (code, signal) => {
       cleanup();
-      logger.info(`cloudflared exited (intentional=${isIntentionalShutdown})`);
-      if (!isIntentionalShutdown) setLastStatus("unreachable");
+      // Superseded child (timed out, or replaced by a newer spawn) — its death is
+      // expected and must not drive status or trigger another restart.
+      const superseded = currentChildPid !== child.pid;
+      const quiet = isIntentionalShutdown || superseded;
+      logger.info(`cloudflared exited (intentional=${isIntentionalShutdown} superseded=${superseded})`);
+      if (!quiet) setLastStatus("unreachable");
       if (!resolved) {
         resolved = true;
         clearTimeout(timeout);
         const tail = lastOutput.trim().split("\n").slice(-5).join(" | ");
+        // Died before the tunnel came up: reject only. The caller's retry loop
+        // (spawnQuickTunnelWithRetry) owns the retry — also calling
+        // scheduleRestart here would spawn two cloudflared for one failure.
+        currentChildPid = null;
         reject(new Error(`cloudflared exited (code=${code}, signal=${signal}) output: ${tail || "(empty)"}`));
-        // Initial spawn failed (e.g. trycloudflare API timeout) — still retry
-        if (!isIntentionalShutdown) {
-          scheduleRestart(localPort, `initial spawn failed (code ${code})`);
-        }
         return;
       }
-      if (!isIntentionalShutdown) {
+      if (!quiet) {
         scheduleRestart(localPort, `quick tunnel exit code ${code}`);
       }
     });
@@ -571,6 +598,7 @@ export function killCloudflared() {
 
     const pid = readPid("cloudflared");
     isIntentionalShutdown = true;
+    currentChildPid = null;
     if (pid) {
       killPid(pid);
       clearPid("cloudflared");
@@ -630,6 +658,7 @@ function startNetworkMonitor() {
   lastTickAt = Date.now();
 
   networkMonitorInterval = setInterval(async () => {
+   try {
     // Time gap between ticks — must track before any early return so a long
     // restartInFlight / waitForInternet window isn't misread as sleep on the next tick.
     const now = Date.now();
@@ -668,7 +697,21 @@ function startNetworkMonitor() {
     const pid = readPid("cloudflared");
     const cloudflaredDead = !pid || !isAlive(pid);
 
-    if (!fingerprintChanged && !cloudflaredDead) return;
+    if (!fingerprintChanged && !cloudflaredDead) {
+      // Process alive, no network change — but the edge connection may have died
+      // silently (cloudflared stays running). Probe once; if unreachable, kill +
+      // restart so the exit handler's scheduleRestart picks it up.
+      if (activeTunnelUrl && tunnelReadyAt && Date.now() - tunnelReadyAt > NETWORK_CHANGE_COOLDOWN_MS) {
+        const probe = await probeTunnelOnce(activeTunnelUrl);
+        if (!probe.ok) {
+          logger.warn("tunnel unreachable but cloudflared alive — edge lost, restarting");
+          setLastStatus("unreachable");
+          killCloudflared();
+          scheduleRestart(currentRestartArg, "tunnel unreachable (edge lost)");
+        }
+      }
+      return;
+    }
 
     // Cooldown: skip network-change kill within 30s of tunnel ready (avoids killing during DHCP stabilization)
     if (fingerprintChanged && !cloudflaredDead && tunnelReadyAt && Date.now() - tunnelReadyAt < NETWORK_CHANGE_COOLDOWN_MS) {
@@ -700,6 +743,9 @@ function startNetworkMonitor() {
 
     if (fingerprintChanged && !cloudflaredDead) killCloudflared();
     scheduleRestart(currentRestartArg, fingerprintChanged ? "network change" : "liveness watchdog");
+   } catch (err) {
+     logger.error(`network monitor tick failed: ${err?.message || err}`);
+   }
   }, TUNNEL_CONFIG.networkCheckIntervalMs);
 }
 

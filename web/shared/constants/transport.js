@@ -14,8 +14,31 @@ export const CONTROL_RTC_MAX_BYTES = 65536;
 // RTC zombie recovery — ack timeout (detect dead-but-open DC) + restart backoff.
 export const RTC_RESTART = {
   ackTimeoutMs: 5000,        // ack not received → suspect zombie → restart
-  maxAttempts: 3,            // give up after N restarts → WS owns
-  backoffMs: [1000, 2000, 4000] // delay before each restart attempt
+  maxAttempts: 3,            // fast-retry count before switching to slow probe
+  backoffMs: [1000, 2000, 4000], // delay before each fast restart attempt
+  probeIntervalMs: 30000     // slow probe while on tunnel — tries P2P again periodically
+};
+
+// DO signaling relay — fallback carrier for RTC signaling when tunnel WS is
+// down/not ready. Same-origin endpoint (wss://<host>/signaling), apiKey-gated.
+export const SIGNALING_CONFIG = {
+  enabled: true,
+  pingMs: 25000 // Hibernation auto-response — never wakes the DO, never billed
+};
+
+// Signaling errors that mean "the agent heard you, but the device isn't cleared"
+// — a policy answer, not a transport failure. Mirrored in agent/lib/transportConstants.js.
+// The client must show the approval UI instead of retrying/falling back.
+export const SIGNALING_ERRORS = {
+  pending: "pending-approval",
+  rejected: "device-rejected"
+};
+
+// Network-change recovery. `online`/`connection.change` are only hints (MDN:
+// onLine is "inherently unreliable"; Network Information API is absent on
+// Safari), so they merely trigger a probe — the srflx IP below is the truth.
+export const NET_RECOVERY = {
+  debounceMs: 500 // connection.change fires in bursts on handover
 };
 
 // WS zombie recovery — detect a socket.io socket that still reports connected
@@ -24,10 +47,11 @@ export const RTC_RESTART = {
 export const WS_ZOMBIE_MS = 45000;
 
 // File-transfer tunables (DC "file", separate from tiles' dcBinary).
-// chunkSize mirrors dcMaxMessageSize so each frame is one SCTP message (no split).
+// chunkSize + 8-byte frame header must fit dcMaxMessageSize (SCTP hard limit).
 // dcBufferThreshold is generous (8MB) — file transfer is throughput, not real-time.
+const FILE_FRAME_HEADER_SIZE = 8; // [uploadId u32][offset u32] — see fileFrame.js
 export const FILE_TRANSFER = {
-  chunkSize: 64 * 1024,
+  chunkSize: 64 * 1024 - FILE_FRAME_HEADER_SIZE,
   windowSize: 64,                 // pipelining: in-flight unacked chunks
   dcBufferThreshold: 8 * 1024 * 1024,
   maxUploadSize: 50 * 1024 * 1024, // per-file cap

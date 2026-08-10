@@ -50,6 +50,8 @@ export async function POST(request) {
     if (!session) return jsonError("Session not found or expired", 404);
     if (!session.tunnelUrl) return jsonError("Server not ready. Please wait...", 503);
 
+    console.log(`[connect] apiKey=${apiKey?.slice(0,8)} tunnelUrl=${session.tunnelUrl} localIp=${session.localIp || "none"}`);
+
     await env.DB.prepare(`UPDATE sessions SET lastAccessAt = datetime('now') WHERE apiKey = ?`)
       .bind(apiKey).run();
 

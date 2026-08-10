@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSessionStorage } from "./useSessionStorage";
+import { useDeviceId } from "./useDeviceId";
 import { ProtocolManager } from "@/shared/transport/ProtocolManager";
 
 /**
@@ -11,9 +12,12 @@ import { ProtocolManager } from "@/shared/transport/ProtocolManager";
  */
 function persistAuthUpdate({ tunnelUrl, localIp }) {
   if (typeof window === "undefined") return;
-  if (tunnelUrl) sessionStorage.setItem("tunnelUrl", tunnelUrl);
-  if (localIp) sessionStorage.setItem("localIp", localIp);
-  else if (localIp === null) sessionStorage.removeItem("localIp");
+  // Storage may be blocked (private mode / sandboxed iframe) — best-effort
+  try {
+    if (tunnelUrl) sessionStorage.setItem("tunnelUrl", tunnelUrl);
+    if (localIp) sessionStorage.setItem("localIp", localIp);
+    else if (localIp === null) sessionStorage.removeItem("localIp");
+  } catch {}
 }
 
 /**
@@ -45,6 +49,7 @@ export function useProtocol({
   const router = useRouter();
   const { getAuth } = useSessionStorage();
   const managerRef = useRef(null);
+  const deviceId = useDeviceId();
 
   const [connected, setConnected] = useState(false);
   const [transport, setTransport] = useState("ws");
@@ -55,7 +60,7 @@ export function useProtocol({
 
   useEffect(() => {
     const auth = getAuth();
-    if (!auth?.tunnelUrl) {
+    if (!auth?.apiKey) {
       router.push(redirectOnNoAuth);
       return;
     }
@@ -64,8 +69,9 @@ export function useProtocol({
       tunnelUrl: auth.tunnelUrl,
       localIp: auth.localIp || null,
       namespace,
-      socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, ...socketOptions.auth } },
+      socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, deviceId, ...socketOptions.auth } },
       apiKey: auth.apiKey,
+      deviceId,
       onConnect: (socket) => {
         setConnected(true);
         setConnectionMode(managerRef.current?.connectionMode || "tunnel");
@@ -79,7 +85,10 @@ export function useProtocol({
       onUrlUpdate: persistAuthUpdate
     };
 
-    const rtcConfig = enableWebRTC ? {
+    // Browser RTC capability gate — bail to tunnel-only on unsupported/private mode
+    // instead of attempting a handshake that can never succeed.
+    const rtcCapable = enableWebRTC && typeof RTCPeerConnection !== "undefined";
+    const rtcConfig = rtcCapable ? {
       enableWebRTC: true,
       enableTurn,
       apiKey: auth.apiKey,

@@ -5,6 +5,7 @@ import { execSync, spawn } from "child_process";
 import chokidar from "chokidar";
 import sharp from "sharp";
 import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES, MIME_BY_EXT } from "../constants.js";
+import { CONTROL_RTC_MAX_BYTES } from "../../../lib/transportConstants.js";
 import { isSensitivePath } from "../pathGuard.js";
 
 function isIgnoredDir(name) { return IGNORED_DIRS.includes(name); }
@@ -216,6 +217,8 @@ export function setupFileHandlers(socket) {
       const stat = fs.statSync(filePath);
       if (stat.size > MAX_FILE_SIZE) return callback({ success: false, error: `File too large (${formatSize(stat.size)}). Max ${formatSize(MAX_FILE_SIZE)}` });
       if (isBinaryFile(filePath)) return callback({ success: false, error: "Cannot open binary file" });
+      // RTC control DC caps at CONTROL_RTC_MAX_BYTES — large text must stream via file DC.
+      if (stat.size > CONTROL_RTC_MAX_BYTES) return callback({ success: true, content: "", streamInstead: true, size: stat.size });
       callback({ success: true, content: fs.readFileSync(filePath, "utf-8") });
     } catch (error) {
       callback({ success: false, error: error.message });

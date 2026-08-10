@@ -13,11 +13,22 @@ const _workerPending = new Map();
 // stops answering; without this guard every pending decode promise hangs forever and
 // tiles never draw (black canvas on the RTC path). Mirror useTiles.resetBinWorker.
 const WORKER_DECODE_TIMEOUT_MS = 8000;
+// Consecutive worker crashes before giving up — a worker that fails to load (CSP)
+// errors again on every respawn, so bound the retries instead of looping forever.
+const MAX_WORKER_RESPAWNS = 3;
+let _workerFailures = 0;
 
 function getWorker() {
+  if (_worker === false) return null; // previously failed (CSP / unsupported)
   if (_worker) return _worker;
-  _worker = new Worker(new URL("../../features/remote/workers/tileDecoder.worker.js", import.meta.url));
+  try {
+    _worker = new Worker(new URL("../../features/remote/workers/tileDecoder.worker.js", import.meta.url));
+  } catch {
+    _worker = false;
+    return null;
+  }
   _worker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
+    _workerFailures = 0; // worker answered — the crash streak is broken
     const entry = _workerPending.get(id);
     if (!entry) {
       // Batch was dropped by the queue cap before this result arrived — close the
@@ -34,6 +45,7 @@ function getWorker() {
     // A crashed worker won't answer any pending decode — reset so the next tile spawns
     // a fresh worker instead of posting into a dead one.
     resetWorker();
+    if (++_workerFailures >= MAX_WORKER_RESPAWNS) _worker = false;
   };
   return _worker;
 }
@@ -192,7 +204,10 @@ export class WebRtcProtocol extends BaseProtocol {
     };
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) this._sendSignaling({ type: "ice", candidate: candidate.candidate, mid: candidate.sdpMid });
+      if (!candidate) return;
+      const srflx = publicIpOf(candidate.candidate);
+      if (srflx) this._emit("netFingerprint", srflx);
+      this._sendSignaling({ type: "ice", candidate: candidate.candidate, mid: candidate.sdpMid });
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -276,14 +291,16 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   async _handleSignal(msg) {
+    debugLog("transport", `[rtc] signal: ${msg.type}`);
     if (!this._pc) return;
     try {
       if (msg.type === "answer") {
         await this._pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
+        debugLog("transport", "[rtc] answer set");
       } else if (msg.type === "ice") {
         await this._pc.addIceCandidate(new RTCIceCandidate({ candidate: msg.candidate, sdpMid: msg.mid })).catch(() => {});
       } else if (msg.type === "error") {
-        console.error("[rtc] server error:", msg.message);
+        debugLog("transport", `[rtc] server error: ${msg.message}`);
         this._cleanupPeer();
         this._setState(ADAPTER_STATE.closed);
       }
@@ -336,8 +353,10 @@ export class WebRtcProtocol extends BaseProtocol {
         _workerPending.delete(oldestId);
         old.resolve(null);
       }
+      const worker = getWorker();
+      if (!worker) { clearTimeout(timer); _workerPending.delete(id); resolve(null); return; }
       _workerPending.set(id, { resolve, timer });
-      getWorker().postMessage({ buffer, id, v: 2 }, [buffer]);
+      worker.postMessage({ buffer, id, v: 2 }, [buffer]);
     }).then((result) => {
       if (!result) return;
       const { tiles, timestamp, hasBitmap } = result;
@@ -373,4 +392,14 @@ export class WebRtcProtocol extends BaseProtocol {
       }, 0);
     });
   }
+}
+
+// Public IP from a server-reflexive candidate — the NAT address STUN observed.
+// It changes on every real network handover (wifi ⇄ cellular ⇄ another AP), so
+// it's a reliable network identity where navigator.connection isn't available.
+// Candidate form: "candidate:<foundation> <comp> <proto> <pri> <ip> <port> typ srflx ..."
+function publicIpOf(candidate) {
+  if (!candidate || !candidate.includes("typ srflx")) return null;
+  const parts = candidate.split(" ");
+  return parts[4] || null;
 }

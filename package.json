@@ -28,10 +28,10 @@
     "expo:android": "npm run android --prefix expo",
     "docs:dev": "npm run dev --workspace=gitbook",
     "docs:deploy": "npm run build --workspace=gitbook && cd gitbook && npx wrangler pages deploy out --project-name=9remote-docs",
-    "pc:dev": "run-p agent:dev:ui:start pc:electron",
-    "pc:electron": "npm run electron:dev --prefix desktop",
-    "pc:build": "bash desktop/scripts/build-macos-electron.sh",
-    "pc:build:local": "npm run electron:build:dir --prefix desktop",
+    "pc:dev": "run-p agent:dev:ui:start pc:tauri",
+    "pc:tauri": "NINEREMOTE_ENV=development npm run tauri dev --prefix desktop",
+    "pc:build": "npm run agent:build && npm run tauri build --prefix desktop",
+    "pc:build:local": "npm run tauri build --prefix desktop -- --debug",
     "agent:dev:ui:start": "npm run dev:ui:start --prefix agent"
   },
   "devDependencies": {

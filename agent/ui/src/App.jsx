@@ -20,12 +20,15 @@ const defaultState = {
   tunnelHealth: defaultTunnelHealth,
 };
 
+const defaultTransport = { signaling: "off", rtcPeers: 0, wsPeers: 0, rtcDisabled: false };
+
 const defaultPermissions = { screenRecording: false, accessibility: false };
 const MAX_LOGS = 200;
 
 export default function App() {
   const [mainState, setMainState] = useState(defaultState);
   const [permissions, setPermissions] = useState(defaultPermissions);
+  const [transport, setTransport] = useState(defaultTransport);
   const [desktopEnabled, setDesktopEnabled] = useState(false);
   const [logs, setLogs] = useState([]);
   const [updateVersion, setUpdateVersion] = useState(null);
@@ -77,6 +80,7 @@ export default function App() {
           screenRecording: data.screenRecording ?? false,
           accessibility: data.accessibility ?? false,
         });
+        if (data.transport) setTransport(data.transport);
         if (data.desktopEnabled !== undefined) setDesktopEnabled(data.desktopEnabled);
         // Override theme if server provides one
         if (data.theme && (data.theme === "light" || data.theme === "dark")) {
@@ -120,6 +124,8 @@ export default function App() {
         } else if (data.type === "permissions") {
           setPermissions({ screenRecording: data.screenRecording, accessibility: data.accessibility });
           if (data.desktopEnabled !== undefined) setDesktopEnabled(data.desktopEnabled);
+        } else if (data.type === "transport") {
+          setTransport({ signaling: data.signaling, rtcPeers: data.rtcPeers, wsPeers: data.wsPeers, rtcDisabled: data.rtcDisabled });
         } else if (data.type === "connections") {
           setConnections(data.connections ?? []);
         } else if (data.type === "deviceApproval" && data.action === "pending") {
@@ -380,7 +386,8 @@ export default function App() {
       step={mainState.step}
       stepDesc={mainState.stepDesc}
       healthCheck={mainState.healthCheck}
-      tunnelHealth={mainState.tunnelHealth}
+      transport={transport}
+      onTransportChange={setTransport}
       tunnelUrl={mainState.tunnelUrl}
       oneTimeKey={mainState.oneTimeKey}
       oneTimeKeyExpiresAt={mainState.oneTimeKeyExpiresAt}

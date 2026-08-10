@@ -145,16 +145,6 @@ export class WsProtocol extends BaseProtocol {
     return false;
   }
 
-  /** Subscribe directly to raw socket event (used internally by RTC for signaling).
-   *  Caller responsible for re-attaching after stateChange=open (PM does this). */
-  onRaw(event, handler) {
-    this._socket?.on(event, handler);
-  }
-
-  offRaw(event, handler) {
-    this._socket?.off(event, handler);
-  }
-
   // ─── Internal ──────────────────────────────────────────────────────────────
 
   _connectInternal() {
@@ -172,6 +162,8 @@ export class WsProtocol extends BaseProtocol {
       namespace: this._auth.namespace || "",
       socketOptions: this._auth.socketOptions || {}
     };
+
+    debugLog("transport", `[ws] connect: tunnelUrl=${this._auth.tunnelUrl} localIp=${this._auth.localIp || "none"}`);
 
     const adapter = (FEATURES.localFirstConnection && this._auth.localIp && this._connectionMode !== "tunnel")
       ? new LocalFirstAdapter({ ...adapterConfig, localIp: this._auth.localIp })
@@ -268,7 +260,7 @@ export class WsProtocol extends BaseProtocol {
   }
 
   _forceReconnect() {
-    if (this._destroyed || this._blocked || this._retryScheduled) return;
+    if (this._destroyed || this._blocked || this._retryScheduled || this._connecting) return;
     this._retryAttempt++;
     if (this._retryAttempt > BEHAVIOR.reconnect.fastFailThreshold) {
       this._retryAttempt = 0;

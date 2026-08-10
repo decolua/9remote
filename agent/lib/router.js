@@ -81,7 +81,10 @@ export function createRouter(routes, { fallback } = {}) {
   }
 
   return async (req, res) => {
-    const parsedUrl = parse(req.url, true);
+    // A malformed URL (bad percent-encoding) makes parse() throw
+    let parsedUrl;
+    try { parsedUrl = parse(req.url, true); }
+    catch { jsonErr(res, 400, "Bad request"); return; }
     const { pathname, search } = parsedUrl;
 
     // Localhost guard — block non-public routes from remote/tunnel

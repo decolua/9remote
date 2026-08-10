@@ -69,8 +69,8 @@ export function useSocket() {
     // Server emits "terminal:ready" AFTER getSessions/getGroups handlers are registered
     // (async setupSocketFeatures). Fetching here avoids the F5 race that returned empty.
     socket.on("terminal:ready", () => {
-      socket.emit("getGroups", (list) => setGroups(list || []));
-      socket.emit("getSessions", (list) => setSessions(list || []));
+      socket.emit("getGroups", (list) => setGroups(Array.isArray(list) ? list : []));
+      socket.emit("getSessions", (list) => setSessions(Array.isArray(list) ? list : []));
     });
 
     socket.on("device:rejected", () => {
@@ -97,8 +97,8 @@ export function useSocket() {
 
     // Groups changed elsewhere — refresh both lists
     socket.on("groupsChanged", () => {
-      socket.emit("getGroups", (list) => setGroups(list || []));
-      socket.emit("getSessions", (list) => setSessions(list || []));
+      socket.emit("getGroups", (list) => setGroups(Array.isArray(list) ? list : []));
+      socket.emit("getSessions", (list) => setSessions(Array.isArray(list) ? list : []));
     });
 
     socket.on("codespace:stopping", handleCodespaceStopping);
@@ -111,7 +111,9 @@ export function useSocket() {
     namespace: "",
     redirectOnNoAuth: "/",
     onConnect: handleSocketReady,
-    onDisconnect: handleDisconnect
+    onDisconnect: handleDisconnect,
+    // Agent refused over signaling — same modal as the socket.io device:* events
+    onApproval: setApprovalStatus
   });
 
   // Keep ref in sync so event handlers registered above can call disconnect
@@ -122,14 +124,14 @@ export function useSocket() {
     if (!socketRef.current) return;
     
     socketRef.current.emit("getSessions", (list) => {
-      setSessions(list);
+      setSessions(Array.isArray(list) ? list : []);
     });
   }, [socketRef]);
 
   // Load groups list
   const loadGroups = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit("getGroups", (list) => setGroups(list || []));
+    socketRef.current.emit("getGroups", (list) => setGroups(Array.isArray(list) ? list : []));
   }, [socketRef]);
 
   // Create new session (groupId optional). cwd = inherit from last session in group.

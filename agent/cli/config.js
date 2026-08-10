@@ -1,6 +1,11 @@
 import chalk from "chalk";
 
-export const WORKER_URL = "https://9remote.cc";
+// npm run agent:dev sets NODE_ENV=development → talk to the dev Worker + signaling DO.
+// Prod build / npm start keeps prod. Single source of truth for the target zone.
+const IS_DEV = process.env.NODE_ENV === "development";
+export const IS_DEV_ENV = IS_DEV;
+export const WORKER_URL = process.env.NREMOTE_WORKER_URL
+  || (IS_DEV ? "https://dev.9remote.cc" : "https://9remote.cc");
 export const SERVER_HEALTHY_RESET_MS = 30000;
 export const SHUTDOWN_EXIT_DELAY_MS = 500;
 export const SHUTDOWN_CRASH_DELAY_MS = 300;
@@ -32,6 +37,9 @@ export const DELAYS = {
   postReadyHoldMs: 2000,
   bgSpawnFlushMs: 400,
 };
+
+// Minimum gap between two cloudflared spawns — trycloudflare rate-limits bursts
+export const TUNNEL_SPAWN = { minGapMs: 3000 };
 
 export const TUI = { maxLogLines: 200, headerWidth: 44 };
 

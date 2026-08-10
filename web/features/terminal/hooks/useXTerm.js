@@ -94,6 +94,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const joiningRef = useRef(false);
   const [joining, setJoining] = useState(false); // reactive for center loading spinner during join
   const joinQueueRef = useRef([]);
+  const joinGenRef = useRef(0); // stale-ack guard: only the current join's ack clears the spinner
   const scrollDisposeRef = useRef(null);    // disposable from term.onScroll
   const needsRejoinRef = useRef(false);     // reconnect fired while pane hidden → defer rejoin until visible
   const isVisibleRef = useRef(isVisible);   // mirror isVisible for socket handlers
@@ -449,7 +450,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         joiningRef.current = true;
         setJoining(true);
         joinQueueRef.current = [];
+        const myGen = ++joinGenRef.current;
         socket.emit("joinSession", joinPayload, (result) => {
+          if (myGen !== joinGenRef.current) return; // stale ack from a superseded join
           // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
           setTimeout(() => {
             joiningRef.current = false;

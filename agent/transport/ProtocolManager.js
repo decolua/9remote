@@ -1,8 +1,11 @@
 import { WsProtocol } from "./WsProtocol.js";
 import { WebRtcProtocol } from "./WebRtcProtocol.js";
 import { registerProtocol, getProtocol } from "./registry.js";
-import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES } from "../lib/transportConstants.js";
+import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_DEAD_GRACE_MS, SIGNALING_ERRORS } from "../lib/transportConstants.js";
 import { encodeTilesBatch } from "../features/remote/handlers/ScreenHandler.js";
+import { isDeviceApproved } from "../lib/deviceApproval.js";
+import { onSignalingMessage, onSignalingReady, sendSignaling as sendGlobalSignaling, isSignalingReady } from "../lib/signalingGlobal.js";
+import { pushTransportState } from "../api/ui.js";
 
 registerProtocol(WsProtocol);
 registerProtocol(WebRtcProtocol);
@@ -27,18 +30,28 @@ export class ProtocolManager {
     };
 
     this._profile = profile;
-    this._auth = { apiKey: config.apiKey || null, socketId: socket.id };
-    this._socket = socket;
+    this._auth = { apiKey: config.apiKey || null, socketId: socket?.id || null };
+    this._socket = socket || null;
+    // Handler host — where feature handlers are registered. For an RTC-only
+    // session this is the VirtualSocket and stays so even after a real socket
+    // late-attaches, so handlers are never registered twice.
+    this._host = socket || null;
     this._wsChunkSize = config.wsChunkSize;
     this._dcChunkSize = config.dcChunkSize;
     this._dcMaxTilesPerFrame = config.dcMaxTilesPerFrame;
     this._maxControlBuffer = config.maxControlBuffer;
+    // Signaling peer id — "deviceId:tab" for DO-routed clients (two tabs of one
+    // browser share a deviceId), plain deviceId on the socket.io path.
+    this._deviceId = config.signaling?.deviceId || null;
+    // Device identity for the approval re-check — strip the per-tab suffix.
+    this._approvalDeviceId = this._deviceId ? this._deviceId.split(":")[0] : null;
+    // Outbound signaling buffered until a carrier (WS tunnel or DO global) is ready.
+    this._sigBuffer = [];
 
     this._adapters = new Map();
     this._listeners = new Map();
     this._buffer = [];
     this._rtcSignalingHandler = null;
-    this._sigListeners = null;
     this._wsPendingSince = new Map();
     // Pending-since timestamps — RTC backpressure priority, mirrors WS path.
     this._rtcPendingSince = new Map();
@@ -53,6 +66,9 @@ export class ProtocolManager {
 
   async init() {
     for (const id of this._profile.enabled) {
+      // Virtual (RTC-only) session — no real socket.io yet. WS attaches later
+      // via attachSocket() when the tunnel comes up.
+      if (id === "ws" && this._host?.isVirtual) continue;
       const Adapter = getProtocol(id);
       if (!Adapter) continue;
       let inst;
@@ -74,9 +90,54 @@ export class ProtocolManager {
     }
   }
 
+  /**
+   * Late-attach a real socket.io socket to an RTC-only session (tunnel came up
+   * after RTC connected). Adds WS as a fallback carrier; the virtual socket
+   * stays the handler host so features are never re-registered.
+   */
+  async attachSocket(socket) {
+    if (!socket || this._adapters.has("ws")) return;
+    this._socket = socket;
+    this._auth.socketId = socket.id;
+    const Adapter = getProtocol("ws");
+    if (!Adapter) return;
+    const inst = new Adapter();
+    inst.on("stateChange", (state) => this._onAdapterStateChange("ws", state));
+    inst.on("message", ({ event, data, source }) => this._dispatch(event, data, source));
+    inst.on("binary", (msg) => this._onBinary(msg));
+    await inst.connect(this._buildCtx("ws"));
+    this._adapters.set("ws", inst);
+    // Tunnel died — drop the WS carrier so a later reconnect can attach again.
+    socket.on("disconnect", () => {
+      if (this._adapters.get("ws") !== inst) return;
+      this._adapters.delete("ws");
+      this._socket = null;
+      try { inst.disconnect(); } catch {}
+    });
+    this._flushBuffer();
+  }
+
   setupSignaling(_socket) {
-    // Adapter is set up via init(). Signaling listeners installed when RTC requests them.
-    this._installSignalingListeners();
+    // Register with the process-wide DO signaling client, keyed by the client
+    // deviceId this PM serves. Buffered offers (arrived before this PM existed)
+    // are flushed by onSignalingMessage. Device approval re-checked on offer.
+    this._offGlobalSig = onSignalingMessage(this._deviceId, (msg) => {
+      if (msg.type === "offer") {
+        if (this._approvalDeviceId && !isDeviceApproved(this._approvalDeviceId)) {
+          this._sendSignaling({ type: "error", message: SIGNALING_ERRORS.pending });
+          return;
+        }
+        // No RTC handler (adapter killed by debug toggle or crash) — tell the
+        // client now so it falls back to the tunnel instead of timing out ICE.
+        if (!this._rtcSignalingHandler) {
+          this._sendSignaling({ type: "error", message: "rtc-disabled" });
+          return;
+        }
+      }
+      this._rtcSignalingHandler?.(msg);
+    });
+    // Flush buffered outbound signaling once the DO carrier comes online.
+    this._offGlobalReady = onSignalingReady(() => this._flushSigBuffer());
   }
 
   /** Always control channel — same as legacy "WS emit" */
@@ -85,19 +146,16 @@ export class ProtocolManager {
   }
 
   /**
-   * Send a binary payload on a channel (file transfer). Picks the best adapter
-   * (RTC preferred), falls back to WS on RTC backpressure/death — same pattern
-   * as _sendControl. Returns true if delivered on any adapter.
+   * Send a binary payload on a channel (file transfer). Uses the best adapter
+   * (RTC preferred). Unlike _sendControl, does NOT fall back to WS on RTC
+   * backpressure — that's temporary (buffer drains in ms) and dumping chunks
+   * to the tunnel wastes Cloudflare bandwidth + delivers out-of-order. RTC
+   * death is handled by _pickAdapter (returns WS when RTC state != open).
    */
   sendBinary(channel, payload) {
     const adapter = this._pickAdapter(channel);
     if (!adapter) return false;
-    if (adapter.send(channel, payload)) return true;
-    if (adapter.constructor.id === "rtc") {
-      const ws = this._adapters.get("ws");
-      if (ws?.ready && ws.send(channel, payload)) return true;
-    }
-    return false;
+    return adapter.send(channel, payload);
   }
 
   /**
@@ -119,6 +177,14 @@ export class ProtocolManager {
   }
 
   close() {
+    this._closed = true;
+    clearTimeout(this._deadTimer);
+    this._deadTimer = null;
+    try { this._offGlobalSig?.(); } catch {}
+    this._offGlobalSig = null;
+    try { this._offGlobalReady?.(); } catch {}
+    this._offGlobalReady = null;
+    this._sigBuffer = [];
     for (const inst of this._adapters.values()) {
       try { inst.disconnect(); } catch {}
     }
@@ -245,15 +311,37 @@ export class ProtocolManager {
     if (adapterId === "rtc") {
       ctx.signaling = {
         send: (msg) => this._sendSignaling(msg),
-        on: (handler) => { this._rtcSignalingHandler = handler; this._installSignalingListeners(); },
-        off: () => { this._rtcSignalingHandler = null; this._removeSignalingListeners(); }
+        on: (handler) => { this._rtcSignalingHandler = handler; },
+        off: () => { this._rtcSignalingHandler = null; }
       };
     }
     return ctx;
   }
 
   _onAdapterStateChange(adapterId, state) {
-    if (state === ADAPTER_STATE.open) this._flushBuffer();
+    if (this._closed) return; // PM torn down — adapter state changes are noise
+    pushTransportState();
+    if (state === ADAPTER_STATE.open) {
+      // Peer came back (re-offer after resume/handover) — cancel the teardown.
+      clearTimeout(this._deadTimer);
+      this._deadTimer = null;
+      this._flushBuffer();
+      return;
+    }
+    // RTC died on a virtual session with no WS to fall back to. The client is
+    // already renegotiating over DO (resume, network handover), and its re-offer
+    // lands on THIS pm's handler — tearing down now would unregister that
+    // handler and strand the offer. Wait out the client's restart window; only
+    // a peer that never comes back is really dead.
+    if (state === ADAPTER_STATE.closed && adapterId === "rtc"
+      && this._host?.isVirtual && !this._adapters.get("ws")?.ready) {
+      clearTimeout(this._deadTimer);
+      this._deadTimer = setTimeout(() => {
+        this._deadTimer = null;
+        if (this._closed || this._adapters.get("rtc")?.ready) return;
+        this._onDead?.();
+      }, RTC_DEAD_GRACE_MS);
+    }
   }
 
   _pickAdapter(channel) {
@@ -333,13 +421,20 @@ export class ProtocolManager {
       }
       const set = this._listeners.get(event);
       if (set) for (const h of set) h(...args);
-      const fns = this._socket.listeners?.(event) || [];
+      const fns = this._host?.listeners?.(event) || [];
       for (const fn of fns) fn(...args);
+      this._host?.dispatchAny?.(event, args[0]);
       return;
     }
-    // WS source — socket.io already fired raw listeners; only invoke PM bus
+    // WS source — socket.io already fired raw listeners; only invoke PM bus.
+    // Virtual host: handlers live on the VirtualSocket, so forward there too.
     const set = this._listeners.get(event);
     if (set) for (const h of set) h(payload);
+    if (this._host?.isVirtual) {
+      const fns = this._host.listeners?.(event) || [];
+      for (const fn of fns) fn(payload);
+      this._host.dispatchAny?.(event, payload);
+    }
   }
 
   /**
@@ -349,7 +444,7 @@ export class ProtocolManager {
    */
   _onBinary(msg) {
     if (!msg || msg.channel !== "file") return;
-    const fns = this._socket?.listeners?.("file-bin") || [];
+    const fns = this._host?.listeners?.("file-bin") || [];
     for (const fn of fns) fn(msg.buffer);
   }
 
@@ -364,42 +459,17 @@ export class ProtocolManager {
   // ─── Signaling routing ─────────────────────────────────────────────────────
 
   _sendSignaling(msg) {
-    const ws = this._adapters.get("ws");
-    if (ws?.ready) {
-      ws.send(CHANNELS.control, { event: this._sigEvent(msg.type), args: [this._sigData(msg)] });
-      return;
-    }
-    // Server has no HTTP fallback for signaling outbound — log only
-    console.warn("[ProtocolManager] signaling unavailable (ws down)");
+    // DO is the sole signaling carrier — the tunnel carries data only.
+    if (isSignalingReady() && sendGlobalSignaling({ ...msg, to: this._deviceId })) return;
+    this._sigBuffer.push(msg);
+    if (this._sigBuffer.length > 32) this._sigBuffer.shift();
   }
 
-  _sigEvent(type) {
-    return type === "offer" ? "webrtc:offer"
-      : type === "answer" ? "webrtc:answer"
-      : type === "ice" ? "webrtc:ice-candidate"
-      : "webrtc:error";
-  }
-
-  _sigData(msg) {
-    if (msg.type === "offer" || msg.type === "answer") return { sdp: msg.sdp };
-    if (msg.type === "ice") return { candidate: msg.candidate, mid: msg.mid };
-    return msg;
-  }
-
-  _installSignalingListeners() {
-    if (!this._rtcSignalingHandler || this._sigListeners) return;
-    const onOffer = ({ sdp }) => this._rtcSignalingHandler?.({ type: "offer", sdp });
-    const onIce = ({ candidate, mid }) => this._rtcSignalingHandler?.({ type: "ice", candidate, mid });
-    this._sigListeners = { onOffer, onIce };
-    this._socket.on("webrtc:offer", onOffer);
-    this._socket.on("webrtc:ice-candidate", onIce);
-  }
-
-  _removeSignalingListeners() {
-    if (!this._sigListeners) return;
-    this._socket.off("webrtc:offer", this._sigListeners.onOffer);
-    this._socket.off("webrtc:ice-candidate", this._sigListeners.onIce);
-    this._sigListeners = null;
+  _flushSigBuffer() {
+    if (!this._sigBuffer.length) return;
+    const queued = this._sigBuffer;
+    this._sigBuffer = [];
+    for (const msg of queued) this._sendSignaling(msg);
   }
 }
 
