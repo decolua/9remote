@@ -3,6 +3,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebglAddon } from "@xterm/addon-webgl";
 
 // XTerm theme (matches web palette)
 export const TERMINAL_THEMES = {
@@ -68,7 +69,8 @@ export const byteLength = (str) => (!str ? 0 : _utf8Encoder.encode(str).length);
 const TERMINAL_OPTIONS = {
   cursorBlink: true,
   fontSize: 14,
-  fontFamily: '"SF Mono", "Cascadia Code", Menlo, Monaco, "Courier New", monospace',
+  fontSizeMobile: 12,
+  fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", "Noto Sans Mono", Menlo, Monaco, "Courier New", monospace',
   scrollback: 15000,
   convertEol: true,
   allowProposedApi: true,
@@ -76,7 +78,8 @@ const TERMINAL_OPTIONS = {
   fastScrollModifier: "none",
   smoothScrollDuration: 0,
   rescaleOverlappingGlyphs: true,
-  minimumContrastRatio: 1,
+  minimumContrastRatio: 4.5,
+  macOptionIsMeta: true,
 };
 
 export function resolveTheme(name) {
@@ -335,9 +338,13 @@ export { createWriteBatcher } from "./writeBatcher.js";
 export { trimEndToEsc } from "./ansiBoundary.js";
 
 export function createTerminal(container, { theme = "dark", fontSize } = {}) {
+  // Mobile (< 768px) defaults to the smaller size unless a size is explicitly set.
+  const resolvedFontSize = fontSize ?? (typeof window !== "undefined" && window.innerWidth < 768
+    ? TERMINAL_OPTIONS.fontSizeMobile
+    : TERMINAL_OPTIONS.fontSize);
   const term = new Terminal({
     ...TERMINAL_OPTIONS,
-    ...(fontSize ? { fontSize } : {}),
+    fontSize: resolvedFontSize,
     theme: typeof theme === "string" ? resolveTheme(theme) : theme,
   });
   const fitAddon = new FitAddon();
@@ -358,6 +365,73 @@ export function createTerminal(container, { theme = "dark", fontSize } = {}) {
   };
 
   return { term, fitAddon, doFit, dispose };
+}
+
+// WebGL renderer with DOM fallback on failure / context loss (web parity).
+// Call after term.open(). Returns a dispose fn, or null if WebGL is unavailable.
+export function attachWebGL(term, fitAddon) {
+  let addon = null;
+  try {
+    addon = new WebglAddon();
+    // GPU reclaimed → dispose, xterm auto-falls back to DOM. Buffer text preserved.
+    addon.onContextLoss(() => { addon?.dispose(); addon = null; fitAddon.fit(); });
+    term.loadAddon(addon);
+    // WebGL cell dimensions differ from DOM → re-fit after load.
+    fitAddon.fit();
+    return () => { addon?.dispose(); addon = null; fitAddon.fit(); };
+  } catch {
+    return null;
+  }
+}
+
+// macOS WKWebView mishandles IME commits — Vietnamese (OpenKey/EVKey) emits a
+// synthetic backspace+char sequence and Chinese IMEs deliver punctuation via
+// beforeinput; xterm drops chars through its _keyDownSeen gate (xtermjs#5887).
+// Bridge committed text + relax the gate. No-op off macOS WebKit.
+const isMacWebKit = typeof navigator !== "undefined"
+  && /Mac/i.test(navigator.platform)
+  && /WebKit/i.test(navigator.userAgent)
+  && !/Chrome|CriOS|Edg|OPR/i.test(navigator.userAgent);
+
+export function attachMacWebKitIMEBridge(term) {
+  if (!isMacWebKit) return () => {};
+  const ta = term.textarea;
+  if (!ta) return () => {};
+  const cleanup = [];
+  // Dedup: beforeinput forwards first, _inputEvent then sees the same text → skip.
+  let bForwarded = "";
+
+  // beforeinput: WKWebView delivers IME commit (Vietnamese/Chinese) here. Forward
+  // short committed text xterm's keydown path drops.
+  const onBeforeInput = (e) => {
+    const { data, inputType } = e;
+    if (!data || !inputType || !inputType.startsWith("insert")) return;
+    // plain letters/digits/whitespace are handled by xterm keydown — leave alone
+    if (/^[\w\s]$/.test(data)) return;
+    bForwarded = data;
+    term.input(data);
+  };
+  ta.addEventListener("beforeinput", onBeforeInput);
+  cleanup.push(() => ta.removeEventListener("beforeinput", onBeforeInput));
+
+  // _inputEvent: if beforeinput already forwarded the same text, skip (no dup).
+  // Otherwise emit (catches rapid typing where beforeinput missed) + skip orig so
+  // xterm's _keyDownSeen gate can't drop it (xtermjs#5887).
+  const core = term._core;
+  if (core && typeof core._inputEvent === "function") {
+    const orig = core._inputEvent.bind(core);
+    core._inputEvent = function (ev) {
+      if (ev && ev.data && ev.inputType === "insertText") {
+        if (bForwarded === ev.data) { bForwarded = ""; return false; }
+        term.input(ev.data);
+        return false;
+      }
+      return orig(ev);
+    };
+    cleanup.push(() => { try { core._inputEvent = orig; } catch { /* already restored */ } });
+  }
+
+  return () => { while (cleanup.length) cleanup.pop()(); };
 }
 
 // OSC 7 cwd tracking: \e]7;file://host/path\a (or ST terminator) — scan tail for last match.

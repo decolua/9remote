@@ -9,6 +9,8 @@ import {
   SCROLL_THRESHOLD,
   createTerminal,
   createWriteBatcher,
+  attachWebGL,
+  attachMacWebKitIMEBridge,
   attachTouchScroll,
   bindOutput,
   joinSession,
@@ -24,7 +26,7 @@ import { HISTORY_FETCH } from "../lib/constants";
 
 // Single xterm pane bound local socket — direct protocol (output/input/resize/joinSession).
 // Core logic lives in @shared/terminal; this component only wires Preact lifecycle.
-export default function TerminalPane({ socket, sessionId, theme = "dark", terminalFont, terminalThemeKey = "default", isFocused, cwd, onActivate, onInput, onOpenFiles, onOpenGit, onCwd, showFocusBorder, showDoneBorder, showFolderButton = true, showGitButton = true, showNoteButton = true }) {
+export default function TerminalPane({ socket, sessionId, theme = "dark", terminalFont, terminalThemeKey = "default", isFocused, webglEnabled = true, cwd, onActivate, onInput, onOpenFiles, onOpenGit, onCwd, showFocusBorder, showDoneBorder, showFolderButton = true, showGitButton = true, showNoteButton = true }) {
   const { t } = useI18n();
   const containerRef = useRef(null);
   const termRef = useRef(null);
@@ -34,6 +36,9 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", termin
   const [noteOpen, setNoteOpen] = useState(false);
   // Expose effect-local doJoin for manual reload (re-fetch scrollback)
   const doJoinRef = useRef(null);
+  // WebGL renderer dispose fn + toggle api (effect-local, live swap)
+  const webglDisposeRef = useRef(null);
+  const webglApiRef = useRef(null);
 
   // Scrollback history mirror — raw bytes written to XTerm, replayed after fetching an older prefix on scroll-up.
   const historyMirrorRef = useRef([]);
@@ -64,6 +69,23 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", termin
     // rAF write batcher — coalesce output bursts into one write/frame (parity with web).
     const writeBatcher = createWriteBatcher(term);
     writeBatcherRef.current = writeBatcher;
+
+    // WebGL renderer toggle (web parity): initial load + live swap api for the watch effect.
+    const loadWebGL = () => {
+      if (webglDisposeRef.current) return;
+      webglDisposeRef.current = attachWebGL(term, fitAddon);
+    };
+    const disposeWebGL = () => {
+      webglDisposeRef.current?.();
+      webglDisposeRef.current = null;
+      fitAddon.fit();
+      term.refresh(0, term.rows - 1);
+    };
+    webglApiRef.current = { load: loadWebGL, dispose: disposeWebGL };
+    if (webglEnabled) loadWebGL();
+
+    // macOS WKWebView IME bridge (Vietnamese/Chinese) — no-op elsewhere.
+    const disposeIMEBridge = attachMacWebKitIMEBridge(term);
 
     // Resize observer → debounced fit + emit resize
     let resizeTimer = null;
@@ -228,6 +250,10 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", termin
       scrollDisp.dispose();
       writeDisp.dispose();
       writeBatcher.dispose();
+      webglDisposeRef.current?.();
+      webglDisposeRef.current = null;
+      webglApiRef.current = null;
+      disposeIMEBridge();
       dispose();
       termRef.current = null;
     };
@@ -264,6 +290,14 @@ export default function TerminalPane({ socket, sessionId, theme = "dark", termin
     }, 100);
     return () => clearTimeout(timer);
   }, [isFocused, sessionId, socket]);
+
+  // Live WebGL toggle: swap renderer + re-fit on change (no reload needed)
+  useEffect(() => {
+    const api = webglApiRef.current;
+    if (!api) return;
+    if (webglEnabled) api.load();
+    else api.dispose();
+  }, [webglEnabled]);
 
   const scrollToBottom = () => termRef.current?.scrollToBottom();
 

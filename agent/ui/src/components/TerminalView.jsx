@@ -457,6 +457,7 @@ export default function TerminalView({ socket, sessions, groups = [], openedIds,
                 theme={theme}
                 terminalFont={terminalFont}
                 terminalThemeKey={terminalThemeKey}
+                webglEnabled={webglEnabled}
                 showFolderButton={showFolderButton}
                 showGitButton={showGitButton}
                 showNoteButton={showNoteButton}
