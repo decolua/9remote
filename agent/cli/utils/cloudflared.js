@@ -696,7 +696,21 @@ function startNetworkMonitor() {
     const pid = readPid("cloudflared");
     const cloudflaredDead = !pid || !isAlive(pid);
 
-    if (!fingerprintChanged && !cloudflaredDead) return;
+    if (!fingerprintChanged && !cloudflaredDead) {
+      // Process alive, no network change — but the edge connection may have died
+      // silently (cloudflared stays running). Probe once; if unreachable, kill +
+      // restart so the exit handler's scheduleRestart picks it up.
+      if (activeTunnelUrl && tunnelReadyAt && Date.now() - tunnelReadyAt > NETWORK_CHANGE_COOLDOWN_MS) {
+        const probe = await probeTunnelOnce(activeTunnelUrl);
+        if (!probe.ok) {
+          logger.warn("tunnel unreachable but cloudflared alive — edge lost, restarting");
+          setLastStatus("unreachable");
+          killCloudflared();
+          scheduleRestart(currentRestartArg, "tunnel unreachable (edge lost)");
+        }
+      }
+      return;
+    }
 
     // Cooldown: skip network-change kill within 30s of tunnel ready (avoids killing during DHCP stabilization)
     if (fingerprintChanged && !cloudflaredDead && tunnelReadyAt && Date.now() - tunnelReadyAt < NETWORK_CHANGE_COOLDOWN_MS) {
