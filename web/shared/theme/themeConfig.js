@@ -2,7 +2,7 @@
 // CSS components should use semantic tokens from globals.css instead.
 
 export const THEME_KEYS = ["dark", "light"];
-export const DEFAULT_THEME = "light";
+export const DEFAULT_THEME = "dark";
 export const STORAGE_KEY = "app_theme";
 
 export const THEME_PALETTE = {
@@ -279,11 +279,11 @@ export const TERMINAL_THEME_OPTIONS = [
 ];
 
 // Resolve the concrete xterm palette for (app mode, sub-theme).
-// "default" or a theme whose mode doesn't match → neutral Vesper fallback.
+// "default" (no sub-theme picked) → mode default: Palenight for dark, Everforest Light for light.
 export function resolveTerminalTheme(mode, subTheme) {
-  const fallback = TERMINAL_THEMES[mode] || TERMINAL_THEMES.dark;
-  if (!subTheme || subTheme === "default") return fallback;
+  const modeDefault = mode === "light" ? TERMINAL_PALETTES.everforestLight : TERMINAL_PALETTES.palenight;
+  if (!subTheme || subTheme === "default") return modeDefault;
   const opt = TERMINAL_THEME_OPTIONS.find((o) => o.key === subTheme && o.mode === mode);
-  if (!opt) return fallback;
-  return TERMINAL_PALETTES[subTheme] || fallback;
+  if (!opt) return modeDefault;
+  return TERMINAL_PALETTES[subTheme] || modeDefault;
 }

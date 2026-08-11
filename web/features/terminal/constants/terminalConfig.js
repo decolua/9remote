@@ -69,7 +69,7 @@ export const MAX_CHANGED_BADGE = 20; // Cap changed-count badge; above shows "20
 export const TERMINAL_OPTIONS = {
   cursorBlink: true,
   fontSize: 14,
-  fontSizeMobile: 12,
+  fontSizeMobile: 13,
   fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", "Noto Sans Mono", Menlo, Monaco, "Courier New", monospace',
   scrollback: 15000,
   convertEol: true,
