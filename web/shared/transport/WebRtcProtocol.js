@@ -1,8 +1,9 @@
 import { BaseProtocol } from "./BaseProtocol";
 import { encode, decode } from "./codec";
 import { API_ENDPOINTS } from "@/shared/constants/API";
-import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
+import { termLog } from "@/shared/utils/termLog";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 // Shared decoder worker (one instance for all WebRtcProtocol instances)
@@ -100,6 +101,17 @@ export class WebRtcProtocol extends BaseProtocol {
     this._ctx = ctx;
     this._cleanupPeer();
     this._setState(ADAPTER_STATE.connecting);
+    // Offer may be dropped by the DO relay if the agent hasn't joined its room yet
+    // (forward-only, no store) → no answer → ICE never runs → stuck "connecting".
+    // Timeout converts that into a closed → PM re-offer; later retries hit a ready agent.
+    clearTimeout(this._connectTimer);
+    this._connectTimer = setTimeout(() => {
+      if (this._state === ADAPTER_STATE.open) return;
+      debugLog("transport", `[rtc] connect timeout (${RTC_CONNECT_TIMEOUT_MS}ms, state=${this._state}) → close + retry`);
+      termLog("switch", `rtc→closed reason=connect-timeout (state=${this._state})`);
+      this._cleanupPeer();
+      this._setState(ADAPTER_STATE.closed);
+    }, RTC_CONNECT_TIMEOUT_MS);
 
     // STUN cluster — benchmarked from VN: Google ~150ms, Twilio ~144ms, Cloudflare ~813ms
     let iceServers = [
@@ -156,6 +168,9 @@ export class WebRtcProtocol extends BaseProtocol {
         });
       } catch {}
       debugLog("transport", `[rtc] dc OPEN type=${this._typeDetail} ${pairInfo}`);
+      termLog("switch", `rtc dc OPEN (${this._typeDetail} ${pairInfo})`);
+      clearTimeout(this._connectTimer);
+      this._connectTimer = null;
       this._setState(ADAPTER_STATE.open);
     };
 
@@ -167,6 +182,7 @@ export class WebRtcProtocol extends BaseProtocol {
     const handleClose = () => {
       const cClosed = !this._dcControl || this._dcControl.readyState === "closed";
       const bClosed = !this._dcBinary || this._dcBinary.readyState === "closed";
+      termLog("switch", `rtc dc-close (ctrl=${this._dcControl?.readyState} bin=${this._dcBinary?.readyState})`);
       if (cClosed && bClosed) this._setState(ADAPTER_STATE.closed);
       else this._setState(ADAPTER_STATE.degraded);
     };
@@ -212,10 +228,12 @@ export class WebRtcProtocol extends BaseProtocol {
 
     pc.oniceconnectionstatechange = () => {
       debugLog("transport", `[rtc] iceState=${pc.iceConnectionState}`);
+      termLog("switch", `rtc ice=${pc.iceConnectionState}`);
       // disconnected: transient — peer may recover. Only failed = terminal.
       if (pc.iceConnectionState === "disconnected") {
         this._setState(ADAPTER_STATE.degraded);
       } else if (pc.iceConnectionState === "failed") {
+        termLog("switch", "rtc→closed reason=ice-failed");
         this._cleanupPeer();
         this._setState(ADAPTER_STATE.closed);
       } else if (pc.iceConnectionState === "connected" && this._dcControl?.readyState === "open" && this._dcBinary?.readyState === "open") {
@@ -231,6 +249,7 @@ export class WebRtcProtocol extends BaseProtocol {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       debugLog("transport", "[rtc] offer sent");
+      termLog("switch", "rtc offer sent");
       this._sendSignaling({ type: "offer", sdp: offer.sdp });
     } catch (err) {
       console.error("[rtc] createOffer error:", err.message);
@@ -240,6 +259,7 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   disconnect() {
+    termLog("switch", "rtc→closed reason=manual-disconnect");
     this._cleanupPeer();
     this._signaling?.off?.();
     this._signaling = null;
@@ -292,15 +312,18 @@ export class WebRtcProtocol extends BaseProtocol {
 
   async _handleSignal(msg) {
     debugLog("transport", `[rtc] signal: ${msg.type}`);
+    termLog("switch", `rtc signal recv=${msg.type}`);
     if (!this._pc) return;
     try {
       if (msg.type === "answer") {
         await this._pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
         debugLog("transport", "[rtc] answer set");
+        termLog("switch", "rtc answer applied");
       } else if (msg.type === "ice") {
         await this._pc.addIceCandidate(new RTCIceCandidate({ candidate: msg.candidate, sdpMid: msg.mid })).catch(() => {});
       } else if (msg.type === "error") {
         debugLog("transport", `[rtc] server error: ${msg.message}`);
+        termLog("switch", `rtc→closed reason=server-error:${msg.message}`);
         this._cleanupPeer();
         this._setState(ADAPTER_STATE.closed);
       }
@@ -312,6 +335,8 @@ export class WebRtcProtocol extends BaseProtocol {
   // ─── Internal ──────────────────────────────────────────────────────────────
 
   _cleanupPeer() {
+    clearTimeout(this._connectTimer);
+    this._connectTimer = null;
     for (const dc of [this._dcControl, this._dcBinary, this._dcFile]) {
       if (!dc) continue;
       dc.onopen = null; dc.onclose = null; dc.onerror = null; dc.onmessage = null;

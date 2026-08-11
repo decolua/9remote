@@ -75,7 +75,7 @@ export class ProtocolManager {
       try {
         inst = new Adapter();
         inst.on("stateChange", (state) => this._onAdapterStateChange(id, state));
-        inst.on("message", ({ event, data, source }) => this._dispatch(event, data, source));
+        inst.on("message", ({ event, data, args, source }) => this._dispatch(event, data, source, args));
         inst.on("binary", (msg) => this._onBinary(msg));
         await inst.connect(this._buildCtx(id));
       } catch (err) {
@@ -103,7 +103,7 @@ export class ProtocolManager {
     if (!Adapter) return;
     const inst = new Adapter();
     inst.on("stateChange", (state) => this._onAdapterStateChange("ws", state));
-    inst.on("message", ({ event, data, source }) => this._dispatch(event, data, source));
+    inst.on("message", ({ event, data, args, source }) => this._dispatch(event, data, source, args));
     inst.on("binary", (msg) => this._onBinary(msg));
     await inst.connect(this._buildCtx("ws"));
     this._adapters.set("ws", inst);
@@ -143,6 +143,26 @@ export class ProtocolManager {
   /** Always control channel — same as legacy "WS emit" */
   emit(event, ...args) {
     this._sendControl(event, args);
+  }
+
+  /** Recreate the RTC adapter after it was torn down by the test-toggle. Sets up
+   *  a fresh answerer PeerConnection + the signaling handler (_buildCtx wires
+   *  signaling.on → _rtcSignalingHandler), so the client's next offer is answered
+   *  by THIS PM instead of spawning a second RTC-only PM. */
+  restartRtc() {
+    if (this._adapters.has("rtc")) return;
+    const Adapter = getProtocol("rtc");
+    if (!Adapter) return;
+    try {
+      const inst = new Adapter();
+      inst.on("stateChange", (s) => this._onAdapterStateChange("rtc", s));
+      inst.on("message", ({ event, data, args, source }) => this._dispatch(event, data, source, args));
+      inst.on("binary", (msg) => this._onBinary(msg));
+      this._adapters.set("rtc", inst);
+      inst.connect(this._buildCtx("rtc"));
+    } catch (e) {
+      console.warn(`[ProtocolManager] restartRtc failed: ${e.message}`);
+    }
   }
 
   /**
@@ -411,7 +431,7 @@ export class ProtocolManager {
    * RTC envelope: {event, args, ackId?} — synthesize callback that emits __ack back.
    * WS source: socket.io already dispatched natively; only invoke internal PM listeners.
    */
-  _dispatch(event, payload, source) {
+  _dispatch(event, payload, source, wsArgs) {
     if (source === "rtc") {
       const args = Array.isArray(payload?.args) ? [...payload.args] : [];
       const ackId = payload?.ackId;
@@ -427,12 +447,14 @@ export class ProtocolManager {
       return;
     }
     // WS source — socket.io already fired raw listeners; only invoke PM bus.
-    // Virtual host: handlers live on the VirtualSocket, so forward there too.
+    // Virtual host: handlers live on the VirtualSocket, forward full args (incl
+    // ack callback from onAny) so gitChangedCount/getVapidKey etc. get their ack.
     const set = this._listeners.get(event);
     if (set) for (const h of set) h(payload);
     if (this._host?.isVirtual) {
       const fns = this._host.listeners?.(event) || [];
-      for (const fn of fns) fn(payload);
+      const args = wsArgs || [payload];
+      for (const fn of fns) fn(...args);
       this._host.dispatchAny?.(event, payload);
     }
   }

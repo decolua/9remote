@@ -15,9 +15,23 @@ export const CONTROL_RTC_MAX_BYTES = 65536;
 export const RTC_RESTART = {
   ackTimeoutMs: 5000,        // ack not received → suspect zombie → restart
   maxAttempts: 3,            // fast-retry count before switching to slow probe
-  backoffMs: [1000, 2000, 4000], // delay before each fast restart attempt
+  backoffMs: [500, 1500, 3000], // delay before each fast restart attempt (tight: answer normally <300ms)
   probeIntervalMs: 30000     // slow probe while on tunnel — tries P2P again periodically
 };
+
+// Resume grace: when WS reconnects while RTC is mid-handshake (typical after
+// background resume — tunnel WS beats RTC ICE gather), wait this long for RTC
+// to open before resetting the terminal. If RTC opens → transparent switch, no
+// flicker. If not → fall back to a WS-driven rejoin to recover content.
+export const REJOIN_DEBOUNCE_MS = 500;
+
+// Max time RTC stays "connecting" before we give up. Without this, an offer that
+// reached the DO before the agent joined its room is silently dropped — no answer
+// ever arrives, ICE never runs, and the adapter hangs in "connecting" forever
+// (only "ice failed" closes it, and ICE never starts without an answer). On
+// timeout, close → PM._scheduleRtcRestart fires → re-offer; by retry 2-3 the
+// agent has usually joined the signaling room and RTC opens.
+export const RTC_CONNECT_TIMEOUT_MS = 4000;
 
 // DO signaling relay — fallback carrier for RTC signaling when tunnel WS is
 // down/not ready. Same-origin endpoint (wss://<host>/signaling), apiKey-gated.

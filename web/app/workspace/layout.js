@@ -9,6 +9,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { useClipboardSocket } from "@/features/clipboard/hooks/useClipboardSocket";
+import DevTermLog from "@/features/terminal/components/DevTermLog";
 import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
 import { useNotification } from "@/shared/hooks/useNotification";
 import { statusVisual } from "@/shared/utils/statusVisual";
@@ -1056,6 +1057,7 @@ export default function WorkspaceLayout({ children }) {
       </div>
       {/* Child routes are URL markers only (render nothing) */}
       <div hidden>{children}</div>
+      <DevTermLog />
     </>
   );
 }

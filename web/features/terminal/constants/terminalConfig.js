@@ -112,6 +112,12 @@ export const SETTLE_DEBOUNCE_MS = 100;
 // PTY cols is one-way, so wait for the layout to truly settle before emitting.
 export const ORIENTATION_SETTLE_MS = 600;
 
+// Reconnect "warm" window: if live output arrived within this many ms before a
+// "connect" (carrier switch), the agent is still streaming over the new carrier
+// and there's no scrollback gap → skip the reset+rejoin (which flashes xterm).
+// Longer backgrounds fall through to a real reset+rejoin to recover the gap.
+export const RECONNECT_WARM_MS = 8000;
+
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {
   lineHeight: 18, // px per line step

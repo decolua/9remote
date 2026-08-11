@@ -10,7 +10,8 @@ import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS } from "@/features/terminal/constants/terminalConfig";
+import { termLog } from "@/shared/utils/termLog";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECONNECT_WARM_MS } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { trimEndToEsc } from "@/features/terminal/lib/ansiBoundary";
@@ -102,6 +103,8 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
   const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers in other effects
   const userAtTopRef = useRef(false); // set true only when user actively scrolls up to top (not mount transient)
+  const lastOutputAtRef = useRef(0);  // ts of last live output — warm gate for reconnect skip
+  const outputTotalRef = useRef(0);   // bytes received this session — dup detector (agent sends 1, we get 2)
 
   // Emit resize only if cols/rows are above the sane-size floor. A transient tiny size
   // (layout mid-transition, app-resume reconnect) makes the shell re-wrap scrollback
@@ -161,6 +164,10 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   useEffect(() => {
     if (!containerRef.current || !socket || !sessionId) return;
     if (termRef.current) return;
+
+    // Fresh session → no prior output; clear so a carrier switch right after join
+    // can't reuse a stale warm timestamp from the previous session.
+    lastOutputAtRef.current = 0;
 
     const term = new XTerm({
       ...TERMINAL_OPTIONS,
@@ -361,6 +368,14 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     // Output handler - filter by sessionId
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
+      lastOutputAtRef.current = Date.now();
+      const dlen = payload.data?.length || 0;
+      outputTotalRef.current += dlen;
+      // Live output spams the buffer (agent streams many chunks/sec) — only log
+      // anomalies (rejoin replay / scroll-up prefix), not every live chunk.
+      if (payload.replay || payload.isHistoryPrefix) {
+        termLog("recv", `len=${dlen} replay=${!!payload.replay} prefix=${!!payload.isHistoryPrefix} total=${outputTotalRef.current}`);
+      }
       let data = payload.data;
       // Daemon marks coalesced/optimized output with enc:"b64" (base64 string).
       // Decode once here → avoids double base64 in the old Buffer round-trip path.
@@ -451,8 +466,10 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         setJoining(true);
         joinQueueRef.current = [];
         const myGen = ++joinGenRef.current;
+        termLog("join", `emit gen=${myGen} cols=${cols} rows=${rows}`);
         socket.emit("joinSession", joinPayload, (result) => {
-          if (myGen !== joinGenRef.current) return; // stale ack from a superseded join
+          if (myGen !== joinGenRef.current) { termLog("join", `stale ack gen=${myGen} (current=${joinGenRef.current})`); return; }
+          termLog("join", `ack gen=${myGen} success=${!!result?.success} total=${result?.total} replaySize=${result?.replaySize}`);
           // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
           setTimeout(() => {
             joiningRef.current = false;
@@ -513,7 +530,18 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       });
       setHistoryFetching(false);
       setJoining(false); // rejoin below will set it true again on emit
-      if (!isVisibleRef.current) { needsRejoinRef.current = true; return; }
+      if (!isVisibleRef.current) { needsRejoinRef.current = true; termLog("reconnect", "deferred (pane hidden) → needsRejoin=true"); return; }
+      // Warm reconnect: live output arrived recently → agent still streaming over the
+      // new carrier, no scrollback gap. Skip reset+rejoin (which clears xterm = white
+      // flash) and let output continue. Only reset when stale (real disconnect gap).
+      // Don't skip mid-join: the in-flight join's replay packets write on the current
+      // buffer and would duplicate without the reset. Let it reset+rejoin clean.
+      const sinceOutput = Date.now() - lastOutputAtRef.current;
+      if (!joiningRef.current && sinceOutput < RECONNECT_WARM_MS) {
+        termLog("reconnect", `warm skip (${sinceOutput}ms < ${RECONNECT_WARM_MS})`);
+        return;
+      }
+      termLog("reconnect", `reset+rejoin (sinceOutput=${sinceOutput}ms joining=${joiningRef.current})`);
       termRef.current.reset();
       doJoinSession(true);
     };
@@ -621,6 +649,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       // size. Now visible: reset + rejoin so the daemon serializes at the correct cols.
       if (needsRejoinRef.current) {
         needsRejoinRef.current = false;
+        termLog("join", "deferred needsRejoin → fire (pane now visible)");
         termRef.current.reset();
         doJoinSessionRef.current?.(true);
         return;
@@ -934,6 +963,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const reload = useCallback(() => {
     const term = termRef.current;
     if (!term || !socket) return;
+    termLog("join", "manual reload (user refetch)");
     term.reset();
     doJoinSessionRef.current?.(true);
     if (webglEnabled) {

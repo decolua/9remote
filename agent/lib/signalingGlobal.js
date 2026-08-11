@@ -114,6 +114,14 @@ export function isSignalingReady() {
   return !!_client?.ready;
 }
 
+// Is an RTC offer buffered for this peer (arrived before a PM existed)? Used by the
+// WS connection handler to wait for the in-flight RTC session instead of building a
+// second PM (which would duplicate output to the same client).
+export function hasPendingOffer(peerId) {
+  if (!peerId) return false;
+  return _pendingOffers.has(peerId);
+}
+
 // Snapshot for the UI transport badges
 export function getSignalingState() {
   return { started: !!_client, ready: !!_client?.ready };

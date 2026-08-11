@@ -5,6 +5,7 @@ import { API_ENDPOINTS } from "@/shared/constants/API";
 import { FEATURES, BEHAVIOR } from "@/shared/constants/features";
 import { ADAPTER_STATE, CHANNELS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
+import { termLog } from "@/shared/utils/termLog";
 
 const RETRY = BEHAVIOR.retry;
 
@@ -183,6 +184,7 @@ export class WsProtocol extends BaseProtocol {
         this._cancelRetry();
         this._attachSocketEvents(socket);
         debugLog("transport", `[ws] connect mode=${mode}`);
+        termLog("switch", `ws open mode=${mode}`);
         this._setState(ADAPTER_STATE.open);
       },
       onFail: () => {
@@ -197,6 +199,7 @@ export class WsProtocol extends BaseProtocol {
   _attachSocketEvents(socket) {
     socket.on("disconnect", (reason) => {
       debugLog("transport", `[ws] disconnect reason=${reason}`);
+      termLog("switch", `ws disconnect reason=${reason}`);
       this._setState(ADAPTER_STATE.degraded);
       // Reconnect unless adapter was intentionally destroyed (PM.disconnect / unmount)
       if (!this._destroyed) this._forceReconnect();
