@@ -78,7 +78,7 @@ export class SignalingClient {
       this._preOpenFails = 0;
       this._openedOnce = true;
       this._startPing();
-      logger.info(`${this._role} connected room=${this._roomId}`);
+      logger.debug(`${this._role} connected room=${this._roomId}`);
       this._onReady?.();
     });
     ws.addEventListener("message", (e) => {
@@ -110,7 +110,7 @@ export class SignalingClient {
     if (this._closed) return;
     this._attempt++;
     const delay = Math.min(RECONNECT_BASE_MS * 2 ** (this._attempt - 1), RECONNECT_MAX_MS);
-    logger.info(`${this._role} reconnect in ${delay}ms (attempt ${this._attempt})`);
+    logger.debug(`${this._role} reconnect in ${delay}ms (attempt ${this._attempt})`);
     this._reconnectTimer = setTimeout(() => { if (!this._closed) this._open(); }, delay);
   }
 

@@ -16,9 +16,9 @@ let lastSyncedUrl = null;
 let lastSyncedAt = 0;
 
 export async function updateTunnelUrl(selectedKey, tunnelUrl) {
-  logger.info(`updateTunnelUrl: key=${selectedKey?.slice(0,8)} url=${tunnelUrl}`);
+  logger.debug(`updateTunnelUrl: key=${selectedKey?.slice(0,8)} url=${tunnelUrl}`);
   if (tunnelUrl && tunnelUrl === lastSyncedUrl && Date.now() - lastSyncedAt < URL_SYNC_DEBOUNCE_MS) {
-    logger.info(`updateTunnelUrl: skipped (debounce, same URL)`);
+    logger.debug(`updateTunnelUrl: skipped (debounce, same URL)`);
     return;
   }
   if (urlSyncCtx) urlSyncCtx.cancelled = true;
@@ -41,7 +41,7 @@ export async function updateTunnelUrl(selectedKey, tunnelUrl) {
       if (res.ok) {
         lastSyncedUrl = tunnelUrl;
         lastSyncedAt = Date.now();
-        logger.info(`urlSync OK: pushed ${tunnelUrl} to server`);
+        logger.debug(`urlSync OK: pushed ${tunnelUrl} to server`);
         runFastHealthProbe(tunnelUrl);
         return true;
       }

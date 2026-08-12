@@ -502,7 +502,6 @@ function ConnectionStatus({ transport, onTransportChange }) {
   const alive = rtc > 0 || ws > 0;
   const dot = alive ? "var(--success)" : sig === "connected" ? "var(--warn)" : "var(--danger)";
   const label = alive ? "Connected" : sig === "connected" ? "Ready" : "Offline";
-  const detail = alive ? `${rtc > 0 ? `RTC ${rtc}` : ""}${rtc > 0 && ws > 0 ? " · " : ""}${ws > 0 ? `WS ${ws}` : ""}`.trim() : "";
 
   const toggleRtc = async () => {
     const next = !rtcDisabled;
@@ -518,14 +517,15 @@ function ConnectionStatus({ transport, onTransportChange }) {
     <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${alive ? "health-dot" : ""}`} style={{ background: dot }} />
       <span className="text-[12.5px] font-medium" style={{ color: "var(--text-main)" }}>{label}</span>
-      {detail && <span className="text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>{detail}</span>}
-      {/* Debug toggle — hidden behind long-press / title; not for end users */}
-      <button
-        onClick={toggleRtc}
-        title={rtcDisabled ? "RTC OFF (debug) — click to enable" : "Disable RTC (debug)"}
-        className="ml-auto flex-shrink-0 w-2.5 h-2.5 rounded-full transition-all"
-        style={{ background: rtcDisabled ? "var(--danger)" : "transparent", border: rtcDisabled ? "none" : "1px solid var(--text-muted)", opacity: 0.4 }}
-      />
+      {/* Debug toggle — dev builds only (Vite drops this in production) */}
+      {import.meta.env.DEV && (
+        <button
+          onClick={toggleRtc}
+          title={rtcDisabled ? "RTC OFF (debug) — click to enable" : "Disable RTC (debug)"}
+          className="ml-auto flex-shrink-0 w-2.5 h-2.5 rounded-full transition-all"
+          style={{ background: rtcDisabled ? "var(--danger)" : "transparent", border: rtcDisabled ? "none" : "1px solid var(--text-muted)", opacity: 0.4 }}
+        />
+      )}
     </div>
   );
 }

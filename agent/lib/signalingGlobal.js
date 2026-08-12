@@ -50,7 +50,7 @@ export function initSignalingGlobal(apiKey) {
   _client.on((msg) => {
     const handler = _handlers.get(msg.from);
     if (handler) {
-      if (msg.type === "offer") logger.info(`offer from ${msg.from?.slice(0, 8)} → PM`);
+      if (msg.type === "offer") logger.debug(`offer from ${msg.from?.slice(0, 8)} → PM`);
       try { handler(msg); } catch (e) { logger.error(`signaling handler: ${e.message}`); }
       return;
     }
@@ -71,7 +71,7 @@ export function initSignalingGlobal(apiKey) {
     if (queue.length < MAX_PENDING_PER_DEVICE) queue.push(msg);
     _pendingOffers.set(msg.from, queue);
     if (msg.type !== "offer") return;
-    logger.info(`offer from ${msg.from?.slice(0, 8)} — no PM, spawning RTC session`);
+    logger.debug(`offer from ${msg.from?.slice(0, 8)} — no PM, spawning RTC session`);
     try { _offerFallback?.(msg.from); } catch (e) { logger.error(`offer fallback: ${e.message}`); }
   });
   _client.connect();
@@ -86,7 +86,7 @@ export function onSignalingMessage(deviceId, handler) {
   const pending = _pendingOffers.get(deviceId);
   if (pending?.length) {
     _pendingOffers.delete(deviceId);
-    logger.info(`flushing ${pending.length} pending signal(s) for ${deviceId.slice(0, 8)}`);
+    logger.debug(`flushing ${pending.length} pending signal(s) for ${deviceId.slice(0, 8)}`);
     for (const msg of pending) {
       try { handler(msg); } catch (e) { logger.error(`flush pending: ${e.message}`); }
     }
