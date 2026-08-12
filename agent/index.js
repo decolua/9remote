@@ -29,7 +29,7 @@ import {
   loadUiState, loadDesktopState, refreshPermissionsAsync, pushUiEvent, setRemoteAvailable,
   handleSseEvents, handleStateGet, handleStatePost,
   handleStop, handleStart, handleStopTunnel, handleShutdown,
-  handleConnections, handleDesktopToggle, handleRtcToggle, handleLogsGet,
+  handleConnections, handleDesktopToggle, handleRtcToggle, handleLogsGet, handleLogsClear,
   handlePermissionsGet, handlePermissionsRequest,
   handleAutoStartGet, handleAutoStartPost,
   handleLocalToken, handleUpdate, setUpdateInfo,
@@ -194,6 +194,7 @@ const ROUTES = [
   // System (localhost-only)
   { path: "/api/connections",      method: "GET",  handler: handleConnections },
   { path: "/api/logs",             method: "GET",  handler: handleLogsGet },
+  { path: "/api/logs/clear",       method: "POST", handler: handleLogsClear },
   { path: "/api/permissions",      method: "GET",  handler: handlePermissionsGet },
   { path: "/api/permissions/request", method: "POST", handler: handlePermissionsRequest },
   { path: "/api/desktop/toggle",   method: "POST", handler: handleDesktopToggle },

@@ -96,6 +96,10 @@ export function readRecentLogs(lines = 60) {
   } catch { return []; }
 }
 
+export function clearRecentLogs() {
+  try { fs.writeFileSync(LOG_FILE, ""); } catch {}
+}
+
 // Verbose transport/lifecycle logs (broadcast routing, daemon output, RTC timing)
 // auto-enable in dev (NODE_ENV=development, set by the agent:dev scripts) and stay
 // quiet in production builds. warn/error always log.

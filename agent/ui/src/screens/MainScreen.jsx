@@ -318,7 +318,7 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
   const isPending = client.status === "pending";
   const timeLabel =
     client.status === "online"
-      ? `${client.ip ? client.ip + " · " : ""}${client.connType ? client.connType.toUpperCase() + " · " : ""}connected ${client.connectedAt ? new Date(client.connectedAt).toLocaleTimeString(undefined, { hour12: false }) : ""}`
+      ? `${client.ip ? client.ip + " · " : ""}connected ${client.connectedAt ? new Date(client.connectedAt).toLocaleTimeString(undefined, { hour12: false }) : ""}`
       : isPending
         ? "Waiting for approval"
         : client.approvedAt
@@ -560,20 +560,18 @@ export default function MainScreen({
     setActiveMenu(id);
   };
 
-  // Open the web app with auto-login via a one-time key. Always generates a fresh
-  // key (one-time use) and clears the old one from the UI so it isn't reused.
+  // Open the web app at its login page. No auto-login: the user signs in manually.
   const openWebTerminal = async () => {
     const win = window.open("", "_blank");
     if (!win) return;
     try {
-      const res = await fetch("/api/key/one-time", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        win.location.href = data.qrUrl;
-        return;
-      }
-    } catch {}
-    win.close();
+      const res = await fetch("/api/ui/state", { cache: "no-store" });
+      if (!res.ok) throw new Error();
+      const { workerUrl } = await res.json();
+      win.location.href = `${workerUrl}/login`;
+    } catch {
+      win.close();
+    }
   };
 
   // Sync state with browser back/forward

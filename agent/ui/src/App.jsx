@@ -406,7 +406,10 @@ export default function App() {
       onGenerateOneTimeKey={handleGenerateOneTimeKey}
       onRegenerateKey={handleRegenerateKey}
       logs={logs}
-      onClearLogs={() => setLogs([])}
+      onClearLogs={() => {
+        fetch("/api/logs/clear", { method: "POST" }).catch(() => {});
+        setLogs([]);
+      }}
       version={version}
       theme={theme}
       onToggleTheme={toggleTheme}

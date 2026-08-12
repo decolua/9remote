@@ -3,7 +3,7 @@
  */
 
 import { STEP, PERMISSION_POLL_FAST_MS, PERMISSION_POLL_FAST_DURATION } from "../lib/constants.js";
-import { setSseEmitter, readRecentLogs, createLogger } from "../lib/logger.js";
+import { setSseEmitter, readRecentLogs, clearRecentLogs, createLogger } from "../lib/logger.js";
 import { LOG_TAIL_LINES } from "../lib/constants.js";
 import { writeCmd } from "../cli/utils/state.js";
 import { checkPermissions, openPermissionPane } from "../cli/utils/permissions.js";
@@ -18,6 +18,7 @@ import { readSettings, writeSettings } from "../lib/settings.js";
 import { getSignalingState } from "../lib/signalingGlobal.js";
 import { getTransportStats } from "../transport/broadcast.js";
 import { isRtcTestDisabled, setRtcTestDisabled } from "../transport/server.js";
+import { WORKER_URL } from "../cli/config.js";
 
 const UI_STATE_FILE = join(PATHS.STATE, "ui-state.json");
 const logger = createLogger("ui");
@@ -31,6 +32,7 @@ function ensureDir() {
 let uiState = {
   step: STEP.STOPPED,
   stepDesc: "",
+  workerUrl: WORKER_URL,
   tunnelUrl: "",
   oneTimeKey: "",
   oneTimeKeyExpiresAt: null,
@@ -280,6 +282,11 @@ export function handleLogsGet(req, res) {
   const url = new URL(req.url, "http://localhost");
   const n = parseInt(url.searchParams.get("lines") || LOG_TAIL_LINES, 10);
   jsonOk(res, { logs: readRecentLogs(Number.isFinite(n) ? n : LOG_TAIL_LINES) });
+}
+
+export function handleLogsClear(req, res) {
+  clearRecentLogs();
+  jsonOk(res, { ok: true });
 }
 
 export async function handleDesktopToggle(req, res) {
