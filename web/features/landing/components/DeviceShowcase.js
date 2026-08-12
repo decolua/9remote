@@ -58,8 +58,8 @@ export function MacbookClaudeCode() {
   return (
     <div className="relative w-full max-w-full sm:max-w-[620px]">
       <div
-        className="absolute -inset-8 opacity-60 blur-3xl pointer-events-none"
-        style={{ background: `radial-gradient(ellipse at center, ${THEME.accentGlow} 0%, transparent 70%)` }}
+        className="absolute -inset-8 opacity-50 blur-3xl pointer-events-none"
+        style={{ background: `radial-gradient(ellipse at center, rgba(255,255,255,0.10) 0%, transparent 70%)` }}
       />
       <div
         className="relative rounded-xl overflow-hidden border shadow-2xl"
@@ -116,8 +116,8 @@ export function IPhoneChat() {
   return (
     <div className="relative">
       <div
-        className="absolute -inset-6 opacity-50 blur-3xl pointer-events-none"
-        style={{ background: `radial-gradient(ellipse at center, ${THEME.accentGlow} 0%, transparent 70%)` }}
+        className="absolute -inset-6 opacity-40 blur-3xl pointer-events-none"
+        style={{ background: `radial-gradient(ellipse at center, rgba(255,255,255,0.08) 0%, transparent 70%)` }}
       />
       <div
         className="relative w-[260px] h-[540px] rounded-[3rem] p-3 shadow-2xl animate-float-phone"
@@ -196,8 +196,8 @@ function ChatBubble({ role, text, typing }) {
 export function ConnectionBeam() {
   return (
     <div className="hidden lg:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120px] h-[2px] pointer-events-none z-20">
-      <div className="absolute inset-0 overflow-hidden rounded-full" style={{ background: "color-mix(in srgb, var(--color-accent) 15%, transparent)" }}>
-        <div className="absolute inset-y-0 left-0 w-[30%] animate-beam-flow" style={{ background: `linear-gradient(90deg, transparent, ${THEME.accent}, transparent)` }} />
+      <div className="absolute inset-0 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+        <div className="absolute inset-y-0 left-0 w-[30%] animate-beam-flow" style={{ background: `linear-gradient(90deg, transparent, rgba(255,255,255,0.7), transparent)` }} />
       </div>
     </div>
   );

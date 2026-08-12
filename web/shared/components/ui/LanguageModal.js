@@ -53,7 +53,12 @@ export default function LanguageModal({ isOpen, onClose }) {
                     active ? "bg-brand-500 text-white" : "text-text hover:bg-surface-2"
                   }`}
                 >
-                  <span className="text-lg flex-shrink-0">{l.flag}</span>
+                  <img
+                    src={`https://flagcdn.com/w80/${l.country}.png`}
+                    alt={l.label}
+                    className="w-5 h-[14px] object-cover rounded-[2px] flex-shrink-0"
+                    loading="lazy"
+                  />
                   <span className="flex-1 text-sm font-medium truncate text-left">{l.label}</span>
                   {active && <Check size={14} className="flex-shrink-0" />}
                 </button>

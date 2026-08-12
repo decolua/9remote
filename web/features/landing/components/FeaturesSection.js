@@ -41,7 +41,7 @@ export default function FeaturesSection() {
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4" style={{ color: THEME.text }}>
-            Powerful <span style={{ color: THEME.accent }}>Features</span>
+            Powerful <span style={{ color: THEME.text }}>Features</span>
           </h2>
           <p className="text-lg max-w-2xl mx-auto" style={{ color: THEME.textDim }}>
             Everything you need for secure remote access
@@ -56,12 +56,12 @@ export default function FeaturesSection() {
               style={{
                 background: THEME.bgElevated,
                 borderColor: THEME.border,
-                animation: `fadeInUp 0.6s ease-out ${index * 0.08}s forwards`,
-                opacity: 0
+                animation: `fadeInUp 0.4s ease-out ${index * 0.04}s both`,
+                opacity: 1
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = THEME.borderAccent;
-                e.currentTarget.style.boxShadow = `0 20px 40px -20px ${THEME.accentGlow}`;
+                e.currentTarget.style.borderColor = THEME.borderStrong;
+                e.currentTarget.style.boxShadow = `0 20px 40px -20px rgba(255,255,255,0.08)`;
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.borderColor = THEME.border;
@@ -70,7 +70,7 @@ export default function FeaturesSection() {
             >
               <div
                 className="w-12 h-12 rounded-lg flex items-center justify-center mb-4 transition-all duration-300 group-hover:scale-110"
-                style={{ background: THEME.accentSoft, color: THEME.accent }}
+                style={{ background: THEME.bgPanel, color: THEME.text }}
               >
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d={feature.path} />

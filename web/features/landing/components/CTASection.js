@@ -10,7 +10,7 @@ export default function CTASection() {
         <div className="relative">
           <div
             className="absolute inset-0 blur-3xl pointer-events-none animate-pulse-glow"
-            style={{ background: THEME.accentSoft }}
+            style={{ background: "rgba(255,255,255,0.05)" }}
           />
 
           <div className="relative">
@@ -18,7 +18,7 @@ export default function CTASection() {
               className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-5"
               style={{ color: THEME.text }}
             >
-              Work anywhere with just your <span style={{ color: THEME.accent }}>phone</span>
+              Work anywhere with just your <span style={{ color: THEME.text }}>phone</span>
             </h2>
 
             <p className="text-lg sm:text-xl mb-8 max-w-2xl mx-auto" style={{ color: THEME.textDim }}>

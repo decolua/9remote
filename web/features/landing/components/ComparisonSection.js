@@ -47,7 +47,7 @@ export default function ComparisonSection() {
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-14">
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4" style={{ color: THEME.text }}>
-            Why Choose <span style={{ color: THEME.accent }}>9Remote?</span>
+            Why Choose <span style={{ color: THEME.text }}>9Remote?</span>
           </h2>
           <p className="text-lg max-w-2xl mx-auto" style={{ color: THEME.textDim }}>
             Compare features with other remote access solutions
@@ -109,12 +109,12 @@ export default function ComparisonSection() {
         <div className="mt-10 text-center">
           <div
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border"
-            style={{ background: THEME.accentSoft, borderColor: THEME.borderAccent }}
+            style={{ background: THEME.bgPanel, borderColor: THEME.border }}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" style={{ color: THEME.accent }}>
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" style={{ color: THEME.success }}>
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
-            <span className="font-semibold text-sm" style={{ color: THEME.accent }}>
+            <span className="font-semibold text-sm" style={{ color: THEME.text }}>
               9Remote: All-in-one · 16/16 features
             </span>
           </div>

@@ -12,7 +12,7 @@ export default function TerminalDemoSection() {
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4" style={{ color: THEME.text }}>
-            See It <span style={{ color: THEME.accent }}>In Action</span>
+            See It <span style={{ color: THEME.text }}>In Action</span>
           </h2>
           <p className="text-lg max-w-2xl mx-auto" style={{ color: THEME.textDim }}>
             Your Mac running Claude Code. Your phone sends prompts. Real time.
@@ -42,7 +42,7 @@ export default function TerminalDemoSection() {
               className="p-5 rounded-xl border"
               style={{ background: THEME.bg, borderColor: THEME.border }}
             >
-              <div className="text-xs font-mono mb-2" style={{ color: THEME.accent }}>{s.step}</div>
+              <div className="text-xs font-mono mb-2" style={{ color: THEME.textDim }}>{s.step}</div>
               <div className="font-semibold mb-1" style={{ color: THEME.text }}>{s.title}</div>
               <div className="text-sm" style={{ color: THEME.textDim }}>{s.desc}</div>
             </div>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Globe } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
@@ -20,8 +19,12 @@ export default function LanguageSwitcher({ className = "", showLabel = true }) {
         className={`flex items-center gap-1.5 bg-surface-2 hover:bg-surface-3 rounded-brand text-text text-sm px-2 py-1 transition-all duration-150 ease-out active:scale-[0.96] ${className}`}
         title={current.label}
       >
-        <Globe size={14} className="text-brand-500" />
-        <span>{current.flag}</span>
+        <img
+          src={`https://flagcdn.com/w40/${current.country}.png`}
+          alt={current.label}
+          className="w-[17px] h-[12px] object-cover rounded-[2px]"
+          loading="lazy"
+        />
         {showLabel && <span className="hidden sm:inline">{current.code.toUpperCase()}</span>}
       </button>
       <LanguageModal isOpen={open} onClose={() => setOpen(false)} />

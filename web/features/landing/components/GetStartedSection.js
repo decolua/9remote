@@ -20,13 +20,13 @@ export default function GetStartedSection() {
         >
           <div
             className="absolute -top-24 -right-24 w-80 h-80 rounded-full pointer-events-none animate-pulse-glow"
-            style={{ background: THEME.accentSoft, filter: "blur(100px)" }}
+            style={{ background: "rgba(255,255,255,0.04)", filter: "blur(100px)" }}
           />
 
           <div className="relative">
             <div className="text-center mb-8">
               <h2 className="text-3xl sm:text-4xl font-bold mb-3" style={{ color: THEME.text }}>
-                Get Started in <span style={{ color: THEME.accent }}>Seconds</span>
+                Get Started in <span style={{ color: THEME.text }}>Seconds</span>
               </h2>
               <p className="text-base" style={{ color: THEME.textDim }}>
                 Install 9Remote and start accessing your terminal remotely
@@ -48,14 +48,14 @@ export default function GetStartedSection() {
 
               <div className="p-6 font-mono text-sm">
                 <div className="flex items-center gap-2 mb-4">
-                  <span style={{ color: THEME.accent }}>$</span>
+                  <span style={{ color: THEME.textDim }}>$</span>
                   <span style={{ color: THEME.text }}>npm install -g 9remote</span>
                   <button
                     onClick={copyCommand}
                     className="ml-auto px-3 py-1 text-xs rounded transition-colors"
                     style={{
-                      background: copied ? THEME.accentSoft : THEME.bgPanel,
-                      color: copied ? THEME.accent : THEME.textDim,
+                      background: copied ? THEME.bgPanel : THEME.bgPanel,
+                      color: copied ? THEME.success : THEME.textDim,
                       border: `1px solid ${THEME.border}`
                     }}
                   >
@@ -64,23 +64,23 @@ export default function GetStartedSection() {
                 </div>
 
                 <div className="mb-4" style={{ color: THEME.textDim }}>
-                  <div className="mb-1"><span style={{ color: THEME.accent }}>→</span> Installing 9remote...</div>
+                  <div className="mb-1"><span style={{ color: THEME.textDim }}>→</span> Installing 9remote...</div>
                   <div className="mb-1"><span style={{ color: THEME.success }}>✓</span> Installation complete</div>
                 </div>
 
                 <div className="pt-4 mb-4 border-t" style={{ borderColor: THEME.border }}>
                   <div className="flex items-center gap-2 mb-2">
-                    <span style={{ color: THEME.accent }}>$</span>
+                    <span style={{ color: THEME.textDim }}>$</span>
                     <span style={{ color: THEME.text }}>9remote</span>
                   </div>
                 </div>
 
                 <div style={{ color: THEME.textDim }}>
-                  <div className="mb-1"><span style={{ color: THEME.accent }}>→</span> Starting server...</div>
-                  <div className="mb-1"><span style={{ color: THEME.accent }}>→</span> Creating tunnel...</div>
-                  <div className="mb-1"><span style={{ color: THEME.success }}>✓</span> Server running on <span style={{ color: THEME.accent }}>http://localhost:3000</span></div>
-                  <div className="mb-1"><span style={{ color: THEME.success }}>✓</span> Tunnel ready: <span style={{ color: THEME.accent }}>https://xxx.trycloudflare.com</span></div>
-                  <div className="mt-3 flex items-center gap-2" style={{ color: THEME.accent }}>
+                  <div className="mb-1"><span style={{ color: THEME.textDim }}>→</span> Starting server...</div>
+                  <div className="mb-1"><span style={{ color: THEME.textDim }}>→</span> Creating tunnel...</div>
+                  <div className="mb-1"><span style={{ color: THEME.success }}>✓</span> Server running on <span style={{ color: THEME.text }}>http://localhost:3000</span></div>
+                  <div className="mb-1"><span style={{ color: THEME.success }}>✓</span> Tunnel ready: <span style={{ color: THEME.text }}>https://xxx.trycloudflare.com</span></div>
+                  <div className="mt-3 flex items-center gap-2" style={{ color: THEME.textDim }}>
                     <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: THEME.accent }} />
                     Scan QR code to connect
                   </div>
@@ -99,7 +99,7 @@ export default function GetStartedSection() {
                   className="p-4 rounded-lg border"
                   style={{ background: THEME.bgPanel, borderColor: THEME.border }}
                 >
-                  <div className="text-2xl font-bold mb-1" style={{ color: THEME.accent }}>{s.val}</div>
+                  <div className="text-2xl font-bold mb-1" style={{ color: THEME.text }}>{s.val}</div>
                   <div className="text-xs" style={{ color: THEME.textDim }}>{s.label}</div>
                 </div>
               ))}

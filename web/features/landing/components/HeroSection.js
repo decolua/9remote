@@ -13,10 +13,10 @@ export default function HeroSection() {
           <div className="text-center lg:text-left">
             <div
               className="inline-flex items-center gap-2 px-3 py-1.5 mb-6 rounded-full border animate-fade-in"
-              style={{ borderColor: THEME.borderAccent, background: THEME.accentSoft }}
+              style={{ borderColor: THEME.border, background: THEME.bgPanel }}
             >
               <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: THEME.accent }} />
-              <span className="text-xs font-medium" style={{ color: THEME.accent }}>
+              <span className="text-xs font-medium font-mono" style={{ color: THEME.textDim }}>
                 v{process.env.NEXT_PUBLIC_SERVER_VERSION} · Now Available
               </span>
             </div>
@@ -31,7 +31,7 @@ export default function HeroSection() {
               <span
                 className="block text-2xl sm:text-3xl lg:text-4xl xl:text-5xl"
                 style={{
-                  background: `linear-gradient(90deg, ${THEME.accent}, #FF9566)`,
+                  background: `linear-gradient(to bottom, ${THEME.text}, ${THEME.textDim})`,
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor: "transparent"
                 }}
@@ -90,11 +90,11 @@ export default function HeroSection() {
                 </div>
                 <div className="space-y-1.5 font-mono text-sm">
                   <div className="flex items-center gap-2">
-                    <span style={{ color: THEME.accent }}>$</span>
+                    <span style={{ color: THEME.textDim }}>$</span>
                     <code style={{ color: THEME.text }}>npm install -g 9remote</code>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span style={{ color: THEME.accent }}>$</span>
+                    <span style={{ color: THEME.textDim }}>$</span>
                     <code style={{ color: THEME.text }}>9remote</code>
                   </div>
                   <div className="text-xs mt-2 flex items-center gap-2" style={{ color: THEME.textDim }}>
@@ -115,7 +115,7 @@ export default function HeroSection() {
                 { val: "24/7", label: "Available" }
               ].map((s) => (
                 <div key={s.label} className="text-center lg:text-left">
-                  <div className="text-xl sm:text-2xl font-bold mb-1" style={{ color: THEME.accent }}>{s.val}</div>
+                  <div className="text-xl sm:text-2xl font-bold mb-1" style={{ color: THEME.text }}>{s.val}</div>
                   <div className="text-xs" style={{ color: THEME.textDim }}>{s.label}</div>
                 </div>
               ))}
