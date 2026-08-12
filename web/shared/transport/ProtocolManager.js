@@ -1,7 +1,7 @@
 import { WsProtocol } from "./WsProtocol";
 import { WebRtcProtocol } from "./WebRtcProtocol";
 import { registerProtocol, getProtocol } from "./registry";
-import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_RESTART, REJOIN_DEBOUNCE_MS, SIGNALING_CONFIG, NET_RECOVERY, SIGNALING_ERRORS } from "@/shared/constants/transport";
+import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_RESTART, REJOIN_DEBOUNCE_MS, RTC_CONNECT_TIMEOUT_MS, SIGNALING_CONFIG, NET_RECOVERY, SIGNALING_ERRORS } from "@/shared/constants/transport";
 import { WORKER_API } from "@/shared/constants/API";
 import { isWsZombie } from "./wsZombie";
 import { debugLog } from "@/shared/utils/debugLog";
@@ -10,6 +10,25 @@ import { termLog } from "@/shared/utils/termLog";
 // Auto-register built-in adapters
 registerProtocol(WsProtocol);
 registerProtocol(WebRtcProtocol);
+
+// TEMP DIAGNOSTIC — remove once the RTC restart loop is fixed.
+// Names the call site that triggered a restart/disconnect so the loop's driver
+// is identifiable from the log instead of guessed.
+function callerTrace(depth = 3) {
+  const lines = (new Error().stack || "").split("\n").slice(2, 2 + depth);
+  return lines
+    .map((l) => (l.match(/at\s+([\w.<>_$]+)/) || [])[1] || "?")
+    .filter((n) => n && n !== "?")
+    .join("<");
+}
+
+// Carrier NAT pools give neighbour IPs for the same network. Compare on the
+// /24 so a flip-flop between two STUN egresses isn't treated as a handover.
+function sameNetwork(a, b) {
+  const pa = (a || "").split(".");
+  const pb = (b || "").split(".");
+  return pa.length === 4 && pb.length === 4 && pa[0] === pb[0] && pa[1] === pb[1] && pa[2] === pb[2];
+}
 
 /**
  * ProtocolManager — orchestrator. Holds auth, instantiates adapters from profile,
@@ -109,6 +128,11 @@ export class ProtocolManager {
         lastInboundAt: ws.lastInboundAt ?? 0,
         now: Date.now()
       });
+      // TEMP DIAGNOSTIC — is the zombie verdict correct? age tells how stale WS really is.
+      if (ws) {
+        const last = ws.lastInboundAt ?? 0;
+        termLog("switch", `zombie check: verdict=${!!wsZombie} ready=${!!ws.ready} lastInbound=${last ? `${Date.now() - last}ms ago` : "never"}`);
+      }
       if (wsZombie) {
         debugLog("transport", "[pm] ws zombie on resume → force reconnect");
         try { ws.forceReconnect?.(); } catch {}
@@ -146,6 +170,7 @@ export class ProtocolManager {
         this._sig?.retryNow();
         // Fresh network deserves a fresh budget, else a session that burned its
         // 3 restarts on a bad network is locked to the tunnel forever.
+        termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=net-change`); // TEMP DIAGNOSTIC
         this._rtcRestartAttempts = 0;
         // No carrier yet — the relay just reconnected; its onReady fires the
         // restart. Renegotiating now would only buffer an offer nobody reads.
@@ -370,24 +395,33 @@ export class ProtocolManager {
   }
 
   /** STUN reported a different public IP → we are on another network. Restores
-   * the restart budget so a session that exhausted it elsewhere can retry here. */
+   * the restart budget so a session that exhausted it elsewhere can retry here.
+   *
+   * Carrier NAT pools hand out a different egress IP per STUN server, so the
+   * fingerprint flip-flops between neighbours on the SAME network. Treating that
+   * as a handover reset the backoff on every restart and pinned RTC to the
+   * shortest delay forever — so only a change outside the /24 counts. */
   _onNetFingerprint(ip) {
     if (!ip || ip === this._netFingerprint) return;
     const prev = this._netFingerprint;
     this._netFingerprint = ip;
     if (!prev) return; // first gather of the session — nothing changed yet
+    if (sameNetwork(prev, ip)) {
+      debugLog("transport", `[pm] net fingerprint ${prev}→${ip} within same subnet → keep backoff`);
+      return;
+    }
     debugLog("transport", "[pm] network identity changed → reset rtc restart budget");
     this._rtcRestartAttempts = 0;
   }
 
   _startSecondaryAdapters() {
     debugLog("transport", `[pm] startSecondary enabled=${this._profile.enabled}`);
-    termLog("switch", `startSecondary enabled=${this._profile.enabled.join(",")} rtcTestDisabled=${!!this._rtcTestDisabled}`);
+    debugLog("transport", `[pm] startSecondary rtcTestDisabled=${!!this._rtcTestDisabled}`);
     for (const id of this._profile.enabled) {
       if (id === "ws") continue;
       if (id === "rtc" && this._rtcTestDisabled) continue; // agent test-toggle
       if (this._adapters.has(id)) continue;
-      termLog("switch", `start adapter ${id}`);
+      debugLog("transport", `[pm] start adapter ${id}`);
       this._instantiate(id);
       this._adapters.get(id)?.connect(this._buildCtx(id));
     }
@@ -437,6 +471,8 @@ export class ProtocolManager {
 
   /** Tear down RTC + renegotiate via new WS socket (called on WS reconnect). */
   _restartRtc() {
+    // TEMP DIAGNOSTIC
+    termLog("switch", `restartRtc CALLED by=${callerTrace()} attempts=${this._rtcRestartAttempts}`);
     if (this._rtcTestDisabled) {
       termLog("switch", "restartRtc skipped (rtcTestDisabled)");
       return;
@@ -519,7 +555,11 @@ export class ProtocolManager {
 
   _onAdapterStateChange(adapterId, state) {
     debugLog("transport", `[pm] ${adapterId} state=${state}`);
-    termLog("switch", `${adapterId}→${state}`);
+    // The adapter already logs its own transition with a reason — repeating it
+    // here doubles every line, so only log states adapters don't announce.
+    if (!(adapterId === "rtc" && state === ADAPTER_STATE.closed)) {
+      termLog("switch", `${adapterId}→${state}`);
+    }
 
     if (adapterId === "ws") {
       const ws = this._adapters.get("ws");
@@ -584,6 +624,7 @@ export class ProtocolManager {
         this._wsCallbacks.onConnect?.(this._proxySocket, this._connectionMode);
       }
       // Successful RTC open → reset zombie recovery attempts
+      termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=rtc-open`); // TEMP DIAGNOSTIC
       this._rtcRestartAttempts = 0;
       clearTimeout(this._rtcRestartTimer);
       this._rtcRestartTimer = null;
@@ -854,17 +895,25 @@ export class ProtocolManager {
       ? RTC_RESTART.probeIntervalMs
       : (RTC_RESTART.backoffMs[attempt] ?? RTC_RESTART.backoffMs.at(-1));
     this._rtcRestartAttempts++;
+    // TEMP DIAGNOSTIC
+    termLog("switch", `scheduleRtcRestart by=${callerTrace()} attempt=${this._rtcRestartAttempts} delay=${delay}ms probe=${isProbe}`);
     debugLog("transport", `[pm] schedule rtc ${isProbe ? "probe" : "restart"} #${this._rtcRestartAttempts} in ${delay}ms`);
     clearTimeout(this._rtcRestartTimer);
     this._rtcRestartTimer = setTimeout(() => {
       this._rtcRestartTimer = null;
       if (this._awaitingApproval) return;
       if (!this._sig?.ready) return; // DO down — _onSignalingReady will restart
-      // Kill a stale connecting adapter — its offer was already refused or its
-      // ICE is stuck. Waiting for ICE timeout wastes a probe cycle; _restartRtc's
-      // guard would otherwise block the restart and strand the probe loop.
+      // Only tear down a peer past its natural connect timeout. A younger peer
+      // is still doing ICE — killing it on the first 500ms tick restarted the
+      // loop forever. Let the adapter's own _connectTimer close it (→ the closed
+      // branch restarts) and just reschedule.
       const rtc = this._adapters.get("rtc");
       if (rtc && rtc.state === ADAPTER_STATE.connecting) {
+        const age = Date.now() - (rtc.connectingSince ?? 0);
+        if (age < RTC_CONNECT_TIMEOUT_MS) {
+          this._scheduleRtcRestart(); // peer still young → try again later
+          return;
+        }
         try { rtc.disconnect(); } catch {}
         this._adapters.delete("rtc");
         this._rtcSignalingHandler = null;

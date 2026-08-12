@@ -101,6 +101,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._ctx = ctx;
     this._cleanupPeer();
     this._setState(ADAPTER_STATE.connecting);
+    this.connectingSince = Date.now(); // age guard for the restart loop's stale-kill
     // Offer may be dropped by the DO relay if the agent hasn't joined its room yet
     // (forward-only, no store) → no answer → ICE never runs → stuck "connecting".
     // Timeout converts that into a closed → PM re-offer; later retries hit a ready agent.
@@ -259,7 +260,11 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   disconnect() {
-    termLog("switch", "rtc→closed reason=manual-disconnect");
+    // TEMP DIAGNOSTIC — who tears down the peer (state tells if it was mid-handshake)
+    const by = (new Error().stack || "").split("\n").slice(2, 5)
+      .map((l) => (l.match(/at\s+([\w.<>_$]+)/) || [])[1] || "?")
+      .filter((n) => n && n !== "?").join("<");
+    termLog("switch", `rtc→closed reason=manual-disconnect state=${this._state} by=${by}`);
     this._cleanupPeer();
     this._signaling?.off?.();
     this._signaling = null;

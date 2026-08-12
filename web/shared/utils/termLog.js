@@ -49,12 +49,25 @@ function fmt(a) {
 // so the buffer isn't drowned by output and connect/reconnect/switch stay visible.
 const COALESCE_MS = 300;
 const COALESCE_CATS = new Set(["recv"]);
+// Identical repeats of any category collapse within this window — a retry loop
+// emitting the same line every 500ms stays readable (and copyable) as "…×N".
+const REPEAT_WINDOW_MS = 3000;
 let lastEntry = null;
 
 export function termLog(category, ...args) {
   if (!enabled) return;
   const now = Date.now();
   const msg = args.map(fmt).join(" ");
+  // Same category AND same text → roll up regardless of category.
+  if (lastEntry && lastEntry.category === category && lastEntry.baseMsg === msg && now - lastEntry.ts < REPEAT_WINDOW_MS) {
+    lastEntry.count = (lastEntry.count || 1) + 1;
+    lastEntry.ts = now;
+    lastEntry.msg = `${msg} ×${lastEntry.count}`;
+    for (const fn of listeners) {
+      try { fn(lastEntry); } catch (e) { void e; }
+    }
+    return;
+  }
   if (COALESCE_CATS.has(category) && lastEntry && lastEntry.category === category && now - lastEntry.ts < COALESCE_MS) {
     lastEntry.count = (lastEntry.count || 1) + 1;
     lastEntry.ts = now;
@@ -64,7 +77,7 @@ export function termLog(category, ...args) {
     }
     return;
   }
-  const entry = { ts: now, category, msg, count: 1 };
+  const entry = { ts: now, category, msg, baseMsg: msg, count: 1 };
   lastEntry = entry;
   buffer.push(entry);
   if (buffer.length > MAX) buffer.shift();
