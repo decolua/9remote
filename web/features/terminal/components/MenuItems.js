@@ -255,7 +255,7 @@ export default function MenuItems({
                 onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
                 className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
               >
-                <Monitor className="text-brand-500" size={16} />
+                <Monitor className="text-text" size={16} />
                 <div className="flex flex-col flex-1">
                   <span className="text-sm">{t("menu.webgl")}</span>
                   <span className="text-xs text-text-muted">{t("menu.webglHint")}</span>
@@ -266,7 +266,7 @@ export default function MenuItems({
               </button>
 
               <div className="flex items-center gap-2.5 pt-1.5">
-                <Type className="text-brand-500" size={16} />
+                <Type className="text-text" size={16} />
                 <span className="text-sm">{t("menu.fontSize")}</span>
                 <select
                   value={fontSize ?? (isMobile ? 12 : 14)}
@@ -279,7 +279,7 @@ export default function MenuItems({
                 </select>
               </div>
               <div className="flex items-center gap-2.5">
-                <Palette className="text-brand-500" size={16} />
+                <Palette className="text-text" size={16} />
                 <span className="text-sm">{t("menu.terminalTheme")}</span>
                 <select
                   value={terminalTheme}
@@ -297,7 +297,7 @@ export default function MenuItems({
 
               {/* Quick-action button visibility (folder / git / note) */}
               <div className="flex items-center gap-2.5 pt-1.5">
-                <FolderOpen className="text-brand-500" size={16} />
+                <FolderOpen className="text-text" size={16} />
                 <span className="text-sm">{t("menu.showFolder")}</span>
                 <button
                   onClick={() => { vibrate(); setShowFolderButton(!showFolderButton); }}
@@ -307,7 +307,7 @@ export default function MenuItems({
                 </button>
               </div>
               <div className="flex items-center gap-2.5">
-                <GitBranch className="text-brand-500" size={16} />
+                <GitBranch className="text-text" size={16} />
                 <span className="text-sm">{t("menu.showGit")}</span>
                 <button
                   onClick={() => { vibrate(); setShowGitButton(!showGitButton); }}
@@ -317,7 +317,7 @@ export default function MenuItems({
                 </button>
               </div>
               <div className="flex items-center gap-2.5">
-                <StickyNote className="text-brand-500" size={16} />
+                <StickyNote className="text-text" size={16} />
                 <span className="text-sm">{t("menu.showNote")}</span>
                 <button
                   onClick={() => { vibrate(); setShowNoteButton(!showNoteButton); }}

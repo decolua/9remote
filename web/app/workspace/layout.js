@@ -503,10 +503,26 @@ export default function WorkspaceLayout({ children }) {
   }, [createSession, addOpenedSession, t]);
 
   const handleDeleteSession = useCallback((sessionId) => {
+    const deleted = sessions.find((s) => s.id === sessionId);
+    const groupId = deleted?.groupId || null;
+    const isDeletingActive = currentView?.type === "terminal" && currentView.sessionId === sessionId;
     deleteSession(sessionId, () => {
       removeOpenedSession(sessionId);
+      if (!isDeletingActive) return;
+      // Focus next session (same group first, then any) or fall back to list
+      const remaining = sessions.filter((s) => s.id !== sessionId);
+      const sameGroup = remaining.filter((s) => (s.groupId || null) === groupId);
+      const next = sameGroup[0] || remaining[0];
+      if (next) {
+        const newStack = [...viewStack];
+        newStack[newStack.length - 1] = { type: "terminal", sessionId: next.id };
+        setViewStack(newStack);
+        touchLivePane(next.id);
+      } else {
+        storePopView();
+      }
     });
-  }, [deleteSession, removeOpenedSession]);
+  }, [sessions, currentView, viewStack, deleteSession, removeOpenedSession, setViewStack, touchLivePane, storePopView]);
 
   const handleRenameSession = useCallback((sessionId, newName) => {
     renameSession(sessionId, newName, (result) => {
@@ -794,6 +810,8 @@ export default function WorkspaceLayout({ children }) {
                 subscribeToPush={subscribeToPush}
                 unsubscribeFromPush={unsubscribeFromPush}
                 agentVersion={agentVersion}
+                updateAvailable={updateAvailable}
+                canSelfUpdate={canSelfUpdate}
                 socketRef={socketRef}
                 transport={transport}
                 shells={shells}
@@ -804,7 +822,7 @@ export default function WorkspaceLayout({ children }) {
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div
                 ref={panesContainerRef}
-                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1 overflow-x-auto overflow-y-hidden px-0 pb-0 scrollbar-thin" : "relative"}`}
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1 overflow-x-auto overflow-y-hidden px-1 pb-0 scrollbar-thin" : "relative"}`}
                 {...bindSwipeTab({
                   enabled: !isDesktop,
                   sessionIds: groupOpenedSessions,
@@ -833,13 +851,13 @@ export default function WorkspaceLayout({ children }) {
                       {mountedSet.has(sessionId) ? (
                         isDesktop ? (
                           <>
-                            <div className={`absolute inset-x-0 top-0 bottom-16 overflow-hidden ${(() => {
-                              if (isFocused) return "p-px border border-brand-500";
+                            <div className={`absolute inset-x-0 top-0 bottom-16 overflow-hidden p-px ${(() => {
+                              if (isFocused) return "outline outline-1 -outline-offset-1 outline-brand-500";
                               const st = sessionStatus[sessionId]?.state || "idle";
-                              if (st === "working") return "p-px border border-dashed status-border-working";
-                              if (st === "blocked") return "p-px border border-dashed status-border-blocked";
-                              if (st === "done") return "p-px border border-dashed status-border-done";
-                              return "p-px m-px";
+                              if (st === "working") return "status-border-working";
+                              if (st === "blocked") return "status-border-blocked";
+                              if (st === "done") return "status-border-done";
+                              return "";
                             })()}`}>
                               <TerminalPane
                                 socket={socket}

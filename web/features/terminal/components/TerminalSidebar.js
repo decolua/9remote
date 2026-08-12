@@ -309,7 +309,7 @@ export default function TerminalSidebar({
               <div key={grp.id ?? "ungrouped"} className="flex flex-col">
                 <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted flex items-center gap-1.5 group/grp">
                   <span className={`w-1 h-1 rounded-full ${isActiveGroup ? "bg-brand-500" : "bg-text-muted/60"}`} />
-                  <span className="truncate flex-1 min-w-0">{grp.name}</span>
+                  <span className={`truncate flex-1 min-w-0 ${isActiveGroup ? "text-text font-bold" : "text-text-muted"}`}>{grp.name}</span>
                   <span className="text-text-subtle normal-case font-normal tracking-normal">{grp.items.length}</span>
                   {onCreateNamedSession && (
                     <button
@@ -516,35 +516,6 @@ export default function TerminalSidebar({
           >
             <Pencil size={14} /> {t("sessions.editName")}
           </button>
-          <div className="relative">
-            <button
-              onClick={() => setMoveOpen((o) => !o)}
-              className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
-            >
-              <ChevronRight size={14} /> {t("groups.moveToGroup")}
-              <ChevronRight size={12} className="ml-auto" />
-            </button>
-            {moveOpen && (
-              <div className="absolute left-full top-0 ml-0.5 bg-surface-2 border border-border-subtle rounded-[3px] shadow-lg py-1 min-w-[140px]">
-                {groups.map((g) => (
-                  <button
-                    key={g.id}
-                    onClick={() => { onMoveSession?.(ctxMenu.sessionId, g.id); setCtxMenu(null); }}
-                    className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 truncate"
-                  >
-                    {g.name}
-                  </button>
-                ))}
-                {groups.length > 0 && <div className="h-px bg-border-subtle my-1" />}
-                <button
-                  onClick={() => { onMoveSession?.(ctxMenu.sessionId, null); setCtxMenu(null); }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3"
-                >
-                  {t("groups.ungrouped")}
-                </button>
-              </div>
-            )}
-          </div>
           <div className="h-px bg-border-subtle my-1" />
           <button
             onClick={() => { setDelConfirm({ sessionId: ctxMenu.sessionId, name: ctxMenu.name }); setCtxMenu(null); }}

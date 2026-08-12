@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, Settings, Monitor, Plus, Pencil, Trash2, X } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, Settings, Monitor, Plus, Pencil, Trash2, X, Download } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
+import { isAgentOutdated } from "./AgentOutdatedBanner";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 
@@ -44,6 +45,8 @@ export default function TerminalHeader({
   onCreateNamedSession,
   onToggleSidebar = null,
   sidebarCollapsed = false,
+  updateAvailable = null,
+  canSelfUpdate = false,
 }) {
   const { t } = useI18n();
   const tabsContainerRef = useRef(null);
@@ -150,10 +153,13 @@ export default function TerminalHeader({
   };
 
   useEffect(() => {
-    if (activeTabRef.current && tabsContainerRef.current) {
-      activeTabRef.current.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-    }
-  }, [activeSessionId]);
+    if (!activeTabRef.current || !tabsContainerRef.current) return;
+    // Defer 1 frame so a freshly-mounted tab (new session) is measured before scrolling
+    const id = requestAnimationFrame(() => {
+      activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [activeSessionId, sessions]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -185,7 +191,7 @@ export default function TerminalHeader({
   }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, transport, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
-    <div className="px-2 sm:px-0 pt-0 flex items-center gap-0 flex-shrink-0 bg-bg">
+    <div className="px-2 sm:pl-0 sm:pr-2 pt-0 flex items-center gap-0 flex-shrink-0 bg-bg">
       {onToggleSidebar && sidebarCollapsed && (
         <button
           onClick={() => { vibrate(); onToggleSidebar(); }}
@@ -198,7 +204,7 @@ export default function TerminalHeader({
 
       <button
         onClick={() => { vibrate(); onBack(); }}
-        className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+        className="p-1.5 pl-1 pr-3 sm:pl-1.5 sm:pr-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
         title={t("common.back")}
       >
         <ChevronLeft size={18} />
@@ -266,6 +272,16 @@ export default function TerminalHeader({
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
+      {connected && onUpdate && canSelfUpdate && (isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || !!updateAvailable) && (
+        <button
+          onClick={() => { vibrate(); onUpdate(); }}
+          className="hidden sm:flex px-2 sm:px-2.5 py-1 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-brand items-center gap-1.5 flex-shrink-0 transition-all duration-150 ease-out active:scale-[0.94]"
+          title={t("menu.updateAvailableTitle")}
+        >
+          <Download size={13} />
+          <span>Update 9Remote</span>
+        </button>
+      )}
       {onOpenRemote && (
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
