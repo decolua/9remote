@@ -3,7 +3,7 @@
 
 export const THEME_KEYS = ["dark", "light"];
 export const DEFAULT_THEME = "dark";
-export const STORAGE_KEY = "app_theme";
+export const STORAGE_KEY = "app_theme_v2";
 
 export const THEME_PALETTE = {
   dark: {

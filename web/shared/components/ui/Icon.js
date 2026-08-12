@@ -113,6 +113,7 @@ export const {
   Files,
   PanelLeftOpen,
   PanelLeftClose,
+  PanelLeft,
   Replace,
   Command,
   Type,

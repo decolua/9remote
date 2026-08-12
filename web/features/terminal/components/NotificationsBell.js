@@ -108,7 +108,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
     >
       <button
         onClick={() => setOpen((v) => !v)}
-        className="relative p-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
+        className="relative p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
         title={t("notifications.title")}
       >
         <Bell size={18} />

@@ -416,11 +416,11 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                             data-session-card
                             data-card-idx={cardIdx}
                             onClick={() => { if (suppressClickRef.current) { suppressClickRef.current = false; return; } if (!drag && connected) { vibrate(); onSelect(session.id); } }}
-                            className={`group relative select-none rounded-xl transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isDragOver ? "scale-[1.02] ring-2 ring-brand-500" : ""} ${connected && !drag ? "hover:-translate-y-1" : ""} ${!connected ? "opacity-60" : ""}`}
+                            className={`group relative select-none rounded-[3px] transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isDragOver ? "scale-[1.02] ring-2 ring-brand-500" : ""} ${connected && !drag ? "hover:-translate-y-1" : ""} ${!connected ? "opacity-60" : ""}`}
                           >
                             {/* Terminal window */}
                             <div
-                              className={`rounded-xl overflow-hidden border border-text-muted/25 ring-1 ring-text-muted/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_8px_28px_-6px_rgba(0,0,0,0.7)] term-card ${v.cls} status-border-${st}${isDragOver ? " ring-2 ring-brand-500/50" : ""}`}
+                              className={`rounded-[3px] overflow-hidden border border-text-muted/25 ring-1 ring-text-muted/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_8px_28px_-6px_rgba(0,0,0,0.7)] term-card ${v.cls} status-border-${st}${isDragOver ? " ring-2 ring-brand-500/50" : ""}`}
                               style={{ background: connected ? "linear-gradient(155deg,#1c1d1f 0%,#151617 55%,#0f1011 100%)" : "linear-gradient(155deg,#161719,#0e0f10)" }}
                             >
                               <div>
@@ -528,7 +528,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                         <button
                           onClick={() => { vibrate(); setTerminalModal({ open: true, groupId: section.id }); }}
                           disabled={!connected}
-                          className={`min-h-[164px] rounded-xl p-3 flex items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
+                          className={`min-h-[164px] rounded-[3px] p-3 flex items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
                           title={t("groups.addTerminal")}
                         >
                           <Plus className="text-brand-500" size={16} /> <span className="text-brand-500">{t("terminal.newTerminal")}</span>

@@ -41,8 +41,8 @@
   --color-success: var(--success);
 
   /* Border Radius */
-  --radius-brand: 10px;
-  --radius-brand-lg: 14px;
+  --radius-brand: 8px;
+  --radius-brand-lg: 12px;
 }
 
 /* Reusable elevated card: no border, soft shadow + surface contrast */
@@ -57,26 +57,26 @@
   border-radius: var(--radius-brand-lg);
 }
 
-/* Default = dark theme tokens (Claude-like, neutral warm dark) */
+/* Default = dark theme tokens (orca-style neutral zinc) */
 :root {
-  --bg: #1a1a1a;
-  --surface: #262626;
-  --surface-2: #303030;
-  --surface-3: #3a3a3a;
-  --border: #333333;
-  --border-subtle: #2a2a2a;
-  --text: #ededed;
-  --text-muted: #9ca3af;
-  --text-subtle: #6b7280;
-  --danger: #ef4444;
+  --bg: #0a0a0a;
+  --surface: #171717;
+  --surface-2: #262626;
+  --surface-3: #2a2a2a;
+  --border: rgba(255, 255, 255, 0.10);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --text: #fafafa;
+  --text-muted: #a1a1a1;
+  --text-subtle: #737373;
+  --danger: #ff6568;
   --success: #22c55e;
   --success-rgb: 34, 197, 94;
-  --danger-rgb: 239, 68, 68;
-  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.3);
-  --shadow-elev: 
-    inset 0 1px 0 0 rgba(255,255,255,0.06),
-    0 1px 2px rgba(0,0,0,0.4),
-    0 16px 48px -8px rgba(0,0,0,0.55);
+  --danger-rgb: 255, 101, 104;
+  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.4);
+  --shadow-elev:
+    inset 0 1px 0 0 rgba(255,255,255,0.04),
+    0 1px 2px rgba(0,0,0,0.5),
+    0 16px 48px -8px rgba(0,0,0,0.65);
   --shadow-focus: 0 0 0 3px rgba(229,106,74,0.18);
   color-scheme: dark;
 
@@ -370,7 +370,7 @@ html.terminal-page body {
 
 /* Terminal tabs — translucent pill background on active/hover (parity with agent/ui/src/index.css) */
 .term-tab {
-  border-radius: 8px;
+  border-radius: 0;
   color: var(--text-muted);
 }
 .term-tab:hover:not(.term-tab-active) { color: var(--text); background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
@@ -462,6 +462,17 @@ html.terminal-page body {
 button {
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* Pointer cursor for interactive elements (browser default is "default") */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+[role="tab"],
+[role="menuitem"],
+[role="option"],
+summary,
+label[for] {
+  cursor: pointer;
 }
 
 /* iOS PWA Safe Area Support */
@@ -565,7 +576,7 @@ body.keyboard-open .safe-area-bottom {
     radial-gradient(circle at 85% 80%, rgba(var(--brand-rgb), 0.10) 0%, transparent 40%);
 }
 :root.light .dot-grid-bg {
-  background-image: 
+  background-image:
     radial-gradient(circle at 15% 20%, rgba(230, 138, 110, 0.10) 0%, transparent 40%),
     radial-gradient(circle at 85% 80%, rgba(230, 138, 110, 0.06) 0%, transparent 40%);
 }

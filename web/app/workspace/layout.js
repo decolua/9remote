@@ -22,6 +22,8 @@ import AnimatedBackground from "@/features/landing/components/AnimatedBackground
 
 const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
 const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
+const TerminalSidebar = dynamic(() => import("@/features/terminal/components/TerminalSidebar"), { ssr: false });
+const TerminalStatusBar = dynamic(() => import("@/features/terminal/components/TerminalStatusBar"), { ssr: false });
 const SessionList = dynamic(() => import("@/features/session/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
 const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/WorkspaceList"), { ssr: false });
@@ -62,7 +64,11 @@ export default function WorkspaceLayout({ children }) {
     markGroupMounted,
     isGroupMounted,
     reset: resetStore,
-    cwdBySession
+    cwdBySession,
+    sidebarCollapsed,
+    toggleSidebar,
+    sidebarWidth,
+    setSidebarWidth
   } = useTerminalStore();
 
   // Lazy per-group mount: the FIRST time a group becomes active, mark it mounted so its panes'
@@ -724,9 +730,39 @@ export default function WorkspaceLayout({ children }) {
           const groupIndex = new Map(groupOrder.map((sid, i) => [sid, i]));
           return (
             <div
-              className={`absolute inset-0 flex flex-col ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
+              className={`absolute inset-0 ${isDesktop ? "flex flex-row" : "flex flex-col"} ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"
                 }`}
             >
+              {isDesktop && (
+                <div
+                  className="hidden sm:block overflow-hidden flex-shrink-0 transition-[width] duration-200 ease-out"
+                  style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
+                >
+                <TerminalSidebar
+                  allSessions={sessions}
+                  groups={groups}
+                  activeSessionId={activeSessionId}
+                  activeGroupId={activeGroupId}
+                  sessionStatus={sessionStatus}
+                  notifications={notifications}
+                  onSelectSession={handleSelectSession}
+                  onCreateSession={handleQuickCreateSession}
+                  onCreateNamedSession={handleCreateSession}
+                  shells={shells}
+                  onRenameSession={handleRenameSession}
+                  onDeleteSession={handleDeleteSession}
+                  onReorderSession={reorderSession}
+                  onMoveSession={moveSession}
+                  onCreateGroup={(name, cb) => createGroup(name, cb)}
+                  onDeleteGroup={deleteGroup}
+                  connected={connected}
+                  width={sidebarWidth}
+                  onResize={setSidebarWidth}
+                  onCollapse={toggleSidebar}
+                />
+                </div>
+              )}
+              <div className="flex-1 min-w-0 flex flex-col">
               <TerminalHeader
                 sessions={sessions.filter(s => (s.groupId || null) === activeGroupId)}
                 allSessions={sessions}
@@ -761,12 +797,14 @@ export default function WorkspaceLayout({ children }) {
                 socketRef={socketRef}
                 transport={transport}
                 shells={shells}
+                onToggleSidebar={isDesktop ? toggleSidebar : null}
+                sidebarCollapsed={sidebarCollapsed}
               />
 
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div
                 ref={panesContainerRef}
-                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-2 overflow-x-auto overflow-y-hidden px-2 pb-2" : "relative"}`}
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1 overflow-x-auto overflow-y-hidden px-0 pb-0" : "relative"}`}
                 {...bindSwipeTab({
                   enabled: !isDesktop,
                   sessionIds: groupOpenedSessions,
@@ -795,13 +833,13 @@ export default function WorkspaceLayout({ children }) {
                       {mountedSet.has(sessionId) ? (
                         isDesktop ? (
                           <>
-                            <div className={`absolute inset-x-0 top-0 bottom-16 rounded-xl overflow-hidden ${(() => {
-                              if (isFocused) return "p-0 border-2 border-brand-500";
+                            <div className={`absolute inset-x-0 top-0 bottom-16 overflow-hidden ${(() => {
+                              if (isFocused) return "p-px border border-brand-500";
                               const st = sessionStatus[sessionId]?.state || "idle";
                               if (st === "working") return "p-px border border-dashed status-border-working";
                               if (st === "blocked") return "p-px border border-dashed status-border-blocked";
                               if (st === "done") return "p-px border border-dashed status-border-done";
-                              return "p-px border border-text-muted/25";
+                              return "p-2px";
                             })()}`}>
                               <TerminalPane
                                 socket={socket}
@@ -829,7 +867,7 @@ export default function WorkspaceLayout({ children }) {
                             {/* Per-pane input slot — absolute, reserved below the terminal (terminal is
                                 fixed-height via bottom-16, so it never resizes). Full MobileKeyboard on the
                                 focused pane, ghost on others. Width follows the pane so no horizontal slide. */}
-                            <div className="absolute inset-x-0 bottom-0 z-20 h-16 px-1 pb-1 flex items-end">
+                            <div className="absolute inset-x-0 bottom-0 z-20 h-16 px-1 pb-2 flex items-end">
                               {isFocused ? (
                                 <MobileKeyboard
                                   socket={socket}
@@ -856,7 +894,7 @@ export default function WorkspaceLayout({ children }) {
                                   className="group block w-full p-2 text-left"
                                   aria-label="Focus this terminal input"
                                 >
-                                  <span className="block w-full pl-9 pr-16 py-2 text-sm text-text-muted/60 rounded-xl border border-dashed border-border/50 group-hover:border-brand-500/60 group-hover:bg-surface-2/70 group-hover:text-text-muted transition-colors">
+                                  <span className="block w-full pl-9 pr-16 py-2 text-sm text-text-muted/60 rounded-[3px] border border-dashed border-border/50 group-hover:border-brand-500/60 group-hover:bg-surface-2/70 group-hover:text-text-muted transition-colors">
                                     {t("mobileKeyboard.typeCommand")}
                                   </span>
                                 </button>
@@ -916,6 +954,19 @@ export default function WorkspaceLayout({ children }) {
                   onSwitchToIndex={switchToIndex}
                 />
               )}
+              {isDesktop && (
+                <TerminalStatusBar
+                  cwd={activeSessionId ? cwdBySession[activeSessionId] || "" : ""}
+                  fileSocket={fileSocket}
+                  connected={connected}
+                  sessionState={activeSessionId ? sessionStatus[activeSessionId]?.state : "idle"}
+                  transport={transport}
+                  sessionName={activeSession ? activeSession?.name : ""}
+                  agentVersion={agentVersion}
+                  platform={platform}
+                />
+              )}
+            </div>
             </div>
           );
         })()}

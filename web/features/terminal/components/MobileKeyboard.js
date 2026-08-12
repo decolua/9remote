@@ -244,20 +244,13 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     return () => onRegisterTextApi(null);
   }, [onRegisterTextApi]);
 
-  const tryPasteFromClipboard = useCallback(async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text && socket) {
-        onInput?.(sessionId);
-        socket.emit("input", { sessionId, data: text });
-        vibrate();
-        return true;
-      }
-    } catch (err) {
-      console.error("Clipboard API failed, showing input fallback:", err);
-    }
-    return false;
-  }, [socket, sessionId]);
+  // Paste on mobile: skip navigator.clipboard.readText() (triggers clipboard-read
+  // permission prompt) — go straight to the paste input field where the native
+  // paste menu fills e.clipboardData (no permission needed).
+  const openPasteInput = useCallback(() => {
+    setShowPasteInput(true);
+    setTimeout(() => pasteInputRef.current?.focus(), 100);
+  }, []);
 
   // Intercept keyboard input when modifiers are active
   useEffect(() => {
@@ -273,11 +266,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       let key = e.key;
 
       if ((ctrlPressed || metaPressed) && key.toLowerCase() === "v") {
-        const success = await tryPasteFromClipboard();
-        if (!success) {
-          setShowPasteInput(true);
-          setTimeout(() => pasteInputRef.current?.focus(), 100);
-        }
+        openPasteInput();
         setCtrlPressed(false); setMetaPressed(false); setAltPressed(false); setShiftPressed(false);
         return;
       }
@@ -300,7 +289,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [isMobile, socket, sessionId, ctrlPressed, metaPressed, altPressed, shiftPressed, generateCombination, tryPasteFromClipboard]);
+  }, [isMobile, socket, sessionId, ctrlPressed, metaPressed, altPressed, shiftPressed, generateCombination, openPasteInput]);
 
   if ((!isMobile && !hasPhysicalKeyboard) || !socket || !sessionId) return null;
 
@@ -328,11 +317,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     const ctrl = forceModifiers.ctrl || ctrlPressed;
     const meta = forceModifiers.meta || metaPressed;
     if ((ctrl || meta) && key.toLowerCase() === "v") {
-      const success = await tryPasteFromClipboard();
-      if (!success) {
-        setShowPasteInput(true);
-        setTimeout(() => pasteInputRef.current?.focus(), 100);
-      }
+      openPasteInput();
       setCtrlPressed(false); setMetaPressed(false); setAltPressed(false); setShiftPressed(false);
       return;
     }
@@ -600,6 +585,22 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                   }
                   e.preventDefault();
                   onSwitchSession?.("next");
+                  return;
+                }
+                if (hasPhysicalKeyboard && e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                  // Shift+Tab → cycle suggest backwards, else switch to previous session.
+                  if (pathItems.length > 0) {
+                    e.preventDefault();
+                    setPathActive((i) => (pathItems.length ? (((i - 1) % pathItems.length) + pathItems.length) % pathItems.length : -1));
+                    return;
+                  }
+                  if (cmdItems.length > 0) {
+                    e.preventDefault();
+                    setCmdActive((i) => (cmdItems.length ? (((i - 1) % cmdItems.length) + cmdItems.length) % cmdItems.length : -1));
+                    return;
+                  }
+                  e.preventDefault();
+                  onSwitchSession?.("prev");
                   return;
                 }
                 if (hasPhysicalKeyboard && e.key === "Tab") {

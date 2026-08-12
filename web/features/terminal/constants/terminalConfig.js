@@ -90,7 +90,7 @@ export const RENDERER = {
 
 // Optional addons toggle
 export const ADDONS = {
-  clipboard: true,              // OSC52 read/write system clipboard
+  clipboard: true,              // OSC52 clipboard (write-only — see useXTerm provider)
   search: true,                 // search scrollback (findNext/findPrevious)
   image: true                   // sixel/iTerm images (only when WebGL active)
 };

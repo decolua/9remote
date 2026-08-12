@@ -87,6 +87,15 @@ export const useTerminalStore = create(
       setShowFolderButton: (v) => set({ showFolderButton: !!v }),
       setShowGitButton: (v) => set({ showGitButton: !!v }),
       setShowNoteButton: (v) => set({ showNoteButton: !!v }),
+
+      // Desktop sidebar collapse (terminal view). Persisted.
+      sidebarCollapsed: false,
+      toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+      setSidebarCollapsed: (v) => set({ sidebarCollapsed: !!v }),
+
+      // Desktop sidebar width (px), clamped [180, 400]. Persisted.
+      sidebarWidth: 240,
+      setSidebarWidth: (w) => set({ sidebarWidth: Math.max(180, Math.min(400, Math.round(w))) }),
       
       // Actions
       pushView: (view) => set((state) => ({
@@ -154,7 +163,9 @@ export const useTerminalStore = create(
         terminalTheme: state.terminalTheme,
         showFolderButton: state.showFolderButton,
         showGitButton: state.showGitButton,
-        showNoteButton: state.showNoteButton
+        showNoteButton: state.showNoteButton,
+        sidebarCollapsed: state.sidebarCollapsed,
+        sidebarWidth: state.sidebarWidth
       }),
       storage: {
         getItem: (name) => {

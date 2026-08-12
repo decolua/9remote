@@ -141,18 +141,10 @@ function TerminalPane({
 
   const currentTheme = resolveTerminalTheme(theme, terminalTheme) || THEMES.dark;
 
-  // Long-press: try clipboard paste; if fails/empty → open text input panel below
-  const handleLongPressPaste = async () => {
+  // Long-press: open text input panel — user pastes via native paste menu there.
+  // Avoids navigator.clipboard.readText() (triggers a clipboard-read permission prompt).
+  const handleLongPressPaste = () => {
     vibrate();
-    let text = "";
-    if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
-      try { text = (await navigator.clipboard.readText()) || ""; } catch { text = ""; }
-    }
-    if (text && socket) {
-      clearNotification?.(sessionId);
-      socket.emit("input", { sessionId, data: text });
-      return;
-    }
     onPasteFallback?.();
   };
 

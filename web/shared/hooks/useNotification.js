@@ -149,19 +149,41 @@ export function useNotification(socketRef, connected) {
       currentSocket.emit("getNotificationState");
     };
 
-    // Receive full 4-state map from server (idle/working/blocked/done)
-    const handleStatusState = (state) => setSessionStatus(state || {});
+    // Receive full 4-state map from server (idle/working/blocked/done).
+    // Preserve last-known tool for sessions the agent cleared (no longer in map)
+    // so the agent icon persists when idle.
+    const handleStatusState = (state) => {
+      setSessionStatus((prev) => {
+        const incoming = state || {};
+        const merged = { ...incoming };
+        for (const [id, s] of Object.entries(prev)) {
+          if (!merged[id] && s.tool) {
+            merged[id] = { state: "idle", tool: s.tool, since: s.since };
+          } else if (merged[id] && !merged[id].tool && s.tool) {
+            merged[id] = { ...merged[id], tool: s.tool };
+          }
+        }
+        return merged;
+      });
+    };
 
     // Single status transition from a hook (working/blocked/done) — patch one entry
     const handleStatusChange = ({ sessionId, state, tool, since }) => {
       if (!sessionId) return;
-      setSessionStatus((prev) => ({ ...prev, [sessionId]: { state, tool, since } }));
+      setSessionStatus((prev) => ({
+        ...prev,
+        [sessionId]: { state, tool: tool || prev[sessionId]?.tool, since },
+      }));
     };
 
-    // Another client cleared a session's status → drop entry (→ idle)
+    // Another client cleared a session's status → mark idle, keep tool (icon persists)
     const handleStatusCleared = (sessionId) => {
       if (!sessionId) return;
-      setSessionStatus((prev) => { const { [sessionId]: _, ...rest } = prev; return rest; });
+      setSessionStatus((prev) => {
+        const existing = prev[sessionId];
+        if (!existing) return prev;
+        return { ...prev, [sessionId]: { state: "idle", tool: existing.tool, since: existing.since } };
+      });
     };
 
     // Receive full badge state from server, auto-clear active focused tab
@@ -228,11 +250,11 @@ export function useNotification(socketRef, connected) {
       return rest;
     });
     // Only drop status if DONE (seen → idle). working/blocked must persist — focusing a running
-    // agent must not erase its spinner.
+    // agent must not erase its spinner. Keep tool so the agent icon survives when idle.
     setSessionStatus((prev) => {
-      if (!prev[sessionId] || prev[sessionId].state !== "done") return prev;
-      const { [sessionId]: _, ...rest } = prev;
-      return rest;
+      const existing = prev[sessionId];
+      if (!existing || existing.state !== "done") return prev;
+      return { ...prev, [sessionId]: { state: "idle", tool: existing.tool, since: existing.since } };
     });
     socketRef.current?.emit("clearNotification", sessionId);
     socketRef.current?.emit("clearStatus", sessionId);

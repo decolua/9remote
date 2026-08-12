@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, Settings, Monitor, Plus, ChevronDown, Pencil, Trash2, X } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, Settings, Monitor, Plus, Pencil, Trash2, X } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
@@ -38,17 +38,15 @@ export default function TerminalHeader({
   shells = [],
   groups = [],
   activeGroupId = null,
-  onSelectGroup,
-  hasUngrouped = false,
   onRenameSession,
   onDeleteSession,
   onCreateNamedSession,
+  onToggleSidebar = null,
+  sidebarCollapsed = false,
 }) {
   const { t } = useI18n();
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
-  const [showGroupMenu, setShowGroupMenu] = useState(false);
-  const groupMenuRef = useRef(null);
   // Tab right-click context menu (rename/delete)
   const [tabMenu, setTabMenu] = useState({ sessionId: null, x: 0, y: 0 });
   const tabMenuRef = useRef(null);
@@ -59,9 +57,6 @@ export default function TerminalHeader({
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
   const tabInputRef = useRef(null);
-  const activeGroupName = groups.find((g) => g.id === activeGroupId)?.name || t("groups.ungrouped");
-  // A group is "finished" if any of its sessions has an unseen notification — surfaces cross-group dots
-  const groupHasFinished = (gid) => allSessions.some((s) => (s.groupId || null) === gid && notifications[s.id]);
 
   // Suggested default name based on terminal count in active group
   const suggestTerminalName = (groupId) => `${t("terminal.defaultName")} ${sessions.filter((s) => (s.groupId || null) === groupId).length + 1}`;
@@ -153,19 +148,6 @@ export default function TerminalHeader({
   };
 
   useEffect(() => {
-    if (!showGroupMenu) return;
-    const onDocClick = (e) => {
-      if (groupMenuRef.current && !groupMenuRef.current.contains(e.target)) setShowGroupMenu(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("touchstart", onDocClick);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("touchstart", onDocClick);
-    };
-  }, [showGroupMenu]);
-
-  useEffect(() => {
     if (activeTabRef.current && tabsContainerRef.current) {
       activeTabRef.current.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
     }
@@ -201,50 +183,28 @@ export default function TerminalHeader({
   }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, transport, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
-    <div className="px-2 sm:px-4 pt-2 mb-1 flex items-center gap-2 flex-shrink-0 bg-bg">
+    <div className="px-2 sm:px-0 pt-0 flex items-center gap-0 flex-shrink-0 bg-bg">
+      {onToggleSidebar && sidebarCollapsed && (
+        <button
+          onClick={() => { vibrate(); onToggleSidebar(); }}
+          className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+          title={t("common.open")}
+        >
+          <PanelLeft size={18} />
+        </button>
+      )}
+
       <button
         onClick={() => { vibrate(); onBack(); }}
-        className="p-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+        className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
         title={t("common.back")}
       >
         <ChevronLeft size={18} />
       </button>
 
-      {/* Group selector — desktop only, hidden when only one option exists */}
-      {onSelectGroup && (groups.length + (hasUngrouped ? 1 : 0)) > 1 && (
-        <div ref={groupMenuRef} className="relative hidden sm:block flex-shrink-0">
-          <button
-            onClick={() => { vibrate(); setShowGroupMenu(v => !v); }}
-            className="px-2 py-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-colors flex items-center gap-1 max-w-[160px]"
-            title={t("groups.title")}
-          >
-            <span className="truncate text-sm font-medium">{activeGroupName}</span>
-            {/* Dot when a NON-active group has a finished session, so user knows to switch */}
-            {[...groups, ...(hasUngrouped ? [{ id: null }] : [])].some((g) => g.id !== activeGroupId && groupHasFinished(g.id)) && (
-              <span className="w-1.5 h-1.5 rounded-full term-tab-done-dot bg-yellow-400" />
-            )}
-            <ChevronDown size={14} />
-          </button>
-          {showGroupMenu && (
-            <div className="absolute left-0 top-full mt-1 z-30 bg-surface-2 border border-border-subtle rounded-brand shadow-lg py-1 min-w-[160px]">
-              {[...groups, ...(hasUngrouped ? [{ id: null, name: t("groups.ungrouped") }] : [])].map((g) => (
-                <button
-                  key={g.id || "ungrouped"}
-                  onClick={() => { vibrate(); onSelectGroup(g.id); setShowGroupMenu(false); }}
-                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-surface-3 flex items-center justify-between gap-2 ${g.id === activeGroupId ? "text-brand-500" : "text-text"}`}
-                >
-                  <span className="truncate">{g.name}</span>
-                  {groupHasFinished(g.id) && <span className="w-1.5 h-1.5 rounded-full term-tab-done-dot bg-yellow-400 flex-shrink-0" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* overflow-auto whitelists this for mobile touchmove (see page.js preventScroll) */}
       <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-dark-400 scrollbar-track-transparent">
-        <div className="flex gap-0.5 min-w-max items-center">
+        <div className="flex gap-0 min-w-max items-center">
           {sessions.map((session) => {
             const isActiveTab = session.id === activeSessionId;
             const st = sessionStatus[session.id]?.state || "idle";
@@ -293,7 +253,7 @@ export default function TerminalHeader({
               <button
                 onClick={() => { vibrate(); setCreateModalOpen(true); }}
                 disabled={!connected}
-                className="p-1.5 bg-surface-2 hover:bg-surface-3 text-text-muted hover:text-text transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
+                className="p-1.5 text-text-muted hover:bg-surface-2 hover:text-text transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
                 title={t("terminal.newTerminal")}
               >
                 <Plus size={18} />
@@ -303,10 +263,11 @@ export default function TerminalHeader({
         </div>
       </div>
 
+      <div className="flex items-center gap-1 flex-shrink-0">
       {onOpenRemote && (
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
-          className="p-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+          className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
           title={t("menu.remoteDesktop")}
         >
           <Monitor size={18} />
@@ -323,11 +284,12 @@ export default function TerminalHeader({
 
       <button
         onClick={() => { vibrate(); openMenu(); }}
-        className="p-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+        className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
         title={t("menu.title")}
       >
         <Settings size={18} />
       </button>
+      </div>
 
       {/* Tab right-click context menu */}
       {tabMenu.sessionId && (

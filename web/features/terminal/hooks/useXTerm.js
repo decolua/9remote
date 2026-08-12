@@ -5,7 +5,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { ClipboardAddon, BrowserClipboardProvider } from "@xterm/addon-clipboard";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
@@ -190,8 +190,15 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     const batcher = createWriteBatcher(term);
     writeBatcherRef.current = batcher;
 
-    // Clipboard (OSC52) + search addons
-    if (ADDONS.clipboard) term.loadAddon(new ClipboardAddon(undefined, new BrowserClipboardProvider()));
+    // Clipboard (OSC52) — write-only provider: OSC52 write kept (vim/tmux yank → host
+    // clipboard), OSC52 read disabled so the browser never prompts for clipboard-read.
+    if (ADDONS.clipboard) {
+      const writeOnlyProvider = {
+        readText: async () => "",
+        writeText: async (_selection, data) => { try { await navigator.clipboard?.writeText(data); } catch {} },
+      };
+      term.loadAddon(new ClipboardAddon(undefined, writeOnlyProvider));
+    }
     if (ADDONS.search) {
       searchAddonRef.current = new SearchAddon();
       term.loadAddon(searchAddonRef.current);
