@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "@/shared/components/ui/Icon";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { vibrate } from "@/shared/utils/vibration";
 import {
   GIT_STATUS_COLORS,
@@ -58,6 +59,8 @@ export default function ExplorerPanel({
   const [loading, setLoading] = useState(() => new Set());
   const [gitStatusMap, setGitStatusMap] = useState({});
   const [contextMenu, setContextMenu] = useState(null);
+  const contextMenuRef = useRef(null);
+  const contextMenuPos = useClampedMenu(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
   const [renameTarget, setRenameTarget] = useState(null);
   const [renameValue, setRenameValue] = useState("");
   const [newItemModal, setNewItemModal] = useState(null);
@@ -467,7 +470,7 @@ export default function ExplorerPanel({
           }}
           className={`group flex items-center gap-1 pr-2 py-0.5 cursor-pointer select-none text-sm ${
             isDragOver ? "bg-brand-500/30 ring-1 ring-brand-500" :
-            isActive || isSelected ? "bg-brand-500/20" : "hover:bg-surface-2"
+            isActive || isSelected ? "bg-surface-2" : "hover:bg-surface-2"
           }`}
           style={{ paddingLeft: padLeft }}
           onContextMenu={(e) => openContextMenu(e, file)}
@@ -705,8 +708,9 @@ export default function ExplorerPanel({
       {/* Context menu */}
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className="fixed z-50 bg-surface-2 border border-border rounded-brand shadow-lg py-1 min-w-[180px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          style={{ left: contextMenuPos.left, top: contextMenuPos.top }}
           onClick={(e) => e.stopPropagation()}
         >
           {buildMenuItems(contextMenu.file).map((item, i) => (

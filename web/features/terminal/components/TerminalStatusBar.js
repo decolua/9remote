@@ -58,7 +58,7 @@ export default function TerminalStatusBar({
       {/* Left: session name + cwd */}
       <span className="flex items-center gap-1.5 flex-shrink-0 max-w-[180px]">
         <Terminal size={12} className="opacity-60 flex-shrink-0" />
-        <span className="truncate font-medium text-text" title={sessionName}>{sessionName || "—"}</span>
+        <span className="truncate font-medium text-text-muted" title={sessionName}>{sessionName || "—"}</span>
       </span>
       <span className="text-text-subtle flex-shrink-0">›</span>
       <span className="flex items-center gap-1.5 min-w-0 flex-shrink">

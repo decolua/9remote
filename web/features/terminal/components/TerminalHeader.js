@@ -8,6 +8,7 @@ import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
+import useClampedMenu from "@/shared/hooks/useClampedMenu";
 
 export default function TerminalHeader({
   sessions = [],
@@ -50,6 +51,7 @@ export default function TerminalHeader({
   // Tab right-click context menu (rename/delete)
   const [tabMenu, setTabMenu] = useState({ sessionId: null, x: 0, y: 0 });
   const tabMenuRef = useRef(null);
+  const tabMenuPos = useClampedMenu(tabMenuRef, tabMenu.x, tabMenu.y);
   const [editingTabId, setEditingTabId] = useState(null);
   const [editTabName, setEditTabName] = useState("");
   const [tabDeleteConfirm, setTabDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
@@ -263,7 +265,7 @@ export default function TerminalHeader({
         </div>
       </div>
 
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex items-center gap-2 flex-shrink-0">
       {onOpenRemote && (
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
@@ -296,7 +298,7 @@ export default function TerminalHeader({
         <div
           ref={tabMenuRef}
           className="fixed z-[60] bg-surface-2 border border-border-subtle rounded-brand shadow-lg py-1 min-w-[140px]"
-          style={{ left: tabMenu.x, top: tabMenu.y }}
+          style={{ left: tabMenuPos.left, top: tabMenuPos.top }}
         >
           <button
             onClick={() => startTabRename(sessions.find((s) => s.id === tabMenu.sessionId))}
@@ -326,7 +328,7 @@ export default function TerminalHeader({
       {/* Tab delete confirm */}
       {tabDeleteConfirm.isOpen && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70"
           onClick={() => setTabDeleteConfirm({ isOpen: false, sessionId: null, sessionName: "" })}
         >
           <div className="bg-surface rounded-brand-lg p-5 w-80 shadow-elev" onClick={(e) => e.stopPropagation()}>

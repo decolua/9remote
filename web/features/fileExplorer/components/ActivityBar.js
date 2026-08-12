@@ -13,7 +13,7 @@ const TOP_ITEMS = [
 function BarButton({ active, onClick, label, children }) {
   const base = "relative w-10 h-10 flex items-center justify-center rounded-brand transition-all duration-150 ease-out active:scale-[0.96]";
   const state = active
-    ? "bg-brand-500/20 text-text border-l-2 border-brand-500"
+    ? "bg-surface-2 text-text border-l-2 border-brand-500"
     : "text-text-muted hover:text-text hover:bg-surface-2";
   return (
     <button type="button" title={label} onClick={onClick} className={`${base} ${state}`}>

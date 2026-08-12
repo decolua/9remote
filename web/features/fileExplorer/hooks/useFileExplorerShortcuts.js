@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export function useFileExplorerShortcuts({
   onToggleSidebar,
@@ -10,62 +10,37 @@ export function useFileExplorerShortcuts({
   onQuickOpen,
   onTogglePanel
 } = {}) {
+  // Refs so the listener registers ONCE (no re-registration churn) and always
+  // calls the latest callbacks. Registered on document capture phase to intercept
+  // browser-level shortcuts (e.g. Cmd+W) before Chrome processes them.
+  const cbRef = useRef({});
+  useEffect(() => {
+    cbRef.current = { onToggleSidebar, onSave, onCloseTab, onCommandPalette, onQuickOpen, onTogglePanel };
+  });
+
   useEffect(() => {
     const handler = (e) => {
       const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
       const key = e.key.toLowerCase();
       const shift = e.shiftKey;
+      const cb = cbRef.current;
 
       // mod+shift+p → command palette
-      if (shift && key === "p") {
-        e.preventDefault();
-        onCommandPalette?.();
-        return;
-      }
-
+      if (mod && shift && key === "p") { e.preventDefault(); cb.onCommandPalette?.(); return; }
       // mod+k → command palette (alternative)
-      if (!shift && key === "k") {
-        e.preventDefault();
-        onCommandPalette?.();
-        return;
-      }
-
+      if (mod && !shift && key === "k") { e.preventDefault(); cb.onCommandPalette?.(); return; }
       // mod+p → quick open
-      if (!shift && key === "p") {
-        e.preventDefault();
-        onQuickOpen?.();
-        return;
-      }
-
+      if (mod && !shift && key === "p") { e.preventDefault(); cb.onQuickOpen?.(); return; }
       // mod+s → save
-      if (!shift && key === "s") {
-        e.preventDefault();
-        onSave?.();
-        return;
-      }
-
-      // mod+w → close active editor tab (VSCode behavior; always intercept)
-      if (!shift && key === "w") {
-        e.preventDefault();
-        onCloseTab?.();
-        return;
-      }
-
+      if (mod && !shift && key === "s") { e.preventDefault(); cb.onSave?.(); return; }
+      // mod+w → close active editor tab (capture phase intercepts before browser)
+      if (mod && !shift && key === "w") { e.preventDefault(); cb.onCloseTab?.(); return; }
       // mod+b → toggle sidebar
-      if (!shift && key === "b") {
-        e.preventDefault();
-        onToggleSidebar?.();
-        return;
-      }
-
+      if (mod && !shift && key === "b") { e.preventDefault(); cb.onToggleSidebar?.(); return; }
       // mod+j → toggle panel (optional)
-      if (!shift && key === "j" && onTogglePanel) {
-        e.preventDefault();
-        onTogglePanel();
-      }
+      if (mod && !shift && key === "j" && cb.onTogglePanel) { e.preventDefault(); cb.onTogglePanel(); }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onToggleSidebar, onSave, onCloseTab, onCommandPalette, onQuickOpen, onTogglePanel]);
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+  }, []);
 }

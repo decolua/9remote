@@ -36,7 +36,7 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70"
       onClick={onClose}
     >
       <div

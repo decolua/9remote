@@ -276,8 +276,6 @@ export default function SlideMenu() {
               onRemote={context.remoteAvailable ? handleRemote : null}
               onFiles={handleFiles}
               onSites={handleSites}
-              onCommandNotes={handleCommandNotes}
-              onCommunity={handleCommunity}
               onInstallApp={handleInstallApp}
               canInstall={canInstall}
               isInstalled={isInstalled}

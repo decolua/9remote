@@ -416,12 +416,12 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                             data-session-card
                             data-card-idx={cardIdx}
                             onClick={() => { if (suppressClickRef.current) { suppressClickRef.current = false; return; } if (!drag && connected) { vibrate(); onSelect(session.id); } }}
-                            className={`group relative select-none rounded-[3px] transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isDragOver ? "scale-[1.02] ring-2 ring-brand-500" : ""} ${connected && !drag ? "hover:-translate-y-1" : ""} ${!connected ? "opacity-60" : ""}`}
+                            className={`group relative select-none rounded-xl transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isDragOver ? "scale-[1.02] ring-2 ring-brand-500" : ""} ${connected && !drag ? "hover:-translate-y-1" : ""} ${!connected ? "opacity-60" : ""}`}
                           >
                             {/* Terminal window */}
                             <div
-                              className={`rounded-[3px] overflow-hidden border border-text-muted/25 ring-1 ring-text-muted/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_8px_28px_-6px_rgba(0,0,0,0.7)] term-card ${v.cls} status-border-${st}${isDragOver ? " ring-2 ring-brand-500/50" : ""}`}
-                              style={{ background: connected ? "linear-gradient(155deg,#1c1d1f 0%,#151617 55%,#0f1011 100%)" : "linear-gradient(155deg,#161719,#0e0f10)" }}
+                              className={`rounded-xl overflow-hidden border ring-1 term-card ${v.cls} status-border-${st}${isDragOver ? " ring-2 ring-brand-500/50" : ""}`}
+                              style={{ background: connected ? "var(--card-term-bg)" : "var(--card-term-bg-off)", borderColor: "var(--card-border)", boxShadow: "var(--card-shadow)", ["--tw-ring-color"]: "var(--card-ring)" }}
                             >
                               <div>
                                 {/* Titlebar — drag handle for mobile reorder (long-press to drag) */}
@@ -430,14 +430,15 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                                   onPointerUp={draggable ? clearPress : undefined}
                                   onPointerLeave={draggable ? clearPress : undefined}
                                   onPointerMove={draggable ? onCardPointerMove : undefined}
-                                  className={`flex items-center gap-2 px-2.5 py-1.5 bg-[#2c2c2e]/90 border-b border-black/30 ${draggable ? "cursor-grab active:cursor-grabbing touch-none" : ""}`}
+                                  className={`flex items-center gap-2 px-2.5 py-1.5 border-b ${draggable ? "cursor-grab active:cursor-grabbing touch-none" : ""}`}
+                                  style={{ background: "var(--card-titlebar-bg)", borderColor: "var(--card-titlebar-border)" }}
                                 >
                                   <div className={`flex items-center gap-1.5 flex-shrink-0 ${dotBase}`}>
                                     <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
                                     <span className="w-[10px] h-[10px] rounded-full bg-[#febc2e]" />
                                     <span className="w-[10px] h-[10px] rounded-full bg-[#28c840]" />
                                   </div>
-                                  <span className="flex-1 min-w-0 text-center text-[11px] font-medium text-white/55 truncate">
+                                  <span className="flex-1 min-w-0 text-center text-[11px] font-medium truncate" style={{ color: "var(--card-name-fg)" }}>
                                     {session.name}
                                   </span>
                                   <div className="flex items-center gap-2 flex-shrink-0" onPointerDown={(e) => e.stopPropagation()}>
@@ -445,7 +446,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                                       onMouseDown={(e) => e.preventDefault()}
                                       onClick={(e) => { e.stopPropagation(); vibrate(); handleStartEdit(session); }}
                                       disabled={!connected}
-                                      className={`p-1.5 rounded-md transition-colors ${connected ? "text-amber-400/70 hover:text-amber-300 hover:bg-amber-400/15" : "text-white/20 cursor-not-allowed"}`}
+                                      className={`p-1.5 rounded-md transition-colors ${connected ? "hover:bg-amber-500/10" : "cursor-not-allowed"}`}
+                                      style={{ color: connected ? "var(--card-accent-amber)" : "var(--card-btn-disabled)" }}
                                       title={t("sessions.editName")}
                                     >
                                       <Pencil size={16} />
@@ -453,7 +455,8 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                                     <button
                                       onClick={(e) => { e.stopPropagation(); vibrate(); handleDeleteWithConfirm(session.id, session.name); }}
                                       disabled={!connected}
-                                      className={`p-1.5 rounded-md transition-colors ${connected ? "text-red-400/70 hover:text-red-300 hover:bg-red-500/20" : "text-white/20 cursor-not-allowed"}`}
+                                      className={`p-1.5 rounded-md transition-colors ${connected ? "hover:bg-red-500/15" : "cursor-not-allowed"}`}
+                                      style={{ color: connected ? "var(--card-accent-red)" : "var(--card-btn-disabled)" }}
                                       title={t("common.delete")}
                                     >
                                       <Trash2 size={16} />
@@ -487,34 +490,35 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                                       }}
                                       onBlur={() => handleSaveEdit(session.id)}
                                       onClick={(e) => e.stopPropagation()}
-                                      className="w-full bg-black/40 text-white text-[12px] px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                                      className="w-full text-[12px] px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                                      style={{ background: "var(--card-input-bg)", color: "var(--card-input-fg)" }}
                                       autoFocus
                                     />
                                   ) : (
                                     <div className="text-[11.5px] leading-[1.7] space-y-0.5">
                                       <div className="flex items-center min-w-0">
-                                        <span className="text-emerald-400 flex-shrink-0">➜</span>
-                                        <span className="text-cyan-400 flex-shrink-0 mx-1">~</span>
-                                        <span className="text-white/45 truncate">{session.name}</span>
+                                        <span className="flex-shrink-0" style={{ color: "var(--card-accent-green)" }}>➜</span>
+                                        <span className="flex-shrink-0 mx-1" style={{ color: "var(--card-accent-cyan)" }}>~</span>
+                                        <span className="truncate" style={{ color: "var(--card-body-fg)" }}>{session.name}</span>
                                       </div>
                                       {connected ? (
                                         <>
-                                          <div className="text-white/35 truncate">
-                                            <span className="text-emerald-400">✓</span> connected
+                                          <div className="truncate" style={{ color: "var(--card-body-dim)" }}>
+                                            <span style={{ color: "var(--card-accent-green)" }}>✓</span> connected
                                           </div>
-                                          <div className="text-white/35 truncate">
-                                            <span className="text-amber-400">●</span> {t("sessions.created", { time: new Date(session.createdAt).toLocaleTimeString(undefined, { hour12: false }) })}
+                                          <div className="truncate" style={{ color: "var(--card-body-dim)" }}>
+                                            <span style={{ color: "var(--card-accent-amber)" }}>●</span> {t("sessions.created", { time: new Date(session.createdAt).toLocaleTimeString(undefined, { hour12: false }) })}
                                           </div>
                                         </>
                                       ) : (
-                                        <div className="text-white/30 truncate">
-                                          <span className="text-red-400/70">✕</span> disconnected
+                                        <div className="truncate" style={{ color: "var(--card-body-dim)", opacity: 0.7 }}>
+                                          <span style={{ color: "var(--card-accent-red)" }}>✕</span> disconnected
                                         </div>
                                       )}
                                       <div className="flex items-center min-w-0">
-                                        <span className="text-emerald-400 flex-shrink-0">➜</span>
-                                        <span className="text-cyan-400 flex-shrink-0 mx-1">~</span>
-                                        <span className="inline-block flex-shrink-0 w-[7px] h-[14px] bg-emerald-400/80 animate-pulse" />
+                                        <span className="flex-shrink-0" style={{ color: "var(--card-accent-green)" }}>➜</span>
+                                        <span className="flex-shrink-0 mx-1" style={{ color: "var(--card-accent-cyan)" }}>~</span>
+                                        <span className="inline-block flex-shrink-0 w-[7px] h-[14px] animate-pulse" style={{ background: "var(--card-accent-green)", opacity: 0.8 }} />
                                       </div>
                                     </div>
                                   )}
@@ -528,7 +532,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                         <button
                           onClick={() => { vibrate(); setTerminalModal({ open: true, groupId: section.id }); }}
                           disabled={!connected}
-                          className={`min-h-[164px] rounded-[3px] p-3 flex items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
+                          className={`min-h-[164px] rounded-xl p-3 flex items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
                           title={t("groups.addTerminal")}
                         >
                           <Plus className="text-brand-500" size={16} /> <span className="text-brand-500">{t("terminal.newTerminal")}</span>

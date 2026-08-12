@@ -21,7 +21,7 @@ export default function StatusBar({
   return (
     <div
       style={{ height: STATUS_BAR_HEIGHT }}
-      className="bg-brand-500 text-white text-xs px-3 flex items-center gap-4 flex-shrink-0"
+      className="bg-surface-2 text-text-muted text-xs px-3 flex items-center gap-4 flex-shrink-0 border-t border-border-subtle"
     >
       <button
         onClick={() => { vibrate(); onToggleSidebar?.(); }}

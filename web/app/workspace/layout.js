@@ -804,7 +804,7 @@ export default function WorkspaceLayout({ children }) {
               {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
               <div
                 ref={panesContainerRef}
-                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1 overflow-x-auto overflow-y-hidden px-0 pb-0" : "relative"}`}
+                className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1 overflow-x-auto overflow-y-hidden px-0 pb-0 scrollbar-thin" : "relative"}`}
                 {...bindSwipeTab({
                   enabled: !isDesktop,
                   sessionIds: groupOpenedSessions,
@@ -839,7 +839,7 @@ export default function WorkspaceLayout({ children }) {
                               if (st === "working") return "p-px border border-dashed status-border-working";
                               if (st === "blocked") return "p-px border border-dashed status-border-blocked";
                               if (st === "done") return "p-px border border-dashed status-border-done";
-                              return "p-2px";
+                              return "p-px m-px";
                             })()}`}>
                               <TerminalPane
                                 socket={socket}

@@ -8,6 +8,7 @@ import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
 import { vibrate } from "@/shared/utils/vibration";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import useClampedMenu from "@/shared/hooks/useClampedMenu";
 
 // Guess agent tool from session name when no live status tool is set (e.g. idle shell
 // that once ran an agent, or a session named after its agent).
@@ -67,6 +68,7 @@ export default function TerminalSidebar({
   // Context menu (right-click / long-press)
   const [ctxMenu, setCtxMenu] = useState(null); // { sessionId, x, y }
   const ctxRef = useRef(null);
+  const ctxPos = useClampedMenu(ctxRef, ctxMenu?.left ?? 0, ctxMenu?.top ?? 0);
   const [moveOpen, setMoveOpen] = useState(false);
 
   // Rename inline
@@ -151,8 +153,8 @@ export default function TerminalSidebar({
     const s = sessionById(sessionId);
     setCtxMenu({
       sessionId,
-      left: Math.min(e.clientX, window.innerWidth - 180),
-      top: Math.min(e.clientY, window.innerHeight - 180),
+      left: e.clientX,
+      top: e.clientY,
       name: s?.name || "",
     });
     setMoveOpen(false);
@@ -168,8 +170,8 @@ export default function TerminalSidebar({
       const s = sessionById(sessionId);
       setCtxMenu({
         sessionId,
-        left: Math.min(touch.clientX, window.innerWidth - 180),
-        top: Math.min(touch.clientY, window.innerHeight - 180),
+        left: touch.clientX,
+        top: touch.clientY,
         name: s?.name || "",
       });
       setMoveOpen(false);
@@ -351,10 +353,10 @@ export default function TerminalSidebar({
                       key={s.id}
                       data-item-row
                       data-sid={s.id}
-                      className={`group w-full flex items-center gap-1.5 ml-3 pl-2 pr-2 py-1 text-left transition-colors border-l-2 relative cursor-pointer ${
+                      className={`group w-full flex items-center gap-1.5 ml-2 pl-1 pr-2 py-1 text-left transition-colors border-l-2 relative cursor-pointer ${
                         isActive
-                          ? "bg-white/8 border-brand-500 text-text"
-                          : "border-transparent text-text-muted hover:bg-white/5 hover:text-text"
+                          ? "bg-text/8 border-brand-500 text-text"
+                          : "border-transparent text-text-muted hover:bg-text/5 hover:text-text"
                       } ${isDragOver ? "ring-1 ring-brand-500" : ""}`}
                       onClick={handleItemClick}
                       onContextMenu={openContext}
@@ -399,18 +401,15 @@ export default function TerminalSidebar({
                           />
                         ) : (
                           <>
-                            <span className={`text-sm truncate ${isActive ? "font-medium" : ""}`}>{s.name || t("terminal.defaultName")}</span>
+                            <span className={`text-xs truncate ${isActive ? "font-medium" : ""}`}>{s.name || t("terminal.defaultName")}</span>
                             <span className="text-[11px] text-text-subtle truncate leading-tight">
                               {AGENT_LABELS[tool] || t("notifications.agent")}
-                              {" · "}
+                              {" "}
                               {stateLabel}
                             </span>
                           </>
                         )}
                       </span>
-                      {hasNotif && !isActive && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" />
-                      )}
                     </div>
                   );
                 })}
@@ -445,7 +444,7 @@ export default function TerminalSidebar({
 
       {/* New group modal */}
       {groupModalOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/50" onClick={() => setGroupModalOpen(false)}>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70" onClick={() => setGroupModalOpen(false)}>
           <div className="bg-surface rounded-[3px] p-5 w-80 shadow-elev" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-semibold text-text mb-4">{t("groups.newGroup")}</h3>
             <input
@@ -509,7 +508,7 @@ export default function TerminalSidebar({
         <div
           ref={ctxRef}
           className="fixed z-[70] bg-surface-2 border border-border-subtle rounded-[3px] shadow-lg py-1 min-w-[160px]"
-          style={{ left: ctxMenu.left, top: ctxMenu.top }}
+          style={{ left: ctxPos.left, top: ctxPos.top }}
         >
           <button
             onClick={() => startRename(ctxMenu.sessionId)}
@@ -559,7 +558,7 @@ export default function TerminalSidebar({
       {/* Delete confirm */}
       {delConfirm && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/50"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70"
           onClick={() => setDelConfirm(null)}
         >
           <div className="bg-surface rounded-[3px] p-5 w-80 shadow-elev" onClick={(e) => e.stopPropagation()}>
