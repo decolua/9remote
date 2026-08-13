@@ -10,6 +10,7 @@ import { getConsistentMachineId } from "../utils/machineId.js";
 import { generateApiKeyWithMachine, maskApiKey } from "../utils/apiKey.js";
 import { apiGet, pushUiState, setStep, onBinaryProgress } from "./localApi.js";
 import { spawnQuickTunnelWithRetry, makeTunnelRestartHandler } from "../tunnel/manager.js";
+import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { updateTunnelUrl } from "../tunnel/urlSync.js";
 import { showConnectionInfo } from "../session/display.js";
 import { shutdownAll } from "./lifecycle.js";
@@ -83,12 +84,11 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     });
     if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
 
-    // Ready immediately — DO signaling is up, clients can connect via RTC.
-    // The tunnel spawns in the background and pushes its URL when ready.
-    await showConnectionInfo(apiKey, "");
-
-    // Background tunnel spawn — non-blocking. Failure is non-fatal (RTC works
-    // without it). URL updates flow to the UI via onUrlUpdate → pushUiState.
+    // Gate the UI (QR/key) until the tunnel is reachable — reduces the window
+    // where RTC fails on carrier NAT and no carrier is up. DO signaling is
+    // already live, so this only blocks the display, not RTC. Tunnel failure is
+    // non-fatal: fall back to RTC-only and show the QR anyway.
+    await setStep(STEP.TUNNELING);
     const onUrlUpdate = async (newUrl) => {
       await updateTunnelUrl(apiKey, newUrl);
       await pushUiState({ tunnelUrl: newUrl });
@@ -98,19 +98,28 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     const onRetry = ({ attempt, delay }) => {
       pushUiState({ tunnelRetry: { attempt, delay, at: Date.now() } });
     };
-    spawnQuickTunnelWithRetry(
-      SERVER_PORT,
-      onUrlUpdate,
-      makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => setActiveTunnel(c), onRetry }),
-      onRetry,
-    ).then((result) => {
+    let result = null;
+    try {
+      result = await spawnQuickTunnelWithRetry(
+        SERVER_PORT,
+        onUrlUpdate,
+        makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => setActiveTunnel(c), onRetry }),
+        onRetry,
+      );
+    } catch (err) {
+      logger.error(`Tunnel spawn gave up: ${err?.message || err} — continuing RTC-only`);
+    }
+    pushUiState({ tunnelRetry: null });
+    let tunnelUrl = "";
+    if (result) {
       setActiveTunnel(result.child);
-      pushUiState({ tunnelRetry: null });
-      onUrlUpdate(result.tunnelUrl);
-    }).catch((err) => {
-      logger.error(`Tunnel background spawn gave up: ${err?.message || err}`);
-      pushUiState({ tunnelRetry: null });
-    });
+      tunnelUrl = result.tunnelUrl;
+      await setStep(STEP.VERIFYING);
+      if (!(await waitForTunnelReady(tunnelUrl))) {
+        logger.warn("Tunnel health check timed out, proceeding anyway...");
+      }
+    }
+    await showConnectionInfo(apiKey, tunnelUrl);
   } catch (err) {
     logger.error(`Failed to start: ${err.message}`);
     await setStep(STEP.STOPPED);

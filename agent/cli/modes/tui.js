@@ -18,6 +18,7 @@ import {
 import { startServerWithRestart, setupExitHandler, shutdownAll } from "../core/lifecycle.js";
 import { setupCmdPoller } from "../core/cmdPoller.js";
 import { spawnQuickTunnelWithRetry, makeTunnelRestartHandler } from "../tunnel/manager.js";
+import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { updateTunnelUrl } from "../tunnel/urlSync.js";
 import { ensureKeyData } from "../session/key.js";
 import { buildMenuHeader } from "../session/display.js";
@@ -70,17 +71,56 @@ export async function tuiMode() {
     process.exit(1);
   }
 
-  await setStep(STEP.CONNECTING);
+  await setStep(STEP.TUNNELING);
 
   // tempKey first — connect URL is Worker-based, doesn't depend on the tunnel.
   // RTC signaling goes via the DO; the tunnel is a fallback transport.
   const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
   const connectUrl = tempKeyData ? `${WORKER_URL}/login?k=${tempKeyData.tempKey}` : `${WORKER_URL}/login`;
 
-  // Ready immediately. The tunnel spawns in the background and updates the URL
-  // when it comes up — agent is usable via DO signaling without it.
+  let currentOneTimeKey = tempKeyData?.tempKey || "";
+  let currentConnectUrl = connectUrl;
+  let currentTunnelUrl = "";
+  let menuHeader = null;
+  const tunnelRef = { current: null };
+  const onTunnelUrl = async (newUrl) => {
+    currentTunnelUrl = newUrl;
+    await updateTunnelUrl(keyData.key, newUrl);
+    await pushUiState({ tunnelUrl: newUrl });
+    updateTunnelHealthUrl(newUrl);
+    if (menuHeader !== null) {
+      menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
+      triggerMenuRedraw?.();
+    }
+  };
+
+  // Spawn tunnel and wait until reachable before showing the menu. RTC signaling
+  // is already live (server child); this only gates the UI — reduces the window
+  // where RTC fails on carrier NAT and no carrier is up yet. Tunnel failure is
+  // non-fatal: fall back to RTC-only and show the QR anyway.
+  let result = null;
+  try {
+    result = await spawnQuickTunnelWithRetry(
+      SERVER_PORT,
+      onTunnelUrl,
+      makeTunnelRestartHandler({ onUrlUpdate: onTunnelUrl, setTunnel: (c) => { tunnelRef.current = c; } }),
+    );
+  } catch (err) {
+    logger.error(`Tunnel spawn gave up: ${err?.message || err} — continuing RTC-only`);
+  }
+  if (result) {
+    tunnelRef.current = result.child;
+    currentTunnelUrl = result.tunnelUrl;
+    saveState({ apiKey: keyData.key, tunnelUrl: result.tunnelUrl, tunnelPid: result.child?.pid });
+    await setStep(STEP.VERIFYING);
+    if (!(await waitForTunnelReady(result.tunnelUrl))) {
+      logger.warn("Tunnel health check timed out, proceeding anyway...");
+    }
+    await onTunnelUrl(result.tunnelUrl);
+  }
+
   await setStep(STEP.READY, {
-    tunnelUrl: "",
+    tunnelUrl: currentTunnelUrl,
     oneTimeKey: tempKeyData?.tempKey || "",
     oneTimeKeyExpiresAt: tempKeyData?.expiresAt || null,
     permanentKey: keyData.key,
@@ -89,31 +129,7 @@ export async function tuiMode() {
   });
   await new Promise((r) => setTimeout(r, DELAYS.trayReadyMs));
 
-  let currentOneTimeKey = tempKeyData?.tempKey || "";
-  let currentConnectUrl = connectUrl;
-  let currentTunnelUrl = "";
-  const tunnelRef = { current: null };
-  const onTunnelUrl = async (newUrl) => {
-    currentTunnelUrl = newUrl;
-    await updateTunnelUrl(keyData.key, newUrl);
-    await pushUiState({ tunnelUrl: newUrl });
-    updateTunnelHealthUrl(newUrl);
-    // Rebuild header so the menu shows the live tunnel URL, then redraw.
-    menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
-    triggerMenuRedraw?.();
-  };
-  // Background spawn — never blocks READY. Failure is non-fatal (DO signaling owns RTC).
-  spawnQuickTunnelWithRetry(
-    SERVER_PORT,
-    onTunnelUrl,
-    makeTunnelRestartHandler({ onUrlUpdate: onTunnelUrl, setTunnel: (c) => { tunnelRef.current = c; } }),
-  ).then((result) => {
-    tunnelRef.current = result.child;
-    saveState({ apiKey: keyData.key, tunnelUrl: result.tunnelUrl, tunnelPid: result.child?.pid });
-    return onTunnelUrl(result.tunnelUrl);
-  }).catch((err) => logger.error(`Tunnel background spawn gave up: ${err?.message || err}`));
-
-  let menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
+  menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
   const logBuffer = [];
   let deviceApprovalBusy = false;
 
