@@ -254,7 +254,7 @@ export default function SlideMenu() {
                   aria-label={t("menu.language")}
                   title={t("menu.language")}
                 >
-                  <span className="text-base leading-none">{currentLocale.flag}</span>
+                  <img src={`https://flagcdn.com/w40/${currentLocale.country}.png`} alt={currentLocale.label} className="w-[17px] h-[12px] object-cover rounded-[2px]" loading="lazy" />
                   <span className="uppercase">{currentLocale.code}</span>
                 </button>
               </>
