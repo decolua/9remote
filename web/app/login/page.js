@@ -306,8 +306,9 @@ function LoginContent() {
         </section>
 
         {/* FORM */}
-        <section className="flex items-center justify-center p-6 sm:p-10 lg:border-l lg:border-border-subtle bg-surface-1 relative">
-          <div className="w-full max-w-sm space-y-4">
+        <section className="flex items-center justify-center p-6 sm:p-10 lg:border-l lg:border-border-subtle lg:bg-surface-1 relative">
+          <div className="login-mobile-glow lg:hidden" aria-hidden />
+          <div className="relative z-10 w-full max-w-sm space-y-4">
 
             {/* Header */}
             <div className="flex items-center gap-3 mb-6">
