@@ -89,10 +89,37 @@ export default function WorkspaceLayout({ children }) {
   const [updating, setUpdating] = useState(false);
   const [updateMode, setUpdateMode] = useState("update");
 
+  // PWA resume grace — when the tab becomes visible again after background, WS/RTC
+  // take ~1-2s to re-establish. Suppress the ConnectionModal during this window so
+  // it doesn't flash on every resume. Real disconnects (app hidden long) still show
+  // the modal after the grace elapses.
+  const [resumeGrace, setResumeGrace] = useState(false);
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        setResumeGrace(true);
+        setTimeout(() => setResumeGrace(false), 4000);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
   // Run the actual update: drive UpdateModal + suppress ConnectionModal during restart
   const doUpdate = useCallback(() => {
     if (triggerUpdate()) { setUpdateMode("update"); setUpdating(true); }
   }, [triggerUpdate]);
+
+  // RTC-first: after a self-update the agent restarts and RTC usually reopens
+  // faster than the WS tunnel (signaling DO is up immediately, cloudflared is not).
+  // Clear the update overlay on the reconnect EDGE (connected false→true) only —
+  // not while still connected (that would hide the progress modal the instant the
+  // update is requested, before the agent has even restarted).
+  const prevConnRef = useRef(connected);
+  useEffect(() => {
+    if (updating && connected && !prevConnRef.current) setUpdating(false);
+    prevConnRef.current = connected;
+  }, [connected, updating]);
 
   // Run host restart (no reinstall): WS reconnect handles the gap (~2s).
   // No modal — ConnectionModal shows "reconnecting" while server child respawns.
@@ -1107,7 +1134,7 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Connection Modal - overlay when retrying/failed (suppressed during self-update) */}
-        {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
+        {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Update Modal - progress overlay during agent self-update */}
         <UpdateModal open={updating} connected={connected} mode={updateMode} />

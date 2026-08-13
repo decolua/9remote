@@ -12,8 +12,13 @@ import { useI18n } from "@/shared/i18n";
  * @param {Function} onLogout - Callback to clear session and redirect
  * @param {Function} onRetryNow - Force an immediate reconnect attempt
  */
-export default function ConnectionModal({ retryStatus, approvalStatus, connected, onLogout, onRetryNow }) {
+export default function ConnectionModal({ retryStatus, approvalStatus, connected, onLogout, onRetryNow, suppress = false }) {
   const { t } = useI18n();
+
+  // PWA resume grace — tab just became visible; WS/RTC are re-establishing.
+  // Suppress everything (including approval/retry) for the grace window so the
+  // modal doesn't flash. Real disconnects show up once the grace elapses.
+  if (suppress) return null;
 
   const handleBackToLogin = () => {
     if (onLogout) {
@@ -91,35 +96,15 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="card-elev p-6 max-w-sm w-full mx-4">
         {retryStatus.isRetrying ? (
-          // Retrying state
+          // Retrying state — minimal loading overlay (no buttons, no progress bar).
+          // PWA resume: WS/RTC typically recover within seconds; showing a full modal
+          // with exit/retry buttons here just flashes and annoys. Reserve the actionable
+          // modal for the real "failed" state below.
           <div className="text-center">
             <Spinner size="lg" />
             <h3 className="text-text text-lg font-semibold mt-4">
               {t("connection.retrying")}
             </h3>
-            <p className="text-text-muted mt-2">
-              {t("connection.attemptOf", { n: retryStatus.attempt, total: retryStatus.maxAttempts })}
-            </p>
-            <div className="mt-4 w-full bg-surface-2 rounded-full h-2">
-              <div 
-                className="bg-brand-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${(retryStatus.attempt / retryStatus.maxAttempts) * 100}%` }}
-              />
-            </div>
-            {onRetryNow && (
-              <button
-                onClick={() => { vibrate(); onRetryNow(); }}
-                className="mt-4 w-full py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition-all duration-150 ease-out active:scale-[0.98]"
-              >
-                {t("connection.retry")}
-              </button>
-            )}
-            <button
-              onClick={() => { vibrate(); handleBackToLogin(); }}
-              className="mt-2 w-full py-2 bg-surface-2 hover:bg-surface-3 text-text font-medium rounded-brand transition-all duration-150 ease-out active:scale-[0.98]"
-            >
-              {t("connection.exit")}
-            </button>
           </div>
         ) : (
           // Failed state
