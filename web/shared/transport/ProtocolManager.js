@@ -123,15 +123,23 @@ export class ProtocolManager {
       // zombie socket so the normal reconnect path replaces it.
       // lastInboundAt comes from Engine.IO "pong" (true liveness, independent of
       // app traffic or RTC) so an idle-but-alive WS is never mistaken for a zombie.
+      // Use the FRESHEST of pong and app-event: a carrier that still delivers app
+      // bytes is alive even if the server's pingInterval is long/disabled, and an
+      // idle socket is kept alive by pong. Only when BOTH go stale is it a zombie.
+      const wsLastAlive = Math.max(ws?.lastInboundAt ?? 0, ws?.lastMsgAt ?? 0);
       const wsZombie = ws?.ready && isWsZombie({
         ready: true,
-        lastInboundAt: ws.lastInboundAt ?? 0,
+        lastInboundAt: wsLastAlive,
         now: Date.now()
       });
-      // TEMP DIAGNOSTIC — is the zombie verdict correct? age tells how stale WS really is.
+      // TEMP DIAGNOSTIC — compare pong liveness vs app-event liveness.
+      // lastInbound = pong heartbeat; lastMsg = app event over WS. If lastMsg
+      // stays fresh while lastInbound goes stale, pong stamping is the bug.
       if (ws) {
-        const last = ws.lastInboundAt ?? 0;
-        termLog("switch", `zombie check: verdict=${!!wsZombie} ready=${!!ws.ready} lastInbound=${last ? `${Date.now() - last}ms ago` : "never"}`);
+        const lb = ws.lastInboundAt ?? 0;
+        const lm = ws.lastMsgAt ?? 0;
+        const now = Date.now();
+        termLog("switch", `zombie check: verdict=${!!wsZombie} ready=${!!ws.ready} lastPong=${lb ? `${now - lb}ms` : "never"} lastMsg=${lm ? `${now - lm}ms` : "never"}`);
       }
       if (wsZombie) {
         debugLog("transport", "[pm] ws zombie on resume → force reconnect");
@@ -394,24 +402,19 @@ export class ProtocolManager {
     this._adapters.set(id, inst);
   }
 
-  /** STUN reported a different public IP → we are on another network. Restores
-   * the restart budget so a session that exhausted it elsewhere can retry here.
-   *
-   * Carrier NAT pools hand out a different egress IP per STUN server, so the
-   * fingerprint flip-flops between neighbours on the SAME network. Treating that
-   * as a handover reset the backoff on every restart and pinned RTC to the
-   * shortest delay forever — so only a change outside the /24 counts. */
+  /** STUN reported a different public egress IP. We do NOT reset the restart
+   * budget here anymore: dual-stack ISPs and carrier NAT pools make the IP
+   * flip-flop between IPv4/IPv6 and neighbours of the SAME network, which fired
+   * a false "network changed" on every restart and pinned RTC to the shortest
+   * backoff forever. A real network handover is detected via the browser's
+   * online/connection events (and resets the budget there); RTC OPEN itself
+   * also resets. This handler now only records the fingerprint for telemetry. */
   _onNetFingerprint(ip) {
     if (!ip || ip === this._netFingerprint) return;
     const prev = this._netFingerprint;
     this._netFingerprint = ip;
     if (!prev) return; // first gather of the session — nothing changed yet
-    if (sameNetwork(prev, ip)) {
-      debugLog("transport", `[pm] net fingerprint ${prev}→${ip} within same subnet → keep backoff`);
-      return;
-    }
-    debugLog("transport", "[pm] network identity changed → reset rtc restart budget");
-    this._rtcRestartAttempts = 0;
+    debugLog("transport", `[pm] net fingerprint ${prev}→${ip} (same network — no backoff reset)`);
   }
 
   _startSecondaryAdapters() {
@@ -523,6 +526,7 @@ export class ProtocolManager {
     // Clear RTC zombie recovery state
     clearTimeout(this._rtcRestartTimer);
     this._rtcRestartTimer = null;
+    termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=pm-disconnect`); // TEMP DIAGNOSTIC
     this._rtcRestartAttempts = 0;
     for (const t of this._ackTimers.values()) clearTimeout(t);
     this._ackTimers.clear();
@@ -889,6 +893,8 @@ export class ProtocolManager {
   // negligible next to tunnel bandwidth. Reset-on-open and net-change restore the
   // fast phase. DO-down skips the probe (_onSignalingReady restarts when it's back).
   _scheduleRtcRestart() {
+    // TEMP DIAGNOSTIC — value before ++ reveals if a reset happened between cycles
+    termLog("switch", `scheduleRtcRestart ENTER attempts=${this._rtcRestartAttempts}`);
     const attempt = this._rtcRestartAttempts;
     const isProbe = attempt >= RTC_RESTART.maxAttempts;
     const delay = isProbe

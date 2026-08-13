@@ -35,10 +35,15 @@ export class WsProtocol extends BaseProtocol {
     // even when no app bytes flow), so an idle-but-alive socket is never mistaken
     // for a zombie. PM reads this on resume to decide whether to force a reconnect.
     this._lastInboundAt = Date.now();
+    // TEMP DIAGNOSTIC — last app-level event received (vs pong heartbeat).
+    // If this stays fresh while lastInboundAt goes stale, pong stamping is broken.
+    this._lastMsgAt = 0;
   }
 
   /** Last Engine.IO pong timestamp — real transport liveness (independent of RTC). */
   get lastInboundAt() { return this._lastInboundAt; }
+  /** TEMP DIAGNOSTIC — last app event received. */
+  get lastMsgAt() { return this._lastMsgAt; }
 
   get socket() { return this._socket; }
   get connectionMode() { return this._connectionMode; }
@@ -214,13 +219,17 @@ export class WsProtocol extends BaseProtocol {
     // regardless of app traffic, so it's a true liveness signal. Stamp it so the
     // zombie probe (PM visibility handler) can distinguish an idle-but-alive
     // socket from one frozen by OS background suspension.
-    socket.io?.on?.("pong", () => { this._lastInboundAt = Date.now(); });
+    socket.io?.on?.("pong", () => {
+      this._lastInboundAt = Date.now();
+      termLog("switch", `ws pong → stamp lastInbound (${this._lastInboundAt})`); // TEMP DIAGNOSTIC
+    });
     // Also stamp on connect — a freshly opened socket is by definition alive.
     socket.on("connect", () => { this._lastInboundAt = Date.now(); });
 
     // Forward all incoming events into unified bus as "message" (tagged source so PM
     // doesn't double-fire raw socket listeners — socket.io already invoked them natively)
     socket.onAny((event, data) => {
+      this._lastMsgAt = Date.now(); // TEMP DIAGNOSTIC — app event over WS
       this._emit("message", { event, data, source: "ws" });
     });
 
