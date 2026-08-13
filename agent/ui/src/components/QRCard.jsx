@@ -94,7 +94,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
         </div>
 
         {/* QR */}
-        <div className="w-52 h-52 rounded-[18px] overflow-hidden bg-white p-3.5 flex items-center justify-center flex-shrink-0" style={{ boxShadow: "0 12px 30px -10px rgba(0,0,0,0.5)" }}>
+        <div className="w-52 h-52 rounded-[10px] overflow-hidden bg-white p-3.5 flex items-center justify-center flex-shrink-0" style={{ boxShadow: "0 12px 30px -10px rgba(0,0,0,0.5)" }}>
           {qrUrl ? (
             <canvas ref={canvasRef} />
           ) : (
@@ -104,7 +104,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
 
         {/* Endpoint row */}
         <div className="flex flex-col items-center gap-1">
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>{t("connection.scanToSignIn")}</span>
+          <span className="text-[11.5px] leading-4" style={{ color: "var(--text-muted)" }}>{t("connection.scanToSignIn")}</span>
           <a
             href={`https://${ENDPOINT}/login`}
             target="_blank"
@@ -121,10 +121,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
 
         {/* One-Time Key row */}
         <div className="w-full flex flex-col gap-1.5">
-          <div className="flex items-center justify-between px-0.5">
-            <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{t("connection.oneTimeKey")}</span>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>{t("connection.oneTimeDesc")}</span>
-          </div>
+          <span className="text-xs font-medium px-0.5" style={{ color: "var(--text-muted)" }}>{t("connection.oneTimeKey")}</span>
         <div className="w-full flex items-center gap-2 dark-card px-3 py-2.5">
           <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 16, color: "var(--text-muted)" }}>timer</span>
           <span
@@ -151,13 +148,10 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
 
         {/* Permanent Key row */}
         <div className="w-full flex flex-col gap-1.5">
-          <div className="flex items-center justify-between px-0.5">
-            <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{t("connection.permanentKey")}</span>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>{t("connection.permanentDesc")}</span>
-          </div>
+          <span className="text-xs font-medium px-0.5" style={{ color: "var(--text-muted)" }}>{t("connection.permanentKey")}</span>
         <div className="w-full flex items-center gap-2 dark-card px-3 py-2.5">
           <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 16, color: "var(--text-muted)" }}>key</span>
-          <span className="flex-1 font-mono text-xs truncate" style={{ color: "var(--text-muted)" }}>
+          <span className="flex-1 font-mono text-xs truncate" style={{ color: "var(--text-main)" }}>
             {permanentKey || "— not set —"}
           </span>
           {permanentKey && (

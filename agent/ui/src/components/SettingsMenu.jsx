@@ -4,11 +4,12 @@ import { SUPPORTED_LOCALES } from "../i18n/config";
 
 const HELP_URL = "https://docs.9remote.cc/";
 
-// Settings dropdown — language + docs/reset/shutdown.
-export default function SettingsMenu({ isStopped, onStop, onShutdown, variant = "glass" }) {
+// Settings dropdown — language + logs + docs/reset/shutdown.
+export default function SettingsMenu({ isStopped, onStop, onShutdown, logs = [], onClearLogs, variant = "glass" }) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
   const ref = useRef(null);
   const curLocale = SUPPORTED_LOCALES.find((l) => l.code === locale) || SUPPORTED_LOCALES[0];
 
@@ -35,8 +36,12 @@ export default function SettingsMenu({ isStopped, onStop, onShutdown, variant = 
       {open && (
         <div className="absolute right-0 top-full mt-1 z-[80] rounded-lg shadow-lg py-1 min-w-[220px]" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
           <button onClick={() => run(() => setLangOpen(true))} className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act" style={{ color: "var(--text-main)" }}>
-            <span className="material-symbols-outlined text-base">language</span>
-            <span className="flex-1">{curLocale.flag} {curLocale.label}</span>
+            <img src={`https://flagcdn.com/w40/${curLocale.country}.png`} alt={curLocale.label} className="w-[17px] h-[12px] object-cover rounded-[2px]" loading="lazy" />
+            <span className="flex-1 truncate">{curLocale.label}</span>
+          </button>
+          <button onClick={() => run(() => setLogsOpen(true))} className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act" style={{ color: "var(--text-main)" }}>
+            <span className="material-symbols-outlined text-base">description</span>
+            <span className="flex-1">{t("menu.logs")}</span>
           </button>
           <div className="my-0.5" style={{ borderTop: "1px solid var(--border)" }} />
           <MenuAction icon="menu_book" label={t("header.documentation")} onClick={() => run(() => window.open(HELP_URL, "_blank"))} />
@@ -45,6 +50,7 @@ export default function SettingsMenu({ isStopped, onStop, onShutdown, variant = 
         </div>
       )}
       {langOpen && <LanguageModal onClose={() => setLangOpen(false)} />}
+      {logsOpen && <LogsModal logs={logs} onClear={onClearLogs} onClose={() => setLogsOpen(false)} />}
     </div>
   );
 }
@@ -73,11 +79,49 @@ function LanguageModal({ onClose }) {
               className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl card-act"
               style={{ background: l.code === locale ? "rgba(var(--brand-rgb),0.15)" : "var(--glass-bg)", color: l.code === locale ? "var(--brand-400)" : "var(--text-main)" }}
             >
-              <span>{l.flag}</span>
+              <img src={`https://flagcdn.com/w40/${l.country}.png`} alt={l.label} className="w-[17px] h-[12px] object-cover rounded-[2px] flex-shrink-0" loading="lazy" />
               <span className="flex-1 text-left truncate">{l.label}</span>
               {l.code === locale && <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check</span>}
             </button>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Logs viewer modal — server activity stream
+function LogsModal({ logs, onClear, onClose }) {
+  const { t } = useI18n();
+  const endRef = useRef(null);
+  useEffect(() => { if (endRef.current) endRef.current.scrollTop = endRef.current.scrollHeight; }, [logs]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
+      <div className="glass-card p-5 flex flex-col gap-3 w-full max-w-2xl max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold" style={{ color: "var(--text-main)" }}>{t("menu.logs")}</h3>
+          <div className="flex items-center gap-2">
+            {logs.length > 0 && (
+              <button onClick={onClear} className="glass-btn flex items-center gap-1.5 px-2.5 h-7 text-xs" style={{ color: "var(--text-muted)" }}>
+                <span className="material-symbols-outlined text-sm">delete_sweep</span> Clear
+              </button>
+            )}
+            <button onClick={onClose} className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--text-muted)", cursor: "pointer" }}>close</button>
+          </div>
+        </div>
+        <div ref={endRef} className="flex flex-col gap-0.5 overflow-y-auto pr-1">
+          {logs.length === 0 ? (
+            <p className="text-xs text-center py-6" style={{ color: "var(--text-muted)" }}>No logs yet</p>
+          ) : (
+            logs.map((line, i) => (
+              <p key={i} className="text-xs font-mono leading-5 break-all" style={{ color: "var(--text-muted)" }}>{line}</p>
+            ))
+          )}
         </div>
       </div>
     </div>

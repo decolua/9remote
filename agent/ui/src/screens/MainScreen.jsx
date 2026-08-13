@@ -3,25 +3,8 @@ import StepProgress from "../components/StepProgress";
 import QRCard from "../components/QRCard";
 import ConfirmPopup from "../components/ConfirmPopup";
 import SettingsMenu from "../components/SettingsMenu";
-import SystemPane from "../components/SystemPane";
 import { useI18n } from "../i18n";
 import { UPDATE_UI } from "../lib/constants";
-
-// Left menu — config-driven nav + per-menu header meta (9router pattern)
-const MENU = [
-  { id: "connection", label: "Connection", icon: "hub", desc: "Pair devices and manage your secure tunnel" },
-  { id: "terminals", label: "Terminal", icon: "open_in_new", desc: "Open the web terminal" },
-  { id: "logs", label: "Logs", icon: "description", desc: "Server activity and diagnostics" },
-];
-
-const DEFAULT_MENU = "connection";
-const TERMINALS_MENU = "terminals";
-
-// Parse URL pathname → { menu }
-const parsePath = () => {
-  const [seg] = window.location.pathname.replace(/^\/+/, "").split("/");
-  return { menu: MENU.some((m) => m.id === seg) ? seg : DEFAULT_MENU };
-};
 
 const getPermissionMeta = (t) => ({
   screenRecording: { label: t("remote.screenRecording"), icon: "screenshot_monitor", desc: t("remote.captureScreen") },
@@ -47,7 +30,7 @@ function Toggle({ on, onClick, activeColor = "linear-gradient(135deg, var(--bran
 /** Square feature icon — mockup .sic */
 function Sic({ icon, active }) {
   return (
-    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
       style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
       <span className="material-symbols-outlined" style={{ fontSize: 20, color: active ? "var(--brand-400)" : "var(--text-muted)" }}>{icon}</span>
     </div>
@@ -86,7 +69,7 @@ function SrvRow({ icon, active, name, desc, children, extra }) {
       <Sic icon={icon} active={active} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>{name}</p>
-        <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>{desc}</p>
+        {desc && <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>{desc}</p>}
         {extra}
       </div>
       {children}
@@ -114,7 +97,6 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
         icon="desktop_windows"
         active={desktopEnabled}
         name={t("remote.remoteDesktop")}
-        desc={t("remote.controlScreen")}
         extra={
           <div className="flex flex-wrap gap-2 mt-2">
             {permEntries.map(([type, meta]) => (
@@ -131,7 +113,6 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
         icon="rocket_launch"
         active={!!autoStart}
         name={t("remote.launchOnStartup")}
-        desc={autoStart ? t("remote.launchDesc") : t("remote.disabledStart")}
       >
         <Toggle on={!!autoStart} onClick={onAutoStartToggle} />
       </SrvRow>
@@ -141,12 +122,11 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
         icon="coffee"
         active={(sleepInhibitMode || "never") !== "never"}
         name={t("remote.preventSleep")}
-        desc={t("remote.blockSleep")}
       >
         <select
           value={sleepInhibitMode || "never"}
           onChange={(e) => onSleepInhibitChange?.(e.target.value)}
-          className="flex-shrink-0 text-[12.5px] px-3 py-2 rounded-xl"
+          className="flex-shrink-0 text-[12.5px] px-3 py-2 rounded-lg"
           style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)", cursor: "pointer" }}
         >
           {(sleepInhibitPresets || []).map((m) => (
@@ -257,12 +237,6 @@ function UpdateBanner({ version }) {
   );
 }
 
-const getFeatures = (t) => [
-  { icon: "terminal", label: t("connection.features.terminal"), desc: t("connection.features.fullShell") },
-  { icon: "desktop_windows", label: t("connection.features.desktop"), desc: t("connection.features.remoteScreen") },
-  { icon: "folder_open", label: t("connection.features.files"), desc: t("connection.features.browseEdit") },
-];
-
 /** Merge approved + rejected devices with active connections into 1 client = 1 device list.
  *  Same device may open multiple sockets — use earliest connectedAt. */
 function mergeClients(approvedDevices, connections, rejectedDevices = []) {
@@ -327,10 +301,10 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
 
   return (
     <div
-      className={`flex items-center gap-3.5 py-3 ${isPending ? "rounded-xl px-3 -mx-3" : "border-t first:border-t-0"}`}
+      className={`flex items-center gap-3.5 py-3 ${isPending ? "rounded-lg px-3 -mx-3" : "border-t first:border-t-0"}`}
       style={isPending ? { background: "linear-gradient(100deg, rgba(var(--warn-rgb),0.08), transparent)" } : { borderColor: "var(--border)" }}
     >
-      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
         <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--text-muted)" }}>{deviceIcon(name)}</span>
       </div>
       <div className="flex-1 min-w-0">
@@ -378,7 +352,7 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
 
 /** Header icon-only button — uses native tooltip for clarity */
 function HeaderIconBtn({ icon, title, danger, onClick }) {
-  const btnClass = danger ? "btn-danger w-10 h-10 rounded-xl flex items-center justify-center" : "glass-btn w-10 h-10 rounded-xl flex items-center justify-center";
+  const btnClass = danger ? "btn-danger w-10 h-10 rounded-lg flex items-center justify-center" : "glass-btn w-10 h-10 rounded-lg flex items-center justify-center";
   return (
     <button onClick={onClick} title={title} className={btnClass} style={danger ? undefined : { color: "var(--text-muted)" }}>
       <span className="material-symbols-outlined text-xl">{icon}</span>
@@ -391,8 +365,8 @@ function ConnectionEmpty({ onStart, t }) {
   const [connecting, setConnecting] = useState(false);
   const handleConnect = () => { setConnecting(true); onStart?.(); };
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-8 text-center max-w-lg w-full">
-      <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: "var(--glass-bg)" }}>
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-8 text-center max-w-sm w-full mx-auto">
+      <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: "var(--glass-bg)" }}>
         <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--text-muted)" }}>cloud_off</span>
       </div>
       <div className="flex flex-col gap-1">
@@ -408,86 +382,37 @@ function ConnectionEmpty({ onStart, t }) {
         <span className="material-symbols-outlined text-base">play_arrow</span>
         {connecting ? t("connection.connecting") : t("connection.connect")}
       </button>
-      <div className="grid grid-cols-3 gap-2 w-full">
-        {getFeatures(t).map((f) => (
-          <div key={f.label} className="dark-card flex flex-col items-center gap-1.5 py-3 px-1">
-            <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--brand-400)" }}>{f.icon}</span>
-            <p className="text-[11px] font-semibold" style={{ color: "var(--text-main)" }}>{f.label}</p>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
 
-/** Primary left navigation — logo top, menu mid, controls bottom (9router pattern) */
-function Sidebar({ activeMenu, onSelect, version, isReady, transport, onTransportChange, onClose, notifications, sessions = [], onSelectSession, onDismissRecent }) {
-  const { t } = useI18n();
-  const handleSelect = (id) => { onSelect(id); onClose?.(); };
-  const handleSelectSession = (id) => { onSelectSession?.(id); onClose?.(); };
-  return (
-    <aside className="flex flex-col sidebar w-[232px] xl:w-[264px] flex-shrink-0 h-full">
-      {/* Brand */}
-      <div className="flex items-center gap-3 px-5 py-5">
-        <img src="/favicon.svg" alt="9Remote" className="w-10 h-10 rounded-xl flex-shrink-0" />
-        <div className="flex flex-col leading-tight">
-          <span className="brand-text text-xs">9Remote</span>
-          {version && <span className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>v{version}</span>}
-        </div>
-      </div>
-
-      {isReady && (
-        <div className="px-4 pb-3">
-          <ConnectionStatus transport={transport} onTransportChange={onTransportChange} />
-        </div>
-      )}
-
-      {/* Menu */}
-      <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto select-none">
-        {MENU.map((m) => {
-          const isActive = activeMenu === m.id;
-          return (
-            <button
-              key={m.id}
-              onClick={() => handleSelect(m.id)}
-              className={`group relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${isActive ? "" : "card-act"}`}
-              style={isActive
-                ? { background: "linear-gradient(100deg, var(--brand-tint), transparent)", color: "var(--brand-500)", border: "1px solid rgba(var(--brand-rgb),0.25)" }
-                : { color: "var(--text-muted)" }}
-            >
-              {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-full" style={{ background: "var(--brand-500)" }} />}
-              <span className={`material-symbols-outlined text-[20px] flex-shrink-0 ${isActive ? "fill-1" : ""}`}>{m.icon}</span>
-              <span className={`text-[13px] leading-tight ${isActive ? "font-semibold" : "font-medium"}`}>{t(`menu.${m.id}`)}</span>
-            </button>
-          );
-        })}
-      </nav>
-    </aside>
-  );
-}
-
-/** Content header — per-menu title/icon/desc + global actions (9router pattern) */
-function PageHeader({ menu, isStopped, theme, onToggleTheme, onStop, onShutdown, onMenuClick }) {
+/** Top bar — brand + connection status + global actions (login-style, no sidebar) */
+function Header({ version, isReady, isStopped, transport, onTransportChange, theme, onToggleTheme, onOpenTerminal, onStop, onShutdown, logs, onClearLogs }) {
   const { t } = useI18n();
   return (
     <header className="shrink-0 flex items-center justify-between gap-3 px-6 lg:px-10 pt-5 pb-1">
       <div className="flex items-center gap-3 min-w-0">
-        <button onClick={onMenuClick} className="md:hidden glass-btn w-8 h-8 flex items-center justify-center flex-shrink-0" style={{ color: "var(--text-muted)" }} aria-label="Open menu">
-          <span className="material-symbols-outlined text-lg">menu</span>
-        </button>
-        <span className="material-symbols-outlined text-[22px] flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0" style={{ color: "var(--brand-500)", background: "var(--brand-tint)" }}>{menu?.icon}</span>
-        <div className="min-w-0">
-          <h1 className="text-xl lg:text-2xl font-bold tracking-tight truncate" style={{ color: "var(--text-main)" }}>{menu ? t(`menu.${menu.id}`) : ""}</h1>
-          {menu && <p className="hidden lg:block text-xs truncate mt-0.5" style={{ color: "var(--text-muted)" }}>{t(`menu.${menu.id}Desc`)}</p>}
+        <div className="w-10 h-10 rounded-[11px] grid place-items-center flex-shrink-0" style={{ background: "var(--brand-500)", boxShadow: "0 8px 20px -6px rgba(var(--brand-rgb),0.45)" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 22, color: "#fff" }}>terminal</span>
         </div>
+        <div className="flex flex-col leading-none min-w-0">
+          <span className="text-[22px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>9Remote</span>
+          {version && <span className="font-mono text-[11px] mt-1" style={{ color: "var(--text-subtle)" }}>v{version}</span>}
+        </div>
+        {isReady && (
+          <div className="ml-2 hidden sm:block">
+            <ConnectionStatus transport={transport} onTransportChange={onTransportChange} />
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
+        <HeaderIconBtn icon="open_in_new" title={t("menu.terminals")} onClick={onOpenTerminal} />
         <HeaderIconBtn
           icon={theme === "dark" ? "light_mode" : "dark_mode"}
           title={theme === "dark" ? t("header.lightMode") : t("header.darkMode")}
           onClick={onToggleTheme}
         />
-        <SettingsMenu isStopped={isStopped} onStop={onStop} onShutdown={onShutdown} />
+        <SettingsMenu isStopped={isStopped} onStop={onStop} onShutdown={onShutdown} logs={logs} onClearLogs={onClearLogs} />
       </div>
     </header>
   );
@@ -514,7 +439,7 @@ function ConnectionStatus({ transport, onTransportChange }) {
   };
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${alive ? "health-dot" : ""}`} style={{ background: dot }} />
       <span className="text-[12.5px] font-medium" style={{ color: "var(--text-main)" }}>{label}</span>
       {/* Debug toggle — dev builds only (Vite drops this in production) */}
@@ -544,21 +469,12 @@ export default function MainScreen({
   onStopTunnel,
 }) {
   const { t } = useI18n();
-  const [activeMenu, setActiveMenu] = useState(() => parsePath().menu);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [deviceToLabel, setDeviceToLabel] = useState(null);
   const [labelInput, setLabelInput] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const logEndRef = useRef(null);
   const scrollRef = useRef(null);
-
-  // Terminal is not a page — it launches the web app in a new tab.
-  const navigateMenu = (id) => {
-    if (id === TERMINALS_MENU) { openWebTerminal(); return; }
-    setActiveMenu(id);
-  };
 
   // Open the web app at its login page. No auto-login: the user signs in manually.
   const openWebTerminal = async () => {
@@ -574,94 +490,57 @@ export default function MainScreen({
     }
   };
 
-  // Sync state with browser back/forward
-  useEffect(() => {
-    const onPop = () => setActiveMenu(parsePath().menu);
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
-
-  // Push URL whenever menu changes
-  useEffect(() => {
-    const next = `/${activeMenu}`;
-    if (window.location.pathname !== next) window.history.pushState(null, "", next);
-  }, [activeMenu]);
-
   // STEP enum: STOPPED=0, PREPARING=1, CONNECTING=2, TUNNELING=3, VERIFYING=4, READY=5
   const isReady = step === 5;
   const isStopped = step === 0;
   const isConnecting = step > 0 && step < 5;
 
-  // Refresh devices list whenever tab active or state updates (so offline/online stays in sync)
-  useEffect(() => {
-    if (activeMenu === "logs" && logEndRef.current) logEndRef.current.scrollTop = logEndRef.current.scrollHeight;
-    if (activeMenu === "connection") onFetchDevices?.();
-  }, [logs, activeMenu, connections.length]);
+  // Refresh devices list whenever connections update (so offline/online stays in sync)
+  useEffect(() => { onFetchDevices?.(); }, [connections.length]);
 
   const clients = mergeClients(approvedDevices, connections, rejectedDevices);
   const onlineCount = clients.filter((c) => c.status === "online").length;
 
-  const currentMenu = MENU.find((m) => m.id === activeMenu);
-
   return (
-    <div className="h-full w-full flex overflow-hidden isolate" style={{ background: "var(--bg-body)" }}>
-      {/* Background — flat base + brand grid (landing parity, fixed behind sidebar + main) */}
+    <div className="h-full w-full flex flex-col overflow-hidden isolate" style={{ background: "var(--bg-body)" }}>
+      {/* Background — login AnimatedBackground parity: base + accent grid + 2 brand glow blobs */}
       <div className="dot-grid-bg fixed inset-0 pointer-events-none" style={{ zIndex: -4 }} aria-hidden="true" />
-      <div className="landing-grid fixed inset-0 pointer-events-none" style={{ zIndex: -3 }} aria-hidden="true" />
+      <div className="agent-grid fixed inset-0 pointer-events-none" style={{ zIndex: -3 }} aria-hidden="true" />
+      <div className="agent-glow-tl fixed pointer-events-none" style={{ top: "-10%", left: "-5%", width: "min(700px, 90vw)", height: "min(700px, 90vw)", borderRadius: "50%", zIndex: -2 }} aria-hidden="true" />
+      <div className="agent-glow-br fixed pointer-events-none" style={{ bottom: "-15%", right: "-10%", width: "min(800px, 95vw)", height: "min(800px, 95vw)", borderRadius: "50%", zIndex: -2 }} aria-hidden="true" />
 
-      {/* Sidebar — desktop */}
-      <div className="hidden md:flex">
-        <Sidebar
-          activeMenu={activeMenu}
-          onSelect={navigateMenu}
-          version={version}
-          isReady={isReady}
-          transport={transport}
-          onTransportChange={onTransportChange}
-        />
-      </div>
+      <Header
+        version={version}
+        isReady={isReady}
+        isStopped={isStopped}
+        transport={transport}
+        onTransportChange={onTransportChange}
+        theme={theme}
+        onToggleTheme={onToggleTheme}
+        onOpenTerminal={openWebTerminal}
+        onStop={() => setShowDisconnectConfirm(true)}
+        onShutdown={() => setShowShutdownConfirm(true)}
+        logs={logs}
+        onClearLogs={onClearLogs}
+      />
 
-      {/* Sidebar — mobile overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setSidebarOpen(false)} />
-      )}
-      <div className={`fixed inset-y-0 left-0 z-50 transform md:hidden transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
-        <Sidebar
-          activeMenu={activeMenu}
-          onSelect={navigateMenu}
-          version={version}
-          isReady={isReady}
-          transport={transport}
-          onTransportChange={onTransportChange}
-          onClose={() => setSidebarOpen(false)}
-        />
-      </div>
+      {!isConnecting && <UpdateBanner version={updateVersion} />}
 
-      {/* Main — whole pane scrolls, header flows with content (pro5 parity) */}
+      {/* Main — whole pane scrolls (login-style single column) */}
       <main ref={scrollRef} className="flex-1 min-w-0 h-full relative overflow-y-auto">
-        <PageHeader
-          menu={currentMenu}
-          isStopped={isStopped}
-          theme={theme}
-          onToggleTheme={onToggleTheme}
-          onStop={() => setShowDisconnectConfirm(true)}
-          onShutdown={() => setShowShutdownConfirm(true)}
-          onMenuClick={() => setSidebarOpen(true)}
-        />
-        {!isConnecting && <UpdateBanner version={updateVersion} />}
         <div className="px-6 lg:px-10 pb-6 lg:pb-10 pt-5">
           <div className="max-w-7xl mx-auto flex flex-col gap-4">
-              {activeMenu === "connection" && isStopped && (
+              {isStopped && (
                 <ConnectionEmpty onStart={onStart} t={t} />
               )}
 
-              {activeMenu === "connection" && isConnecting && (
-                <div className="flex-1 flex flex-col gap-4 max-w-2xl w-full">
+              {isConnecting && (
+                <div className="flex-1 flex flex-col gap-4 max-w-2xl w-full mx-auto">
                   <StepProgress currentStep={step} activeDesc={stepDesc} healthCheck={healthCheck} t={t} />
                 </div>
               )}
 
-              {activeMenu === "connection" && isReady && (
+              {isReady && (
                 <>
                   {/* QR (1fr) left + Config & Clients (1.7fr) right — pro5 ratio */}
                   <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,1fr)_1.7fr] gap-4 items-stretch">
@@ -712,9 +591,6 @@ export default function MainScreen({
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium" style={{ color: "var(--text-main)" }}>{t("clients.autoApprove")}</p>
-                          <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>
-                            {autoApprove ? t("clients.anyDevice") : t("clients.requireManual")}
-                          </p>
                         </div>
                         <Toggle on={autoApprove} onClick={onAutoApproveToggle} title={autoApprove ? "Disable auto-approve" : "Enable auto-approve"} />
                       </div>
@@ -736,33 +612,6 @@ export default function MainScreen({
                     </div>
                   </div>
                   </>
-                )}
-
-                {activeMenu === "logs" && (
-                  <div className="flex-1 flex flex-col">
-                    {logs.length > 0 && (
-                      <div className="flex justify-end mb-2">
-                        <button onClick={onClearLogs} title="Clear logs" className="glass-btn flex items-center gap-1.5 px-2.5 h-7 text-xs" style={{ color: "var(--text-muted)" }}>
-                          <span className="material-symbols-outlined text-sm">delete_sweep</span> Clear
-                        </button>
-                      </div>
-                    )}
-                    {logs.length === 0 ? (
-                      <p className="text-xs text-center mt-8" style={{ color: "var(--text-muted)" }}>No logs yet</p>
-                    ) : (
-                      <div ref={logEndRef} className="flex flex-col gap-0.5 overflow-y-auto max-h-[calc(100dvh-14rem)] pr-1">
-                        {logs.map((line, i) => (
-                          <p key={i} className="text-xs font-mono leading-5 break-all" style={{ color: "var(--text-muted)" }}>{line}</p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {activeMenu === "system" && (
-                  <div className="flex-1 flex flex-col">
-                    <SystemPane />
-                  </div>
                 )}
           </div>
         </div>
@@ -830,7 +679,7 @@ export default function MainScreen({
               </button>
               <button
                 onClick={onDeviceApprove}
-                className="flex-1 py-2 text-sm font-semibold rounded-xl"
+                className="flex-1 py-2 text-sm font-semibold rounded-lg"
                 style={{ background: "var(--brand-500)", color: "#fff" }}
               >
                 Approve

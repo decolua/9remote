@@ -8,8 +8,8 @@
 
 /* Design tokens — synced with web/app/globals.css */
 :root {
-  --radius-brand: 12px;
-  --radius-brand-lg: 18px;
+  --radius-brand: 8px;
+  --radius-brand-lg: 10px;
 }
 
 /* Light theme — GitBook-style softer brand (web light) */
@@ -198,7 +198,29 @@
     .aurora { animation: none; }
   }
 
-  /* Vignette + fine grain — darkens edges, focuses center (pro5 parity) */
+  /* Login AnimatedBackground parity — accent grid + big blurred brand glow blobs */
+  .agent-grid {
+    background-image:
+      linear-gradient(to right, var(--brand-500) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--brand-500) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.05;
+  }
+  [data-theme="light"] .agent-grid { opacity: 0.09; }
+
+  /* Two huge soft glows — top-left bright, bottom-right deep (white, login parity) */
+  .agent-glow-tl {
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.20), transparent 70%);
+    filter: blur(120px);
+  }
+  .agent-glow-br {
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.10), transparent 70%);
+    filter: blur(140px);
+  }
+  [data-theme="light"] .agent-glow-tl { background: radial-gradient(circle, rgba(0, 0, 0, 0.05), transparent 70%); }
+  [data-theme="light"] .agent-glow-br { background: radial-gradient(circle, rgba(0, 0, 0, 0.03), transparent 70%); }
+
+  /* Vignette — darkens edges, focuses center (pro5 parity) */
   .aurora-grain {
     background:
       radial-gradient(120% 90% at 50% 0%, transparent 42%, var(--bg-main) 100%),
@@ -232,7 +254,7 @@
     background: var(--glass-bg);
     box-shadow: var(--shadow-elev);
     border: 1px solid var(--glass-border);
-    border-radius: 20px;
+    border-radius: var(--radius-brand-lg);
     backdrop-filter: blur(20px) saturate(140%);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
     transition: box-shadow 0.2s ease, border-color 0.2s ease;
@@ -253,7 +275,7 @@
   .glass-btn {
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 7px;
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
