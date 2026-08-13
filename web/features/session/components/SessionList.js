@@ -29,6 +29,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
   const [terminalModal, setTerminalModal] = useState({ open: false, groupId: null });
 
   // Pointer-based drag reorder (mobile-first). Long-press activates drag; card follows pointer.
+  const DRAG_REORDER_ENABLED = false; // TEMP: off — long-press grip hijacks touch scroll on mobile
   const [drag, setDrag] = useState(null); // { groupId, fromIdx, overIdx }
   const dragRef = useRef(null);
   const pressTimer = useRef(null);
@@ -398,6 +399,15 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                         </button>
                       </>
                     )}
+                    {/* Add terminal button — mobile only, pinned right */}
+                    <button
+                      onClick={() => { vibrate(); setTerminalModal({ open: true, groupId: section.id }); }}
+                      disabled={!connected}
+                      className={`sm:hidden ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border border-brand-500/40 text-brand-500 bg-brand-500/5 transition-colors active:scale-[0.97] ${connected ? "hover:bg-brand-500/15" : "opacity-50 cursor-not-allowed"}`}
+                      title={t("groups.addTerminal")}
+                    >
+                      <Plus size={14} /> Term
+                    </button>
                   </div>
 
                   {/* Cards */}
@@ -407,7 +417,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                           const isDragOver = drag?.groupId === section.id && drag.overIdx === cardIdx && drag.fromIdx !== cardIdx;
                           const groupIds = groupSessions.map((s) => s.id);
                           const dotBase = connected ? "" : "opacity-40 saturate-0";
-                          const draggable = connected && groupSessions.length > 1;
+                          const draggable = DRAG_REORDER_ENABLED && connected && groupSessions.length > 1;
                           const st = sessionStatus[session.id]?.state || "idle";
                           const v = statusVisual(st);
                           return (
@@ -528,11 +538,11 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                           </div>
                           );
                         })}
-                        {/* Inline dashed card to add a terminal into this group */}
+                        {/* Inline dashed card to add a terminal — desktop only; hidden on mobile when group has terminals */}
                         <button
                           onClick={() => { vibrate(); setTerminalModal({ open: true, groupId: section.id }); }}
                           disabled={!connected}
-                          className={`min-h-[164px] rounded-xl p-3 flex items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
+                          className={`min-h-[164px] rounded-xl p-3 items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${groupSessions.length > 0 ? "hidden sm:flex" : "flex"} ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
                           title={t("groups.addTerminal")}
                         >
                           <Plus className="text-brand-500" size={16} /> <span className="text-brand-500">{t("terminal.newTerminal")}</span>
