@@ -4,6 +4,7 @@ import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadS
 import { resolveShell, getShellList } from "../constants.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
+import { currentSeq, getGap, clearSession } from "../seqStore.js";
 import fs from "fs";
 import path from "path";
 
@@ -81,6 +82,7 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
     }
     sessions.delete(sessionId);
     deleteSessionBuffer(sessionId);
+    clearSession(sessionId); // drop seq counter + gap ring
     broadcast(io, "sessionClosed", sessionId);
   });
 }
@@ -156,6 +158,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
             deleteSessionBuffer(sid);
           }
           sessions.delete(sid);
+          clearSession(sid); // drop seq counter + gap ring
           broadcast(io, "sessionClosed", sid);
         }
         delete sessionGroups[sid];
@@ -316,7 +319,9 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     if (session.buffer?.length > 0) {
       socket.emit("output", { sessionId, data: Buffer.from(takeBufferTail(session.buffer, JOIN_REPLAY_SIZE), "utf-8") });
     }
-    callback({ success: true, name: session.name, cwd: session.cwd });
+    // Return the current live seq so the client can resync lastSeq after the
+    // reset+replay (next live chunk = currentSeq + 1 → contiguous, no false gap).
+    callback({ success: true, name: session.name, cwd: session.cwd, seq: currentSeq(sessionId) });
   });
 
   // Scroll-up history fetch — client asks for the prefix older than the bytes it holds.
@@ -337,6 +342,29 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     }
   });
 
+  // Seq peek: the client asks "what is the newest live seq?" when it becomes
+  // visible again. Gap detection otherwise only runs when a NEW chunk arrives, so
+  // output produced while the app was backgrounded would stay missing until the
+  // terminal happened to print something else.
+  socket.on("peekSeq", ({ sessionId } = {}, callback) => {
+    callback?.({ seq: currentSeq(sessionId) });
+  });
+
+  // Gap recovery (plan G): client lost a small range of live chunks during a
+  // background suspension. Emit only the missing range (flagged gap:true so the
+  // client appends without reset/mirror) instead of a full reset+tail replay.
+  // Miss (gap spans an evicted chunk) → callback hit:false so the client falls
+  // back to reset+rejoin.
+  socket.on("requestGap", ({ sessionId, fromSeq, toSeq } = {}, callback) => {
+    if (!Number.isFinite(fromSeq) || !Number.isFinite(toSeq)) return callback?.({ hit: false });
+    const chunks = getGap(sessionId, fromSeq, toSeq);
+    if (!chunks) return callback?.({ hit: false });
+    for (const c of chunks) {
+      socket.emit("output", { sessionId, seq: c.seq, enc: c.enc, data: c.data, gap: true });
+    }
+    callback?.({ hit: true, count: chunks.length });
+  });
+
   socket.on("deleteSession", async (sessionId, callback) => {
     const session = sessions.get(sessionId);
     if (!session) return callback({ success: false, error: "Session not found" });
@@ -345,6 +373,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
       try {
         await daemonClient.deleteSession(sessionId);
         sessions.delete(sessionId);
+        clearSession(sessionId); // drop seq counter + gap ring
         if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
         deleteSessionNote(sessionId);
         saveSessionMetadata(sessions);
@@ -357,6 +386,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
 
     if (session.pty) session.pty.kill();
     sessions.delete(sessionId);
+    clearSession(sessionId); // drop seq counter + gap ring
     if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
     deleteSessionBuffer(sessionId);
     deleteSessionNote(sessionId);

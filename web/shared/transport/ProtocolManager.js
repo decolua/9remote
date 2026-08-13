@@ -1,9 +1,10 @@
 import { WsProtocol } from "./WsProtocol";
 import { WebRtcProtocol } from "./WebRtcProtocol";
 import { registerProtocol, getProtocol } from "./registry";
-import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_RESTART, REJOIN_DEBOUNCE_MS, RTC_CONNECT_TIMEOUT_MS, SIGNALING_CONFIG, NET_RECOVERY, SIGNALING_ERRORS } from "@/shared/constants/transport";
+import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_RESTART, REJOIN_DEBOUNCE_MS, RTC_CONNECT_TIMEOUT_MS, RESUME_PROBE_TIMEOUT_MS, STUN_PROBE, SIGNALING_CONFIG, NET_RECOVERY, SIGNALING_ERRORS } from "@/shared/constants/transport";
 import { WORKER_API } from "@/shared/constants/API";
 import { isWsZombie } from "./wsZombie";
+import { probePublicIp, shouldRearmOnIpChange, NO_PUBLIC_IP } from "./stunProbe";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 
@@ -28,6 +29,21 @@ function sameNetwork(a, b) {
   const pa = (a || "").split(".");
   const pb = (b || "").split(".");
   return pa.length === 4 && pb.length === 4 && pa[0] === pb[0] && pa[1] === pb[1] && pa[2] === pb[2];
+}
+
+// Sum responsesReceived over the nominated/selected ICE candidate-pairs of a
+// RTCStatsReport. Returns null if no selected pair exists yet (still gathering).
+// Used by the resume probe to tell a live DC (counter grows from STUN keepalives)
+// from a frozen/zombie one (counter flat) without any agent cooperation.
+function selectedIceResponses(report) {
+  let total = 0, found = false;
+  for (const v of report.values()) {
+    if (v.type === "candidate-pair" && (v.nominated || v.selected)) {
+      found = true;
+      total += v.responsesReceived ?? 0;
+    }
+  }
+  return found ? total : null;
 }
 
 /**
@@ -84,6 +100,10 @@ export class ProtocolManager {
     // RTC zombie recovery — restart with backoff when acks time out (dead-but-open DC)
     this._rtcRestartAttempts = 0;
     this._rtcRestartTimer = null;
+    this._probeAttempts = 0;     // escalating-probe index (probeBackoffMs)
+    this._rtcGivenUp = false;    // hard NAT detected → WS-only until network changes
+    this._giveUpIp = null;       // public IP at give-up — re-arm only when it changes
+    this._lastStunProbeAt = 0;   // rate-limit the standalone STUN probe
     // Debounce a WS-driven rejoin while RTC is mid-handshake (resume case) so the
     // terminal isn't reset right before RTC opens — cleared on RTC open / disconnect.
     this._rejoinDebounceTimer = null;
@@ -93,6 +113,13 @@ export class ProtocolManager {
     // host acts, so we don't spin offers the agent will only refuse again.
     this._awaitingApproval = false;
     this._ackTimeoutMs = RTC_RESTART.ackTimeoutMs;
+
+    // Resume-from-background probe state. OS suspends the tab → iceConnectionState
+    // events deferred → RTC may report "open" while dead. Track when we went hidden
+    // so the visibility handler can probe-then-restart instead of blind-restarting.
+    this._hiddenAt = null;
+    this._resumeProbeTimer = null;
+    this._probeToken = 0;
 
     this._connected = false;
     this._type = "ws";
@@ -113,7 +140,10 @@ export class ProtocolManager {
     // PeerConnection freezes/closes; without this, RTC never recovers on resume.
     this._visibilityHandler = () => {
       termLog("switch", `visibility=${document.visibilityState}`);
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible") {
+        if (document.visibilityState === "hidden") this._hiddenAt = Date.now();
+        return;
+      }
       const ws = this._adapters.get("ws");
       const rtc = this._adapters.get("rtc");
       termLog("switch", `resume check: ws=${ws?.ready ? "ready" : ws?.state} rtc=${rtc?.ready ? "ready" : rtc?.state}`);
@@ -152,6 +182,15 @@ export class ProtocolManager {
       // Signaling rides the tunnel WS *or* the DO relay — an RTC-only session
       // has no ws adapter at all, so gating on WS here left it stuck forever.
       if (this._awaitingApproval) return; // host hasn't approved yet — nothing to retry
+      // Gave up on hard NAT → only a REAL network change can make RTC viable again.
+      // Ask STUN for the current public IP (no DO call) and compare; a timer would
+      // re-spam the DO on every long app switch even though the NAT never moved.
+      if (this._rtcGivenUp) {
+        // The probe decides asynchronously whether to re-arm; nothing else on the
+        // resume path should touch RTC while we're WS-only.
+        this._maybeRearmRtc();
+        return;
+      }
       if (!this._canSignal()) {
         // Both carriers down (background froze them too) — kick the relay and
         // let its onReady restart RTC once a path exists again.
@@ -162,9 +201,22 @@ export class ProtocolManager {
       if (!rtc || rtcState === ADAPTER_STATE.closed || rtcState === ADAPTER_STATE.degraded) {
         termLog("switch", `visibility → restartRtc (rtc=${rtcState || "absent"})`);
         this._restartRtc();
+      } else {
+        // RTC reports open/connecting — but OS suspension often kills the DC
+        // without firing an iceConnectionState change. Probe the DC before
+        // tearing down; only force a restart if the probe times out.
+        this._probeRtcOnResume();
       }
     };
     document.addEventListener("visibilitychange", this._visibilityHandler);
+    // Page Lifecycle: a tab returning from frozen→active may NOT fire
+    // visibilitychange (Chrome 77+ Android) — only `resume`. Treat it the same.
+    this._resumeHandler = () => {
+      if (document.visibilityState === "visible") this._visibilityHandler();
+    };
+    this._freezeHandler = () => { this._hiddenAt = Date.now(); };
+    document.addEventListener("resume", this._resumeHandler);
+    document.addEventListener("freeze", this._freezeHandler);
 
     // Network handover (wifi ⇄ cellular ⇄ another AP) invalidates the NAT
     // bindings ICE negotiated, so RTC is dead well before its own timers notice.
@@ -177,9 +229,13 @@ export class ProtocolManager {
         debugLog("transport", "[pm] network change → probe rtc");
         this._sig?.retryNow();
         // Fresh network deserves a fresh budget, else a session that burned its
-        // 3 restarts on a bad network is locked to the tunnel forever.
-        termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=net-change`); // TEMP DIAGNOSTIC
+        // 3 restarts on a bad network is locked to the tunnel forever. A network
+        // change also means the NAT may differ → clear any give-up and try again.
+        termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) givenUp=${this._rtcGivenUp} reason=net-change`); // TEMP DIAGNOSTIC
         this._rtcRestartAttempts = 0;
+        this._probeAttempts = 0;
+        this._rtcGivenUp = false;
+        this._giveUpIp = null;
         // No carrier yet — the relay just reconnected; its onReady fires the
         // restart. Renegotiating now would only buffer an offer nobody reads.
         if (this._shouldRenegotiate()) this._restartRtc();
@@ -417,6 +473,41 @@ export class ProtocolManager {
     debugLog("transport", `[pm] net fingerprint ${prev}→${ip} (same network — no backoff reset)`);
   }
 
+  /** Lift an RTC give-up only on evidence: a STUN probe (public STUN, no DO call,
+   *  no agent) reporting a public IP different from the one we gave up on. Same
+   *  IP → the NAT that refused P2P is still there, so stay WS-only and spend
+   *  nothing. Rate-limited: resume/visibility can fire in bursts. */
+  _maybeRearmRtc() {
+    if (!this._rtcGivenUp) return;
+    const now = Date.now();
+    if (now - this._lastStunProbeAt < STUN_PROBE.minIntervalMs) return;
+    this._lastStunProbeAt = now;
+    probePublicIp().then((raw) => {
+      // The probe takes seconds — the PM may have been torn down meanwhile.
+      // Resurrecting RTC on a disconnected PM would leak a peer nobody owns.
+      if (this._sigDestroyed) return;
+      if (!this._rtcGivenUp) return; // something else already re-armed us
+      // Compare like for like: a STUN-blocked network reports NO_PUBLIC_IP on both
+      // sides, so it reads as "unchanged" instead of re-arming on every resume.
+      const ip = raw || (this._giveUpIp === NO_PUBLIC_IP ? NO_PUBLIC_IP : null);
+      if (!shouldRearmOnIpChange(this._giveUpIp, ip)) {
+        termLog("switch", `rearm check: ip=${ip || "unknown"} same as give-up → stay WS-only`);
+        return;
+      }
+      termLog("switch", `rearm check: ip ${this._giveUpIp || "unknown"}→${ip} changed → re-arm RTC`);
+      debugLog("transport", `[pm] public ip changed → re-arm rtc`);
+      this._rtcGivenUp = false;
+      this._giveUpIp = null;
+      this._probeAttempts = 0;
+      this._rtcRestartAttempts = 0;
+      this._netFingerprint = raw;
+      // Relay may be down (we skipped its retry while WS-only) — kick it and let
+      // _onSignalingReady fire the restart once a signaling path exists again.
+      if (!this._canSignal()) { this._sig?.retryNow(); return; }
+      if (this._shouldRenegotiate()) this._restartRtc();
+    }).catch(() => {});
+  }
+
   _startSecondaryAdapters() {
     debugLog("transport", `[pm] startSecondary enabled=${this._profile.enabled}`);
     debugLog("transport", `[pm] startSecondary rtcTestDisabled=${!!this._rtcTestDisabled}`);
@@ -480,6 +571,13 @@ export class ProtocolManager {
       termLog("switch", "restartRtc skipped (rtcTestDisabled)");
       return;
     }
+    // Hard NAT → every recovery path (visibility, sig-ready, net handler) must
+    // stand down too, or the give-up only stops the probe timer while the others
+    // keep spending DO calls.
+    if (this._rtcGivenUp) {
+      termLog("switch", "restartRtc skipped (hard NAT → WS-only)");
+      return;
+    }
     const rtc = this._adapters.get("rtc");
     // Another recovery path (visibility, signaling-ready, net handler) already
     // spun up a new peer — don't kill it mid-handshake. Only restart dead/idle.
@@ -496,11 +594,84 @@ export class ProtocolManager {
     this._startSecondaryAdapters();
   }
 
+  /** Force restart bypassing the open/connecting guard — used when the resume
+   * probe confirms the DC is dead despite rtc.state reporting "open". */
+  _forceRestartRtc() {
+    termLog("switch", `forceRestartRtc CALLED by=${callerTrace()}`);
+    const rtc = this._adapters.get("rtc");
+    if (rtc) {
+      try { rtc.disconnect(); } catch {}
+      this._adapters.delete("rtc");
+      this._rtcSignalingHandler = null;
+    }
+    // Hard NAT → tear the dead peer down but don't negotiate a new one; that
+    // would spend a DO round-trip the same NAT will refuse again.
+    if (this._rtcGivenUp) {
+      termLog("switch", "forceRestartRtc: torn down, no renegotiate (hard NAT)");
+      return;
+    }
+    this._startSecondaryAdapters();
+  }
+
+  /** On resume from background, RTC may report "open" while the DC is actually
+   *  dead (OS suspension froze ICE without firing state changes). Sample
+   *  getStats() across the window — STUN keepalives grow responsesReceived on a
+   *  live DC; a flat counter means zombie → force a restart. Browser-only, no
+   *  agent cooperation (and no DO signaling round-trip on a healthy resume). */
+  _probeRtcOnResume() {
+    const rtc = this._adapters.get("rtc");
+    if (!rtc?.ready) { this._restartRtc(); return; }
+    const pc = rtc._pc;
+    if (!pc || pc.connectionState === "failed") { this._forceRestartRtc(); return; }
+    // Browser-only probe (no agent cooperation): sample the selected ICE
+    // candidate-pair's responsesReceived across the window. ICE sends STUN
+    // keepalives continuously — even with no app traffic — so a live DC grows
+    // this counter; a frozen/zombie DC stays flat. Avoids a DO round-trip per
+    // resume and needs no new agent event.
+    clearTimeout(this._resumeProbeTimer);
+    const token = ++this._probeToken;
+    const sample = async () => {
+      const r1 = await pc.getStats();
+      const a = selectedIceResponses(r1);
+      if (a == null) return null;
+      await new Promise((res) => { this._resumeProbeTimer = setTimeout(res, RESUME_PROBE_TIMEOUT_MS); });
+      if (token !== this._probeToken) return null; // superseded / disconnected
+      const r2 = await pc.getStats();
+      return selectedIceResponses(r2) - a;
+    };
+    sample().then((delta) => {
+      if (token !== this._probeToken) return;
+      if (delta != null && delta > 0) {
+        termLog("switch", `resume probe getStats alive (Δ=${delta})`);
+        debugLog("transport", `[pm] resume probe alive (delta=${delta})`);
+      } else {
+        termLog("switch", `resume probe getStats dead (Δ=${delta}) → forceRestartRtc`);
+        debugLog("transport", `[pm] resume probe dead (delta=${delta}) → restart rtc`);
+        this._forceRestartRtc();
+      }
+    }).catch(() => {
+      if (token !== this._probeToken) return;
+      termLog("switch", "resume probe getStats error → forceRestartRtc");
+      this._forceRestartRtc();
+    });
+  }
+
   disconnect() {
     if (this._visibilityHandler) {
       document.removeEventListener("visibilitychange", this._visibilityHandler);
       this._visibilityHandler = null;
     }
+    if (this._resumeHandler) {
+      document.removeEventListener("resume", this._resumeHandler);
+      this._resumeHandler = null;
+    }
+    if (this._freezeHandler) {
+      document.removeEventListener("freeze", this._freezeHandler);
+      this._freezeHandler = null;
+    }
+    clearTimeout(this._resumeProbeTimer);
+    this._resumeProbeTimer = null;
+    this._probeToken++; // invalidate any in-flight getStats probe
     if (this._netHandler) {
       window.removeEventListener("online", this._netHandler);
       navigator.connection?.removeEventListener?.("change", this._netHandler);
@@ -528,6 +699,10 @@ export class ProtocolManager {
     this._rtcRestartTimer = null;
     termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=pm-disconnect`); // TEMP DIAGNOSTIC
     this._rtcRestartAttempts = 0;
+    this._probeAttempts = 0;
+    this._rtcGivenUp = false;
+    this._giveUpIp = null;
+    this._lastStunProbeAt = 0;
     for (const t of this._ackTimers.values()) clearTimeout(t);
     this._ackTimers.clear();
   }
@@ -627,9 +802,12 @@ export class ProtocolManager {
         termLog("switch", "onConnect FIRE (rtc, mode=webrtc)");
         this._wsCallbacks.onConnect?.(this._proxySocket, this._connectionMode);
       }
-      // Successful RTC open → reset zombie recovery attempts
+      // Successful RTC open → reset zombie recovery attempts + probe cadence
       termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=rtc-open`); // TEMP DIAGNOSTIC
       this._rtcRestartAttempts = 0;
+      this._probeAttempts = 0;
+      this._rtcGivenUp = false;
+      this._giveUpIp = null;
       clearTimeout(this._rtcRestartTimer);
       this._rtcRestartTimer = null;
       // RTC opened → cancel any pending WS-rejoin debounce: the switch is transparent,
@@ -894,12 +1072,55 @@ export class ProtocolManager {
   // fast phase. DO-down skips the probe (_onSignalingReady restarts when it's back).
   _scheduleRtcRestart() {
     // TEMP DIAGNOSTIC — value before ++ reveals if a reset happened between cycles
-    termLog("switch", `scheduleRtcRestart ENTER attempts=${this._rtcRestartAttempts}`);
+    termLog("switch", `scheduleRtcRestart ENTER attempts=${this._rtcRestartAttempts} probeAttempts=${this._probeAttempts} givenUp=${this._rtcGivenUp}`);
+    // Hard NAT (symmetric / STUN-blocked, no TURN) → P2P can't succeed, stop
+    // spending DO signaling calls. Re-armed by network change / visibility resume.
+    if (this._rtcGivenUp) {
+      termLog("switch", "scheduleRtcRestart skipped (hard NAT → WS-only)");
+      debugLog("transport", "[pm] rtc probe skipped (given up — hard NAT)");
+      return;
+    }
     const attempt = this._rtcRestartAttempts;
     const isProbe = attempt >= RTC_RESTART.maxAttempts;
-    const delay = isProbe
-      ? RTC_RESTART.probeIntervalMs
-      : (RTC_RESTART.backoffMs[attempt] ?? RTC_RESTART.backoffMs.at(-1));
+    let delay;
+    if (isProbe) {
+      delay = RTC_RESTART.probeBackoffMs[this._probeAttempts] ?? RTC_RESTART.probeBackoffMs.at(-1);
+      this._probeAttempts++;
+      // After enough failed probes, classify the NAT. "hard" → give up (WS-only).
+      // Soft/unknown → reset the probe cadence so one bad stretch doesn't lock us
+      // at the 5-min cap forever.
+      if (this._probeAttempts >= RTC_RESTART.classifyAfterProbes) {
+        const rtc = this._adapters.get("rtc");
+        const verdict = rtc?.natVerdict?.() ?? "unknown";
+        termLog("switch", `scheduleRtcRestart natVerdict=${verdict} probeAttempts=${this._probeAttempts}`);
+        debugLog("transport", `[pm] rtc nat verdict=${verdict} after ${this._probeAttempts} probes`);
+        if (verdict === "hard") {
+          this._rtcGivenUp = true;
+          // Remember the network we gave up on — a resume only re-arms RTC when
+          // the public IP differs (evidence of a real handover, not a timer).
+          this._giveUpIp = this._netFingerprint;
+          if (!this._giveUpIp) {
+            // The peer gathered no srflx (UDP blocked), so we have no baseline.
+            // Take one from the standalone probe — the same source the resume
+            // check uses — else every resume would compare against null, read it
+            // as "changed", and re-enter the ladder forever. A probe that also
+            // finds no public IP records NO_PUBLIC_IP so the baseline is still
+            // stable on STUN-blocked networks.
+            probePublicIp().then((ip) => {
+              if (this._rtcGivenUp && !this._giveUpIp) {
+                this._giveUpIp = ip || NO_PUBLIC_IP;
+                termLog("switch", `give-up baseline from probe: ip=${this._giveUpIp}`);
+              }
+            }).catch(() => {});
+          }
+          termLog("switch", `RTC give-up: hard NAT → WS-only (ip=${this._giveUpIp || "pending"})`);
+          return;
+        }
+        this._probeAttempts = 0; // soft/unknown → let the cadence climb again from 30s
+      }
+    } else {
+      delay = RTC_RESTART.backoffMs[attempt] ?? RTC_RESTART.backoffMs.at(-1);
+    }
     this._rtcRestartAttempts++;
     // TEMP DIAGNOSTIC
     termLog("switch", `scheduleRtcRestart by=${callerTrace()} attempt=${this._rtcRestartAttempts} delay=${delay}ms probe=${isProbe}`);

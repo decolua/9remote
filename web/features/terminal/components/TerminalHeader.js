@@ -257,7 +257,7 @@ export default function TerminalHeader({
             );
           })}
           {onCreateSession && (
-            <div className="relative sticky right-0 ml-1 flex-shrink-0">
+            <div className="sticky right-0 z-10 ml-1 pl-1 flex-shrink-0 bg-bg">
               <button
                 onClick={() => { vibrate(); setCreateModalOpen(true); }}
                 disabled={!connected}

@@ -17,6 +17,7 @@ import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
 import { touchWorking, startReaper, getStatuses } from "./statusManager.js";
 import { broadcast } from "../../transport/broadcast.js";
+import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ORANGE = chalk.rgb(230, 138, 110);
@@ -114,7 +115,11 @@ export function setupTerminalSocket(io, apiKey) {
     daemonClient.on("output", ({ sessionId, enc, data, replay }) => {
       // Live (non-replay) output = agent still producing → keep working status alive.
       if (replay !== true) touchWorking(sessionId);
-      broadcast(io, "output", { sessionId, enc, data, replay: replay === true });
+      // Live advances the seq; replay (rejoin tail) snapshots the current seq so
+      // the client can resync after a reset+replay without a false gap.
+      const seq = replay === true ? currentSeq(sessionId) : nextSeq(sessionId);
+      if (replay !== true) cacheChunk(sessionId, seq, data, enc); // plan G: recover gaps without a flash
+      broadcast(io, "output", { sessionId, enc, data, replay: replay === true, seq });
     });
 
     // Clear stuck "working" entries (agent crashed / Stop hook never fired).
@@ -127,6 +132,7 @@ export function setupTerminalSocket(io, apiKey) {
     });
     daemonClient.on("sessionClosed", (sessionId) => {
       sessions.delete(sessionId);
+      clearSeqSession(sessionId); // drop seq counter + gap ring
       // Drop any stale finished-badge so title count + UI stay in sync
       clearNotification(sessionId);
       broadcast(io, "sessionClosed", sessionId);

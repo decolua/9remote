@@ -118,6 +118,12 @@ export const ORIENTATION_SETTLE_MS = 600;
 // Longer backgrounds fall through to a real reset+rejoin to recover the gap.
 export const RECONNECT_WARM_MS = 8000;
 
+// Gap recovery (seq-based): how long to wait for a requestGap ack AND all its
+// chunks before giving up and doing a full reset+rejoin. Covers both a lost ack
+// and chunks stalled mid-transit; live output stays queued for this long, so keep
+// it short enough that a stall is not felt as a freeze.
+export const GAP_FETCH_TIMEOUT_MS = 3000;
+
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {
   lineHeight: 18, // px per line step

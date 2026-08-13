@@ -82,6 +82,14 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcBinary = null;
     this._dcFile = null;
     this._typeDetail = "dc-stun";
+    // NAT classification (anti-spam) — see natVerdict(). Tracks the local
+    // candidate types gathered, whether the agent answered (signaling reached it),
+    // and whether the DC ever opened. "Answered but never opened" is the signal
+    // for a connectivity failure; we cannot wait for ICE "failed" because
+    // _connectTimer closes the peer long before the browser declares it.
+    this._localCandidateTypes = new Set();
+    this._answerApplied = false;
+    this._everOpened = false;
 
     this._pendingEmit = null;
     this._flushTimer = null;
@@ -100,6 +108,10 @@ export class WebRtcProtocol extends BaseProtocol {
   async connect(ctx) {
     this._ctx = ctx;
     this._cleanupPeer();
+    // Fresh NAT classification per peer — candidate types accumulate as ICE gathers.
+    this._localCandidateTypes = new Set();
+    this._answerApplied = false;
+    this._everOpened = false;
     this._setState(ADAPTER_STATE.connecting);
     this.connectingSince = Date.now(); // age guard for the restart loop's stale-kill
     // Offer may be dropped by the DO relay if the agent hasn't joined its room yet
@@ -172,6 +184,7 @@ export class WebRtcProtocol extends BaseProtocol {
       termLog("switch", `rtc dc OPEN (${this._typeDetail} ${pairInfo})`);
       clearTimeout(this._connectTimer);
       this._connectTimer = null;
+      this._everOpened = true;
       this._setState(ADAPTER_STATE.open);
     };
 
@@ -222,6 +235,9 @@ export class WebRtcProtocol extends BaseProtocol {
 
     pc.onicecandidate = ({ candidate }) => {
       if (!candidate) return;
+      // Record the local candidate type for NAT classification ("typ host|srflx|relay|prflx").
+      const m = /typ (host|srflx|relay|prflx)/.exec(candidate.candidate || "");
+      if (m) this._localCandidateTypes.add(m[1]);
       const srflx = publicIpOf(candidate.candidate);
       if (srflx) this._emit("netFingerprint", srflx);
       this._sendSignaling({ type: "ice", candidate: candidate.candidate, mid: candidate.sdpMid });
@@ -229,7 +245,7 @@ export class WebRtcProtocol extends BaseProtocol {
 
     pc.oniceconnectionstatechange = () => {
       debugLog("transport", `[rtc] iceState=${pc.iceConnectionState}`);
-      termLog("switch", `rtc ice=${pc.iceConnectionState}`);
+      termLog("switch", `rtc ice=${pc.iceConnectionState} types=[${[...this._localCandidateTypes].join(",")}]`);
       // disconnected: transient — peer may recover. Only failed = terminal.
       if (pc.iceConnectionState === "disconnected") {
         this._setState(ADAPTER_STATE.degraded);
@@ -322,6 +338,7 @@ export class WebRtcProtocol extends BaseProtocol {
     try {
       if (msg.type === "answer") {
         await this._pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
+        this._answerApplied = true; // signaling reached the agent — a later failure is connectivity, not routing
         debugLog("transport", "[rtc] answer set");
         termLog("switch", "rtc answer applied");
       } else if (msg.type === "ice") {
@@ -338,6 +355,26 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────────
+
+  /**
+   * Classify this network's NAT from what this peer attempt observed.
+   * "ok"      — TURN relay available, or the DC opened at least once.
+   * "hard"    — the agent answered (so signaling works) yet the DC never opened
+   *             despite srflx candidates: symmetric NAT. Or only host candidates
+   *             were gathered at all: STUN/UDP blocked. Neither can do P2P.
+   * "unknown" — no answer yet (agent offline / DO drop) or nothing gathered:
+   *             a retry may still succeed, so don't give up.
+   * Note: we deliberately do NOT wait for ICE "failed" — _connectTimer closes the
+   * peer after RTC_CONNECT_TIMEOUT_MS, long before the browser declares failure.
+   * Used by ProtocolManager to decide whether another DO round-trip is worth it.
+   */
+  natVerdict() {
+    const types = this._localCandidateTypes;
+    if (this._everOpened || types.has("relay")) return "ok";
+    if (types.size === 0) return "unknown";        // nothing gathered — no signal
+    if (!types.has("srflx")) return "hard";        // host/prflx only → STUN/UDP blocked
+    return this._answerApplied ? "hard" : "unknown"; // answered but never opened → symmetric NAT
+  }
 
   _cleanupPeer() {
     clearTimeout(this._connectTimer);

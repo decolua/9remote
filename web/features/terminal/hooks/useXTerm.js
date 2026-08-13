@@ -12,10 +12,11 @@ import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { vibrate } from "@/shared/utils/vibration";
 import { termLog } from "@/shared/utils/termLog";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECONNECT_WARM_MS } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECONNECT_WARM_MS, GAP_FETCH_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { trimEndToEsc } from "@/features/terminal/lib/ansiBoundary";
+import { classifyLiveChunk, syncAfterReplay, GAP_DETECTED, GAP_STALE } from "@/features/terminal/lib/seqGap";
 
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 // import { detectLinks } from "@/features/terminal/utils/linkDetector";
@@ -88,6 +89,16 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const historyFetchingRef = useRef(false); // in-flight requestHistory
   const historyLastFetchRef = useRef(0);    // timestamp of last fetch (guard)
   const historyHaveAtEmitRef = useRef(0);   // historyBytesRef snapshot at requestHistory emit (race-dedup)
+  // Live-output seq (plan F): last live seq rendered. Used to detect a scrollback
+  // gap when output was lost during a background suspension the warm-reconnect
+  // heuristic missed. null until the first seq'd chunk arrives (old agents send
+  // no seq → stays null → seq logic stays disabled, warm heuristic used).
+  const lastSeqRef = useRef(null);
+  // Gap recovery (plan G): when a small gap is detected, request just the missing
+  // range and append it (no flash) instead of a full reset+tail replay. Live chunks
+  // that arrive while waiting are queued (like the join window) and flushed after.
+  const awaitingGapRef = useRef(null); // { pending: [{data, seq}], fromSeq, toSeq, timer }
+  const startGapFetchRef = useRef(null); // startGapFetch(toSeq, pending) — set inside the main effect
   // Join-replay window: while a joinSession round-trip is in flight (emit → replay → ack), LIVE
   // output is QUEUED (not written) so it never lands between term.reset() and the mode-restore
   // replay packet. Dropping was wrong — the window can last hundreds of ms under multi-pane joins
@@ -169,6 +180,10 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     // Fresh session → no prior output; clear so a carrier switch right after join
     // can't reuse a stale warm timestamp from the previous session.
     lastOutputAtRef.current = 0;
+    // Seq is per-session and starts over — a leftover value from the previous
+    // session would classify this session's first chunk as a huge false gap.
+    lastSeqRef.current = null;
+    awaitingGapRef.current = null;
 
     const term = new XTerm({
       ...TERMINAL_OPTIONS,
@@ -375,6 +390,93 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     term.textarea?.addEventListener("keyup", maybeFetchHistory);
     maybeFetchHistoryRef.current = maybeFetchHistory;
 
+    /** Fetch the missing live-output range [lastSeq+1 .. toSeq] and append it —
+     *  no reset, no flash. Live output arriving meanwhile is queued in `pending`
+     *  and flushed once the whole range lands, so order stays [gap … live].
+     *  Falls back to a full reset+rejoin on a ring miss or a stalled transfer.
+     *  Two callers: a live chunk that jumped ahead, and the visibility peek
+     *  (output produced while backgrounded, with nothing new printed since). */
+    const startGapFetch = (toSeq, pending = []) => {
+      if (awaitingGapRef.current) return; // a fetch is already in flight
+      const fromSeq = (lastSeqRef.current ?? 0) + 1;
+      if (toSeq < fromSeq) return; // nothing missing
+      termLog("reconnect", `seq gap (${lastSeqRef.current} → ${toSeq + 1}) → requestGap ${fromSeq}..${toSeq}`);
+      const gapState = {
+        pending: [...pending],
+        fromSeq, toSeq,
+        settled: false, timer: null,
+        expected: null,  // chunk count from the ack (null until it arrives)
+        received: 0,
+        seen: new Set(), // distinct gap seqs painted — dedups retransmits
+        finish: null,
+      };
+      // Flush the queued live output — runs once, whichever of the ack or the
+      // last gap chunk completes the set.
+      gapState.finish = () => {
+        // Cancelled (reconnect / unmount nulled the ref) → the rejoin owns the
+        // buffer now; painting here would land on content we no longer own.
+        if (gapState.settled || awaitingGapRef.current !== gapState) return;
+        gapState.settled = true;
+        clearTimeout(gapState.timer);
+        gapState.timer = null;
+        const b = writeBatcherRef.current;
+        for (const p of gapState.pending) {
+          const pd = p.data;
+          if (pd instanceof ArrayBuffer || ArrayBuffer.isView(pd)) {
+            writeChunked(term, pd instanceof Uint8Array ? pd : new Uint8Array(pd), historyMirrorRef, historyBytesRef, b);
+          } else {
+            writeChunked(term, typeof pd === "string" ? pd : String(pd), historyMirrorRef, historyBytesRef, b);
+          }
+          if (p.seq != null) lastSeqRef.current = p.seq;
+        }
+        b?.flush();
+        if (awaitingGapRef.current === gapState) awaitingGapRef.current = null;
+        termLog("reconnect", `gap recovered (${gapState.received}/${gapState.expected} chunks, ${gapState.pending.length} pending flushed)`);
+      };
+      const gapFallback = (why) => {
+        // Same cancellation guard: a reconnect already scheduled its own
+        // reset+rejoin, so don't fire a second one on top of it.
+        if (gapState.settled || awaitingGapRef.current !== gapState) return;
+        gapState.settled = true;
+        clearTimeout(gapState.timer);
+        gapState.timer = null;
+        awaitingGapRef.current = null;
+        termLog("reconnect", `gap ${why} (${fromSeq}..${toSeq}) → reset+rejoin`);
+        if (termRef.current) termRef.current.reset();
+        doJoinSessionRef.current?.(true);
+      };
+      awaitingGapRef.current = gapState;
+      // Safety: ack never returns, or chunks stall in transit (carrier drop) →
+      // full reset+rejoin instead of queueing live output forever.
+      gapState.timer = setTimeout(() => gapFallback("timeout"), GAP_FETCH_TIMEOUT_MS);
+      socket.emit("requestGap", { sessionId, fromSeq, toSeq }, (res) => {
+        if (gapState.settled || awaitingGapRef.current !== gapState) return; // cancelled meanwhile
+        if (!res?.hit) return gapFallback("miss"); // evicted from the ring
+        gapState.expected = res.count ?? 0;
+        // The ack can beat its own chunks (different carrier), so only finish
+        // when every chunk has landed; the timer covers the stalled case.
+        if (gapState.received >= gapState.expected) gapState.finish();
+      });
+    };
+    startGapFetchRef.current = startGapFetch;
+
+    /** On becoming visible, ASK the agent for its newest seq instead of waiting
+     *  for the next chunk. Without this, output produced while the app was
+     *  backgrounded stays missing until the terminal happens to print again —
+     *  a finished command leaves the pane silently truncated. */
+    const checkSeqOnVisible = () => {
+      if (!isVisibleRef.current) return;        // pane is LRU-hidden (other group) — don't recover into a zero-size buffer
+      if (lastSeqRef.current == null) return;   // no seq baseline yet (old agent / fresh pane)
+      if (joiningRef.current || awaitingGapRef.current) return; // recovery already running
+      socket.emit("peekSeq", { sessionId }, (res) => {
+        const agentSeq = res?.seq;
+        if (agentSeq == null) return;           // agent too old to answer → warm path handles it
+        if (agentSeq <= (lastSeqRef.current ?? 0)) return; // nothing missed
+        termLog("reconnect", `peekSeq ${lastSeqRef.current} → ${agentSeq} → recover`);
+        startGapFetch(agentSeq);
+      });
+    };
+
     // Output handler - filter by sessionId
     const handleOutput = (payload) => {
       if (payload.sessionId !== sessionId) return;
@@ -417,14 +519,75 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
           : (typeof data === "string" ? data : String(data));
         writeBatcherRef.current?.write(d);
         writeBatcherRef.current?.flush();
+        // Resync lastSeq to the snapshot so the next live chunk is contiguous.
+        if (payload.seq != null) lastSeqRef.current = syncAfterReplay(payload.seq);
+        return;
+      }
+
+      // Gap-recovery chunk (plan G): append to fill a missing range — no reset, no
+      // flash. Mirrored like live output (these ARE live bytes we simply missed),
+      // so historyBytes stays in step with the daemon's byte total and scroll-up
+      // keeps asking for the right prefix.
+      // Guard: only honor while a gap fetch is in flight and the seq falls inside
+      // the requested range. A chunk arriving after a miss/timeout fallback
+      // (reset+rejoin already fired) would corrupt the fresh buffer and rewind
+      // lastSeq → spurious gap loop.
+      if (payload.gap) {
+        const gap = awaitingGapRef.current;
+        if (!gap || payload.seq == null) return;
+        if (payload.seq < gap.fromSeq || payload.seq > gap.toSeq) return;
+        if (gap.seen.has(payload.seq)) return; // retransmit — already painted
+        const d = (data instanceof ArrayBuffer || ArrayBuffer.isView(data))
+          ? (data instanceof Uint8Array ? data : new Uint8Array(data))
+          : (typeof data === "string" ? data : String(data));
+        const b = writeBatcherRef.current;
+        if (d instanceof ArrayBuffer || ArrayBuffer.isView(d)) {
+          writeChunked(term, d instanceof Uint8Array ? d : new Uint8Array(d), historyMirrorRef, historyBytesRef, b);
+        } else {
+          writeChunked(term, typeof d === "string" ? d : String(d), historyMirrorRef, historyBytesRef, b);
+        }
+        b?.flush();
+        lastSeqRef.current = payload.seq;
+        // Count DISTINCT seqs: a duplicate delivery must not make the set look
+        // complete while a real chunk is still missing.
+        gap.seen.add(payload.seq);
+        gap.received = gap.seen.size;
+        // The ack may arrive over a different carrier than the gap chunks (the
+        // agent falls back to WS when RTC dies), so it can land first. Only flush
+        // once BOTH the ack and all its chunks are in, else the remaining chunks
+        // would be rejected by the guard above and their content lost silently.
+        if (gap.expected != null && gap.received >= gap.expected) gap.finish();
         return;
       }
 
       // Live output racing the join → queue, flush on ack. Dropping loses content produced after
       // the daemon's snapshot (window can be hundreds of ms under multi-pane joins).
       if (joiningRef.current) {
-        joinQueueRef.current.push(data);
+        joinQueueRef.current.push({ data, seq: payload.seq });
         return;
+      }
+
+      // Live output while a gap fetch is in flight → queue, flush after the gap
+      // lands so order stays [gap … queued live] without a flash.
+      if (awaitingGapRef.current) {
+        awaitingGapRef.current.pending.push({ data, seq: payload.seq });
+        return;
+      }
+
+      // Seq gap detection (plan F): agent stamps seq on live chunks. A gap means
+      // output was lost during a background suspension the warm heuristic missed.
+      // No seq field (old agent) → skip, fall back to the warm-reconnect path.
+      // STALE (duplicate/late/reordered) → drop, the bytes were already rendered.
+      if (payload.seq != null) {
+        const verdict = classifyLiveChunk(lastSeqRef.current, payload.seq);
+        if (verdict === GAP_DETECTED) {
+          // Hold this chunk (and any later live) until the gap lands.
+          startGapFetchRef.current?.(payload.seq - 1, [{ data, seq: payload.seq }]);
+          return;
+        }
+        if (verdict === GAP_STALE) return;
+        // INIT or NONE → advance and render below
+        lastSeqRef.current = payload.seq;
       }
 
       // Live output arrives → user is effectively at bottom; clear the user-scrolled-to-top flag.
@@ -487,12 +650,21 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
             const queue = joinQueueRef.current;
             joinQueueRef.current = [];
             const b = writeBatcherRef.current;
+            let queueTailSeq = null;
             for (const q of queue) {
-              if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) {
-                writeChunked(term, q instanceof Uint8Array ? q : new Uint8Array(q), historyMirrorRef, historyBytesRef, b);
+              const d = (q && typeof q === "object" && "data" in q) ? q.data : q; // {data,seq} | raw
+              if (q?.seq != null) queueTailSeq = q.seq;
+              if (d instanceof ArrayBuffer || ArrayBuffer.isView(d)) {
+                writeChunked(term, d instanceof Uint8Array ? d : new Uint8Array(d), historyMirrorRef, historyBytesRef, b);
               } else {
-                writeChunked(term, typeof q === "string" ? q : String(q), historyMirrorRef, historyBytesRef, b);
+                writeChunked(term, typeof d === "string" ? d : String(d), historyMirrorRef, historyBytesRef, b);
               }
+            }
+            // Resync lastSeq: ack carries the snapshot seq; queued live may extend past it.
+            // Take the larger so the next live chunk classifies as contiguous.
+            const ackSeq = result?.seq ?? null;
+            if (ackSeq != null || queueTailSeq != null) {
+              lastSeqRef.current = Math.max(ackSeq ?? -1, queueTailSeq ?? -1);
             }
             // Force a flush so queued content paints this frame instead of waiting for the next rAF.
             b?.flush();
@@ -537,6 +709,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         awaitingTuiOutput: awaitingTuiOutputRef,
         joining: joiningRef,
         joinQueue: joinQueueRef,
+        awaitingGap: awaitingGapRef,
       });
       setHistoryFetching(false);
       setJoining(false); // rejoin below will set it true again on emit
@@ -571,10 +744,13 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     }, ORIENTATION_SETTLE_MS);
     window.addEventListener("orientationchange", handleOrientationChange);
 
-    // Force redraw when tab becomes visible again (WebGL renderer may not repaint after tab switch)
+    // Force redraw when tab becomes visible again (WebGL renderer may not repaint after tab switch).
+    // Also ASK the agent for its newest seq — output produced while backgrounded, with nothing new
+    // printed since, otherwise stays silently truncated (gap detection only runs on new chunks).
     const handleVisibilityChange = () => {
       if (!document.hidden && termRef.current) {
         termRef.current.refresh(0, termRef.current.rows - 1);
+        checkSeqOnVisible();
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -591,6 +767,13 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       term.textarea?.removeEventListener("keyup", maybeFetchHistory);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+      // Gap fetch in flight → kill its fallback timer, else it fires after unmount
+      // and resets/rejoins a terminal that no longer exists.
+      if (awaitingGapRef.current) {
+        clearTimeout(awaitingGapRef.current.timer);
+        awaitingGapRef.current = null;
+      }
+      startGapFetchRef.current = null; // suppress peekSeq recovery on a disposed pane
       if (webglAddonRef.current) webglAddonRef.current.dispose();
       if (writeBatcherRef.current) writeBatcherRef.current.dispose();
       fitAddon.dispose();

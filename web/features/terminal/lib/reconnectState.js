@@ -8,6 +8,9 @@
 //     doJoinSession on reconnect re-arms cleanly.
 // R4 is handled in doFitAndJoin (sets lastPtySizeRef after emitting resize) so that
 // doResize dedups correctly after the rejoin — not here.
+// R6: awaitingGapRef — if disconnect lands mid requestGap, the ack never fires so
+//     live output stays queued forever. Clear the ref + its fallback timer; rejoin
+//     re-arms cleanly.
 //
 // `refs` is an object of { current } ref-like holders (React useRef shape).
 export function resetReconnectState(refs) {
@@ -17,4 +20,8 @@ export function resetReconnectState(refs) {
   if (refs.awaitingTuiOutput) refs.awaitingTuiOutput.current = false;
   if (refs.joining) refs.joining.current = false;
   if (refs.joinQueue) refs.joinQueue.current = [];
+  if (refs.awaitingGap) {
+    if (refs.awaitingGap.current?.timer) clearTimeout(refs.awaitingGap.current.timer);
+    refs.awaitingGap.current = null;
+  }
 }

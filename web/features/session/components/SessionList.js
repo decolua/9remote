@@ -403,7 +403,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                     <button
                       onClick={() => { vibrate(); setTerminalModal({ open: true, groupId: section.id }); }}
                       disabled={!connected}
-                      className={`sm:hidden ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border border-brand-500/40 text-brand-500 bg-brand-500/5 transition-colors active:scale-[0.97] ${connected ? "hover:bg-brand-500/15" : "opacity-50 cursor-not-allowed"}`}
+                      className={`sm:hidden ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-brand-500 transition-colors active:scale-[0.97] ${connected ? "hover:bg-brand-500/15" : "opacity-50 cursor-not-allowed"}`}
                       title={t("groups.addTerminal")}
                     >
                       <Plus size={14} /> Term
