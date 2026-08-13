@@ -22,7 +22,7 @@ export const POLL = {
 
 export const HEALTH_CHECK = {
   intervalMs: 2000,
-  timeoutMs: 180000,
+  timeoutMs: 120000,
   fetchTimeoutMs: 5000,
   dnsTimeoutMs: 2000,
   maxLogEntries: 80,
