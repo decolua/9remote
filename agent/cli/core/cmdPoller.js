@@ -4,12 +4,12 @@ import { createLogger } from "../../lib/logger.js";
 const logger = createLogger("cmd");
 import { readAndClearCmd, loadKey, saveKey } from "../utils/state.js";
 import { stopTunnelHealthWatchdog, updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
-import { ensureCloudflared } from "../utils/cloudflared.js";
+import { ensureCloudflared, spawnQuickTunnel } from "../utils/cloudflared.js";
 import { updateTrayTooltip } from "../utils/tray.js";
 import { getConsistentMachineId } from "../utils/machineId.js";
 import { generateApiKeyWithMachine, maskApiKey } from "../utils/apiKey.js";
 import { apiGet, pushUiState, setStep, onBinaryProgress } from "./localApi.js";
-import { spawnQuickTunnelWithRetry, makeTunnelRestartHandler } from "../tunnel/manager.js";
+import { makeTunnelRestartHandler, startBackgroundTunnelReconnect, cancelActiveBgTunnel } from "../tunnel/manager.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { updateTunnelUrl } from "../tunnel/urlSync.js";
 import { showConnectionInfo } from "../session/display.js";
@@ -49,6 +49,7 @@ export function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey, getServ
 }
 
 async function handleStop(getActiveTunnel, setActiveTunnel) {
+  cancelActiveBgTunnel();
   stopTunnelHealthWatchdog();
   const tunnel = getActiveTunnel();
   if (tunnel) {
@@ -71,6 +72,8 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
       return "alreadyRunning";
     }
   }
+  // Cancel any lingering background reconnect from a previous failed start
+  cancelActiveBgTunnel();
   logger.info("Starting...");
   try {
     await setStep(STEP.PREPARING);
@@ -84,10 +87,8 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     });
     if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
 
-    // Gate the UI (QR/key) until the tunnel is reachable — reduces the window
-    // where RTC fails on carrier NAT and no carrier is up. DO signaling is
-    // already live, so this only blocks the display, not RTC. Tunnel failure is
-    // non-fatal: fall back to RTC-only and show the QR anyway.
+    // Spawn tunnel after a successful session. Fail/health-timeout is non-fatal:
+    // show QR (RTC-only) and let the background reconnect loop retry.
     await setStep(STEP.TUNNELING);
     const onUrlUpdate = async (newUrl) => {
       await updateTunnelUrl(apiKey, newUrl);
@@ -98,16 +99,17 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     const onRetry = ({ attempt, delay }) => {
       pushUiState({ tunnelRetry: { attempt, delay, at: Date.now() } });
     };
+    // Foreground: one spawn attempt (90s timeout inside spawnQuickTunnel).
+    // Fail or health-timeout → show QR (RTC-only) + background reconnect.
     let result = null;
     try {
-      result = await spawnQuickTunnelWithRetry(
+      result = await spawnQuickTunnel(
         SERVER_PORT,
         onUrlUpdate,
         makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => setActiveTunnel(c), onRetry }),
-        onRetry,
       );
     } catch (err) {
-      logger.error(`Tunnel spawn gave up: ${err?.message || err} — continuing RTC-only`);
+      logger.error(`Tunnel spawn failed: ${err?.message || err} — QR RTC-only, bg retry`);
     }
     pushUiState({ tunnelRetry: null });
     let tunnelUrl = "";
@@ -116,10 +118,21 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
       tunnelUrl = result.tunnelUrl;
       await setStep(STEP.VERIFYING);
       if (!(await waitForTunnelReady(tunnelUrl))) {
-        logger.warn("Tunnel health check timed out, proceeding anyway...");
+        logger.warn("Tunnel health check timed out — bg reconnect");
+        tunnelUrl = "";
+        setActiveTunnel(null);
+        result = null;
       }
     }
     await showConnectionInfo(apiKey, tunnelUrl);
+    if (!result) {
+      startBackgroundTunnelReconnect(SERVER_PORT, {
+        onUrlUpdate,
+        onRestart: makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => setActiveTunnel(c), onRetry }),
+        setActiveTunnel,
+        onReady: async (r) => { await setStep(STEP.READY, { tunnelUrl: r.tunnelUrl }); },
+      });
+    }
   } catch (err) {
     logger.error(`Failed to start: ${err.message}`);
     await setStep(STEP.STOPPED);
@@ -136,6 +149,7 @@ async function handleRegenerate() {
 }
 
 function handleShutdown(getActiveTunnel, setActiveTunnel) {
+  cancelActiveBgTunnel();
   logger.info("Shutting down 9Remote completely...");
   const tunnel = getActiveTunnel();
   setActiveTunnel(null);

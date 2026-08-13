@@ -5,7 +5,7 @@ import { LOG_FILE_PATH, readRecentLogs, createLogger } from "../../lib/logger.js
 
 const logger = createLogger("mode");
 import { saveState, saveKey } from "../utils/state.js";
-import { ensureCloudflared, killCloudflared } from "../utils/cloudflared.js";
+import { ensureCloudflared, killCloudflared, spawnQuickTunnel } from "../utils/cloudflared.js";
 import { updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import { selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval, resetProgress } from "../utils/tui.js";
 import { createTempKey } from "../utils/token.js";
@@ -17,7 +17,7 @@ import {
 } from "../core/localApi.js";
 import { startServerWithRestart, setupExitHandler, shutdownAll } from "../core/lifecycle.js";
 import { setupCmdPoller } from "../core/cmdPoller.js";
-import { spawnQuickTunnelWithRetry, makeTunnelRestartHandler } from "../tunnel/manager.js";
+import { makeTunnelRestartHandler, startBackgroundTunnelReconnect, cancelActiveBgTunnel } from "../tunnel/manager.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { updateTunnelUrl } from "../tunnel/urlSync.js";
 import { ensureKeyData } from "../session/key.js";
@@ -94,19 +94,17 @@ export async function tuiMode() {
     }
   };
 
-  // Spawn tunnel and wait until reachable before showing the menu. RTC signaling
-  // is already live (server child); this only gates the UI — reduces the window
-  // where RTC fails on carrier NAT and no carrier is up yet. Tunnel failure is
-  // non-fatal: fall back to RTC-only and show the QR anyway.
+  // Foreground: one spawn attempt. Fail or health-timeout → show QR (RTC-only)
+  // + background reconnect. RTC signaling is already live (server child).
   let result = null;
   try {
-    result = await spawnQuickTunnelWithRetry(
+    result = await spawnQuickTunnel(
       SERVER_PORT,
       onTunnelUrl,
       makeTunnelRestartHandler({ onUrlUpdate: onTunnelUrl, setTunnel: (c) => { tunnelRef.current = c; } }),
     );
   } catch (err) {
-    logger.error(`Tunnel spawn gave up: ${err?.message || err} — continuing RTC-only`);
+    logger.error(`Tunnel spawn failed: ${err?.message || err} — QR RTC-only, bg retry`);
   }
   if (result) {
     tunnelRef.current = result.child;
@@ -114,9 +112,24 @@ export async function tuiMode() {
     saveState({ apiKey: keyData.key, tunnelUrl: result.tunnelUrl, tunnelPid: result.child?.pid });
     await setStep(STEP.VERIFYING);
     if (!(await waitForTunnelReady(result.tunnelUrl))) {
-      logger.warn("Tunnel health check timed out, proceeding anyway...");
+      logger.warn("Tunnel health check timed out — bg reconnect");
+      tunnelRef.current = null;
+      currentTunnelUrl = "";
+      result = null;
+    } else {
+      await onTunnelUrl(result.tunnelUrl);
     }
-    await onTunnelUrl(result.tunnelUrl);
+  }
+  if (!result) {
+    startBackgroundTunnelReconnect(SERVER_PORT, {
+      onUrlUpdate: onTunnelUrl,
+      onRestart: makeTunnelRestartHandler({ onUrlUpdate: onTunnelUrl, setTunnel: (c) => { tunnelRef.current = c; } }),
+      setActiveTunnel: (c) => { tunnelRef.current = c; },
+      onReady: async (r) => {
+        saveState({ apiKey: keyData.key, tunnelUrl: r.tunnelUrl, tunnelPid: r.child?.pid });
+        await setStep(STEP.READY, { tunnelUrl: r.tunnelUrl });
+      },
+    });
   }
 
   await setStep(STEP.READY, {
@@ -193,6 +206,7 @@ export async function tuiMode() {
   setupExitHandler({
     getProcess: tuiServerMgr.getProcess,
     shutdown: () => {
+      cancelActiveBgTunnel();
       tuiServerMgr.shutdown();
       // tunnelRef.current is null until the background spawn resolves — read at
       // exit time so a late-arriving tunnel is still cleaned up.
@@ -205,6 +219,7 @@ export async function tuiMode() {
   setupCmdPoller(() => tunnelRef.current, (t) => { tunnelRef.current = t; }, keyData.key, () => tuiServerMgr);
 
   const onShutdown = () => {
+    cancelActiveBgTunnel();
     try { stopSSE(); } catch {}
     try { clearInterval(pendingPoll); } catch {}
     shutdownAll({ serverManager: tuiServerMgr, tunnelProcess: tunnelRef.current, exit: false });

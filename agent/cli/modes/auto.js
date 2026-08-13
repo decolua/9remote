@@ -3,14 +3,14 @@ import { createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("mode");
 import { saveState } from "../utils/state.js";
-import { killCloudflared } from "../utils/cloudflared.js";
+import { killCloudflared, spawnQuickTunnel } from "../utils/cloudflared.js";
 import { updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import {
   isServerRunning, pushUiState, setStep,
 } from "../core/localApi.js";
 import { startServerWithRestart, setupExitHandler } from "../core/lifecycle.js";
 import { setupCmdPoller } from "../core/cmdPoller.js";
-import { spawnQuickTunnelWithRetry, makeTunnelRestartHandler } from "../tunnel/manager.js";
+import { makeTunnelRestartHandler, startBackgroundTunnelReconnect } from "../tunnel/manager.js";
 import { updateTunnelUrl } from "../tunnel/urlSync.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { ensureKeyData, getVersion } from "../session/key.js";
@@ -47,32 +47,44 @@ async function startServerAndTunnel(selectedKey) {
   await setStep(STEP.CONNECTING);
 
   const tunnelRef = { current: null };
-  let tunnelUrl;
+  let tunnelUrl = "";
   const onUrlUpdate = async (newUrl) => {
     logger.info(`Tunnel URL rotated: ${newUrl}`);
     await updateTunnelUrl(selectedKey, newUrl);
     pushUiState({ tunnelUrl: newUrl });
     updateTunnelHealthUrl(newUrl);
   };
+  // Foreground: one spawn attempt. Fail/health-timeout → RTC-only + background reconnect.
+  let result = null;
   try {
-    const result = await spawnQuickTunnelWithRetry(
+    result = await spawnQuickTunnel(
       SERVER_PORT,
       onUrlUpdate,
       makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => { tunnelRef.current = c; } }),
     );
+  } catch (error) {
+    logger.error(`Tunnel spawn failed: ${error.message} — RTC-only, bg retry`);
+  }
+  if (result) {
     tunnelRef.current = result.child;
     tunnelUrl = result.tunnelUrl;
-  } catch (error) {
-    logger.error(`Failed to start tunnel: ${error.message}`);
-    serverManager.shutdown();
-    return null;
+    if (!(await waitForTunnelReady(tunnelUrl))) {
+      logger.warn("Tunnel health check timed out — bg reconnect");
+      tunnelRef.current = null;
+      tunnelUrl = "";
+      result = null;
+    }
+  }
+  if (!result) {
+    startBackgroundTunnelReconnect(SERVER_PORT, {
+      onUrlUpdate,
+      onRestart: makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => { tunnelRef.current = c; } }),
+      setActiveTunnel: (c) => { tunnelRef.current = c; },
+      onReady: async (r) => { await setStep(STEP.READY, { tunnelUrl: r.tunnelUrl }); },
+    });
   }
 
-  if (!(await waitForTunnelReady(tunnelUrl))) {
-    logger.warn("Tunnel health check timed out, proceeding anyway...");
-  }
-
-  await updateTunnelUrl(selectedKey, tunnelUrl);
+  if (tunnelUrl) await updateTunnelUrl(selectedKey, tunnelUrl);
 
   saveState({
     apiKey: selectedKey,
