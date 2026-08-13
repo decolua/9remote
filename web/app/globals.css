@@ -674,13 +674,13 @@ body.keyboard-open .safe-area-bottom {
   100% { transform: translate3d(2%, 1.5%, 0) scale(1.12); opacity: 1; }
 }
 
-/* Login form glow — mobile-only ambient light (mirrors hero, tuned for narrow screens) */
+/* Login form glow — mobile-only ambient light (static, no animation to avoid
+   horizontal overflow from transform on narrow screens) */
 .login-mobile-glow {
   position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background:
     radial-gradient(480px 360px at 70% 22%, rgba(255,255,255,.20), transparent 62%),
     radial-gradient(420px 320px at 20% 88%, rgba(255,255,255,.08), transparent 66%);
-  animation: loginGlowDrift 16s ease-in-out infinite alternate;
 }
 :root.light .login-mobile-glow {
   background:

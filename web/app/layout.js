@@ -51,6 +51,13 @@ export const viewport = {
 // Inline script - apply theme class before paint to prevent FOUC
 const themeInitScript = `(function(){try{var t=localStorage.getItem("${STORAGE_KEY}")||"${DEFAULT_THEME}";document.documentElement.classList.add(t);}catch(e){document.documentElement.classList.add("${DEFAULT_THEME}");}})();`;
 
+// Clipboard-read blocker — neutralizes navigator.clipboard.readText/.read at the
+// browser API level so no library (xterm core OSC52, CodeMirror, addon) can trigger
+// a clipboard-read permission prompt. No web feature reads the clipboard today
+// (useClipboardSocket + ClipboardModal only write). Uncomment the script tag below
+// (and add key) to activate; currently commented while investigating the prompt source.
+// const clipboardBlockScript = `(function(){try{var c=navigator.clipboard;if(c){c.readText=function(){return Promise.resolve("");};c.read=function(){return Promise.resolve([]);};}}catch(e){}})();`;
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
