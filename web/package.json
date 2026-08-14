@@ -1,6 +1,6 @@
 {
   "name": "9remote-web",
-  "version": "0.1.7",
+  "version": "2.4.0",
   "type": "module",
   "scripts": {
     "predev": "pkill -f 'workerd.*9remote' 2>/dev/null; true",

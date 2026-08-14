@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const { env } = getCloudflareContext();
     return jsonOk({
-      version: env.BUILD_VERSION || "0.1.7",
+      version: env.BUILD_VERSION || "2.4.0",
       buildTime: env.BUILD_TIME || new Date().toISOString(),
       minAppVersion: "0.1.0",
       forceUpdate: false

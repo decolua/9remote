@@ -10,7 +10,7 @@ zone_name = "9remote.cc"
 [vars]
 CLOUDFLARE_ACCOUNT_ID = "4499702710a2818880232d356243a422"
 TURN_KEY_ID = "7e896708cbd77c30e5d1211f48ea859f"
-BUILD_VERSION = "0.1.7"
+BUILD_VERSION = "2.4.0"
 BUILD_TIME = "2026-03-12T00:00:00.000Z"
 ALLOWED_ORIGINS = "https://9remote.cc,https://dev.9remote.cc"
 # OTA: public R2 base (assets are served from a subdomain, not through Worker)
@@ -64,7 +64,7 @@ zone_name = "9remote.cc"
 [env.dev.vars]
 CLOUDFLARE_ACCOUNT_ID = "4499702710a2818880232d356243a422"
 TURN_KEY_ID = "7e896708cbd77c30e5d1211f48ea859f"
-BUILD_VERSION = "0.1.7"
+BUILD_VERSION = "2.4.0"
 BUILD_TIME = "2026-03-12T00:00:00.000Z"
 ALLOWED_ORIGINS = "https://dev.9remote.cc,http://localhost:3000"
 R2_PUBLIC_BASE = "https://r2.9remote.cc"
