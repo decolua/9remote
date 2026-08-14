@@ -30,9 +30,11 @@
     "docs:deploy": "npm run build --workspace=gitbook && cd gitbook && npx wrangler pages deploy out --project-name=9remote-docs",
     "pc:dev": "run-p agent:dev:ui:start pc:tauri",
     "pc:tauri": "NINEREMOTE_ENV=development npm run tauri dev --prefix desktop",
-    "pc:build": "npm run agent:build && npm run tauri build --prefix desktop",
-    "pc:build:local": "npm run tauri build --prefix desktop -- --debug",
-    "agent:dev:ui:start": "npm run dev:ui:start --prefix agent"
+    "pc:build": "bash desktop/scripts/build-macos-signed.sh --target universal-apple-darwin",
+    "agent:dev:ui:start": "npm run dev:ui:start --prefix agent",
+    "pc:build:win": "bash desktop/scripts/build-windows.sh",
+    "pc:build:linux": "bash desktop/scripts/build-linux.sh",
+    "pc:build:linux:amd64": "bash desktop/scripts/build-linux.sh --amd64"
   },
   "devDependencies": {
     "@napi-rs/image": "^1.12.0",

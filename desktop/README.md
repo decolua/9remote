@@ -1,9 +1,16 @@
 # 9Remote Desktop
 
-Electron wrapper around the `9remote` agent. The app launches the agent (`cli.cjs ui --start`) at `localhost:2208` and loads it in a window, plus a system tray. Electron ships its own Node, so the agent runs without a system Node install.
+Tauri wrapper around the `9remote` agent. The app launches the agent (`cli.cjs ui --start`) at `localhost:2208` and loads it in a webview window, plus a system tray. It uses the system webview (WKWebView on macOS, WebView2 on Windows), so the bundle stays ~11MB.
 
-- `npm run pc:dev` — dev mode (agent + Vite + Electron).
-- `npm run pc:build` — build **+ sign + notarize** macOS app (see below).
+The agent runs on Node, which the app provisions itself. It first looks for an existing install (nvm, fnm, Volta, Homebrew, `Program Files\nodejs`) and uses it when it is **v22.14 or newer** — the floor is set by `@julusian/jpeg-turbo@3`, which is built against Node-API 10 and *segfaults* on older runtimes rather than throwing. Anything older counts as missing.
+
+When no usable Node is found, the app downloads the pinned Node LTS into `~/.9remote/node/`, verifies its SHA256 against the release's `SHASUMS256.txt`, and reports progress on the splash screen. It then runs `npm install` into `~/.9remote/npm`.
+
+Official builds exist for macOS (arm64/x64), Windows (x64/arm64) and Linux glibc (x64/arm64). On anything else — Linux armv7, or musl distros like Alpine — the download is skipped and the app asks the user to install Node manually.
+
+- `npm run pc:dev` — dev mode (agent + Vite + Tauri).
+- `npm run pc:build` — macOS build **+ sign + notarize** (see below).
+- `npm run pc:build:win` — Windows x64 portable exe + NSIS installer, cross-compiled from macOS (see below).
 
 ## macOS signing & notarization
 
@@ -50,18 +57,34 @@ From repo root:
 npm run pc:build
 ```
 
-Output: `desktop/release/` (`*.dmg` + `mac-arm64/9Remote.app`).
+Output: `desktop/src-tauri/target/release/bundle/` (`dmg/9Remote_<version>_aarch64.dmg` + `macos/9Remote.app`).
 
-The script (`desktop/scripts/build-macos-electron.sh`):
+The script (`desktop/scripts/build-macos-signed.sh`):
 1. Loads `desktop/.sign.env` (or falls back to shell env — useful for CI).
 2. Validates the four `APPLE_*` vars.
-3. Builds the agent pkg (`agent:build`).
-4. Runs `electron-builder --mac` — signs with `CSC_NAME` (identity name without the `Developer ID Application: ` prefix).
-5. Notarizes the `.dmg` with `notarytool`, then staples the ticket. The DMG is notarized instead of the `.app` because electron-builder's pre-flight `codesign --deep` resolves the bundle by name and can hit an installed copy.
+3. Runs `tauri build` — Tauri signs and notarizes from the `APPLE_*` env vars, then staples.
 
 ### Notes
 
 - `entitlements.plist` keeps `app-sandbox=false` (needed for screen capture + apple-events; incompatible with Mac App Store).
 - First notarization can take 5–15 min.
 - Verify: `spctl -a -vvv -t exec path/to/9Remote.app` should print `accepted`.
-- The agent core (`9remote` npm package) auto-updates on its own. The Electron shell itself does **not** auto-update yet — to ship a new shell you rebuild + redistribute the `.dmg`.
+- Builds a **universal** binary (Intel + Apple Silicon) — `pc:build` passes `--target universal-apple-darwin`.
+- The agent core (`9remote` npm package) auto-updates on its own. The desktop shell does **not** auto-update yet — to ship a new shell you rebuild + redistribute.
+
+## Windows
+
+`npm run pc:build:win` cross-compiles from macOS via `cargo-xwin`, producing both artifacts under `desktop/src-tauri/target/x86_64-pc-windows-msvc/release/`:
+
+- `9Remote.exe` — portable, run straight from the file.
+- `bundle/nsis/9Remote_<version>_x64-setup.exe` — installer; per-user, no admin needed, and it installs WebView2 when missing.
+
+One-time setup: `rustup target add x86_64-pc-windows-msvc`, `cargo install cargo-xwin --locked`, `brew install llvm makensis` (`llvm-lib` is needed to build `ring`, `makensis` to produce the installer).
+
+- **Unsigned.** SmartScreen shows "Windows protected your PC" on downloaded copies; users click *More info → Run anyway*. A signing cert (EV recommended) removes it. Tauri only signs on a Windows host unless you set `bundle > windows > signCommand`.
+- The portable exe needs WebView2 already on the host — preinstalled on Win11 and most Win10 boxes, but a bare Win10/7 machine has none. `webviewInstallMode` applies to the installer only, so prefer the installer for wide distribution.
+- **x64 only.** Windows ARM64 fails to cross-compile: `ring` (via `ureq`) won't build its C sources for `aarch64-pc-windows-msvc` from macOS. It needs a Windows host.
+
+## Versioning
+
+`node scripts/syncVersion.js` (run by `agent:build`) propagates the root `package.json` version to `agent/package.json`, `desktop/package.json`, `tauri.conf.json`, and `Cargo.toml`.

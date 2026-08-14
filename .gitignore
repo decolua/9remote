@@ -64,7 +64,7 @@ cli/dist/*
 worker/wrangler.toml
 desktop/src-tauri/target/debug/*
 desktop/src-tauri/target/*
-desktop/dist/*
+desktop/src-tauri/target-linux/*
 worker/wrangler.toml
 .bin/*
 web/.open-next/*

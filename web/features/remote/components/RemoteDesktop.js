@@ -473,11 +473,22 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
 
+  // Periodic sync: once tiles are flowing, re-verify via hashes (steady state).
+  // Before the first tile paints, requestScreenWithHashes() skips on empty hashes —
+  // so pull a full frame directly (same as the refresh button) until the canvas is
+  // no longer empty. Covers the case where start-streaming's initial full frame was
+  // lost (transport not ready yet / landed before addClient / decode worker suspended).
   useEffect(() => {
     if (!streaming || !connected || !socketRef?.current) return;
-    const id = setInterval(() => requestScreenWithHashes(), REMOTE_CONFIG.hashRequestInterval);
+    const id = setInterval(() => {
+      if (renderedTilesRef.current.size === 0) {
+        socketRef.current.emit("request-screen-with-hashes", { tileHashes: [] });
+      } else {
+        requestScreenWithHashes();
+      }
+    }, REMOTE_CONFIG.hashRequestInterval);
     return () => clearInterval(id);
-  }, [streaming, connected, socketRef, requestScreenWithHashes]);
+  }, [streaming, connected, socketRef, requestScreenWithHashes, renderedTilesRef]);
 
   // WS reconnect (new server socket) is handled by the agent's remote:ready event
   // → onRemoteReady → doRestream. No socket.id polling needed.

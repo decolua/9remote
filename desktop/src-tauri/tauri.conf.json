@@ -1,6 +1,7 @@
 {
   "productName": "9Remote",
-  "version": "0.1.0",
+  "mainBinaryName": "9Remote",
+  "version": "2.3.6",
   "identifier": "cc.9remote.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -38,6 +39,19 @@
     ],
     "macOS": {
       "entitlements": "entitlements.plist"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libayatana-appindicator3-1"
+        ]
+      }
     }
   },
   "plugins": {}

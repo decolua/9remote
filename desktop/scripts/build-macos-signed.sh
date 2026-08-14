@@ -41,11 +41,10 @@ fi
 echo "[Desktop] Signing identity: $APPLE_SIGNING_IDENTITY"
 echo "[Desktop] Team ID: $APPLE_TEAM_ID"
 
-# Build agent pkg first (shared with desktop:build), then Tauri
-cd "$(git rev-parse --show-toplevel)"
-npm run agent:build
-
-cd desktop
-npm run tauri build
+# Extra args pass through, e.g. --target universal-apple-darwin for Intel + Apple Silicon
+npx tauri build "$@"
 
 echo "[Desktop] Done. Bundle in src-tauri/target/release/bundle/"
+
+# Gather into desktop/release/ so all platforms land in one place
+bash scripts/collect-artifacts.sh

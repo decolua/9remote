@@ -9,24 +9,23 @@ const VITE_PORT: u16 = 5173;
 const NPM_PREFIX_DIR: &str = ".9remote/npm";
 const NODE_CACHE_DIR: &str = ".9remote/node";
 const NPM_PACKAGE: &str = "9remote";
+// Local install (`npm install --prefix`, no -g) lands in <prefix>/node_modules on every OS
 const CLI_REL_PATH: &str = "node_modules/9remote/dist/cli.cjs";
 const HEALTH_TIMEOUT_SECS: u64 = 60;
 const HEALTH_POLL_MS: u64 = 200;
 const NPM_INSTALL_TIMEOUT_SECS: u64 = 300;
 const NODE_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
-// macOS-only: WKWebView mishandles the synthetic backspace+char sequence Vietnamese
-// IMEs (OpenKey/EVKey) emit, so render the UI in a Chromium window instead.
-#[cfg(target_os = "macos")]
-const BRIDGE_PORT: u16 = 2209;
-#[cfg(target_os = "macos")]
-const CHROME_PROFILE_DIR: &str = ".9remote/chrome";
-#[cfg(target_os = "macos")]
-const CHROMIUM_PATHS: &[&str] = &[
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-];
+// N-API 10 lands in v22.14 — @julusian/jpeg-turbo@3 is built against it and segfaults
+// (not a catchable throw) on anything older, so an older Node counts as no Node at all.
+const MIN_NODE: (u32, u32) = (22, 14);
+// Pinned: the app must never swap the runtime under a running agent. Node 24 is the
+// active LTS, so one download lasts until 2028.
+const NODE_LTS_VERSION: &str = "v24.19.0";
+const NODE_DIST_BASE: &str = "https://nodejs.org/dist";
+const NODE_DOWNLOAD_TIMEOUT_SECS: u64 = 600;
+// Keep spawned children from allocating a console window in this GUI-subsystem app
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 // Track full PID chain for clean shutdown
 static AGENT_PID: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<Option<u32>>>> =
@@ -53,8 +52,10 @@ fn kill_agent_tree() {
     }
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         let _ = std::process::Command::new("taskkill")
             .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
             .status();
     }
 }
@@ -116,7 +117,7 @@ fn run_swift(script: &str) -> String {
 }
 
 #[tauri::command]
-fn request_permission(permission_type: String) {
+fn request_permission(#[allow(unused_variables)] permission_type: String) {
     #[cfg(target_os = "macos")]
     {
         match permission_type.as_str() {
@@ -139,8 +140,10 @@ fn request_permission(permission_type: String) {
     }
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         let _ = std::process::Command::new("cmd")
             .args(["/c", "start", "ms-settings:privacy-screencapture"])
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn();
     }
 }
@@ -173,6 +176,20 @@ fn show_notif(app: AppHandle, title: String, body: String) -> Result<(), String>
         .map_err(|e| e.to_string())
 }
 
+// Opens http(s) links in the user's default browser. The agent UI calls this for
+// target="_blank" / window.open — Tauri's webview swallows those without it.
+#[tauri::command]
+fn open_external(app: AppHandle, url: String) -> Result<(), String> {
+    let parsed = url::Url::parse(&url).map_err(|_| format!("Invalid URL: {url}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!("Refused non-http(s) URL: {url}"));
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 // ── Path helpers ────────────────────────────────────────────────────────────
 
 fn home_dir() -> String {
@@ -186,16 +203,38 @@ fn npm_prefix() -> String {
 // Global `npm i -g 9remote` install, if the user already has one.
 // Reusing it avoids a redundant 270-package install into our private prefix.
 fn global_cli_path() -> Option<String> {
-    let home = home_dir();
+    // Volta is omitted: its package images nest under an extra <version> segment,
+    // so there is no fixed path to probe. Those users fall back to the private prefix.
+    #[cfg(windows)]
+    let mut roots = {
+        let env = |k: &str| std::env::var(k).unwrap_or_default();
+        vec![
+            format!("{}\\npm\\node_modules", env("APPDATA")),
+            format!("{}\\nodejs\\node_modules", env("ProgramFiles")),
+        ]
+    };
+    // Windows npm puts globals next to node itself: <dir>\node.exe → <dir>\node_modules
+    #[cfg(windows)]
+    {
+        let node = find_node_binary();
+        if let Some(dir) = std::path::Path::new(&node).parent() {
+            roots.insert(0, dir.join("node_modules").to_string_lossy().to_string());
+        }
+    }
+
+    #[cfg(not(windows))]
     let mut roots = vec![
         "/usr/local/lib/node_modules".to_string(),
         "/opt/homebrew/lib/node_modules".to_string(),
-        format!("{home}/.volta/tools/image/packages/{NPM_PACKAGE}/lib/node_modules"),
+        format!("{}/.volta/tools/image/packages/{NPM_PACKAGE}/lib/node_modules", home_dir()),
     ];
     // Version-manager installs live next to the node binary: <prefix>/bin/node → <prefix>/lib/node_modules
-    let node = find_node_binary();
-    if let Some(prefix) = std::path::Path::new(&node).parent().and_then(|p| p.parent()) {
-        roots.insert(0, prefix.join("lib/node_modules").to_string_lossy().to_string());
+    #[cfg(not(windows))]
+    {
+        let node = find_node_binary();
+        if let Some(prefix) = std::path::Path::new(&node).parent().and_then(|p| p.parent()) {
+            roots.insert(0, prefix.join("lib/node_modules").to_string_lossy().to_string());
+        }
     }
     roots.into_iter().find_map(|root| {
         let cli = format!("{root}/{NPM_PACKAGE}/dist/cli.cjs");
@@ -226,8 +265,12 @@ fn newest_node_in(dir: &str, prefix: Option<&str>) -> Option<String> {
             let stripped = name.trim_start_matches('v');
             if stripped != p && !stripped.starts_with(&format!("{p}.")) { continue; }
         }
-        let node = entry.path().join("bin/node");
-        if !node.exists() { continue; }
+        // nvm-windows puts node.exe at the version root; fnm nests it under installation/
+        #[cfg(windows)]
+        let rels = ["node.exe", "installation/node.exe"];
+        #[cfg(not(windows))]
+        let rels = ["bin/node"];
+        let Some(node) = rels.iter().map(|r| entry.path().join(r)).find(|p| p.exists()) else { continue };
         let version = parse_version(&name);
         if best.as_ref().is_none_or(|(b, _)| version > *b) {
             best = Some((version, node.to_string_lossy().to_string()));
@@ -236,12 +279,64 @@ fn newest_node_in(dir: &str, prefix: Option<&str>) -> Option<String> {
     best.map(|(_, path)| path)
 }
 
-fn find_node_binary() -> String {
-    let home = home_dir();
-    let cached = format!("{home}/{NODE_CACHE_DIR}/bin/node");
-    if std::path::Path::new(&cached).exists() {
-        return cached;
+#[cfg(windows)]
+fn find_system_node() -> String {
+    let env = |k: &str| std::env::var(k).unwrap_or_default();
+
+    // nvm-windows keeps the active version symlinked here — respect the user's `nvm use`
+    let symlink = env("NVM_SYMLINK");
+    if !symlink.is_empty() {
+        let node = format!("{symlink}\\node.exe");
+        if std::path::Path::new(&node).exists() { return node; }
     }
+
+    // nvm-windows root: <NVM_HOME>\vX.Y.Z\node.exe
+    let nvm_home = env("NVM_HOME");
+    if !nvm_home.is_empty() {
+        if let Some(node) = newest_node_in(&nvm_home, None) { return node; }
+    }
+
+    // fnm: <FNM_DIR|%APPDATA%\fnm|%LOCALAPPDATA%\fnm>\node-versions\vX.Y.Z\installation\node.exe
+    let fnm_dir = env("FNM_DIR");
+    let fnm_roots = if fnm_dir.is_empty() {
+        vec![format!("{}\\fnm", env("APPDATA")), format!("{}\\fnm", env("LOCALAPPDATA"))]
+    } else {
+        vec![fnm_dir]
+    };
+    for root in fnm_roots {
+        if let Some(node) = newest_node_in(&format!("{root}\\node-versions"), None) { return node; }
+    }
+
+    // Volta: resolve the real node, not %VOLTA_HOME%\bin\node.exe — that is a shim with
+    // no npm beside it. Windows images have node.exe at the image root (no bin/ subdir).
+    let volta_home = match env("VOLTA_HOME") {
+        v if !v.is_empty() => v,
+        _ => format!("{}\\Volta", env("LOCALAPPDATA")),
+    };
+    if let Some(node) = newest_node_in(&format!("{volta_home}\\tools\\image\\node"), None) {
+        return node;
+    }
+
+    for base in [env("ProgramFiles"), env("ProgramFiles(x86)"), env("LOCALAPPDATA")] {
+        if base.is_empty() { continue; }
+        let node = format!("{base}\\nodejs\\node.exe");
+        if std::path::Path::new(&node).exists() { return node; }
+    }
+
+    // Last resort: walk PATH ourselves. Shelling out to `where` would flash a console
+    // window on every call, and this runs on several code paths.
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let node = dir.join("node.exe");
+            if node.exists() { return node.to_string_lossy().to_string(); }
+        }
+    }
+    "node".to_string()
+}
+
+#[cfg(not(windows))]
+fn find_system_node() -> String {
+    let home = home_dir();
 
     // nvm: resolve alias ("22") to the highest matching install ("v22.22.0")
     let nvm_dir = format!("{home}/.nvm/versions/node");
@@ -286,18 +381,275 @@ fn find_node_binary() -> String {
     "node".to_string()
 }
 
-// True when no real Node was found (bare name only resolvable via PATH, which GUI apps lack)
+// Our downloaded runtime: <cache>/bin/node on unix, <cache>\node.exe on Windows
+fn cached_node_path() -> String {
+    let home = home_dir();
+    if cfg!(windows) {
+        format!("{home}/{NODE_CACHE_DIR}/node.exe")
+    } else {
+        format!("{home}/{NODE_CACHE_DIR}/bin/node")
+    }
+}
+
+// Runs `node -v` and parses "v24.19.0" into (24, 19). None when it won't execute —
+// which also catches a glibc binary unpacked onto a musl system.
+fn node_version(path: &str) -> Option<(u32, u32)> {
+    let mut cmd = std::process::Command::new(path);
+    cmd.arg("-v");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let out = cmd.output().ok()?;
+    if !out.status.success() { return None; }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (major, minor, _) = parse_version(text.trim());
+    (major > 0).then_some((major, minor))
+}
+
+fn node_is_supported(path: &str) -> bool {
+    node_version(path).is_some_and(|v| v >= MIN_NODE)
+}
+
+// Our own runtime wins — we know its version. A system Node is only used when it is
+// new enough; too old is treated as absent so ensure_node() downloads a good one.
+fn find_node_binary() -> String {
+    let cached = cached_node_path();
+    if std::path::Path::new(&cached).exists() && node_is_supported(&cached) {
+        return cached;
+    }
+    let system = find_system_node();
+    if system != "node" && node_is_supported(&system) {
+        return system;
+    }
+    "node".to_string()
+}
+
+// True when no usable Node was found — either none at all, or all of them too old
 fn node_missing() -> bool {
     find_node_binary() == "node"
 }
 
-fn find_npm_binary() -> String {
-    let node = find_node_binary();
-    if let Some(bin_dir) = std::path::Path::new(&node).parent() {
-        let npm = bin_dir.join("npm");
-        if npm.exists() { return npm.to_string_lossy().to_string(); }
+// ── Node runtime download ───────────────────────────────────────────────────
+
+// The <os>-<arch> slug nodejs.org publishes, or None where it ships no build:
+// linux armv7 (dropped in Node 24) and musl (official builds are glibc-only).
+fn node_platform_slug() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => Some("darwin-arm64"),
+        ("macos", "x86_64") => Some("darwin-x64"),
+        ("windows", "x86_64") => Some("win-x64"),
+        ("windows", "aarch64") => Some("win-arm64"),
+        ("linux", "x86_64") => Some("linux-x64"),
+        ("linux", "aarch64") => Some("linux-arm64"),
+        _ => None,
     }
-    "npm".to_string()
+}
+
+fn node_archive_ext() -> &'static str {
+    if cfg!(windows) { "zip" } else { "tar.gz" }
+}
+
+// SHA256 of the archive, read from the release's SHASUMS256.txt
+fn fetch_expected_sha(file_name: &str) -> Option<String> {
+    let url = format!("{NODE_DIST_BASE}/{NODE_LTS_VERSION}/SHASUMS256.txt");
+    let body = ureq::get(&url).call().ok()?.into_string().ok()?;
+    body.lines().find_map(|line| {
+        let (sha, name) = line.split_once("  ")?;
+        (name.trim() == file_name).then(|| sha.to_string())
+    })
+}
+
+fn download_with_progress(url: &str, app: &AppHandle) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let resp = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(NODE_DOWNLOAD_TIMEOUT_SECS))
+        .call()
+        .map_err(|e| format!("download failed: {e}"))?;
+
+    let total: usize = resp
+        .header("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    let mut reader = resp.into_reader();
+    let mut buf = Vec::with_capacity(total.max(1 << 22));
+    let mut chunk = vec![0u8; 1 << 16];
+    let mut last_mb = 0;
+    loop {
+        let n = reader.read(&mut chunk).map_err(|e| format!("read failed: {e}"))?;
+        if n == 0 { break; }
+        buf.extend_from_slice(&chunk[..n]);
+        // Emit per megabyte, not per chunk — 64KB chunks would flood the UI
+        let mb = buf.len() >> 20;
+        if mb > last_mb {
+            last_mb = mb;
+            let msg = if total > 0 {
+                format!("Downloading Node.js... {} / {} MB", mb, total >> 20)
+            } else {
+                format!("Downloading Node.js... {mb} MB")
+            };
+            let _ = app.emit("setup_progress", msg);
+        }
+    }
+    Ok(buf)
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+// Archives wrap everything in a `node-v24.19.0-<slug>/` directory; strip it so the
+// layout matches what cached_node_path() expects. Rejects any path that still
+// escapes after stripping — defense-in-depth even though the archive is checksummed.
+fn strip_root(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+    let mut parts = path.components();
+    parts.next()?; // drop the top-level versioned dir
+    let rest: std::path::PathBuf = parts.collect();
+    if rest.as_os_str().is_empty() { return None; }
+    // No parent-dir components, no absolute paths — keep extraction inside dest
+    rest.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)).then_some(rest)
+}
+
+#[cfg(not(windows))]
+fn extract_archive(data: &[u8], dest: &std::path::Path) -> Result<(), String> {
+    let decoder = flate2::read::GzDecoder::new(data);
+    let mut archive = tar::Archive::new(decoder);
+    archive.set_preserve_permissions(true);
+    for entry in archive.entries().map_err(|e| format!("tar read failed: {e}"))? {
+        let mut entry = entry.map_err(|e| format!("tar entry failed: {e}"))?;
+        let path = entry.path().map_err(|e| format!("tar path failed: {e}"))?.into_owned();
+        let Some(rel) = strip_root(&path) else { continue };
+        entry
+            .unpack(dest.join(rel))
+            .map_err(|e| format!("unpack failed: {e}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn extract_archive(data: &[u8], dest: &std::path::Path) -> Result<(), String> {
+    use std::io::{Cursor, Write};
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(data)).map_err(|e| format!("zip open failed: {e}"))?;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| format!("zip entry failed: {e}"))?;
+        let Some(path) = file.enclosed_name() else { continue };
+        let Some(rel) = strip_root(&path) else { continue };
+        let out = dest.join(rel);
+        if file.is_dir() {
+            std::fs::create_dir_all(&out).map_err(|e| format!("mkdir failed: {e}"))?;
+            continue;
+        }
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir failed: {e}"))?;
+        }
+        let mut dst = std::fs::File::create(&out).map_err(|e| format!("create failed: {e}"))?;
+        std::io::copy(&mut file, &mut dst).map_err(|e| format!("write failed: {e}"))?;
+        dst.flush().ok();
+    }
+    Ok(())
+}
+
+fn download_node(app: &AppHandle) -> Result<(), String> {
+    let Some(slug) = node_platform_slug() else {
+        return Err(format!(
+            "No official Node.js build for {}-{}. Install Node {}.{}+ manually from {NODE_DOWNLOAD_URL}.",
+            std::env::consts::OS, std::env::consts::ARCH, MIN_NODE.0, MIN_NODE.1
+        ));
+    };
+
+    // Official builds are glibc-only. On musl (Alpine) the download would extract fine but
+    // fail to execute — catch it now and point at the package manager instead.
+    #[cfg(target_os = "linux")]
+    if std::fs::symlink_metadata("/lib/ld-musl-x86_64.so.1").is_ok()
+        || std::fs::symlink_metadata("/lib/ld-musl-aarch64.so.1").is_ok()
+    {
+        return Err(
+            "This is a musl-based Linux (e.g. Alpine). Install Node with `apk add nodejs npm` instead.".into(),
+        );
+    }
+
+    let file_name = format!("node-{NODE_LTS_VERSION}-{slug}.{}", node_archive_ext());
+    let url = format!("{NODE_DIST_BASE}/{NODE_LTS_VERSION}/{file_name}");
+    eprintln!("[Desktop] Downloading Node from {url}");
+    let _ = app.emit("setup_progress", "Downloading Node.js...");
+
+    let data = download_with_progress(&url, app)?;
+
+    // A corrupt or tampered archive must never reach extraction
+    match fetch_expected_sha(&file_name) {
+        Some(expected) => {
+            let actual = sha256_hex(&data);
+            if actual != expected {
+                return Err("Node.js download failed checksum verification".into());
+            }
+        }
+        None => return Err("Could not verify the Node.js download (checksum unavailable)".into()),
+    }
+
+    let _ = app.emit("setup_progress", "Extracting Node.js...");
+    let dest = format!("{}/{NODE_CACHE_DIR}", home_dir());
+    let dest = std::path::Path::new(&dest);
+    // Start clean so a half-extracted previous attempt can't shadow this one
+    let _ = std::fs::remove_dir_all(dest);
+    std::fs::create_dir_all(dest).map_err(|e| format!("Cannot create {}: {e}", dest.display()))?;
+
+    if let Err(e) = extract_archive(&data, dest) {
+        let _ = std::fs::remove_dir_all(dest);
+        return Err(e);
+    }
+
+    // Prove it runs here rather than failing later inside npm
+    let node = cached_node_path();
+    match node_version(&node) {
+        Some(v) if v >= MIN_NODE => {
+            eprintln!("[Desktop] Node {}.{} ready at {node}", v.0, v.1);
+            Ok(())
+        }
+        _ => {
+            let _ = std::fs::remove_dir_all(dest);
+            Err("The downloaded Node.js does not run on this system".into())
+        }
+    }
+}
+
+// Guarantees a usable Node before anything tries to run npm or the agent.
+fn ensure_node(app: &AppHandle) -> bool {
+    if !node_missing() {
+        let node = find_node_binary();
+        let v = node_version(&node).unwrap_or((0, 0));
+        eprintln!("[Desktop] Using Node {}.{} at {node}", v.0, v.1);
+        return true;
+    }
+    eprintln!("[Desktop] No Node >= {}.{} found — downloading", MIN_NODE.0, MIN_NODE.1);
+    match download_node(app) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("[Desktop] Node download failed: {e}");
+            let _ = app.emit("setup_error", e);
+            false
+        }
+    }
+}
+
+// npm's JS entrypoint, run via node. Avoids npm.cmd: CreateProcessW cannot execute
+// batch files directly, and Rust's verbatim paths break cmd.exe (rust-lang/rust#95178).
+fn find_npm_cli() -> Option<String> {
+    let node = find_node_binary();
+    let dir = std::path::Path::new(&node).parent()?;
+    // Windows keeps npm beside node.exe; POSIX puts it in <prefix>/lib/node_modules
+    let roots = [dir.to_path_buf(), dir.parent()?.join("lib")];
+    roots
+        .iter()
+        .map(|r| r.join("node_modules/npm/bin/npm-cli.js"))
+        .find(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 // ── Install + spawn ─────────────────────────────────────────────────────────
@@ -323,26 +675,39 @@ fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
         return false;
     }
 
+    // ensure_node() runs first in the startup path; this only guards the background
+    // update, which has no AppHandle to download through.
     if node_missing() {
-        eprintln!("[Desktop] Node.js not found on this system");
+        eprintln!("[Desktop] No usable Node.js — skipping npm run");
         if let Some(app) = progress {
             let _ = app.emit("setup_error", format!("Node.js not found. Install it from {NODE_DOWNLOAD_URL}, then reopen 9Remote."));
         }
         return false;
     }
 
-    let npm = find_npm_binary();
-    let mut child = match Command::new(&npm)
-        .args(["install", "--prefix", &prefix, "--no-audit", "--no-fund", "--loglevel", "http", target])
+    let node = find_node_binary();
+    let Some(npm_cli) = find_npm_cli() else {
+        eprintln!("[Desktop] npm not found next to node ({node})");
+        if let Some(app) = progress {
+            let _ = app.emit("setup_error", format!("npm not found. Reinstall Node.js from {NODE_DOWNLOAD_URL}."));
+        }
+        return false;
+    };
+    let mut npm = Command::new(&node);
+    npm.args([&npm_cli, "install", "--prefix", &prefix, "--no-audit", "--no-fund", "--loglevel", "http", target])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+        npm.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = match npm.spawn() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[Desktop] npm spawn failed ({npm}): {e}");
+            eprintln!("[Desktop] npm spawn failed ({npm_cli}): {e}");
             if let Some(app) = progress {
-                let _ = app.emit("setup_error", format!("Cannot run npm ({npm}): {e}"));
+                let _ = app.emit("setup_error", format!("Cannot run npm: {e}"));
             }
             return false;
         }
@@ -471,7 +836,8 @@ fn spawn_9remote_ui(app: AppHandle) {
         // and the child dies with ENOENT. Put our resolved node dir first.
         if let Some(dir) = std::path::Path::new(&node).parent() {
             let existing = std::env::var("PATH").unwrap_or_default();
-            cmd.env("PATH", format!("{}:{existing}", dir.display()));
+            let sep = if cfg!(windows) { ";" } else { ":" };
+            cmd.env("PATH", format!("{}{sep}{existing}", dir.display()));
         }
 
         // New process group so SIGTERM to -pid kills entire tree on shutdown
@@ -483,8 +849,9 @@ fn spawn_9remote_ui(app: AppHandle) {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            // CREATE_NEW_PROCESS_GROUP = 0x00000200
-            cmd.creation_flags(0x00000200);
+            // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW — a GUI app has no console,
+            // so the child would otherwise allocate a visible one.
+            cmd.creation_flags(0x00000200 | CREATE_NO_WINDOW);
         }
 
         let mut child = match cmd.spawn() {
@@ -555,6 +922,38 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
+        .on_page_load(|webview, payload| {
+            // The agent UI opens login/docs links via window.open + target="_blank", which
+            // Tauri's webview swallows. Reroute them to the OS browser. Only act inside the
+            // Tauri shell — the same UI served standalone in a regular browser is untouched.
+            if payload.event() != tauri::webview::PageLoadEvent::Finished { return; }
+            // http://localhost = agent UI; tauri://localhost = splash, skip it
+            let url = payload.url();
+            if url.scheme() != "http" || url.host_str() != Some("localhost") { return; }
+            // window.open() is not covered by opener's click handler, so route it
+            // manually. target="_blank" links are handled by the opener plugin itself.
+            let js = r#"
+                (function(){
+                    if (window.__9r_external_patched) return;
+                    window.__9r_external_patched = true;
+                    var invoke = window.__TAURI_INTERNALS__.invoke;
+                    var openExt = function(url){ if(url) invoke('open_external', { url: String(url) }); };
+                    window.open = function(url){
+                        if (url) { openExt(url); return null; }
+                        // Agent uses window.open("") then .location.href = X to dodge popup
+                        // blockers — proxy the href setter so the URL still reaches the browser.
+                        var loc = {};
+                        Object.defineProperty(loc, 'href', {
+                            set: function(v){ openExt(String(v)); },
+                            get: function(){ return ''; }
+                        });
+                        return { location: loc, close: function(){}, focus: function(){} };
+                    };
+                })();
+            "#;
+            let _ = webview.eval(js);
+        })
         .setup(move |app| {
             // ── System tray ──
             let show = MenuItem::with_id(app, "show", "Show/Hide Window", true, Some("CmdOrCtrl+H"))?;
@@ -593,7 +992,7 @@ pub fn run() {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn_blocking(move || {
                     // spawn_9remote_ui navigates the webview and kicks the update once healthy
-                    if ensure_9remote_installed(&app_handle) {
+                    if ensure_node(&app_handle) && ensure_9remote_installed(&app_handle) {
                         spawn_9remote_ui(app_handle);
                     }
                 });
@@ -607,6 +1006,7 @@ pub fn run() {
             quit_app,
             set_badge,
             show_notif,
+            open_external,
         ])
         .on_window_event(|window, event| {
             // Close button → hide window (keep agent alive in tray)
