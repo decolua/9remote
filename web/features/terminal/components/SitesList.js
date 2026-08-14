@@ -5,43 +5,7 @@ import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { Globe, X, Trash2, RefreshCw, Loader2, Pencil, Check, ChevronRight } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
-
-const CUSTOM_PORTS_KEY = "custom_ports";
-const SITE_LABELS_KEY = "site_labels";
-
-// Load custom ports from localStorage
-function getCustomPorts() {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = localStorage.getItem(CUSTOM_PORTS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-// Save custom ports to localStorage
-function saveCustomPorts(ports) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(CUSTOM_PORTS_KEY, JSON.stringify(ports));
-}
-
-// Load site labels map from localStorage
-function getSiteLabels() {
-  if (typeof window === "undefined") return {};
-  try {
-    const stored = localStorage.getItem(SITE_LABELS_KEY);
-    return stored ? JSON.parse(stored) : {};
-  } catch {
-    return {};
-  }
-}
-
-// Save site labels map to localStorage
-function saveSiteLabels(labels) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(SITE_LABELS_KEY, JSON.stringify(labels));
-}
+import { getCustomPorts, saveCustomPorts, getSiteLabels, saveSiteLabels } from "@/features/terminal/lib/sitesStorage";
 
 export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
   const { t } = useI18n();

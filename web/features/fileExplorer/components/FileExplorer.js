@@ -4,54 +4,20 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import FileTree from "./FileTree";
 import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { X, Search, GitBranch, Plus, FolderPlus, FilePlus, ChevronLeft, Pencil, Copy, Trash2, Loader2, File, Folder, Package, FolderOpen, Upload, Download } from "@/shared/components/ui/Icon";
+import { X, Search, GitBranch, Plus, ChevronLeft, Pencil, Copy, Trash2, File, Folder, Package, FolderOpen, Download } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { useI18n } from "@/shared/i18n";
+import { buildGitStatusMap, sameStatusMap } from "@/features/fileExplorer/lib/gitStatusMap";
+import { useFileTransfer } from "@/features/fileExplorer/hooks/useFileTransfer";
+import { SearchBar, TransferBanner, NewItemModal, RenameModal, ConflictModal } from "./FileExplorerModals";
 
-// Read all entries from a DirectoryReader (readEntries returns batches).
-function readAllEntries(reader) {
-  return new Promise((resolve) => {
-    const out = [];
-    const step = () => reader.readEntries((batch) => {
-      if (!batch.length) resolve(out);
-      else { out.push(...batch); step(); }
-    }, () => resolve(out));
-    step();
-  });
-}
-
-// Recursively walk a DataTransferItem entry into [{ file, relativePath }].
-async function traverseEntry(entry, prefix, out) {
-  const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-  if (entry.isFile) {
-    const file = await new Promise((res, rej) => entry.file(res, rej));
-    out.push({ file, relativePath: rel });
-  } else if (entry.isDirectory) {
-    const children = await readAllEntries(entry.createReader());
-    for (const child of children) await traverseEntry(child, rel, out);
-  }
-}
-
-// Convert a drop/paste DataTransfer into upload items (folders preserved).
-async function dataTransferToItems(dataTransfer) {
-  const out = [];
-  const itemList = [...(dataTransfer.items || [])];
-  const entries = itemList.map((it) => it.webkitGetAsEntry?.()).filter(Boolean);
-  if (entries.length) {
-    for (const e of entries) await traverseEntry(e, "", out);
-  } else {
-    for (const f of (dataTransfer.files || [])) out.push({ file: f, relativePath: f.name });
-  }
-  return out;
-}
-
-export default function FileExplorer({ 
-  workspace, 
+export default function FileExplorer({
+  workspace,
   initialPath,
-  fileSocket, 
-  onBack, 
-  onOpenFile, 
+  fileSocket,
+  onBack,
+  onOpenFile,
   onOpenGit,
   onSetWorkspace,
   onSwitchWorkspace,
@@ -80,6 +46,8 @@ export default function FileExplorer({
   const [searchLoading, setSearchLoading] = useState(false);
   const searchTimerRef = useRef(null);
 
+  const [isDesktop] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false));
+
   // Check git and load status for workspace mode
   const checkGit = useCallback(async (dirPath) => {
     if (isBrowsing) {
@@ -87,46 +55,21 @@ export default function FileExplorer({
       setGitStatusMap({});
       return;
     }
-    
+
     const result = await fileSocket.gitStatus(dirPath);
     setHasGit(result.success);
-    
-    if (result.success && result.files) {
-      // Build status map: path -> status, including parent folders
-      const statusMap = {};
-      result.files.forEach(f => {
-        statusMap[f.path] = f.status;
-        // Mark parent folders as having changes
-        const parts = f.path.split("/");
-        for (let i = 1; i < parts.length; i++) {
-          const folderPath = parts.slice(0, i).join("/");
-          if (!statusMap[folderPath]) {
-            statusMap[folderPath] = "folder-changed";
-          }
-        }
-      });
-      // Only update if changed to prevent unnecessary re-renders
-      setGitStatusMap(prevMap => {
-        const prevKeys = Object.keys(prevMap);
-        const newKeys = Object.keys(statusMap);
-        if (prevKeys.length !== newKeys.length) return statusMap;
-        for (const key of newKeys) {
-          if (prevMap[key] !== statusMap[key]) return statusMap;
-        }
-        return prevMap; // No change, keep previous reference
-      });
-    } else {
-      setGitStatusMap({});
-    }
+    const statusMap = buildGitStatusMap(result);
+    // Keep the previous reference when nothing changed — the map feeds every row.
+    setGitStatusMap((prev) => (sameStatusMap(prev, statusMap) ? prev : statusMap));
   }, [fileSocket, isBrowsing]);
 
   // Load files
   const loadFiles = useCallback(async (dirPath) => {
     setLoading(true);
     setError("");
-    
+
     const result = await fileSocket.getFiles(dirPath, true);
-    
+
     if (result.success) {
       let filteredFiles = result.files;
       // Browse mode: only show folders
@@ -146,74 +89,31 @@ export default function FileExplorer({
       setError(result.error);
       setFiles([]);
     }
-    
+
     setLoading(false);
   }, [fileSocket, isBrowsing]);
 
-  // File copy (upload) state: progress + conflict prompt.
-  const [transfer, setTransfer] = useState(null); // { total, done, current, ratio }
-  const [dragOver, setDragOver] = useState(false);
-  const [conflict, setConflict] = useState(null); // { name, resolve }
-  // Download state + desktop gate (download is PC-to-PC only).
-  const [downloadState, setDownloadState] = useState(null); // { name, ratio }
-  const [isDesktop, setIsDesktop] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : false));
-
-  // Kick off an upload batch into the current directory.
-  const startUpload = useCallback(async (items) => {
-    if (!items.length || !fileSocket.uploadFiles) return;
-    setTransfer({ total: items.length, done: 0, current: items[0]?.file?.name || "", ratio: 0 });
-    await fileSocket.uploadFiles(currentPath, items, {
-      onConflict: ({ file }, relativePath) => new Promise((resolve) => {
-        setConflict({ name: relativePath || file.name, resolve });
-      }),
-      onProgress: (file, ratio) => setTransfer((p) => p ? { ...p, current: file.name, ratio } : p),
-      onFileDone: (file) => setTransfer((p) => p ? { ...p, done: p.done + 1 } : p)
-    });
-    setTransfer(null);
-    loadFiles(currentPath);
-  }, [fileSocket, currentPath, loadFiles]);
-
-  const handleDrop = useCallback(async (e) => {
-    e.preventDefault();
-    setDragOver(false);
-    if (isBrowsing) return;
-    const items = await dataTransferToItems(e.dataTransfer);
-    if (items.length) { vibrate(); startUpload(items); }
-  }, [isBrowsing, startUpload]);
-
-  const handleDragOver = useCallback((e) => { e.preventDefault(); if (!isBrowsing) setDragOver(true); }, [isBrowsing]);
-  const handleDragLeave = useCallback((e) => { e.preventDefault(); setDragOver(false); }, []);
-
-  // Paste files from OS clipboard (folders aren't exposed via clipboard — files only).
-  useEffect(() => {
-    if (isBrowsing) return;
-    const onPaste = async (e) => {
-      const files = Array.from(e.clipboardData?.files || []);
-      if (!files.length) return;
-      const items = files.map((f) => ({ file: f, relativePath: f.name }));
-      vibrate();
-      startUpload(items);
-    };
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
-  }, [isBrowsing, startUpload]);
+  const {
+    transfer, dragOver, conflict, downloadState,
+    handleDrop, handleDragOver, handleDragLeave, handleDownload, resolveConflict
+  } = useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone: loadFiles, onError: setError });
 
   // Search files with debounce
   const handleSearch = useCallback((query) => {
     setSearchQuery(query);
-    
+
     if (searchTimerRef.current) {
       clearTimeout(searchTimerRef.current);
     }
-    
+
     if (!query || query.length < 2) {
       setSearchResults([]);
       setSearchLoading(false);
       return;
     }
-    
+
     setSearchLoading(true);
-    
+
     searchTimerRef.current = setTimeout(async () => {
       const result = await fileSocket.searchFiles(workspace, query);
       if (result.success) {
@@ -281,35 +181,10 @@ export default function FileExplorer({
   };
 
   const handleMoreClick = (file, position) => {
-    setContextMenu({
-      file,
-      x: position.x,
-      y: position.y
-    });
+    setContextMenu({ file, x: position.x, y: position.y });
   };
 
   const closeContextMenu = () => setContextMenu(null);
-
-  // Trigger a browser save for a file or folder (folder arrives as .zip).
-  const handleDownload = useCallback((file) => {
-    closeContextMenu();
-    if (!fileSocket.downloadFile) return;
-    setDownloadState({ name: file.name, ratio: 0 });
-    fileSocket.downloadFile(file.path, {
-      onSave: (blob, meta) => {
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = meta?.fileName || file.name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(a.href);
-        setDownloadState(null);
-      },
-      onProgress: (ratio) => setDownloadState((p) => p ? { ...p, ratio } : p),
-      onError: (e) => { setError(e.message || "Download failed"); setDownloadState(null); }
-    });
-  }, [fileSocket]);
 
   const handleDelete = (file) => {
     closeContextMenu();
@@ -335,25 +210,25 @@ export default function FileExplorer({
 
   const handleRenameSubmit = async () => {
     if (!renameModal || !renameModal.newName.trim()) return;
-    
+
     const newPath = currentPath + "/" + renameModal.newName.trim();
     const result = await fileSocket.renameItem(renameModal.file.path, newPath);
-    
+
     if (result.success) {
       loadFiles(currentPath);
     } else {
       setError(result.error);
     }
-    
+
     setRenameModal(null);
   };
 
   const handleCreateItem = async () => {
     if (!newItemName.trim()) return;
-    
+
     const itemPath = currentPath + "/" + newItemName.trim();
     const result = await fileSocket.createItem(itemPath, newItemType);
-    
+
     if (result.success) {
       loadFiles(currentPath);
       setShowNewItemModal(false);
@@ -363,28 +238,21 @@ export default function FileExplorer({
     }
   };
 
-  const getDisplayPath = () => {
-    return currentPath.replace(/^\/Users\/[^/]+/, "~");
-  };
+  const getDisplayPath = () => currentPath.replace(/^\/Users\/[^/]+/, "~");
 
   const isAtWorkspace = currentPath === workspace;
+  const headerBtn = "p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]";
 
   return (
     <div className="h-full bg-bg flex flex-col">
       {/* Header */}
       <div className="bg-surface px-4 py-3 flex items-center gap-2 flex-shrink-0">
-        <button
-          onClick={() => { vibrate(); onBack(); }}
-          className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
-          title={t("common.close")}
-        >
+        <button onClick={() => { vibrate(); onBack(); }} className={headerBtn} title={t("common.close")}>
           <X size={20} />
         </button>
-        
+
         <div className="flex-1 min-w-0">
-          <div className="text-text font-medium truncate text-sm">
-            {getDisplayPath()}
-          </div>
+          <div className="text-text font-medium truncate text-sm">{getDisplayPath()}</div>
         </div>
 
         {/* Browse mode: Set workspace button */}
@@ -400,22 +268,14 @@ export default function FileExplorer({
 
         {/* Workspace mode: Switch workspace button */}
         {!isBrowsing && onSwitchWorkspace && !hideSwitchWorkspace && (
-          <button
-            onClick={() => { vibrate(); onSwitchWorkspace(); }}
-            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
-            title={t("files.switchWorkspace")}
-          >
+          <button onClick={() => { vibrate(); onSwitchWorkspace(); }} className={headerBtn} title={t("files.switchWorkspace")}>
             <FolderOpen className="text-brand-500" size={20} />
           </button>
         )}
 
         {/* Workspace mode: Search button */}
         {!isBrowsing && (
-          <button
-            onClick={() => { vibrate(); setShowSearch(true); }}
-            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
-            title={t("files.searchFiles")}
-          >
+          <button onClick={() => { vibrate(); setShowSearch(true); }} className={headerBtn} title={t("files.searchFiles")}>
             <Search className="text-brand-500" size={20} />
           </button>
         )}
@@ -426,8 +286,8 @@ export default function FileExplorer({
             onClick={() => { vibrate(); onOpenGit(); }}
             disabled={!hasGit}
             className={`p-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.96] ${
-              hasGit 
-                ? "bg-surface-2 hover:bg-surface-3 text-text" 
+              hasGit
+                ? "bg-surface-2 hover:bg-surface-3 text-text"
                 : "bg-surface-2/30 text-text-muted cursor-not-allowed"
             }`}
             title={hasGit ? t("git.title") : t("files.noGitRepo")}
@@ -437,72 +297,34 @@ export default function FileExplorer({
         )}
       </div>
 
-      {/* Search bar */}
       {showSearch && (
-        <div className="bg-surface-2 px-4 py-2 flex items-center gap-2 flex-shrink-0">
-          <Search className="text-text-muted flex-shrink-0" size={20} />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
-            placeholder={t("files.searchPlaceholder")}
-            className="flex-1 bg-transparent text-text placeholder-text-subtle focus:outline-none"
-            autoFocus
-          />
-          {searchLoading && (
-            <Loader2 className="animate-spin text-brand-500" size={16} />
-          )}
-          <button
-            onClick={() => { vibrate(); closeSearch(); }}
-            className="p-1 text-text-muted hover:text-text transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
+        <SearchBar query={searchQuery} loading={searchLoading} onChange={handleSearch} onClose={closeSearch} />
       )}
 
-      {/* Error */}
       {error && (
         <div className="bg-red-500/20 border-b border-red-500/50 px-4 py-2 text-red-400 text-sm">
           {error}
         </div>
       )}
 
-      {/* Upload progress */}
       {transfer && (
-        <div className="bg-brand-500/10 border-b border-brand-500/30 px-4 py-2 text-text text-xs flex items-center gap-2">
-          <Loader2 className="animate-spin flex-shrink-0" size={14} />
-          <span className="truncate flex-1">
-            {t("files.copying")} {transfer.done + 1}/{transfer.total}: {transfer.current}
-          </span>
-          <div className="w-16 h-1.5 bg-surface-2 rounded-full overflow-hidden flex-shrink-0">
-            <div className="h-full bg-brand-500 transition-all" style={{ width: `${Math.round((transfer.ratio || 0) * 100)}%` }} />
-          </div>
-        </div>
+        <TransferBanner
+          label={`${t("files.copying")} ${transfer.done + 1}/${transfer.total}: ${transfer.current}`}
+          ratio={transfer.ratio}
+        />
       )}
 
-      {/* Download progress */}
       {downloadState && (
-        <div className="bg-brand-500/10 border-b border-brand-500/30 px-4 py-2 text-text text-xs flex items-center gap-2">
-          <Loader2 className="animate-spin flex-shrink-0" size={14} />
-          <span className="truncate flex-1">{t("files.downloading")}: {downloadState.name}</span>
-          <div className="w-16 h-1.5 bg-surface-2 rounded-full overflow-hidden flex-shrink-0">
-            <div className="h-full bg-brand-500 transition-all" style={{ width: `${Math.round((downloadState.ratio || 0) * 100)}%` }} />
-          </div>
-        </div>
+        <TransferBanner label={`${t("files.downloading")}: ${downloadState.name}`} ratio={downloadState.ratio} />
       )}
 
       {/* Search results or File tree */}
       {showSearch && searchQuery.length >= 2 ? (
         <div className="flex-1 min-h-0 overflow-auto">
           {searchLoading ? (
-            <div className="flex items-center justify-center h-32 text-text-muted">
-              {t("files.searching")}
-            </div>
+            <div className="flex items-center justify-center h-32 text-text-muted">{t("files.searching")}</div>
           ) : searchResults.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-text-muted">
-              {t("files.noFilesFound")}
-            </div>
+            <div className="flex items-center justify-center h-32 text-text-muted">{t("files.noFilesFound")}</div>
           ) : (
             <div>
               {searchResults.map((file) => (
@@ -606,10 +428,7 @@ export default function FileExplorer({
           <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
           <div
             className="fixed z-50 card-elev overflow-hidden min-w-[140px]"
-            style={{ 
-              right: 16,
-              top: Math.min(contextMenu.y, window.innerHeight - 160)
-            }}
+            style={{ right: 16, top: Math.min(contextMenu.y, window.innerHeight - 160) }}
           >
             <button
               onClick={() => { vibrate(); handleRename(contextMenu.file); }}
@@ -631,7 +450,7 @@ export default function FileExplorer({
             </button>
             {isDesktop && (
               <button
-                onClick={() => { vibrate(); handleDownload(contextMenu.file); }}
+                onClick={() => { vibrate(); closeContextMenu(); handleDownload(contextMenu.file); }}
                 className="w-full px-4 py-3 text-left text-text hover:bg-surface-2 flex items-center gap-3 transition-colors"
               >
                 <Download size={16} />
@@ -649,102 +468,26 @@ export default function FileExplorer({
         </>
       )}
 
-      {/* New Item Modal */}
       {showNewItemModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setShowNewItemModal(false)} />
-          <div className="relative card-elev w-full max-w-sm">
-            <div className="px-4 py-3">
-              <h3 className="text-text font-semibold">{t("files.createNew")}</h3>
-            </div>
-            <div className="p-4 space-y-4">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { vibrate(); setNewItemType("file"); }}
-                  className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${
-                    newItemType === "file" 
-                      ? "bg-brand-500 text-white" 
-                      : "bg-surface-2 text-text"
-                  }`}
-                >
-                  <File size={16} className="text-text-subtle" /> {t("files.file")}
-                </button>
-                <button
-                  onClick={() => { vibrate(); setNewItemType("folder"); }}
-                  className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${
-                    newItemType === "folder" 
-                      ? "bg-brand-500 text-white" 
-                      : "bg-surface-2 text-text"
-                  }`}
-                >
-                  <Folder size={16} className="text-orange-500/70" /> {t("files.folder")}
-                </button>
-              </div>
-              <input
-                type="text"
-                value={newItemName}
-                onChange={(e) => setNewItemName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleCreateItem()}
-                placeholder={newItemType === "file" ? t("files.placeholderFile") : t("files.placeholderFolder")}
-                className="w-full px-3 py-2 bg-surface-2 rounded-brand text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { vibrate(); setShowNewItemModal(false); }}
-                  className="flex-1 py-2 bg-surface-2 text-text rounded-brand hover:bg-surface-3 transition-all duration-150 ease-out active:scale-[0.98]"
-                >
-                  {t("common.cancel")}
-                </button>
-                <button
-                  onClick={() => { vibrate(); handleCreateItem(); }}
-                  className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition-all duration-150 ease-out active:scale-[0.98]"
-                >
-                  {t("common.create")}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <NewItemModal
+          type={newItemType}
+          name={newItemName}
+          onTypeChange={setNewItemType}
+          onNameChange={setNewItemName}
+          onSubmit={handleCreateItem}
+          onClose={() => setShowNewItemModal(false)}
+        />
       )}
 
-      {/* Rename Modal */}
       {renameModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setRenameModal(null)} />
-          <div className="relative card-elev w-full max-w-sm">
-            <div className="px-4 py-3">
-              <h3 className="text-text font-semibold">{t("files.rename")}</h3>
-            </div>
-            <div className="p-4 space-y-4">
-              <input
-                type="text"
-                value={renameModal.newName}
-                onChange={(e) => setRenameModal({ ...renameModal, newName: e.target.value })}
-                onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
-                className="w-full px-3 py-2 bg-surface-2 rounded-brand text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { vibrate(); setRenameModal(null); }}
-                  className="flex-1 py-2 bg-surface-2 text-text rounded-brand hover:bg-surface-3 transition-all duration-150 ease-out active:scale-[0.98]"
-                >
-                  {t("common.cancel")}
-                </button>
-                <button
-                  onClick={() => { vibrate(); handleRenameSubmit(); }}
-                  className="flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition-all duration-150 ease-out active:scale-[0.98]"
-                >
-                  {t("files.rename")}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <RenameModal
+          value={renameModal.newName}
+          onChange={(v) => setRenameModal({ ...renameModal, newName: v })}
+          onSubmit={handleRenameSubmit}
+          onClose={() => setRenameModal(null)}
+        />
       )}
 
-      {/* Confirm Dialog */}
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}
         onClose={() => setConfirmDialog({ isOpen: false })}
@@ -753,38 +496,7 @@ export default function FileExplorer({
         message={confirmDialog.message}
       />
 
-      {/* Copy Conflict Dialog (Skip / Replace / Skip all / Replace all) */}
-      {conflict && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
-          <div className="relative card-elev w-full max-w-sm">
-            <div className="px-4 py-3">
-              <h3 className="text-text font-semibold">{t("files.conflictTitle")}</h3>
-            </div>
-            <div className="px-4 pb-3 text-text-muted text-sm break-all">
-              {t("files.conflictMessage", { name: conflict.name })}
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => { vibrate(); conflict.resolve("skip"); setConflict(null); }}
-                className="py-2 bg-surface-2 text-text rounded-brand hover:bg-surface-3 text-sm"
-              >{t("files.skip")}</button>
-              <button
-                onClick={() => { vibrate(); conflict.resolve("skipAll"); setConflict(null); }}
-                className="py-2 bg-surface-2 text-text rounded-brand hover:bg-surface-3 text-sm"
-              >{t("files.skipAll")}</button>
-              <button
-                onClick={() => { vibrate(); conflict.resolve("replace"); setConflict(null); }}
-                className="py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 text-sm"
-              >{t("files.replace")}</button>
-              <button
-                onClick={() => { vibrate(); conflict.resolve("replaceAll"); setConflict(null); }}
-                className="py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 text-sm"
-              >{t("files.replaceAll")}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {conflict && <ConflictModal name={conflict.name} onResolve={resolveConflict} />}
     </div>
   );
 }

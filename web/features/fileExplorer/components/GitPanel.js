@@ -11,28 +11,7 @@ import { ChevronLeft, Eye, Trash2, RefreshCw, GitBranch } from "@/shared/compone
 import FileContextMenu, { FILE_MENU_ICONS } from "@/shared/components/ui/FileContextMenu";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-
-// Parse unified diff text into flat rows for the mobile (no-table) renderer
-function parseUnifiedDiff(text) {
-  const rows = [];
-  let oldLn = 0, newLn = 0;
-  for (const line of text.split("\n")) {
-    if (line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("new file") || line.startsWith("deleted file") || line.startsWith("--- ") || line.startsWith("+++ ")) {
-      if (line.startsWith("diff --git")) rows.push({ type: "file", text: line.replace("diff --git a/", "").split(" b/")[0] });
-      continue;
-    }
-    if (line.startsWith("@@")) {
-      const m = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-      if (m) { oldLn = parseInt(m[1], 10); newLn = parseInt(m[2], 10); }
-      rows.push({ type: "hunk", text: line });
-      continue;
-    }
-    if (line.startsWith("+")) rows.push({ type: "add", text: line.slice(1), newLn: newLn++ });
-    else if (line.startsWith("-")) rows.push({ type: "del", text: line.slice(1), oldLn: oldLn++ });
-    else rows.push({ type: "ctx", text: line.slice(1), oldLn: oldLn++, newLn: newLn++ });
-  }
-  return rows;
-}
+import { parseUnifiedDiff } from "@/features/fileExplorer/lib/unifiedDiff";
 
 export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) {
   const { t } = useI18n();

@@ -1,12 +1,13 @@
 // Tests for RTC probe cadence + NAT give-up (anti DO-spam).
-// Replicates the decision logic of ProtocolManager._scheduleRtcRestart and
-// WebRtcProtocol.natVerdict verbatim, then attacks it with the cases that cost
-// real money: symmetric NAT probing forever, STUN-blocked networks, and the
-// re-arm paths that must NOT be lost (network change / long resume).
+// Drives the REAL scheduler policy (lib/rtcRecoveryPolicy) and mirrors
+// WebRtcProtocol.natVerdict, then attacks them with the cases that cost real
+// money: symmetric NAT probing forever, STUN-blocked networks, and the re-arm
+// paths that must NOT be lost (network change / long resume).
 //
-// Run: node web/test/rtcNatGiveUp.test.mjs
+// Run: node --import ./test/loader-alias.mjs web/test/rtcNatGiveUp.test.mjs
 import assert from "node:assert/strict";
 import { RTC_RESTART } from "../shared/constants/transport.js";
+import { nextRestartStep } from "../shared/transport/lib/rtcRecoveryPolicy.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -65,27 +66,17 @@ test("agent-offline loop is never mistaken for hard NAT", () => {
   }
 });
 
-// ── Probe cadence (mirror of _scheduleRtcRestart delay selection) ──────────
-// Simulates the scheduler: returns the sequence of delays and whether it gave up.
+// ── Probe cadence — drives the real policy used by _scheduleRtcRestart ─────
+// Carries attempts/probeAttempts forward exactly as the scheduler does.
 function runScheduler({ verdict, ticks }) {
   const delays = [];
   let attempts = 0, probeAttempts = 0, givenUp = false;
   for (let i = 0; i < ticks; i++) {
-    if (givenUp) break;
-    const isProbe = attempts >= RTC_RESTART.maxAttempts;
-    let delay;
-    if (isProbe) {
-      delay = RTC_RESTART.probeBackoffMs[probeAttempts] ?? RTC_RESTART.probeBackoffMs.at(-1);
-      probeAttempts++;
-      if (probeAttempts >= RTC_RESTART.classifyAfterProbes) {
-        if (verdict === "hard") { givenUp = true; break; }
-        probeAttempts = 0;
-      }
-    } else {
-      delay = RTC_RESTART.backoffMs[attempts] ?? RTC_RESTART.backoffMs.at(-1);
-    }
-    attempts++;
-    delays.push(delay);
+    const step = nextRestartStep({ attempts, probeAttempts, verdict: () => verdict });
+    if (step.giveUp) { givenUp = true; break; }
+    delays.push(step.delay);
+    attempts = step.attempts;
+    probeAttempts = step.probeAttempts;
   }
   return { delays, givenUp, attempts, probeAttempts };
 }

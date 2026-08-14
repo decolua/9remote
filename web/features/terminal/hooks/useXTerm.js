@@ -5,52 +5,20 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
-// TEMP TEST: disabled to confirm clipboard-read prompt source
-// import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
-import { vibrate } from "@/shared/utils/vibration";
 import { termLog } from "@/shared/utils/termLog";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECONNECT_WARM_MS, GAP_FETCH_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECONNECT_WARM_MS, HISTORY_FETCH } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
-import { trimEndToEsc } from "@/features/terminal/lib/ansiBoundary";
-import { classifyLiveChunk, syncAfterReplay, GAP_DETECTED, GAP_STALE } from "@/features/terminal/lib/seqGap";
-
+import { createGapFetch } from "@/features/terminal/lib/gapFetch";
+import { createJoinSession } from "@/features/terminal/lib/termJoin";
+import { createOutputRouter } from "@/features/terminal/lib/termOutputRouter";
+import { writeChunked } from "@/features/terminal/lib/historyMirror";
+import { useTermTouchGestures } from "@/features/terminal/hooks/useTermTouchGestures";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-// import { detectLinks } from "@/features/terminal/utils/linkDetector";
 
-// Write output via the rAF batcher when provided (coalesces bursts into one write/frame so the
-// main thread isn't blocked parsing each 1KB chunk), else direct term.write. mirror/mirrorBytes:
-// refs to accumulate raw bytes for scroll-up history replay (null = skip mirroring).
-function writeChunked(term, data, mirror, mirrorBytes, batcher) {
-  if (!term || term._core?._isDisposed) return;
-  if (batcher) batcher.write(data);
-  else term.write(data);
-
-  // Mirror output for history replay — keep raw bytes (Uint8Array/string) so we can splice prefix later.
-  if (mirror) {
-    if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-      const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
-      mirror.current.push(chunk);
-      mirrorBytes.current += chunk.length; // Uint8Array.length === byteLength ✓
-    } else if (typeof data === "string") {
-      mirror.current.push(data);
-      // Count BYTES not UTF-16 code units — multibyte (CJK/emoji) must match daemon's byte total.
-      mirrorBytes.current += BufferLikeByteLength(data);
-    }
-  }
-}
-
-// Byte length of a string in UTF-8 — matches the daemon's Buffer byte count so `have`/`total`
-// stay consistent across multibyte output. Uses TextEncoder (browser) or Buffer (node).
-const _utf8Encoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
-function BufferLikeByteLength(str) {
-  if (!str) return 0;
-  if (_utf8Encoder) return _utf8Encoder.encode(str).length;
-  return Buffer.byteLength(str, "utf-8"); // node fallback
-}
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
 export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, onInput, onSelectionMade }) {
@@ -78,7 +46,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const searchAddonRef = useRef(null);
   const [termReady, setTermReady] = useState(false);
 
-  // Last PTY size sent — skip emit when fit yields same cols/rows (soft-KB with fixed pane height)
+  // Last PTY size sent — skip emit when fit yields the same cols/rows (soft-KB with fixed pane height)
   const lastPtySizeRef = useRef(null);
 
   // Scrollback history mirror — raw bytes written to XTerm, so we can replay after
@@ -89,23 +57,16 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const historyFetchingRef = useRef(false); // in-flight requestHistory
   const historyLastFetchRef = useRef(0);    // timestamp of last fetch (guard)
   const historyHaveAtEmitRef = useRef(0);   // historyBytesRef snapshot at requestHistory emit (race-dedup)
-  // Live-output seq (plan F): last live seq rendered. Used to detect a scrollback
-  // gap when output was lost during a background suspension the warm-reconnect
-  // heuristic missed. null until the first seq'd chunk arrives (old agents send
-  // no seq → stays null → seq logic stays disabled, warm heuristic used).
+  // Live-output seq (plan F): last live seq rendered. Detects a scrollback gap when output was
+  // lost during a background suspension the warm-reconnect heuristic missed. null until the
+  // first seq'd chunk arrives (old agents send no seq → seq logic stays disabled).
   const lastSeqRef = useRef(null);
-  // Gap recovery (plan G): when a small gap is detected, request just the missing
-  // range and append it (no flash) instead of a full reset+tail replay. Live chunks
-  // that arrive while waiting are queued (like the join window) and flushed after.
-  const awaitingGapRef = useRef(null); // { pending: [{data, seq}], fromSeq, toSeq, timer }
-  const startGapFetchRef = useRef(null); // startGapFetch(toSeq, pending) — set inside the main effect
+  // Gap recovery (plan G) state machine — lives inside the main effect (closure)
   // Join-replay window: while a joinSession round-trip is in flight (emit → replay → ack), LIVE
   // output is QUEUED (not written) so it never lands between term.reset() and the mode-restore
-  // replay packet. Dropping was wrong — the window can last hundreds of ms under multi-pane joins
-  // (5×131KB tail replays), so live output produced AFTER the daemon's snapshot would be lost
-  // forever. Queue + flush on ack: replay paints first, queued live follows in arrival order.
+  // replay packet. Queue + flush on ack: replay paints first, queued live follows in order.
   const joiningRef = useRef(false);
-  const [joining, setJoining] = useState(false); // reactive for center loading spinner during join
+  const [joining, setJoining] = useState(false); // reactive for the loading spinner during join
   const joinQueueRef = useRef([]);
   const joinGenRef = useRef(0); // stale-ack guard: only the current join's ack clears the spinner
   const scrollDisposeRef = useRef(null);    // disposable from term.onScroll
@@ -113,14 +74,13 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const isVisibleRef = useRef(isVisible);   // mirror isVisible for socket handlers
   useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
   const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
-  const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers in other effects
-  const userAtTopRef = useRef(false); // set true only when user actively scrolls up to top (not mount transient)
+  const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers
+  const userAtTopRef = useRef(false); // true only when the user actively scrolled up to top
   const lastOutputAtRef = useRef(0);  // ts of last live output — warm gate for reconnect skip
-  const outputTotalRef = useRef(0);   // bytes received this session — dup detector (agent sends 1, we get 2)
+  const outputTotalRef = useRef(0);   // bytes received this session — dup detector
 
   // Emit resize only if cols/rows are above the sane-size floor. A transient tiny size
-  // (layout mid-transition, app-resume reconnect) makes the shell re-wrap scrollback
-  // narrow forever — older lines stay narrow even after cols return to normal.
+  // (layout mid-transition, app-resume reconnect) re-wraps scrollback narrow forever.
   const emitResize = useCallback(() => {
     const term = termRef.current;
     if (!term || !socket) return;
@@ -130,12 +90,10 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     socket.emit("resize", { sessionId, cols, rows });
   }, [socket, sessionId]);
 
-  // Settle-and-emit: single debounce (SETTLE_DEBOUNCE_MS) after the LAST layout change.
-  // Each call resets the timer → fires only when the container has been quiet for the full
-  // debounce, i.e. the mount/group-switch/soft-KB storm is truly over. Then fit once + emit at
-  // the settled size. PTY cols is one-way (a transient narrow cols re-wraps scrollback narrow
-  // FOREVER) so we never accept a mid-transition size — the debounce IS the stability gate,
-  // event-driven via ResizeObserver, no frame polling, no cap to fall through.
+  // Settle-and-emit: single debounce (SETTLE_DEBOUNCE_MS) after the LAST layout change, then fit
+  // once + emit at the settled size. PTY cols is one-way (a transient narrow cols re-wraps
+  // scrollback narrow FOREVER) so we never accept a mid-transition size — the debounce IS the
+  // stability gate, event-driven via ResizeObserver.
   // opts.force: always emit even if size unchanged (reconnect/redraw). opts.join: also fire the
   // deferred join at this size (initial mount / group switch).
   const doResize = useCallback((opts = {}) => {
@@ -169,7 +127,6 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     }, SETTLE_DEBOUNCE_MS);
   }, [socket, sessionId, containerRef]);
 
-  // Keep ref updated for use in useEffect without stale closure
   useEffect(() => { doResizeRef.current = doResize; }, [doResize]);
 
   // Initialize XTerm instance
@@ -180,10 +137,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     // Fresh session → no prior output; clear so a carrier switch right after join
     // can't reuse a stale warm timestamp from the previous session.
     lastOutputAtRef.current = 0;
-    // Seq is per-session and starts over — a leftover value from the previous
-    // session would classify this session's first chunk as a huge false gap.
+    // Seq is per-session and starts over — a leftover value from the previous session
+    // would classify this session's first chunk as a huge false gap.
     lastSeqRef.current = null;
-    awaitingGapRef.current = null;
 
     const term = new XTerm({
       ...TERMINAL_OPTIONS,
@@ -202,21 +158,10 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     term.open(containerRef.current);
 
     // rAF write batcher — coalesce high-frequency output bursts into one write/frame so the
-    // main thread isn't blocked parsing/rendering each 1KB chunk (stutters animation under load).
+    // main thread isn't blocked parsing/rendering each 1KB chunk.
     const batcher = createWriteBatcher(term);
     writeBatcherRef.current = batcher;
 
-    // Clipboard (OSC52) — write-only provider: OSC52 write kept (vim/tmux yank → host
-    // clipboard), OSC52 read disabled so the browser never prompts for clipboard-read.
-    // TEMP TEST: disabled ClipboardAddon to confirm it's the source of the
-    // clipboard-read permission prompt (builtin navigator.clipboard.readText).
-    // if (ADDONS.clipboard) {
-    //   const writeOnlyProvider = {
-    //     readText: async () => "",
-    //     writeText: async (_selection, data) => { try { await navigator.clipboard?.writeText(data); } catch {} },
-    //   };
-    //   term.loadAddon(new ClipboardAddon(undefined, writeOnlyProvider));
-    // }
     if (ADDONS.search) {
       searchAddonRef.current = new SearchAddon();
       term.loadAddon(searchAddonRef.current);
@@ -230,7 +175,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     };
     wheelEl.addEventListener("wheel", handleWheel, { passive: true });
 
-    // WebGL renderer (VS Code parity: WebGL → DOM fallback). Loaded after joinSession to avoid blank screen.
+    // WebGL renderer (VS Code parity: WebGL → DOM fallback). Loaded after joinSession to avoid a blank screen.
     let webglAddon = null;
     let webglFailed = false;
     const loadWebGL = () => {
@@ -262,7 +207,6 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       term.refresh(0, term.rows - 1);
     };
 
-    // Expose swap fns to the toggle effect
     loadWebGLRef.current = loadWebGL;
     disposeWebGLRef.current = disposeWebGL;
 
@@ -273,7 +217,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       checkCount++;
       const width = containerRef.current?.offsetWidth || 0;
       const height = containerRef.current?.offsetHeight || 0;
-      
+
       if (checkCount > maxChecks) {
         setTermReady(true);
         return;
@@ -289,77 +233,10 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     };
     setTimeout(checkReady, 50);
 
-    // ResizeObserver - delegate to doResize (debounced + rAF)
     const resizeObserver = new ResizeObserver(() => doResizeRef.current?.());
     resizeObserver.observe(containerRef.current);
 
-    // Replay full mirror after prepending an older-history prefix (scroll-up fetch).
-    // xterm has no prepend API → reset + rewrite. ANSI is stateful so we must replay all.
-    const replayWithPrefix = (prefixData) => {
-      // Prepend prefix chunk to the mirror
-      let prefixChunk;
-      if (prefixData instanceof ArrayBuffer || ArrayBuffer.isView(prefixData)) {
-        prefixChunk = prefixData instanceof Uint8Array ? prefixData : new Uint8Array(prefixData);
-      } else {
-        prefixChunk = String(prefixData);
-      }
-      // Preserve the user's current viewport row: after replay, the older chunk sits above,
-      // so the same content is now at (oldViewportY + actualChunkLines). We MEASURE the chunk's
-      // real line count (baseY after write − baseY before reset) instead of estimating from bytes
-      // — ANSI escapes + wide-char wrapping make byte/cols estimates wildly wrong → viewport jump.
-      const oldViewportY = term.buffer.active.viewportY;
-      const baseYBefore = term.buffer.active.baseY;
-      // Race-dedup: daemon computes the prefix range against the `have` we SENT, but live PTY
-      // output can land in our tail between emit and ack → daemon's endExclusive shifts past
-      // our current tail, so the prefix's tail end re-covers bytes already mirrored. Drop that
-      // overlap (liveDelta = bytes pushed since emit) before prepending, else a few lines dup.
-      const liveDelta = Math.max(0, historyHaveAtEmitRef.current > 0 ? historyBytesRef.current - historyHaveAtEmitRef.current : 0);
-      historyHaveAtEmitRef.current = 0;
-      if (liveDelta > 0) {
-        let keep = Math.max(0, (typeof prefixChunk === "string" ? BufferLikeByteLength(prefixChunk) : prefixChunk.byteLength) - liveDelta);
-        // A blind byte cut can split a trailing ANSI escape — align to a clean ESC boundary.
-        if (typeof prefixChunk !== "string") keep = trimEndToEsc(prefixChunk, keep);
-        prefixChunk = typeof prefixChunk === "string" ? prefixChunk.slice(0, keep) : prefixChunk.subarray(0, keep);
-      }
-
-      const chunkLen = typeof prefixChunk === "string" ? BufferLikeByteLength(prefixChunk) : prefixChunk.byteLength;
-
-      // Empty prefix (daemon had <1 line older than what we hold) — don't reset+rewrite the
-      // whole mirror just to add nothing; that yanks the viewport for no content gain.
-      if (chunkLen === 0) {
-        historyFetchingRef.current = false;
-        setHistoryFetching(false);
-        return;
-      }
-
-      historyMirrorRef.current.unshift(prefixChunk);
-      historyBytesRef.current += chunkLen;
-
-      // xterm only auto-scrolls to bottom on write when the viewport is already at the bottom.
-      // After reset+write the viewport lands at the bottom (newest). To keep the user's prior
-      // position, scroll back up by (actualChunkLines) via scrollLines — it goes through xterm's
-      // normal user-scroll path (no _sync override like scrollToLine).
-      term.reset();
-      const decoder = new TextDecoder();
-      const parts = historyMirrorRef.current.map((c) =>
-        typeof c === "string" ? c : decoder.decode(c, { stream: true })
-      );
-      term.write(parts.join(""), () => {
-        requestAnimationFrame(() => {
-          // baseY now reflects the full replayed buffer. actualChunkLines = how many lines the
-          // prefix added (measured, not estimated) → exact viewport preservation.
-          const baseYAfter = term.buffer.active.baseY;
-          const actualChunkLines = Math.max(0, baseYAfter - baseYBefore);
-          const target = Math.max(0, Math.min(oldViewportY + actualChunkLines, baseYAfter));
-          const delta = target - baseYAfter; // negative → scroll up
-          if (delta < 0) term.scrollLines(delta);
-          historyFetchingRef.current = false;
-          setHistoryFetching(false);
-        });
-      });
-    };
-
-    // Detect scroll near top (primary buffer only) → fetch older history chunk from agent.
+    // Detect scroll near top (primary buffer only) → fetch an older history chunk from the agent.
     const maybeFetchHistory = () => {
       const buf = term.buffer.active;
       if (HISTORY_FETCH.disabled) return;
@@ -390,217 +267,51 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     term.textarea?.addEventListener("keyup", maybeFetchHistory);
     maybeFetchHistoryRef.current = maybeFetchHistory;
 
-    /** Fetch the missing live-output range [lastSeq+1 .. toSeq] and append it —
-     *  no reset, no flash. Live output arriving meanwhile is queued in `pending`
-     *  and flushed once the whole range lands, so order stays [gap … live].
-     *  Falls back to a full reset+rejoin on a ring miss or a stalled transfer.
-     *  Two callers: a live chunk that jumped ahead, and the visibility peek
-     *  (output produced while backgrounded, with nothing new printed since). */
-    const startGapFetch = (toSeq, pending = []) => {
-      if (awaitingGapRef.current) return; // a fetch is already in flight
-      const fromSeq = (lastSeqRef.current ?? 0) + 1;
-      if (toSeq < fromSeq) return; // nothing missing
-      termLog("reconnect", `seq gap (${lastSeqRef.current} → ${toSeq + 1}) → requestGap ${fromSeq}..${toSeq}`);
-      const gapState = {
-        pending: [...pending],
-        fromSeq, toSeq,
-        settled: false, timer: null,
-        expected: null,  // chunk count from the ack (null until it arrives)
-        received: 0,
-        seen: new Set(), // distinct gap seqs painted — dedups retransmits
-        finish: null,
-      };
-      // Flush the queued live output — runs once, whichever of the ack or the
-      // last gap chunk completes the set.
-      gapState.finish = () => {
-        // Cancelled (reconnect / unmount nulled the ref) → the rejoin owns the
-        // buffer now; painting here would land on content we no longer own.
-        if (gapState.settled || awaitingGapRef.current !== gapState) return;
-        gapState.settled = true;
-        clearTimeout(gapState.timer);
-        gapState.timer = null;
+    // Gap-recovery state machine (plan G): request a missing live-output range and append it —
+    // no reset, no flash. Live output meanwhile is queued, then flushed after the gap.
+    const gapFetch = createGapFetch({
+      emit: (payload, ack) => socket.emit("requestGap", { sessionId, ...payload }, ack),
+      writeChunk: (data) => {
         const b = writeBatcherRef.current;
-        for (const p of gapState.pending) {
-          const pd = p.data;
-          if (pd instanceof ArrayBuffer || ArrayBuffer.isView(pd)) {
-            writeChunked(term, pd instanceof Uint8Array ? pd : new Uint8Array(pd), historyMirrorRef, historyBytesRef, b);
-          } else {
-            writeChunked(term, typeof pd === "string" ? pd : String(pd), historyMirrorRef, historyBytesRef, b);
-          }
-          if (p.seq != null) lastSeqRef.current = p.seq;
-        }
+        writeChunked(term, data, historyMirrorRef, historyBytesRef, b);
         b?.flush();
-        if (awaitingGapRef.current === gapState) awaitingGapRef.current = null;
-        termLog("reconnect", `gap recovered (${gapState.received}/${gapState.expected} chunks, ${gapState.pending.length} pending flushed)`);
-      };
-      const gapFallback = (why) => {
-        // Same cancellation guard: a reconnect already scheduled its own
-        // reset+rejoin, so don't fire a second one on top of it.
-        if (gapState.settled || awaitingGapRef.current !== gapState) return;
-        gapState.settled = true;
-        clearTimeout(gapState.timer);
-        gapState.timer = null;
-        awaitingGapRef.current = null;
-        termLog("reconnect", `gap ${why} (${fromSeq}..${toSeq}) → reset+rejoin`);
+      },
+      flush: () => writeBatcherRef.current?.flush(),
+      onGapChunk: (seq) => { lastSeqRef.current = seq; },
+      onFallback: () => {
         if (termRef.current) termRef.current.reset();
         doJoinSessionRef.current?.(true);
-      };
-      awaitingGapRef.current = gapState;
-      // Safety: ack never returns, or chunks stall in transit (carrier drop) →
-      // full reset+rejoin instead of queueing live output forever.
-      gapState.timer = setTimeout(() => gapFallback("timeout"), GAP_FETCH_TIMEOUT_MS);
-      socket.emit("requestGap", { sessionId, fromSeq, toSeq }, (res) => {
-        if (gapState.settled || awaitingGapRef.current !== gapState) return; // cancelled meanwhile
-        if (!res?.hit) return gapFallback("miss"); // evicted from the ring
-        gapState.expected = res.count ?? 0;
-        // The ack can beat its own chunks (different carrier), so only finish
-        // when every chunk has landed; the timer covers the stalled case.
-        if (gapState.received >= gapState.expected) gapState.finish();
-      });
-    };
-    startGapFetchRef.current = startGapFetch;
+      },
+      log: (msg) => termLog("reconnect", msg),
+      getFromSeq: () => (lastSeqRef.current ?? 0) + 1
+    });
 
-    /** On becoming visible, ASK the agent for its newest seq instead of waiting
-     *  for the next chunk. Without this, output produced while the app was
-     *  backgrounded stays missing until the terminal happens to print again —
-     *  a finished command leaves the pane silently truncated. */
+    /** On becoming visible, ASK the agent for its newest seq instead of waiting for the next
+     *  chunk — output produced while backgrounded otherwise stays missing until the terminal
+     *  prints again (a finished command leaves the pane silently truncated). */
     const checkSeqOnVisible = () => {
       if (!isVisibleRef.current) return;        // pane is LRU-hidden (other group) — don't recover into a zero-size buffer
       if (lastSeqRef.current == null) return;   // no seq baseline yet (old agent / fresh pane)
-      if (joiningRef.current || awaitingGapRef.current) return; // recovery already running
+      if (joiningRef.current || gapFetch.isBusy()) return; // recovery already running
       socket.emit("peekSeq", { sessionId }, (res) => {
         const agentSeq = res?.seq;
         if (agentSeq == null) return;           // agent too old to answer → warm path handles it
         if (agentSeq <= (lastSeqRef.current ?? 0)) return; // nothing missed
         termLog("reconnect", `peekSeq ${lastSeqRef.current} → ${agentSeq} → recover`);
-        startGapFetch(agentSeq);
+        gapFetch.start(agentSeq);
       });
     };
 
-    // Output handler - filter by sessionId
-    const handleOutput = (payload) => {
-      if (payload.sessionId !== sessionId) return;
-      lastOutputAtRef.current = Date.now();
-      const dlen = payload.data?.length || 0;
-      outputTotalRef.current += dlen;
-      // Live output spams the buffer (agent streams many chunks/sec) — only log
-      // anomalies (rejoin replay / scroll-up prefix), not every live chunk.
-      if (payload.replay || payload.isHistoryPrefix) {
-        termLog("recv", `len=${dlen} replay=${!!payload.replay} prefix=${!!payload.isHistoryPrefix} total=${outputTotalRef.current}`);
-      }
-      let data = payload.data;
-      // Daemon marks coalesced/optimized output with enc:"b64" (base64 string).
-      // Decode once here → avoids double base64 in the old Buffer round-trip path.
-      if (payload.enc === "b64" && typeof data === "string") {
-        // Native base64 decode (~5-9x faster than atob+char-loop) — Chrome 133+, Safari 18.2+.
-        // Fallback to atob for older browsers / Tauri WebViews.
-        if (typeof Uint8Array.fromBase64 === "function") {
-          data = Uint8Array.fromBase64(data);
-        } else {
-          const bin = atob(data);
-          const bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-          data = bytes;
-        }
-      }
-      awaitingTuiOutputRef.current = false; // SGR round-trip done → resume TUI scroll
-
-      // Older-than-tail prefix (scroll-up fetch): splice before mirror, reset+replay once.
-      if (payload.isHistoryPrefix) {
-        replayWithPrefix(data);
-        return;
-      }
-
-      // Join-replay packet (mode restore + tail): write immediately in arrival order. No mirror —
-      // the tail is the post-reset baseline; mirroring would double-count it.
-      if (payload.replay) {
-        const d = (data instanceof ArrayBuffer || ArrayBuffer.isView(data))
-          ? (data instanceof Uint8Array ? data : new Uint8Array(data))
-          : (typeof data === "string" ? data : String(data));
-        writeBatcherRef.current?.write(d);
-        writeBatcherRef.current?.flush();
-        // Resync lastSeq to the snapshot so the next live chunk is contiguous.
-        if (payload.seq != null) lastSeqRef.current = syncAfterReplay(payload.seq);
-        return;
-      }
-
-      // Gap-recovery chunk (plan G): append to fill a missing range — no reset, no
-      // flash. Mirrored like live output (these ARE live bytes we simply missed),
-      // so historyBytes stays in step with the daemon's byte total and scroll-up
-      // keeps asking for the right prefix.
-      // Guard: only honor while a gap fetch is in flight and the seq falls inside
-      // the requested range. A chunk arriving after a miss/timeout fallback
-      // (reset+rejoin already fired) would corrupt the fresh buffer and rewind
-      // lastSeq → spurious gap loop.
-      if (payload.gap) {
-        const gap = awaitingGapRef.current;
-        if (!gap || payload.seq == null) return;
-        if (payload.seq < gap.fromSeq || payload.seq > gap.toSeq) return;
-        if (gap.seen.has(payload.seq)) return; // retransmit — already painted
-        const d = (data instanceof ArrayBuffer || ArrayBuffer.isView(data))
-          ? (data instanceof Uint8Array ? data : new Uint8Array(data))
-          : (typeof data === "string" ? data : String(data));
-        const b = writeBatcherRef.current;
-        if (d instanceof ArrayBuffer || ArrayBuffer.isView(d)) {
-          writeChunked(term, d instanceof Uint8Array ? d : new Uint8Array(d), historyMirrorRef, historyBytesRef, b);
-        } else {
-          writeChunked(term, typeof d === "string" ? d : String(d), historyMirrorRef, historyBytesRef, b);
-        }
-        b?.flush();
-        lastSeqRef.current = payload.seq;
-        // Count DISTINCT seqs: a duplicate delivery must not make the set look
-        // complete while a real chunk is still missing.
-        gap.seen.add(payload.seq);
-        gap.received = gap.seen.size;
-        // The ack may arrive over a different carrier than the gap chunks (the
-        // agent falls back to WS when RTC dies), so it can land first. Only flush
-        // once BOTH the ack and all its chunks are in, else the remaining chunks
-        // would be rejected by the guard above and their content lost silently.
-        if (gap.expected != null && gap.received >= gap.expected) gap.finish();
-        return;
-      }
-
-      // Live output racing the join → queue, flush on ack. Dropping loses content produced after
-      // the daemon's snapshot (window can be hundreds of ms under multi-pane joins).
-      if (joiningRef.current) {
-        joinQueueRef.current.push({ data, seq: payload.seq });
-        return;
-      }
-
-      // Live output while a gap fetch is in flight → queue, flush after the gap
-      // lands so order stays [gap … queued live] without a flash.
-      if (awaitingGapRef.current) {
-        awaitingGapRef.current.pending.push({ data, seq: payload.seq });
-        return;
-      }
-
-      // Seq gap detection (plan F): agent stamps seq on live chunks. A gap means
-      // output was lost during a background suspension the warm heuristic missed.
-      // No seq field (old agent) → skip, fall back to the warm-reconnect path.
-      // STALE (duplicate/late/reordered) → drop, the bytes were already rendered.
-      if (payload.seq != null) {
-        const verdict = classifyLiveChunk(lastSeqRef.current, payload.seq);
-        if (verdict === GAP_DETECTED) {
-          // Hold this chunk (and any later live) until the gap lands.
-          startGapFetchRef.current?.(payload.seq - 1, [{ data, seq: payload.seq }]);
-          return;
-        }
-        if (verdict === GAP_STALE) return;
-        // INIT or NONE → advance and render below
-        lastSeqRef.current = payload.seq;
-      }
-
-      // Live output arrives → user is effectively at bottom; clear the user-scrolled-to-top flag.
-      userAtTopRef.current = false;
-      const b = writeBatcherRef.current;
-      if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-        writeChunked(term, data instanceof Uint8Array ? data : new Uint8Array(data), historyMirrorRef, historyBytesRef, b);
-      } else if (typeof data === "string") {
-        writeChunked(term, data, historyMirrorRef, historyBytesRef, b);
-      } else {
-        writeChunked(term, String(data), historyMirrorRef, historyBytesRef, b);
-      }
-    };
+    // Output routing: prefix replay / join replay / gap / queues / seq classify / live
+    const { handleOutput } = createOutputRouter({
+      sessionId, term, writeBatcherRef, gapFetch,
+      refs: {
+        joiningRef, joinQueueRef, lastSeqRef, lastOutputAtRef, outputTotalRef,
+        awaitingTuiOutputRef, userAtTopRef, historyFetchingRef, historyHaveAtEmitRef,
+        historyMirrorRef, historyBytesRef
+      },
+      setHistoryFetching
+    });
     socket.on("output", handleOutput);
 
     // Server-pushed cwd change (OSC 7 detected daemon-side) — authoritative cwd source
@@ -610,82 +321,17 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     };
     socket.on("cwdChange", handleCwdChange);
 
-    // Join session and replay scrollback buffer from daemon
-    const doJoinSession = (isRejoin = false) => {
-      // Reset history mirror — rejoin starts fresh with the tail replay.
-      historyMirrorRef.current = [];
-      historyBytesRef.current = 0;
-      historyTotalRef.current = 0;
-      historyFetchingRef.current = false;
-      userAtTopRef.current = false;
-      // Fit + emit resize BEFORE join so the daemon serializes the TUI snapshot
-      // (alt-screen apps like Claude Code) at the client's real size. Join-first would
-      // replay at the daemon's stale cols/rows → garbled until next SIGWINCH.
-      // The container is briefly narrow during mount-in / group-switch. A snapshot taken at a
-      // transient cols re-wraps scrollback narrow FOREVER (PTY cols is one-way). So don't poll
-      // here — delegate to doResize({join:true}): ResizeObserver + the settle debounce fire the
-      // emit+join once the container has been quiet for the full debounce, at the real size.
-      requestAnimationFrame(() => doResizeRef.current?.({ join: true }));
-      // Emit joinSession with the given size (used by the reconnect/visibility paths).
-      const fireJoin = (cols, rows) => {
-        // Send the measured size in the join so a respawned PTY spawns at the right size.
-        // Only when the agent advertises the capability — older agents expect a bare
-        // sessionId string and would treat an object as an unknown session.
-        const joinPayload = useTerminalStore.getState().agentCaps?.joinSessionSize
-          ? { sessionId, cols, rows }
-          : sessionId;
-        // Open the drop window — live output racing the replay is dropped (already in the tail).
-        joiningRef.current = true;
-        setJoining(true);
-        joinQueueRef.current = [];
-        const myGen = ++joinGenRef.current;
-        termLog("join", `emit gen=${myGen} cols=${cols} rows=${rows}`);
-        socket.emit("joinSession", joinPayload, (result) => {
-          if (myGen !== joinGenRef.current) { termLog("join", `stale ack gen=${myGen} (current=${joinGenRef.current})`); return; }
-          termLog("join", `ack gen=${myGen} success=${!!result?.success} total=${result?.total} replaySize=${result?.replaySize}`);
-          // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
-          setTimeout(() => {
-            joiningRef.current = false;
-            setJoining(false);
-            const queue = joinQueueRef.current;
-            joinQueueRef.current = [];
-            const b = writeBatcherRef.current;
-            let queueTailSeq = null;
-            for (const q of queue) {
-              const d = (q && typeof q === "object" && "data" in q) ? q.data : q; // {data,seq} | raw
-              if (q?.seq != null) queueTailSeq = q.seq;
-              if (d instanceof ArrayBuffer || ArrayBuffer.isView(d)) {
-                writeChunked(term, d instanceof Uint8Array ? d : new Uint8Array(d), historyMirrorRef, historyBytesRef, b);
-              } else {
-                writeChunked(term, typeof d === "string" ? d : String(d), historyMirrorRef, historyBytesRef, b);
-              }
-            }
-            // Resync lastSeq: ack carries the snapshot seq; queued live may extend past it.
-            // Take the larger so the next live chunk classifies as contiguous.
-            const ackSeq = result?.seq ?? null;
-            if (ackSeq != null || queueTailSeq != null) {
-              lastSeqRef.current = Math.max(ackSeq ?? -1, queueTailSeq ?? -1);
-            }
-            // Force a flush so queued content paints this frame instead of waiting for the next rAF.
-            b?.flush();
-          }, 0);
-          if (result.success) {
-            // total = bytes agent holds; ceiling for scroll-up fetch.
-            historyTotalRef.current = result.total || 0;
-            if (result.cwd) { cwdRef.current = result.cwd; setCwd(result.cwd); useTerminalStore.getState().setCwd(sessionId, result.cwd); }
-            setTimeout(() => {
-              // WebGL renderer applied by the webglEnabled watch effect below; just fit.
-              fitAddon.fit();
-            }, 200);
-          } else {
-            term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);
-          }
-        });
-      };
-      fireJoinRef.current = fireJoin;
-    };
-    // Stagger initial join by mountDelay so a freshly-entered group's panes don't all join at once
-    // (focus pane = 0ms, siblings stagger ~120ms). Rejoins/visibility-driven calls pass 0.
+    // Join session and replay scrollback buffer from the daemon
+    const doJoinSession = createJoinSession({
+      socket, sessionId, term, fitAddon, writeBatcherRef, doResizeRef, fireJoinRef,
+      refs: {
+        historyMirrorRef, historyBytesRef, historyTotalRef, historyFetchingRef,
+        userAtTopRef, joiningRef, joinQueueRef, joinGenRef, lastSeqRef, cwdRef, setJoining
+      },
+      setCwd
+    });
+    // Stagger initial join by mountDelay so a freshly-entered group's panes don't all join at
+    // once (focus pane = 0ms, siblings stagger ~120ms). Rejoins pass 0.
     if (mountDelay > 0) {
       const id = setTimeout(doJoinSession, mountDelay);
       doJoinSessionRef.current = doJoinSession;
@@ -694,31 +340,28 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     doJoinSession();
     doJoinSessionRef.current = doJoinSession;
 
-    // On reconnect → clear stale content and rejoin to get latest scrollback.
-    // BUT only if the pane is visible — a hidden pane (different group, LRU) has a stale/
-    // zero-size container; fitting+joining now would serialize the TUI snapshot at a wrong cols
-    // and Claude Code's restored output renders narrow forever. Defer to the visibility effect.
+    // On reconnect → clear stale content and rejoin to get the latest scrollback.
+    // Only if the pane is visible — a hidden pane (different group, LRU) has a stale/zero-size
+    // container; fitting+joining now would serialize the TUI snapshot at a wrong cols.
     const handleReconnect = () => {
       if (!termRef.current) return;
-      // Reset transient state that may be stuck from the disconnect: mid-flight
-      // requestHistory (R2) and mid-SGR TUI round-trip (R3). R4 (lastPtySize dedup)
-      // is handled in the settle path (doResize), which records the size it emits.
+      // Reset transient state stuck from the disconnect (mid-flight requestHistory, mid-SGR
+      // TUI round-trip). R5/R6 (join window, gap fetch) handled below and via gapFetch.cancel().
       resetReconnectState({
         historyFetching: historyFetchingRef,
         historyHaveAtEmit: historyHaveAtEmitRef,
         awaitingTuiOutput: awaitingTuiOutputRef,
         joining: joiningRef,
         joinQueue: joinQueueRef,
-        awaitingGap: awaitingGapRef,
       });
+      gapFetch.cancel();
       setHistoryFetching(false);
       setJoining(false); // rejoin below will set it true again on emit
       if (!isVisibleRef.current) { needsRejoinRef.current = true; termLog("reconnect", "deferred (pane hidden) → needsRejoin=true"); return; }
-      // Warm reconnect: live output arrived recently → agent still streaming over the
-      // new carrier, no scrollback gap. Skip reset+rejoin (which clears xterm = white
-      // flash) and let output continue. Only reset when stale (real disconnect gap).
-      // Don't skip mid-join: the in-flight join's replay packets write on the current
-      // buffer and would duplicate without the reset. Let it reset+rejoin clean.
+      // Warm reconnect: live output arrived recently → agent still streaming over the new
+      // carrier, no scrollback gap. Skip reset+rejoin (which clears xterm = white flash) and
+      // let output continue. Don't skip mid-join: the in-flight join's replay packets write on
+      // the current buffer and would duplicate without the reset.
       const sinceOutput = Date.now() - lastOutputAtRef.current;
       if (!joiningRef.current && sinceOutput < RECONNECT_WARM_MS) {
         termLog("reconnect", `warm skip (${sinceOutput}ms < ${RECONNECT_WARM_MS})`);
@@ -731,9 +374,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     socket.on("connect", handleReconnect);
 
     // Orientation change: wait for mobile layout to settle, then force-refit + re-emit cols.
-    // RO may not fire (container height locked against soft-KB shrink) or fire mid-transition
-    // with a stale width → cols lock to wrong value, content renders narrower than container.
-    // force bypasses the "same cols as last emit" skip; double-fit clears xterm's cached cellWidth.
+    // RO may not fire or fire mid-transition with a stale width → cols lock to the wrong value.
     const handleOrientationChange = () => setTimeout(() => {
       const term = termRef.current;
       const fitAddon = fitAddonRef.current;
@@ -744,9 +385,8 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     }, ORIENTATION_SETTLE_MS);
     window.addEventListener("orientationchange", handleOrientationChange);
 
-    // Force redraw when tab becomes visible again (WebGL renderer may not repaint after tab switch).
-    // Also ASK the agent for its newest seq — output produced while backgrounded, with nothing new
-    // printed since, otherwise stays silently truncated (gap detection only runs on new chunks).
+    // Force redraw when the tab becomes visible again (WebGL may not repaint after a tab
+    // switch), and ask the agent for its newest seq to recover backgrounded output.
     const handleVisibilityChange = () => {
       if (!document.hidden && termRef.current) {
         termRef.current.refresh(0, termRef.current.rows - 1);
@@ -768,12 +408,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       // Gap fetch in flight → kill its fallback timer, else it fires after unmount
-      // and resets/rejoins a terminal that no longer exists.
-      if (awaitingGapRef.current) {
-        clearTimeout(awaitingGapRef.current.timer);
-        awaitingGapRef.current = null;
-      }
-      startGapFetchRef.current = null; // suppress peekSeq recovery on a disposed pane
+      gapFetch.cancel();
       if (webglAddonRef.current) webglAddonRef.current.dispose();
       if (writeBatcherRef.current) writeBatcherRef.current.dispose();
       fitAddon.dispose();
@@ -803,7 +438,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     fitAddon.fit();
     emitResize();
     term.refresh(0, term.rows - 1);
-  }, [fontSizeSetting, socket, sessionId]);
+  }, [fontSizeSetting, socket, sessionId, emitResize]);
 
   // Input handler - only when active
   useEffect(() => {
@@ -822,7 +457,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     }
   }, [isFocused, socket, sessionId, onInput]);
 
-  // Hover scroll: forward mouse-report sequences to PTY even when pane not focused,
+  // Hover scroll: forward mouse-report sequences to the PTY even when the pane is not focused,
   // so alt-screen apps (Claude Code CLI) scroll on hover without stealing keyboard focus.
   useEffect(() => {
     if (!termRef.current || !socket || !sessionId || isFocused) return;
@@ -847,17 +482,17 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         doJoinSessionRef.current?.(true);
         return;
       }
-      // force: pane may have been hidden during reconnect → daemon snapshot stale,
-      // and cols/rows unchanged would skip emit → PTY never gets SIGWINCH to redraw.
+      // force: pane may have been hidden during reconnect → daemon snapshot stale, and
+      // cols/rows unchanged would skip emit → PTY never gets SIGWINCH to redraw.
       doResize({ force: true });
-      // Pane was hidden (LRU opacity-0) → force repaint so stale canvas redraws even at same size
+      // Pane was hidden (LRU opacity-0) → force repaint so the stale canvas redraws
       requestAnimationFrame(() => termRef.current?.refresh(0, termRef.current.rows - 1));
     }, 100);
     return () => clearTimeout(timer);
   }, [isVisible, doResize]);
 
-  // Refit terminal when pane receives focus (desktop split + mobile active pane)
-  // Mobile single-pane: force PTY emit so TUI redraws at the right size (no split size change to trigger it)
+  // Refit when the pane receives focus (desktop split + mobile active pane).
+  // Mobile single-pane: force PTY emit so the TUI redraws at the right size.
   useEffect(() => {
     if (!isFocused) return;
     const mobile = typeof window !== "undefined" && window.innerWidth < 760;
@@ -875,284 +510,15 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     }
   }, [theme, terminalTheme]);
 
-  // Touch scroll with momentum (iOS-like inertia)
-  useEffect(() => {
-    if (!termReady || !termRef.current) return;
+  useTermTouchGestures({
+    termRef, termReady, isVisible, socket, sessionId,
+    onSelectionMadeRef, awaitingTuiOutputRef, maybeFetchHistoryRef, userAtTopRef,
+    stopMomentumRef
+  });
 
-    const xtermScreen = termRef.current.element?.querySelector(".xterm-screen");
-    if (!xtermScreen) return;
-
-    let lastY = 0;
-    let lastTime = 0;
-    let velocity = 0;
-    let momentumId = null;
-    let accumulated = 0;
-    let lastScrollAt = 0;
-
-    const SENSITIVITY = TOUCH_SCROLL.sensitivity;
-    const FALLBACK_LINE_HEIGHT = TOUCH_SCROLL.lineHeight;
-    const LINE_HEIGHT = TOUCH_SCROLL.lineHeight;
-    const FRICTION = TOUCH_SCROLL.friction;
-    const MIN_VELOCITY = TOUCH_SCROLL.minVelocity;
-    const MAX_VELOCITY = TOUCH_SCROLL.maxVelocity;
-    const TUI_THROTTLE_MS = TOUCH_SCROLL.tuiThrottleMs;
-    const MOMENTUM_CADENCE_MS = TOUCH_SCROLL.momentumRenderCadenceMs;
-    const TUI_BACKPRESSURE_TIMEOUT_MS = TOUCH_SCROLL.tuiBackpressureTimeoutMs;
-    const MAX_LINES_PER_FRAME = 3; // cap scrollLines per frame → smaller repaints, smoother inertia
-
-    // Throttle SGR wheel burst so touch ≈ PC wheel cadence (TUI decides actual rate).
-    let lastSgrAt = 0;
-    let pendingLines = 0;
-    let pendingTimer = null;
-    const flushSgr = () => {
-      pendingTimer = null;
-      if (!pendingLines) return;
-      const t = termRef.current;
-      if (!t) { pendingLines = 0; return; }
-      const x = Math.max(1, Math.ceil(t.cols / 2));
-      const y = Math.max(1, Math.ceil(t.rows / 2));
-      const seq = pendingLines > 0 ? TOUCH_SCROLL.sgrDown(x, y) : TOUCH_SCROLL.sgrUp(x, y);
-      const n = Math.min(Math.abs(pendingLines), TOUCH_SCROLL.wheelStepLines);
-      for (let i = 0; i < n; i++) socket.emit("input", { sessionId, data: seq });
-      pendingLines = 0;
-      lastSgrAt = performance.now();
-      awaitingTuiOutputRef.current = true; // expect output round-trip; cleared in handleOutput
-    };
-
-    // Alt-buffer (TUI mouse-tracking) has no scrollback → send SGR wheel to app; else scroll local scrollback
-    const applyScroll = (lines) => {
-      const t = termRef.current;
-      if (!t) return;
-      if (t.buffer.active.type === "alternate") {
-        // Backpressure: TUI still redrawing last SGR → drop new lines, don't pile up.
-        // Safety timeout: clear anyway after TUI_BACKPRESSURE_TIMEOUT_MS so TUIs that
-        // don't emit output on wheel (opencode/lazygit) never stall scroll.
-        if (awaitingTuiOutputRef.current && performance.now() - lastSgrAt < TUI_BACKPRESSURE_TIMEOUT_MS) return;
-        pendingLines += lines;
-        const elapsed = performance.now() - lastSgrAt;
-        if (elapsed >= TUI_THROTTLE_MS) {
-          flushSgr();
-        } else if (!pendingTimer) {
-          pendingTimer = setTimeout(flushSgr, TUI_THROTTLE_MS - elapsed);
-        }
-      } else {
-        t.scrollLines(Math.max(-MAX_LINES_PER_FRAME, Math.min(MAX_LINES_PER_FRAME, lines)));
-        // B3: touch scroll up near top must trigger history fetch — wheel handler sets userAtTopRef,
-        // but touch path (applyScroll) never did, so mobile users couldn't load older history.
-        if (lines < 0) {
-          const buf = t.buffer.active;
-          if (buf.viewportY <= HISTORY_FETCH.topThresholdLines) {
-            userAtTopRef.current = true;
-            maybeFetchHistoryRef.current?.();
-          }
-        }
-      }
-    };
-
-    const stopMomentum = () => {
-      if (momentumId) {
-        cancelAnimationFrame(momentumId);
-        momentumId = null;
-      }
-      velocity = 0;
-    };
-    stopMomentumRef.current = stopMomentum;
-
-    const doMomentum = () => {
-      if (!termRef.current || Math.abs(velocity) < MIN_VELOCITY) {
-        momentumId = null;
-        return;
-      }
-
-      const isAlt = termRef.current.buffer?.active?.type === "alternate";
-      const now = performance.now();
-
-      // TUI backpressure (RTT-aware, with timeout safety for non-responsive TUIs)
-      const tuiBusy = isAlt && awaitingTuiOutputRef.current && now - lastSgrAt < TUI_BACKPRESSURE_TIMEOUT_MS;
-      // Scrollback render cadence: cap repaint to ~30fps during inertia
-      const cadenceDue = !isAlt && now - lastScrollAt >= MOMENTUM_CADENCE_MS;
-
-      // Decay at the apply timestep, not per-rAF — otherwise scrollback (apply every 33ms)
-      // loses 2x velocity between applies and the glide dies early. TUI always applies → unchanged.
-      if (!tuiBusy && (isAlt || cadenceDue)) {
-        velocity *= FRICTION;
-        accumulated += velocity;
-        const lines = Math.trunc(accumulated / LINE_HEIGHT);
-        if (lines !== 0) {
-          applyScroll(lines);
-          accumulated -= lines * LINE_HEIGHT;
-          lastScrollAt = performance.now();
-        }
-      }
-
-      momentumId = requestAnimationFrame(doMomentum);
-    };
-
-    // --- Long-press text selection (mobile) ---
-    let longPressTimer = null;
-    let selecting = false;
-    let selStart = null; // {col, row} absolute buffer coords
-    let startX = 0, startY = 0, curX = 0, curY = 0, moved = false;
-
-    // Cached during select drag so touchToCell skips getBoundingClientRect() per frame (avoids reflow)
-    let selRect = null;
-
-    // Map viewport pixel → absolute buffer cell (accounts for scrollback offset).
-    const touchToCell = (clientX, clientY) => {
-      const t = termRef.current;
-      const rect = selRect || xtermScreen.getBoundingClientRect();
-      const cellW = rect.width / t.cols;
-      const cellH = rect.height / t.rows;
-      const col = Math.max(0, Math.min(t.cols - 1, Math.floor((clientX - rect.left) / cellW)));
-      const vRow = Math.max(0, Math.min(t.rows - 1, Math.floor((clientY - rect.top) / cellH)));
-      return { col, row: t.buffer.active.viewportY + vRow };
-    };
-
-    const selectWordAt = ({ col, row }) => {
-      const t = termRef.current;
-      const line = t.buffer.active.getLine(row);
-      if (!line) return;
-      const text = line.translateToString(false);
-      const isWord = (c) => c && TOUCH_SELECT.wordChars.test(c);
-      if (!isWord(text[col])) { t.select(col, row, 1); return; }
-      let start = col, end = col;
-      while (start > 0 && isWord(text[start - 1])) start--;
-      while (end < text.length - 1 && isWord(text[end + 1])) end++;
-      t.select(start, row, end - start + 1);
-    };
-
-    const extendSelection = (cell) => {
-      const t = termRef.current;
-      if (cell.row === selStart.row) {
-        const min = Math.min(cell.col, selStart.col);
-        t.select(min, cell.row, Math.abs(cell.col - selStart.col) + 1);
-      } else {
-        t.selectLines(Math.min(cell.row, selStart.row), Math.max(cell.row, selStart.row));
-      }
-    };
-
-    const handleTouchStart = (e) => {
-      stopMomentum();
-      const touch = e.touches[0];
-      lastY = touch.clientY;
-      startX = curX = touch.clientX;
-      startY = curY = touch.clientY;
-      lastTime = Date.now();
-      velocity = 0;
-      accumulated = 0;
-      selecting = false;
-      moved = false;
-      termRef.current?.clearSelection();
-      longPressTimer = setTimeout(() => {
-        if (moved || !termRef.current) return;
-        selecting = true;
-        vibrate();
-        selRect = xtermScreen.getBoundingClientRect();
-        selStart = touchToCell(startX, startY);
-        selectWordAt(selStart);
-      }, TOUCH_SELECT.longPressMs);
-    };
-
-    const handleTouchMove = (e) => {
-      if (!termRef.current) return;
-      const touch = e.touches[0];
-      curX = touch.clientX;
-      curY = touch.clientY;
-
-      if (!moved && Math.hypot(curX - startX, curY - startY) > TOUCH_SELECT.moveTolerance) {
-        moved = true;
-        if (!selecting) clearTimeout(longPressTimer); // it's a scroll, not a long-press
-      }
-
-      if (selecting) {
-        e.preventDefault();
-        extendSelection(touchToCell(curX, curY));
-        return;
-      }
-
-      const currentY = touch.clientY;
-      const currentTime = Date.now();
-      const dy = lastY - currentY; // >0 finger up / reveal bottom; <0 finger down / reveal top
-      const deltaTime = currentTime - lastTime || 1;
-
-      // Soft-KB: pan outer wrapper first; at edge hand off to xterm scrollback
-      const wrap = xtermScreen.closest(".terminal-scroll.is-scrollable");
-      if (wrap && wrap.scrollHeight > wrap.clientHeight + 1) {
-        const maxScroll = wrap.scrollHeight - wrap.clientHeight;
-        const atTop = wrap.scrollTop <= 0.5;
-        const atBottom = wrap.scrollTop >= maxScroll - 0.5;
-        // Still room in wrapper → scroll it; at top+up or bottom+down → xterm
-        const handoffToTerm = (dy < 0 && atTop) || (dy > 0 && atBottom);
-        if (!handoffToTerm) {
-          if (dy !== 0) {
-            e.preventDefault();
-            wrap.scrollTop = Math.max(0, Math.min(maxScroll, wrap.scrollTop + dy));
-          }
-          lastY = currentY;
-          lastTime = currentTime;
-          velocity = 0;
-          accumulated = 0;
-          return;
-        }
-        // fall through to xterm applyScroll
-      }
-
-      const deltaY = dy * SENSITIVITY;
-      accumulated += deltaY;
-      const lines = Math.trunc(accumulated / LINE_HEIGHT);
-      if (lines !== 0) {
-        e.preventDefault();
-        applyScroll(lines);
-        accumulated -= lines * LINE_HEIGHT;
-      }
-
-      velocity = Math.min((deltaY / deltaTime) * 16, MAX_VELOCITY);
-      lastY = currentY;
-      lastTime = currentTime;
-    };
-
-    const handleTouchEnd = () => {
-      clearTimeout(longPressTimer);
-      selRect = null;
-      if (selecting) {
-        selecting = false;
-        const sel = termRef.current?.getSelection();
-        if (sel && sel.trim()) onSelectionMadeRef.current?.(sel, { x: curX, y: curY });
-        return;
-      }
-      if (Math.abs(velocity) > MIN_VELOCITY) {
-        momentumId = requestAnimationFrame(doMomentum);
-      }
-    };
-
-    xtermScreen.addEventListener("touchstart", handleTouchStart, { passive: true });
-    xtermScreen.addEventListener("touchmove", handleTouchMove, { passive: false });
-    xtermScreen.addEventListener("touchend", handleTouchEnd, { passive: true });
-
-    // Desktop wheel — when scrolled to top, fetch older history chunk
-    const handleWheel = (e) => {
-      const t = termRef.current;
-      if (!t) return;
-      if (e.deltaY < 0 && t.buffer.active.viewportY <= HISTORY_FETCH.topThresholdLines) {
-        userAtTopRef.current = true;
-        maybeFetchHistoryRef.current?.();
-      }
-    };
-    xtermScreen.addEventListener("wheel", handleWheel, { passive: true });
-
-    return () => {
-      stopMomentum();
-      clearTimeout(longPressTimer);
-      xtermScreen.removeEventListener("touchstart", handleTouchStart);
-      xtermScreen.removeEventListener("touchmove", handleTouchMove);
-      xtermScreen.removeEventListener("touchend", handleTouchEnd);
-      xtermScreen.removeEventListener("wheel", handleWheel);
-    };
-  }, [termReady, isVisible]);
-
-  // Manual per-pane reload: reset local XTerm + re-join THIS session to re-fetch
-  // scrollback tail + restore modes, then rebuild WebGL renderer to clear glyph glitch.
-  // No socket reconnect, no impact on other panes.
+  // Manual per-pane reload: reset the local XTerm + re-join THIS session to re-fetch the
+  // scrollback tail + restore modes, then rebuild WebGL to clear glyph glitches. No socket
+  // reconnect, no impact on other panes.
   const reload = useCallback(() => {
     const term = termRef.current;
     if (!term || !socket) return;

@@ -40,7 +40,10 @@ register("data:text/javascript," + encodeURIComponent(`
 `), import.meta.url);
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const PM_SRC = readFileSync(__dirname + "../shared/transport/ProtocolManager.js", "utf8");
+// The visibility/resume watchers live in lib/pmWatchers.js (wired by PM); the
+// contract is "the transport layer does this", so check both sources together.
+const PM_SRC = readFileSync(__dirname + "../shared/transport/ProtocolManager.js", "utf8")
+  + readFileSync(__dirname + "../shared/transport/lib/pmWatchers.js", "utf8");
 const WS_SRC = readFileSync(__dirname + "../shared/transport/WsProtocol.js", "utf8");
 
 // ---------------------------------------------------------------------------
@@ -78,8 +81,8 @@ await test("isWsZombie: ready=false short-circuits → false (not PM's job)", ()
 // ---------------------------------------------------------------------------
 // Layer 2 — source contract: PM must wire the helper + track inbound.
 // ---------------------------------------------------------------------------
-await test("source: PM imports isWsZombie from wsZombie.js", () => {
-  assert.match(PM_SRC, /isWsZombie/, "PM must reference isWsZombie");
+await test("source: transport imports isWsZombie from wsZombie.js", () => {
+  assert.match(PM_SRC, /isWsZombie/, "transport layer must reference isWsZombie");
 });
 
 await test("source: WsProtocol stamps lastInboundAt on Engine.IO pong (true liveness)", () => {
@@ -91,10 +94,16 @@ await test("source: WsProtocol stamps lastInboundAt on Engine.IO pong (true live
   assert.match(WS_SRC, /get lastInboundAt/, "WsProtocol must expose lastInboundAt getter for PM");
 });
 
-await test("source: PM reads liveness from ws.lastInboundAt (not app dispatch)", () => {
+await test("source: transport reads liveness from ws.lastInboundAt (not app dispatch)", () => {
   // Liveness must NOT depend on app bytes (RTC owns binary; WS may be idle). PM
   // reads ws.lastInboundAt which is driven by Engine.IO pong.
-  assert.match(PM_SRC, /ws\.lastInboundAt/, "PM must read lastInboundAt from the ws adapter");
+  assert.match(PM_SRC, /ws\?\.lastInboundAt|ws\.lastInboundAt/, "transport must read lastInboundAt from the ws adapter");
+});
+
+await test("source: PM attaches the watchers (handlers must be wired, not just defined)", () => {
+  const PM_ONLY = readFileSync(__dirname + "../shared/transport/ProtocolManager.js", "utf8");
+  assert.match(PM_ONLY, /attachWatchers\(this\)/, "PM must attach the environment watchers");
+  assert.match(PM_ONLY, /_watchers\?\.detach\(\)/, "PM.disconnect must detach them");
 });
 
 await test("source: visibility handler probes WS zombie AND forces reconnect", () => {

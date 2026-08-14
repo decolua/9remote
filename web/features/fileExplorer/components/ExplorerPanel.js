@@ -5,47 +5,13 @@ import Icon from "@/shared/components/ui/Icon";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { vibrate } from "@/shared/utils/vibration";
-import {
-  GIT_STATUS_COLORS,
-  STORAGE_KEYS
-} from "../constants/fileExplorer.js";
-import { resolveFileIcon, resolveFolderIcon } from "../constants/fileIcons.js";
+import { relativeTo, basename } from "@/features/fileExplorer/lib/pathUtils";
+import { useFileTreeState } from "@/features/fileExplorer/hooks/useFileTreeState";
+import { useFileOperations } from "@/features/fileExplorer/hooks/useFileOperations";
+import ExplorerRow, { TruncatedNote, indentFor } from "./ExplorerRow";
 
-const INDENT_BASE = 12;
-const INDENT_STEP = 12;
 const LONG_PRESS_MS = 500;
-
-function getFileIcon(file) {
-  return resolveFileIcon(file, 16);
-}
-
-function joinPath(dir, name) {
-  if (!dir) return name;
-  return dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
-}
-
-function dirname(p) {
-  const idx = p.lastIndexOf("/");
-  return idx <= 0 ? "/" : p.slice(0, idx);
-}
-
-// Read persisted expanded set
-function loadExpanded() {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEYS.expandedFolders);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveExpanded(set) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEYS.expandedFolders, JSON.stringify([...set]));
-  } catch {}
-}
+const DRAG_MIME = "application/x-file-paths";
 
 export default function ExplorerPanel({
   workspace,
@@ -54,10 +20,6 @@ export default function ExplorerPanel({
   activeFile,
   onSwitchWorkspace
 }) {
-  const [tree, setTree] = useState(() => new Map());
-  const [expanded, setExpanded] = useState(() => new Set());
-  const [loading, setLoading] = useState(() => new Set());
-  const [gitStatusMap, setGitStatusMap] = useState({});
   const [contextMenu, setContextMenu] = useState(null);
   const contextMenuRef = useRef(null);
   const contextMenuPos = useClampedMenu(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
@@ -69,126 +31,24 @@ export default function ExplorerPanel({
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
   const [dragOverPath, setDragOverPath] = useState(null);
-  const [truncatedDirs, setTruncatedDirs] = useState(() => new Set());
-  const [showHidden, setShowHidden] = useState(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEYS.showHidden);
-      if (raw === null) return true;
-      return JSON.parse(raw) !== false;
-    } catch {
-      return true;
-    }
-  });
   const lastClickedRef = useRef(null);
 
   const longPressTimer = useRef(null);
   const renameInputRef = useRef(null);
   const newItemInputRef = useRef(null);
 
-  const getRelative = useCallback(
-    (p) => (p && workspace ? p.replace(`${workspace}/`, "") : p),
-    [workspace]
-  );
+  const getRelative = useCallback((p) => relativeTo(workspace, p), [workspace]);
 
-  // Load directory children into cache
-  const loadDir = useCallback(
-    async (dirPath) => {
-      setLoading((prev) => {
-        const next = new Set(prev);
-        next.add(dirPath);
-        return next;
-      });
-      const res = await fileSocket.getFiles(dirPath, showHidden);
-      setLoading((prev) => {
-        const next = new Set(prev);
-        next.delete(dirPath);
-        return next;
-      });
-      if (res?.success) {
-        setTree((prev) => {
-          const next = new Map(prev);
-          next.set(dirPath, res.files || []);
-          return next;
-        });
-        setTruncatedDirs((prev) => {
-          const has = Boolean(res.truncated);
-          if (has === prev.has(dirPath)) return prev;
-          const next = new Set(prev);
-          has ? next.add(dirPath) : next.delete(dirPath);
-          return next;
-        });
-        return res.files || [];
-      }
-      return [];
-    },
-    [fileSocket, showHidden]
-  );
+  const {
+    tree, expanded, loading, truncatedDirs, gitStatusMap,
+    showHidden, setShowHidden,
+    loadDir, loadGitStatus, toggleFolder, expandDir, refreshAll
+  } = useFileTreeState({ workspace, fileSocket });
 
-  // Load git status and propagate folder-changed up parents
-  const loadGitStatus = useCallback(async () => {
-    if (!workspace) return;
-    const res = await fileSocket.gitStatus(workspace);
-    if (!res?.success) {
-      setGitStatusMap({});
-      return;
-    }
-    const map = {};
-    const list = res.files || res.status || [];
-    list.forEach((entry) => {
-      const rel = entry.path || entry.file;
-      const status = entry.status || entry.code;
-      if (!rel || !status) return;
-      map[rel] = status;
-      // Propagate folder-changed to parent dirs
-      const parts = rel.split("/");
-      for (let i = parts.length - 1; i > 0; i -= 1) {
-        const parentRel = parts.slice(0, i).join("/");
-        if (!map[parentRel]) map[parentRel] = "folder-changed";
-      }
-    });
-    setGitStatusMap(map);
-  }, [fileSocket, workspace]);
-
-  // Initial mount: load workspace root + restore expanded + git status
-  useEffect(() => {
-    if (!workspace) return;
-    let alive = true;
-    (async () => {
-      const persisted = loadExpanded();
-      const restored = new Set([workspace]);
-      await loadDir(workspace);
-      // Restore previously-expanded folders that are subpaths of workspace
-      for (const p of persisted) {
-        if (typeof p === "string" && p.startsWith(workspace)) {
-          restored.add(p);
-          await loadDir(p);
-          if (!alive) return;
-        }
-      }
-      if (!alive) return;
-      setExpanded(restored);
-      loadGitStatus();
-    })();
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace]);
-
-  // Refresh git badges when files saved/changed elsewhere
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handler = () => loadGitStatus();
-    const events = ["fileExplorer:fileSaved", "fileExplorer:fileCreated", "fileExplorer:fileDeleted", "fileExplorer:fileRenamed"];
-    events.forEach(ev => window.addEventListener(ev, handler));
-    return () => events.forEach(ev => window.removeEventListener(ev, handler));
-  }, [loadGitStatus]);
-
-  // Persist expanded
-  useEffect(() => {
-    saveExpanded(expanded);
-  }, [expanded]);
+  const { createItem, renameItem, deleteItem, duplicateItem, moveTo } = useFileOperations({
+    fileSocket, loadDir, loadGitStatus, expandDir, onOpenFile,
+    onMoved: () => setSelectedPaths(new Set())
+  });
 
   // Close context menu on outside click
   useEffect(() => {
@@ -215,30 +75,6 @@ export default function ExplorerPanel({
       newItemInputRef.current.focus();
     }
   }, [newItemModal]);
-
-  const toggleFolder = useCallback(
-    async (folder) => {
-      vibrate();
-      const path = folder.path;
-      if (expanded.has(path)) {
-        setExpanded((prev) => {
-          const next = new Set(prev);
-          next.delete(path);
-          return next;
-        });
-        return;
-      }
-      if (!tree.has(path)) {
-        await loadDir(path);
-      }
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        next.add(path);
-        return next;
-      });
-    },
-    [expanded, tree, loadDir]
-  );
 
   const handleFileClick = useCallback(
     (file, e) => {
@@ -273,23 +109,6 @@ export default function ExplorerPanel({
     [toggleFolder, onOpenFile]
   );
 
-  const refreshAll = useCallback(async () => {
-    vibrate();
-    const dirs = [...tree.keys()];
-    await Promise.all(dirs.map((d) => loadDir(d)));
-    loadGitStatus();
-  }, [tree, loadDir, loadGitStatus]);
-
-  // Persist + reload cached dirs when toggle hidden files
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEYS.showHidden, JSON.stringify(showHidden));
-    if (tree.size > 0) {
-      const dirs = [...tree.keys()];
-      Promise.all(dirs.map((d) => loadDir(d))).catch(() => {});
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showHidden]);
-
   // Determine target folder for new items
   const getNewItemTargetDir = useCallback(() => {
     if (selectedFolder && tree.has(selectedFolder)) return selectedFolder;
@@ -301,25 +120,11 @@ export default function ExplorerPanel({
       const name = newItemValue.trim();
       if (!name) return;
       const dir = newItemModal?.dir || getNewItemTargetDir();
-      const itemPath = joinPath(dir, name);
-      const res = await fileSocket.createItem(itemPath, type);
-      if (res?.success) {
-        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("fileExplorer:fileCreated"));
-        await loadDir(dir);
-        if (type === "folder") {
-          setExpanded((prev) => {
-            const next = new Set(prev);
-            next.add(dir);
-            return next;
-          });
-        } else {
-          onOpenFile?.(itemPath);
-        }
-      }
+      await createItem(dir, name, type);
       setNewItemModal(null);
       setNewItemValue("");
     },
-    [newItemValue, newItemModal, getNewItemTargetDir, fileSocket, loadDir, onOpenFile]
+    [newItemValue, newItemModal, getNewItemTargetDir, createItem]
   );
 
   const handleRenameSubmit = useCallback(async () => {
@@ -329,45 +134,9 @@ export default function ExplorerPanel({
       setRenameTarget(null);
       return;
     }
-    const parent = dirname(renameTarget.path);
-    const newPath = joinPath(parent, newName);
-    const res = await fileSocket.renameItem(renameTarget.path, newPath);
-    if (res?.success) {
-      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("fileExplorer:fileRenamed"));
-      await loadDir(parent);
-    }
+    await renameItem(renameTarget, newName);
     setRenameTarget(null);
-  }, [renameTarget, renameValue, fileSocket, loadDir]);
-
-  const handleDelete = useCallback(
-    async (file) => {
-      const parent = dirname(file.path);
-      const res = await fileSocket.deleteItem(file.path);
-      if (res?.success) {
-        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("fileExplorer:fileDeleted"));
-        await loadDir(parent);
-      }
-    },
-    [fileSocket, loadDir]
-  );
-
-  const handleDuplicate = useCallback(
-    async (file) => {
-      if (file.type === "folder") return;
-      const read = await fileSocket.readFile(file.path);
-      if (!read?.success) return;
-      const dotIdx = file.name.lastIndexOf(".");
-      const base = dotIdx > 0 ? file.name.slice(0, dotIdx) : file.name;
-      const ext = dotIdx > 0 ? file.name.slice(dotIdx) : "";
-      const copyName = `${base} copy${ext}`;
-      const parent = dirname(file.path);
-      const copyPath = joinPath(parent, copyName);
-      await fileSocket.createItem(copyPath, "file");
-      await fileSocket.writeFile(copyPath, read.content || "");
-      await loadDir(parent);
-    },
-    [fileSocket, loadDir]
-  );
+  }, [renameTarget, renameValue, renameItem]);
 
   const copyToClipboard = useCallback(async (text) => {
     try {
@@ -383,19 +152,16 @@ export default function ExplorerPanel({
   }, []);
 
   // Long-press for touch devices
-  const startLongPress = useCallback(
-    (e, file) => {
-      const touch = e.touches?.[0];
-      if (!touch) return;
-      const x = touch.clientX;
-      const y = touch.clientY;
-      longPressTimer.current = setTimeout(() => {
-        vibrate();
-        setContextMenu({ file, x, y });
-      }, LONG_PRESS_MS);
-    },
-    []
-  );
+  const startLongPress = useCallback((e, file) => {
+    const touch = e.touches?.[0];
+    if (!touch) return;
+    const x = touch.clientX;
+    const y = touch.clientY;
+    longPressTimer.current = setTimeout(() => {
+      vibrate();
+      setContextMenu({ file, x, y });
+    }, LONG_PRESS_MS);
+  }, []);
 
   const cancelLongPress = useCallback(() => {
     if (longPressTimer.current) {
@@ -404,156 +170,78 @@ export default function ExplorerPanel({
     }
   }, []);
 
-  // Render git status badge
-  const renderGitBadge = (file) => {
-    const rel = getRelative(file.path);
-    const status = gitStatusMap[rel];
-    if (!status) return null;
-    if (status === "folder-changed") {
-      return <span className="w-1.5 h-1.5 rounded-full bg-blue-400/70 mr-1" />;
-    }
-    const colorCls = GIT_STATUS_COLORS[status] || "text-text-muted";
-    return <span className={`text-[11px] font-bold ${colorCls} ml-1`}>{status}</span>;
+  const readDragPaths = (e) => {
+    const data = e.dataTransfer.getData(DRAG_MIME);
+    if (!data) return null;
+    try { return JSON.parse(data); } catch { return null; }
   };
-
-  // Recursive tree renderer
-  // Move files via drag-drop (uses renameItem as move)
-  const handleMoveTo = useCallback(async (paths, targetDir) => {
-    if (!paths?.length || !targetDir) return;
-    for (const src of paths) {
-      const name = src.split("/").pop();
-      const dest = joinPath(targetDir, name);
-      if (src === dest || dest.startsWith(src + "/")) continue;
-      await fileSocket.renameItem(src, dest);
-    }
-    // Refresh affected dirs
-    const dirs = new Set([targetDir, ...paths.map(p => dirname(p))]);
-    for (const d of dirs) await loadDir(d);
-    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("fileExplorer:fileRenamed"));
-    loadGitStatus();
-    setSelectedPaths(new Set());
-  }, [fileSocket, loadDir, loadGitStatus]);
 
   const renderRow = (file, depth) => {
     const isFolder = file.type === "folder";
     const isExpanded = isFolder && expanded.has(file.path);
-    const isLoading = isFolder && loading.has(file.path);
-    const isActive = activeFile === file.path;
-    const isRenaming = renameTarget?.path === file.path;
     const isSelected = selectedPaths.has(file.path);
-    const isDragOver = dragOverPath === file.path && isFolder;
-    const padLeft = INDENT_BASE + depth * INDENT_STEP;
 
     return (
-      <div key={file.path}>
-        <div
-          draggable={!isRenaming}
-          onDragStart={(e) => {
-            const paths = isSelected ? [...selectedPaths] : [file.path];
-            e.dataTransfer.setData("application/x-file-paths", JSON.stringify(paths));
-            e.dataTransfer.effectAllowed = "move";
-          }}
-          onDragOver={(e) => {
-            if (!isFolder) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "move";
-            setDragOverPath(file.path);
-          }}
-          onDragLeave={() => setDragOverPath(p => p === file.path ? null : p)}
-          onDrop={(e) => {
-            if (!isFolder) return;
-            e.preventDefault();
-            setDragOverPath(null);
-            const data = e.dataTransfer.getData("application/x-file-paths");
-            if (!data) return;
-            try { handleMoveTo(JSON.parse(data), file.path); } catch {}
-          }}
-          className={`group flex items-center gap-1 pr-2 py-0.5 cursor-pointer select-none text-sm ${
-            isDragOver ? "bg-brand-500/30 ring-1 ring-brand-500" :
-            isActive || isSelected ? "bg-surface-2" : "hover:bg-surface-2"
-          }`}
-          style={{ paddingLeft: padLeft }}
-          onContextMenu={(e) => openContextMenu(e, file)}
-          onTouchStart={(e) => startLongPress(e, file)}
-          onTouchEnd={cancelLongPress}
-          onTouchMove={cancelLongPress}
-          onClick={(e) => !isRenaming && handleFileClick(file, e)}
-        >
-          {isFolder ? (
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleFolder(file);
-              }}
-              className="flex items-center justify-center w-4 h-4 text-text-muted"
-            >
-              {isLoading ? (
-                <Icon name="Loader2" size={12} className="animate-spin" />
-              ) : isExpanded ? (
-                <Icon name="ChevronDown" size={14} />
-              ) : (
-                <Icon name="ChevronRight" size={14} />
-              )}
-            </span>
-          ) : (
-            <span className="w-4 h-4" />
-          )}
-
-          {isFolder ? (
-            <span className="shrink-0">{resolveFolderIcon(file.name, isExpanded, 16)}</span>
-          ) : (
-            <span className="shrink-0">{getFileIcon(file)}</span>
-          )}
-
-          {isRenaming ? (
-            <input
-              ref={renameInputRef}
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              onBlur={handleRenameSubmit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleRenameSubmit();
-                else if (e.key === "Escape") setRenameTarget(null);
-              }}
-              className="flex-1 bg-surface-3 text-text text-sm px-1 py-0.5 rounded outline-none border border-brand-500"
-            />
-          ) : (
-            <span className={`flex-1 truncate text-text ${(() => { const s = gitStatusMap[getRelative(file.path)]; if (s === "folder-changed") return "text-yellow-400"; return GIT_STATUS_COLORS[s] || ""; })()}`}>{file.name}</span>
-          )}
-
-          {!isRenaming && renderGitBadge(file)}
-
-          {!isRenaming && (
-            <button
-              onClick={(e) => openContextMenu(e, file)}
-              className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text px-1"
-            >
-              <Icon name="MoreHorizontal" size={14} />
-            </button>
-          )}
-        </div>
-
+      <ExplorerRow
+        key={file.path}
+        file={file}
+        depth={depth}
+        isFolder={isFolder}
+        isExpanded={isExpanded}
+        isLoading={isFolder && loading.has(file.path)}
+        isActive={activeFile === file.path}
+        isSelected={isSelected}
+        isRenaming={renameTarget?.path === file.path}
+        isDragOver={dragOverPath === file.path && isFolder}
+        gitStatus={gitStatusMap[getRelative(file.path)]}
+        renameValue={renameValue}
+        renameInputRef={renameInputRef}
+        onRenameChange={setRenameValue}
+        onRenameSubmit={handleRenameSubmit}
+        onRenameCancel={() => setRenameTarget(null)}
+        onToggleFolder={() => toggleFolder(file)}
+        onClick={(e) => handleFileClick(file, e)}
+        onContextMenu={(e) => openContextMenu(e, file)}
+        onTouchStart={(e) => startLongPress(e, file)}
+        onTouchEnd={cancelLongPress}
+        onDragStart={(e) => {
+          const paths = isSelected ? [...selectedPaths] : [file.path];
+          e.dataTransfer.setData(DRAG_MIME, JSON.stringify(paths));
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onDragOver={(e) => {
+          if (!isFolder) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          setDragOverPath(file.path);
+        }}
+        onDragLeave={() => setDragOverPath(p => p === file.path ? null : p)}
+        onDrop={(e) => {
+          if (!isFolder) return;
+          e.preventDefault();
+          setDragOverPath(null);
+          const paths = readDragPaths(e);
+          if (paths) moveTo(paths, file.path);
+        }}
+      >
         {isFolder && isExpanded && (
           <div>
             {(tree.get(file.path) || []).map((child) => renderRow(child, depth + 1))}
-            {truncatedDirs.has(file.path) && (
-              <div className="text-[11px] text-text-muted italic py-0.5 pr-2" style={{ paddingLeft: INDENT_BASE + (depth + 1) * INDENT_STEP }}>
-                Showing first 300 entries — use search for the rest.
-              </div>
-            )}
+            {truncatedDirs.has(file.path) && <TruncatedNote depth={depth + 1} />}
           </div>
         )}
-      </div>
+      </ExplorerRow>
     );
   };
 
   const rootFiles = useMemo(() => tree.get(workspace) || [], [tree, workspace]);
-  const workspaceName = useMemo(() => {
-    if (!workspace) return "";
-    const parts = workspace.split("/").filter(Boolean);
-    return parts[parts.length - 1] || workspace;
-  }, [workspace]);
+  const workspaceName = useMemo(() => basename(workspace), [workspace]);
+
+  const openNewItemModal = (type, dir) => {
+    vibrate();
+    setNewItemModal({ type, dir });
+    setNewItemValue("");
+  };
 
   // Context menu items based on file type
   const buildMenuItems = (file) => {
@@ -561,80 +249,33 @@ export default function ExplorerPanel({
     const isFolder = file.type === "folder";
     const items = [];
     if (isFolder) {
-      items.push({
-        label: "Open in Terminal",
-        icon: "Terminal",
-        action: () => fileSocket.openInTerminal(file.path)
-      });
-      items.push({
-        label: "New File",
-        icon: "Plus",
-        action: () => {
-          setNewItemModal({ type: "file", dir: file.path });
-          setNewItemValue("");
-        }
-      });
-      items.push({
-        label: "New Folder",
-        icon: "FolderOpen",
-        action: () => {
-          setNewItemModal({ type: "folder", dir: file.path });
-          setNewItemValue("");
-        }
-      });
+      items.push({ label: "Open in Terminal", icon: "Terminal", action: () => fileSocket.openInTerminal(file.path) });
+      items.push({ label: "New File", icon: "Plus", action: () => openNewItemModal("file", file.path) });
+      items.push({ label: "New Folder", icon: "FolderOpen", action: () => openNewItemModal("folder", file.path) });
     } else {
-      items.push({
-        label: "Open",
-        icon: "File",
-        action: () => onOpenFile?.(file.path)
-      });
+      items.push({ label: "Open", icon: "File", action: () => onOpenFile?.(file.path) });
     }
-    items.push({
-      label: "Reveal in OS",
-      icon: "FolderOpen",
-      action: () => fileSocket.revealInOS(file.path)
-    });
+    items.push({ label: "Reveal in OS", icon: "FolderOpen", action: () => fileSocket.revealInOS(file.path) });
     items.push({
       label: "Rename",
       icon: "Pencil",
-      action: () => {
-        setRenameTarget(file);
-        setRenameValue(file.name);
-      }
+      action: () => { setRenameTarget(file); setRenameValue(file.name); }
     });
-    items.push({
-      label: "Duplicate",
-      icon: "Copy",
-      action: () => handleDuplicate(file)
-    });
-    items.push({
-      label: "Copy Path",
-      icon: "Copy",
-      action: () => copyToClipboard(file.path)
-    });
-    items.push({
-      label: "Copy Relative Path",
-      icon: "Copy",
-      action: () => copyToClipboard(getRelative(file.path))
-    });
-    items.push({
-      label: "Delete",
-      icon: "Trash2",
-      danger: true,
-      action: () => setConfirmDelete(file)
-    });
+    items.push({ label: "Duplicate", icon: "Copy", action: () => duplicateItem(file) });
+    items.push({ label: "Copy Path", icon: "Copy", action: () => copyToClipboard(file.path) });
+    items.push({ label: "Copy Relative Path", icon: "Copy", action: () => copyToClipboard(getRelative(file.path)) });
+    items.push({ label: "Delete", icon: "Trash2", danger: true, action: () => setConfirmDelete(file) });
     return items;
   };
+
+  const headerBtn = "text-text-muted hover:text-text p-1 rounded hover:bg-surface-2";
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-bg text-text overflow-hidden">
       {/* Header */}
       <div className="bg-surface px-3 py-2 border-b border-border flex items-center gap-2 sticky top-0 z-10">
         <button
-          onClick={() => {
-            vibrate();
-            onSwitchWorkspace?.();
-          }}
+          onClick={() => { vibrate(); onSwitchWorkspace?.(); }}
           className="flex items-center gap-1 flex-1 min-w-0 hover:text-text"
         >
           <span className="text-xs uppercase tracking-wider text-text-muted font-medium truncate">
@@ -642,33 +283,13 @@ export default function ExplorerPanel({
           </span>
           <Icon name="ChevronDown" size={12} className="text-text-muted shrink-0" />
         </button>
-        <button
-          onClick={() => {
-            vibrate();
-            setNewItemModal({ type: "file", dir: getNewItemTargetDir() });
-            setNewItemValue("");
-          }}
-          className="text-text-muted hover:text-text p-1 rounded hover:bg-surface-2"
-          title="New File"
-        >
+        <button onClick={() => openNewItemModal("file", getNewItemTargetDir())} className={headerBtn} title="New File">
           <Icon name="Plus" size={14} />
         </button>
-        <button
-          onClick={() => {
-            vibrate();
-            setNewItemModal({ type: "folder", dir: getNewItemTargetDir() });
-            setNewItemValue("");
-          }}
-          className="text-text-muted hover:text-text p-1 rounded hover:bg-surface-2"
-          title="New Folder"
-        >
+        <button onClick={() => openNewItemModal("folder", getNewItemTargetDir())} className={headerBtn} title="New Folder">
           <Icon name="FolderOpen" size={14} />
         </button>
-        <button
-          onClick={refreshAll}
-          className="text-text-muted hover:text-text p-1 rounded hover:bg-surface-2"
-          title="Refresh"
-        >
+        <button onClick={refreshAll} className={headerBtn} title="Refresh">
           <Icon name="RefreshCw" size={14} />
         </button>
         <button
@@ -686,9 +307,8 @@ export default function ExplorerPanel({
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
         onDrop={(e) => {
           e.preventDefault();
-          const data = e.dataTransfer.getData("application/x-file-paths");
-          if (!data) return;
-          try { handleMoveTo(JSON.parse(data), workspace); } catch {}
+          const paths = readDragPaths(e);
+          if (paths) moveTo(paths, workspace);
         }}
       >
         {rootFiles.length === 0 && !loading.has(workspace) ? (
@@ -735,10 +355,7 @@ export default function ExplorerPanel({
       {/* New item modal */}
       {newItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-            onClick={() => setNewItemModal(null)}
-          />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setNewItemModal(null)} />
           <div className="relative bg-surface-2 border border-border rounded-brand p-4 w-full max-w-sm">
             <h3 className="text-sm font-semibold text-text mb-2">
               {newItemModal.type === "folder" ? "New Folder" : "New File"}
@@ -759,19 +376,13 @@ export default function ExplorerPanel({
             />
             <div className="flex justify-end gap-2 mt-3">
               <button
-                onClick={() => {
-                  vibrate();
-                  setNewItemModal(null);
-                }}
+                onClick={() => { vibrate(); setNewItemModal(null); }}
                 className="px-3 py-1.5 text-sm bg-surface-3 hover:bg-surface text-text rounded-brand"
               >
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  vibrate();
-                  handleCreate(newItemModal.type);
-                }}
+                onClick={() => { vibrate(); handleCreate(newItemModal.type); }}
                 className="px-3 py-1.5 text-sm bg-brand-500 hover:bg-brand-500/80 text-white rounded-brand"
               >
                 Create
@@ -785,7 +396,7 @@ export default function ExplorerPanel({
       <ConfirmDialog
         isOpen={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}
-        onConfirm={() => confirmDelete && handleDelete(confirmDelete)}
+        onConfirm={() => confirmDelete && deleteItem(confirmDelete)}
         title="Delete"
         message={`Are you sure you want to delete "${confirmDelete?.name}"?`}
         confirmText="Delete"

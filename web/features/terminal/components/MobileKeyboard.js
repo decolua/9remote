@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { SPECIAL_KEYS, CTRL_ARROW_KEYS } from "@/features/terminal/constants/keyMappings";
 import {
   TERMINAL_KEY_POOL,
   TERMINAL_DEFAULT_BASIC,
@@ -9,9 +8,6 @@ import {
   TERMINAL_PINNED_KEY_ID,
   BUTTON_STYLES,
   COMMON_COMMANDS,
-  MAX_ATTACHMENT_SIZE,
-  MAX_ATTACHMENTS,
-  CLIPBOARD_ATTACH_TIMEOUT,
   CLIPBOARD_ATTACH_GAP,
   INPUT_CONTROL_KEYS,
   INPUT_ENTER_DELAY,
@@ -32,6 +28,8 @@ import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
+import { useAttachments } from "@/features/terminal/hooks/useAttachments";
+import { generateCombination as generateCombo } from "@/features/terminal/lib/keyCombination";
 import PathSuggestion from "@/shared/components/ui/PathSuggestion";
 import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/utils/pathSuggest";
 import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
@@ -86,8 +84,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   useEffect(() => { socketRef.current = socket; }, [socket]);
   const fileSocket = useFileSocket(socketRef);
   // Pending attachments (images/files) shown as chips; sent via OS clipboard on send.
-  const [attachments, setAttachments] = useState([]);
-  const attachIdRef = useRef(0);
+  const {
+    attachments, setAttachments,
+    addFiles, removeAttachment, sendOneAttachment, handleFileUpload, handleAttachPaste
+  } = useAttachments({ socket, sessionId });
 
   // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
   const [voiceLang, setVoiceLang] = useVoiceLang(locale);
@@ -164,57 +164,12 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   ]);
   const extraCustom = useCustomKeys("terminal.extraKeys", TERMINAL_KEY_POOL, TERMINAL_DEFAULT_EXTRA, "grid");
 
-  // Smart combination generator - handles all key combinations
-  const generateCombination = useCallback((key, modifiers = {}) => {
-    const ctrl = modifiers.ctrl || ctrlPressed;
-    const alt = modifiers.alt || altPressed;
-    const shift = modifiers.shift || shiftPressed;
-    const meta = modifiers.meta || metaPressed;
-
-    let data = "";
-
-    if (ctrl && key.length === 1) {
-      const upperKey = key.toUpperCase();
-      const charCode = upperKey.charCodeAt(0);
-      if (charCode >= 65 && charCode <= 90) {
-        const controlCode = charCode - 64;
-        data = String.fromCharCode(controlCode);
-      }
-      else if (key === "[") data = "\x1b";
-      else if (key === "]") data = "\x1d";
-      else if (key === "\\") data = "\x1c";
-      else if (key === "@") data = "\x00";
-      else if (key === "?") data = "\x7f";
-      else data = key;
-    }
-    else if (alt) {
-      if (SPECIAL_KEYS[key]) data = "\x1b" + SPECIAL_KEYS[key];
-      else if (key.length === 1) data = "\x1b" + key;
-      else data = SPECIAL_KEYS[key] || key;
-    }
-    else if (ctrl && SPECIAL_KEYS[key]) {
-      if (key.startsWith("Arrow")) data = CTRL_ARROW_KEYS[key] || SPECIAL_KEYS[key];
-      else if (key === "Home") data = "\x1b[1;5H";
-      else if (key === "End") data = "\x1b[1;5F";
-      else data = SPECIAL_KEYS[key];
-    }
-    else if (shift && SPECIAL_KEYS[key]) {
-      if (key === "Tab") data = "\x1b[Z";
-      else if (key.startsWith("Arrow")) {
-        const arrowMap = {
-          "ArrowUp": "\x1b[1;2A",
-          "ArrowDown": "\x1b[1;2B",
-          "ArrowRight": "\x1b[1;2C",
-          "ArrowLeft": "\x1b[1;2D"
-        };
-        data = arrowMap[key] || SPECIAL_KEYS[key];
-      } else data = SPECIAL_KEYS[key];
-    }
-    else if (shift && key.length === 1) data = key.toUpperCase();
-    else data = SPECIAL_KEYS[key] || key;
-
-    return data;
-  }, [ctrlPressed, altPressed, shiftPressed, metaPressed]);
+  // Smart combination generator — pure encoder in lib/keyCombination.
+  const generateCombination = useCallback((key, modifiers = {}) => generateCombo(key, {
+    ctrl: modifiers.ctrl || ctrlPressed,
+    alt: modifiers.alt || altPressed,
+    shift: modifiers.shift || shiftPressed
+  }), [ctrlPressed, altPressed, shiftPressed]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -338,38 +293,6 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   };
 
   // Read a File → base64 attachment entry, skipping oversized ones.
-  const fileToAttachment = (file) => new Promise((resolve) => {
-    if (file.size > MAX_ATTACHMENT_SIZE) { alert(t("mobileKeyboard.fileTooLarge")); return resolve(null); }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const content = reader.result.split(",")[1];
-      const isImage = file.type.startsWith("image/");
-      const name = file.name || `paste_${attachIdRef.current}.${isImage ? (file.type.split("/")[1] || "png") : "bin"}`;
-      resolve({ id: ++attachIdRef.current, name, type: file.type, size: file.size, content, isImage });
-    };
-    reader.onerror = () => { alert(t("mobileKeyboard.readFileFailed")); resolve(null); };
-    reader.readAsDataURL(file);
-  });
-
-  const addFiles = async (files) => {
-    const room = MAX_ATTACHMENTS - attachments.length;
-    if (room <= 0) return;
-    const picked = Array.from(files).slice(0, room);
-    const entries = (await Promise.all(picked.map(fileToAttachment))).filter(Boolean);
-    if (entries.length) { vibrate(); setAttachments((prev) => [...prev, ...entries]); }
-  };
-
-  const removeAttachment = (id) => setAttachments((prev) => prev.filter((a) => a.id !== id));
-
-  // Push one attachment into the host OS clipboard + Ctrl+V, waiting for ack so
-  // the CLI reads it before the next overwrites the clipboard.
-  const sendOneAttachment = (att) => new Promise((resolve) => {
-    let done = false;
-    const finish = () => { if (!done) { done = true; resolve(); } };
-    socket.emit("clipboard-attach", { sessionId, filename: att.name, type: att.type, content: att.content }, finish);
-    setTimeout(finish, CLIPBOARD_ATTACH_TIMEOUT);
-  });
-
   const sendTextBatch = async () => {
     vibrate(15);
     if (voice.listening) voice.stop();
@@ -404,24 +327,6 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       historyIndexRef.current = -1;
     }
     if (wasFocused) textInputRef.current?.focus();
-  };
-
-  const handleFileUpload = async (event) => {
-    vibrate();
-    const files = event.target.files;
-    if (files?.length) await addFiles(files);
-    event.target.value = "";
-  };
-
-  // Paste on the input: attach any image/file items; let text paste fall through.
-  const handleAttachPaste = (e) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    const files = [];
-    for (const it of items) {
-      if (it.kind === "file") { const f = it.getAsFile(); if (f) files.push(f); }
-    }
-    if (files.length) { e.preventDefault(); addFiles(files); }
   };
 
   const buttonBaseClass = BUTTON_STYLES.base;

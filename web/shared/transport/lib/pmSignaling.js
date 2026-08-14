@@ -1,0 +1,109 @@
+import { SIGNALING_CONFIG, SIGNALING_ERRORS, ADAPTER_STATE } from "@/shared/constants/transport";
+import { WORKER_API } from "@/shared/constants/API";
+import { debugLog } from "@/shared/utils/debugLog";
+import { termLog } from "@/shared/utils/termLog";
+
+// DO signaling relay: bring-up, approval handling, and the outbound buffer that
+// holds offers created before any carrier was ready.
+// Extracted verbatim from ProtocolManager.
+
+export function initSignalingClient(pm) {
+  if (!SIGNALING_CONFIG.enabled || pm._sig || pm._sigDestroyed) return;
+  if (!pm._auth.deviceId || !pm._auth.apiKey) return;
+  // DO endpoint follows WORKER_API (env override → localhost UI talks to deployed DO).
+  const doUrl = WORKER_API.replace(/^http/, "ws") + "/signaling";
+  import("../SignalingClient").then(({ SignalingClient }) => {
+    // Guard: disconnect may have run while the dynamic import was pending.
+    if (pm._sig || pm._sigDestroyed) return;
+    pm._sig = new SignalingClient({
+      url: doUrl,
+      role: "client",
+      roomId: pm._auth.apiKey,
+      apiKey: pm._auth.apiKey,
+      from: pm._peerId,
+      onReady: () => onSignalingReady(pm),
+      pingMs: SIGNALING_CONFIG.pingMs
+    });
+    pm._sig.on((msg) => {
+      // Agent test-toggle: RTC refused. Stop retrying so the client stays on WS
+      // instead of looping offer→refuse→close→restart. Cleared by reload.
+      if (msg.type === "error" && msg.message === "rtc-disabled") {
+        pm._rtcTestDisabled = true;
+        termLog("switch", "rtc-disabled by agent → stop RTC retry (use WS)");
+        return;
+      }
+      if (handleApprovalSignal(pm, msg)) return;
+      pm._rtcSignalingHandler?.(msg);
+    });
+    pm._sig.connect();
+  }).catch((err) => debugLog("transport", `[pm] SignalingClient load failed: ${err?.message || err}`));
+}
+
+/** The agent answered "not approved" rather than failing to connect. Surface it
+ * as approval UI and stop renegotiating — retrying can't change a policy answer,
+ * and letting it reach the RTC adapter would tear the peer down and fall back to
+ * the tunnel, hiding the approval screen behind a connection error.
+ * @returns {boolean} true when handled (caller must not forward the message) */
+export function handleApprovalSignal(pm, msg) {
+  if (msg?.type !== "error") return false;
+  const status = msg.message === SIGNALING_ERRORS.pending ? "pending"
+    : msg.message === SIGNALING_ERRORS.rejected ? "rejected"
+    : null;
+  if (!status) return false;
+  debugLog("transport", `[pm] device ${status} → approval UI`);
+  pm._awaitingApproval = true;
+  pm._wsCallbacks.onApproval?.(status);
+  return true;
+}
+
+/** Relay (re)connected — drain queued signaling, and renegotiate if RTC died
+ * while we had no carrier (resume from background, network handover). */
+export function onSignalingReady(pm) {
+  termLog("switch", "signaling ready");
+  flushSigBuffer(pm);
+  if (pm._awaitingApproval) return; // policy answer pending — a re-offer changes nothing
+  // First connect already has RTC negotiating — only step in once it's dead.
+  const rtc = pm._adapters.get("rtc");
+  if (rtc && rtc.state === ADAPTER_STATE.closed) {
+    termLog("switch", "sig-ready → restartRtc (rtc was closed)");
+    pm._restartRtc();
+  }
+}
+
+export function sendSignaling(pm, msg) {
+  // DO is the sole signaling carrier — the tunnel carries data only.
+  if (pm._sig?.ready && pm._sig.send(msg)) return;
+  pm._sigBuffer.push(msg);
+  if (pm._sigBuffer.length > 32) pm._sigBuffer.shift();
+}
+
+export function flushSigBuffer(pm) {
+  if (!pm._sigBuffer.length) return;
+  const queued = pm._sigBuffer;
+  pm._sigBuffer = [];
+  for (const msg of queued) sendSignaling(pm, msg);
+}
+
+/** The cached tunnelUrl may be stale (cloudflared restarted → new trycloudflare
+ * URL). Re-fetch the latest from the Worker before connecting. */
+export async function refreshTunnelUrl(pm) {
+  try {
+    debugLog("transport", `[pm] refreshTunnelUrl: fetching from ${WORKER_API}/api/connect`);
+    const res = await fetch(`${WORKER_API}/api/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: pm._auth.apiKey }),
+    });
+    if (!res.ok) {
+      debugLog("transport", `[pm] refreshTunnelUrl: HTTP ${res.status}`);
+      return;
+    }
+    const data = await res.json();
+    debugLog("transport", `[pm] refreshTunnelUrl: got ${data.tunnelUrl} (was ${pm._auth.tunnelUrl})`);
+    if (data.tunnelUrl && data.tunnelUrl !== pm._auth.tunnelUrl) {
+      pm._auth.tunnelUrl = data.tunnelUrl;
+    }
+  } catch (e) {
+    debugLog("transport", `[pm] refreshTunnelUrl: error ${e.message}`);
+  }
+}
