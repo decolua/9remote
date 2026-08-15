@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "dev": "run-p agent:dev web:dev",
-    "agent:dev": "NODE_ENV=development NREMOTE_WORKER_URL=https://9remote.cc node agent/cli/index.js",
+    "agent:dev": "NODE_ENV=development node agent/cli/index.js",
     "agent:dev:ui": "NODE_ENV=development node agent/cli/index.js ui",
     "agent:build": "node scripts/syncVersion.js && node scripts/buildPkg.js",
     "agent:publish": "npm run agent:build && cd agent && npm publish",
