@@ -6,6 +6,7 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 import { SERVER_PORT, PATHS as APP_PATHS, CLAUDE_SCROLLBACK_ENV, AI_TOOLS } from "../../lib/constants.js";
+import { HOOK_CONNECT_TIMEOUT_SEC, HOOK_MAX_TIME_SEC } from "../agentChat/constants.js";
 
 const NOTIFY_URL = `http://localhost:${SERVER_PORT}/api/notify`;
 // JS identifier cannot start with a digit, so plugin export name differs from the file mark
@@ -49,8 +50,22 @@ const BINARIES = {
   rovodev: "acli", hermes: "hermes", amp: "amp", pi: "pi",
 };
 
-const buildCurlCmd = (type, tool) =>
-  `command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 "${NOTIFY_URL}?type=${type}&sessionId=$NINE_REMOTE_SESSION_ID&tool=${tool}" > /dev/null 2>&1 & true`;
+// Forward the hook's stdin JSON as the POST body so the receiver learns session_id,
+// transcript_path, tool_name and tool_input — not just that "something happened".
+// Fail open in every branch: a slow or dead receiver must never block the AI CLI.
+const buildCurlCmd = (type, tool, event) => {
+  const qs = [
+    `type=${type}`,
+    "sessionId=$NINE_REMOTE_SESSION_ID",
+    `tool=${tool}`,
+    ...(event ? [`event=${event}`] : []),
+    "launchToken=$NINE_REMOTE_LAUNCH_TOKEN",
+  ].join("&");
+  // stdin must be drained in the FOREGROUND: a backgrounded job gets /dev/null for stdin,
+  // so reading the payload inside the `&` block yields an empty body. Read first, then
+  // background only the POST so the AI CLI is never held up by the network.
+  return `command -v curl >/dev/null 2>&1 && { payload=$(cat 2>/dev/null); { printf '%s' "$payload" | curl -s -X POST -H 'Content-Type: application/json' --connect-timeout ${HOOK_CONNECT_TIMEOUT_SEC} --max-time ${HOOK_MAX_TIME_SEC} "${NOTIFY_URL}?${qs}" --data-binary @- >/dev/null 2>&1; } & }; true`;
+};
 
 // Legacy config-dir fallback for the original four tools (binary-on-PATH is the primary check)
 const TOOL_DIRS = {
@@ -124,7 +139,7 @@ function restoreClaudeEnv(settings) {
 // events: { <eventKey>: type }, matchers: { <eventKey>: matcher }, timeoutFn, extra(settings)
 function makeNestedJsonHook(tool, events, timeoutFn, { matchers = {}, extra } = {}) {
   const buildEntry = (key, type) => ({
-    hooks: [{ type: "command", command: buildCurlCmd(type, tool), timeout: timeoutFn(STOP_MS) }],
+    hooks: [{ type: "command", command: buildCurlCmd(type, tool, key), timeout: timeoutFn(STOP_MS) }],
     ...(matchers[key] != null ? { matcher: matchers[key] } : {}),
   });
   const isOwn = (grp) => grp?.hooks?.some((h) => typeof h.command === "string" && h.command.includes(`&tool=${tool}`));
@@ -168,7 +183,7 @@ function makeFlatJsonHook(tool, events, { extra } = {}) {
       const settings = readJsonFile(filePath);
       const hooks = { ...(settings.hooks || {}) };
       for (const [key, type] of Object.entries(events)) {
-        hooks[key] = [...(hooks[key] || []).filter((e) => !isOwn(e)), { command: buildCurlCmd(type, tool) }];
+        hooks[key] = [...(hooks[key] || []).filter((e) => !isOwn(e)), { command: buildCurlCmd(type, tool, key) }];
       }
       settings.hooks = hooks;
       if (extra) extra(settings);
@@ -203,7 +218,7 @@ function makeGroupJsonHook(tool, groupName, events) {
       const settings = readJsonFile(filePath);
       const group = {};
       for (const [key, type] of Object.entries(events)) {
-        group[key] = [{ type: "command", command: buildCurlCmd(type, tool), timeout: SEC(STOP_MS) }];
+        group[key] = [{ type: "command", command: buildCurlCmd(type, tool, key), timeout: SEC(STOP_MS) }];
       }
       settings[groupName] = group;
       writeJsonFile(filePath, settings);
@@ -234,7 +249,7 @@ function makeAgentJsonHook(tool, events, { name, description } = {}) {
       if (!Array.isArray(settings.tools)) settings.tools = ["*"];
       const hooks = { ...(settings.hooks || {}) };
       for (const [key, type] of Object.entries(events)) {
-        hooks[key] = [...(hooks[key] || []).filter((e) => !isOwn(e)), { command: buildCurlCmd(type, tool), timeout_ms: STOP_MS }];
+        hooks[key] = [...(hooks[key] || []).filter((e) => !isOwn(e)), { command: buildCurlCmd(type, tool, key), timeout_ms: STOP_MS }];
       }
       settings.hooks = hooks;
       writeJsonFile(filePath, settings);
@@ -266,7 +281,7 @@ function makeAgentJsonHook(tool, events, { name, description } = {}) {
 function makeYamlBlockHook(tool, { begin, end, items }) {
   const buildBlock = () => {
     const lines = [begin, "hooks:",
-      ...items.map(({ event, type }) => `  ${event}:\n    - command: ${yq(buildCurlCmd(type, tool))}\n      timeout: 5`),
+      ...items.map(({ event, type }) => `  ${event}:\n    - command: ${yq(buildCurlCmd(type, tool, event))}\n      timeout: 5`),
       end];
     return lines.join("\n");
   };
@@ -407,10 +422,16 @@ const ROVO_BEGIN = "  # 9remote hooks begin";
 const ROVO_END = "  # 9remote hooks end";
 
 const TOOL_REGISTRY = {
+  // SessionStart carries session_id + transcript_path + cwd (mapping only, no state change).
+  // PermissionRequest/PreToolUse are what the chat GUI turns into buttons.
   claude: makeNestedJsonHook("claude",
-    { UserPromptSubmit: "working", PostToolUse: "working", Stop: "done", Notification: "blocked" },
+    {
+      SessionStart: "idle", UserPromptSubmit: "working", PreToolUse: "working",
+      PostToolUse: "working", Stop: "done", Notification: "blocked",
+      PermissionRequest: "blocked",
+    },
     (ms) => ms,
-    { matchers: { Notification: "permission_prompt" }, extra: applyClaudeEnv }),
+    { matchers: { Notification: "permission_prompt", PreToolUse: "*", PostToolUse: "*", PermissionRequest: "*" }, extra: applyClaudeEnv }),
   codex: codexHook,
   gemini: makeNestedJsonHook("gemini",
     { BeforeAgent: "working", PreToolUse: "working", PostToolUse: "working", AfterAgent: "done", Notification: "blocked" },
@@ -472,7 +493,7 @@ const TOOL_REGISTRY = {
           { event: "post_tool_call", type: "working" },
           { event: "pre_approval_request", type: "blocked" },
           { event: "post_llm_call", type: "done" },
-        ].map(({ event, type }) => ({ event, command: buildCurlCmd(type, "hermes"), approved_at: "2020-01-01T00:00:00Z" }))];
+        ].map(({ event, type }) => ({ event, command: buildCurlCmd(type, "hermes", event), approved_at: "2020-01-01T00:00:00Z" }))];
         writeJsonFile(allowlistPath(), al);
         return res;
       },

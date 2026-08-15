@@ -11,6 +11,8 @@ import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } f
 import { listSavedBufferSessions, loadSessionMetadata, loadGroups, saveSessionMetadata } from "./ptyHelper.js";
 import { setupSessionHandlers } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
+import { setupAgentChatHandlers } from "../agentChat/agentChatSocket.js";
+import { recordOutput } from "./screenMirror.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
@@ -115,6 +117,9 @@ export function setupTerminalSocket(io, apiKey) {
     daemonClient.on("output", ({ sessionId, enc, data, replay }) => {
       // Live (non-replay) output = agent still producing → keep working status alive.
       if (replay !== true) touchWorking(sessionId);
+      // Mirror the tail so the chat GUI can check what is on screen before typing into it.
+      // Replay frames included: after an agent restart they are all we have.
+      recordOutput(sessionId, data, enc);
       // Live advances the seq; replay (rejoin tail) snapshots the current seq so
       // the client can resync after a reset+replay without a false gap.
       const seq = replay === true ? currentSeq(sessionId) : nextSeq(sessionId);
@@ -189,6 +194,7 @@ export async function setupTerminalHandlers(socket, io, apiKey) {
   setupSessionHandlers(socket, io, sessions, groups, sessionGroups, sessionOrder);
 
   setupInputHandlers(socket, sessions);
+  setupAgentChatHandlers(socket, sessions);
   setupPushHandlers(socket, io);
 
   // Remote desktop handlers on same socket if capable (permissions checked at invoke time)

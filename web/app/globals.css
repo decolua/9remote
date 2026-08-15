@@ -687,3 +687,45 @@ body.keyboard-open .safe-area-bottom {
     radial-gradient(480px 360px at 70% 22%, rgba(0,0,0,.06), transparent 62%),
     radial-gradient(420px 320px at 20% 88%, rgba(0,0,0,.03), transparent 66%);
 }
+
+/* ─── Agent chat GUI ─────────────────────────────────────────────────────── */
+
+/* "Thinking…" — a highlight sweeping through the glyphs */
+@keyframes shimmerSweep {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.shimmer-text {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    var(--color-text-subtle) 33%,
+    var(--color-text) 50%,
+    var(--color-text-subtle) 67%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmerSweep 2s linear infinite;
+}
+
+/* Long transcripts: skip layout/paint for rows scrolled out of view */
+.chat-pane { contain: layout style paint; }
+.chat-row {
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+/* Terminal output must wrap instead of forcing the column wide */
+.chat-row pre,
+.chat-row code { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+
+/* Hover-only affordances must be permanently visible on touch */
+@media (hover: none) and (pointer: coarse) {
+  .chat-row .group-hover\:opacity-100 { opacity: 1 !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text { animation: none; color: var(--color-text-muted); }
+}

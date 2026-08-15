@@ -38,7 +38,7 @@ import { broadcastServerInfo, setConnectCheckHandler } from "./features/terminal
 import { UPDATE } from "./cli/config.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove, handleSetLabel } from "./api/device.js";
-import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
+import { handleNotifyPost, handleNotifyGet, handleNotifyDebugGet } from "./api/notify.js";
 import { handleSleepInhibitGet, handleSleepInhibitPost } from "./api/sleepInhibit.js";
 import { handleDesktopUnlockGet, handleDesktopUnlockInstall, handleDesktopUnlockType, handleDesktopUnlockUninstall } from "./api/desktopUnlock.js";
 import { handleSessionsList, handleSessionDelete } from "./api/sessions.js";
@@ -159,6 +159,8 @@ const ROUTES = [
   }},
   { path: "/api/notify",           method: "POST", public: true, handler: handleNotifyPost },
   { path: "/api/notify",           method: "GET",  public: true, handler: handleNotifyGet },
+  // localhost-only: the trace carries raw hook payloads (prompts, file contents)
+  { path: "/api/notify/debug",     method: "GET",  handler: handleNotifyDebugGet },
   { path: "/proxy/*",              method: "*",    public: true, handler: handleProxy },
 
   // UI state & SSE (localhost-only)

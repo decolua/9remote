@@ -166,6 +166,50 @@ await test("curl command targets localhost notify endpoint", () => {
   assert.ok(c.includes("sessionId=$NINE_REMOTE_SESSION_ID"), "passes session id");
 });
 
+// The hook body is what the chat GUI is built on — a hook that posts nothing useful
+// leaves the GUI with only a status light.
+await test("hook forwards the payload and identifies the event + launch token", () => {
+  m.enableToolHook("claude");
+  const settings = JSON.parse(fs.readFileSync(path.join(TMP, ".claude", "settings.json"), "utf8"));
+  const c = cmd(settings.hooks.PermissionRequest[0]);
+  assert.ok(c.includes("-X POST"), "posts rather than pinging with a query only");
+  assert.ok(c.includes("--data-binary @-"), "sends stdin as the body");
+  assert.ok(c.includes("event=PermissionRequest"), "names the event");
+  assert.ok(c.includes("launchToken=$NINE_REMOTE_LAUNCH_TOKEN"), "carries the launch token");
+});
+
+await test("stdin is drained in the foreground, before anything is backgrounded", () => {
+  // A backgrounded job gets /dev/null on stdin, so `payload=$(cat)` inside the `&` block
+  // silently yields an empty body — the hook fires, carries nothing, and the GUI stays blank.
+  m.enableToolHook("claude");
+  const settings = JSON.parse(fs.readFileSync(path.join(TMP, ".claude", "settings.json"), "utf8"));
+  const c = cmd(settings.hooks.PermissionRequest[0]);
+  const readAt = c.indexOf("payload=$(cat");
+  // The backgrounding operator is a bare "&" between commands — not the "&" separating
+  // query parameters inside the URL.
+  const bgAt = c.search(/;?\s&\s/);
+  assert.ok(readAt !== -1, "reads stdin");
+  assert.ok(bgAt !== -1, "backgrounds the request");
+  assert.ok(readAt < bgAt, "the read must come before the backgrounding operator");
+});
+
+await test("hook cannot stall the AI CLI", () => {
+  m.enableToolHook("claude");
+  const settings = JSON.parse(fs.readFileSync(path.join(TMP, ".claude", "settings.json"), "utf8"));
+  const c = cmd(settings.hooks.PermissionRequest[0]);
+  assert.ok(/--max-time \d/.test(c), "bounded total time");
+  assert.ok(/--connect-timeout [\d.]+/.test(c), "bounded connect time");
+  assert.ok(c.trimEnd().endsWith("true"), "always exits successfully — fail open");
+});
+
+await test("claude registers the events the chat GUI needs", () => {
+  m.enableToolHook("claude");
+  const settings = JSON.parse(fs.readFileSync(path.join(TMP, ".claude", "settings.json"), "utf8"));
+  for (const key of ["SessionStart", "PreToolUse", "PostToolUse", "PermissionRequest"]) {
+    assert.ok(settings.hooks[key]?.length, `${key} hook registered`);
+  }
+});
+
 // getHookStatus reports installed=false when binary missing (temp HOME has no PATH binaries)
 await test("getHookStatus reports every tool", () => {
   const status = m.getHookStatus();

@@ -5,8 +5,10 @@ import "@xterm/xterm/css/xterm.css";
 import SelectionActionButton from "@/features/terminal/components/SelectionActionButton";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
-import { ChevronDown, Folder, GitBranch, RefreshCw, SquarePen } from "@/shared/components/ui/Icon";
+import { ChevronDown, Folder, GitBranch, RefreshCw, SquarePen, MessageSquare, Terminal as TerminalIcon } from "@/shared/components/ui/Icon";
 import NotePanel from "@/features/terminal/components/NotePanel";
+import AgentChatPane from "@/features/agentChat/components/AgentChatPane";
+import { useAgentChat } from "@/features/agentChat/hooks/useAgentChat";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
@@ -53,6 +55,11 @@ function TerminalPane({
   // Note overlay state: open + optional text to append (from selection menu)
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteAppend, setNoteAppend] = useState(null);
+
+  // Chat GUI: a second view of THIS pty. Subscribing while in terminal mode is what
+  // makes the toggle appear and its dot light up when the CLI blocks on a prompt.
+  const [guiMode, setGuiMode] = useState(false);
+  const { hasAgent, prompt: agentPrompt } = useAgentChat(socket, sessionId, { enabled: isVisible });
 
 // Scroll wrapper so the cursor/content stays visible after a viewport shrink (soft KB).
 // Short content pinned to top; long content scrolls the cursor row into the visible rect.
@@ -126,8 +133,13 @@ function TerminalPane({
     };
   }, [scrollCursorIntoView]);
 
+  // In GUI mode the terminal is covered. It still has a layout box (hidden with
+  // `invisible`, not `display:none`) so its size never collapses — but a resize the user
+  // cannot see is a one-way change no one can sanity-check, so treat the pane as hidden.
+  const termVisible = isVisible && !guiMode;
+
   const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
-    socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay,
+    socket, sessionId, theme, terminalTheme, isVisible: termVisible, isFocused: isFocused && !guiMode, containerRef, mountDelay,
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
@@ -224,7 +236,7 @@ function TerminalPane({
       {/* Mobile: scroll wrapper; terminal keeps fixed (keyboard-closed) height so PTY size stays put */}
       <div
         ref={scrollRef}
-        className={`terminal-wrapper terminal-scroll flex-1 min-h-0 relative ${kbShrunk ? " is-scrollable" : ""}`}
+        className={`terminal-wrapper terminal-scroll flex-1 min-h-0 relative ${kbShrunk ? " is-scrollable" : ""}${guiMode ? " invisible pointer-events-none" : ""}`}
       >
         <div
           ref={containerRef}
@@ -263,8 +275,19 @@ function TerminalPane({
 
       </div>
 
+      {/* Chat GUI covers the terminal but shares its pty — inset matches the pane padding */}
+      {guiMode && (
+        <AgentChatPane
+          socket={socket}
+          sessionId={sessionId}
+          isVisible={isVisible}
+          onOpenFile={(filePath) => pushView({ type: "files", workspace: cwd, currentPath: filePath, fromTerminal: true })}
+          className="absolute inset-1.5 z-30"
+        />
+      )}
+
       {/* Overlays stay on viewport, not inside scroll content */}
-      {showScrollButton && (
+      {showScrollButton && !guiMode && (
         <button
           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -278,7 +301,26 @@ function TerminalPane({
           <ChevronDown size={20} />
         </button>
       )}
-      {cwd && isFocused && (
+      {/* Toggle lives per-pane, not in the header: a split desktop layout has two panes
+          and one header, so each pane needs its own switch. */}
+      {hasAgent && isFocused && (
+        <button
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onClick={(e) => { e.stopPropagation(); vibrate(); setGuiMode((v) => !v); }}
+          className="absolute top-2 left-2 z-50 p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+          title={guiMode ? t("terminalPane.agentChatShowTerminal") : t("terminalPane.agentChatShowChat")}
+        >
+          <span className="relative block">
+            {guiMode ? <TerminalIcon size={16} /> : <MessageSquare size={16} />}
+            {!guiMode && agentPrompt && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-brand-500 animate-pulse-glow" />
+            )}
+          </span>
+        </button>
+      )}
+
+      {cwd && isFocused && !guiMode && (
         <div className="absolute top-2 right-2 z-50 flex flex-col items-end gap-2 pointer-events-auto touch-none">
           <div className="flex flex-row gap-2">
             {showNoteButton && (

@@ -5,6 +5,7 @@ import { resolveShell, getShellList } from "../constants.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import { currentSeq, getGap, clearSession } from "../seqStore.js";
+import { forgetSession } from "../../agentChat/sessionCleanup.js";
 import fs from "fs";
 import path from "path";
 
@@ -83,6 +84,7 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
     sessions.delete(sessionId);
     deleteSessionBuffer(sessionId);
     clearSession(sessionId); // drop seq counter + gap ring
+    forgetSession(sessionId); // drop chat transcript + provider-session mapping
     broadcast(io, "sessionClosed", sessionId);
   });
 }
@@ -159,6 +161,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
           }
           sessions.delete(sid);
           clearSession(sid); // drop seq counter + gap ring
+          forgetSession(sid); // drop chat transcript + provider-session mapping
           broadcast(io, "sessionClosed", sid);
         }
         delete sessionGroups[sid];
@@ -374,6 +377,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
         await daemonClient.deleteSession(sessionId);
         sessions.delete(sessionId);
         clearSession(sessionId); // drop seq counter + gap ring
+        forgetSession(sessionId); // drop chat transcript + provider-session mapping
         if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
         deleteSessionNote(sessionId);
         saveSessionMetadata(sessions);
@@ -387,6 +391,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     if (session.pty) session.pty.kill();
     sessions.delete(sessionId);
     clearSession(sessionId); // drop seq counter + gap ring
+    forgetSession(sessionId); // drop chat transcript + provider-session mapping
     if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
     deleteSessionBuffer(sessionId);
     deleteSessionNote(sessionId);

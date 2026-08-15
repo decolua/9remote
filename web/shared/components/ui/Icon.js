@@ -105,6 +105,7 @@ export const {
   LayoutDashboard,
   Shield,
   ArrowUp,
+  MessageSquare,
   ArrowDown,
   Bug,
   Pin,
