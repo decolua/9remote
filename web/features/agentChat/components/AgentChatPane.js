@@ -6,6 +6,10 @@ import { ChevronDown } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAgentChat } from "@/features/agentChat/hooks/useAgentChat";
+import { XtermScreenReader } from "@/features/agentChat/lib/screen/screenReader";
+import { detectCli } from "@/features/agentChat/lib/screen/detector";
+import { ScreenEventExtractor } from "@/features/agentChat/lib/screen/extractor";
+import { useScreenTick } from "@/features/agentChat/hooks/useScreenTick";
 import { groupActivity } from "@/features/agentChat/lib/transcript";
 import { PROMPT_KINDS, CONTENT_MAX_WIDTH } from "@/features/agentChat/constants/agentChatConfig";
 import UserMessage from "./UserMessage";
@@ -25,14 +29,31 @@ const NEAR_BOTTOM_PX = 60;
  * A second view of the same PTY: hook telemetry as a conversation, and the CLI's
  * blocking prompts as buttons. The terminal underneath stays the source of truth.
  */
-export default function AgentChatPane({ socket, sessionId, isVisible, onOpenFile, className = "" }) {
+export default function AgentChatPane({ socket, sessionId, isVisible, onOpenFile, getTerm, className = "" }) {
   const { t } = useI18n();
   const {
-    prompt, activity, optionCount, tool, source, live, stale, error, respond, sendText, interrupt,
+    prompt, activity: serverActivity, optionCount, tool, source, live, stale, error, respond, sendText, interrupt, refresh,
   } = useAgentChat(socket, sessionId, { enabled: isVisible });
 
   const listRef = useRef(null);
   const [pinned, setPinned] = useState(true);
+
+  // Client-side parse: xterm's buffer is the exact, colour-preserving screen. When the
+  // agent has no transcript for this CLI, read it here instead of trusting an 8KB mirror.
+  const clientTick = useScreenTick(isVisible && source === "screen");
+  const activity = useMemo(() => {
+    if (source !== "screen" || !getTerm) return serverActivity;
+    try {
+      const lines = new XtermScreenReader(getTerm()).readLines();
+      const profile = detectCli(lines);
+      if (!profile) return serverActivity;
+      return new ScreenEventExtractor(profile).extract(lines);
+    } catch {
+      return serverActivity;
+    }
+    // clientTick is the re-parse cadence: same inputs, newer screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, serverActivity, clientTick, getTerm]);
 
   const rows = useMemo(() => groupActivity(activity), [activity]);
   const isBusy = activity.some((e) => e.kind === "tool" && e.status === "running");

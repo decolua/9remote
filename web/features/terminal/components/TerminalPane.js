@@ -281,6 +281,7 @@ function TerminalPane({
           socket={socket}
           sessionId={sessionId}
           isVisible={isVisible}
+          getTerm={() => termRef.current}
           onOpenFile={(filePath) => pushView({ type: "files", workspace: cwd, currentPath: filePath, fromTerminal: true })}
           className="absolute inset-1.5 z-30"
         />
