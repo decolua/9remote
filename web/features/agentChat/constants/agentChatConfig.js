@@ -11,6 +11,7 @@ export const EVENTS = Object.freeze({
   PROMPT: "agentChat:prompt",
   PROMPT_CLEARED: "agentChat:promptCleared",
   ACTIVITY: "agentChat:activity",
+  SCREEN: "agentChat:screen",
   RESPOND: "agentChat:respond",
   SEND_TEXT: "agentChat:sendText",
   INTERRUPT: "agentChat:interrupt",

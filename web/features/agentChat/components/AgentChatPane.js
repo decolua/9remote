@@ -27,7 +27,7 @@ const NEAR_BOTTOM_PX = 60;
 export default function AgentChatPane({ socket, sessionId, isVisible, onOpenFile, className = "" }) {
   const { t } = useI18n();
   const {
-    prompt, activity, optionCount, tool, stale, error, respond, sendText, interrupt,
+    prompt, activity, optionCount, tool, live, stale, error, respond, sendText, interrupt,
   } = useAgentChat(socket, sessionId, { enabled: isVisible });
 
   const listRef = useRef(null);
@@ -93,10 +93,11 @@ export default function AgentChatPane({ socket, sessionId, isVisible, onOpenFile
             return null;
           })}
 
-          {isBusy && !prompt && (
+          {(isBusy || live?.working) && !prompt && (
             <div className="chat-row inline-flex items-center gap-2 rounded-full border border-border-subtle bg-surface-2/60 px-3 py-1.5 font-mono text-[11px] text-text-muted">
               <span className="h-1.5 w-1.5 animate-pulse-glow rounded-full bg-brand-500" />
-              <Shimmer>{t("terminalPane.agentChatThinking")}</Shimmer>
+              <Shimmer>{live?.working ? `${live.working}…` : t("terminalPane.agentChatThinking")}</Shimmer>
+              {live?.tool && <span className="text-text-subtle">· {live.tool}</span>}
               <span className="inline-block h-[13px] w-[7px] animate-cursor-blink bg-brand-500 align-middle" />
             </div>
           )}

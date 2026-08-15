@@ -170,6 +170,41 @@ await test("listeners are removed from the socket on teardown", async () => {
   assert.equal(socket.listenerCount(EVENTS.ACTIVITY), 0, "a leaked listener keeps firing for every later session");
 });
 
+await test("a screen event updates the live indicator immediately", async () => {
+  const socket = fakeSocket();
+  let seen = null;
+  const h = acquire(socket, SID, (s) => { seen = s; });
+  await settle();
+
+  socket.push(EVENTS.SCREEN, { sessionId: SID, live: { working: "Proofing", prompt: null, tool: "Bash" } });
+
+  assert.equal(seen?.live?.working, "Proofing", "the spinner verb must not wait for a refetch");
+  assert.equal(seen.live.tool, "Bash");
+  release(socket, SID, h);
+});
+
+await test("a screen event for another session does not touch this one", async () => {
+  const socket = fakeSocket();
+  let seen = null;
+  const h = acquire(socket, SID, (s) => { seen = s; });
+  await settle();
+
+  socket.push(EVENTS.SCREEN, { sessionId: "other", live: { working: "X" } });
+  await settle();
+
+  assert.equal(seen?.live, null);
+  release(socket, SID, h);
+});
+
+await test("a screen listener is removed on teardown", async () => {
+  const socket = fakeSocket();
+  const h = acquire(socket, SID, () => {});
+  await settle();
+  assert.ok(socket.listenerCount(EVENTS.SCREEN) > 0);
+  release(socket, SID, h);
+  assert.equal(socket.listenerCount(EVENTS.SCREEN), 0);
+});
+
 await test("re-acquiring after a full release starts a fresh subscription", async () => {
   const socket = fakeSocket();
   const a = acquire(socket, SID, () => {});

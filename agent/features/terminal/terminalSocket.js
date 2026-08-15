@@ -13,6 +13,7 @@ import { setupSessionHandlers } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupAgentChatHandlers } from "../agentChat/agentChatSocket.js";
 import { recordOutput } from "./screenMirror.js";
+import { emitLiveSnapshot } from "../agentChat/screenEvents.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
@@ -120,6 +121,8 @@ export function setupTerminalSocket(io, apiKey) {
       // Mirror the tail so the chat GUI can check what is on screen before typing into it.
       // Replay frames included: after an agent restart they are all we have.
       recordOutput(sessionId, data, enc);
+      // Live "what is happening right now" indicator for the chat view, throttled inside.
+      emitLiveSnapshot(io, sessionId);
       // Live advances the seq; replay (rejoin tail) snapshots the current seq so
       // the client can resync after a reset+replay without a false gap.
       const seq = replay === true ? currentSeq(sessionId) : nextSeq(sessionId);

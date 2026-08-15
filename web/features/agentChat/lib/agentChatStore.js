@@ -34,6 +34,7 @@ function fetchNow(entry, socket, sessionId) {
       activity: res.activity || [],
       optionCount: res.optionCount || 0,
       stale: false,
+      live: entry.state.live || null,
     };
     notify(entry);
   });
@@ -67,12 +68,20 @@ function createEntry(socket, sessionId) {
     if (msg?.sessionId !== sessionId) return;
     scheduleFetch(entry, socket, sessionId);
   };
+  // Live indicator from the screen: the spinner verb and an open selector, before the
+  // transcript flushes. Applied immediately — it is small and human-visible.
+  const onScreen = (msg) => {
+    if (msg?.sessionId !== sessionId) return;
+    entry.state = { ...entry.state, live: msg.live || null };
+    notify(entry);
+  };
   const onConnect = () => fetchNow(entry, socket, sessionId);
 
-  entry.listeners = { onPrompt, onCleared, onActivity, onConnect };
+  entry.listeners = { onPrompt, onCleared, onActivity, onScreen, onConnect };
   socket.on(EVENTS.PROMPT, onPrompt);
   socket.on(EVENTS.PROMPT_CLEARED, onCleared);
   socket.on(EVENTS.ACTIVITY, onActivity);
+  socket.on(EVENTS.SCREEN, onScreen);
   socket.on("connect", onConnect);
 
   entries.set(sessionId, entry);
@@ -103,6 +112,7 @@ export function release(socket, sessionId, handle) {
     socket.off(EVENTS.PROMPT, l.onPrompt);
     socket.off(EVENTS.PROMPT_CLEARED, l.onCleared);
     socket.off(EVENTS.ACTIVITY, l.onActivity);
+    socket.off(EVENTS.SCREEN, l.onScreen);
     socket.off("connect", l.onConnect);
   }
   entries.delete(sessionId);
