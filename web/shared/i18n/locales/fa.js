@@ -631,6 +631,8 @@ export default {
     agentChatThought: "Thought process",
     agentChatPickOneOnly: "Pick one — open the terminal to select several",
     agentChatTypeSomething: "Type something…",
+    agentChatScreenMode: "Screen mode — no structured transcript for this CLI, showing the parsed terminal view.",
+    agentChatTruncatedLines: "lines collapsed by the CLI",
     agentChatTypePlaceholder: "Your own answer",
     paste: "چسباندن"
   },

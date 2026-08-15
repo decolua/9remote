@@ -302,8 +302,9 @@ function TerminalPane({
         </button>
       )}
       {/* Toggle lives per-pane, not in the header: a split desktop layout has two panes
-          and one header, so each pane needs its own switch. */}
-      {hasAgent && isFocused && (
+          and one header, so each pane needs its own switch. Offered on every pane —
+          screen mode works with no hooks and no transcript, just the pane's own output. */}
+      {isFocused && (
         <button
           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}

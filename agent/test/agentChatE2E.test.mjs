@@ -495,6 +495,37 @@ await test("a single-question answer needs no navigation key", async () => {
   await settleConfirm(socket);
 });
 
+/* ================= screen mode: no hooks, no transcript — the pane is the source ================= */
+
+await test("a pane with no mapping answers from the parsed screen", async () => {
+  const { socket } = freshWorld({ screen: "⏺ Bash(git status)\n  ⎿  clean\n$ " });
+  // No SessionStart hook — an unknown CLI the registry has never heard of.
+  const res = await socket.fire(EVENTS.SUBSCRIBE, { sessionId: PTY_SESSION });
+  assert.equal(res.source, "screen", "the parser needs nothing but the pane output");
+  assert.equal(res.hasAgent, false);
+  assert.ok(res.activity.some((e) => e.kind === "tool" && e.tool === "Bash"));
+  const tool = res.activity.find((e) => e.kind === "tool");
+  assert.match(tool.output, /clean/);
+});
+
+await test("screen mode reports the menu the parser read", async () => {
+  const { socket } = freshWorld({ screen: "Proceed?\n  1. Yes\n  2. No\nEnter to select · Esc to cancel\n" });
+  const res = await socket.fire(EVENTS.SUBSCRIBE, { sessionId: PTY_SESSION });
+  const prompt = res.activity.find((e) => e.kind === "prompt");
+  assert.ok(prompt, "a CLI with no hooks still surfaces its menu");
+  assert.equal(res.optionCount, 2);
+  assert.deepEqual(prompt.options.map((o) => o.label), ["Yes", "No"]);
+});
+
+await test("a Claude pane still prefers the transcript over the screen", async () => {
+  const { socket } = freshWorld({ screen: "⏺ from screen\n" });
+  const tp = path.join(tmp, "t-mode.jsonl");
+  fs.writeFileSync(tp, JSON.stringify({ type: "assistant", uuid: "a1", message: { role: "assistant", content: [{ type: "text", text: "from transcript" }] } }) + "\n");
+  deliverHook({ event: "SessionStart", providerSessionId: "p1", cwd: "/w", transcriptPath: tp });
+  const res = await socket.fire(EVENTS.SUBSCRIBE, { sessionId: PTY_SESSION });
+  assert.equal(res.source, "transcript");
+});
+
 /* ================= the transcript is where the conversation lives ================= */
 
 const writeTranscript = (name, records) => {

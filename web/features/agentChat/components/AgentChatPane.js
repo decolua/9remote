@@ -13,6 +13,7 @@ import AssistantMessage from "./AssistantMessage";
 import ThinkingRow from "./ThinkingRow";
 import ToolCallRow from "./ToolCallRow";
 import ToolGroupRow from "./ToolGroupRow";
+import ToolDiffView from "./ToolDiffView";
 import PermissionCard from "./PermissionCard";
 import QuestionCard from "./QuestionCard";
 import PlanCard from "./PlanCard";
@@ -27,7 +28,7 @@ const NEAR_BOTTOM_PX = 60;
 export default function AgentChatPane({ socket, sessionId, isVisible, onOpenFile, className = "" }) {
   const { t } = useI18n();
   const {
-    prompt, activity, optionCount, tool, live, stale, error, respond, sendText, interrupt,
+    prompt, activity, optionCount, tool, source, live, stale, error, respond, sendText, interrupt,
   } = useAgentChat(socket, sessionId, { enabled: isVisible });
 
   const listRef = useRef(null);
@@ -78,6 +79,12 @@ export default function AgentChatPane({ socket, sessionId, isVisible, onOpenFile
         className="scroll-thin-x relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pt-3 sm:px-0"
       >
         <div className="mx-auto w-full space-y-2" style={{ maxWidth: CONTENT_MAX_WIDTH }}>
+          {source === "screen" && (
+            <p className="rounded-[8px] border border-border-subtle bg-surface-2/60 px-3 py-2 text-[11px] text-text-subtle">
+              {t("terminalPane.agentChatScreenMode")}
+            </p>
+          )}
+
           {rows.length === 0 && !prompt && (
             <p className="py-8 text-center font-mono text-[11px] text-text-subtle">
               {t("terminalPane.agentChatEmpty")}
@@ -90,6 +97,19 @@ export default function AgentChatPane({ socket, sessionId, isVisible, onOpenFile
             if (row.type === "thinking") return <ThinkingRow key={row.key} text={row.entry.text} />;
             if (row.type === "group") return <ToolGroupRow key={row.key} row={row} onOpenFile={onOpenFile} />;
             if (row.type === "tool") return <ToolCallRow key={row.key} entry={row.entry} onOpenFile={onOpenFile} />;
+            if (row.type === "diff") return <ToolDiffView key={row.key} filePath="" oldContent="" newContent={row.entry.text} isNew={false} />;
+            if (row.type === "text") {
+              return (
+                <div key={row.key} className="chat-row rounded-[8px] border border-border-subtle bg-surface-2/60 px-3 py-2 font-mono text-[11px] whitespace-pre-wrap break-words text-text-muted">
+                  {row.entry.text}
+                  {row.entry.truncated != null && (
+                    <span className="mt-1 block text-[10px] text-text-subtle">
+                      +{row.entry.truncated} {t("terminalPane.agentChatTruncatedLines")}
+                    </span>
+                  )}
+                </div>
+              );
+            }
             return null;
           })}
 

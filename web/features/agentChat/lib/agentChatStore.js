@@ -11,6 +11,7 @@ export const REFETCH_DEBOUNCE_MS = 120;
 
 const EMPTY = Object.freeze({
   hasAgent: false, tool: null, prompt: null, activity: [], optionCount: 0, stale: false,
+  source: null,
 });
 
 // sessionId → entry
@@ -34,6 +35,7 @@ function fetchNow(entry, socket, sessionId) {
       activity: res.activity || [],
       optionCount: res.optionCount || 0,
       stale: false,
+      source: res.source || null,
       live: entry.state.live || null,
     };
     notify(entry);

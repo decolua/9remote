@@ -132,6 +132,16 @@ const numberedOption = (line) => {
 // no footer needed to start collecting.
 const isMidLineOption = (line) => /❯\s*\d[.)]\s*\S/.test(line);
 
+// Fixed CLI chrome: the mode bar, update notices, hint footers. Never conversation.
+const STATUS_BAR_RE = /bypass permissions|accept edits on|plan mode on|Auto-update failed|claude doctor|shift\+tab|ctrl\+o to expand|^\s*[⏵▸►✘✻·]\s*$|\besc to (cancel|exit)\b/i;
+
+// "… +43 lines (ctrl+o to expand)" — the CLI collapsed its own output.
+const COLLAPSE_RE = /^…\s*\+(\d+) lines/;
+
+// Unified-diff bodies: hunk headers and +/- lines.
+const DIFF_LINE_RE = /^(@@|\+{3}|-{3}|[+-]\S)/;
+const isDiffBody = (line) => DIFF_LINE_RE.test(line) && !/^\+\d|^\-\d/.test(line);
+
 /**
  * Read the reconstructed screen with a CLI profile and return ordered events:
  *   { kind: "assistant"|"tool"|"input"|"working"|"prompt"|"text", ... }
@@ -195,6 +205,7 @@ const RULES = [
         ? trimmed.slice(markers.result.length).trim() : false,
     run: ({ payload, state, emit, profile }) => {
       state.releaseQuestion();
+      state.closeBlock();
       const text = payload;
       if (state.openTool) {
         const tool = state.openTool;
@@ -270,11 +281,58 @@ const RULES = [
     run: () => {},
   },
   {
+    name: "collapse",
+    // The CLI's own "… +N lines" marker: annotate the open block instead of emitting.
+    match: ({ trimmed }) => {
+      const m = trimmed.match(COLLAPSE_RE);
+      return m ? parseInt(m[1], 10) : false;
+    },
+    run: ({ payload, state }) => {
+      const target = state.openTool
+        || (state.block ? state.block : null)
+        || lastEmitTarget(state);
+      if (target) target.truncated = payload;
+    },
+  },
+  {
+    name: "statusBar",
+    match: ({ trimmed }) => (STATUS_BAR_RE.test(trimmed) ? trimmed : false),
+    run: () => {},
+  },
+  {
+    name: "diff",
+    match: ({ trimmed, line, state }) => {
+      if (state.promptOptions) return false;
+      if (isDiffBody(trimmed)) return trimmed;
+      // A context row inside an open diff block — the leading space IS the diff grammar.
+      const last = state.events[state.events.length - 1];
+      if (last?.kind === "diff" && /^ /.test(line)) return line.replace(/\s+$/, "");
+      return false;
+    },
+    run: ({ payload, state }) => {
+      state.releaseQuestion();
+      state.closeBlock();
+      state.openTool = null;
+      const last = state.events[state.events.length - 1];
+      if (last?.kind === "diff") last.text += `\n${payload}`;
+      else state.events.push({ kind: "diff", text: payload });
+    },
+  },
+  {
+    name: "resultContinuation",
+    // A wrapped result line has no marker but still belongs to the tool above it.
+    match: ({ state }) => (state.openTool?.output != null ? true : false),
+    run: ({ trimmed, state }) => {
+      state.openTool.output += `\n${trimmed}`;
+    },
+  },
+  {
     name: "question",
     // Held, not emitted: a menu may claim it. Anything else releases it as text.
     match: ({ trimmed, state }) => !state.promptOptions && /\?\s*$/.test(trimmed) ? trimmed : false,
     run: ({ payload, state }) => {
       state.releaseQuestion();
+      state.closeBlock();
       state.openTool = null;
       state.heldQuestion = payload;
     },
@@ -282,13 +340,18 @@ const RULES = [
   {
     name: "fallback",
     // Unknown shape stays as text — CLI updates add glyphs, and dropped lines hide
-    // conversation.
+    // conversation. Consecutive unknown lines are ONE block: terminal wrapping splits
+    // sentences across rows, and one-event-per-line buried the conversation in fragments.
     match: ({ profile }) => (profile.fallbackKind ? true : false),
-    run: ({ trimmed, state, emit, profile }) => {
+    run: ({ trimmed, state, profile }) => {
       state.releaseQuestion();
       state.flushPrompt();
       state.openTool = null;
-      emit({ kind: profile.fallbackKind, text: trimmed });
+      if (state.block) state.block.text += `\n${trimmed}`;
+      else {
+        state.block = { kind: profile.fallbackKind, text: trimmed };
+        state.events.push(state.block);
+      }
     },
   },
 ];
@@ -299,11 +362,12 @@ export function applyScreenStream(screenText, profile) {
   const markers = profile?.markers || {};
   const events = [];
 
-  // A menu already collected but not yet footer-terminated ends here.
   const state = {
-    openTool: null,      // last tool event, awaiting its result line
-    promptOptions: null, // numbered menu being collected
-    heldQuestion: null,  // a "?" line the following menu may claim
+    events,               // shared with the rules
+    openTool: null,       // last tool event, awaiting its result line
+    promptOptions: null,  // numbered menu being collected
+    heldQuestion: null,   // a "?" line the following menu may claim
+    block: null,          // open text block absorbing consecutive unknown lines
   };
   state.flushPrompt = () => {
     if (!state.promptOptions) return;
@@ -313,17 +377,26 @@ export function applyScreenStream(screenText, profile) {
   };
   state.releaseQuestion = () => {
     if (state.heldQuestion == null) return;
-    events.push({ kind: "text", text: state.heldQuestion });
+    state.appendBlock(state.heldQuestion);
     state.heldQuestion = null;
   };
+  state.appendBlock = (text) => {
+    if (state.block) state.block.text += `\n${text}`;
+    else {
+      state.block = { kind: profile.fallbackKind || "text", text };
+      events.push(state.block);
+    }
+  };
+  // Any recognised structure closes the running text block.
+  state.closeBlock = () => { state.block = null; };
 
-  const emit = (ev) => { events.push(ev); };
+  const emit = (ev) => { state.closeBlock(); events.push(ev); };
 
   for (const raw of lines) {
     const trimmed = raw.replace(/\s+$/, "").trim();
     if (!trimmed) continue;
 
-    const ctx = { trimmed, raw, lines, markers, profile, state, emit };
+    const ctx = { trimmed, line: raw, raw, lines, markers, profile, state, emit };
     for (const rule of RULES) {
       const payload = rule.match(ctx);
       if (payload === false) continue;
@@ -335,6 +408,11 @@ export function applyScreenStream(screenText, profile) {
   state.flushPrompt();
   state.releaseQuestion();
   return events;
+}
+
+// The block a collapse marker refers to when no tool is open: the newest event.
+function lastEmitTarget(state) {
+  return state.events[state.events.length - 1] || null;
 }
 
 // A numbered row only starts a menu when a question is right above it or a selector

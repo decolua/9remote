@@ -9,6 +9,8 @@ import { getSnapshot, getPrompt, clearPrompt } from "./promptStore.js";
 import { getMapping } from "../terminal/agentSessionMap.js";
 import { planKeystrokes, screenMatchesPrompt, promptStillPresent, countVisibleOptions } from "./responder.js";
 import { readTranscript } from "./transcriptReader.js";
+import { applyScreenStream } from "./screenParser.js";
+import { CLAUDE_PROFILE } from "./cliProfiles.js";
 import { EVENTS, KEYS, KEYSTROKE_GAP_MS, VERIFY_DELAY_MS, MAX_MESSAGE_LENGTH } from "./constants.js";
 import { createLogger } from "../../lib/logger.js";
 
@@ -51,20 +53,32 @@ export function setupAgentChatHandlers(socket, sessions, io = defaultIo) {
     const snapshot = getSnapshot(sessionId);
     const mapping = getMapping(sessionId);
 
+    // The transcript is the real conversation — hooks carry tool calls but never the
+    // assistant's prose. Fall back to the hook timeline while the file does not exist yet
+    // (a fresh session takes seconds to flush its first line).
+    const { rows } = readTranscript(mapping?.transcriptPath);
+    let activity = rows.length ? rows : snapshot.activity;
+    let source = rows.length ? "transcript" : "hooks";
+
+    // No mapping (no hooks, unknown CLI): the screen itself is the source. The parser
+    // needs nothing but the pane's own output — this is what makes the feature work for
+    // any terminal, not just CLIs we registered hooks for.
+    if (!mapping) {
+      activity = applyScreenStream(await readScreen(sessionId), CLAUDE_PROFILE);
+      source = "screen";
+    }
+
     // How many options the menu really shows right now. The GUI builds its buttons from
     // this instead of assuming a fixed count — the plan menu differs between CLI builds.
     let optionCount = 0;
     if (snapshot.prompt) {
       const screen = await readScreen(sessionId);
       optionCount = countVisibleOptions(screen);
+    } else if (!mapping) {
+      // Screen mode: the menu the parser read is the only menu there is.
+      const parsed = activity.find((e) => e.kind === "prompt");
+      optionCount = parsed?.options?.length || 0;
     }
-
-    // The transcript is the real conversation — hooks carry tool calls but never the
-    // assistant's prose. Fall back to the hook timeline while the file does not exist yet
-    // (a fresh session takes seconds to flush its first line).
-    const { rows } = readTranscript(mapping?.transcriptPath);
-    const activity = rows.length ? rows : snapshot.activity;
-    const source = rows.length ? "transcript" : "hooks";
 
     const kinds = activity.reduce((acc, e) => {
       const k = e.kind === "tool" ? `tool:${e.status}` : e.kind;

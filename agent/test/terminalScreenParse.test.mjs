@@ -250,6 +250,59 @@ await test("a profile with no markers extracts nothing, silently", () => {
   assert.equal(ev.length, 0);
 });
 
+/* ================= noise discipline: the parser must be readable, not just correct ================= */
+
+await test("consecutive unknown lines merge into one text block", () => {
+  // Terminal wrapping splits one sentence across rows; one-event-per-line buried the
+  // conversation under dozens of fragments on the real capture.
+  const ev = applyScreenStream("Switched to a new branch 'feat/age\nnt-chat-gui'\n", CLAUDE_PROFILE);
+  assert.equal(ev.length, 1);
+  assert.match(ev[0].text, /Switched to a new branch 'feat\/age\nnt-chat-gui'/);
+});
+
+await test("a marker line closes the running text block", () => {
+  const ev = applyScreenStream("plain line\n⏺ Bash(ls)\n", CLAUDE_PROFILE);
+  assert.deepEqual(ev.map((e) => e.kind), ["text", "tool"]);
+  assert.equal(ev[0].text, "plain line");
+});
+
+await test("the status bar is dropped entirely", () => {
+  // Fixed chrome: mode indicator, update notice, footer hints. Never conversation.
+  const chrome = [
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+    "  ✘ Auto-update failed · Run claude doctor",
+  ];
+  const ev = applyScreenStream(chrome.join("\n") + "\nreal text\n", CLAUDE_PROFILE);
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].text, "real text");
+});
+
+await test("a collapse indicator marks the preceding block as truncated", () => {
+  const ev = applyScreenStream("some output\n… +43 lines (ctrl+o to expand)\n", CLAUDE_PROFILE);
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].truncated, 43);
+});
+
+await test("a diff block is recognised as a diff, not prose", () => {
+  const ev = applyScreenStream("⏺ Edit(screenParser.js)\n  ⎿  Updated\n@@ -1,3 +1,4 @@\n context\n-removed\n+added\n", CLAUDE_PROFILE);
+  const diff = ev.find((e) => e.kind === "diff");
+  assert.ok(diff, "diff lines read as prose make file changes invisible");
+  assert.match(diff.text, /-removed/);
+  assert.match(diff.text, /\+added/);
+});
+
+await test("a diff with no open tool is still a diff block", () => {
+  const ev = applyScreenStream("--- a/file.js\n+++ b/file.js\n@@ -10,3 +10,4 @@\n-new\n+newer\n", CLAUDE_PROFILE);
+  assert.equal(ev.find((e) => e.kind === "diff") != null, true);
+});
+
+await test("a result line continues the tool it belongs to, not a new block", () => {
+  const ev = applyScreenStream("⏺ Bash(ls)\n  ⎿  file1\nfile2 continues\n", CLAUDE_PROFILE);
+  const tool = ev.find((e) => e.kind === "tool");
+  assert.match(tool.output, /file1/);
+  assert.match(tool.output, /file2 continues/);
+});
+
 /* ================= against the real capture ================= */
 
 if (fixture) {
