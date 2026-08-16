@@ -167,17 +167,17 @@ export default {
     editName: "Редагувати назву",
     newTerminal: "Новий термінал"
   },
-  groups: {
+  workspaces: {
     title: "Groups",
-    newGroup: "Group",
-    newGroupPrompt: "Group name",
+    newWorkspace: "Group",
+    newWorkspacePrompt: "Group name",
     defaultName: "New Group",
     ungrouped: "Ungrouped",
     addTerminal: "Add terminal to group",
-    moveToGroup: "Move to group",
+    moveToWorkspace: "Move to group",
     rename: "Rename group",
     delete: "Delete group",
-    emptyGroup: "No terminals in this group",
+    emptyWorkspace: "No terminals in this group",
     deleteTitle: "Delete Group",
     deleteMessage: "Delete group \"{name}\"? Terminals move to Ungrouped.",
   },

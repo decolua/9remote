@@ -1,9 +1,10 @@
 import pty from "node-pty";
 import * as daemonClient from "../ptyDaemonClient.js";
-import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveGroups, loadSessionNote, saveSessionNote, deleteSessionNote, UPLOAD_DIR } from "../ptyHelper.js";
+import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveWorkspaces, loadSessionNote, saveSessionNote, deleteSessionNote, UPLOAD_DIR } from "../ptyHelper.js";
 import { resolveShell, getShellList } from "../constants.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
+import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
 import { currentSeq, getGap, clearSession } from "../seqStore.js";
 import fs from "fs";
 import path from "path";
@@ -88,10 +89,17 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
 }
 
 // sessions ref is passed in from terminalSocket to keep single source of truth.
-// groups (Map) + sessionGroups (object) are agent-managed and persisted to JSON.
-export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups, sessionOrder = []) {
-  // Persist current groups + session->group map + session order
-  const persistGroups = () => saveGroups(groups, sessionGroups, sessionOrder);
+// workspaces (Map) + sessionWorkspaces (object) are agent-managed and persisted to JSON.
+export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWorkspaces, sessionOrder = []) {
+  // Persist current workspaces + session->workspace map + session order
+  const persist = () => saveWorkspaces(workspaces, sessionWorkspaces, sessionOrder);
+
+  // Both names are broadcast during the transition so a client on the previous version
+  // still refreshes. Drop "groupsChanged" once agent 2.6 is the floor.
+  const broadcastChanged = () => {
+    broadcast(io, "workspacesChanged");
+    broadcast(io, "groupsChanged");
+  };
 
   socket.on("getSessions", async (callback) => {
     try {
@@ -104,7 +112,16 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
           const liveCwd = await daemonClient.getSessionCwd(id);
           if (liveCwd) { cwd = liveCwd; if (session.cwd !== liveCwd) session.cwd = liveCwd; }
         }
-        list.push({ id, name: session.name, createdAt: session.createdAt, restored: session.restored || false, shellId: session.shellId, shellLabel: session.shellLabel, groupId: sessionGroups[id] || null, cwd });
+        const workspaceId = sessionWorkspaces[id] || null;
+        list.push({
+          id, name: session.name, createdAt: session.createdAt, restored: session.restored || false,
+          shellId: session.shellId, shellLabel: session.shellLabel, cwd,
+          workspaceId,
+          // workspacePath is fixed at creation: a `cd` must not move a terminal to another
+          // workspace. cwd above is the live one, for display only.
+          workspacePath: session.workspacePath || workspaces.get(workspaceId)?.path || null,
+          groupId: workspaceId // legacy field, drop at 2.6
+        });
       }
       // Sort by persisted order; unranked ids (new sessions) fall to the end, stable
       const rank = new Map(sessionOrder.map((id, i) => [id, i]));
@@ -120,34 +137,55 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     callback({ platform: process.platform, shells: getShellList() });
   });
 
-  // Group operations — handled at agent (independent of daemon)
-  socket.on("getGroups", (callback) => {
-    callback(Array.from(groups.values()));
-  });
+  // Workspace operations — handled at agent (independent of daemon)
+  const listWorkspaces = (callback) => callback(Array.from(workspaces.values()));
 
-  socket.on("createGroup", ({ name }, callback) => {
-    const id = `group-${Date.now()}`;
-    const group = { id, name: name || "Group", createdAt: Date.now() };
-    groups.set(id, group);
-    persistGroups();
-    broadcast(io, "groupsChanged");
-    callback({ success: true, group });
-  });
+  const createWorkspace = ({ name, path: wsPath }, callback) => {
+    // Validate at this trust boundary: a workspace may be path-less (legacy group), but a
+    // supplied path must point at a real directory.
+    let resolvedPath = null;
+    if (wsPath) {
+      if (isSensitivePath(wsPath)) return callback({ success: false, error: "Access denied" });
+      try {
+        if (!fs.existsSync(wsPath) || !fs.statSync(wsPath).isDirectory()) {
+          return callback({ success: false, error: "Path is not a directory" });
+        }
+        resolvedPath = path.resolve(wsPath);
+      } catch (error) {
+        return callback({ success: false, error: error.message });
+      }
+    }
+    const existing = resolvedPath && [...workspaces.values()].find((w) => w.path === resolvedPath);
+    if (existing) return callback({ success: true, workspace: existing, group: existing });
 
-  socket.on("renameGroup", ({ groupId, name }, callback) => {
-    const group = groups.get(groupId);
-    if (!group) return callback({ success: false, error: "Group not found" });
-    group.name = name;
-    persistGroups();
-    broadcast(io, "groupsChanged");
+    const id = `ws-${Date.now()}`;
+    const workspace = {
+      id,
+      name: name || (resolvedPath ? path.basename(resolvedPath) : "Workspace"),
+      path: resolvedPath,
+      createdAt: Date.now()
+    };
+    workspaces.set(id, workspace);
+    persist();
+    broadcastChanged();
+    callback({ success: true, workspace, group: workspace });
+  };
+
+  const renameWorkspace = ({ workspaceId, groupId, name }, callback) => {
+    const workspace = workspaces.get(workspaceId || groupId);
+    if (!workspace) return callback({ success: false, error: "Workspace not found" });
+    workspace.name = name;
+    persist();
+    broadcastChanged();
     callback({ success: true });
-  });
+  };
 
-  socket.on("deleteGroup", async ({ groupId }, callback) => {
-    if (!groups.delete(groupId)) return callback({ success: false, error: "Group not found" });
+  const deleteWorkspace = async ({ workspaceId, groupId }, callback) => {
+    const id = workspaceId || groupId;
+    if (!workspaces.delete(id)) return callback({ success: false, error: "Workspace not found" });
     try {
-      // Close all terminals belonging to this group
-      const targetIds = Object.keys(sessionGroups).filter((sid) => sessionGroups[sid] === groupId);
+      // Close all terminals belonging to this workspace
+      const targetIds = Object.keys(sessionWorkspaces).filter((sid) => sessionWorkspaces[sid] === id);
       for (const sid of targetIds) {
         const session = sessions.get(sid);
         if (session) {
@@ -161,51 +199,89 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
           clearSession(sid); // drop seq counter + gap ring
           broadcast(io, "sessionClosed", sid);
         }
-        delete sessionGroups[sid];
+        delete sessionWorkspaces[sid];
       }
-      persistGroups();
-      broadcast(io, "groupsChanged");
+      persist();
+      broadcastChanged();
       callback({ success: true });
     } catch (error) {
-      console.error("Failed to delete group:", error);
+      console.error("Failed to delete workspace:", error);
       callback({ success: false, error: error.message });
     }
-  });
+  };
 
-  socket.on("moveSession", ({ sessionId, groupId }, callback) => {
-    if (groupId && groups.has(groupId)) sessionGroups[sessionId] = groupId;
-    else delete sessionGroups[sessionId];
-    persistGroups();
-    broadcast(io, "groupsChanged");
+  const moveSession = ({ sessionId, workspaceId, groupId }, callback) => {
+    const id = workspaceId ?? groupId;
+    if (id && workspaces.has(id)) {
+      sessionWorkspaces[sessionId] = id;
+      const session = sessions.get(sessionId);
+      if (session) session.workspacePath = workspaces.get(id).path || null;
+    } else {
+      delete sessionWorkspaces[sessionId];
+    }
+    persist();
+    broadcastChanged();
     callback({ success: true });
-  });
+  };
 
-  // Reorder sessions within a group. orderedIds = desired order of that group's sessions.
+  // Repos the user marked as reference-only. Stored per workspace on the agent, so the
+  // choice follows the machine rather than one browser.
+  const setHiddenRepos = ({ workspaceId, paths }, callback) => {
+    const workspace = workspaces.get(workspaceId);
+    if (!workspace) return callback?.({ success: false, error: "Workspace not found" });
+    workspace.hiddenRepos = Array.isArray(paths) ? [...new Set(paths.filter((p) => typeof p === "string"))] : [];
+    persist();
+    broadcastChanged();
+    callback?.({ success: true, hiddenRepos: workspace.hiddenRepos });
+  };
+
+  socket.on("setWorkspaceHiddenRepos", setHiddenRepos);
+  socket.on("getWorkspaces", listWorkspaces);
+  socket.on("createWorkspace", createWorkspace);
+  socket.on("renameWorkspace", renameWorkspace);
+  socket.on("deleteWorkspace", deleteWorkspace);
+  socket.on("moveSession", moveSession);
+
+  // Legacy group aliases — a client on the previous version still works. Drop at 2.6.
+  socket.on("getGroups", listWorkspaces);
+  socket.on("createGroup", createWorkspace);
+  socket.on("renameGroup", renameWorkspace);
+  socket.on("deleteGroup", deleteWorkspace);
+
+  // Reorder sessions within a workspace. orderedIds = desired order of that workspace's sessions.
   socket.on("reorderSession", ({ orderedIds }, callback) => {
     if (!Array.isArray(orderedIds)) return callback?.({ success: false, error: "orderedIds required" });
     const moving = new Set(orderedIds);
-    // Rebuild global order: keep others in place, splice the group's ids into their first slot
+    // Rebuild global order: keep others in place, splice the workspace's ids into their first slot
     const rest = sessionOrder.filter((id) => !moving.has(id));
     const others = [...sessions.keys()].filter((id) => !moving.has(id) && !rest.includes(id));
     sessionOrder.length = 0;
     sessionOrder.push(...rest, ...others, ...orderedIds);
-    persistGroups();
-    broadcast(io, "groupsChanged");
+    persist();
+    broadcastChanged();
     callback?.({ success: true });
   });
 
-  socket.on("createSession", async ({ name, shellId, groupId, cwd }, callback) => {
+  socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd }, callback) => {
     const sessionId = `session-${Date.now()}`;
+    const wsId = workspaceId ?? groupId;
+    const workspace = wsId ? workspaces.get(wsId) : null;
 
     try {
       const shellConfig = resolveShell(shellId);
       const shellEnv = buildShellEnv();
       shellEnv.NINE_REMOTE_SESSION_ID = sessionId;
-      // Inherit cwd from last session in group (client-supplied); validate at this trust
-      // boundary — fall back to default if missing or not an existing directory.
+      // cwd comes from the client (a folder picked in the tree, or the last session's cwd);
+      // validate at this trust boundary — fall back to the workspace root, then the default.
       let resolvedCwd = getDefaultCwd(isCodespaces());
       // A malformed cwd (NUL byte, non-string) makes existsSync throw
-      try { if (cwd && fs.existsSync(cwd)) resolvedCwd = cwd; } catch {}
+      const usable = (dir) => {
+        try { return dir && !isSensitivePath(dir) && fs.existsSync(dir); } catch { return false; }
+      };
+      if (usable(workspace?.path)) resolvedCwd = workspace.path;
+      if (usable(cwd)) resolvedCwd = cwd;
+      // Fixed at creation — a later `cd` must not move this terminal to another workspace.
+      const workspacePath = workspace?.path || null;
 
       // Auto-name "Term N" if user didn't provide a custom name (cross-platform)
       const autoName = name || `Term ${sessions.size + 1}`;
@@ -214,8 +290,8 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
       if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
         const result = await daemonClient.createSession(autoName, 80, 24, shellId, sessionId, resolvedCwd);
         if (result.success) {
-          sessions.set(result.sessionId, { daemon: true, name: autoName, createdAt: Date.now(), cwd: result.cwd, shellId: result.shellId, shellLabel: result.shellLabel });
-          if (groupId && groups.has(groupId)) { sessionGroups[result.sessionId] = groupId; persistGroups(); }
+          sessions.set(result.sessionId, { daemon: true, name: autoName, createdAt: Date.now(), cwd: result.cwd, workspacePath, shellId: result.shellId, shellLabel: result.shellLabel });
+          if (workspace) { sessionWorkspaces[result.sessionId] = workspace.id; persist(); }
           saveSessionMetadata(sessions);
           callback({ success: true, sessionId: result.sessionId, shellLabel: result.shellLabel });
         } else {
@@ -226,11 +302,11 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
 
       // Buffer mode PTY
       const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, { name: "xterm-256color", cols: 80, rows: 24, cwd: resolvedCwd, env: shellEnv, useConpty: false });
-      const sessionData = { pty: ptyProcess, name: autoName, createdAt: Date.now(), buffer: [], cwd: resolvedCwd, shellId: shellConfig.id, shellLabel: shellConfig.label };
+      const sessionData = { pty: ptyProcess, name: autoName, createdAt: Date.now(), buffer: [], cwd: resolvedCwd, workspacePath, shellId: shellConfig.id, shellLabel: shellConfig.label };
 
       attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions);
       sessions.set(sessionId, sessionData);
-      if (groupId && groups.has(groupId)) { sessionGroups[sessionId] = groupId; persistGroups(); }
+      if (workspace) { sessionWorkspaces[sessionId] = workspace.id; persist(); }
       callback({ success: true, sessionId, shellLabel: shellConfig.label });
     } catch (error) {
       console.error("Failed to create session:", error);
@@ -374,7 +450,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
         await daemonClient.deleteSession(sessionId);
         sessions.delete(sessionId);
         clearSession(sessionId); // drop seq counter + gap ring
-        if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
+        if (sessionWorkspaces[sessionId]) { delete sessionWorkspaces[sessionId]; persist(); }
         deleteSessionNote(sessionId);
         saveSessionMetadata(sessions);
         callback({ success: true });
@@ -387,7 +463,7 @@ export function setupSessionHandlers(socket, io, sessions, groups, sessionGroups
     if (session.pty) session.pty.kill();
     sessions.delete(sessionId);
     clearSession(sessionId); // drop seq counter + gap ring
-    if (sessionGroups[sessionId]) { delete sessionGroups[sessionId]; persistGroups(); }
+    if (sessionWorkspaces[sessionId]) { delete sessionWorkspaces[sessionId]; persist(); }
     deleteSessionBuffer(sessionId);
     deleteSessionNote(sessionId);
     broadcast(io, "sessionClosed", sessionId);

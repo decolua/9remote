@@ -1,14 +1,17 @@
 "use client";
 
 import Icon from "@/shared/components/ui/Icon";
-import { GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, EXPLORER_ROW } from "../constants/fileExplorer.js";
 import { resolveFileIcon, resolveFolderIcon } from "../constants/fileIcons.js";
 
-const INDENT_BASE = 12;
-const INDENT_STEP = 12;
 const TRUNCATED_NOTE = "Showing first 300 entries — use search for the rest.";
 
-export const indentFor = (depth) => INDENT_BASE + depth * INDENT_STEP;
+export const metricsFor = (compact) => (compact ? EXPLORER_ROW.compact : EXPLORER_ROW.normal);
+
+export const indentFor = (depth, compact = false) => {
+  const m = metricsFor(compact);
+  return m.indentBase + depth * m.indentStep;
+};
 
 /** Git badge: a dot for "contains changes", the status letters otherwise. */
 function GitBadge({ status }) {
@@ -24,9 +27,9 @@ const nameColor = (status) => {
   return GIT_STATUS_COLORS[status] || "";
 };
 
-export function TruncatedNote({ depth }) {
+export function TruncatedNote({ depth, compact = false }) {
   return (
-    <div className="text-[11px] text-text-muted italic py-0.5 pr-2" style={{ paddingLeft: indentFor(depth) }}>
+    <div className="text-[11px] text-text-muted italic py-0.5 pr-2" style={{ paddingLeft: indentFor(depth, compact) }}>
       {TRUNCATED_NOTE}
     </div>
   );
@@ -41,8 +44,10 @@ export default function ExplorerRow({
   onRenameChange, onRenameSubmit, onRenameCancel,
   onToggleFolder, onClick, onContextMenu, onTouchStart, onTouchEnd,
   onDragStart, onDragOver, onDragLeave, onDrop,
+  onNewTerminal, newTerminalLabel, compact = false,
   children
 }) {
+  const m = metricsFor(compact);
   return (
     <div>
       <div
@@ -51,11 +56,11 @@ export default function ExplorerRow({
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        className={`group flex items-center gap-1 pr-2 py-0.5 cursor-pointer select-none text-sm ${
+        className={`group flex items-center gap-1 pr-2 cursor-pointer select-none ${m.text} ${m.padY} ${
           isDragOver ? "bg-brand-500/30 ring-1 ring-brand-500" :
           isActive || isSelected ? "bg-surface-2" : "hover:bg-surface-2"
         }`}
-        style={{ paddingLeft: indentFor(depth) }}
+        style={{ paddingLeft: indentFor(depth, compact) }}
         onContextMenu={onContextMenu}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
@@ -68,11 +73,11 @@ export default function ExplorerRow({
             className="flex items-center justify-center w-4 h-4 text-text-muted"
           >
             {isLoading ? (
-              <Icon name="Loader2" size={12} className="animate-spin" />
+              <Icon name="Loader2" size={m.chevron - 2} className="animate-spin" />
             ) : isExpanded ? (
-              <Icon name="ChevronDown" size={14} />
+              <Icon name="ChevronDown" size={m.chevron} />
             ) : (
-              <Icon name="ChevronRight" size={14} />
+              <Icon name="ChevronRight" size={m.chevron} />
             )}
           </span>
         ) : (
@@ -80,7 +85,7 @@ export default function ExplorerRow({
         )}
 
         <span className="shrink-0">
-          {isFolder ? resolveFolderIcon(file.name, isExpanded, 16) : resolveFileIcon(file, 16)}
+          {isFolder ? resolveFolderIcon(file.name, isExpanded, m.icon) : resolveFileIcon(file, m.icon)}
         </span>
 
         {isRenaming ? (
@@ -94,7 +99,7 @@ export default function ExplorerRow({
               if (e.key === "Enter") onRenameSubmit();
               else if (e.key === "Escape") onRenameCancel();
             }}
-            className="flex-1 bg-surface-3 text-text text-sm px-1 py-0.5 rounded outline-none border border-brand-500"
+            className={`flex-1 bg-surface-3 text-text ${m.text} px-1 py-0.5 rounded outline-none border border-brand-500`}
           />
         ) : (
           <span className={`flex-1 truncate text-text ${nameColor(gitStatus)}`}>{file.name}</span>
@@ -102,12 +107,22 @@ export default function ExplorerRow({
 
         {!isRenaming && <GitBadge status={gitStatus} />}
 
+        {!isRenaming && isFolder && onNewTerminal && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onNewTerminal(file); }}
+            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-brand-500 px-1"
+            title={newTerminalLabel}
+          >
+            <Icon name="Terminal" size={m.chevron} />
+          </button>
+        )}
+
         {!isRenaming && (
           <button
             onClick={onContextMenu}
             className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text px-1"
           >
-            <Icon name="MoreHorizontal" size={14} />
+            <Icon name="MoreHorizontal" size={m.chevron} />
           </button>
         )}
       </div>

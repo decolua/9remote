@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect } from "react";
 import { useI18n } from "@/shared/i18n";
+import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 
-// Session/group navigation: select, create, delete, rename, and the group-aware
+// Session/workspace navigation: select, create, delete, rename, and the workspace-aware
 // tab cycling used by the PC input bar.
 export function useSessionNavigation({
   sessions, currentView, viewStack, setViewStack, pushView, storePopView,
-  activeGroupId, setActiveGroupId, activeSessionId,
+  activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
   addOpenedSession, removeOpenedSession, touchLivePane,
   createSession, deleteSession, renameSession, clearNotification
 }) {
@@ -20,16 +21,16 @@ export function useSessionNavigation({
     setViewStack(newStack);
   }, [viewStack, setViewStack]);
 
-  // Session ids belonging to a group, in list order
-  const groupSessionIds = useCallback(
-    (groupId) => sessions.filter((s) => (s.groupId || null) === groupId).map((s) => s.id),
+  // Session ids belonging to a workspace, in list order
+  const workspaceSessionIds = useCallback(
+    (workspaceId) => sessions.filter((s) => sessionWorkspaceId(s) === (workspaceId ?? null)).map((s) => s.id),
     [sessions]
   );
 
-  // Inherit cwd from the last session in the same group (null when none/ungrouped)
-  const lastGroupCwd = useCallback((groupId) => {
-    const groupSessions = sessions.filter((s) => (s.groupId || null) === groupId && s.cwd);
-    return groupSessions.length ? groupSessions[groupSessions.length - 1].cwd : null;
+  // Inherit cwd from the last session in the same workspace (null when none/ungrouped)
+  const lastWorkspaceCwd = useCallback((workspaceId) => {
+    const inWorkspace = sessions.filter((s) => sessionWorkspaceId(s) === (workspaceId ?? null) && s.cwd);
+    return inWorkspace.length ? inWorkspace[inWorkspace.length - 1].cwd : null;
   }, [sessions]);
 
   const alertCreateFailed = useCallback(
@@ -37,21 +38,21 @@ export function useSessionNavigation({
     [t]
   );
 
-  // Entering terminal view: open sessions of the selected session's group, set active group
+  // Entering terminal view: open sessions of the selected session's workspace, set it active
   const handleSelectSession = useCallback((sessionId) => {
     const selected = sessions.find(s => s.id === sessionId);
-    const groupId = selected?.groupId || null;
-    setActiveGroupId(groupId);
-    const groupIds = groupSessionIds(groupId);
-    groupIds.forEach(id => addOpenedSession(id));
+    const workspaceId = sessionWorkspaceId(selected);
+    setActiveWorkspaceId(workspaceId);
+    const ids = workspaceSessionIds(workspaceId);
+    ids.forEach(id => addOpenedSession(id));
     addOpenedSession(sessionId);
-    touchLivePane([...groupIds, sessionId]); // keep this group's panes alive (LRU)
+    touchLivePane([...ids, sessionId]); // keep this workspace's panes alive (LRU)
     clearNotification?.(sessionId);
 
     if (currentView.type === "terminal") replaceTopWithSession(sessionId);
     else pushView({ type: "terminal", sessionId });
   }, [
-    sessions, groupSessionIds, addOpenedSession, touchLivePane, setActiveGroupId,
+    sessions, workspaceSessionIds, addOpenedSession, touchLivePane, setActiveWorkspaceId,
     currentView, pushView, clearNotification, replaceTopWithSession
   ]);
 
@@ -66,46 +67,47 @@ export function useSessionNavigation({
     return () => window.removeEventListener("message", onMessage);
   }, [handleSelectSession]);
 
-  // Tab/Shift+Tab in the PC input bar cycles sessions within the active group (wrap-round)
+  // Tab/Shift+Tab in the PC input bar cycles sessions within the active workspace (wrap-round)
   const switchSession = useCallback((direction) => {
-    const groupIds = groupSessionIds(activeGroupId);
-    if (groupIds.length < 2) return;
-    const idx = groupIds.indexOf(activeSessionId);
+    const ids = workspaceSessionIds(activeWorkspaceId);
+    if (ids.length < 2) return;
+    const idx = ids.indexOf(activeSessionId);
     if (idx === -1) return;
     const next = direction === "prev"
-      ? (idx - 1 + groupIds.length) % groupIds.length
-      : (idx + 1) % groupIds.length;
-    handleSelectSession(groupIds[next]);
-  }, [groupSessionIds, activeGroupId, activeSessionId, handleSelectSession]);
+      ? (idx - 1 + ids.length) % ids.length
+      : (idx + 1) % ids.length;
+    handleSelectSession(ids[next]);
+  }, [workspaceSessionIds, activeWorkspaceId, activeSessionId, handleSelectSession]);
 
-  // Ctrl+1..9 in the PC input bar jumps to the Nth session in the active group
+  // Ctrl+1..9 in the PC input bar jumps to the Nth session in the active workspace
   const switchToIndex = useCallback((i) => {
-    const groupIds = groupSessionIds(activeGroupId);
-    if (i < 0 || i >= groupIds.length) return;
-    handleSelectSession(groupIds[i]);
-  }, [groupSessionIds, activeGroupId, handleSelectSession]);
+    const ids = workspaceSessionIds(activeWorkspaceId);
+    if (i < 0 || i >= ids.length) return;
+    handleSelectSession(ids[i]);
+  }, [workspaceSessionIds, activeWorkspaceId, handleSelectSession]);
 
-  // Named create (from the session list / sidebar). Keeps activeGroupId unchanged — the new
-  // session isn't in `sessions` yet (loadSessions is async) so handleSelectSession would reset it.
-  const handleCreateSession = useCallback((name, groupId = null, shellId = null) => {
-    createSession(name, shellId, groupId, lastGroupCwd(groupId), (result) => {
+  // Named create (from the session list / sidebar / file tree). Keeps activeWorkspaceId
+  // unchanged — the new session isn't in `sessions` yet (loadSessions is async) so
+  // handleSelectSession would reset it. `cwd` overrides the inherited one (tree "new terminal here").
+  const handleCreateSession = useCallback((name, workspaceId = null, shellId = null, cwd = null) => {
+    createSession(name, shellId, workspaceId, cwd || lastWorkspaceCwd(workspaceId), (result) => {
       if (!result.success) return alertCreateFailed(result.error);
       if (!result.sessionId) return;
       addOpenedSession(result.sessionId);
       // Auto-select the new terminal when created from within terminal view
       if (currentView.type === "terminal") replaceTopWithSession(result.sessionId);
     });
-  }, [createSession, lastGroupCwd, addOpenedSession, alertCreateFailed, currentView, replaceTopWithSession]);
+  }, [createSession, lastWorkspaceCwd, addOpenedSession, alertCreateFailed, currentView, replaceTopWithSession]);
 
-  // Quick create in the active group (header "+" button)
+  // Quick create in the active workspace (header "+" button)
   const handleQuickCreateSession = useCallback((shellId) => {
-    createSession(null, shellId, activeGroupId, lastGroupCwd(activeGroupId), (result) => {
+    createSession(null, shellId, activeWorkspaceId, lastWorkspaceCwd(activeWorkspaceId), (result) => {
       if (!result.success) return alertCreateFailed(result.error);
       if (!result.sessionId) return;
       addOpenedSession(result.sessionId);
       replaceTopWithSession(result.sessionId);
     });
-  }, [createSession, activeGroupId, lastGroupCwd, addOpenedSession, alertCreateFailed, replaceTopWithSession]);
+  }, [createSession, activeWorkspaceId, lastWorkspaceCwd, addOpenedSession, alertCreateFailed, replaceTopWithSession]);
 
   // Create from the FileExplorer bottom panel — stay in the current view
   const handleCreateSessionInline = useCallback((onCreated) => {
@@ -117,27 +119,27 @@ export function useSessionNavigation({
     });
   }, [createSession, addOpenedSession, alertCreateFailed]);
 
-  // Switch active group in terminal view — focus the first session of that group
-  const handleSelectGroup = useCallback((groupId) => {
-    setActiveGroupId(groupId);
-    const groupSessions = sessions.filter(s => (s.groupId || null) === groupId);
-    groupSessions.forEach(s => addOpenedSession(s.id));
-    touchLivePane(groupSessions.map(s => s.id)); // keep this group's panes alive (LRU)
-    const first = groupSessions[0];
+  // Switch active workspace in terminal view — focus its first session
+  const handleSelectWorkspace = useCallback((workspaceId) => {
+    setActiveWorkspaceId(workspaceId);
+    const inWorkspace = sessions.filter(s => sessionWorkspaceId(s) === (workspaceId ?? null));
+    inWorkspace.forEach(s => addOpenedSession(s.id));
+    touchLivePane(inWorkspace.map(s => s.id)); // keep this workspace's panes alive (LRU)
+    const first = inWorkspace[0];
     if (first) replaceTopWithSession(first.id);
-  }, [sessions, setActiveGroupId, addOpenedSession, touchLivePane, replaceTopWithSession]);
+  }, [sessions, setActiveWorkspaceId, addOpenedSession, touchLivePane, replaceTopWithSession]);
 
   const handleDeleteSession = useCallback((sessionId) => {
     const deleted = sessions.find((s) => s.id === sessionId);
-    const groupId = deleted?.groupId || null;
+    const workspaceId = sessionWorkspaceId(deleted);
     const isDeletingActive = currentView?.type === "terminal" && currentView.sessionId === sessionId;
     deleteSession(sessionId, () => {
       removeOpenedSession(sessionId);
       if (!isDeletingActive) return;
-      // Focus the next session (same group first, then any) or fall back to the list
+      // Focus the next session (same workspace first, then any) or fall back to the list
       const remaining = sessions.filter((s) => s.id !== sessionId);
-      const sameGroup = remaining.filter((s) => (s.groupId || null) === groupId);
-      const next = sameGroup[0] || remaining[0];
+      const sameWorkspace = remaining.filter((s) => sessionWorkspaceId(s) === workspaceId);
+      const next = sameWorkspace[0] || remaining[0];
       if (next) {
         replaceTopWithSession(next.id);
         touchLivePane(next.id);
@@ -154,9 +156,9 @@ export function useSessionNavigation({
   }, [renameSession, t]);
 
   return {
-    lastGroupCwd,
+    lastWorkspaceCwd,
     handleSelectSession,
-    handleSelectGroup,
+    handleSelectWorkspace,
     handleCreateSession,
     handleQuickCreateSession,
     handleCreateSessionInline,

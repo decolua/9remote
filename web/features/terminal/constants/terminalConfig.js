@@ -33,6 +33,22 @@ export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (table
 export const PANE_MIN_WIDTH = 500; // px, min width per terminal pane on desktop
 export const MAX_LIVE_PANES = 12; // Max mounted XTerm panes kept alive (LRU); caps RAM
 
+// Left sidebar (workspace + terminal list)
+export const SIDEBAR_WIDTH = { default: 240, min: 180, max: 400 };
+
+// Right panel (file tree / git / worktrees)
+export const RIGHT_PANEL_WIDTH = { default: 260, min: 200, max: 420 };
+
+// Inline editor opened from the file tree. Capped so it never crowds out the terminal.
+export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: 500 };
+
+// Branch + dirty poll for a workspace root. Shared per path, not per terminal.
+export const WORKSPACE_GIT_POLL_MS = 10000;
+
+// Nested-repo scan inside a workspace. Shallow by default so a folder full of reference
+// clones does not drown the repo being worked on; "scan deeper" switches to deepMaxDepth.
+export const REPO_SCAN = { maxDepth: 1, deepMaxDepth: 3, cacheTtlMs: 30000 };
+
 // Scrollback history fetch — join sends only JOIN_REPLAY_SIZE tail; older history
 // fetched on demand when user scrolls near top (primary buffer only).
 export const HISTORY_FETCH = {

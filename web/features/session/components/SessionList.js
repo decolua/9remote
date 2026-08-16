@@ -13,21 +13,40 @@ import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import { useSessionDragReorder } from "@/features/session/hooks/useSessionDragReorder";
+import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
+import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
+import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
+import BranchBadge from "@/features/terminal/components/BranchBadge";
+import StatusBar, { statusTextCls } from "@/shared/components/ui/StatusBar";
+import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 
 const UNGROUPED_KEY = "ungrouped";
 
-export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, sessionStatus = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, transport = "ws", groups = [], onCreateGroup, onRenameGroup, onDeleteGroup, onReorderSession, shells = [] }) {
+const PLATFORM_LABEL = { darwin: "mac", win32: "win", linux: "linux" };
+
+// Path + branch beneath a workspace name, mirroring the desktop sidebar so the two views
+// describe a workspace the same way.
+function WorkspaceSubtitle({ path, fileSocket, homeDir }) {
+  const { branch, dirty } = useWorkspaceGit(path, fileSocket);
+  if (!path && !branch) return null;
+  return (
+    <span className="text-[11px] text-text-subtle truncate leading-tight flex items-center gap-1.5">
+      {path && <span className="truncate">{shortenHomePath(path, homeDir)}</span>}
+      <BranchBadge branch={branch} dirty={dirty} className="flex-shrink-0" />
+    </span>
+  );
+}
+
+export default function SessionList({ sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenFiles, tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected, onStopCodespace, retryStatus, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush, notifications = {}, sessionStatus = {}, clearNotification, agentVersion, updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, transport = "ws", platform, workspaces = [], onRenameWorkspace, onDeleteWorkspace, onReorderSession, onAddWorkspace, fileSocket, homeDir, shells = [] }) {
   const { t } = useI18n();
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
   const [sitesModalOpen, setSitesModalOpen] = useState(false);
-  const [editingGroupId, setEditingGroupId] = useState(null);
-  const [editGroupName, setEditGroupName] = useState("");
-  const [groupDeleteConfirm, setGroupDeleteConfirm] = useState({ isOpen: false, groupId: null, groupName: "" });
-  const [groupModalOpen, setGroupModalOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
-  const [terminalModal, setTerminalModal] = useState({ open: false, groupId: null });
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState(null);
+  const [editWorkspaceName, setEditWorkspaceName] = useState("");
+  const [wsDeleteConfirm, setWsDeleteConfirm] = useState({ isOpen: false, workspaceId: null, workspaceName: "" });
+  const [terminalModal, setTerminalModal] = useState({ open: false, workspaceId: null });
 
   // Pointer-based drag reorder (mobile-first) — see hooks/useSessionDragReorder.
   const DRAG_REORDER_ENABLED = false; // TEMP: off — long-press grip hijacks touch scroll on mobile
@@ -134,55 +153,44 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
     setSitesModalOpen(false);
   };
 
-  // Group helpers — create group via modal, then prompt for the first terminal
-  const submitCreateGroup = () => {
-    const name = newGroupName.trim();
-    if (!name) return;
-    onCreateGroup?.(name, (result) => {
-      if (result?.success && result.group?.id) setTerminalModal({ open: true, groupId: result.group.id });
-    });
-    setNewGroupName("");
-    setGroupModalOpen(false);
-  };
-
   const submitCreateTerminal = (name, shellId) => {
-    onCreate?.(name, terminalModal.groupId, shellId);
-    setTerminalModal({ open: false, groupId: null });
+    onCreate?.(name, terminalModal.workspaceId, shellId);
+    setTerminalModal({ open: false, workspaceId: null });
   };
 
-  // Suggested name based on terminal count in target group
-  const suggestTerminalName = (groupId) => {
-    const count = sessions.filter((s) => (s.groupId || null) === groupId).length;
+  // Suggested name based on terminal count in target workspace
+  const suggestTerminalName = (workspaceId) => {
+    const count = sessions.filter((s) => sessionWorkspaceId(s) === workspaceId).length;
     return `${t("terminal.defaultName")} ${count + 1}`;
   };
 
-  const handleSaveGroupEdit = (groupId) => {
-    if (editGroupName.trim()) onRenameGroup?.(groupId, editGroupName.trim());
-    setEditingGroupId(null);
-    setEditGroupName("");
+  const handleSaveWorkspaceEdit = (workspaceId) => {
+    if (editWorkspaceName.trim()) onRenameWorkspace?.(workspaceId, editWorkspaceName.trim());
+    setEditingWorkspaceId(null);
+    setEditWorkspaceName("");
   };
 
-  const confirmGroupDelete = () => {
-    if (groupDeleteConfirm.groupId) onDeleteGroup?.(groupDeleteConfirm.groupId);
-    setGroupDeleteConfirm({ isOpen: false, groupId: null, groupName: "" });
+  const confirmWorkspaceDelete = () => {
+    if (wsDeleteConfirm.workspaceId) onDeleteWorkspace?.(wsDeleteConfirm.workspaceId);
+    setWsDeleteConfirm({ isOpen: false, workspaceId: null, workspaceName: "" });
   };
 
-  // Build accordion sections: real groups (in order) + Ungrouped last
+  // Build accordion sections: real workspaces (in order) + Unassigned last
   const sections = [
-    ...groups.map((g) => ({ key: g.id, id: g.id, name: g.name, isUngrouped: false })),
-    { key: UNGROUPED_KEY, id: null, name: t("groups.ungrouped"), isUngrouped: true }
+    ...workspaces.map((g) => ({ key: g.id, id: g.id, name: g.name, path: g.path || null, isUnassigned: false })),
+    { key: UNGROUPED_KEY, id: null, name: t("workspaces.ungrouped"), isUnassigned: true }
   ];
-  const sessionsByGroup = (groupId) => sessions.filter((s) => (s.groupId || null) === groupId);
+  const sessionsByWorkspace = (workspaceId) => sessions.filter((s) => sessionWorkspaceId(s) === workspaceId);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="bg-surface/80 backdrop-blur-md px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0">
+      <div className={`bg-surface/80 backdrop-blur-md px-4 sm:px-6 py-3 sm:py-0 ${PANEL_HEADER_H_CLASS} flex items-center justify-between flex-shrink-0 border-b border-border-subtle`}>
         <div className="flex items-center gap-3">
-          <div className="p-1.5 bg-brand-500/10 rounded-brand">
-            <Zap className="text-brand-500" size={20} />
+          <div className="p-1.5 sm:p-1 bg-brand-500/10 rounded-brand">
+            <Zap className="text-brand-500 w-5 h-5 sm:w-4 sm:h-4" />
           </div>
-          <h1 className="text-text text-lg font-semibold">{t("sessions.headerTitle")}</h1>
+          <h1 className="text-text text-lg sm:text-sm font-semibold">{t("sessions.headerTitle")}</h1>
           {/* Connection indicator */}
           <span 
             className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500 animate-pulse"}`}
@@ -200,14 +208,14 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
             <button
               onClick={() => { vibrate(); onOpenRemote(); }}
               disabled={!connected}
-              className={`p-2 rounded-brand transition-colors active:scale-[0.96] ${
+              className={`p-2 sm:p-1 rounded-brand transition-colors active:scale-[0.96] ${
                 connected
                   ? "text-text-muted hover:text-text hover:bg-surface-2"
                   : "text-text-subtle cursor-not-allowed"
               }`}
               title={t("menu.remoteDesktop")}
             >
-              <Monitor size={20} />
+              <Monitor className="w-5 h-5 sm:w-4 sm:h-4" />
             </button>
           )}
 
@@ -215,37 +223,37 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
           <button
             onClick={() => { vibrate(); onOpenFiles(); }}
             disabled={!connected}
-            className={`p-2 rounded-brand transition-colors active:scale-[0.96] ${
+            className={`p-2 sm:p-1 rounded-brand transition-colors active:scale-[0.96] ${
               connected
                 ? "text-text-muted hover:text-text hover:bg-surface-2"
                 : "text-text-subtle cursor-not-allowed"
             }`}
             title={t("menu.files")}
           >
-            <FolderOpen size={20} />
+            <FolderOpen className="w-5 h-5 sm:w-4 sm:h-4" />
           </button>
 
           {/* Sites Button */}
           <button
             onClick={handleOpenSites}
             disabled={!connected}
-            className={`p-2 rounded-brand transition-colors active:scale-[0.96] ${
+            className={`p-2 sm:p-1 rounded-brand transition-colors active:scale-[0.96] ${
               connected
                 ? "text-text-muted hover:text-text hover:bg-surface-2"
                 : "text-text-subtle cursor-not-allowed"
             }`}
             title={t("menu.sites")}
           >
-            <Globe size={20} />
+            <Globe className="w-5 h-5 sm:w-4 sm:h-4" />
           </button>
 
           {/* Menu Button */}
           <button
             onClick={() => { vibrate(); openMenu(); }}
-            className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors active:scale-[0.96]"
+            className="p-2 sm:p-1 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors active:scale-[0.96]"
             title={t("menu.title")}
           >
-            <Settings size={20} />
+            <Settings className="w-5 h-5 sm:w-4 sm:h-4" />
           </button>
         </div>
       </div>
@@ -256,49 +264,56 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         {connected && (isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || isWebOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || updateAvailable) && (
           <AgentOutdatedBanner agentVersion={agentVersion} webVersion={process.env.NEXT_PUBLIC_SERVER_VERSION} updateAvailable={updateAvailable} canSelfUpdate={canSelfUpdate} onUpdate={onUpdate} className="mb-6" />
         )}
-        {/* Sessions grouped accordion — create via inline dashed cards */}
+        {/* Sessions grouped by workspace — create via inline dashed cards */}
         {(
           <div className="space-y-8">
             {sections.map((section) => {
-              const groupSessions = sessionsByGroup(section.id);
-              // Hide empty Ungrouped to reduce clutter
-              if (section.isUngrouped && groupSessions.length === 0) return null;
+              const workspaceSessions = sessionsByWorkspace(section.id);
+              // Hide the empty Unassigned bucket to reduce clutter
+              if (section.isUnassigned && workspaceSessions.length === 0) return null;
               return (
                 <div key={section.key}>
-                  {/* Group header — folder icon, no collapse */}
+                  {/* Workspace header — folder icon, no collapse */}
                   <div className="flex items-center gap-2 mb-2 px-1">
                     <div className="flex items-center gap-1.5 text-sm text-text-muted">
                       <Folder size={16} className="text-brand-500/70" />
-                      {editingGroupId === section.id ? (
+                      {editingWorkspaceId === section.id ? (
                         <input
                           type="text"
-                          value={editGroupName}
-                          onChange={(e) => setEditGroupName(e.target.value)}
+                          value={editWorkspaceName}
+                          onChange={(e) => setEditWorkspaceName(e.target.value)}
                           onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => { if (e.key === "Enter") handleSaveGroupEdit(section.id); if (e.key === "Escape") setEditingGroupId(null); }}
-                          onBlur={() => handleSaveGroupEdit(section.id)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleSaveWorkspaceEdit(section.id); if (e.key === "Escape") setEditingWorkspaceId(null); }}
+                          onBlur={() => handleSaveWorkspaceEdit(section.id)}
                           className="bg-surface-2 text-text px-2 py-0.5 rounded-brand focus:outline-none focus:ring-2 focus:ring-brand-500/40"
                           autoFocus
                         />
                       ) : (
-                        <span className="font-medium text-text">{section.name}</span>
+                        <span className="flex flex-col min-w-0">
+                          <span className="font-medium text-text truncate">{section.name}</span>
+                          <WorkspaceSubtitle
+                            path={section.path || workspaceSessions.find((s) => s.workspacePath)?.workspacePath}
+                            fileSocket={fileSocket}
+                            homeDir={homeDir}
+                          />
+                        </span>
                       )}
-                      <span className="text-xs text-text-muted">({groupSessions.length})</span>
+                      <span className="text-xs text-text-muted flex-shrink-0">({workspaceSessions.length})</span>
                     </div>
-                    {!section.isUngrouped && (
+                    {!section.isUnassigned && (
                       <>
                         <button
                           onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => { vibrate(); setEditingGroupId(section.id); setEditGroupName(section.name); }}
+                          onClick={() => { vibrate(); setEditingWorkspaceId(section.id); setEditWorkspaceName(section.name); }}
                           className="p-1 rounded-brand text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
-                          title={t("groups.rename")}
+                          title={t("workspaces.rename")}
                         >
                           <Pencil size={14} />
                         </button>
                         <button
-                          onClick={() => { vibrate(); setGroupDeleteConfirm({ isOpen: true, groupId: section.id, groupName: section.name }); }}
+                          onClick={() => { vibrate(); setWsDeleteConfirm({ isOpen: true, workspaceId: section.id, workspaceName: section.name }); }}
                           className="p-1 rounded-brand text-text-muted hover:text-red-400 hover:bg-red-500/15 transition-colors"
-                          title={t("groups.delete")}
+                          title={t("workspaces.delete")}
                         >
                           <Trash2 size={14} />
                         </button>
@@ -306,10 +321,10 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                     )}
                     {/* Add terminal button — mobile only, pinned right */}
                     <button
-                      onClick={() => { vibrate(); setTerminalModal({ open: true, groupId: section.id }); }}
+                      onClick={() => { vibrate(); setTerminalModal({ open: true, workspaceId: section.id }); }}
                       disabled={!connected}
                       className={`sm:hidden ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-brand-500 transition-colors active:scale-[0.97] ${connected ? "hover:bg-brand-500/15" : "opacity-50 cursor-not-allowed"}`}
-                      title={t("groups.addTerminal")}
+                      title={t("workspaces.addTerminal")}
                     >
                       <Plus size={14} /> Term
                     </button>
@@ -317,12 +332,12 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
 
                   {/* Cards */}
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                        {groupSessions.map((session, cardIdx) => {
-                          const isDragging = drag?.groupId === section.id && drag.fromIdx === cardIdx;
-                          const isDragOver = drag?.groupId === section.id && drag.overIdx === cardIdx && drag.fromIdx !== cardIdx;
-                          const groupIds = groupSessions.map((s) => s.id);
+                        {workspaceSessions.map((session, cardIdx) => {
+                          const isDragging = drag?.workspaceId === section.id && drag.fromIdx === cardIdx;
+                          const isDragOver = drag?.workspaceId === section.id && drag.overIdx === cardIdx && drag.fromIdx !== cardIdx;
+                          const workspaceIds = workspaceSessions.map((s) => s.id);
                           const dotBase = connected ? "" : "opacity-40 saturate-0";
-                          const draggable = DRAG_REORDER_ENABLED && connected && groupSessions.length > 1;
+                          const draggable = DRAG_REORDER_ENABLED && connected && workspaceSessions.length > 1;
                           const st = sessionStatus[session.id]?.state || "idle";
                           const v = statusVisual(st);
                           return (
@@ -341,7 +356,7 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                               <div>
                                 {/* Titlebar — drag handle for mobile reorder (long-press to drag) */}
                                 <div
-                                  onPointerDown={draggable ? (e) => onGripPointerDown(e, section.id, groupIds, cardIdx) : undefined}
+                                  onPointerDown={draggable ? (e) => onGripPointerDown(e, section.id, workspaceIds, cardIdx) : undefined}
                                   onPointerUp={draggable ? clearPress : undefined}
                                   onPointerLeave={draggable ? clearPress : undefined}
                                   onPointerMove={draggable ? onCardPointerMove : undefined}
@@ -443,12 +458,12 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
                           </div>
                           );
                         })}
-                        {/* Inline dashed card to add a terminal — desktop only; hidden on mobile when group has terminals */}
+                        {/* Inline dashed card to add a terminal — desktop only; hidden on mobile when the workspace has terminals */}
                         <button
-                          onClick={() => { vibrate(); setTerminalModal({ open: true, groupId: section.id }); }}
+                          onClick={() => { vibrate(); setTerminalModal({ open: true, workspaceId: section.id }); }}
                           disabled={!connected}
-                          className={`min-h-[164px] rounded-xl p-3 items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${groupSessions.length > 0 ? "hidden sm:flex" : "flex"} ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
-                          title={t("groups.addTerminal")}
+                          className={`min-h-[164px] rounded-xl p-3 items-center justify-center gap-1.5 text-sm border border-dashed border-brand-500/40 bg-brand-500/5 text-text-muted transition-all duration-150 ease-out ${workspaceSessions.length > 0 ? "hidden sm:flex" : "flex"} ${connected ? "hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/10 hover:-translate-y-1" : "opacity-50 cursor-not-allowed"}`}
+                          title={t("workspaces.addTerminal")}
                         >
                           <Plus className="text-brand-500" size={16} /> <span className="text-brand-500">{t("terminal.newTerminal")}</span>
                         </button>
@@ -457,13 +472,13 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
               );
             })}
 
-            {/* Action to create a new group (opens modal) */}
+            {/* Action to create a new workspace (opens the folder picker) */}
             <button
-              onClick={() => { vibrate(); setGroupModalOpen(true); }}
+              onClick={() => { vibrate(); onAddWorkspace?.(); }}
               disabled={!connected}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-brand-500/50 text-brand-500 bg-brand-500/5 transition-all duration-150 ease-out active:scale-[0.97] ${connected ? "hover:bg-brand-500/15 hover:border-brand-500" : "opacity-50 cursor-not-allowed"}`}
             >
-              <FolderPlus size={16} /> {t("groups.newGroup")}
+              <FolderPlus size={16} /> {t("workspaces.newWorkspace")}
             </button>
           </div>
         )}
@@ -479,42 +494,23 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
       />
 
       {/* Create Group Modal */}
-      {groupModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setGroupModalOpen(false)} />
-          <div className="relative card-elev max-w-sm w-full p-6">
-            <h3 className="text-lg font-semibold text-text mb-4">{t("groups.newGroup")}</h3>
-            <Input
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submitCreateGroup(); if (e.key === "Escape") setGroupModalOpen(false); }}
-              placeholder={t("groups.newGroupPrompt")}
-              autoFocus
-            />
-            <div className="flex gap-3 mt-5">
-              <Button variant="primary" onClick={submitCreateGroup} disabled={!newGroupName.trim()} className="flex-1">{t("common.confirm")}</Button>
-              <Button variant="secondary" onClick={() => { setNewGroupName(""); setGroupModalOpen(false); }} className="flex-1">{t("common.cancel")}</Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Delete Group Confirm Dialog */}
       <ConfirmDialog
-        isOpen={groupDeleteConfirm.isOpen}
-        onClose={() => setGroupDeleteConfirm({ isOpen: false, groupId: null, groupName: "" })}
-        onConfirm={confirmGroupDelete}
-        title={t("groups.deleteTitle")}
-        message={t("groups.deleteMessage", { name: groupDeleteConfirm.groupName })}
+        isOpen={wsDeleteConfirm.isOpen}
+        onClose={() => setWsDeleteConfirm({ isOpen: false, workspaceId: null, workspaceName: "" })}
+        onConfirm={confirmWorkspaceDelete}
+        title={t("workspaces.deleteTitle")}
+        message={t("workspaces.deleteMessage", { name: wsDeleteConfirm.workspaceName })}
       />
 
       {/* Create Terminal Modal (shared) */}
       {terminalModal.open && (
         <NewTerminalModal
-          onClose={() => setTerminalModal({ open: false, groupId: null })}
+          onClose={() => setTerminalModal({ open: false, workspaceId: null })}
           onCreate={submitCreateTerminal}
           shells={shells}
-          suggestName={suggestTerminalName(terminalModal.groupId)}
+          suggestName={suggestTerminalName(terminalModal.workspaceId)}
         />
       )}
 
@@ -524,6 +520,29 @@ export default function SessionList({ sessions, connected, onSelect, onCreate, o
         apiKey={apiKey}
         isOpen={sitesModalOpen}
         onClose={handleCloseSitesModal}
+      />
+
+      {/* Same status bar as the terminal view — switching between them must not change
+          the chrome under the content. */}
+      <StatusBar
+        className="hidden sm:flex"
+        left={<>
+          <span className={statusTextCls}>
+            <Terminal size={12} className="opacity-60" />
+            {t("sessions.headerTitle")}
+          </span>
+          <span className={statusTextCls}>
+            {sessions.length} {t("workspaces.title").toLowerCase()}
+          </span>
+        </>}
+        right={<>
+          {platform && <span className={statusTextCls}>{PLATFORM_LABEL[platform] || platform}</span>}
+          {agentVersion && <span className={`${statusTextCls} text-text-subtle`}>v{agentVersion}</span>}
+          <span className={statusTextCls}>
+            <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500 animate-pulse"}`} />
+            <span className="uppercase tracking-wide">{transport}</span>
+          </span>
+        </>}
       />
     </div>
   );

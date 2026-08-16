@@ -18,7 +18,7 @@ const timeAgo = (ts) => {
 
 // Notifications bell + badge + dropdown list. Shown on desktop only (hidden sm:flex);
 // mobile keeps using the slide-out menu. Reads from sessionStatus (already on TerminalHeader).
-export default function NotificationsBell({ sessions = [], allSessions = [], sessionStatus = {}, onSwitchSession, groups = [] }) {
+export default function NotificationsBell({ sessions = [], allSessions = [], sessionStatus = {}, onSwitchSession, workspaces = [] }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -42,17 +42,17 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
   // their real name instead of a truncated id.
   const nameOf = (id) => allSessions.find((s) => s.id === id)?.name || sessions.find((s) => s.id === id)?.name || id.slice(0, 8);
 
-  // Map sessionId -> groupId, then group name (ungrouped fallback)
-  const groupOf = (id) => allSessions.find((s) => s.id === id)?.groupId ?? null;
-  const groupNameOf = (gid) => groups.find((g) => g.id === gid)?.name || t("groups.ungrouped");
+  // Map sessionId -> workspaceId, then group name (unassigned fallback)
+  const workspaceOf = (id) => allSessions.find((s) => s.id === id)?.workspaceId ?? null;
+  const workspaceNameOf = (gid) => workspaces.find((g) => g.id === gid)?.name || t("workspaces.unassigned");
 
-  // Group items: ordered by `groups` array, ungrouped last; sessions within a group
+  // Group items: ordered by `workspaces` array, unassigned last; sessions within a group
   // follow their order in allSessions (matches SessionList), not state/since.
   const sessionOrder = new Map(allSessions.map((s, i) => [s.id, i]));
   const grouped = (() => {
     const buckets = new Map();
     for (const it of items) {
-      const gid = groupOf(it.id);
+      const gid = workspaceOf(it.id);
       if (!buckets.has(gid)) buckets.set(gid, []);
       buckets.get(gid).push(it);
     }
@@ -62,12 +62,12 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
       return ia - ib;
     });
     const ordered = [];
-    for (const g of groups) {
+    for (const g of workspaces) {
       const list = buckets.get(g.id);
       if (list?.length) ordered.push({ id: g.id, name: g.name, items: bySessionOrder(list) });
     }
-    const ungrouped = buckets.get(null);
-    if (ungrouped?.length) ordered.push({ id: null, name: t("groups.ungrouped"), items: bySessionOrder(ungrouped) });
+    const unassigned = buckets.get(null);
+    if (unassigned?.length) ordered.push({ id: null, name: t("workspaces.unassigned"), items: bySessionOrder(unassigned) });
     return ordered;
   })();
 
@@ -138,7 +138,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
           ) : (
             <div className="flex flex-col">
               {grouped.map((grp) => (
-                <div key={grp.id ?? "ungrouped"} className="flex flex-col">
+                <div key={grp.id ?? "unassigned"} className="flex flex-col">
                   <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted flex items-center gap-1.5">
                     <span className="w-1 h-1 rounded-full bg-text-muted" />
                     <span className="truncate">{grp.name}</span>

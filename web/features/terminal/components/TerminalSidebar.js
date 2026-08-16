@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, PanelLeft } from "@/shared/components/ui/Icon";
+import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, PanelLeft, Settings } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
@@ -9,6 +9,12 @@ import { vibrate } from "@/shared/utils/vibration";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
+import { SIDEBAR_WIDTH } from "../constants/terminalConfig";
+import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
+import { groupSessionsByWorkspace, shortenHomePath, workspaceGitPath } from "../lib/workspaceGrouping";
+import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
+import { sessionWorkspaceId } from "../lib/paneLayout";
+import BranchBadge from "./BranchBadge";
 
 // Guess agent tool from session name when no live status tool is set (e.g. idle shell
 // that once ran an agent, or a session named after its agent).
@@ -19,27 +25,109 @@ function guessTool(name = "") {
   return null;
 }
 
-// Desktop-only persistent sidebar: sessions grouped by group, full item ops
-// (rename / delete / move to group / drag-reorder within group).
+// Second line of a terminal item. The branch only appears when it differs from the
+// workspace's own — otherwise every terminal under a repo would repeat the same string.
+function SessionMeta({ session, fileSocket, label, stateLabel, workspaceBranch }) {
+  const { branch, dirty } = useWorkspaceGit(session.workspacePath, fileSocket);
+  const differs = branch && branch !== workspaceBranch;
+  return (
+    <span className="text-[11px] text-text-subtle truncate leading-tight flex items-center gap-1">
+      <span className="truncate">{label} {stateLabel}</span>
+      {differs && <BranchBadge branch={branch} dirty={dirty} className="flex-shrink-0 max-w-[45%]" />}
+    </span>
+  );
+}
+
+// One workspace row: collapse chevron, name, shortened path, branch, count, actions.
+// Split out as a component because each workspace subscribes to its own git poll.
+function WorkspaceHeader({
+  workspace, isActive, connected, fileSocket, homeDir, collapsed,
+  onToggleCollapse, onSelect, onNewTerminal, onDelete, onBranch
+}) {
+  const { t } = useI18n();
+  const gitPath = workspaceGitPath(workspace);
+  const { branch, dirty } = useWorkspaceGit(gitPath, fileSocket);
+  useEffect(() => { onBranch?.(branch); }, [branch, onBranch]);
+  // Hover-reveal on pointer devices; always visible on touch, which has no hover.
+  const revealCls = "opacity-100 sm:opacity-0 sm:group-hover/grp:opacity-100 sm:focus-visible:opacity-100";
+
+  return (
+    <div
+      onClick={onSelect}
+      className={`pr-2 py-1 flex items-center gap-1 group/grp transition-colors border-l-2 ${
+        isActive ? "border-brand-500 bg-text/[0.04]" : "border-transparent"
+      } ${onSelect ? "cursor-pointer hover:bg-text/[0.06]" : ""}`}
+    >
+      <button
+        onClick={(e) => { e.stopPropagation(); vibrate(); onToggleCollapse?.(); }}
+        className="p-1 text-text-subtle hover:text-text flex-shrink-0"
+        tabIndex={-1}
+      >
+        <ChevronRight size={12} className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`} />
+      </button>
+      <span className="flex-1 min-w-0 flex flex-col">
+        <span className={`text-[12px] font-medium truncate ${isActive ? "text-text" : "text-text-muted"}`}>
+          {workspace.name}
+        </span>
+        {(gitPath || branch) && (
+          <span className="text-[10px] text-text-subtle truncate leading-tight flex items-center gap-1.5">
+            {gitPath && <span className="truncate">{shortenHomePath(gitPath, homeDir)}</span>}
+            <BranchBadge branch={branch} dirty={dirty} className="flex-shrink-0" />
+          </span>
+        )}
+      </span>
+      {/* The count gives way to the actions on hover — both would crowd a 240px column. */}
+      <span className="text-[10px] text-text-subtle flex-shrink-0 sm:group-hover/grp:hidden">
+        {workspace.items.length}
+      </span>
+      {onNewTerminal && (
+        <button
+          onClick={(e) => { e.stopPropagation(); vibrate(); onNewTerminal(); }}
+          disabled={!connected}
+          className={`p-0.5 text-text-subtle hover:text-brand-500 rounded-[2px] hover:bg-surface-2 transition-colors disabled:opacity-40 ${revealCls}`}
+          title={t("terminal.newTerminal")}
+        >
+          <Plus size={12} />
+        </button>
+      )}
+      {onDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); vibrate(); onDelete(); }}
+          disabled={!connected}
+          className={`p-0.5 -mr-0.5 text-text-subtle hover:text-red-500 rounded-[2px] hover:bg-surface-2 transition-colors disabled:opacity-40 ${revealCls}`}
+          title={t("workspaces.delete")}
+        >
+          <Trash2 size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Desktop-only persistent sidebar: sessions grouped by workspace, full item ops
+// (rename / delete / move to workspace / drag-reorder within workspace).
 export default function TerminalSidebar({
   allSessions = [],
-  groups = [],
+  workspaces = [],
   activeSessionId,
-  activeGroupId,
+  activeWorkspaceId,
   sessionStatus = {},
   notifications = {},
   onSelectSession,
-  onCreateSession,
+  onSelectWorkspace,
   onCreateNamedSession,
-  onCreateGroup,
-  onDeleteGroup,
+  onDeleteWorkspace,
   shells = [],
   onRenameSession,
   onDeleteSession,
   onReorderSession,
   onMoveSession,
+  onAddWorkspace,
+  onOpenSettings,
+  fileSocket,
+  homeDir,
   connected = true,
-  width = 240,
+  width = SIDEBAR_WIDTH.default,
   onResize,
   onCollapse,
 }) {
@@ -79,34 +167,23 @@ export default function TerminalSidebar({
   // Delete confirm
   const [delConfirm, setDelConfirm] = useState(null); // { sessionId, name }
 
-  // New terminal modal scoped to a group (null = closed)
-  const [createModalGroupId, setCreateModalGroupId] = useState(null);
+  // Collapsed workspaces and their branch, both keyed by workspace id ("" = unassigned).
+  const [collapsed, setCollapsed] = useState({});
+  const [branchByWs, setBranchByWs] = useState({});
+  const toggleCollapsed = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
 
-  // Delete group confirm
-  const [groupDelConfirm, setGroupDelConfirm] = useState({ isOpen: false, groupId: null, groupName: "" });
-  const confirmGroupDelete = () => {
-    if (groupDelConfirm.groupId !== null) onDeleteGroup?.(groupDelConfirm.groupId);
-    setGroupDelConfirm({ isOpen: false, groupId: null, groupName: "" });
+  // New terminal modal scoped to a workspace (null = closed)
+  const [createModalWsId, setCreateModalWsId] = useState(null);
+
+  // Delete workspace confirm
+  const [wsDelConfirm, setWsDelConfirm] = useState({ isOpen: false, workspaceId: null, workspaceName: "" });
+  const confirmWsDelete = () => {
+    if (wsDelConfirm.workspaceId !== null) onDeleteWorkspace?.(wsDelConfirm.workspaceId);
+    setWsDelConfirm({ isOpen: false, workspaceId: null, workspaceName: "" });
   };
 
-  // New group modal
-  const [groupModalOpen, setGroupModalOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
-  const groupInputRef = useRef(null);
-  useEffect(() => { if (groupModalOpen) requestAnimationFrame(() => { groupInputRef.current?.focus(); }); }, [groupModalOpen]);
-
-  const submitCreateGroup = () => {
-    const name = newGroupName.trim();
-    if (!name) return;
-    onCreateGroup?.(name, (result) => {
-      if (result?.success && result.group?.id) setCreateModalGroupId(result.group.id);
-    });
-    setNewGroupName("");
-    setGroupModalOpen(false);
-  };
-
-  // Drag reorder (within group)
-  const [drag, setDrag] = useState(null); // { groupId, ids, fromIdx, overIdx, el }
+  // Drag reorder (within workspace)
+  const [drag, setDrag] = useState(null); // { workspaceId, ids, fromIdx, overIdx, el }
   const suppressClickRef = useRef(false);
 
   useEffect(() => { if (editingId) requestAnimationFrame(() => { renameInputRef.current?.focus(); renameInputRef.current?.select(); }); }, [editingId]);
@@ -126,23 +203,8 @@ export default function TerminalSidebar({
     };
   }, [ctxMenu]);
 
-  // Group sessions (ordered by allSessions order within each group)
-  const grouped = (() => {
-    const buckets = new Map();
-    for (const s of allSessions) {
-      const gid = s.groupId ?? null;
-      if (!buckets.has(gid)) buckets.set(gid, []);
-      buckets.get(gid).push(s);
-    }
-    const ordered = [];
-    for (const g of groups) {
-      const list = buckets.get(g.id) || [];
-      ordered.push({ id: g.id, name: g.name, items: list });
-    }
-    const ungrouped = buckets.get(null);
-    if (ungrouped?.length) ordered.push({ id: null, name: t("groups.ungrouped"), items: ungrouped });
-    return ordered;
-  })();
+  // Bucket sessions by workspace (order follows allSessions within each bucket)
+  const grouped = groupSessionsByWorkspace(allSessions, workspaces, t("workspaces.ungrouped"));
 
   const sessionById = (id) => allSessions.find((s) => s.id === id);
 
@@ -194,9 +256,9 @@ export default function TerminalSidebar({
   // Drag reorder via grip handle — reads target from dataset (stable handler)
   const startReorder = (e) => {
     const btn = e.currentTarget;
-    const groupId = btn.dataset.gid === "" ? null : btn.dataset.gid;
+    const workspaceId = btn.dataset.gid === "" ? null : btn.dataset.gid;
     const fromIdx = Number(btn.dataset.idx);
-    const grp = grouped.find((g) => (g.id ?? null) === (groupId ?? null));
+    const grp = grouped.find((g) => (g.id ?? null) === (workspaceId ?? null));
     if (!grp) return;
     const ids = grp.items.map((i) => i.id);
     if (!connected || ids.length < 2) return;
@@ -204,7 +266,7 @@ export default function TerminalSidebar({
     e.stopPropagation();
     clearLongPress();
     const el = btn.closest("[data-item-row]");
-    dragRef.current = { groupId, ids, fromIdx, overIdx: fromIdx, el, moved: false, startX: e.clientX, startY: e.clientY };
+    dragRef.current = { workspaceId, ids, fromIdx, overIdx: fromIdx, el, moved: false, startX: e.clientX, startY: e.clientY };
     setDrag({ fromIdx, overIdx: fromIdx, sessionId: ids[fromIdx] });
     try { el.setPointerCapture(e.pointerId); } catch {}
   };
@@ -279,7 +341,10 @@ export default function TerminalSidebar({
       className="flex-shrink-0 h-full hidden sm:flex flex-col bg-surface-3 border-r border-border-subtle relative"
       style={{ width }}
     >
-      <div className="px-3 h-10 flex items-center justify-between flex-shrink-0 border-b border-border-subtle">
+      <div
+        style={{ height: PANEL_HEADER_HEIGHT }}
+        className="px-3 flex items-center justify-between flex-shrink-0 border-b border-border-subtle"
+      >
         <div className="flex items-center gap-2 min-w-0">
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
@@ -299,41 +364,48 @@ export default function TerminalSidebar({
         )}
       </div>
 
+      {/* Section title — the "+" sits here, right above the list it adds to */}
+      <div className="px-3 pt-2 pb-1 flex items-center gap-1.5 flex-shrink-0">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted flex-1">
+          {t("workspaces.title")}
+        </span>
+        {onAddWorkspace && (
+          <button
+            onClick={() => { vibrate(); onAddWorkspace?.(); }}
+            disabled={!connected}
+            className="p-0.5 text-text-subtle hover:text-brand-500 rounded-[2px] hover:bg-surface-2 transition-colors disabled:opacity-40"
+            title={t("workspaces.newWorkspace")}
+          >
+            <Plus size={14} />
+          </button>
+        )}
+      </div>
+
       <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
         {!grouped.length ? (
-          <p className="px-3 py-6 text-center text-xs text-text-muted">{t("groups.emptyGroup")}</p>
+          <p className="px-3 py-6 text-center text-xs text-text-muted">{t("workspaces.emptyWorkspace")}</p>
         ) : (
           grouped.map((grp) => {
-            const isActiveGroup = (grp.id ?? null) === (activeGroupId ?? null);
+            const isActiveWorkspace = (grp.id ?? null) === (activeWorkspaceId ?? null);
+            const wsKey = grp.id ?? "";
             return (
               <div key={grp.id ?? "ungrouped"} className="flex flex-col">
-                <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted flex items-center gap-1.5 group/grp">
-                  <span className={`w-1 h-1 rounded-full ${isActiveGroup ? "bg-brand-500" : "bg-text-muted/60"}`} />
-                  <span className={`truncate flex-1 min-w-0 ${isActiveGroup ? "text-text font-bold" : "text-text-muted"}`}>{grp.name}</span>
-                  <span className="text-text-subtle normal-case font-normal tracking-normal">{grp.items.length}</span>
-                  {onCreateNamedSession && (
-                    <button
-                      data-gid={grp.id ?? ""}
-                      onClick={(e) => { e.stopPropagation(); vibrate(); setCreateModalGroupId(grp.id ?? ""); }}
-                      disabled={!connected}
-                      className="p-0.5 -mr-0.5 text-text-subtle hover:text-brand-500 rounded-[2px] hover:bg-surface-2 transition-colors disabled:opacity-40 opacity-0 group-hover/grp:opacity-100"
-                      title={t("terminal.newTerminal")}
-                    >
-                      <Plus size={12} />
-                    </button>
-                  )}
-                  {onDeleteGroup && grp.id !== null && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); vibrate(); setGroupDelConfirm({ isOpen: true, groupId: grp.id, groupName: grp.name }); }}
-                      disabled={!connected}
-                      className="p-0.5 -mr-0.5 text-text-subtle hover:text-red-500 rounded-[2px] hover:bg-surface-2 transition-colors disabled:opacity-40 opacity-0 group-hover/grp:opacity-100"
-                      title={t("groups.delete")}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  )}
-                </div>
-                {grp.items.map((s, idx) => {
+                <WorkspaceHeader
+                  workspace={grp}
+                  isActive={isActiveWorkspace}
+                  connected={connected}
+                  fileSocket={fileSocket}
+                  homeDir={homeDir}
+                  collapsed={!!collapsed[wsKey]}
+                  onToggleCollapse={() => toggleCollapsed(wsKey)}
+                  onBranch={(b) => setBranchByWs((m) => (m[wsKey] === b ? m : { ...m, [wsKey]: b }))}
+                  onSelect={grp.items.length && onSelectWorkspace ? () => { vibrate(); onSelectWorkspace(grp.id); } : null}
+                  onNewTerminal={onCreateNamedSession ? () => setCreateModalWsId(grp.id ?? "") : null}
+                  onDelete={onDeleteWorkspace && grp.id !== null
+                    ? () => setWsDelConfirm({ isOpen: true, workspaceId: grp.id, workspaceName: grp.name })
+                    : null}
+                />
+                {!collapsed[wsKey] && grp.items.map((s, idx) => {
                   const st = sessionStatus[s.id]?.state || "idle";
                   const v = statusVisual(st);
                   const isActive = s.id === activeSessionId;
@@ -353,7 +425,7 @@ export default function TerminalSidebar({
                       key={s.id}
                       data-item-row
                       data-sid={s.id}
-                      className={`group w-full flex items-center gap-1.5 ml-2 pl-1 pr-2 py-1 text-left transition-colors border-l-2 relative cursor-pointer ${
+                      className={`group w-full flex items-center gap-1.5 pl-3 pr-2 py-1 text-left transition-colors border-l-2 relative cursor-pointer ${
                         isActive
                           ? "bg-text/8 border-brand-500 text-text"
                           : "border-transparent text-text-muted hover:bg-text/5 hover:text-text"
@@ -402,24 +474,30 @@ export default function TerminalSidebar({
                         ) : (
                           <>
                             <span className={`text-xs truncate ${isActive ? "font-medium" : ""}`}>{s.name || t("terminal.defaultName")}</span>
-                            <span className="text-[11px] text-text-subtle truncate leading-tight">
-                              {AGENT_LABELS[tool] || t("notifications.agent")}
-                              {" "}
-                              {stateLabel}
-                            </span>
+                            <SessionMeta
+                              session={s}
+                              fileSocket={fileSocket}
+                              label={AGENT_LABELS[tool] || t("notifications.agent")}
+                              stateLabel={stateLabel}
+                              workspaceBranch={branchByWs[wsKey]}
+                            />
                           </>
                         )}
                       </span>
+                      {/* Unread output on a terminal the user isn't looking at */}
+                      {hasNotif && !isActive && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" title={t("notifications.replied")} />
+                      )}
                     </div>
                   );
                 })}
-                {grp.items.length === 0 && (
+                {!collapsed[wsKey] && grp.items.length === 0 && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); vibrate(); setCreateModalGroupId(grp.id ?? ""); }}
+                    onClick={(e) => { e.stopPropagation(); vibrate(); setCreateModalWsId(grp.id ?? ""); }}
                     disabled={!connected}
-                    className="ml-3 pl-2 py-1.5 text-xs text-text-subtle hover:text-brand-500 italic transition-colors disabled:opacity-40"
+                    className="pl-3 pr-2 py-1.5 text-left text-xs text-text-subtle hover:text-brand-500 italic transition-colors disabled:opacity-40"
                   >
-                    {t("groups.emptyGroup")}
+                    {t("workspaces.emptyWorkspace")}
                   </button>
                 )}
               </div>
@@ -428,72 +506,38 @@ export default function TerminalSidebar({
         )}
       </div>
 
-      {onCreateGroup && (
-        <div className="p-2 border-t border-border-subtle flex-shrink-0">
+      {onOpenSettings && (
+        <div className="p-1.5 border-t border-border-subtle flex-shrink-0">
           <button
-            onClick={() => { vibrate(); setNewGroupName(""); setGroupModalOpen(true); }}
-            disabled={!connected}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-sm text-text-muted hover:text-text bg-surface-2/50 hover:bg-surface-2 rounded-[3px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title={t("groups.newGroup")}
+            onClick={() => { vibrate(); onOpenSettings(); }}
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-text-muted hover:text-text hover:bg-surface-2 rounded-[3px] transition-colors"
+            title={t("menu.settings")}
           >
-            <Plus size={15} />
-            <span>{t("groups.newGroup")}</span>
+            <Settings size={14} />
+            <span>{t("menu.settings")}</span>
           </button>
         </div>
       )}
 
-      {/* New group modal */}
-      {groupModalOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70" onClick={() => setGroupModalOpen(false)}>
-          <div className="bg-surface rounded-[3px] p-5 w-80 shadow-elev" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-semibold text-text mb-4">{t("groups.newGroup")}</h3>
-            <input
-              ref={groupInputRef}
-              type="text"
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submitCreateGroup(); if (e.key === "Escape") setGroupModalOpen(false); }}
-              placeholder={t("groups.newGroupPrompt")}
-              className="w-full bg-surface-2 border border-border-subtle rounded-[3px] px-3 py-2 text-sm text-text outline-none focus:border-brand-500"
-            />
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={submitCreateGroup}
-                disabled={!newGroupName.trim()}
-                className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-[3px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {t("common.confirm")}
-              </button>
-              <button
-                onClick={() => { setNewGroupName(""); setGroupModalOpen(false); }}
-                className="flex-1 py-2 text-sm text-text-muted bg-surface-2 hover:bg-surface-3 rounded-[3px] transition-colors"
-              >
-                {t("common.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete group confirm */}
+      {/* Delete workspace confirm */}
       <ConfirmDialog
-        isOpen={groupDelConfirm.isOpen}
-        onClose={() => setGroupDelConfirm({ isOpen: false, groupId: null, groupName: "" })}
-        onConfirm={confirmGroupDelete}
-        title={t("groups.deleteTitle")}
-        message={t("groups.deleteMessage", { name: groupDelConfirm.groupName })}
+        isOpen={wsDelConfirm.isOpen}
+        onClose={() => setWsDelConfirm({ isOpen: false, workspaceId: null, workspaceName: "" })}
+        onConfirm={confirmWsDelete}
+        title={t("workspaces.deleteTitle")}
+        message={t("workspaces.deleteMessage", { name: wsDelConfirm.workspaceName })}
       />
 
-      {/* New terminal modal (scoped to a group) */}
-      {createModalGroupId !== null && (
+      {/* New terminal modal (scoped to a workspace) */}
+      {createModalWsId !== null && (
         <NewTerminalModal
-          onClose={() => setCreateModalGroupId(null)}
+          onClose={() => setCreateModalWsId(null)}
           onCreate={(name, shellId) => {
-            const gid = createModalGroupId === "" ? null : createModalGroupId;
-            onCreateNamedSession?.(name, gid, shellId);
+            const wsId = createModalWsId === "" ? null : createModalWsId;
+            onCreateNamedSession?.(name, wsId, shellId);
           }}
           shells={shells}
-          suggestName={`${t("terminal.defaultName")} ${(allSessions.filter(s => (s.groupId ?? null) === (createModalGroupId === "" ? null : createModalGroupId)).length + 1)}`}
+          suggestName={`${t("terminal.defaultName")} ${(allSessions.filter(s => sessionWorkspaceId(s) === (createModalWsId === "" ? null : createModalWsId)).length + 1)}`}
         />
       )}
 
@@ -516,6 +560,32 @@ export default function TerminalSidebar({
           >
             <Pencil size={14} /> {t("sessions.editName")}
           </button>
+
+          {onMoveSession && (
+            <>
+              <button
+                onClick={() => setMoveOpen((v) => !v)}
+                className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
+              >
+                <ChevronRight size={14} className={moveOpen ? "rotate-90 transition-transform" : "transition-transform"} />
+                {t("workspaces.moveToWorkspace")}
+              </button>
+              {moveOpen && (
+                <div className="max-h-48 overflow-y-auto modal-scrollable">
+                  {[...workspaces, { id: null, name: t("workspaces.ungrouped") }].map((w) => (
+                    <button
+                      key={w.id ?? "ungrouped"}
+                      onClick={() => { onMoveSession(ctxMenu.sessionId, w.id); setCtxMenu(null); setMoveOpen(false); }}
+                      className="w-full text-left pl-9 pr-3 py-1.5 text-xs text-text-muted hover:text-text hover:bg-surface-3 truncate"
+                    >
+                      {w.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
           <div className="h-px bg-border-subtle my-1" />
           <button
             onClick={() => { setDelConfirm({ sessionId: ctxMenu.sessionId, name: ctxMenu.name }); setCtxMenu(null); }}

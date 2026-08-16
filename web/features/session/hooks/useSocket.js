@@ -7,7 +7,7 @@ import { WORKER_API } from "@/shared/constants/API";
 // Socket.io connection management hook for Terminal
 export function useSocket() {
   const [sessions, setSessions] = useState([]);
-  const [groups, setGroups] = useState([]);
+  const [workspaces, setWorkspaces] = useState([]);
   const [remoteAvailable, setRemoteAvailable] = useState(false);
   const [codespaceInfo, setCodespaceInfo] = useState(null);
   const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
@@ -66,10 +66,10 @@ export function useSocket() {
       removeTempKey();
     });
 
-    // Server emits "terminal:ready" AFTER getSessions/getGroups handlers are registered
+    // Server emits "terminal:ready" AFTER getSessions/getWorkspaces handlers are registered
     // (async setupSocketFeatures). Fetching here avoids the F5 race that returned empty.
     socket.on("terminal:ready", () => {
-      socket.emit("getGroups", (list) => setGroups(Array.isArray(list) ? list : []));
+      socket.emit("getWorkspaces", (list) => setWorkspaces(Array.isArray(list) ? list : []));
       socket.emit("getSessions", (list) => setSessions(Array.isArray(list) ? list : []));
     });
 
@@ -95,9 +95,9 @@ export function useSocket() {
       setSessions(prev => prev.filter(s => s.id !== sessionId));
     });
 
-    // Groups changed elsewhere — refresh both lists
-    socket.on("groupsChanged", () => {
-      socket.emit("getGroups", (list) => setGroups(Array.isArray(list) ? list : []));
+    // Workspaces changed elsewhere — refresh both lists
+    socket.on("workspacesChanged", () => {
+      socket.emit("getWorkspaces", (list) => setWorkspaces(Array.isArray(list) ? list : []));
       socket.emit("getSessions", (list) => setSessions(Array.isArray(list) ? list : []));
     });
 
@@ -128,21 +128,22 @@ export function useSocket() {
     });
   }, [socketRef]);
 
-  // Load groups list
-  const loadGroups = useCallback(() => {
+  // Load workspaces list
+  const loadWorkspaces = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit("getGroups", (list) => setGroups(Array.isArray(list) ? list : []));
+    socketRef.current.emit("getWorkspaces", (list) => setWorkspaces(Array.isArray(list) ? list : []));
   }, [socketRef]);
 
-  // Create new session (groupId optional). cwd = inherit from last session in group.
-  const createSession = useCallback((name, shellId, groupId, cwd, callback) => {
+  // Create new session (workspaceId optional). cwd = a folder picked in the tree, else
+  // inherited from the last session in the workspace.
+  const createSession = useCallback((name, shellId, workspaceId, cwd, callback) => {
     if (!socketRef.current) return;
     // Backward compat: createSession(name, callback) / createSession(name, shellId, callback)
-    if (typeof shellId === "function") { callback = shellId; shellId = null; groupId = null; cwd = null; }
-    else if (typeof groupId === "function") { callback = groupId; groupId = null; cwd = null; }
+    if (typeof shellId === "function") { callback = shellId; shellId = null; workspaceId = null; cwd = null; }
+    else if (typeof workspaceId === "function") { callback = workspaceId; workspaceId = null; cwd = null; }
     else if (typeof cwd === "function") { callback = cwd; cwd = null; }
 
-    socketRef.current.emit("createSession", { name, shellId, groupId, cwd }, (result) => {
+    socketRef.current.emit("createSession", { name, shellId, workspaceId, cwd }, (result) => {
       if (result.success) {
         loadSessions();
       }
@@ -150,24 +151,29 @@ export function useSocket() {
     });
   }, [socketRef, loadSessions]);
 
-  // Group CRUD + move
-  const createGroup = useCallback((name, callback) => {
-    socketRef.current?.emit("createGroup", { name }, (result) => { if (result?.success) loadGroups(); callback?.(result); });
-  }, [socketRef, loadGroups]);
+  // Workspace CRUD + move
+  const createWorkspace = useCallback((name, wsPath, callback) => {
+    if (typeof wsPath === "function") { callback = wsPath; wsPath = null; }
+    socketRef.current?.emit("createWorkspace", { name, path: wsPath }, (result) => { if (result?.success) loadWorkspaces(); callback?.(result); });
+  }, [socketRef, loadWorkspaces]);
 
-  const renameGroup = useCallback((groupId, name, callback) => {
-    socketRef.current?.emit("renameGroup", { groupId, name }, (result) => { if (result?.success) loadGroups(); callback?.(result); });
-  }, [socketRef, loadGroups]);
+  const renameWorkspace = useCallback((workspaceId, name, callback) => {
+    socketRef.current?.emit("renameWorkspace", { workspaceId, name }, (result) => { if (result?.success) loadWorkspaces(); callback?.(result); });
+  }, [socketRef, loadWorkspaces]);
 
-  const deleteGroup = useCallback((groupId, callback) => {
-    socketRef.current?.emit("deleteGroup", { groupId }, (result) => { if (result?.success) { loadGroups(); loadSessions(); } callback?.(result); });
-  }, [socketRef, loadGroups, loadSessions]);
+  const deleteWorkspace = useCallback((workspaceId, callback) => {
+    socketRef.current?.emit("deleteWorkspace", { workspaceId }, (result) => { if (result?.success) { loadWorkspaces(); loadSessions(); } callback?.(result); });
+  }, [socketRef, loadWorkspaces, loadSessions]);
 
-  const moveSession = useCallback((sessionId, groupId, callback) => {
-    socketRef.current?.emit("moveSession", { sessionId, groupId }, (result) => { if (result?.success) loadSessions(); callback?.(result); });
+  const setWorkspaceHiddenRepos = useCallback((workspaceId, paths, callback) => {
+    socketRef.current?.emit("setWorkspaceHiddenRepos", { workspaceId, paths }, (result) => { if (result?.success) loadWorkspaces(); callback?.(result); });
+  }, [socketRef, loadWorkspaces]);
+
+  const moveSession = useCallback((sessionId, workspaceId, callback) => {
+    socketRef.current?.emit("moveSession", { sessionId, workspaceId }, (result) => { if (result?.success) loadSessions(); callback?.(result); });
   }, [socketRef, loadSessions]);
 
-  // Reorder sessions within a group; orderedIds = desired order of that group's sessions
+  // Reorder sessions within a workspace; orderedIds = desired order of its sessions
   const reorderSession = useCallback((orderedIds, callback) => {
     socketRef.current?.emit("reorderSession", { orderedIds }, (result) => { if (result?.success) loadSessions(); callback?.(result); });
   }, [socketRef, loadSessions]);
@@ -255,16 +261,17 @@ export function useSocket() {
     canSelfUpdate,
     triggerUpdate,
     triggerRestart,
-    groups,
+    workspaces,
     loadSessions,
-    loadGroups,
+    loadWorkspaces,
     createSession,
     getShells,
     deleteSession,
     renameSession,
-    createGroup,
-    renameGroup,
-    deleteGroup,
+    createWorkspace,
+    renameWorkspace,
+    deleteWorkspace,
+    setWorkspaceHiddenRepos,
     moveSession,
     reorderSession,
     stopCodespace

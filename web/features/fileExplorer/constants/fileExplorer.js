@@ -165,6 +165,13 @@ export const GIT_STATUS_COLORS = {
   U: "text-orange-400"
 };
 
+// Explorer row metrics. "compact" is the narrow tree docked beside a terminal, where
+// horizontal space is scarce; "normal" is the standalone file explorer.
+export const EXPLORER_ROW = {
+  normal:  { indentBase: 12, indentStep: 12, icon: 16, chevron: 14, text: "text-sm",    padY: "py-0.5" },
+  compact: { indentBase: 8,  indentStep: 8,  icon: 14, chevron: 12, text: "text-[12px]", padY: "py-[1px]" }
+};
+
 export const AUTO_SAVE_DELAY = 3000; // 3 seconds
 
 // Git diff: side-by-side (VSCode-like) at/above this width, unified below
@@ -180,12 +187,27 @@ export const parseDiffPath = (p) => {
   return { status: rest.slice(0, i), absPath: rest.slice(i + 1) };
 };
 
+// Same tab id, plus the repo the path is relative to. Needed where one view lists several
+// repos (a workspace holding nested repos or worktrees): the file path alone is relative
+// to its own repo, so without this the diff would be read from the wrong one.
+// The two are joined by a NUL byte — the one character a filesystem path can never
+// contain, so a name with spaces in it cannot split the id in the wrong place.
+const REPO_SEP = "\u0000";
+export const makeRepoDiffPath = (status, repoPath, filePath) =>
+  `${DIFF_TAB_PREFIX}${status}:${repoPath}${REPO_SEP}${filePath}`;
+export const parseRepoDiffPath = (p) => {
+  const { status, absPath } = parseDiffPath(p);
+  const i = absPath.indexOf(REPO_SEP);
+  if (i === -1) return { status, repoPath: null, filePath: absPath };
+  return { status, repoPath: absPath.slice(0, i), filePath: absPath.slice(i + 1) };
+};
+
 // VSCode-like layout constants
 export const SIDEBAR_DEFAULT_WIDTH = 18; // percent
 export const SIDEBAR_MIN_WIDTH = 12;
 export const SIDEBAR_MAX_WIDTH = 40;
 export const ACTIVITY_BAR_WIDTH = 48; // px
-export const STATUS_BAR_HEIGHT = 24; // px
+// Status bar height now lives in shared/constants/layout.js — one bar, one number.
 export const BOTTOM_PANEL_DEFAULT_HEIGHT = 30; // percent
 export const BOTTOM_PANEL_MIN_HEIGHT = 10;
 export const BOTTOM_PANEL_MAX_HEIGHT = 70;
@@ -225,6 +247,12 @@ export const AUTO_SAVE_MODES = {
 
 // Editor font size
 export const EDITOR_FONT_DEFAULT = 14;
+// The editor docked beside a terminal is ~420px wide, so it runs well below the
+// full-screen editor. Subtracted from the user's own size, never replacing it.
+export const EDITOR_FONT_COMPACT_DELTA = 4;
+// Floor for the docked editor only — below the standalone minimum, because at this width
+// fitting the line matters more than comfortable reading.
+export const EDITOR_FONT_COMPACT_MIN = 9;
 export const EDITOR_FONT_MIN = 10;
 export const EDITOR_FONT_MAX = 28;
 

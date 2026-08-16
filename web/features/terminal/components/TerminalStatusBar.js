@@ -6,12 +6,14 @@ import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { MAX_CHANGED_BADGE } from "@/features/terminal/constants/terminalConfig";
+import StatusBar from "@/shared/components/ui/StatusBar";
 
 const POLL_BRANCH_MS = 10000;
 
 const PLATFORM_LABEL = { darwin: "mac", win32: "win", linux: "linux" };
 
-// Desktop-only status bar: session + cwd + git + agent/platform/version + connection + state.
+// Desktop-only status bar content: session + cwd + git on the left, platform/version/
+// connection/state on the right. The shell comes from the shared StatusBar.
 export default function TerminalStatusBar({
   cwd,
   fileSocket,
@@ -54,8 +56,9 @@ export default function TerminalStatusBar({
   const changedLabel = changed > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changed;
 
   return (
-    <div className="hidden sm:flex items-center gap-3 h-[26px] px-4 flex-shrink-0 bg-surface border-t border-border-subtle text-[11px] text-text-muted select-none">
-      {/* Left: session name + cwd */}
+    <StatusBar
+      className="hidden sm:flex"
+      left={<>
       <span className="flex items-center gap-1.5 flex-shrink-0 max-w-[180px]">
         <Terminal size={12} className="opacity-60 flex-shrink-0" />
         <span className="truncate font-medium text-text-muted" title={sessionName}>{sessionName || "—"}</span>
@@ -78,9 +81,8 @@ export default function TerminalStatusBar({
           )}
         </span>
       )}
-
-      {/* Right: platform + agent version + connection + transport + session state */}
-      <span className="ml-auto flex items-center gap-3 flex-shrink-0">
+      </>}
+      right={<>
         {platform && (
           <span className="uppercase tracking-wide">{PLATFORM_LABEL[platform] || platform}</span>
         )}
@@ -95,7 +97,7 @@ export default function TerminalStatusBar({
           <span className={`w-2 h-2 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
           <span>{stateLabel}</span>
         </span>
-      </span>
-    </div>
+      </>}
+    />
   );
 }

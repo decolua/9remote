@@ -114,6 +114,8 @@ export const {
   PanelLeftOpen,
   PanelLeftClose,
   PanelLeft,
+  PanelRight,
+  GitFork,
   Replace,
   Command,
   Type,

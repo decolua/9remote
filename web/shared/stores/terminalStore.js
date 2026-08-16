@@ -2,8 +2,13 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { MAX_LIVE_PANES } from "@/features/terminal/constants/terminalConfig";
+import {
+  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH
+} from "@/features/terminal/constants/terminalConfig";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
+import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
+
+const clampWidth = (w, { min, max }) => Math.max(min, Math.min(max, Math.round(w)));
 
 // Terminal UI state store - persisted to sessionStorage
 export const useTerminalStore = create(
@@ -13,11 +18,11 @@ export const useTerminalStore = create(
       viewStack: [{ type: "list" }],
       openedSessions: [],
 
-      // Active group for terminal-view tab filtering (null = Ungrouped)
-      activeGroupId: null,
-      setActiveGroupId: (groupId) => set({ activeGroupId: groupId }),
+      // Active workspace for terminal-view tab filtering (null = Ungrouped)
+      activeWorkspaceId: null,
+      setActiveWorkspaceId: (workspaceId) => set({ activeWorkspaceId: workspaceId }),
 
-      // LRU of session ids kept mounted (alive) across group switches. Not persisted.
+      // LRU of session ids kept mounted (alive) across workspace switches. Not persisted.
       livePanes: [],
       // Mark session(s) as recently used; keep at most MAX_LIVE_PANES (evict oldest)
       touchLivePane: (sessionIds) => set((state) => {
@@ -26,19 +31,19 @@ export const useTerminalStore = create(
         return { livePanes: next.slice(-MAX_LIVE_PANES) };
       }),
 
-      // Groups whose panes have been mounted (xterm initialized) at least once. Drives lazy
-      // per-group mounting: only the active group mounts on first visit (sequential, focus first),
-      // other groups stay as placeholders until visited. Keeps mounted panes alive on revisit.
-      // Key: groupId, or null stringified as "__ungrouped__". Not persisted.
-      mountedGroups: {},
-      markGroupMounted: (groupId) => set((state) => {
-        const key = groupId ?? "__ungrouped__";
-        if (state.mountedGroups[key]) return state; // already mounted — no re-render
-        return { mountedGroups: { ...state.mountedGroups, [key]: true } };
+      // Workspaces whose panes have been mounted (xterm initialized) at least once. Drives lazy
+      // per-workspace mounting: only the active workspace mounts on first visit (sequential, focus
+      // first), others stay as placeholders until visited. Keeps mounted panes alive on revisit.
+      // Key: workspaceId, or null stringified as UNGROUPED_KEY. Not persisted.
+      mountedWorkspaces: {},
+      markWorkspaceMounted: (workspaceId) => set((state) => {
+        const key = workspaceId ?? UNGROUPED_KEY;
+        if (state.mountedWorkspaces[key]) return state; // already mounted — no re-render
+        return { mountedWorkspaces: { ...state.mountedWorkspaces, [key]: true } };
       }),
-      isGroupMounted: (groupId) => {
-        const key = groupId ?? "__ungrouped__";
-        return !!get().mountedGroups[key];
+      isWorkspaceMounted: (workspaceId) => {
+        const key = workspaceId ?? UNGROUPED_KEY;
+        return !!get().mountedWorkspaces[key];
       },
 
       // Unsent MobileKeyboard draft text, keyed by sessionId. Lives here (not in the
@@ -48,10 +53,10 @@ export const useTerminalStore = create(
         drafts: { ...state.drafts, [sessionId]: text }
       })),
 
-      // Collapsed accordion groups in SessionList (key by groupId, "ungrouped" for null)
-      collapsedGroups: {},
-      toggleGroup: (key) => set((state) => ({
-        collapsedGroups: { ...state.collapsedGroups, [key]: !state.collapsedGroups[key] }
+      // Collapsed accordion workspaces in SessionList (key by workspaceId, "ungrouped" for null)
+      collapsedWorkspaces: {},
+      toggleWorkspace: (key) => set((state) => ({
+        collapsedWorkspaces: { ...state.collapsedWorkspaces, [key]: !state.collapsedWorkspaces[key] }
       })),
 
       // Per-session working directory (OSC 7), consumed by path-aware suggestions.
@@ -90,13 +95,45 @@ export const useTerminalStore = create(
 
       // Desktop sidebar collapse (terminal view). Persisted.
       sidebarCollapsed: false,
-      toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
-      setSidebarCollapsed: (v) => set({ sidebarCollapsed: !!v }),
+      // Toggling by hand takes ownership back from the editor, so closing the editor
+      // later does not undo the user's own choice.
+      toggleSidebar: () => set((state) => ({
+        sidebarCollapsed: !state.sidebarCollapsed,
+        sidebarCollapsedByEditor: false
+      })),
+      setSidebarCollapsed: (v) => set({ sidebarCollapsed: !!v, sidebarCollapsedByEditor: false }),
 
-      // Desktop sidebar width (px), clamped [180, 400]. Persisted.
-      sidebarWidth: 240,
-      setSidebarWidth: (w) => set({ sidebarWidth: Math.max(180, Math.min(400, Math.round(w))) }),
-      
+      // Desktop sidebar width (px). Persisted.
+      sidebarWidth: SIDEBAR_WIDTH.default,
+      setSidebarWidth: (w) => set({ sidebarWidth: clampWidth(w, SIDEBAR_WIDTH) }),
+
+      // Right panel (file tree / git / worktrees). Hidden by default — it costs horizontal
+      // space the terminal needs. Persisted.
+      rightPanelOpen: false,
+      rightPanelTab: "files",
+      rightPanelWidth: RIGHT_PANEL_WIDTH.default,
+      toggleRightPanel: () => set((state) => ({ rightPanelOpen: !state.rightPanelOpen })),
+      setRightPanelTab: (tab) => set({ rightPanelOpen: true, rightPanelTab: tab }),
+      setRightPanelWidth: (w) => set({ rightPanelWidth: clampWidth(w, RIGHT_PANEL_WIDTH) }),
+
+      // Inline editor opened from the tree. Opening it collapses the left sidebar and
+      // remembers whether the user had it open, so closing restores their layout.
+      editorFilePath: null,
+      editorPanelWidth: EDITOR_PANEL_WIDTH.default,
+      sidebarCollapsedByEditor: false,
+      setEditorPanelWidth: (w) => set({ editorPanelWidth: clampWidth(w, EDITOR_PANEL_WIDTH) }),
+      openEditorFile: (filePath) => set((state) => ({
+        editorFilePath: filePath,
+        sidebarCollapsed: true,
+        sidebarCollapsedByEditor: state.editorFilePath ? state.sidebarCollapsedByEditor : !state.sidebarCollapsed
+      })),
+      closeEditorFile: () => set((state) => ({
+        editorFilePath: null,
+        sidebarCollapsed: state.sidebarCollapsedByEditor ? false : state.sidebarCollapsed,
+        sidebarCollapsedByEditor: false
+      })),
+
+
       // Actions
       pushView: (view) => set((state) => ({
         viewStack: [...(Array.isArray(state.viewStack) ? state.viewStack : []), view]
@@ -148,7 +185,7 @@ export const useTerminalStore = create(
         viewStack: [{ type: "list" }],
         openedSessions: [],
         livePanes: [],
-        activeGroupId: null
+        activeWorkspaceId: null
       })
     }),
     {
@@ -156,8 +193,8 @@ export const useTerminalStore = create(
       partialize: (state) => ({
         viewStack: state.viewStack,
         openedSessions: state.openedSessions,
-        activeGroupId: state.activeGroupId,
-        collapsedGroups: state.collapsedGroups,
+        activeWorkspaceId: state.activeWorkspaceId,
+        collapsedWorkspaces: state.collapsedWorkspaces,
         webglEnabled: state.webglEnabled,
         fontSize: state.fontSize,
         terminalTheme: state.terminalTheme,
@@ -165,7 +202,11 @@ export const useTerminalStore = create(
         showGitButton: state.showGitButton,
         showNoteButton: state.showNoteButton,
         sidebarCollapsed: state.sidebarCollapsed,
-        sidebarWidth: state.sidebarWidth
+        sidebarWidth: state.sidebarWidth,
+        rightPanelOpen: state.rightPanelOpen,
+        rightPanelTab: state.rightPanelTab,
+        rightPanelWidth: state.rightPanelWidth,
+        editorPanelWidth: state.editorPanelWidth
       }),
       storage: {
         getItem: (name) => {

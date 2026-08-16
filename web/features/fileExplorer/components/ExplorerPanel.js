@@ -5,6 +5,8 @@ import Icon from "@/shared/components/ui/Icon";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
+import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { relativeTo, basename } from "@/features/fileExplorer/lib/pathUtils";
 import { useFileTreeState } from "@/features/fileExplorer/hooks/useFileTreeState";
 import { useFileOperations } from "@/features/fileExplorer/hooks/useFileOperations";
@@ -18,8 +20,11 @@ export default function ExplorerPanel({
   fileSocket,
   onOpenFile,
   activeFile,
-  onSwitchWorkspace
+  onSwitchWorkspace,
+  onNewTerminal,
+  compact = false
 }) {
+  const { t } = useI18n();
   const [contextMenu, setContextMenu] = useState(null);
   const contextMenuRef = useRef(null);
   const contextMenuPos = useClampedMenu(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
@@ -223,11 +228,14 @@ export default function ExplorerPanel({
           const paths = readDragPaths(e);
           if (paths) moveTo(paths, file.path);
         }}
+        onNewTerminal={onNewTerminal ? (f) => onNewTerminal(f.path) : null}
+        newTerminalLabel={t("workspaces.openHere")}
+        compact={compact}
       >
         {isFolder && isExpanded && (
           <div>
             {(tree.get(file.path) || []).map((child) => renderRow(child, depth + 1))}
-            {truncatedDirs.has(file.path) && <TruncatedNote depth={depth + 1} />}
+            {truncatedDirs.has(file.path) && <TruncatedNote depth={depth + 1} compact={compact} />}
           </div>
         )}
       </ExplorerRow>
@@ -249,6 +257,10 @@ export default function ExplorerPanel({
     const isFolder = file.type === "folder";
     const items = [];
     if (isFolder) {
+      // In-app terminal rooted here; "Open in Terminal" below hands off to the host's own app.
+      if (onNewTerminal) {
+        items.push({ label: t("workspaces.openHere"), icon: "Terminal", action: () => onNewTerminal(file.path) });
+      }
       items.push({ label: "Open in Terminal", icon: "Terminal", action: () => fileSocket.openInTerminal(file.path) });
       items.push({ label: "New File", icon: "Plus", action: () => openNewItemModal("file", file.path) });
       items.push({ label: "New Folder", icon: "FolderOpen", action: () => openNewItemModal("folder", file.path) });
@@ -272,17 +284,24 @@ export default function ExplorerPanel({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-bg text-text overflow-hidden">
-      {/* Header */}
-      <div className="bg-surface px-3 py-2 border-b border-border flex items-center gap-2 sticky top-0 z-10">
-        <button
-          onClick={() => { vibrate(); onSwitchWorkspace?.(); }}
-          className="flex items-center gap-1 flex-1 min-w-0 hover:text-text"
-        >
-          <span className="text-xs uppercase tracking-wider text-text-muted font-medium truncate">
-            {workspaceName || "No Workspace"}
-          </span>
-          <Icon name="ChevronDown" size={12} className="text-text-muted shrink-0" />
-        </button>
+      {/* Header. Docked beside a terminal the panel already has a tab bar above, so this
+          row drops the workspace name (the tab bar and root header already say it) and
+          keeps only the actions — they are the sole way to create a file at the root. */}
+      <div
+        style={{ height: PANEL_HEADER_HEIGHT }}
+        className={`bg-surface border-b border-border flex items-center gap-2 sticky top-0 z-10 flex-shrink-0 ${compact ? "px-1 justify-end" : "px-3"}`}
+      >
+        {!compact && (
+          <button
+            onClick={() => { vibrate(); onSwitchWorkspace?.(); }}
+            className="flex items-center gap-1 flex-1 min-w-0 hover:text-text"
+          >
+            <span className="text-xs uppercase tracking-wider text-text-muted font-medium truncate">
+              {workspaceName || "No Workspace"}
+            </span>
+            <Icon name="ChevronDown" size={12} className="text-text-muted shrink-0" />
+          </button>
+        )}
         <button onClick={() => openNewItemModal("file", getNewItemTargetDir())} className={headerBtn} title="New File">
           <Icon name="Plus" size={14} />
         </button>

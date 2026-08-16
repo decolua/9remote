@@ -12,7 +12,16 @@ const test = (name, fn) => {
 
 test("serializes core fields (name/createdAt/shellId/cwd)", () => {
   const m = buildSessionMetadata({ name: "Term 1", createdAt: 123, shellId: "zsh", cwd: "/home" });
-  assert.deepEqual(m, { name: "Term 1", createdAt: 123, shellId: "zsh", cwd: "/home", cols: null, rows: null });
+  assert.deepEqual(m, {
+    name: "Term 1", createdAt: 123, shellId: "zsh", cwd: "/home",
+    workspacePath: null, cols: null, rows: null
+  });
+});
+
+test("workspacePath survives a restart, and is not the live cwd", () => {
+  const m = buildSessionMetadata({ name: "T", createdAt: 1, cwd: "/repo/web", workspacePath: "/repo" });
+  assert.equal(m.workspacePath, "/repo", "the workspace root is fixed at creation");
+  assert.equal(m.cwd, "/repo/web", "cwd still tracks where the user actually is");
 });
 
 test("persists lastCols/lastRows when present (resize tracked them)", () => {

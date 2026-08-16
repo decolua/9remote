@@ -8,7 +8,8 @@ import * as daemonClient from "./ptyDaemonClient.js";
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
 import { isRemoteReady, setRemoteReadyChangeHandler, getUpdateInfo } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
-import { listSavedBufferSessions, loadSessionMetadata, loadGroups, saveSessionMetadata } from "./ptyHelper.js";
+import { listSavedBufferSessions, loadSessionMetadata, loadGroups, loadWorkspaces, saveWorkspaces, saveSessionMetadata, saveSessionMetadataRaw } from "./ptyHelper.js";
+import { migrateGroupsToWorkspaces } from "./workspaceMigration.js";
 import { setupSessionHandlers } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
@@ -29,10 +30,14 @@ const PKG_VERSION = typeof __CLI_VERSION__ !== "undefined"
 // Store sessions: sessionId -> { pty, name, createdAt, buffer, daemon }
 const sessions = new Map();
 
-// Agent-managed groups (single source of truth, persisted to JSON)
-const groups = new Map();            // groupId -> { id, name, createdAt }
-const sessionGroups = {};            // sessionId -> groupId
-const sessionOrder = [];             // ordered sessionIds (drag reorder within group)
+// Agent-managed workspaces (single source of truth, persisted to JSON)
+const workspaces = new Map();        // workspaceId -> { id, name, path, createdAt }
+const sessionWorkspaces = {};        // sessionId -> workspaceId
+const sessionOrder = [];             // ordered sessionIds (drag reorder within workspace)
+
+// sessionId -> workspace root, produced once by the group->workspace migration. Applied
+// when syncDaemonSessions rebuilds the session map from metadata.
+let migratedSessionPaths = {};
 
 // Merge live daemon sessions with persisted metadata.
 // Daemon-known sessions are live; metadata-only ones survived a daemon respawn → mark needsRespawn.
@@ -56,6 +61,7 @@ async function syncDaemonSessions() {
       createdAt: meta.createdAt,
       shellId: meta.shellId,
       cwd: live?.cwd || meta.cwd,
+      workspacePath: meta.workspacePath ?? migratedSessionPaths[id] ?? null,
       // Restore last client size so a respawned PTY (after agent/daemon restart)
       // inherits the real terminal size instead of falling back to 80×24.
       lastCols: meta.cols ?? null,
@@ -66,11 +72,47 @@ async function syncDaemonSessions() {
   saveSessionMetadata(sessions);
 }
 
+// Live sessions with the path each is rooted at. Read by the git handlers so removing a
+// worktree can warn about terminals still running inside it.
+export function listSessionRoots() {
+  return [...sessions.entries()].map(([id, s]) => ({
+    id, name: s.name, workspacePath: s.workspacePath || null, cwd: s.cwd || null
+  }));
+}
+
 export async function initializeTerminal() {
-  // Load persisted groups (agent-managed, independent of daemon)
-  const saved = loadGroups();
-  for (const g of saved.groups) groups.set(g.id, g);
-  Object.assign(sessionGroups, saved.sessionGroups);
+  // Load persisted workspaces (agent-managed, independent of daemon).
+  // First run after the group->workspace change: migrate from terminalGroups.json,
+  // deriving a workspace from each ungrouped session's nearest git root.
+  let saved = loadWorkspaces();
+  if (!saved) {
+    const metadata = loadSessionMetadata();
+    const legacy = loadGroups();
+    saved = migrateGroupsToWorkspaces(legacy, metadata);
+    const migrated = new Map(saved.workspaces.map((w) => [w.id, w]));
+    saveWorkspaces(migrated, saved.sessionWorkspaces, saved.sessionOrder);
+    // Pin each migrated session to its workspace root, so a `cd` afterwards cannot move
+    // it between workspaces. Written back to sessions.json before the daemon sync reads it.
+    migratedSessionPaths = saved.sessionPaths || {};
+    if (Object.keys(migratedSessionPaths).length) {
+      for (const [id, wsPath] of Object.entries(migratedSessionPaths)) {
+        if (metadata[id]) metadata[id].workspacePath = wsPath;
+      }
+      saveSessionMetadataRaw(metadata);
+    }
+    // A group with no surviving terminals has no directory to infer, so it is dropped —
+    // say so rather than let the name vanish silently.
+    const keptGroups = (legacy.groups || []).filter((g) => saved.workspaces.some((w) => w.id === g.id)).length;
+    const droppedGroups = (legacy.groups || []).length - keptGroups;
+    if (saved.workspaces.length || droppedGroups) {
+      console.log(ORANGE(
+        `📁 Migrated ${saved.workspaces.length} workspace(s) from terminal groups` +
+        (droppedGroups ? `, dropped ${droppedGroups} empty group(s)` : "")
+      ));
+    }
+  }
+  for (const w of saved.workspaces) workspaces.set(w.id, w);
+  Object.assign(sessionWorkspaces, saved.sessionWorkspaces);
   sessionOrder.push(...saved.sessionOrder);
 
   // Backfill scrollback env for users who enabled Claude hook before the fix
@@ -101,6 +143,9 @@ export async function initializeTerminal() {
       pty: null,
       name: meta.name || `Terminal ${sessions.size + 1}`,
       createdAt: meta.createdAt || Date.now(),
+      cwd: meta.cwd,
+      workspacePath: meta.workspacePath ?? migratedSessionPaths[sessionId] ?? null,
+      shellId: meta.shellId,
       buffer: [],
       needsRestore: true
     });
@@ -186,7 +231,7 @@ export async function setupTerminalHandlers(socket, io, apiKey) {
   onConnectCheck?.();
   socket.emit("serverInfo", setupTerminalSocket._buildServerInfo?.());
 
-  setupSessionHandlers(socket, io, sessions, groups, sessionGroups, sessionOrder);
+  setupSessionHandlers(socket, io, sessions, workspaces, sessionWorkspaces, sessionOrder);
 
   setupInputHandlers(socket, sessions);
   setupPushHandlers(socket, io);

@@ -7,6 +7,7 @@ import { PATHS } from "../../lib/constants.js";
 const BUFFER_DIR = PATHS.BUFFERS;
 const SESSION_METADATA_FILE = path.join(PATHS.STATE, "sessions.json");
 const GROUPS_FILE = path.join(PATHS.STATE, "terminalGroups.json");
+const WORKSPACES_FILE = path.join(PATHS.STATE, "terminalWorkspaces.json");
 const NOTES_DIR = path.join(PATHS.STATE, "notes");
 
 export const UPLOAD_DIR = "/tmp/9remote-uploads";
@@ -140,9 +141,23 @@ export function buildSessionMetadata(session) {
     createdAt: session.createdAt,
     shellId: session.shellId,
     cwd: session.cwd,
+    // Fixed workspace root, unlike cwd which follows the user's `cd`
+    workspacePath: session.workspacePath ?? null,
     cols: session.lastCols ?? session.cols ?? null,
     rows: session.lastRows ?? session.rows ?? null,
   };
+}
+
+// Write an already-built metadata object. Used by the group->workspace migration, which
+// runs before the live session map exists.
+export function saveSessionMetadataRaw(metadata) {
+  try {
+    const dir = path.dirname(SESSION_METADATA_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(SESSION_METADATA_FILE, JSON.stringify(metadata, null, 2), "utf8");
+  } catch (error) {
+    console.log("⚠️  Failed to save session metadata:", error.message);
+  }
 }
 
 export function saveSessionMetadata(sessions) {
@@ -184,6 +199,38 @@ export function saveGroups(groups, sessionGroups, sessionOrder = []) {
     fs.writeFileSync(GROUPS_FILE, JSON.stringify(data, null, 2), "utf8");
   } catch (error) {
     console.log("⚠️  Failed to save groups:", error.message);
+  }
+}
+
+// ============================================
+// Terminal workspaces persistence (replaces groups)
+// ============================================
+
+// Returns { workspaces: [{id,name,path,createdAt}], sessionWorkspaces: { sessionId: workspaceId }, sessionOrder: [] }
+// null when the file is absent → caller runs the group migration instead.
+export function loadWorkspaces() {
+  try {
+    if (!fs.existsSync(WORKSPACES_FILE)) return null;
+    const data = JSON.parse(fs.readFileSync(WORKSPACES_FILE, "utf8"));
+    return {
+      workspaces: data.workspaces || [],
+      sessionWorkspaces: data.sessionWorkspaces || {},
+      sessionOrder: data.sessionOrder || []
+    };
+  } catch (error) {
+    console.log("⚠️  Failed to load workspaces:", error.message);
+    return null;
+  }
+}
+
+export function saveWorkspaces(workspaces, sessionWorkspaces, sessionOrder = []) {
+  try {
+    const dir = path.dirname(WORKSPACES_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const data = { workspaces: Array.from(workspaces.values()), sessionWorkspaces, sessionOrder };
+    fs.writeFileSync(WORKSPACES_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch (error) {
+    console.log("⚠️  Failed to save workspaces:", error.message);
   }
 }
 

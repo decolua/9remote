@@ -18,6 +18,8 @@ import {
   AUTO_SAVE_MODES,
   STORAGE_KEYS,
   EDITOR_FONT_DEFAULT,
+  EDITOR_FONT_COMPACT_MIN,
+  EDITOR_FONT_COMPACT_DELTA,
   LANGUAGE_MAP
 } from "../constants/fileExplorer.js";
 import { useTheme } from "@/shared/theme/ThemeProvider";
@@ -37,7 +39,7 @@ function getLanguageInfo(filePath) {
   return { lang, extension: languageExtensions[lang] || [] };
 }
 
-export default function EmbeddedEditor({ filePath, fileSocket, workspace, onEditorStateChange, line, column, onDirtyChange }) {
+export default function EmbeddedEditor({ filePath, fileSocket, workspace, onEditorStateChange, line, column, onDirtyChange, compact = false }) {
   const { theme } = useTheme();
   const editorRef = useRef(null);
   const viewRef = useRef(null);
@@ -53,7 +55,11 @@ export default function EmbeddedEditor({ filePath, fileSocket, workspace, onEdit
   const [saving, setSaving] = useState(false);
 
   const [autoSaveMode] = usePersistedState(STORAGE_KEYS.autoSaveMode, AUTO_SAVE_MODES.afterDelay);
-  const [fontSize] = usePersistedState(STORAGE_KEYS.editorFontSize, EDITOR_FONT_DEFAULT);
+  const [userFontSize] = usePersistedState(STORAGE_KEYS.editorFontSize, EDITOR_FONT_DEFAULT);
+  // Keep the user's preference as the baseline; the narrow panel just steps down from it.
+  const fontSize = compact
+    ? Math.max(EDITOR_FONT_COMPACT_MIN, userFontSize - EDITOR_FONT_COMPACT_DELTA)
+    : userFontSize;
   const [wordWrap] = usePersistedState(STORAGE_KEYS.wordWrap, true);
 
   const { lang, extension: langExtension } = getLanguageInfo(filePath);
@@ -159,8 +165,9 @@ export default function EmbeddedEditor({ filePath, fileSocket, workspace, onEdit
         }),
         EditorView.theme({
           "&": { height: "100%", fontSize: `${fontSize}px` },
-          ".cm-scroller": { overflow: "auto" },
-          ".cm-content": { minHeight: "100%" }
+          ".cm-scroller": { overflow: "auto", lineHeight: compact ? "1.35" : "" },
+          ".cm-content": { minHeight: "100%" },
+          ".cm-gutters": compact ? { fontSize: `${Math.max(8, fontSize - 1)}px` } : {}
         })
       ]
     });
@@ -176,7 +183,7 @@ export default function EmbeddedEditor({ filePath, fileSocket, workspace, onEdit
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, content, filePath, theme, wordWrap, fontSize]);
+  }, [loading, content, filePath, theme, wordWrap, fontSize, compact]);
 
   // Jump to line/column
   useEffect(() => {

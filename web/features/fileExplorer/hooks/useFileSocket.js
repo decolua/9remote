@@ -272,6 +272,25 @@ export function useFileSocket(socketRef, protocolRef) {
     });
   }, [socketRef]);
 
+  // Workspace-level git: nested repos, worktrees, branches
+  const emitGit = useCallback((event, payload) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit(event, payload, resolve);
+    });
+  }, [socketRef]);
+
+  const gitScanRepos = useCallback((rootPath, maxDepth) => emitGit("gitScanRepos", { rootPath, maxDepth }), [emitGit]);
+  const gitRefreshRepos = useCallback((rootPath) => emitGit("gitRefreshRepos", { rootPath }), [emitGit]);
+  const gitWorktreeList = useCallback((repoPath) => emitGit("gitWorktreeList", { repoPath }), [emitGit]);
+  const gitWorktreeAdd = useCallback((repoPath, worktreePath, branch, newBranch) => emitGit("gitWorktreeAdd", { repoPath, worktreePath, branch, newBranch }), [emitGit]);
+  const gitWorktreeRemove = useCallback((repoPath, worktreePath, opts = {}) => emitGit("gitWorktreeRemove", { repoPath, worktreePath, ...opts }), [emitGit]);
+  const gitBranchList = useCallback((repoPath) => emitGit("gitBranchList", { repoPath }), [emitGit]);
+  const gitBranchCheckout = useCallback((repoPath, branch, create) => emitGit("gitBranchCheckout", { repoPath, branch, create }), [emitGit]);
+
   const gitAdd = useCallback((repoPath, files) => {
     return new Promise((resolve) => {
       if (!socketRef?.current) {
@@ -390,6 +409,13 @@ export function useFileSocket(socketRef, protocolRef) {
     openInTerminal,
     getFileTree,
     gitBranch,
+    gitScanRepos,
+    gitRefreshRepos,
+    gitWorktreeList,
+    gitWorktreeAdd,
+    gitWorktreeRemove,
+    gitBranchList,
+    gitBranchCheckout,
     gitAdd,
     gitReset,
     gitCommit,
@@ -402,6 +428,7 @@ export function useFileSocket(socketRef, protocolRef) {
   }), [getSystemInfo, getFiles, readFile, readImage, readMedia, writeFile, createItem, deleteItem,
     renameItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
     searchInFiles, replaceInFiles, watchDir, unwatchDir, revealInOS, openInTerminal,
-    getFileTree, gitBranch, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog,
+    getFileTree, gitBranch, gitScanRepos, gitRefreshRepos, gitWorktreeList, gitWorktreeAdd,
+    gitWorktreeRemove, gitBranchList, gitBranchCheckout, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog,
     uploadFiles, downloadFile, streamMedia]);
 }

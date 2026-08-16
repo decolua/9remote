@@ -3,6 +3,10 @@ import path from "path";
 import { spawn, spawnSync, execSync } from "child_process";
 import { BINARY_EXTENSIONS, MAX_FILE_SIZE, DEFAULT_GIT_LOG_LIMIT } from "../constants.js";
 import { isSensitivePath } from "../pathGuard.js";
+import {
+  scanReposCached, invalidateRepoScan, parseWorktreeList, parseBranchList, terminalsInWorktree
+} from "../gitRepoScan.js";
+import { listSessionRoots } from "../../terminal/terminalSocket.js";
 
 // Per-cwd TTL cache for gitChangedCount badge — prevents repeated git spawns on
 // rapid requests (e.g. terminal typing re-rendering the file watcher effect).
@@ -302,6 +306,117 @@ export function setupGitHandlers(socket) {
       }
 
       callback({ success: true });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  // ---- Nested repos ----
+
+  // Repos at or under a workspace root. Bounded by depth + wall clock and memoized per
+  // root inside gitRepoScan, so expanding the tree never re-walks the disk.
+  socket.on("gitScanRepos", async ({ rootPath, maxDepth }, callback) => {
+    if (!rootPath) return callback({ success: false, error: "rootPath required" });
+    if (isSensitivePath(rootPath)) return callback({ success: false, error: "Access denied" });
+    try {
+      const found = scanReposCached(rootPath, maxDepth ? { maxDepth } : {});
+      // Branch + change count per repo, in parallel — a monorepo can hold a dozen.
+      const repos = await Promise.all(found.map(async (repo) => {
+        const [branchRes, countRes] = await Promise.all([
+          runGit(["branch", "--show-current"], repo.path),
+          runGit(["status", "--porcelain", "--no-renames"], repo.path)
+        ]);
+        return {
+          ...repo,
+          name: path.basename(repo.path),
+          branch: branchRes.code === 0 ? branchRes.stdout.trim() || null : null,
+          changedCount: countRes.code === 0 ? countRes.stdout.split("\n").filter(Boolean).length : 0
+        };
+      }));
+      callback({ success: true, repos });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitRefreshRepos", ({ rootPath }, callback) => {
+    invalidateRepoScan(rootPath);
+    callback?.({ success: true });
+  });
+
+  // ---- Worktrees ----
+
+  socket.on("gitWorktreeList", async ({ repoPath }, callback) => {
+    try {
+      const r = await runGit(["worktree", "list", "--porcelain"], repoPath);
+      if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
+      callback({ success: true, worktrees: parseWorktreeList(r.stdout) });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitWorktreeAdd", async ({ repoPath, worktreePath, branch, newBranch }, callback) => {
+    if (!worktreePath || !branch) return callback({ success: false, error: "worktreePath and branch required" });
+    if (isSensitivePath(worktreePath)) return callback({ success: false, error: "Access denied" });
+    try {
+      const args = newBranch
+        ? ["worktree", "add", "-b", branch, worktreePath]
+        : ["worktree", "add", worktreePath, branch];
+      const r = await runGit(args, repoPath);
+      if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
+      invalidateRepoScan(repoPath);
+      callback({ success: true, path: path.resolve(worktreePath) });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  // Refuses while terminals are still rooted inside, unless the client confirms — pulling
+  // the directory out from under a running shell is not something to do silently.
+  socket.on("gitWorktreeRemove", async ({ repoPath, worktreePath, force, confirmed }, callback) => {
+    if (!worktreePath) return callback({ success: false, error: "worktreePath required" });
+    if (isSensitivePath(worktreePath)) return callback({ success: false, error: "Access denied" });
+    try {
+      const busy = terminalsInWorktree(worktreePath, listSessionRoots());
+      if (busy.length && !confirmed) {
+        return callback({ success: false, busy: busy.map((s) => ({ id: s.id, name: s.name })) });
+      }
+      const args = ["worktree", "remove", worktreePath];
+      if (force) args.splice(2, 0, "--force");
+      const r = await runGit(args, repoPath);
+      if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
+      invalidateRepoScan(repoPath);
+      callback({ success: true });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  // ---- Branches ----
+
+  socket.on("gitBranchList", async ({ repoPath }, callback) => {
+    try {
+      const [branchRes, wtRes] = await Promise.all([
+        runGit(["branch", "-a", "--format=%(refname)%09%(refname:short)%09%(upstream:short)%09%(HEAD)"], repoPath),
+        runGit(["worktree", "list", "--porcelain"], repoPath)
+      ]);
+      if (branchRes.code !== 0) return callback({ success: false, error: branchRes.stderr.trim() });
+      const worktrees = wtRes.code === 0 ? parseWorktreeList(wtRes.stdout) : [];
+      callback({ success: true, branches: parseBranchList(branchRes.stdout, worktrees), worktrees });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  // A dirty tree makes git refuse the switch; surface its message verbatim rather than
+  // reporting a generic failure the user cannot act on.
+  socket.on("gitBranchCheckout", async ({ repoPath, branch, create }, callback) => {
+    if (!branch) return callback({ success: false, error: "branch required" });
+    try {
+      const r = await runGit(create ? ["checkout", "-b", branch] : ["checkout", branch], repoPath);
+      if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() || r.stdout.trim() });
+      callback({ success: true, branch });
     } catch (error) {
       callback({ success: false, error: error.message });
     }

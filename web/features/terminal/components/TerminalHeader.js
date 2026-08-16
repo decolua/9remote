@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, Settings, Monitor, Plus, Pencil, Trash2, X, Download } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Plus, Pencil, Trash2, X, Download } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
@@ -10,6 +10,7 @@ import { statusVisual } from "@/shared/utils/statusVisual";
 import { isAgentOutdated } from "./AgentOutdatedBanner";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
+import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 
 export default function TerminalHeader({
   sessions = [],
@@ -38,13 +39,15 @@ export default function TerminalHeader({
   transport = "ws",
   isActive = true,
   shells = [],
-  groups = [],
-  activeGroupId = null,
+  workspaces = [],
+  activeWorkspaceId = null,
   onRenameSession,
   onDeleteSession,
   onCreateNamedSession,
   onToggleSidebar = null,
   sidebarCollapsed = false,
+  onToggleRightPanel,
+  rightPanelOpen = false,
   updateAvailable = null,
   canSelfUpdate = false,
 }) {
@@ -64,7 +67,7 @@ export default function TerminalHeader({
   const tabInputRef = useRef(null);
 
   // Suggested default name based on terminal count in active group
-  const suggestTerminalName = (groupId) => `${t("terminal.defaultName")} ${sessions.filter((s) => (s.groupId || null) === groupId).length + 1}`;
+  const suggestTerminalName = (workspaceId) => `${t("terminal.defaultName")} ${sessions.filter((s) => sessionWorkspaceId(s) === (workspaceId ?? null)).length + 1}`;
 
   // Reliable focus+select on conditional mount (autoFocus is flaky)
   useEffect(() => { if (editingTabId) requestAnimationFrame(() => { tabInputRef.current?.focus(); tabInputRef.current?.select(); }); }, [editingTabId]);
@@ -148,8 +151,8 @@ export default function TerminalHeader({
   };
 
   const handleModalCreate = (name, shellId) => {
-    if (onCreateNamedSession) onCreateNamedSession(name, activeGroupId, shellId);
-    else onCreateSession?.(activeGroupId);
+    if (onCreateNamedSession) onCreateNamedSession(name, activeWorkspaceId, shellId);
+    else onCreateSession?.(activeWorkspaceId);
   };
 
   useEffect(() => {
@@ -297,12 +300,26 @@ export default function TerminalHeader({
         allSessions={allSessions}
         sessionStatus={sessionStatus}
         onSwitchSession={onSwitchSession}
-        groups={groups}
+        workspaces={workspaces}
       />
 
+      {/* Files / git / worktrees panel */}
+      {onToggleRightPanel && (
+        <button
+          onClick={() => { vibrate(); onToggleRightPanel(); }}
+          className={`p-1.5 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] hover:bg-surface-2 ${
+            rightPanelOpen ? "text-brand-500" : "text-text hover:text-text"
+          }`}
+          title={t("workspaces.tabFiles")}
+        >
+          <PanelRight size={18} />
+        </button>
+      )}
+
+      {/* Settings lives at the bottom of the sidebar on desktop; kept here for mobile */}
       <button
         onClick={() => { vibrate(); openMenu(); }}
-        className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
+        className={`p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] ${onToggleSidebar ? "sm:hidden" : ""}`}
         title={t("menu.title")}
       >
         <Settings size={18} />
@@ -337,7 +354,7 @@ export default function TerminalHeader({
           onClose={() => setCreateModalOpen(false)}
           onCreate={handleModalCreate}
           shells={shells}
-          suggestName={suggestTerminalName(activeGroupId)}
+          suggestName={suggestTerminalName(activeWorkspaceId)}
         />
       )}
 

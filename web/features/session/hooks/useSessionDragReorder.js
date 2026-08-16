@@ -11,7 +11,7 @@ const DRAG_START_PX = 3;    // movement before the card starts following the poi
 // follows the pointer via direct DOM writes (no re-render per move).
 // Extracted verbatim from SessionList.
 export function useSessionDragReorder({ connected, onReorderSession }) {
-  const [drag, setDrag] = useState(null); // { groupId, fromIdx, overIdx }
+  const [drag, setDrag] = useState(null); // { workspaceId, fromIdx, overIdx }
   const dragRef = useRef(null);
   const pressTimer = useRef(null);
   const pressStartRef = useRef(null);
@@ -27,14 +27,14 @@ export function useSessionDragReorder({ connected, onReorderSession }) {
     el.style.willChange = "";
   };
 
-  const startDrag = (e, groupId, ids, fromIdx, cardEl) => {
+  const startDrag = (e, workspaceId, ids, fromIdx, cardEl) => {
     vibrate();
-    dragRef.current = { groupId, ids, fromIdx, overIdx: fromIdx, startX: e.clientX, startY: e.clientY, cardEl, moved: false };
-    setDrag({ groupId, fromIdx, overIdx: fromIdx });
+    dragRef.current = { workspaceId, ids, fromIdx, overIdx: fromIdx, startX: e.clientX, startY: e.clientY, cardEl, moved: false };
+    setDrag({ workspaceId, fromIdx, overIdx: fromIdx });
     try { cardEl.setPointerCapture(e.pointerId); } catch {}
   };
 
-  const onGripPointerDown = (e, groupId, ids, fromIdx) => {
+  const onGripPointerDown = (e, workspaceId, ids, fromIdx) => {
     if (!connected || ids.length < 2) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     e.stopPropagation();
@@ -43,7 +43,7 @@ export function useSessionDragReorder({ connected, onReorderSession }) {
     const cardEl = e.currentTarget;
     pressTimer.current = setTimeout(() => {
       pressTimer.current = null;
-      startDrag(e, groupId, ids, fromIdx, cardEl);
+      startDrag(e, workspaceId, ids, fromIdx, cardEl);
     }, LONG_PRESS_MS);
   };
 

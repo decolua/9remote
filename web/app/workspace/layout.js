@@ -10,7 +10,8 @@ import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { useClipboardSocket } from "@/features/clipboard/hooks/useClipboardSocket";
 import DevTermLog from "@/features/terminal/components/DevTermLog";
-import { getRecentWorkspaces, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
+import { getRecentWorkspaces, addRecentWorkspace, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
+import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useNotification } from "@/shared/hooks/useNotification";
 import { updateTitle } from "@/shared/utils/titleMarquee";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
@@ -31,6 +32,7 @@ const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/Fi
 const FileEditor = dynamic(() => import("@/features/fileExplorer/components/FileEditor"), { ssr: false });
 const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPanel"), { ssr: false });
 const FileWorkspaceDesktop = dynamic(() => import("@/features/fileExplorer/components/FileWorkspaceDesktop"), { ssr: false });
+const FolderPickerModal = dynamic(() => import("@/features/terminal/components/FolderPickerModal"), { ssr: false });
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import UpdateModal from "@/shared/components/ui/UpdateModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -54,18 +56,29 @@ export default function WorkspaceLayout({ children }) {
     setViewStack,
     addOpenedSession,
     removeOpenedSession,
-    activeGroupId,
-    setActiveGroupId,
+    activeWorkspaceId,
+    setActiveWorkspaceId,
     livePanes,
     touchLivePane,
-    mountedGroups,
-    markGroupMounted,
+    mountedWorkspaces,
+    markWorkspaceMounted,
     reset: resetStore,
     cwdBySession,
     sidebarCollapsed,
     toggleSidebar,
     sidebarWidth,
-    setSidebarWidth
+    setSidebarWidth,
+    rightPanelOpen,
+    rightPanelTab,
+    rightPanelWidth,
+    toggleRightPanel,
+    setRightPanelTab,
+    setRightPanelWidth,
+    editorFilePath,
+    editorPanelWidth,
+    setEditorPanelWidth,
+    openEditorFile,
+    closeEditorFile
   } = useTerminalStore();
 
   useEffect(() => {
@@ -74,7 +87,7 @@ export default function WorkspaceLayout({ children }) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace, groups, loadGroups, createGroup, renameGroup, deleteGroup, moveSession, reorderSession } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, loadWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, moveSession, reorderSession } = useSocket();
   const [shells, setShells] = useState([]);
 
   const { updating, updateMode, resumeGrace, doUpdate, doRestart } = useAgentUpdate({
@@ -148,7 +161,7 @@ export default function WorkspaceLayout({ children }) {
 
   const nav = useSessionNavigation({
     sessions, currentView, viewStack, setViewStack, pushView, storePopView,
-    activeGroupId, setActiveGroupId, activeSessionId,
+    activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
     addOpenedSession, removeOpenedSession, touchLivePane,
     createSession, deleteSession, renameSession, clearNotification
   });
@@ -160,13 +173,43 @@ export default function WorkspaceLayout({ children }) {
   } = useWorkspaceFileNav({ pushView, viewStack, setViewStack, currentView, cwdBySession, isDesktop, fileSocket });
 
 
-  // Lazy per-group mount: the FIRST time a group becomes active, mark it mounted so its panes'
-  // XTerms initialize. Other groups stay as placeholders until visited — avoids mounting every
-  // terminal across all groups at once (5+ concurrent joins → main-thread stall).
+  // Folder picker → create a workspace rooted there, then offer its first terminal.
+  const [folderPicker, setFolderPicker] = useState(null); // { initialPath } | null
+  const openSlideMenu = useSlideMenuStore((st) => st.open);
+  // Re-read after each workspace change; localStorage is client-only so it stays lazy.
+  const recentWorkspaces = hydrated ? getRecentWorkspaces() : [];
+
+  const createWorkspaceAt = useCallback((folderPath) => {
+    setFolderPicker(null);
+    if (!folderPath) return;
+    const name = folderPath.split("/").filter(Boolean).pop() || folderPath;
+    createWorkspace(name, folderPath, (result) => {
+      const ws = result?.workspace || result?.group;
+      if (!result?.success || !ws?.id) return;
+      addRecentWorkspace(folderPath);
+      setActiveWorkspaceId(ws.id);
+      nav.handleCreateSession(null, ws.id, null, folderPath);
+    });
+  }, [createWorkspace, setActiveWorkspaceId, nav]);
+
+  // A path means the user picked a recent folder — skip straight to creating it.
+  const openFolderPicker = useCallback((initialPath) => {
+    if (initialPath) return createWorkspaceAt(initialPath);
+    setFolderPicker({ initialPath: null });
+  }, [createWorkspaceAt]);
+
+  // "New terminal here" from the file tree / worktree list — cwd is the clicked folder.
+  const createTerminalAt = useCallback((folderPath) => {
+    nav.handleCreateSession(null, activeWorkspaceId, null, folderPath);
+  }, [nav, activeWorkspaceId]);
+
+  // Lazy per-workspace mount: the FIRST time a workspace becomes active, mark it mounted so its
+  // panes' XTerms initialize. Others stay as placeholders until visited — avoids mounting every
+  // terminal across all workspaces at once (5+ concurrent joins → main-thread stall).
   useEffect(() => {
-    if (!isTerminalView || activeGroupId === undefined) return;
-    markGroupMounted(activeGroupId);
-  }, [isTerminalView, activeGroupId, markGroupMounted]);
+    if (!isTerminalView || activeWorkspaceId === undefined) return;
+    markWorkspaceMounted(activeWorkspaceId);
+  }, [isTerminalView, activeWorkspaceId, markWorkspaceMounted]);
 
   // Reflect unseen finished-terminal count (or the active session name when idle) in the tab title
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
@@ -205,22 +248,22 @@ export default function WorkspaceLayout({ children }) {
     else storePopView();
   }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor]);
 
-  // Load sessions + groups when the socket connects
+  // Load sessions + workspaces when the socket connects
   useEffect(() => {
     if (socket) {
       loadSessions();
-      loadGroups();
+      loadWorkspaces();
     }
-  }, [socket, loadSessions, loadGroups]);
+  }, [socket, loadSessions, loadWorkspaces]);
 
   // Retry once after 1s if still empty in terminal view (guards a rare connect race where the
   // terminal:ready reply arrives too late)
   useEffect(() => {
     if (currentView.type !== "terminal") return;
-    if (sessions.length || groups.length) return;
-    const timer = setTimeout(() => { loadSessions(); loadGroups(); }, 1000);
+    if (sessions.length || workspaces.length) return;
+    const timer = setTimeout(() => { loadSessions(); loadWorkspaces(); }, 1000);
     return () => clearTimeout(timer);
-  }, [currentView.type, sessions.length, groups.length, loadSessions, loadGroups]);
+  }, [currentView.type, sessions.length, workspaces.length, loadSessions, loadWorkspaces]);
 
   // Drop openedSessions that no longer exist. Delayed to avoid racing newly-created sessions
   // (server create → loadSessions is async).
@@ -324,18 +367,22 @@ export default function WorkspaceLayout({ children }) {
             updateAvailable={updateAvailable}
             canSelfUpdate={canSelfUpdate}
             transport={transport}
-            groups={groups}
-            onCreateGroup={createGroup}
-            onRenameGroup={renameGroup}
-            onDeleteGroup={deleteGroup}
+            workspaces={workspaces}
+            onAddWorkspace={openFolderPicker}
+            platform={platform}
+            fileSocket={fileSocket}
+            homeDir={systemInfo?.homedir}
+            onRenameWorkspace={renameWorkspace}
+            onDeleteWorkspace={deleteWorkspace}
             onMoveSession={moveSession}
             onReorderSession={reorderSession}
             shells={shells}
           />
         </div>
 
-        {/* Terminal view: shared header + multi-pane layout */}
-        {openedSessions.length > 0 && (
+        {/* Terminal view: shared header + multi-pane layout. Also rendered with zero
+            sessions so the empty state (workspace / remote cards) has a home. */}
+        {(openedSessions.length > 0 || (hydrated && !sessions.length)) && (
           <TerminalWorkspace
             socket={socket}
             socketRef={socketRef}
@@ -344,13 +391,13 @@ export default function WorkspaceLayout({ children }) {
             platform={platform}
             agentVersion={agentVersion}
             sessions={sessions}
-            groups={groups}
+            workspaces={workspaces}
             activeSessionId={activeSessionId}
             activeSession={activeSession}
-            activeGroupId={activeGroupId}
+            activeWorkspaceId={activeWorkspaceId}
             openedSessions={openedSessions}
             livePanes={livePanes}
-            mountedGroups={mountedGroups}
+            mountedWorkspaces={mountedWorkspaces}
             cwdBySession={cwdBySession}
             sessionStatus={sessionStatus}
             notifications={notifications}
@@ -374,10 +421,30 @@ export default function WorkspaceLayout({ children }) {
             onStopCodespace={stopCodespace}
             onUpdate={handleUpdate}
             onRestart={handleRestart}
-            onCreateGroup={createGroup}
-            onDeleteGroup={deleteGroup}
+            onDeleteWorkspace={deleteWorkspace}
             onMoveSession={moveSession}
             onReorderSession={reorderSession}
+            onAddWorkspace={openFolderPicker}
+            onSetHiddenRepos={setWorkspaceHiddenRepos}
+            onOpenSettings={openSlideMenu}
+            homeDir={systemInfo?.homedir}
+            recentWorkspaces={recentWorkspaces}
+            rightPanel={{
+              open: rightPanelOpen,
+              tab: rightPanelTab,
+              width: rightPanelWidth,
+              onTabChange: setRightPanelTab,
+              onResize: setRightPanelWidth,
+              onToggle: toggleRightPanel,
+              onNewTerminal: createTerminalAt
+            }}
+            editorPanel={{
+              filePath: editorFilePath,
+              width: editorPanelWidth,
+              onResize: setEditorPanelWidth,
+              onOpen: openEditorFile,
+              onClose: closeEditorFile
+            }}
             codespaceInfo={codespaceInfo}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}
@@ -386,6 +453,16 @@ export default function WorkspaceLayout({ children }) {
             unsubscribeFromPush={unsubscribeFromPush}
             updateAvailable={updateAvailable}
             canSelfUpdate={canSelfUpdate}
+          />
+        )}
+
+        {/* Folder picker (desktop): choose the directory a new workspace is rooted at */}
+        {folderPicker && (
+          <FolderPickerModal
+            fileSocket={fileSocket}
+            initialPath={folderPicker.initialPath}
+            onSelect={createWorkspaceAt}
+            onClose={() => setFolderPicker(null)}
           />
         )}
 
@@ -425,7 +502,7 @@ export default function WorkspaceLayout({ children }) {
         {/* Desktop VSCode-like layout: replaces files/editor/git on a wide screen */}
         {isDesktop && (currentView.type === "files" || currentView.type === "editor" || currentView.type === "git") && (() => {
           // For editor/git, fall back to the most recently pushed files view (last in stack,
-          // not first — stale files views linger after group switches that only replace the top).
+          // not first — stale files views linger after workspace switches that only replace the top).
           const filesView = currentView.type === "files"
             ? currentView
             : [...viewStack].reverse().find(v => v.type === "files");

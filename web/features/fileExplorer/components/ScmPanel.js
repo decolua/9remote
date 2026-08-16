@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X, ExternalLink 
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import FileContextMenu from "@/shared/components/ui/FileContextMenu";
-import { GIT_STATUS_COLORS, makeDiffPath } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
 import { resolveFileIcon } from "../constants/fileIcons.js";
 
 const SECTION_CHANGES = "changes";
@@ -29,7 +29,7 @@ function joinPath(base, rel) {
   return `${base}${sep}${rel}`;
 }
 
-export default function ScmPanel({ workspace, fileSocket, onOpenFile }) {
+export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWithRepo = false }) {
   const [branch, setBranch] = useState("");
   const [ahead, setAhead] = useState(null);
   const [behind, setBehind] = useState(null);
@@ -177,7 +177,14 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile }) {
         key={`${file.status}-${file.path}`}
         className="group flex items-center gap-1.5 px-2 py-1 hover:bg-surface-2 cursor-pointer"
         onContextMenu={(e) => openCtxMenu(file, e)}
-        onClick={() => { vibrate(); onOpenFile?.(makeDiffPath(file.status, file.path)); }}
+        onClick={() => {
+          vibrate();
+          // file.path is relative to THIS repo. Where the host shows several repos side by
+          // side it must travel with its repo, or the diff is read from the wrong one.
+          onOpenFile?.(tagDiffWithRepo
+            ? makeRepoDiffPath(file.status, workspace, file.path)
+            : makeDiffPath(file.status, file.path));
+        }}
       >
         <span className="flex-shrink-0 flex items-center">{resolveFileIcon({ name: basename(file.path), path: file.path, type: "file" }, 16)}</span>
         <span className="truncate text-xs text-text">{basename(file.path)}</span>
