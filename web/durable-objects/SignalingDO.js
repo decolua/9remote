@@ -8,6 +8,15 @@ const GATE_RATE_WINDOW_MS = 15000;
 const GATE_MAP_PRUNE_SIZE = 5000;
 const gateHits = new Map();
 
+// Per-isolate memo for the gate lookup. Not Workers KV: KV propagates deletes
+// across colos in up to 60s (slowest exactly where a key is read most), so a
+// revoked session could outlive its invalidation — the wrong direction to be
+// wrong in for an auth gate. A local map is stale for at most GATE_CACHE_TTL_MS.
+// This file is inlined verbatim into worker.js by scripts/injectSignalingDO.mjs,
+// so it cannot import shared/utils/db and keeps its own map and TTL.
+const GATE_CACHE_TTL_MS = 30000;
+const gateCache = new Map();
+
 function gateRateLimited(apiKey) {
   const now = Date.now();
   if (gateHits.size > GATE_MAP_PRUNE_SIZE) {
@@ -22,6 +31,38 @@ function gateRateLimited(apiKey) {
   }
   hit.count++;
   return hit.count > GATE_RATE_MAX;
+}
+
+// The single hottest D1 read in the system — every WS (re)connect hits it, and a
+// client in an RTC reconnect loop hits it repeatedly.
+//
+// Revocation is bounded by GATE_CACHE_TTL_MS, not immediate: this map lives in the
+// worker isolate, so /api/session/delete cannot reach it. Deleting a session still
+// takes effect at once everywhere else (the D1 row is gone); only new signaling
+// sockets for that key can slip through, for at most one TTL.
+async function sessionExists(apiKey, env) {
+  const now = Date.now();
+  const hit = gateCache.get(apiKey);
+  if (hit && hit > now) return true;
+
+  // Primary, not a replica: this is an auth gate, and a replica that has not seen
+  // a session deletion yet would keep authorizing a revoked key. The memo above
+  // already absorbs the volume, so the miss path can afford the primary.
+  const row = await env.DB.prepare("SELECT 1 FROM sessions WHERE apiKey = ?").bind(apiKey).first();
+  if (!row) {
+    gateCache.delete(apiKey);
+    return false;
+  }
+
+  // Only positive results are cached, so a session created moments ago is never
+  // masked by a cached miss.
+  if (gateCache.size > GATE_MAP_PRUNE_SIZE) {
+    for (const [key, expires] of gateCache) {
+      if (expires <= now) gateCache.delete(key);
+    }
+  }
+  gateCache.set(apiKey, now + GATE_CACHE_TTL_MS);
+  return true;
 }
 
 // Worker-level route handler — gates WS upgrade on apiKey, fans out to room DO.
@@ -45,8 +86,7 @@ export async function handleSignaling(request, env) {
   const apiKey = url.searchParams.get("apiKey");
   if (!apiKey) return new Response("Missing apiKey", { status: 401 });
   if (gateRateLimited(apiKey)) return new Response("Too many signaling attempts", { status: 429 });
-  const session = await env.DB.prepare("SELECT 1 FROM sessions WHERE apiKey = ?").bind(apiKey).first();
-  if (!session) return new Response("Unauthorized", { status: 401 });
+  if (!(await sessionExists(apiKey, env))) return new Response("Unauthorized", { status: 401 });
 
   const roomId = decodeURIComponent(match[1]);
   const id = env.SIGNALING_DO.idFromName(roomId);

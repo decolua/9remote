@@ -1,4 +1,5 @@
 import { jsonOk, jsonError, optionsResponse } from "@/shared/utils/apiResponse";
+import { withD1Retry, readDb } from "@/shared/utils/db";
 import { requireAdmin } from "@/features/admin/lib/guard";
 import { PERMISSIONS, SESSION_SORT_FIELDS, SORT_ORDERS, PAGE_SIZE_DEFAULT } from "@/features/admin/constants";
 
@@ -22,13 +23,16 @@ export async function GET(request) {
     const where = search ? "WHERE machineId LIKE ? OR shortId LIKE ? OR publicIp LIKE ? OR localIp LIKE ?" : "";
     const params = search ? [`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`] : [];
 
-    const totalRow = await env.DB.prepare(`SELECT COUNT(*) AS c FROM sessions ${where}`).bind(...params).first();
-    const rows = await env.DB.prepare(`
+    // Read replica: a browsed list is the one place seconds of lag costs nothing,
+    // and this pair is the heaviest scan in the app (COUNT + sorted page).
+    const db = readDb(env);
+    const totalRow = await withD1Retry(() => db.prepare(`SELECT COUNT(*) AS c FROM sessions ${where}`).bind(...params).first());
+    const rows = await withD1Retry(() => db.prepare(`
       SELECT machineId, apiKey, shortId, tunnelUrl, publicIp, localIp, createdAt, lastAccessAt, expiresAt
       FROM sessions ${where}
       ORDER BY ${sortBy} ${order.toUpperCase()}
       LIMIT ? OFFSET ?
-    `).bind(...params, pageSize, offset).all();
+    `).bind(...params, pageSize, offset).all());
 
     return jsonOk({ items: rows.results || [], total: totalRow?.c || 0, page, pageSize });
   } catch (e) {

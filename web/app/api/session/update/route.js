@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { verifyApiKeyCrc } from "@/shared/utils/apiKey";
+import { withD1Retry, invalidateCache, cacheKeys } from "@/shared/utils/db";
 import { jsonOk, jsonError, optionsResponse } from "@/shared/utils/apiResponse";
 
 
@@ -13,10 +14,14 @@ export async function POST(request) {
     if (!(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
     const publicIp = request.headers.get("CF-Connecting-IP") || null;
 
-    await env.DB.prepare(`
+    await withD1Retry(() => env.DB.prepare(`
       UPDATE sessions SET tunnelUrl = ?, publicIp = ?, localIp = ?, lastAccessAt = datetime('now')
       WHERE apiKey = ?
-    `).bind(tunnelUrl, publicIp, localIp || null, apiKey).run();
+    `).bind(tunnelUrl, publicIp, localIp || null, apiKey).run());
+
+    // cloudflared restarts hand out a new trycloudflare URL — a stale cached one
+    // would point every client at a dead tunnel for the rest of the TTL.
+    invalidateCache(cacheKeys.tunnel(apiKey));
 
     return jsonOk({ success: true });
   } catch (e) {
