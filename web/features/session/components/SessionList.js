@@ -39,6 +39,20 @@ export default function SessionList({
   const [terminalModal, setTerminalModal] = useState(null); // { workspaceId }
   const [sitesOpen, setSitesOpen] = useState(false);
 
+  // Mod+Alt+T opens the new-terminal modal on the ungrouped workspace
+  // (browser reserves bare Mod+T)
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        setTerminalModal({ workspaceId: null });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isActive]);
+
   useEffect(() => {
     if (!isActive) return;
     setContext({
@@ -247,11 +261,12 @@ export default function SessionList({
       {terminalModal && (
         <NewTerminalModal
           onClose={() => setTerminalModal(null)}
-          onCreate={(name, shellId) => {
-            onCreate?.(name, terminalModal.workspaceId, shellId);
+          onCreate={(name, shellId, agent, yolo) => {
+            onCreate?.(name, terminalModal.workspaceId, shellId, null, agent, yolo);
             setTerminalModal(null);
           }}
           shells={shells}
+          socketRef={socketRef}
           suggestName={`${t("terminal.defaultName")} ${sessionsIn(terminalModal.workspaceId).length + 1}`}
         />
       )}
