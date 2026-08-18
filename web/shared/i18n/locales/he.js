@@ -164,7 +164,8 @@ export default {
     deleteTitle: "מחק הפעלה",
     deleteMessage: "האם אתה בטוח שברצונך למחוק \"{name}\"?",
     editName: "ערוך שם",
-    newTerminal: "טרמינל חדש"
+    newTerminal: "טרמינל חדש",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -247,8 +248,11 @@ export default {
     discard: "בטל",
     discardTitle: "בטל שינויים",
     discardMessage: "יש לך שינויים לא שמורים. לבטל אותם?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "טעינת הקובץ נכשלה: {error}",
     failedSave: "השמירה נכשלה: {error}",
+    openFull: "Open in full editor",
     readOnly: "קריאה בלבד",
     line: "שורה",
     column: "עמודה",

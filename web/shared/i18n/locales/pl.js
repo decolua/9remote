@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Usuń sesję",
     deleteMessage: "Czy na pewno chcesz usunąć \"{name}\"?",
     editName: "Edytuj nazwę",
-    newTerminal: "Nowy terminal"
+    newTerminal: "Nowy terminal",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Odrzuć",
     discardTitle: "Odrzuć zmiany",
     discardMessage: "Masz niezapisane zmiany. Odrzucić je?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Nie udało się załadować pliku: {error}",
     failedSave: "Nie udało się zapisać: {error}",
+    openFull: "Open in full editor",
     readOnly: "Tylko do odczytu",
     line: "Wiersz",
     column: "Kolumna",

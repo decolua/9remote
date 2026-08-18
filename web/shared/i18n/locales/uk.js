@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Видалити сесію",
     deleteMessage: "Ви впевнені, що хочете видалити \"{name}\"?",
     editName: "Редагувати назву",
-    newTerminal: "Новий термінал"
+    newTerminal: "Новий термінал",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Відхилити",
     discardTitle: "Відхилити зміни",
     discardMessage: "У вас є незбережені зміни. Відхилити їх?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Не вдалося завантажити файл: {error}",
     failedSave: "Не вдалося зберегти: {error}",
+    openFull: "Open in full editor",
     readOnly: "Лише для читання",
     line: "Рядок",
     column: "Стовпець",

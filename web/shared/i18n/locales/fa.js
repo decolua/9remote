@@ -164,7 +164,8 @@ export default {
     deleteTitle: "حذف نشست",
     deleteMessage: "آیا مطمئن هستید که می‌خواهید \"{name}\" را حذف کنید؟",
     editName: "ویرایش نام",
-    newTerminal: "ترمینال جدید"
+    newTerminal: "ترمینال جدید",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -247,8 +248,11 @@ export default {
     discard: "صرف‌نظر",
     discardTitle: "صرف‌نظر از تغییرات",
     discardMessage: "تغییرات ذخیره‌نشده دارید. آیا صرف‌نظر می‌کنید؟",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "بارگذاری فایل ناموفق بود: {error}",
     failedSave: "ذخیره ناموفق بود: {error}",
+    openFull: "Open in full editor",
     readOnly: "فقط خواندنی",
     line: "خط",
     column: "ستون",

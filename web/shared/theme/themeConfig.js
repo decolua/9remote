@@ -124,8 +124,8 @@ const TERMINAL_TOKENS = {
   palenight: {
     bg: "#292D3E", surface0: "#313553", surface1: "#3A3F5F", surfaceDim: "#1F2233",
     overlay0: "#676E95", text: "#D0D0D0", subtext0: "#A0A0C0",
-    red: "#E05252", green: "#4EC9A0", yellow: "#FFCB6B", blue: "#56B6C2",
-    mauve: "#C792EA", teal: "#56B6C2", peach: "#FFCB6B", accent: "#82AAFF",
+    red: "#E05252", green: "#2BE8A8", yellow: "#FFCB6B", blue: "#3FD0E0",
+    mauve: "#C792EA", teal: "#3FD0E0", peach: "#FFCB6B", accent: "#82AAFF",
   },
   nordDark: {
     bg: "#2E3440", surface0: "#3B4252", surface1: "#434C5E", surfaceDim: "#232831",

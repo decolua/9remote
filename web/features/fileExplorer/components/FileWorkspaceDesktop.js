@@ -49,6 +49,8 @@ export default function FileWorkspaceDesktop({
   const [bottomVisible, setBottomVisible] = usePersistedState(STORAGE_KEYS.bottomPanelVisible, false);
   const [bottomHeight, setBottomHeight] = usePersistedState(STORAGE_KEYS.bottomPanelHeight, BOTTOM_PANEL_DEFAULT_HEIGHT);
   const containerRef = useRef(null);
+  // Width animates on open/close but must track the pointer 1:1 while dragging.
+  const [resizing, setResizing] = useState(false);
 
   // Drag-resize sidebar (percentage of container)
   const startResize = useCallback((e) => {
@@ -56,6 +58,7 @@ export default function FileWorkspaceDesktop({
     const container = containerRef.current;
     if (!container) return;
     const rect = container.getBoundingClientRect();
+    setResizing(true);
     const onMove = (ev) => {
       const pct = ((ev.clientX - rect.left) / rect.width) * 100;
       const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, pct));
@@ -66,6 +69,7 @@ export default function FileWorkspaceDesktop({
       window.removeEventListener("mouseup", onUp);
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
+      setResizing(false);
     };
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
@@ -162,24 +166,26 @@ export default function FileWorkspaceDesktop({
         />
 
         <div ref={containerRef} className="flex-1 min-w-0 min-h-0 flex relative">
-          {sidebarVisible && (
-            <>
-              <div className="bg-surface flex-shrink-0 overflow-hidden min-h-0 flex flex-col" style={{ width: `${sidebarWidth}%` }}>
-                <SidebarPanel
-                  activePanel={activePanel}
-                  workspace={workspace}
-                  fileSocket={fileSocket}
-                  onOpenFile={handleOpenFile}
-                  onSwitchWorkspace={onSwitchWorkspace}
-                  activeFile={activeFile}
-                />
-              </div>
-              <div
-                onMouseDown={startResize}
-                className="w-1 cursor-col-resize bg-border hover:bg-brand-500/50 transition-colors flex-shrink-0"
-              />
-            </>
-          )}
+          {/* Collapsing by width (rather than unmounting) keeps the panel's scroll position
+              and lets the editor slide over instead of snapping. */}
+          <div
+            className={`bg-surface flex-shrink-0 overflow-hidden min-h-0 flex flex-col ${resizing ? "" : "transition-[width] duration-200 ease-out"}`}
+            style={{ width: sidebarVisible ? `${sidebarWidth}%` : 0 }}
+            aria-hidden={!sidebarVisible}
+          >
+            <SidebarPanel
+              activePanel={activePanel}
+              workspace={workspace}
+              fileSocket={fileSocket}
+              onOpenFile={handleOpenFile}
+              onSwitchWorkspace={onSwitchWorkspace}
+              activeFile={activeFile}
+            />
+          </div>
+          <div
+            onMouseDown={startResize}
+            className={`cursor-col-resize bg-border hover:bg-brand-500/50 flex-shrink-0 ${resizing ? "" : "transition-[width,background-color] duration-200 ease-out"} ${sidebarVisible ? "w-1" : "w-0"}`}
+          />
           <div className="flex-1 min-w-0 min-h-0 flex flex-col">
             <EditorArea
               workspace={workspace}

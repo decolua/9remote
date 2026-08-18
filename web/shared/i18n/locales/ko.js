@@ -165,7 +165,8 @@ export default {
     deleteTitle: "세션 삭제",
     deleteMessage: "정말로 \"{name}\"을(를) 삭제하시겠습니까?",
     editName: "이름 편집",
-    newTerminal: "새 터미널"
+    newTerminal: "새 터미널",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "취소",
     discardTitle: "변경사항 취소",
     discardMessage: "저장되지 않은 변경사항이 있습니다. 취소하시겠습니까?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "파일 로드 실패: {error}",
     failedSave: "저장 실패: {error}",
+    openFull: "Open in full editor",
     readOnly: "읽기 전용",
     line: "행",
     column: "열",

@@ -165,7 +165,8 @@ export default {
     deleteTitle: "セッションを削除",
     deleteMessage: "\"{name}\" を削除してもよろしいですか？",
     editName: "名前を編集",
-    newTerminal: "新しいターミナル"
+    newTerminal: "新しいターミナル",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "破棄",
     discardTitle: "変更を破棄",
     discardMessage: "未保存の変更があります。破棄しますか？",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "ファイルの読み込みに失敗しました: {error}",
     failedSave: "保存に失敗しました: {error}",
+    openFull: "Open in full editor",
     readOnly: "読み取り専用",
     line: "行",
     column: "列",

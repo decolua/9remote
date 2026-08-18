@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Удалить сессию",
     deleteMessage: "Вы уверены, что хотите удалить \"{name}\"?",
     editName: "Изменить имя",
-    newTerminal: "Новый терминал"
+    newTerminal: "Новый терминал",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Отменить",
     discardTitle: "Отменить изменения",
     discardMessage: "У вас есть несохранённые изменения. Отменить их?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Не удалось загрузить файл: {error}",
     failedSave: "Не удалось сохранить: {error}",
+    openFull: "Open in full editor",
     readOnly: "Только чтение",
     line: "Строка",
     column: "Столбец",

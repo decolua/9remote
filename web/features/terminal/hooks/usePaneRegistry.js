@@ -66,6 +66,7 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
     handlePasteFallback,
     handleInputFocusChange,
     focusPane,
-    focusKeyboardInput
+    focusKeyboardInput,
+    scrollPaneIntoView
   };
 }

@@ -49,6 +49,9 @@ new_sqlite_classes = ["SignalingDO"]
 [triggers]
 crons = ["0 * * * *"]
 
+[observability]
+enabled = true
+
 [assets]
 directory = ".open-next/assets"
 

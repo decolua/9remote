@@ -8,6 +8,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { relativeTo, basename } from "@/features/fileExplorer/lib/pathUtils";
+import { isDiffPath, parseRepoDiffPath } from "../constants/fileExplorer.js";
 import { useFileTreeState } from "@/features/fileExplorer/hooks/useFileTreeState";
 import { useFileOperations } from "@/features/fileExplorer/hooks/useFileOperations";
 import ExplorerRow, { TruncatedNote, indentFor } from "./ExplorerRow";
@@ -22,7 +23,9 @@ export default function ExplorerPanel({
   activeFile,
   onSwitchWorkspace,
   onNewTerminal,
-  compact = false
+  compact = false,
+  onlyChanged = false,
+  onActions
 }) {
   const { t } = useI18n();
   const [contextMenu, setContextMenu] = useState(null);
@@ -47,7 +50,7 @@ export default function ExplorerPanel({
   const {
     tree, expanded, loading, truncatedDirs, gitStatusMap,
     showHidden, setShowHidden,
-    loadDir, loadGitStatus, toggleFolder, expandDir, refreshAll
+    loadDir, loadGitStatus, toggleFolder, expandDir, collapseAll, refreshAll
   } = useFileTreeState({ workspace, fileSocket });
 
   const { createItem, renameItem, deleteItem, duplicateItem, moveTo } = useFileOperations({
@@ -181,7 +184,24 @@ export default function ExplorerPanel({
     try { return JSON.parse(data); } catch { return null; }
   };
 
+  // The Git tab's tab id is virtual; resolve it once so both the highlight and the
+  // reveal below compare against a path a row actually carries.
+  const activePath = useMemo(() => {
+    if (!activeFile) return null;
+    if (!isDiffPath(activeFile)) return activeFile;
+    const { repoPath, filePath } = parseRepoDiffPath(activeFile);
+    return filePath ? `${repoPath || workspace}/${filePath}` : null;
+  }, [activeFile, workspace]);
+
+  // A folder survives the filter when anything inside it changed — buildGitStatusMap
+  // already marks ancestors as "folder-changed" for exactly this reason.
+  const passesChangedFilter = (file) => {
+    if (!onlyChanged) return true;
+    return !!gitStatusMap[getRelative(file.path)];
+  };
+
   const renderRow = (file, depth) => {
+    if (!passesChangedFilter(file)) return null;
     const isFolder = file.type === "folder";
     const isExpanded = isFolder && expanded.has(file.path);
     const isSelected = selectedPaths.has(file.path);
@@ -194,7 +214,7 @@ export default function ExplorerPanel({
         isFolder={isFolder}
         isExpanded={isExpanded}
         isLoading={isFolder && loading.has(file.path)}
-        isActive={activeFile === file.path}
+        isActive={activePath === file.path}
         isSelected={isSelected}
         isRenaming={renameTarget?.path === file.path}
         isDragOver={dragOverPath === file.path && isFolder}
@@ -228,8 +248,6 @@ export default function ExplorerPanel({
           const paths = readDragPaths(e);
           if (paths) moveTo(paths, file.path);
         }}
-        onNewTerminal={onNewTerminal ? (f) => onNewTerminal(f.path) : null}
-        newTerminalLabel={t("workspaces.openHere")}
         compact={compact}
       >
         {isFolder && isExpanded && (
@@ -243,6 +261,44 @@ export default function ExplorerPanel({
   };
 
   const rootFiles = useMemo(() => tree.get(workspace) || [], [tree, workspace]);
+
+  // Turning the filter on reveals the folders holding changes: load their children (a
+  // folder never opened has none cached) and mark them expanded. Expanding for real,
+  // rather than forcing isExpanded, keeps the chevron working — the user can still fold
+  // a branch away while the filter is on.
+  useEffect(() => {
+    if (!onlyChanged) return;
+    let alive = true;
+    (async () => {
+      for (const relPath of Object.keys(gitStatusMap)) {
+        if (gitStatusMap[relPath] !== "folder-changed") continue;
+        const abs = `${workspace}/${relPath}`;
+        if (!tree.has(abs)) {
+          await loadDir(abs);
+          if (!alive) return;
+        }
+        expandDir(abs);
+      }
+    })();
+    return () => { alive = false; };
+  // gitStatusMap is the trigger; tree is read but must not re-run this on every load.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onlyChanged, gitStatusMap, workspace]);
+
+  // Scroll the open file into view when it changes elsewhere (a tab switch, a git-diff
+  // click) — otherwise the tree keeps showing wherever the user last scrolled to.
+  const treeRef = useRef(null);
+  useEffect(() => {
+    if (!activePath || !treeRef.current) return;
+    // Deferred a tick so the row exists when a newly-expanded folder brought it in. A
+    // file outside this root simply finds no row and nothing scrolls.
+    const id = setTimeout(() => {
+      const row = treeRef.current?.querySelector(`[data-path="${CSS.escape(activePath)}"]`);
+      row?.scrollIntoView({ block: "nearest" });
+    }, 0);
+    return () => clearTimeout(id);
+  }, [activePath, tree]);
+
   const workspaceName = useMemo(() => basename(workspace), [workspace]);
 
   const openNewItemModal = (type, dir) => {
@@ -251,17 +307,35 @@ export default function ExplorerPanel({
     setNewItemValue("");
   };
 
+  // Hand the tree's own actions to a host that draws its own header, so a docked panel
+  // has one strip of buttons rather than two.
+  useEffect(() => {
+    if (!onActions) return;
+    onActions({
+      newFile: () => openNewItemModal("file", getNewItemTargetDir()),
+      newFolder: () => openNewItemModal("folder", getNewItemTargetDir()),
+      refresh: refreshAll,
+      collapseAll,
+      hasExpanded: expanded.size > 0,
+      showHidden,
+      toggleHidden: () => setShowHidden((v) => !v)
+    });
+    return () => onActions(null);
+  // openNewItemModal/getNewItemTargetDir are recreated per render; the deps that matter
+  // are the ones that change what the actions do.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onActions, showHidden, refreshAll, collapseAll, expanded.size, workspace]);
+
   // Context menu items based on file type
   const buildMenuItems = (file) => {
     if (!file) return [];
     const isFolder = file.type === "folder";
     const items = [];
     if (isFolder) {
-      // In-app terminal rooted here; "Open in Terminal" below hands off to the host's own app.
+      // In-app terminal rooted here — the only terminal entry point from the tree.
       if (onNewTerminal) {
         items.push({ label: t("workspaces.openHere"), icon: "Terminal", action: () => onNewTerminal(file.path) });
       }
-      items.push({ label: "Open in Terminal", icon: "Terminal", action: () => fileSocket.openInTerminal(file.path) });
       items.push({ label: "New File", icon: "Plus", action: () => openNewItemModal("file", file.path) });
       items.push({ label: "New Folder", icon: "FolderOpen", action: () => openNewItemModal("folder", file.path) });
     } else {
@@ -283,15 +357,18 @@ export default function ExplorerPanel({
   const headerBtn = "text-text-muted hover:text-text p-1 rounded hover:bg-surface-2";
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-bg text-text overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 text-text overflow-hidden">
       {/* Header. Docked beside a terminal the panel already has a tab bar above, so this
           row drops the workspace name (the tab bar and root header already say it) and
           keeps only the actions — they are the sole way to create a file at the root. */}
-      <div
-        style={{ height: PANEL_HEADER_HEIGHT }}
-        className={`bg-surface border-b border-border flex items-center gap-2 sticky top-0 z-10 flex-shrink-0 ${compact ? "px-1 justify-end" : "px-3"}`}
-      >
-        {!compact && (
+      {/* Docked beside a terminal the panel supplies its own tab bar with these very
+          actions, so drawing a second strip here would mean two refresh buttons one row
+          apart. The host asks for them through onActions instead. */}
+      {!compact && (
+        <div
+          style={{ height: PANEL_HEADER_HEIGHT }}
+          className="bg-surface border-b border-border flex items-center gap-2 sticky top-0 z-10 flex-shrink-0 px-3"
+        >
           <button
             onClick={() => { vibrate(); onSwitchWorkspace?.(); }}
             className="flex items-center gap-1 flex-1 min-w-0 hover:text-text"
@@ -301,27 +378,33 @@ export default function ExplorerPanel({
             </span>
             <Icon name="ChevronDown" size={12} className="text-text-muted shrink-0" />
           </button>
-        )}
-        <button onClick={() => openNewItemModal("file", getNewItemTargetDir())} className={headerBtn} title="New File">
-          <Icon name="Plus" size={14} />
-        </button>
-        <button onClick={() => openNewItemModal("folder", getNewItemTargetDir())} className={headerBtn} title="New Folder">
-          <Icon name="FolderOpen" size={14} />
-        </button>
-        <button onClick={refreshAll} className={headerBtn} title="Refresh">
-          <Icon name="RefreshCw" size={14} />
-        </button>
-        <button
-          onClick={() => setShowHidden((v) => !v)}
-          className={`p-1 rounded hover:bg-surface-2 ${showHidden ? "text-text" : "text-text-muted hover:text-text"}`}
-          title={showHidden ? "Hide hidden files" : "Show hidden files"}
-        >
-          <Icon name={showHidden ? "Eye" : "EyeOff"} size={14} />
-        </button>
-      </div>
+          <button onClick={() => openNewItemModal("file", getNewItemTargetDir())} className={headerBtn} title="New File">
+            <Icon name="Plus" size={14} />
+          </button>
+          <button onClick={() => openNewItemModal("folder", getNewItemTargetDir())} className={headerBtn} title="New Folder">
+            <Icon name="FolderOpen" size={14} />
+          </button>
+          <button onClick={refreshAll} className={headerBtn} title="Refresh">
+            <Icon name="RefreshCw" size={14} />
+          </button>
+          {expanded.size > 0 && (
+            <button onClick={collapseAll} className={headerBtn} title={t("fileExplorer.collapseAll")}>
+              <Icon name="ChevronsDownUp" size={14} />
+            </button>
+          )}
+          <button
+            onClick={() => setShowHidden((v) => !v)}
+            className={`p-1 rounded hover:bg-surface-2 ${showHidden ? "text-text" : "text-text-muted hover:text-text"}`}
+            title={showHidden ? "Hide hidden files" : "Show hidden files"}
+          >
+            <Icon name={showHidden ? "Eye" : "EyeOff"} size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Tree */}
       <div
+        ref={treeRef}
         className="flex-1 overflow-auto py-1"
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
         onDrop={(e) => {
@@ -330,7 +413,9 @@ export default function ExplorerPanel({
           if (paths) moveTo(paths, workspace);
         }}
       >
-        {rootFiles.length === 0 && !loading.has(workspace) ? (
+        {onlyChanged && !rootFiles.some(passesChangedFilter) ? (
+          <div className="text-text-subtle text-xs px-3 py-4 text-center">{t("git.noChanges")}</div>
+        ) : rootFiles.length === 0 && !loading.has(workspace) ? (
           <div className="text-text-subtle text-xs px-3 py-4 text-center">Empty workspace</div>
         ) : (
           <>

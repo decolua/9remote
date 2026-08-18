@@ -9,21 +9,35 @@ import { vibrate } from "@/shared/utils/vibration";
 // expanded (persisted), which are still loading or truncated, plus git badges.
 // Extracted verbatim from ExplorerPanel.
 
-// Read persisted expanded set
-function loadExpanded() {
-  if (typeof window === "undefined") return [];
+// Expanded folders are stored per workspace: one shared list meant opening a second
+// workspace overwrote the first one's, so going back always found the tree collapsed.
+function readExpandedStore() {
+  if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(STORAGE_KEYS.expandedFolders);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : {};
+    // Migrate the old flat array: it belonged to whichever workspace was last open, and
+    // the startsWith filter below drops the paths that do not fit the current one.
+    return Array.isArray(parsed) ? { legacy: parsed } : parsed;
   } catch {
-    return [];
+    return {};
   }
 }
 
-function saveExpanded(set) {
-  if (typeof window === "undefined") return;
+function loadExpanded(workspace) {
+  const store = readExpandedStore();
+  const own = store[workspace];
+  if (Array.isArray(own)) return own;
+  return Array.isArray(store.legacy) ? store.legacy : [];
+}
+
+function saveExpanded(workspace, set) {
+  if (typeof window === "undefined" || !workspace) return;
   try {
-    window.localStorage.setItem(STORAGE_KEYS.expandedFolders, JSON.stringify([...set]));
+    const store = readExpandedStore();
+    delete store.legacy;
+    store[workspace] = [...set];
+    window.localStorage.setItem(STORAGE_KEYS.expandedFolders, JSON.stringify(store));
   } catch {}
 }
 
@@ -41,6 +55,8 @@ function readShowHidden() {
 export function useFileTreeState({ workspace, fileSocket }) {
   const [tree, setTree] = useState(() => new Map());
   const [expanded, setExpanded] = useState(() => new Set());
+  // Which workspace `expanded` currently describes — see the persist effect below.
+  const [expandedFor, setExpandedFor] = useState(null);
   const [loading, setLoading] = useState(() => new Set());
   const [truncatedDirs, setTruncatedDirs] = useState(() => new Set());
   const [gitStatusMap, setGitStatusMap] = useState({});
@@ -92,7 +108,7 @@ export function useFileTreeState({ workspace, fileSocket }) {
     if (!workspace) return;
     let alive = true;
     (async () => {
-      const persisted = loadExpanded();
+      const persisted = loadExpanded(workspace);
       const restored = new Set([workspace]);
       await loadDir(workspace);
       // Restore previously-expanded folders that are subpaths of workspace
@@ -105,6 +121,7 @@ export function useFileTreeState({ workspace, fileSocket }) {
       }
       if (!alive) return;
       setExpanded(restored);
+      setExpandedFor(workspace);
       loadGitStatus();
     })();
     return () => {
@@ -122,10 +139,13 @@ export function useFileTreeState({ workspace, fileSocket }) {
     return () => events.forEach(ev => window.removeEventListener(ev, handler));
   }, [loadGitStatus]);
 
-  // Persist expanded
+  // Persist expanded. Keyed by the workspace the set was built for, not the current one:
+  // on a workspace switch this effect runs before the restore above has replaced the set,
+  // and writing it unkeyed would stamp the old workspace's folders onto the new one.
   useEffect(() => {
-    saveExpanded(expanded);
-  }, [expanded]);
+    if (expandedFor !== workspace) return;
+    saveExpanded(workspace, expanded);
+  }, [workspace, expandedFor, expanded]);
 
   // Persist + reload cached dirs when toggle hidden files
   useEffect(() => {
@@ -169,6 +189,11 @@ export function useFileTreeState({ workspace, fileSocket }) {
     });
   }, []);
 
+  const collapseAll = useCallback(() => {
+    vibrate();
+    setExpanded(new Set());
+  }, []);
+
   const refreshAll = useCallback(async () => {
     vibrate();
     const dirs = [...tree.keys()];
@@ -179,6 +204,6 @@ export function useFileTreeState({ workspace, fileSocket }) {
   return {
     tree, expanded, loading, truncatedDirs, gitStatusMap,
     showHidden, setShowHidden,
-    loadDir, loadGitStatus, toggleFolder, expandDir, refreshAll
+    loadDir, loadGitStatus, toggleFolder, expandDir, collapseAll, refreshAll
   };
 }

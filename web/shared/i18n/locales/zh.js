@@ -165,7 +165,8 @@ export default {
     deleteTitle: "删除会话",
     deleteMessage: "您确定要删除 \"{name}\" 吗？",
     editName: "编辑名称",
-    newTerminal: "新建终端"
+    newTerminal: "新建终端",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "放弃",
     discardTitle: "放弃更改",
     discardMessage: "您有未保存的更改。要放弃吗？",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "加载文件失败：{error}",
     failedSave: "保存失败：{error}",
+    openFull: "Open in full editor",
     readOnly: "只读",
     line: "行",
     column: "列",

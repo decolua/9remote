@@ -26,7 +26,13 @@ export function useWorkspaceFileNav({
     pushView({ type: "workspaces" });
   }, [pushView, fileSocket, systemInfo]);
 
-  const handleOpenFiles = useCallback(async () => {
+  const handleOpenFiles = useCallback(async (prefWorkspace) => {
+    // Explicit workspace (side panel's "open full") wins over the terminal's cwd
+    if (prefWorkspace) {
+      addRecentWorkspace(prefWorkspace);
+      pushView({ type: "files", workspace: prefWorkspace, currentPath: prefWorkspace });
+      return;
+    }
     // From terminal: open the explorer at the active terminal's cwd
     if (currentView.type === "terminal") {
       const cwd = currentView.sessionId ? cwdBySession[currentView.sessionId] : null;

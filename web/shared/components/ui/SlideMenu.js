@@ -164,6 +164,7 @@ export default function SlideMenu() {
       <>
         <SitesList
           tunnelUrl={context.tunnelUrl}
+          socketRef={context.socketRef}
           apiKey={context.apiKey}
           isOpen={sitesModalOpen}
           onClose={handleCloseSitesModal}
@@ -310,6 +311,7 @@ export default function SlideMenu() {
 
       <SitesList
         tunnelUrl={context.tunnelUrl}
+        socketRef={context.socketRef}
         apiKey={context.apiKey}
         isOpen={sitesModalOpen}
         onClose={handleCloseSitesModal}

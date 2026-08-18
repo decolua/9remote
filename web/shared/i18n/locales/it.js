@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Elimina Sessione",
     deleteMessage: "Sei sicuro di voler eliminare \"{name}\"?",
     editName: "Modifica nome",
-    newTerminal: "Nuovo terminale"
+    newTerminal: "Nuovo terminale",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Scarta",
     discardTitle: "Scarta Modifiche",
     discardMessage: "Hai modifiche non salvate. Scartarle?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Caricamento file fallito: {error}",
     failedSave: "Salvataggio fallito: {error}",
+    openFull: "Open in full editor",
     readOnly: "Sola lettura",
     line: "Riga",
     column: "Colonna",

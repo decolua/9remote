@@ -87,8 +87,10 @@ export class SignalingClient {
       try { msg = JSON.parse(e.data); } catch { return; }
       this._handler?.({ type: msg.type, from: msg.from, ...msg.payload });
     });
-    ws.addEventListener("close", () => this._onClose());
-    ws.addEventListener("error", () => this._onClose());
+    // Guard: failed connects fire error+close both — only one may drive reconnect,
+    // else every failure doubles the retry timers (exponential storm).
+    ws.addEventListener("close", () => { if (this._ws === ws) this._onClose(); });
+    ws.addEventListener("error", () => { if (this._ws === ws) this._onClose(); });
   }
 
   _onClose() {
@@ -109,7 +111,8 @@ export class SignalingClient {
   _scheduleReconnect() {
     if (this._closed) return;
     this._attempt++;
-    const delay = Math.min(RECONNECT_BASE_MS * 2 ** (this._attempt - 1), RECONNECT_MAX_MS);
+    // Jitter de-syncs a fleet of agents retrying after the same outage (thundering herd)
+    const delay = Math.min(RECONNECT_BASE_MS * 2 ** (this._attempt - 1), RECONNECT_MAX_MS) + Math.random() * RECONNECT_BASE_MS;
     logger.debug(`${this._role} reconnect in ${delay}ms (attempt ${this._attempt})`);
     this._reconnectTimer = setTimeout(() => { if (!this._closed) this._open(); }, delay);
   }

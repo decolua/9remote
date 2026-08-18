@@ -26,18 +26,17 @@ export async function POST(request) {
 
     await env.DB.prepare(`DELETE FROM temp_keys WHERE api_key = ?`).bind(apiKey).run();
 
+    const now = Date.now();
+    const expiresAt = now + expiryMinutes * 60 * 1000;
     let tempKey;
     for (let i = 0; i < 10; i++) {
       tempKey = generateTempKey();
-      const existing = await env.DB.prepare(`SELECT temp_key FROM temp_keys WHERE temp_key = ?`).bind(tempKey).first();
-      if (!existing) break;
+      // PK collision → changes = 0 → try another key (single query per attempt)
+      const res = await env.DB.prepare(
+        `INSERT OR IGNORE INTO temp_keys (temp_key, api_key, expires_at, created_at) VALUES (?, ?, ?, ?)`
+      ).bind(tempKey, apiKey, expiresAt, now).run();
+      if (res.meta.changes > 0) break;
     }
-
-    const now = Date.now();
-    const expiresAt = now + expiryMinutes * 60 * 1000;
-
-    await env.DB.prepare(`INSERT INTO temp_keys (temp_key, api_key, expires_at, created_at) VALUES (?, ?, ?, ?)`)
-      .bind(tempKey, apiKey, expiresAt, now).run();
 
     return jsonOk({ tempKey, expiresAt, expiryMinutes });
   } catch (e) {

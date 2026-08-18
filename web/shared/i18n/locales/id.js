@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Hapus Sesi",
     deleteMessage: "Apakah Anda yakin ingin menghapus \"{name}\"?",
     editName: "Ubah nama",
-    newTerminal: "Terminal baru"
+    newTerminal: "Terminal baru",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Buang",
     discardTitle: "Buang Perubahan",
     discardMessage: "Anda memiliki perubahan yang belum disimpan. Buang?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Gagal memuat berkas: {error}",
     failedSave: "Gagal menyimpan: {error}",
+    openFull: "Open in full editor",
     readOnly: "Hanya baca",
     line: "Baris",
     column: "Kolom",

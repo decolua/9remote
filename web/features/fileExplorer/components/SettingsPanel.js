@@ -6,7 +6,6 @@ import {
   EDITOR_FONT_DEFAULT,
   EDITOR_FONT_MIN,
   EDITOR_FONT_MAX,
-  AUTO_SAVE_MODES
 } from "../constants/fileExplorer.js";
 import { usePersistedState } from "@/shared/hooks/usePersistedState";
 
@@ -32,7 +31,6 @@ function Toggle({ value, onChange }) {
 export default function SettingsPanel() {
   const [fontSize, setFontSize] = usePersistedState(STORAGE_KEYS.editorFontSize, EDITOR_FONT_DEFAULT);
   const [wordWrap, setWordWrap] = usePersistedState(STORAGE_KEYS.wordWrap, false);
-  const [autoSave, setAutoSave] = usePersistedState(STORAGE_KEYS.autoSaveMode, AUTO_SAVE_MODES.off);
   const [showHidden, setShowHidden] = usePersistedState(SHOW_HIDDEN_KEY, true);
 
   // Clamp font-size to allowed range
@@ -70,19 +68,6 @@ export default function SettingsPanel() {
       <div className={ROW_CLS}>
         <span className="text-xs text-text">Word Wrap</span>
         <Toggle value={wordWrap} onChange={setWordWrap} />
-      </div>
-
-      <div className={ROW_CLS}>
-        <span className="text-xs text-text">Auto Save</span>
-        <select
-          value={autoSave}
-          onChange={(e) => { vibrate(); setAutoSave(e.target.value); }}
-          className="bg-surface-2 border border-border rounded-brand px-2 h-7 text-xs text-text focus:outline-none focus:border-brand-500"
-        >
-          <option value={AUTO_SAVE_MODES.off}>Off</option>
-          <option value={AUTO_SAVE_MODES.afterDelay}>After Delay</option>
-          <option value={AUTO_SAVE_MODES.onFocusChange}>On Focus Change</option>
-        </select>
       </div>
 
       <div className={SECTION_CLS}>Files</div>

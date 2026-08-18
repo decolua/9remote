@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Sitzung löschen",
     deleteMessage: "Möchten Sie \"{name}\" wirklich löschen?",
     editName: "Namen bearbeiten",
-    newTerminal: "Neues Terminal"
+    newTerminal: "Neues Terminal",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Verwerfen",
     discardTitle: "Änderungen verwerfen",
     discardMessage: "Sie haben ungespeicherte Änderungen. Verwerfen?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Datei konnte nicht geladen werden: {error}",
     failedSave: "Speichern fehlgeschlagen: {error}",
+    openFull: "Open in full editor",
     readOnly: "Schreibgeschützt",
     line: "Zeile",
     column: "Spalte",

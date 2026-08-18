@@ -25,7 +25,10 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+    >
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"

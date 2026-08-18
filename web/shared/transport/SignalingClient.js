@@ -139,7 +139,8 @@ export class SignalingClient {
   _scheduleReconnect() {
     if (this._closed) return;
     this._attempt++;
-    const delay = Math.min(RECONNECT_BASE_MS * 2 ** (this._attempt - 1), RECONNECT_MAX_MS);
+    // Jitter de-syncs a fleet of clients retrying after the same outage (thundering herd)
+    const delay = Math.min(RECONNECT_BASE_MS * 2 ** (this._attempt - 1), RECONNECT_MAX_MS) + Math.random() * RECONNECT_BASE_MS;
     debugLog("transport", `[sig] ${this._role} reconnect in ${delay}ms (attempt ${this._attempt})`);
     this._reconnectTimer = setTimeout(() => { if (!this._closed) this._open(); }, delay);
   }

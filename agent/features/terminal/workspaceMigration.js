@@ -54,7 +54,7 @@ export function commonAncestor(paths = []) {
 
 // The path a set of sessions should root at: their shared git repo if they agree on one,
 // else the deepest directory they all live under.
-function rootForSessions(sessionList, io) {
+export function rootForSessions(sessionList, io = fs) {
   const cwds = sessionList.map((s) => s?.workspacePath || s?.cwd).filter(Boolean);
   if (!cwds.length) return null;
 
@@ -136,4 +136,59 @@ export function migrateGroupsToWorkspaces(legacy = {}, sessions = new Map(), io 
   const sessionOrder = (legacy.sessionOrder || []).filter((id) => knownSessions.has(id));
 
   return { workspaces: [...byId.values()], sessionWorkspaces, sessionPaths, sessionOrder };
+}
+
+/**
+ * Place sessions that belong to no workspace. Each one joins the workspace whose path is
+ * its own git root; failing that, sessions sharing a directory are pooled into a new
+ * workspace at that directory. A session with nowhere to go is left alone rather than
+ * swept into a catch-all that would mean nothing.
+ *
+ * Runs on every startup, not once: terminals created against an older agent, or moved by
+ * a `cd` before their workspace existed, keep arriving.
+ *
+ * @returns {{assignments: Object, created: Array}} sessionId -> workspaceId, and any new
+ *   workspaces the caller still has to register.
+ */
+export function assignOrphanSessions({ sessions, workspaces, sessionWorkspaces }, io = fs) {
+  const entries = sessions instanceof Map ? [...sessions.entries()] : Object.entries(sessions || {});
+  const orphans = entries.filter(([id]) => !sessionWorkspaces?.[id]);
+  if (!orphans.length) return { assignments: {}, created: [] };
+
+  const byPath = new Map();
+  for (const w of workspaces || []) {
+    if (w?.path) byPath.set(path.resolve(w.path), w.id);
+  }
+
+  const assignments = {};
+  const created = [];
+  const pending = new Map(); // candidate root -> sessionIds waiting on it
+
+  for (const [sessionId, session] of orphans) {
+    const root = rootForSessions([session], io);
+    if (!root) continue;
+    const resolved = path.resolve(root);
+
+    // An existing workspace wins outright; no new one is invented for a path we know.
+    const existing = byPath.get(resolved);
+    if (existing) {
+      assignments[sessionId] = existing;
+      continue;
+    }
+    if (!pending.has(resolved)) pending.set(resolved, []);
+    pending.get(resolved).push({ sessionId, session });
+  }
+
+  for (const [root, members] of pending) {
+    const id = workspaceIdForPath(root);
+    created.push({
+      id,
+      name: workspaceNameFromPath(root),
+      path: root,
+      createdAt: Math.min(...members.map((m) => m.session?.createdAt || Date.now()))
+    });
+    for (const { sessionId } of members) assignments[sessionId] = id;
+  }
+
+  return { assignments, created };
 }

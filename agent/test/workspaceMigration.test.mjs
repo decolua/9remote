@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import {
-  findGitRoot, migrateGroupsToWorkspaces, workspaceIdForPath, workspaceNameFromPath, commonAncestor
+  findGitRoot, migrateGroupsToWorkspaces, workspaceIdForPath, workspaceNameFromPath,
+  commonAncestor, assignOrphanSessions
 } from "../features/terminal/workspaceMigration.js";
 
 let pass = 0, fail = 0;
@@ -219,6 +220,84 @@ test("a session already carrying workspacePath keeps that root", () => {
     io
   );
   assert.equal(r.workspaces[0].path, repo, "an existing pin wins over the live cwd");
+});
+
+// ---- adopting loose terminals ----
+
+test("a loose terminal joins the existing workspace at its git root", () => {
+  const r = assignOrphanSessions({
+    sessions: new Map([["s1", { cwd: path.join(repo, "web") }]]),
+    workspaces: [{ id: "w1", path: repo }],
+    sessionWorkspaces: {}
+  }, io);
+  assert.equal(r.assignments.s1, "w1");
+  assert.deepEqual(r.created, [], "no workspace is invented for a path we already know");
+});
+
+test("loose terminals in the same repo pool into one new workspace", () => {
+  const r = assignOrphanSessions({
+    sessions: new Map([
+      ["s1", { cwd: path.join(repo, "web") }],
+      ["s2", { cwd: path.join(repo, "agent") }]
+    ]),
+    workspaces: [],
+    sessionWorkspaces: {}
+  }, io);
+  assert.equal(r.created.length, 1);
+  assert.equal(r.created[0].path, repo);
+  assert.equal(r.assignments.s1, r.assignments.s2);
+});
+
+test("terminals in unrelated directories do not get lumped together", () => {
+  const bare = fakeIo(new Set());
+  const r = assignOrphanSessions({
+    sessions: new Map([
+      ["s1", { cwd: path.resolve("/a/one") }],
+      ["s2", { cwd: path.resolve("/b/two") }]
+    ]),
+    workspaces: [],
+    sessionWorkspaces: {}
+  }, bare);
+  assert.equal(r.created.length, 2);
+  assert.notEqual(r.assignments.s1, r.assignments.s2);
+});
+
+test("terminals that already have a workspace are left alone", () => {
+  const r = assignOrphanSessions({
+    sessions: new Map([["s1", { cwd: repo }]]),
+    workspaces: [{ id: "w1", path: repo }],
+    sessionWorkspaces: { s1: "w9" }
+  }, io);
+  assert.deepEqual(r.assignments, {}, "an existing assignment is never overridden");
+});
+
+test("a terminal with nowhere to go is left loose rather than swept somewhere", () => {
+  const r = assignOrphanSessions({
+    sessions: new Map([["s1", {}]]),
+    workspaces: [],
+    sessionWorkspaces: {}
+  }, io);
+  assert.deepEqual(r.assignments, {});
+  assert.deepEqual(r.created, []);
+});
+
+test("adoption is idempotent — a second pass finds nothing left to do", () => {
+  const sessions = new Map([["s1", { cwd: path.join(repo, "web") }]]);
+  const first = assignOrphanSessions({ sessions, workspaces: [], sessionWorkspaces: {} }, io);
+  const second = assignOrphanSessions({
+    sessions, workspaces: first.created, sessionWorkspaces: first.assignments
+  }, io);
+  assert.deepEqual(second.assignments, {});
+  assert.deepEqual(second.created, []);
+});
+
+test("a new workspace carries the id its path would migrate to", () => {
+  const r = assignOrphanSessions({
+    sessions: new Map([["s1", { cwd: repo }]]),
+    workspaces: [],
+    sessionWorkspaces: {}
+  }, io);
+  assert.equal(r.created[0].id, workspaceIdForPath(repo), "so migration and adoption agree");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

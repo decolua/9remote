@@ -58,6 +58,7 @@ export default function MenuItems({
   const { theme: appMode } = useTheme();
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const [switchingKey, setSwitchingKey] = useState(null);
   const [switchError, setSwitchError] = useState("");
   const terminalMenuRef = useRef(null);
@@ -393,11 +394,14 @@ export default function MenuItems({
         </button>
         {powerMenuOpen && (
           <div className="bg-surface-2/50 px-3 pb-1.5 space-y-0">
+            {/* The page takes a moment to tear down before it visibly reloads; without
+                the spin the tap looks like it did nothing. */}
             <button
-              onClick={() => { vibrate(); window.location.reload(); }}
-              className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition-all duration-150 ease-out hover:text-brand-500 active:scale-[0.99]"
+              onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
+              disabled={reloading}
+              className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition-all duration-150 ease-out hover:text-brand-500 active:scale-[0.99] disabled:opacity-70"
             >
-              <RefreshCw size={16} className="ml-3" />
+              <RefreshCw size={16} className={`ml-3 ${reloading ? "animate-spin" : ""}`} />
               <span className="text-sm">{t("menu.reload")}</span>
             </button>
             {onRestart && (

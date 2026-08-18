@@ -9,7 +9,7 @@ import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.j
 import { isRemoteReady, setRemoteReadyChangeHandler, getUpdateInfo } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
 import { listSavedBufferSessions, loadSessionMetadata, loadGroups, loadWorkspaces, saveWorkspaces, saveSessionMetadata, saveSessionMetadataRaw } from "./ptyHelper.js";
-import { migrateGroupsToWorkspaces } from "./workspaceMigration.js";
+import { migrateGroupsToWorkspaces, assignOrphanSessions } from "./workspaceMigration.js";
 import { setupSessionHandlers } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
@@ -72,6 +72,30 @@ async function syncDaemonSessions() {
   saveSessionMetadata(sessions);
 }
 
+// Give every workspace-less terminal a home, by the directory it actually runs in. Runs
+// after each session sync, not once at install: terminals made against an older agent,
+// or left over from a deleted workspace, keep turning up.
+function adoptOrphanSessions() {
+  const { assignments, created } = assignOrphanSessions({
+    sessions, workspaces: [...workspaces.values()], sessionWorkspaces
+  });
+  if (!Object.keys(assignments).length) return;
+
+  for (const w of created) workspaces.set(w.id, w);
+  for (const [sessionId, workspaceId] of Object.entries(assignments)) {
+    sessionWorkspaces[sessionId] = workspaceId;
+    const session = sessions.get(sessionId);
+    // Pin it too, so the grouping survives a later `cd`.
+    if (session && !session.workspacePath) session.workspacePath = workspaces.get(workspaceId)?.path || null;
+  }
+  saveWorkspaces(workspaces, sessionWorkspaces, sessionOrder);
+  saveSessionMetadata(sessions);
+  console.log(ORANGE(
+    `📁 Grouped ${Object.keys(assignments).length} loose terminal(s)` +
+    (created.length ? ` into ${created.length} new workspace(s)` : "")
+  ));
+}
+
 // Live sessions with the path each is rooted at. Read by the git handlers so removing a
 // worktree can warn about terminals still running inside it.
 export function listSessionRoots() {
@@ -126,8 +150,9 @@ export async function initializeTerminal() {
       console.error("❌ Failed to connect to PTY daemon, falling back to buffer mode");
     } else {
       await syncDaemonSessions();
+      adoptOrphanSessions();
       // Re-sync when daemon respawns (e.g. version bump) so titles survive and lost PTYs are marked for respawn
-      daemonClient.on("connected", () => { syncDaemonSessions().catch(() => {}); });
+      daemonClient.on("connected", () => { syncDaemonSessions().then(adoptOrphanSessions).catch(() => {}); });
       // Silent connect
       return;
     }
@@ -152,6 +177,7 @@ export async function initializeTerminal() {
     console.log(`🔄 Found saved session: ${sessionId}`);
   }
   if (savedSessions.length > 0) console.log(`✅ Found ${savedSessions.length} saved session(s)`);
+  adoptOrphanSessions();
 }
 
 export function setupTerminalSocket(io, apiKey) {

@@ -165,7 +165,8 @@ export default {
     deleteTitle: "ลบเซสชัน",
     deleteMessage: "คุณแน่ใจหรือไม่ว่าต้องการลบ \"{name}\"?",
     editName: "แก้ไขชื่อ",
-    newTerminal: "เทอร์มินัลใหม่"
+    newTerminal: "เทอร์มินัลใหม่",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "ทิ้ง",
     discardTitle: "ทิ้งการเปลี่ยนแปลง",
     discardMessage: "คุณมีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก ทิ้งหรือไม่?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "โหลดไฟล์ไม่สำเร็จ: {error}",
     failedSave: "บันทึกไม่สำเร็จ: {error}",
+    openFull: "Open in full editor",
     readOnly: "อ่านอย่างเดียว",
     line: "บรรทัด",
     column: "คอลัมน์",

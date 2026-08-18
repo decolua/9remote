@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Eliminar sesión",
     deleteMessage: "¿Seguro que quieres eliminar \"{name}\"?",
     editName: "Editar nombre",
-    newTerminal: "Nuevo terminal"
+    newTerminal: "Nuevo terminal",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Descartar",
     discardTitle: "Descartar cambios",
     discardMessage: "Tienes cambios sin guardar. ¿Descartarlos?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Error al cargar el archivo: {error}",
     failedSave: "Error al guardar: {error}",
+    openFull: "Open in full editor",
     readOnly: "Solo lectura",
     line: "Línea",
     column: "Columna",

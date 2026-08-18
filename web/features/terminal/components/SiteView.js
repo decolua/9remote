@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useI18n } from "@/shared/i18n";
+import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 
 export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
   const { t } = useI18n();
+  const { getAuth } = useSessionStorage();
   const baseUrl = tunnelUrl || (typeof window !== "undefined" ? window.location.origin : "");
   const proxyUrl = `${baseUrl}/proxy/${port}/`;
   const iframeRef = useRef(null);
@@ -27,7 +29,7 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
       try {
         await fetch(`${baseUrl}/api/proxy/start`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${getAuth()?.apiKey}` },
           body: JSON.stringify({ port })
         });
         setSessionReady(true);
@@ -41,11 +43,11 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
     return () => {
       fetch(`${baseUrl}/api/proxy/end`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${getAuth()?.apiKey}` },
         body: JSON.stringify({ port })
       }).catch(() => {});
     };
-  }, [baseUrl, port]);
+  }, [baseUrl, port, getAuth]);
 
   useEffect(() => {
     // Listen for navigation messages from iframe
@@ -130,14 +132,14 @@ export default function SiteView({ port, siteName, onBack, tunnelUrl }) {
         // Call cleanup API
         fetch(`${baseUrl}/api/proxy/end`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${getAuth()?.apiKey}` },
           body: JSON.stringify({ port })
         }).catch((err) => {
           console.error("[SiteView] Cleanup failed:", err);
         });
       }
     }, 1000);
-  }, [proxyUrl, port, baseUrl]);
+  }, [proxyUrl, port, baseUrl, getAuth, t]);
 
   // Cleanup interval on unmount
   useEffect(() => {

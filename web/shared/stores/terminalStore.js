@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH
+  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, PANE_WIDTH
 } from "@/features/terminal/constants/terminalConfig";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
@@ -95,43 +95,37 @@ export const useTerminalStore = create(
 
       // Desktop sidebar collapse (terminal view). Persisted.
       sidebarCollapsed: false,
-      // Toggling by hand takes ownership back from the editor, so closing the editor
-      // later does not undo the user's own choice.
-      toggleSidebar: () => set((state) => ({
-        sidebarCollapsed: !state.sidebarCollapsed,
-        sidebarCollapsedByEditor: false
-      })),
-      setSidebarCollapsed: (v) => set({ sidebarCollapsed: !!v, sidebarCollapsedByEditor: false }),
+      toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+      setSidebarCollapsed: (v) => set({ sidebarCollapsed: !!v }),
 
       // Desktop sidebar width (px). Persisted.
       sidebarWidth: SIDEBAR_WIDTH.default,
       setSidebarWidth: (w) => set({ sidebarWidth: clampWidth(w, SIDEBAR_WIDTH) }),
 
+      // Pane width per workspace (px). null/missing = auto: panes split the row evenly
+      // down to PANE_WIDTH.min; a dragged number pins them all to that fixed width.
+      paneWidths: {},
+      setPaneWidth: (workspaceId, w) => set((state) => ({
+        paneWidths: { ...state.paneWidths, [workspaceId]: w == null ? null : clampWidth(w, PANE_WIDTH) }
+      })),
+
       // Right panel (file tree / git / worktrees). Hidden by default — it costs horizontal
       // space the terminal needs. Persisted.
-      rightPanelOpen: false,
+      rightPanelOpen: true,
       rightPanelTab: "files",
       rightPanelWidth: RIGHT_PANEL_WIDTH.default,
       toggleRightPanel: () => set((state) => ({ rightPanelOpen: !state.rightPanelOpen })),
+      closeRightPanel: () => set({ rightPanelOpen: false }),
       setRightPanelTab: (tab) => set({ rightPanelOpen: true, rightPanelTab: tab }),
       setRightPanelWidth: (w) => set({ rightPanelWidth: clampWidth(w, RIGHT_PANEL_WIDTH) }),
 
-      // Inline editor opened from the tree. Opening it collapses the left sidebar and
-      // remembers whether the user had it open, so closing restores their layout.
+      // Inline editor opened from the tree. A flex sibling of the panes row — panes keep
+      // their width (the row scrolls), so it never collapses the sidebar or resizes PTYs.
       editorFilePath: null,
       editorPanelWidth: EDITOR_PANEL_WIDTH.default,
-      sidebarCollapsedByEditor: false,
       setEditorPanelWidth: (w) => set({ editorPanelWidth: clampWidth(w, EDITOR_PANEL_WIDTH) }),
-      openEditorFile: (filePath) => set((state) => ({
-        editorFilePath: filePath,
-        sidebarCollapsed: true,
-        sidebarCollapsedByEditor: state.editorFilePath ? state.sidebarCollapsedByEditor : !state.sidebarCollapsed
-      })),
-      closeEditorFile: () => set((state) => ({
-        editorFilePath: null,
-        sidebarCollapsed: state.sidebarCollapsedByEditor ? false : state.sidebarCollapsed,
-        sidebarCollapsedByEditor: false
-      })),
+      openEditorFile: (filePath) => set({ editorFilePath: filePath }),
+      closeEditorFile: () => set({ editorFilePath: null }),
 
 
       // Actions
@@ -203,6 +197,7 @@ export const useTerminalStore = create(
         showNoteButton: state.showNoteButton,
         sidebarCollapsed: state.sidebarCollapsed,
         sidebarWidth: state.sidebarWidth,
+        paneWidths: state.paneWidths,
         rightPanelOpen: state.rightPanelOpen,
         rightPanelTab: state.rightPanelTab,
         rightPanelWidth: state.rightPanelWidth,

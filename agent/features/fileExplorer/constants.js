@@ -13,6 +13,12 @@ export const MAX_SEARCH_RESULTS = 200;
 export const MAX_MATCHES_PER_FILE = 10;
 export const DEFAULT_TREE_DEPTH = 3;
 export const DEFAULT_GIT_LOG_LIMIT = 20;
+// spawnSync defaults to a 1MB stdout buffer — a whole-repo `git diff` blows past that and
+// comes back truncated (or empty), which reads as "no changes" in the UI.
+export const MAX_GIT_OUTPUT_SIZE = 64 * 1024 * 1024;
+// What is actually sent to the client: a diff past this is truncated with a marker,
+// never silently dropped.
+export const MAX_GIT_DIFF_SIZE = 4 * 1024 * 1024;
 
 // Cap entries returned per directory listing to protect against huge dirs
 // (e.g. node_modules). Beyond this, results are truncated with a flag.

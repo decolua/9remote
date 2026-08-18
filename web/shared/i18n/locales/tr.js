@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Oturumu Sil",
     deleteMessage: "\"{name}\" oturumunu silmek istediğinizden emin misiniz?",
     editName: "Adı düzenle",
-    newTerminal: "Yeni terminal"
+    newTerminal: "Yeni terminal",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Vazgeç",
     discardTitle: "Değişiklikleri Sil",
     discardMessage: "Kaydedilmemiş değişiklikleriniz var. Silinsin mi?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Dosya yüklenemedi: {error}",
     failedSave: "Kaydedilemedi: {error}",
+    openFull: "Open in full editor",
     readOnly: "Salt okunur",
     line: "Satır",
     column: "Sütun",

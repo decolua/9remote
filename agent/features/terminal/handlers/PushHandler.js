@@ -3,6 +3,8 @@ import { getVapidPublicKey, addPushSubscription, removePushSubscription, markSub
 import { getNotifications, getStatuses, clearStatus, STATES } from "../statusManager.js";
 import { getAutoStartStatus, setAutoStart, isCodespaces } from "../codespaceManager.js";
 import { writeCmd } from "../../../cli/utils/state.js";
+import { scanLocalSites } from "../portScanner.js";
+import { startProxySession, endProxySession } from "../../../proxy/index.js";
 
 export function setupPushHandlers(socket, io) {
   // Full 4-state map (idle/working/blocked/done). New name; UI consumes this.
@@ -13,6 +15,29 @@ export function setupPushHandlers(socket, io) {
   // Legacy: only done/blocked truthy map. Kept for older web clients.
   socket.on("getNotificationState", () => {
     socket.emit("notificationState", getNotifications());
+  });
+
+  // Local sites over the socket bus — works on RTC where the tunnel URL may be stale/absent
+  socket.on("getLocalSites", async (callback) => {
+    if (typeof callback !== "function") return;
+    try {
+      callback({ sites: await scanLocalSites() });
+    } catch (err) {
+      callback({ error: err.message });
+    }
+  });
+
+  // Proxy sessions over the socket bus — the tunnel URL may be stale/absent on RTC or LAN
+  socket.on("startProxySession", (port, callback) => {
+    if (!port) return;
+    startProxySession(port);
+    if (typeof callback === "function") callback({ ok: true });
+  });
+
+  socket.on("endProxySession", (port, callback) => {
+    if (!port) return;
+    endProxySession(port);
+    if (typeof callback === "function") callback({ ok: true });
   });
 
   // Trigger agent self-update via socket (authenticated, no HTTP through tunnel)

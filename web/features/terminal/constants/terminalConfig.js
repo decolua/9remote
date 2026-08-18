@@ -30,14 +30,20 @@ export const COMMON_COMMANDS = [
 
 // Layout breakpoints and sizing
 export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
-export const PANE_MIN_WIDTH = 500; // px, min width per terminal pane on desktop
+// Desktop pane width: null = auto (panes split the row evenly down to min, then the row
+// scrolls); a dragged number pins every pane to that fixed width. Double-click returns to auto.
+export const PANE_WIDTH = { min: 400, max: 800 };
+// Gap between desktop panes (px) — matches the gap-1 class on the panes row.
+export const PANE_GAP_PX = 4;
+// Horizontal padding of the panes row (px) — matches the px-1 class on that row.
+export const PANE_ROW_PADDING_PX = 8;
 export const MAX_LIVE_PANES = 12; // Max mounted XTerm panes kept alive (LRU); caps RAM
 
 // Left sidebar (workspace + terminal list)
-export const SIDEBAR_WIDTH = { default: 240, min: 180, max: 400 };
+export const SIDEBAR_WIDTH = { default: 190, min: 180, max: 400 };
 
 // Right panel (file tree / git / worktrees)
-export const RIGHT_PANEL_WIDTH = { default: 260, min: 200, max: 420 };
+export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: 420 };
 
 // Inline editor opened from the file tree. Capped so it never crowds out the terminal.
 export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: 500 };
@@ -79,7 +85,7 @@ export const INPUT_CONTROL_KEYS = {
 
 // Per-terminal folder/changed-files toolbar
 export const WATCH_DEBOUNCE_MS = 400; // Debounce gitStatus refresh on file changes
-export const MAX_CHANGED_BADGE = 20; // Cap changed-count badge; above shows "20+"
+export const MAX_CHANGED_BADGE = 999; // Cap changed-count badge; above shows "999+"
 
 // XTerm.js default options
 export const TERMINAL_OPTIONS = {

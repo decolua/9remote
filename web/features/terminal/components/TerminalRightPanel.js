@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { ChevronRight, EyeOff, Files, Folder, GitBranch, GitFork, RefreshCw, X } from "@/shared/components/ui/Icon";
+import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, Files, Folder, FolderPlus, GitBranch, GitFork, Plus, RefreshCw, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
-import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
+import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import { vibrate } from "@/shared/utils/vibration";
 import { RIGHT_PANEL_WIDTH } from "../constants/terminalConfig";
 import { useWorkspaceRepos } from "../hooks/useWorkspaceRepos";
@@ -19,6 +19,8 @@ const TABS = [
   { key: "git", icon: GitBranch, labelKey: "workspaces.tabGit" },
   { key: "trees", icon: GitFork, labelKey: "workspaces.tabTrees" }
 ];
+// TEMP: worktrees hidden until reworked — a persisted "trees" tab falls back to git
+const VISIBLE_TABS = TABS.filter((t) => t.key !== "trees");
 
 // Secondary sidebar docked right of the terminal panes: file tree, git, worktrees.
 // Roots are the workspace itself plus each of its worktrees — separate directories on
@@ -26,10 +28,12 @@ const TABS = [
 export default function TerminalRightPanel({
   workspacePath, fileSocket, activeFile,
   tab, onTabChange, width, onResize, onClose,
-  onOpenFile, onNewTerminal, onAddWorkspace, homeDir,
-  hiddenRepos = [], onHiddenReposChange, isDesktop = true
+  onOpenFile, onNewTerminal, onAddWorkspace, onOpenFiles, homeDir,
+  changedPerRepo = {}, hiddenRepos = [], onHiddenReposChange, isDesktop = true
 }) {
   const { t } = useI18n();
+  // A persisted "trees" tab must not strand the panel on hidden content
+  const activeTab = tab === "trees" ? "git" : tab;
   const { repos, refresh: refreshRepos, scanning, deep, scanDeeper } = useWorkspaceRepos(workspacePath, fileSocket);
   const { roots, refresh: refreshRoots } = useWorkspaceRoots(workspacePath, fileSocket);
   const refresh = () => { refreshRepos(); refreshRoots(); };
@@ -46,8 +50,13 @@ export default function TerminalRightPanel({
   const setOpenRepo = (repo) => setGitView({ ...view, forWorkspace: workspacePath, openRepo: repo });
 
   const hiddenSet = new Set(hiddenRepos);
+  // The live per-repo counts win over the ones baked into the scan result: the scan is
+  // refreshed by hand, the counts are polled, and the pane badge reads the same numbers.
+  const countOf = (repo) => changedPerRepo[repo.path] ?? repo.changedCount ?? 0;
   const visibleRepos = repos.filter((r) => !hiddenSet.has(r.path));
-  const dirtyRepos = visibleRepos.filter((r) => r.changedCount > 0);
+  const dirtyRepos = visibleRepos.filter((r) => countOf(r) > 0);
+  // Badge on the Git tab: total changed files across the workspace's repos
+  const dirtyCount = dirtyRepos.reduce((n, r) => n + countOf(r), 0);
   const gitRepos = showCleanRepos ? visibleRepos : dirtyRepos;
   const hiddenCleanCount = showCleanRepos ? 0 : visibleRepos.length - dirtyRepos.length;
   const mutedCount = repos.length - visibleRepos.length;
@@ -59,9 +68,11 @@ export default function TerminalRightPanel({
   // tab permanently empty with no obvious way back.
   const canHideRepo = (repo) => !!onHiddenReposChange && !!repo.relPath;
 
-  // Labels track the PANEL's width, not the window's: a 200px panel on a wide screen
-  // still has no room for them.
-  const showTabLabels = !isDesktop || width >= RIGHT_PANEL_WIDTH.default;
+  // Two visible tabs (trees is hidden) leave room for labels even at min width.
+  const showTabLabels = !isDesktop || width >= RIGHT_PANEL_WIDTH.min;
+
+  // The tree publishes its own actions so they can live in the tab bar above it.
+  const [treeActions, setTreeActions] = useState(null);
 
   // Reset the open root when the workspace changes, without an effect round-trip.
   const [rootState, setRootState] = useState({ forWorkspace: workspacePath, path: workspacePath });
@@ -87,48 +98,77 @@ export default function TerminalRightPanel({
 
   return (
     <div
-      className="h-full flex flex-col bg-surface-3 border-l border-border-subtle relative shrink"
+      className="h-full flex flex-col bg-surface-2 border-l border-border-subtle relative shrink"
       style={isDesktop ? { width, flexBasis: width, minWidth: RIGHT_PANEL_WIDTH.min } : undefined}
     >
       {/* Tabs — underline style, matching the terminal tab bar rather than inventing pills */}
-      <div style={{ height: PANEL_HEADER_HEIGHT }}
-        className="pl-1 pr-0.5 flex items-stretch gap-0 border-b border-border-subtle flex-shrink-0">
-        {TABS.map(({ key, icon: TabIcon, labelKey }) => (
+      <div className={`h-11 ${PANEL_HEADER_H_CLASS} pl-1 pr-0.5 flex items-stretch gap-0 border-b border-border-subtle flex-shrink-0`}>
+        {VISIBLE_TABS.map(({ key, icon: TabIcon, labelKey }) => (
           <button
             key={key}
             onClick={() => { vibrate(); onTabChange(key); }}
-            className={`px-2 flex items-center justify-center gap-1 text-[11px] border-b-2 -mb-px transition-colors ${
-              tab === key
+            className={`px-3 sm:px-2 flex items-center justify-center gap-1 text-[11px] border-b-2 -mb-px transition-colors ${
+              activeTab === key
                 ? "text-text border-brand-500"
                 : "text-text-muted border-transparent hover:text-text"
             }`}
             title={t(labelKey)}
           >
-            <TabIcon size={13} />
+            <TabIcon size={18} className="sm:w-[15px] sm:h-[15px]" />
             {showTabLabels && <span>{t(labelKey)}</span>}
+            {key === "git" && dirtyCount > 0 && (
+              <span className="min-w-[14px] h-[14px] px-[4px] rounded-full bg-brand-500 text-white text-[9px] font-semibold flex items-center justify-center leading-none">
+                {dirtyCount > 99 ? "99+" : dirtyCount}
+              </span>
+            )}
           </button>
         ))}
         <div className="flex-1" />
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => { vibrate(); refresh(); }}
+        <div className="flex items-center gap-1 sm:gap-0.5">
+          <PanelButton
+            icon={RefreshCw}
+            label={t("workspaces.refreshRepos")}
+            onClick={() => { refresh(); treeActions?.refresh?.(); }}
             disabled={scanning}
-            className="p-1 text-text-muted hover:text-text rounded-[3px] hover:bg-surface-2 transition-colors disabled:opacity-40"
-            title={t("workspaces.refreshRepos")}
-          >
-            <RefreshCw size={13} className={scanning ? "animate-spin" : ""} />
-          </button>
-          {onClose && (
-            <button
-              onClick={() => { vibrate(); onClose(); }}
-              className="p-1 text-text-muted hover:text-text rounded-[3px] hover:bg-surface-2 transition-colors"
-              title={t("common.close")}
-            >
-              <X size={13} />
-            </button>
-          )}
+            spinning={scanning}
+          />
+          {onClose && <PanelButton icon={X} label={t("common.close")} onClick={onClose} />}
         </div>
       </div>
+
+      {/* Files-tab actions get their own row, right-aligned: tabs + six buttons in one
+          strip overflowed the panel's narrow width. Rendered whenever the files tab is
+          up (not gated on treeActions) so the header height doesn't jump when the tree
+          registers. */}
+      {activeTab === "files" && workspacePath && (
+        <div className={`h-11 ${PANEL_HEADER_H_CLASS} px-1 flex items-center gap-1 sm:gap-0.5 border-b border-border-subtle flex-shrink-0`}>
+          {treeActions && (
+            <>
+              <PanelButton icon={Plus} label={t("files.newFile")} onClick={treeActions.newFile} />
+              <PanelButton icon={FolderPlus} label={t("files.newFolder")} onClick={treeActions.newFolder} />
+            </>
+          )}
+          <div className="flex-1" />
+          {treeActions?.hasExpanded && (
+            <PanelButton
+              icon={ChevronsDownUp}
+              label={t("fileExplorer.collapseAll")}
+              onClick={treeActions.collapseAll}
+            />
+          )}
+          {treeActions && (
+            <PanelButton
+              icon={treeActions.showHidden ? Eye : EyeOff}
+              label={t("files.toggleHidden")}
+              onClick={treeActions.toggleHidden}
+              active={treeActions.showHidden}
+            />
+          )}
+          {onOpenFiles && (
+            <PanelButton icon={ExternalLink} label={t("workspaces.openFullFiles")} onClick={onOpenFiles} />
+          )}
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {!workspacePath ? (
@@ -144,7 +184,7 @@ export default function TerminalRightPanel({
               </button>
             )}
           </div>
-        ) : tab === "files" ? (
+        ) : activeTab === "files" ? (
           roots.map((root) => (
             <RootSection
               key={root.path}
@@ -160,10 +200,11 @@ export default function TerminalRightPanel({
                 onOpenFile={onOpenFile}
                 onNewTerminal={onNewTerminal}
                 compact
+                onActions={root.path === activeRoot || roots.length === 1 ? setTreeActions : undefined}
               />
             </RootSection>
           ))
-        ) : tab === "git" ? (
+        ) : activeTab === "git" ? (
           <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
             {/* A workspace holding many clones would otherwise list every one of them and
                 mount a git-status panel each. Only repos with changes show by default. */}
@@ -171,6 +212,7 @@ export default function TerminalRightPanel({
               <RepoSection
                 key={repo.path}
                 repo={repo}
+                changedCount={countOf(repo)}
                 isOpen={activeRepo === repo.path}
                 onToggle={() => setOpenRepo(activeRepo === repo.path ? "" : repo.path)}
                 onHide={canHideRepo(repo) ? () => hideRepo(repo.path) : null}
@@ -251,6 +293,21 @@ function RootSection({ root, multiple, isOpen, onToggle, children }) {
   );
 }
 
+function PanelButton({ icon: Icon, label, onClick, active, disabled, spinning }) {
+  return (
+    <button
+      onClick={() => { vibrate(); onClick?.(); }}
+      disabled={disabled}
+      title={label}
+      className={`p-2 sm:p-1 rounded-[3px] hover:bg-surface-2 transition-colors disabled:opacity-40 ${
+        active ? "text-brand-500" : "text-text-muted hover:text-text"
+      }`}
+    >
+      <Icon size={16} className={`sm:w-[13px] sm:h-[13px] ${spinning ? "animate-spin" : ""}`} />
+    </button>
+  );
+}
+
 function FooterAction({ onClick, children }) {
   return (
     <button
@@ -263,7 +320,7 @@ function FooterAction({ onClick, children }) {
 }
 
 // Collapsed by default: mounting a ScmPanel per repo means one `git status` per repo.
-function RepoSection({ repo, isOpen, onToggle, onHide, children }) {
+function RepoSection({ repo, changedCount = 0, isOpen, onToggle, onHide, children }) {
   const { t } = useI18n();
   return (
     <div className="border-b border-border-subtle last:border-0">
@@ -274,9 +331,9 @@ function RepoSection({ repo, isOpen, onToggle, onHide, children }) {
         <ChevronRight size={11} className={`flex-shrink-0 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`} />
         <span className="truncate flex-1 text-left">{repo.relPath || repo.name}</span>
         {repo.branch && <span className="text-text-subtle normal-case tracking-normal truncate max-w-[45%]">{repo.branch}</span>}
-        {repo.changedCount > 0 && (
+        {changedCount > 0 && (
           <span className="px-1 rounded-[2px] bg-brand-500/15 text-brand-500 normal-case tracking-normal flex-shrink-0">
-            {repo.changedCount}
+            {changedCount}
           </span>
         )}
         {onHide && (

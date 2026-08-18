@@ -3,16 +3,16 @@
 import { useEffect, useRef, memo, useState, useCallback } from "react";
 import "@xterm/xterm/css/xterm.css";
 import SelectionActionButton from "@/features/terminal/components/SelectionActionButton";
+import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
-import { ChevronDown, Folder, GitBranch, RefreshCw, SquarePen } from "@/shared/components/ui/Icon";
+import { ChevronDown, Folder, RefreshCw, SquarePen } from "@/shared/components/ui/Icon";
 import NotePanel from "@/features/terminal/components/NotePanel";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
-import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
@@ -32,6 +32,8 @@ function TerminalPane({
   sessionStatus = {},
   clearNotification,
   fileSocket,
+  changedCount = 0,
+  countFallback = false,
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
@@ -44,7 +46,7 @@ function TerminalPane({
   const [refreshing, setRefreshing] = useState(false);
   const [selection, setSelection] = useState(null); // { text, x, y } from long-press select
 
-  const { pushView } = useTerminalStore();
+  const setRightPanelTab = useTerminalStore((s) => s.setRightPanelTab);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
   const showGitButton = useTerminalStore((s) => s.showGitButton);
@@ -189,10 +191,13 @@ function TerminalPane({
     };
   }, [termRef, termReady, isVisible]);
 
-  // Shared, ref-counted git changed-count per cwd — syncs across panes, polls every 10s
-  const changedCount = useGitChangedCount(cwd, fileSocket, { enabled: isVisible });
+  // Count comes from the workspace-wide poll above, so this badge and the git tab agree.
+  // A workspace migrated from a group has no path to count, so those panes fall back to
+  // their own cwd rather than showing nothing.
+  const ownCount = useGitChangedCount(cwd, fileSocket, { enabled: countFallback && isVisible });
+  const shownCount = countFallback ? ownCount : changedCount;
 
-  const badgeLabel = changedCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changedCount;
+  const badgeLabel = shownCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : shownCount;
 
   const handleScrollToBottom = () => {
     vibrate();
@@ -313,25 +318,16 @@ function TerminalPane({
             <button
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); vibrate(); pushView({ type: "files", workspace: cwd, currentPath: cwd, fromTerminal: true }); }}
-              className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+              onClick={(e) => { e.stopPropagation(); vibrate(); setRightPanelTab("files"); }}
+              className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
               title={t("terminalPane.openFolder")}
             >
               <Folder size={16} />
-            </button>
-          )}
-          {showGitButton && changedCount > 0 && (
-            <button
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); vibrate(); pushView({ type: "git", workspace: cwd }); }}
-              className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
-              title={t("terminalPane.changedFiles")}
-            >
-              <GitBranch size={16} />
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
-                {badgeLabel}
-              </span>
+              {showGitButton && shownCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
+                  {badgeLabel}
+                </span>
+              )}
             </button>
           )}
         </div>
@@ -357,5 +353,7 @@ export default memo(TerminalPane, (prev, next) => (
   prev.theme === next.theme &&
   prev.showFocusBorder === next.showFocusBorder &&
   prev.notifications === next.notifications &&
-  prev.sessionStatus === next.sessionStatus
+  prev.sessionStatus === next.sessionStatus &&
+  prev.changedCount === next.changedCount &&
+  prev.countFallback === next.countFallback
 ));

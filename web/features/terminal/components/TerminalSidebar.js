@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, PanelLeft, Settings } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
-import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
+import { AGENT_ICONS } from "../constants/agentLabels";
 import { vibrate } from "@/shared/utils/vibration";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -16,8 +16,7 @@ import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { sessionWorkspaceId } from "../lib/paneLayout";
 import BranchBadge from "./BranchBadge";
 
-// Guess agent tool from session name when no live status tool is set (e.g. idle shell
-// that once ran an agent, or a session named after its agent).
+// Guess agent tool from session name when no live status tool is set — drives the icon.
 const TOOL_KEYWORDS = ["claude", "codex", "gemini", "opencode", "grok", "cursor", "copilot", "amp", "pi", "kiro", "qoder", "factory", "codebuddy", "rovodev", "hermes", "antigravity"];
 function guessTool(name = "") {
   const lower = String(name).toLowerCase();
@@ -25,38 +24,51 @@ function guessTool(name = "") {
   return null;
 }
 
-// Second line of a terminal item. The branch only appears when it differs from the
-// workspace's own — otherwise every terminal under a repo would repeat the same string.
-function SessionMeta({ session, fileSocket, label, stateLabel, workspaceBranch }) {
-  const { branch, dirty } = useWorkspaceGit(session.workspacePath, fileSocket);
-  const differs = branch && branch !== workspaceBranch;
+// Second line of a terminal item: the branch of its own workspacePath, plus the state
+// when something is happening. The agent's name is not repeated — the icon in the row
+// already says which one it is, and "claude" next to a Claude logo says it twice.
+// Branch lives on the workspace header; a card repeats it only when the terminal's live
+// checkout (OSC 7 cwd) diverges from the workspace branch — e.g. cd into another worktree.
+export function SessionMeta({ session, fileSocket, cwd, basePath, homeDir }) {
+  const { branch, dirty } = useWorkspaceGit(cwd, fileSocket);
+  const { branch: baseBranch } = useWorkspaceGit(basePath, fileSocket);
+  // Divergence needs a workspace branch to diverge from — a non-git workspace root
+  // (folder of repos) has none, so cards stay quiet instead of each naming its own.
+  const diverged = !!branch && !!baseBranch && branch !== baseBranch;
+  // Second line, in priority order: diverged branch → live folder relative to the
+  // workspace root → shell id when parked at the root (the only non-duplicate info left).
+  const atRoot = cwd && basePath ? cwd === basePath : true;
+  const meta = diverged ? null
+    : cwd && basePath && cwd.startsWith(`${basePath}/`) ? cwd.slice(basePath.length + 1)
+    : atRoot ? session.shellId
+    : shortenHomePath(cwd, homeDir);
   return (
-    <span className="text-[11px] text-text-subtle truncate leading-tight flex items-center gap-1">
-      <span className="truncate">{label} {stateLabel}</span>
-      {differs && <BranchBadge branch={branch} dirty={dirty} className="flex-shrink-0 max-w-[45%]" />}
+    <span className="text-[11px] text-text-subtle truncate leading-tight flex items-center gap-1.5 min-h-[13px]">
+      {diverged && <BranchBadge branch={branch} dirty={dirty} className="truncate italic" />}
+      {meta && <span className="truncate opacity-70">{meta}</span>}
     </span>
   );
 }
 
-// One workspace row: collapse chevron, name, shortened path, branch, count, actions.
-// Split out as a component because each workspace subscribes to its own git poll.
+// One workspace row: collapse chevron, name, shortened path + branch, actions.
 function WorkspaceHeader({
-  workspace, isActive, connected, fileSocket, homeDir, collapsed,
-  onToggleCollapse, onSelect, onNewTerminal, onDelete, onBranch
+  workspace, isActive, connected, homeDir, collapsed, fileSocket,
+  onToggleCollapse, onSelect, onNewTerminal, onDelete
 }) {
   const { t } = useI18n();
   const gitPath = workspaceGitPath(workspace);
   const { branch, dirty } = useWorkspaceGit(gitPath, fileSocket);
-  useEffect(() => { onBranch?.(branch); }, [branch, onBranch]);
   // Hover-reveal on pointer devices; always visible on touch, which has no hover.
-  const revealCls = "opacity-100 sm:opacity-0 sm:group-hover/grp:opacity-100 sm:focus-visible:opacity-100";
+  // Always visible: hiding them until hover meant a workspace's own actions were
+  // undiscoverable, and there is no hover at all on a touch screen.
+  const revealCls = "opacity-60 hover:opacity-100 focus-visible:opacity-100";
 
   return (
     <div
       onClick={onSelect}
-      className={`pr-2 py-1 flex items-center gap-1 group/grp transition-colors border-l-2 ${
-        isActive ? "border-brand-500 bg-text/[0.04]" : "border-transparent"
-      } ${onSelect ? "cursor-pointer hover:bg-text/[0.06]" : ""}`}
+      className={`pr-2 py-1 flex items-center gap-1 group/grp transition-colors ${
+        onSelect ? "cursor-pointer hover:bg-text/[0.06]" : ""
+      }`}
     >
       <button
         onClick={(e) => { e.stopPropagation(); vibrate(); onToggleCollapse?.(); }}
@@ -66,20 +78,21 @@ function WorkspaceHeader({
         <ChevronRight size={12} className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`} />
       </button>
       <span className="flex-1 min-w-0 flex flex-col">
-        <span className={`text-[12px] font-medium truncate ${isActive ? "text-text" : "text-text-muted"}`}>
+        <span className={`text-[12px] font-medium uppercase truncate ${isActive ? "text-text" : "text-text-muted"}`}>
           {workspace.name}
         </span>
-        {(gitPath || branch) && (
-          <span className="text-[10px] text-text-subtle truncate leading-tight flex items-center gap-1.5">
-            {gitPath && <span className="truncate">{shortenHomePath(gitPath, homeDir)}</span>}
-            <BranchBadge branch={branch} dirty={dirty} className="flex-shrink-0" />
+        {gitPath && (
+          <span className="text-[10px] text-text-subtle leading-tight flex items-center gap-1 min-w-0">
+            <span className="truncate">{shortenHomePath(gitPath, homeDir)}</span>
+            {/* Hidden when the workspace name already is the branch — never repeat a label */}
+            {branch && branch !== workspace.name && (
+              <BranchBadge branch={branch} dirty={dirty} className="truncate flex-shrink-0 max-w-[7rem]" />
+            )}
           </span>
         )}
       </span>
-      {/* The count gives way to the actions on hover — both would crowd a 240px column. */}
-      <span className="text-[10px] text-text-subtle flex-shrink-0 sm:group-hover/grp:hidden">
-        {workspace.items.length}
-      </span>
+      {/* Dropped once the actions became permanent: the terminals are listed right below,
+          so a count of them is the one thing here the user can already see. */}
       {onNewTerminal && (
         <button
           onClick={(e) => { e.stopPropagation(); vibrate(); onNewTerminal(); }}
@@ -126,6 +139,7 @@ export default function TerminalSidebar({
   onOpenSettings,
   fileSocket,
   homeDir,
+  cwdBySession = {},
   connected = true,
   width = SIDEBAR_WIDTH.default,
   onResize,
@@ -169,7 +183,6 @@ export default function TerminalSidebar({
 
   // Collapsed workspaces and their branch, both keyed by workspace id ("" = unassigned).
   const [collapsed, setCollapsed] = useState({});
-  const [branchByWs, setBranchByWs] = useState({});
   const toggleCollapsed = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
 
   // New terminal modal scoped to a workspace (null = closed)
@@ -364,24 +377,7 @@ export default function TerminalSidebar({
         )}
       </div>
 
-      {/* Section title — the "+" sits here, right above the list it adds to */}
-      <div className="px-3 pt-2 pb-1 flex items-center gap-1.5 flex-shrink-0">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted flex-1">
-          {t("workspaces.title")}
-        </span>
-        {onAddWorkspace && (
-          <button
-            onClick={() => { vibrate(); onAddWorkspace?.(); }}
-            disabled={!connected}
-            className="p-0.5 text-text-subtle hover:text-brand-500 rounded-[2px] hover:bg-surface-2 transition-colors disabled:opacity-40"
-            title={t("workspaces.newWorkspace")}
-          >
-            <Plus size={14} />
-          </button>
-        )}
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
+      <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable pt-1">
         {!grouped.length ? (
           <p className="px-3 py-6 text-center text-xs text-text-muted">{t("workspaces.emptyWorkspace")}</p>
         ) : (
@@ -389,16 +385,15 @@ export default function TerminalSidebar({
             const isActiveWorkspace = (grp.id ?? null) === (activeWorkspaceId ?? null);
             const wsKey = grp.id ?? "";
             return (
-              <div key={grp.id ?? "ungrouped"} className="flex flex-col">
+              <div key={grp.id ?? "ungrouped"} className="flex flex-col mt-3 first:mt-0">
                 <WorkspaceHeader
                   workspace={grp}
                   isActive={isActiveWorkspace}
                   connected={connected}
-                  fileSocket={fileSocket}
                   homeDir={homeDir}
+                  fileSocket={fileSocket}
                   collapsed={!!collapsed[wsKey]}
                   onToggleCollapse={() => toggleCollapsed(wsKey)}
-                  onBranch={(b) => setBranchByWs((m) => (m[wsKey] === b ? m : { ...m, [wsKey]: b }))}
                   onSelect={grp.items.length && onSelectWorkspace ? () => { vibrate(); onSelectWorkspace(grp.id); } : null}
                   onNewTerminal={onCreateNamedSession ? () => setCreateModalWsId(grp.id ?? "") : null}
                   onDelete={onDeleteWorkspace && grp.id !== null
@@ -411,21 +406,13 @@ export default function TerminalSidebar({
                   const isActive = s.id === activeSessionId;
                   const hasNotif = !!notifications[s.id];
                   const tool = sessionStatus[s.id]?.tool || guessTool(s.name);
-                  const isIdle = st === "idle";
-                  const stateLabel = st === "working"
-                    ? t("common.statusWorking")
-                    : st === "blocked"
-                      ? t("notifications.needsInput")
-                      : isIdle
-                        ? t("common.statusIdle")
-                        : t("notifications.replied");
                   const isDragOver = drag?.sessionId && drag.overIdx === idx && s.id !== drag.sessionId && drag;
                   return (
                     <div
                       key={s.id}
                       data-item-row
                       data-sid={s.id}
-                      className={`group w-full flex items-center gap-1.5 pl-3 pr-2 py-1 text-left transition-colors border-l-2 relative cursor-pointer ${
+                      className={`group w-full flex items-center gap-1.5 pl-3.5 pr-2 py-0.5 text-left transition-colors border-l-2 relative cursor-pointer ${
                         isActive
                           ? "bg-text/8 border-brand-500 text-text"
                           : "border-transparent text-text-muted hover:bg-text/5 hover:text-text"
@@ -443,7 +430,7 @@ export default function TerminalSidebar({
                           data-idx={idx}
                           onPointerDown={startReorder}
                           disabled={grp.items.length < 2}
-                          className="p-0.5 -ml-0.5 text-text-subtle opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none flex-shrink-0 disabled:opacity-0 disabled:cursor-default"
+                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-0.5 text-text-subtle opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none disabled:opacity-0 disabled:cursor-default bg-surface-3"
                           title={t("sessions.editName")}
                           tabIndex={-1}
                         >
@@ -451,11 +438,6 @@ export default function TerminalSidebar({
                         </button>
                       )}
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
-                      {AGENT_ICONS[tool] ? (
-                        <img src={AGENT_ICONS[tool]} alt={tool} className="w-4 h-4 flex-shrink-0" />
-                      ) : (
-                        <Terminal size={15} className="flex-shrink-0 opacity-70" />
-                      )}
                       <span className="flex-1 min-w-0 flex flex-col">
                         {editingId === s.id ? (
                           <input
@@ -473,13 +455,20 @@ export default function TerminalSidebar({
                           />
                         ) : (
                           <>
-                            <span className={`text-xs truncate ${isActive ? "font-medium" : ""}`}>{s.name || t("terminal.defaultName")}</span>
+                            <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
+                              {AGENT_ICONS[tool] ? (
+                                <img src={AGENT_ICONS[tool]} alt={tool} className="w-3.5 h-3.5 flex-shrink-0" />
+                              ) : (
+                                <Terminal size={13} className="flex-shrink-0" />
+                              )}
+                              <span className="text-[13px] truncate">{s.name || t("terminal.defaultName")}</span>
+                            </span>
                             <SessionMeta
                               session={s}
                               fileSocket={fileSocket}
-                              label={AGENT_LABELS[tool] || t("notifications.agent")}
-                              stateLabel={stateLabel}
-                              workspaceBranch={branchByWs[wsKey]}
+                              cwd={cwdBySession[s.id] ?? s.workspacePath}
+                              basePath={workspaceGitPath(grp)}
+                              homeDir={homeDir}
                             />
                           </>
                         )}
@@ -503,6 +492,17 @@ export default function TerminalSidebar({
               </div>
             );
           })
+        )}
+
+        {onAddWorkspace && (
+          <button
+            onClick={() => { vibrate(); onAddWorkspace(); }}
+            disabled={!connected}
+            className="mt-2 mb-1 flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 text-left text-xs text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
+          >
+            <Plus size={12} className="flex-shrink-0" />
+            {t("workspaces.newWorkspace")}
+          </button>
         )}
       </div>
 

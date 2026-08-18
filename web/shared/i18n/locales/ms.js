@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Padam Sesi",
     deleteMessage: "Adakah anda pasti mahu memadam \"{name}\"?",
     editName: "Sunting nama",
-    newTerminal: "Terminal baharu"
+    newTerminal: "Terminal baharu",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Buang",
     discardTitle: "Buang Perubahan",
     discardMessage: "Anda mempunyai perubahan belum disimpan. Buang?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Gagal memuatkan fail: {error}",
     failedSave: "Gagal menyimpan: {error}",
+    openFull: "Open in full editor",
     readOnly: "Baca sahaja",
     line: "Baris",
     column: "Lajur",

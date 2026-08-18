@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Sessie verwijderen",
     deleteMessage: "Weet u zeker dat u \"{name}\" wilt verwijderen?",
     editName: "Naam bewerken",
-    newTerminal: "Nieuwe terminal"
+    newTerminal: "Nieuwe terminal",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Verwerpen",
     discardTitle: "Wijzigingen verwerpen",
     discardMessage: "U heeft niet-opgeslagen wijzigingen. Verwerpen?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Bestand laden mislukt: {error}",
     failedSave: "Opslaan mislukt: {error}",
+    openFull: "Open in full editor",
     readOnly: "Alleen-lezen",
     line: "Regel",
     column: "Kolom",

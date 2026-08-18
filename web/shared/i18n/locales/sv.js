@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Radera session",
     deleteMessage: "Är du säker på att du vill radera \"{name}\"?",
     editName: "Redigera namn",
-    newTerminal: "Ny terminal"
+    newTerminal: "Ny terminal",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Förkasta",
     discardTitle: "Förkasta ändringar",
     discardMessage: "Du har osparade ändringar. Förkasta dem?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Det gick inte att läsa in filen: {error}",
     failedSave: "Det gick inte att spara: {error}",
+    openFull: "Open in full editor",
     readOnly: "Endast läsning",
     line: "Rad",
     column: "Kolumn",

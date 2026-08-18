@@ -164,7 +164,8 @@ export default {
     deleteTitle: "सत्र हटाएँ",
     deleteMessage: "क्या आप वाकई \"{name}\" को हटाना चाहते हैं?",
     editName: "नाम संपादित करें",
-    newTerminal: "नया टर्मिनल"
+    newTerminal: "नया टर्मिनल",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -247,8 +248,11 @@ export default {
     discard: "त्यागें",
     discardTitle: "परिवर्तन त्यागें",
     discardMessage: "आपके पास असहेजे परिवर्तन हैं। उन्हें त्यागें?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "फ़ाइल लोड करने में विफल: {error}",
     failedSave: "सहेजने में विफल: {error}",
+    openFull: "Open in full editor",
     readOnly: "केवल पढ़ने योग्य",
     line: "पंक्ति",
     column: "स्तंभ",

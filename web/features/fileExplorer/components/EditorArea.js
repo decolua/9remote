@@ -1,15 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FolderOpen } from "@/shared/components/ui/Icon";
 import EditorTabs from "./EditorTabs.js";
 import Breadcrumbs from "./Breadcrumbs.js";
-import EmbeddedEditor from "./EmbeddedEditor.js";
-import ImageViewer, { isImageFile } from "./ImageViewer.js";
-import MediaViewer from "./MediaViewer.js";
-import PdfViewer from "./PdfViewer.js";
-import DiffView from "./DiffView.js";
-import { isDiffPath, isVideoFile, isAudioFile, isPdfFile } from "../constants/fileExplorer.js";
+import EditorPane from "./EditorPane.js";
+import UnsavedDialog from "./UnsavedDialog.js";
 
 export default function EditorArea({
   workspace,
@@ -23,16 +19,74 @@ export default function EditorArea({
   onOpenFile,
   onEditorStateChange
 }) {
-  const [dirtyFiles, setDirtyFiles] = useState(new Set());
+  const [dirtyFiles, setDirtyFiles] = useState(() => new Set());
+  // Path awaiting an answer about its unsaved edits. Held here rather than in the pane:
+  // the tab strip is what initiates a close, and this is where the dirty set lives.
+  const [confirming, setConfirming] = useState(null);
+  // Save handlers by path, published by each pane — the tab strip can then save a file
+  // whose editor is not the visible one.
+  const saversRef = useRef(new Map());
+
+  // Closing the browser tab bypasses every in-app close path, so it is guarded here.
+  useEffect(() => {
+    if (!dirtyFiles.size || typeof window === "undefined") return;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      // Browsers show their own wording; returning a value is what triggers the prompt.
+      e.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirtyFiles.size]);
 
   const handleDirtyChange = useCallback((path, isDirty) => {
     setDirtyFiles((prev) => {
+      if (prev.has(path) === isDirty) return prev;
       const next = new Set(prev);
-      if (isDirty) next.add(path);
-      else next.delete(path);
+      if (isDirty) next.add(path); else next.delete(path);
       return next;
     });
   }, []);
+
+  const registerSaver = useCallback((path, save) => {
+    if (save) saversRef.current.set(path, save);
+    else saversRef.current.delete(path);
+  }, []);
+
+  const requestClose = useCallback((path) => {
+    if (!dirtyFiles.has(path)) return onCloseFile?.(path);
+    setConfirming(path);
+  }, [dirtyFiles, onCloseFile]);
+
+  // Close-others and close-all can take unsaved files with them, so they save first
+  // rather than ask once per file — a dialog per tab would be worse than the loss it
+  // prevents. Anything that fails to write keeps its tab open.
+  const closeMany = useCallback(async (keepPath) => {
+    const doomed = openedFiles.filter((p) => p !== keepPath && dirtyFiles.has(p));
+    for (const path of doomed) {
+      const ok = await saversRef.current.get(path)?.();
+      if (ok === false) return;
+    }
+    if (keepPath) onCloseOthers?.(keepPath);
+    else onCloseAll?.();
+  }, [openedFiles, dirtyFiles, onCloseOthers, onCloseAll]);
+
+  const saveThenClose = useCallback(async () => {
+    const path = confirming;
+    const ok = await saversRef.current.get(path)?.();
+    // A failed write keeps the dialog open — closing now would discard the very edits
+    // the save was meant to keep.
+    if (ok === false) return;
+    setConfirming(null);
+    onCloseFile?.(path);
+  }, [confirming, onCloseFile]);
+
+  const discardAndClose = useCallback(() => {
+    const path = confirming;
+    setConfirming(null);
+    onCloseFile?.(path);
+  }, [confirming, onCloseFile]);
 
   if (!activeFile) {
     return (
@@ -58,37 +112,34 @@ export default function EditorArea({
         activeFile={activeFile}
         dirtyFiles={dirtyFiles}
         onActivate={onActivateFile}
-        onClose={onCloseFile}
-        onCloseOthers={onCloseOthers}
-        onCloseAll={onCloseAll}
+        onClose={requestClose}
+        onCloseOthers={(path) => closeMany(path)}
+        onCloseAll={() => closeMany(null)}
       />
       <Breadcrumbs workspace={workspace} filePath={activeFile} />
       <div className="flex-1 min-h-0 overflow-hidden">
-        {openedFiles.map((path) => {
-          const isActive = path === activeFile;
-          return (
-            <div key={path} className={isActive ? "h-full" : "hidden"}>
-              {isDiffPath(path) ? (
-                <DiffView diffPath={path} workspace={workspace} fileSocket={fileSocket} />
-              ) : isPdfFile(path) ? (
-                <PdfViewer filePath={path} fileSocket={fileSocket} />
-              ) : isVideoFile(path) || isAudioFile(path) ? (
-                <MediaViewer filePath={path} fileSocket={fileSocket} />
-              ) : isImageFile(path) ? (
-                <ImageViewer filePath={path} fileSocket={fileSocket} />
-              ) : (
-                <EmbeddedEditor
-                  filePath={path}
-                  fileSocket={fileSocket}
-                  workspace={workspace}
-                  onEditorStateChange={onEditorStateChange}
-                  onDirtyChange={handleDirtyChange}
-                />
-              )}
-            </div>
-          );
-        })}
+        {openedFiles.map((path) => (
+          <div key={path} className={path === activeFile ? "h-full" : "hidden"}>
+            <EditorPane
+              filePath={path}
+              workspace={workspace}
+              fileSocket={fileSocket}
+              isActive={path === activeFile}
+              onCursorChange={onEditorStateChange}
+              onDirtyChange={handleDirtyChange}
+              onRegisterSaver={registerSaver}
+            />
+          </div>
+        ))}
       </div>
+
+      <UnsavedDialog
+        isOpen={!!confirming}
+        fileName={confirming?.split("/").pop()}
+        onSave={saveThenClose}
+        onDiscard={discardAndClose}
+        onCancel={() => setConfirming(null)}
+      />
     </div>
   );
 }

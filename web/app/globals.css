@@ -39,6 +39,11 @@
   --color-accent: var(--color-brand-500);
   --color-danger: var(--danger);
   --color-success: var(--success);
+  /* Git status palette (VS Code decoration colors, per-theme) */
+  --color-git-added: var(--git-added);
+  --color-git-modified: var(--git-modified);
+  --color-git-deleted: var(--git-deleted);
+  --color-git-untracked: var(--git-untracked);
 
   /* Border Radius */
   --radius-brand: 8px;
@@ -57,6 +62,17 @@
   border-radius: var(--radius-brand-lg);
 }
 
+/* Terminal-glass card: translucent surface + top-edge shine, meant to float on the
+   cinematic (cine-bg) background. Layered elev shadow like the login card, plus a
+   colored halo when --status-glow is set. */
+.card-glass {
+  background: var(--card-glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--card-glass-border);
+  box-shadow: var(--card-shine), var(--shadow-elev), 0 0 28px -6px var(--status-glow, transparent);
+}
+
 /* Default = dark theme tokens (orca-style neutral zinc) */
 :root {
   --bg: #0a0a0a;
@@ -72,12 +88,21 @@
   --success: #22c55e;
   --success-rgb: 34, 197, 94;
   --danger-rgb: 255, 101, 104;
+  --git-added: #81b88b;
+  --git-modified: #e2c08d;
+  --git-deleted: #c74e39;
+  --git-untracked: #73c991;
   --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.4);
   --shadow-elev:
     inset 0 1px 0 0 rgba(255,255,255,0.04),
     0 1px 2px rgba(0,0,0,0.5),
     0 16px 48px -8px rgba(0,0,0,0.65);
   --shadow-focus: 0 0 0 3px rgba(229,106,74,0.18);
+  /* Glass card (terminal-glass) — sits well above the near-black canvas, or it reads
+     as a smudge under the cine-bg grain */
+  --card-glass-bg: rgba(38,38,38,0.66);
+  --card-glass-border: rgba(255,255,255,0.14);
+  --card-shine: inset 0 1px 0 rgba(255,255,255,0.16);
   color-scheme: dark;
 
   /* Dark mode brand — terracotta #E56A4A (synced with 9router dark) */
@@ -128,6 +153,14 @@
   --success: #10B981;
   --success-rgb: 16, 185, 129;
   --danger-rgb: 207, 34, 46;
+  /* Glass card: near-opaque on light — blur has nothing to frost onto there */
+  --card-glass-bg: rgba(255,255,255,0.92);
+  --card-glass-border: #e5e7eb;
+  --card-shine: inset 0 1px 0 rgba(255,255,255,0.9);
+  --git-added: #587c0c;
+  --git-modified: #895503;
+  --git-deleted: #ad0707;
+  --git-untracked: #007100;
   --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.04);
   --shadow-elev: 
     inset 0 1px 0 0 rgba(255,255,255,0.8),
@@ -687,3 +720,103 @@ body.keyboard-open .safe-area-bottom {
     radial-gradient(480px 360px at 70% 22%, rgba(0,0,0,.06), transparent 62%),
     radial-gradient(420px 320px at 20% 88%, rgba(0,0,0,.03), transparent 66%);
 }
+
+/* ============================================================
+   Cinematic backdrop — mobile workspace shell
+   Monochrome, fully static (no animation: this sits under a list the user
+   reads and scrolls, and a moving backdrop there costs battery and legibility).
+   Four layers, each doing one job, in the order a cinematographer lights a set:
+     1. key    — the main source, off-centre and high, so the light has a direction
+     2. fill   — a weaker source opposite it, lifting the shadow side
+     3. rim    — a thin edge highlight down one side, separating content from ground
+     4. grain  — fractal noise, which is what stops the gradients from banding and
+                 is the difference between "a gradient" and "film"
+   ============================================================ */
+.cine-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background-color: var(--color-bg);
+}
+
+/* The login page's grid, at its pitch and its own faint strength — its opacity has to
+   be separate from the grain's, which sits an order of magnitude stronger. */
+.cine-bg > .cine-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--color-accent) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-accent) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: .04;
+  /* Under the light and the grain, which are the pseudo-elements above. */
+  z-index: 0;
+}
+:root.light .cine-bg > .cine-grid { opacity: .08; }
+
+/* Light: the same two sources the login screen uses, so the app opens on the surface
+   the user just arrived from, plus a vignette to give that pool of light an edge. */
+.cine-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    radial-gradient(480px 360px at 70% 22%, rgba(255,255,255,.20), transparent 62%),
+    radial-gradient(420px 320px at 20% 88%, rgba(255,255,255,.08), transparent 66%),
+    radial-gradient(140% 110% at 50% 50%, transparent 45%, rgba(0,0,0,.45) 100%);
+}
+
+/* Grain, on top of everything: it is what stops the gradients from banding, and what
+   makes the whole thing read as film rather than as a gradient. */
+.cine-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  opacity: .45;
+  mix-blend-mode: overlay;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+:root.light .cine-bg::before {
+  background:
+    radial-gradient(480px 360px at 70% 22%, rgba(0,0,0,.06), transparent 62%),
+    radial-gradient(420px 320px at 20% 88%, rgba(0,0,0,.03), transparent 66%),
+    radial-gradient(140% 110% at 50% 50%, transparent 50%, rgba(0,0,0,.08) 100%);
+}
+:root.light .cine-bg::after {
+  opacity: .3;
+  mix-blend-mode: multiply;
+}
+
+/* diff2html theming — one place, since the git panel and the editor both render
+   through DiffBody. Tokens rather than fixed colours, so it follows light/dark. */
+.diff-themed .d2h-wrapper { background: transparent; }
+.diff-themed .d2h-file-wrapper { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+.diff-themed .d2h-file-header { background: var(--surface-2); color: var(--text); border-bottom: 1px solid var(--border); padding: 8px 12px; }
+.diff-themed .d2h-file-name { color: var(--text); }
+.diff-themed .d2h-diff-table { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace; font-size: 12.5px; line-height: 1.55; }
+.diff-themed .d2h-code-line, .diff-themed .d2h-code-side-line { background: var(--surface); padding: 0 8px; }
+.diff-themed .d2h-code-line-ctn { color: var(--text); }
+.diff-themed .d2h-code-linenumber, .diff-themed .d2h-code-side-linenumber { background: var(--surface-2); color: var(--text-subtle); border-right: 1px solid var(--border); position: static !important; }
+.diff-themed .d2h-del { background: rgba(var(--danger-rgb), 0.12) !important; border-color: rgba(var(--danger-rgb), 0.3); }
+.diff-themed .d2h-del .d2h-code-line-ctn { color: var(--text); }
+.diff-themed .d2h-del .d2h-code-linenumber { background: rgba(var(--danger-rgb), 0.16); color: var(--danger); }
+.diff-themed .d2h-ins { background: rgba(var(--success-rgb), 0.12) !important; border-color: rgba(var(--success-rgb), 0.3); }
+.diff-themed .d2h-ins .d2h-code-line-ctn { color: var(--text); }
+.diff-themed .d2h-ins .d2h-code-linenumber { background: rgba(var(--success-rgb), 0.16); color: var(--success); }
+.diff-themed del { background: rgba(var(--danger-rgb), 0.32); color: var(--text); text-decoration: none; border-radius: 2px; }
+.diff-themed ins { background: rgba(var(--success-rgb), 0.32); color: var(--text); text-decoration: none; border-radius: 2px; }
+.diff-themed .d2h-info { background: var(--surface-2); color: var(--text-muted); border-color: var(--border); }
+.diff-themed .d2h-code-side-line { border-left-color: var(--border); }
+.diff-themed .d2h-code-side-emptyplaceholder, .diff-themed .d2h-emptyplaceholder { background: var(--surface-2); }
+.diff-themed .d2h-file-side-diff { overflow-x: auto; }
+
+/* Diff docked beside a terminal: same step down the editor takes there, so the two
+   panels read at one size rather than two. */
+.diff-themed-compact .d2h-diff-table { font-size: 10px; line-height: 1.45; }

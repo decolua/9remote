@@ -175,7 +175,7 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
     return (
       <div
         key={`${file.status}-${file.path}`}
-        className="group flex items-center gap-1.5 px-2 py-1 hover:bg-surface-2 cursor-pointer"
+        className="group relative flex items-center gap-1.5 px-2 py-1 hover:bg-surface-2 cursor-pointer"
         onContextMenu={(e) => openCtxMenu(file, e)}
         onClick={() => {
           vibrate();
@@ -189,17 +189,10 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
         <span className="flex-shrink-0 flex items-center">{resolveFileIcon({ name: basename(file.path), path: file.path, type: "file" }, 16)}</span>
         <span className="truncate text-xs text-text">{basename(file.path)}</span>
         <span className="truncate text-[11px] text-text-muted flex-1">{dirname(file.path)}</span>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {file.status !== "D" && (
-            <button
-              type="button"
-              title="Open file"
-              onClick={(e) => { e.stopPropagation(); vibrate(); onOpenFile?.(absPath); }}
-              className="p-0.5 text-text-muted hover:text-text"
-            >
-              <ExternalLink size={12} />
-            </button>
-          )}
+        {/* VS Code parity: hover shows only Discard + Stage, floating OVER the directory
+            text (no reserved space — the full row width stays readable when not hovered).
+            Opening the file itself is a context-menu action; the row click opens the diff. */}
+        <div className="absolute right-[22px] top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-2 pr-1 bg-surface-2 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             type="button"
             title={isUntracked ? "Delete" : "Discard"}

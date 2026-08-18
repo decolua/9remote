@@ -4,11 +4,60 @@ import { useState, useEffect, useRef } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { Globe, X, Trash2, RefreshCw, Loader2, Pencil, Check, ChevronRight } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useI18n } from "@/shared/i18n";
 import { getCustomPorts, saveCustomPorts, getSiteLabels, saveSiteLabels } from "@/features/terminal/lib/sitesStorage";
 
-export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
+const SOCKET_SITES_TIMEOUT_MS = 8000;
+
+// Returns null when the socket path is unavailable so the caller can fall back to the tunnel.
+function fetchSitesOverSocket(socketRef) {
+  const socket = socketRef?.current;
+  if (!socket?.connected) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), SOCKET_SITES_TIMEOUT_MS);
+    socket.emit("getLocalSites", (result) => {
+      clearTimeout(timer);
+      resolve(Array.isArray(result?.sites) ? result.sites : null);
+    });
+  });
+}
+
+async function fetchSitesOverTunnel(tunnelUrl, apiKey) {
+  if (!tunnelUrl) return null;
+  const response = await fetch(`${tunnelUrl}/api/local-sites`, {
+    headers: { "Authorization": `Bearer ${apiKey}` }
+  }).catch(() => null);
+  if (!response?.ok) return null;
+  return response.json();
+}
+
+// The proxy needs a real HTTP origin: prefer the LAN address, fall back to the tunnel.
+function resolveProxyBase(tunnelUrl, localIp) {
+  const canUseLan = localIp && typeof window !== "undefined" && window.location.protocol !== "https:";
+  if (canUseLan) return `http://${localIp}`;
+  return tunnelUrl || null;
+}
+
+// Toggles a proxy session on the agent. Socket first so it works without a live tunnel.
+async function setProxySession(action, { socketRef, base, apiKey, port }) {
+  const socket = socketRef?.current;
+  if (socket?.connected) {
+    socket.emit(action === "start" ? "startProxySession" : "endProxySession", port);
+    return true;
+  }
+  if (!base) return false;
+  const response = await fetch(`${base}/api/proxy/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({ port })
+  }).catch(() => null);
+  return !!response?.ok;
+}
+
+export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
   const { t } = useI18n();
+  const { getAuth } = useSessionStorage();
   const [customPorts, setCustomPorts] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [openedWindows, setOpenedWindows] = useState({});
@@ -32,25 +81,14 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
       setLoadingSites(true);
     }
     try {
-      if (!tunnelUrl) {
-        console.error("[SitesList] tunnelUrl is missing");
+      // Socket first: the tunnel URL may be stale or absent on an RTC-only session
+      const sites = await fetchSitesOverSocket(socketRef) ?? await fetchSitesOverTunnel(tunnelUrl, apiKey);
+      if (!sites) {
+        console.error("[SitesList] unable to load local sites (no socket, tunnel unreachable)");
         return;
       }
-      console.log("[SitesList] fetching", `${tunnelUrl}/api/local-sites`, "apiKey?", !!apiKey);
-      const response = await fetch(`${tunnelUrl}/api/local-sites`, {
-        headers: {
-          "Authorization": `Bearer ${apiKey}`
-        }
-      });
-      console.log("[SitesList] status", response.status);
-      if (response.ok) {
-        const data = await response.json();
-        console.log("[SitesList] got", data.length, "sites");
-        setCurrentSites(data);
-        setCachedSites(data); // Cache to store
-      } else {
-        console.error("[SitesList] non-ok:", response.status, await response.text().catch(() => ""));
-      }
+      setCurrentSites(sites);
+      setCachedSites(sites); // Cache to store
     } catch (error) {
       console.error("Failed to load local sites:", error);
     } finally {
@@ -74,12 +112,9 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
     if (ports.length === 0) return;
     setOpenedWindows({});
     // End sessions on agent in parallel
+    const base = resolveProxyBase(tunnelUrl, getAuth()?.localIp);
     await Promise.all(ports.map((port) =>
-      fetch(`${tunnelUrl}/api/proxy/end`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-        body: JSON.stringify({ port: Number(port) })
-      }).catch(() => {})
+      setProxySession("end", { socketRef, base, apiKey, port: Number(port) }).catch(() => {})
     ));
   };
 
@@ -102,7 +137,12 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
 
   const handleSelectSite = async (site) => {
     const { port } = site;
-    const proxyUrl = `${tunnelUrl}/proxy/${port}/`;
+    const base = resolveProxyBase(tunnelUrl, getAuth()?.localIp);
+    if (!base) {
+      alert(t("sites.startProxyFailed", { name: site.name }));
+      return;
+    }
+    const proxyUrl = `${base}/proxy/${port}/`;
     
     // If window already open, focus it
     if (openedWindows[port] && !openedWindows[port].closed) {
@@ -122,25 +162,9 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
     setOpenedWindows(prev => ({ ...prev, [port]: windowRef }));
 
     // Start proxy session
-    try {
-      await fetch(`${tunnelUrl}/api/proxy/start`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({ port })
-      });
-      
-      // Navigate to proxy URL
-      windowRef.location.href = proxyUrl;
-
-      // Call external onSelectSite if provided
-      if (onSelectSite) {
-        onSelectSite(site);
-      }
-    } catch (err) {
-      console.error(`[SitesList] Failed to start proxy session:`, err);
+    const started = await setProxySession("start", { socketRef, base, apiKey, port }).catch(() => false);
+    if (!started) {
+      console.error("[SitesList] Failed to start proxy session for port", port);
       alert(t("sites.startProxyFailed", { name: site.name }));
       windowRef.close();
       setOpenedWindows(prev => {
@@ -150,6 +174,9 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
       });
       return;
     }
+
+    windowRef.location.href = proxyUrl;
+    onSelectSite?.(site);
 
     // Start polling to check if window is closed
     checkIntervalsRef.current[port] = setInterval(async () => {
@@ -163,19 +190,8 @@ export default function SitesList({ tunnelUrl, apiKey, onSelectSite, isOpen: ext
           return updated;
         });
 
-        // Call cleanup API
-        try {
-          await fetch(`${tunnelUrl}/api/proxy/end`, {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({ port })
-          });
-        } catch (err) {
-          console.error(`[SitesList] Cleanup failed for port ${port}:`, err);
-        }
+        await setProxySession("end", { socketRef, base, apiKey, port })
+          .catch((err) => console.error(`[SitesList] Cleanup failed for port ${port}:`, err));
       }
     }, 1000);
   };

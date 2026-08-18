@@ -3,6 +3,7 @@
 import { RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { ACTIVITY_PANELS } from "../constants/fileExplorer.js";
+import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import ExplorerPanel from "./ExplorerPanel.js";
 import SearchPanel from "./SearchPanel.js";
 import ScmPanel from "./ScmPanel.js";
@@ -53,19 +54,28 @@ export default function SidebarPanel({
     fileSocket?.refresh?.();
   };
 
+  // The explorer draws its own title bar (workspace name + new file/folder/refresh), so a
+  // second strip above it would just repeat the word EXPLORER and the refresh button.
+  const ownsHeader = activePanel === ACTIVITY_PANELS.explorer;
+
   return (
     <div className="flex flex-col h-full">
-      <div className="bg-surface px-3 py-2 border-b border-border flex items-center justify-between">
-        <span className="uppercase tracking-wider text-xs text-text-muted">{title}</span>
-        <button
-          type="button"
-          title="Refresh"
-          onClick={handleRefresh}
-          className="w-7 h-7 flex items-center justify-center rounded-brand text-text-muted hover:text-text hover:bg-surface-2 transition-all duration-150 ease-out active:scale-[0.96]"
+      {!ownsHeader && (
+        <div
+          style={{ height: PANEL_HEADER_HEIGHT }}
+          className="bg-surface px-3 border-b border-border flex items-center justify-between flex-shrink-0"
         >
-          <RefreshCw size={14} />
-        </button>
-      </div>
+          <span className="uppercase tracking-wider text-xs text-text-muted">{title}</span>
+          <button
+            type="button"
+            title="Refresh"
+            onClick={handleRefresh}
+            className="w-7 h-7 flex items-center justify-center rounded-brand text-text-muted hover:text-text hover:bg-surface-2 transition-all duration-150 ease-out active:scale-[0.96]"
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         {renderBody({ activePanel, workspace, fileSocket, onOpenFile, onSwitchWorkspace, activeFile })}
       </div>

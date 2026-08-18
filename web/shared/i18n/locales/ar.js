@@ -164,7 +164,8 @@ export default {
     deleteTitle: "حذف الجلسة",
     deleteMessage: "هل أنت متأكد أنك تريد حذف \"{name}\"؟",
     editName: "تعديل الاسم",
-    newTerminal: "طرفية جديدة"
+    newTerminal: "طرفية جديدة",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -247,8 +248,11 @@ export default {
     discard: "تجاهل",
     discardTitle: "تجاهل التغييرات",
     discardMessage: "لديك تغييرات غير محفوظة. هل تريد تجاهلها؟",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "فشل تحميل الملف: {error}",
     failedSave: "فشل الحفظ: {error}",
+    openFull: "Open in full editor",
     readOnly: "للقراءة فقط",
     line: "سطر",
     column: "عمود",

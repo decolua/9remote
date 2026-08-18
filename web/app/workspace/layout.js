@@ -11,6 +11,7 @@ import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { useClipboardSocket } from "@/features/clipboard/hooks/useClipboardSocket";
 import DevTermLog from "@/features/terminal/components/DevTermLog";
 import { getRecentWorkspaces, addRecentWorkspace, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
+import { isDiffPath, parseRepoDiffPath } from "@/features/fileExplorer/constants/fileExplorer";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useNotification } from "@/shared/hooks/useNotification";
 import { updateTitle } from "@/shared/utils/titleMarquee";
@@ -23,6 +24,7 @@ import { usePaneRegistry } from "@/features/terminal/hooks/usePaneRegistry";
 import { useSessionNavigation } from "@/features/terminal/hooks/useSessionNavigation";
 import { useAgentUpdate } from "@/features/session/hooks/useAgentUpdate";
 import TerminalWorkspace from "@/features/terminal/components/TerminalWorkspace";
+import ReconnectScreen from "@/features/session/components/ReconnectScreen";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
 
 const SessionList = dynamic(() => import("@/features/session/components/SessionList"), { ssr: false });
@@ -68,10 +70,13 @@ export default function WorkspaceLayout({ children }) {
     toggleSidebar,
     sidebarWidth,
     setSidebarWidth,
+    paneWidths,
+    setPaneWidth,
     rightPanelOpen,
     rightPanelTab,
     rightPanelWidth,
     toggleRightPanel,
+    closeRightPanel,
     setRightPanelTab,
     setRightPanelWidth,
     editorFilePath,
@@ -154,8 +159,15 @@ export default function WorkspaceLayout({ children }) {
 
   // Current view is top of stack (guard against empty/corrupted viewStack)
   const currentView = viewStack[viewStack.length - 1] || { type: "list" };
-  const isTerminalView = currentView?.type === "terminal";
-  const activeSessionId = isTerminalView ? currentView?.sessionId : null;
+  // Desktop has no session-list screen, so the bottom of the stack ("list") shows the
+  // terminal shell instead — with its sidebar, and its empty state when nothing is open.
+  const isTerminalView = currentView?.type === "terminal" ||
+    (isDesktop && currentView?.type === "list");
+  // At the bottom of the desktop stack no session is named yet, so fall back to the last
+  // one opened — otherwise the shell renders with nothing focused.
+  const activeSessionId = currentView?.type === "terminal"
+    ? currentView.sessionId
+    : (isTerminalView ? openedSessions[openedSessions.length - 1] || null : null);
 
   const paneRegistry = usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, currentView, openedSessions });
 
@@ -202,6 +214,35 @@ export default function WorkspaceLayout({ children }) {
   const createTerminalAt = useCallback((folderPath) => {
     nav.handleCreateSession(null, activeWorkspaceId, null, folderPath);
   }, [nav, activeWorkspaceId]);
+
+  // Side panel's "open full": swap the docked panel for the full editor route. The
+  // workspace root rides along so the desktop editor mounts the right tree.
+  const openEditorFull = useCallback((filePath) => {
+    const ws = workspaces.find(w => w.id === activeWorkspaceId)?.path
+      || sessions.find(s => s.id === currentView.sessionId)?.workspacePath
+      || null;
+    closeEditorFile();
+    pushView({ type: "editor", path: filePath, workspace: ws });
+  }, [workspaces, activeWorkspaceId, sessions, currentView, pushView, closeEditorFile]);
+
+  // Mobile sheet (git tab) opens files in the full FileEditor overlay — one file UI on
+  // the phone. A diff tab id carries a repo-relative path, so resolve it to the file;
+  // its status rides along so the editor can show the diff straight away.
+  const openSheetFile = useCallback((path) => {
+    // The drawer is what opened this file, so it must not be waiting underneath when the
+    // editor closes — the user would land on a panel they never opened.
+    closeRightPanel();
+    if (isDiffPath(path)) {
+      const { status, repoPath, filePath } = parseRepoDiffPath(path);
+      setMobileEditor({
+        path: repoPath ? `${repoPath}/${filePath}` : filePath,
+        workspace: repoPath || undefined,
+        diffStatus: status
+      });
+      return;
+    }
+    setMobileEditor({ path, workspace: workspaces.find(w => w.id === activeWorkspaceId)?.path });
+  }, [workspaces, activeWorkspaceId, setMobileEditor, closeRightPanel]);
 
   // Lazy per-workspace mount: the FIRST time a workspace becomes active, mark it mounted so its
   // panes' XTerms initialize. Others stay as placeholders until visited — avoids mounting every
@@ -317,11 +358,7 @@ export default function WorkspaceLayout({ children }) {
   const isInitializing = !hydrated || (!socket && !auth?.tunnelUrl);
 
   if (isInitializing) {
-    return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
-        <div className="text-text-muted">{t("workspace.loading")}</div>
-      </div>
-    );
+    return <ReconnectScreen label={t("workspace.loading")} />;
   }
 
   const remoteEntry = connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null;
@@ -330,7 +367,10 @@ export default function WorkspaceLayout({ children }) {
     <>
       <AnimatedBackground />
       <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
-        {/* Session List */}
+        {/* Session list — mobile only. On desktop the sidebar already lists workspaces
+            and terminals with more operations, so this would be a weaker copy of it, and
+            the bottom of the stack goes straight to the terminal view instead. */}
+        {!isDesktop && (
         <div
           className={`absolute inset-0 transition-all duration-150 ease-out ${currentView.type === "list"
             ? "translate-x-0 opacity-100 z-10"
@@ -346,7 +386,6 @@ export default function WorkspaceLayout({ children }) {
             onRename={nav.handleRenameSession}
             onLogout={handleLogoutWithConfirm}
             onOpenRemote={remoteEntry}
-            onOpenFiles={handleOpenFiles}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}
             connectionMode={connectionMode}
@@ -355,7 +394,6 @@ export default function WorkspaceLayout({ children }) {
             onStopCodespace={stopCodespace}
             onUpdate={handleUpdate}
             onRestart={handleRestart}
-            retryStatus={retryStatus}
             isActive={currentView.type === "list"}
             socketRef={socketRef}
             subscribeToPush={subscribeToPush}
@@ -369,20 +407,21 @@ export default function WorkspaceLayout({ children }) {
             transport={transport}
             workspaces={workspaces}
             onAddWorkspace={openFolderPicker}
-            platform={platform}
             fileSocket={fileSocket}
             homeDir={systemInfo?.homedir}
             onRenameWorkspace={renameWorkspace}
             onDeleteWorkspace={deleteWorkspace}
-            onMoveSession={moveSession}
-            onReorderSession={reorderSession}
+            recentWorkspaces={recentWorkspaces}
             shells={shells}
           />
         </div>
+        )}
 
-        {/* Terminal view: shared header + multi-pane layout. Also rendered with zero
-            sessions so the empty state (workspace / remote cards) has a home. */}
-        {(openedSessions.length > 0 || (hydrated && !sessions.length)) && (
+        {/* Terminal view: shared header + multi-pane layout. Always mounted on desktop —
+            it is the bottom of the stack there, and its sidebar is the only place to pick
+            a workspace. On mobile it waits for a pane to open; the session list is what
+            greets an empty machine there. */}
+        {(isDesktop || openedSessions.length > 0) && (
           <TerminalWorkspace
             socket={socket}
             socketRef={socketRef}
@@ -410,11 +449,14 @@ export default function WorkspaceLayout({ children }) {
             sidebarCollapsed={sidebarCollapsed}
             sidebarWidth={sidebarWidth}
             setSidebarWidth={setSidebarWidth}
+            paneWidth={activeWorkspaceId ? paneWidths[activeWorkspaceId] ?? null : null}
+            setPaneWidth={activeWorkspaceId ? (w) => setPaneWidth(activeWorkspaceId, w) : undefined}
             toggleSidebar={toggleSidebar}
             paneRegistry={paneRegistry}
             bindSwipeTab={bindSwipeTab}
             nav={nav}
             onBack={popView}
+            atStackBottom={isDesktop && currentView.type === "list"}
             onOpenRemote={remoteEntry}
             onOpenFiles={handleOpenFiles}
             onLogout={handleLogoutWithConfirm}
@@ -442,8 +484,10 @@ export default function WorkspaceLayout({ children }) {
               filePath: editorFilePath,
               width: editorPanelWidth,
               onResize: setEditorPanelWidth,
-              onOpen: openEditorFile,
-              onClose: closeEditorFile
+              onOpen: isDesktop ? openEditorFile : openSheetFile,
+              onClose: closeEditorFile,
+              // Side panel → full editor route at the file's own workspace root
+              onOpenFull: openEditorFull
             }}
             codespaceInfo={codespaceInfo}
             tunnelUrl={auth?.tunnelUrl}
@@ -508,6 +552,9 @@ export default function WorkspaceLayout({ children }) {
             : [...viewStack].reverse().find(v => v.type === "files");
           const ws = filesView?.workspace || currentView.workspace;
           const recent = getRecentWorkspaces().find(w => w.path === ws);
+          // An editor view carrying its own path (side panel's "open full") opens that
+          // file outright; otherwise restore the workspace's last open tabs.
+          const routeFile = currentView.type === "editor" ? currentView.path : null;
           return (
             <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
               <FileWorkspaceDesktop
@@ -515,8 +562,8 @@ export default function WorkspaceLayout({ children }) {
                 fileSocket={fileSocket}
                 onBack={popView}
                 onSwitchWorkspace={handleOpenWorkspaceList}
-                initialOpenedFiles={recent?.openedFiles || []}
-                initialActiveFile={recent?.activeFile || null}
+                initialOpenedFiles={routeFile ? [routeFile] : recent?.openedFiles || []}
+                initialActiveFile={routeFile || recent?.activeFile || null}
                 onOpenedFilesChange={(files, activeFile) => updateOpenedFiles(ws, files, activeFile)}
                 socket={socket}
                 connected={connected}
@@ -568,6 +615,7 @@ export default function WorkspaceLayout({ children }) {
               filePath={mobileEditor.path}
               line={mobileEditor.line}
               column={mobileEditor.column}
+              diffStatus={mobileEditor.diffStatus}
               fileSocket={fileSocket}
               onBack={() => setMobileEditor(null)}
               workspace={mobileEditor.workspace || currentView.workspace}
@@ -576,6 +624,7 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Connection Modal — overlay when retrying/failed (suppressed during self-update) */}
+        {!connected && <ReconnectScreen />}
         {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Update Modal — progress overlay during agent self-update */}

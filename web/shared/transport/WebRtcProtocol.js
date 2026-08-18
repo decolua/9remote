@@ -337,6 +337,14 @@ export class WebRtcProtocol extends BaseProtocol {
     if (!this._pc) return;
     try {
       if (msg.type === "answer") {
+        // Duplicate/replayed answer (DO redelivery after a WS blip) — the first one
+        // already applied and the connection is fine; a second setRemoteDescription
+        // would throw "wrong state: stable".
+        if (this._answerApplied || this._pc.signalingState === "stable") {
+          debugLog("transport", "[rtc] duplicate answer ignored");
+          termLog("switch", "rtc duplicate answer ignored");
+          return;
+        }
         await this._pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
         this._answerApplied = true; // signaling reached the agent — a later failure is connectivity, not routing
         debugLog("transport", "[rtc] answer set");

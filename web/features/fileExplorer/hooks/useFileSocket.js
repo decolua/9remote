@@ -284,6 +284,7 @@ export function useFileSocket(socketRef, protocolRef) {
   }, [socketRef]);
 
   const gitScanRepos = useCallback((rootPath, maxDepth) => emitGit("gitScanRepos", { rootPath, maxDepth }), [emitGit]);
+  const gitWorkspaceChangedCount = useCallback((rootPath, maxDepth) => emitGit("gitWorkspaceChangedCount", { rootPath, maxDepth }), [emitGit]);
   const gitRefreshRepos = useCallback((rootPath) => emitGit("gitRefreshRepos", { rootPath }), [emitGit]);
   const gitWorktreeList = useCallback((repoPath) => emitGit("gitWorktreeList", { repoPath }), [emitGit]);
   const gitWorktreeAdd = useCallback((repoPath, worktreePath, branch, newBranch) => emitGit("gitWorktreeAdd", { repoPath, worktreePath, branch, newBranch }), [emitGit]);
@@ -410,6 +411,7 @@ export function useFileSocket(socketRef, protocolRef) {
     getFileTree,
     gitBranch,
     gitScanRepos,
+    gitWorkspaceChangedCount,
     gitRefreshRepos,
     gitWorktreeList,
     gitWorktreeAdd,
@@ -428,7 +430,7 @@ export function useFileSocket(socketRef, protocolRef) {
   }), [getSystemInfo, getFiles, readFile, readImage, readMedia, writeFile, createItem, deleteItem,
     renameItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
     searchInFiles, replaceInFiles, watchDir, unwatchDir, revealInOS, openInTerminal,
-    getFileTree, gitBranch, gitScanRepos, gitRefreshRepos, gitWorktreeList, gitWorktreeAdd,
+    getFileTree, gitBranch, gitScanRepos, gitWorkspaceChangedCount, gitRefreshRepos, gitWorktreeList, gitWorktreeAdd,
     gitWorktreeRemove, gitBranchList, gitBranchCheckout, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog,
     uploadFiles, downloadFile, streamMedia]);
 }

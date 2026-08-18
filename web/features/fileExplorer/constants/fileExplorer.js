@@ -157,22 +157,25 @@ export const GIT_STATUS = {
   untracked: "?"
 };
 
+// VS Code's muted git decoration palette (tokens in globals.css), not bright tailwind hues.
 export const GIT_STATUS_COLORS = {
-  M: "text-blue-400",
-  A: "text-green-400",
-  D: "text-red-400",
-  "?": "text-green-400",
-  U: "text-orange-400"
+  M: "text-git-modified",
+  A: "text-git-added",
+  D: "text-git-deleted",
+  "?": "text-git-untracked",
+  U: "text-git-modified"
 };
 
 // Explorer row metrics. "compact" is the narrow tree docked beside a terminal, where
-// horizontal space is scarce; "normal" is the standalone file explorer.
+// horizontal space is scarce; "normal" is the standalone file explorer. Rows read a step
+// larger on phones — a 12px row is fine next to a mouse, not under a thumb.
 export const EXPLORER_ROW = {
-  normal:  { indentBase: 12, indentStep: 12, icon: 16, chevron: 14, text: "text-sm",    padY: "py-0.5" },
-  compact: { indentBase: 8,  indentStep: 8,  icon: 14, chevron: 12, text: "text-[12px]", padY: "py-[1px]" }
+  normal:  { indentBase: 12, indentStep: 12, icon: 16, chevron: 14, text: "text-[15px] sm:text-sm",     padY: "py-1 sm:py-0.5" },
+  compact: { indentBase: 8,  indentStep: 8,  icon: 14, chevron: 12, text: "text-[13px] sm:text-[12px]", padY: "py-0.5 sm:py-[1px]" }
 };
 
-export const AUTO_SAVE_DELAY = 3000; // 3 seconds
+// Auto-save is gone: an editor that writes behind the user's back cannot be trusted
+// with a file they are halfway through changing, and it hides write failures.
 
 // Git diff: side-by-side (VSCode-like) at/above this width, unified below
 export const DIFF_SIDE_BY_SIDE_BREAKPOINT = 768;
@@ -225,7 +228,6 @@ export const STORAGE_KEYS = {
   openTabs: "fileExplorer.openTabs",
   editorFontSize: "fileExplorer.editorFontSize",
   wordWrap: "fileExplorer.wordWrap",
-  autoSaveMode: "fileExplorer.autoSaveMode",
   expandedFolders: "fileExplorer.expandedFolders",
   showHidden: "fileExplorer.showHidden"
 };
@@ -239,11 +241,6 @@ export const ACTIVITY_PANELS = {
 };
 
 // Auto-save modes
-export const AUTO_SAVE_MODES = {
-  off: "off",
-  afterDelay: "afterDelay",
-  onFocusChange: "onFocusChange"
-};
 
 // Editor font size
 export const EDITOR_FONT_DEFAULT = 14;

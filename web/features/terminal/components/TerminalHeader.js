@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Plus, Pencil, Trash2, X, Download } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Plus, Pencil, Trash2, X, Download, Globe } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
+import SitesList from "./SitesList";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
@@ -56,6 +57,7 @@ export default function TerminalHeader({
   const activeTabRef = useRef(null);
   // Tab right-click context menu (rename/delete)
   const [tabMenu, setTabMenu] = useState({ sessionId: null, x: 0, y: 0 });
+  const [sitesOpen, setSitesOpen] = useState(false);
   const tabMenuRef = useRef(null);
   const tabMenuPos = useClampedMenu(tabMenuRef, tabMenu.x, tabMenu.y);
   const [editingTabId, setEditingTabId] = useState(null);
@@ -201,17 +203,21 @@ export default function TerminalHeader({
           className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
           title={t("common.open")}
         >
-          <PanelLeft size={18} />
+          <PanelLeft size={16} />
         </button>
       )}
 
-      <button
-        onClick={() => { vibrate(); onBack(); }}
-        className="p-1.5 pl-1 pr-3 sm:pl-1.5 sm:pr-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
-        title={t("common.back")}
-      >
-        <ChevronLeft size={18} />
-      </button>
+      {/* Nothing to go back to at the bottom of the desktop stack — this view IS the
+          bottom there, and the button would walk the user out of the app. */}
+      {onBack && (
+        <button
+          onClick={() => { vibrate(); onBack(); }}
+          className="p-1.5 pl-1 pr-3 sm:pl-1.5 sm:pr-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+          title={t("common.back")}
+        >
+          <ChevronLeft size={16} />
+        </button>
+      )}
 
       {/* overflow-auto whitelists this for mobile touchmove (see page.js preventScroll) */}
       <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-dark-400 scrollbar-track-transparent">
@@ -234,7 +240,7 @@ export default function TerminalHeader({
                 onTouchStart={(e) => { if (editingTabId === session.id) return; handleTabTouchStart(e, session); }}
                 onTouchMove={editingTabId === session.id ? undefined : clearTabLongPress}
                 onTouchEnd={editingTabId === session.id ? undefined : clearTabLongPress}
-                className={`term-tab px-2 sm:px-3 py-1.5 text-sm font-medium transition-all duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
+                className={`term-tab px-2 sm:px-2.5 py-1 text-xs font-medium transition-all duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   isActiveTab ? "term-tab-active" : ""
                 }`}
               >
@@ -267,7 +273,7 @@ export default function TerminalHeader({
                 className="p-1.5 text-text-muted hover:bg-surface-2 hover:text-text transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
                 title={t("terminal.newTerminal")}
               >
-                <Plus size={18} />
+                <Plus size={16} />
               </button>
             </div>
           )}
@@ -291,9 +297,18 @@ export default function TerminalHeader({
           className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
           title={t("menu.remoteDesktop")}
         >
-          <Monitor size={18} />
+          <Monitor size={16} />
         </button>
       )}
+
+      <button
+        onClick={() => { vibrate(); setSitesOpen(true); }}
+        disabled={!connected}
+        className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed"
+        title={t("menu.sites")}
+      >
+        <Globe size={16} />
+      </button>
 
       <NotificationsBell
         sessions={sessions}
@@ -307,12 +322,12 @@ export default function TerminalHeader({
       {onToggleRightPanel && (
         <button
           onClick={() => { vibrate(); onToggleRightPanel(); }}
-          className={`p-1.5 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] hover:bg-surface-2 ${
+          className={`hidden sm:block p-1.5 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] hover:bg-surface-2 ${
             rightPanelOpen ? "text-brand-500" : "text-text hover:text-text"
           }`}
           title={t("workspaces.tabFiles")}
         >
-          <PanelRight size={18} />
+          <PanelRight size={16} />
         </button>
       )}
 
@@ -322,7 +337,7 @@ export default function TerminalHeader({
         className={`p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] ${onToggleSidebar ? "sm:hidden" : ""}`}
         title={t("menu.title")}
       >
-        <Settings size={18} />
+        <Settings size={16} />
       </button>
       </div>
 
@@ -388,6 +403,8 @@ export default function TerminalHeader({
           </div>
         </div>
       )}
+
+      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} socketRef={socketRef} isOpen={sitesOpen} onClose={() => setSitesOpen(false)} />
     </div>
   );
 }

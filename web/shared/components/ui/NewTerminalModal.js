@@ -36,7 +36,8 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70"
+      className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/70"
+      style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       onClick={onClose}
     >
       <div

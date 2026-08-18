@@ -13,19 +13,16 @@ export const indentFor = (depth, compact = false) => {
   return m.indentBase + depth * m.indentStep;
 };
 
-/** Git badge: a dot for "contains changes", the status letters otherwise. */
+/** Git badge, right-aligned: a dot for "contains changes", the status letters otherwise. */
 function GitBadge({ status }) {
   if (!status) return null;
   if (status === "folder-changed") {
-    return <span className="w-1.5 h-1.5 rounded-full bg-blue-400/70 mr-1" />;
+    return <span className="ml-auto mr-2 w-1.5 h-1.5 rounded-full bg-blue-400/70" />;
   }
-  return <span className={`text-[11px] font-bold ${GIT_STATUS_COLORS[status] || "text-text-muted"} ml-1`}>{status}</span>;
+  return <span className={`ml-auto mr-2 text-[10px] font-semibold ${GIT_STATUS_COLORS[status] || "text-text-muted"}`}>{status}</span>;
 }
 
-const nameColor = (status) => {
-  if (status === "folder-changed") return "text-yellow-400";
-  return GIT_STATUS_COLORS[status] || "";
-};
+const nameColor = (status) => GIT_STATUS_COLORS[status] || "";
 
 export function TruncatedNote({ depth, compact = false }) {
   return (
@@ -44,21 +41,23 @@ export default function ExplorerRow({
   onRenameChange, onRenameSubmit, onRenameCancel,
   onToggleFolder, onClick, onContextMenu, onTouchStart, onTouchEnd,
   onDragStart, onDragOver, onDragLeave, onDrop,
-  onNewTerminal, newTerminalLabel, compact = false,
+  compact = false,
   children
 }) {
   const m = metricsFor(compact);
   return (
     <div>
       <div
+        data-path={file.path}
         draggable={!isRenaming}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        className={`group flex items-center gap-1 pr-2 cursor-pointer select-none ${m.text} ${m.padY} ${
+        className={`group relative flex items-center gap-1 rounded-[3px] mx-0.5 pr-2 cursor-pointer select-none ${m.text} ${m.padY} ${
           isDragOver ? "bg-brand-500/30 ring-1 ring-brand-500" :
-          isActive || isSelected ? "bg-surface-2" : "hover:bg-surface-2"
+          isActive ? "bg-brand-500/15" :
+          isSelected ? "bg-surface-2" : "hover:bg-surface-2"
         }`}
         style={{ paddingLeft: indentFor(depth, compact) }}
         onContextMenu={onContextMenu}
@@ -74,10 +73,12 @@ export default function ExplorerRow({
           >
             {isLoading ? (
               <Icon name="Loader2" size={m.chevron - 2} className="animate-spin" />
-            ) : isExpanded ? (
-              <Icon name="ChevronDown" size={m.chevron} />
             ) : (
-              <Icon name="ChevronRight" size={m.chevron} />
+              <Icon
+                name="ChevronRight"
+                size={m.chevron}
+                className={`transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
+              />
             )}
           </span>
         ) : (
@@ -107,23 +108,17 @@ export default function ExplorerRow({
 
         {!isRenaming && <GitBadge status={gitStatus} />}
 
-        {!isRenaming && isFolder && onNewTerminal && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onNewTerminal(file); }}
-            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-brand-500 px-1"
-            title={newTerminalLabel}
-          >
-            <Icon name="Terminal" size={m.chevron} />
-          </button>
-        )}
-
+        {/* Overflow floats OVER the name (git-panel style, no reserved space) — the
+            terminal action moved into the context menu. */}
         {!isRenaming && (
-          <button
-            onClick={onContextMenu}
-            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text px-1"
-          >
-            <Icon name="MoreHorizontal" size={m.chevron} />
-          </button>
+          <div className="absolute right-[26px] top-1/2 -translate-y-1/2 flex items-center pl-2 pr-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={onContextMenu}
+              className="p-0.5 text-text-muted hover:text-text"
+            >
+              <Icon name="MoreHorizontal" size={m.chevron} />
+            </button>
+          </div>
         )}
       </div>
 

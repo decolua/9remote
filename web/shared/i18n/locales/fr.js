@@ -165,7 +165,8 @@ export default {
     deleteTitle: "Supprimer la session",
     deleteMessage: "Êtes-vous sûr de vouloir supprimer \"{name}\" ?",
     editName: "Modifier le nom",
-    newTerminal: "Nouveau terminal"
+    newTerminal: "Nouveau terminal",
+    options: "Options",
   },
   workspaces: {
     title: "Groups",
@@ -248,8 +249,11 @@ export default {
     discard: "Abandonner",
     discardTitle: "Abandonner les modifications",
     discardMessage: "Vous avez des modifications non enregistrées. Les abandonner ?",
+    unsavedTitle: "Save changes to {name}?",
+    unsavedBody: "Your changes will be lost if you don't save them.",
     failedLoad: "Échec du chargement du fichier : {error}",
     failedSave: "Échec de l'enregistrement : {error}",
+    openFull: "Open in full editor",
     readOnly: "Lecture seule",
     line: "Ligne",
     column: "Colonne",

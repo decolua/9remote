@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { spawn, spawnSync, execSync } from "child_process";
-import { BINARY_EXTENSIONS, MAX_FILE_SIZE, DEFAULT_GIT_LOG_LIMIT } from "../constants.js";
+import { BINARY_EXTENSIONS, MAX_FILE_SIZE, DEFAULT_GIT_LOG_LIMIT, MAX_GIT_OUTPUT_SIZE, MAX_GIT_DIFF_SIZE } from "../constants.js";
 import { isSensitivePath } from "../pathGuard.js";
 import {
   scanReposCached, invalidateRepoScan, parseWorktreeList, parseBranchList, terminalsInWorktree
@@ -12,6 +12,26 @@ import { listSessionRoots } from "../../terminal/terminalSocket.js";
 // rapid requests (e.g. terminal typing re-rendering the file watcher effect).
 const GIT_COUNT_TTL_MS = 5000;
 const _countCache = new Map(); // repoPath → { ts, value, pending }
+
+// Changed-file count for one repo, TTL-cached and de-duplicated: a spawn already in
+// flight is awaited rather than repeated.
+async function changedCountCached(repoPath) {
+  const cached = _countCache.get(repoPath);
+  const now = Date.now();
+  if (cached && now - cached.ts < GIT_COUNT_TTL_MS) return cached.value;
+  if (cached?.pending) {
+    try { return await cached.pending; } catch { return { success: false }; }
+  }
+  const pending = runGit(["status", "--porcelain", "--no-renames"], repoPath).then((r) => {
+    const value = r.code === 0
+      ? { success: true, count: r.stdout.trim() ? r.stdout.trim().split("\n").length : 0 }
+      : { success: false, error: "Not a git repository or git not available" };
+    _countCache.set(repoPath, { ts: Date.now(), value, pending: null });
+    return value;
+  }).catch(() => ({ success: false }));
+  _countCache.set(repoPath, { ts: now, value: { success: false }, pending });
+  try { return await pending; } catch { return { success: false }; }
+}
 
 export function runGit(args, cwd) {
   return new Promise((resolve) => {
@@ -27,14 +47,34 @@ export function runGit(args, cwd) {
 // Sync no-shell git for legacy sync handlers. args is an argv array (never a template
 // string) so socket-controlled paths cannot inject shell metacharacters.
 export function runGitSync(args, cwd) {
-  try {
-    const r = spawnSync("git", args, { cwd, encoding: "utf-8", windowsHide: true });
-    return r.stdout ?? "";
-  } catch { return ""; }
+  const r = spawnSync("git", args, {
+    cwd, encoding: "utf-8", windowsHide: true, maxBuffer: MAX_GIT_OUTPUT_SIZE
+  });
+  // ENOBUFS means the output was cut mid-diff — returning it would look like a smaller
+  // change set rather than a failure, so it has to surface.
+  if (r.error) throw r.error;
+  return r.stdout ?? "";
 }
 
 function isBinaryFile(filename) {
   return BINARY_EXTENSIONS.includes(path.extname(filename).toLowerCase());
+}
+
+// Accepts a path either relative to the repo or absolute inside it, and always yields the
+// repo-relative form git expects. A path outside the repo is left alone so git rejects it
+// rather than this silently rewriting it.
+function toRepoRelative(repoPath, file) {
+  if (!file || !repoPath || !path.isAbsolute(file)) return file;
+  const rel = path.relative(repoPath, file);
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return file;
+  return rel.split(path.sep).join("/");
+}
+
+// A diff too large to render is truncated with a visible marker — never dropped, which
+// the UI would show as "no changes".
+function capDiff(diff) {
+  if (diff.length <= MAX_GIT_DIFF_SIZE) return diff;
+  return `${diff.slice(0, MAX_GIT_DIFF_SIZE)}\n\n... diff truncated (over ${Math.round(MAX_GIT_DIFF_SIZE / 1024 / 1024)}MB)`;
 }
 
 export function setupGitHandlers(socket) {
@@ -105,26 +145,29 @@ export function setupGitHandlers(socket) {
   // Async (runGit = spawn) + per-cwd TTL cache so rapid requests (e.g. typing) don't
   // spawn git repeatedly or block the event loop.
   socket.on("gitChangedCount", async ({ repoPath }, callback) => {
-    const cached = _countCache.get(repoPath);
-    const now = Date.now();
-    if (cached && now - cached.ts < GIT_COUNT_TTL_MS) {
-      callback(cached.value);
-      return;
+    callback(await changedCountCached(repoPath));
+  });
+
+  // One number for the whole workspace: the root repo plus every repo under it, so the
+  // terminal badge and the git panel can never disagree. Shares the per-repo TTL cache
+  // with gitChangedCount/gitScanRepos, so polling this costs nothing extra.
+  socket.on("gitWorkspaceChangedCount", async ({ rootPath, maxDepth }, callback) => {
+    if (!rootPath) return callback({ success: false, error: "rootPath required" });
+    if (isSensitivePath(rootPath)) return callback({ success: false, error: "Access denied" });
+    try {
+      const found = scanReposCached(rootPath, maxDepth ? { maxDepth } : {});
+      const results = await Promise.all(found.map(async (repo) => [repo.path, await changedCountCached(repo.path)]));
+      const perRepo = {};
+      let count = 0;
+      for (const [repoPath, res] of results) {
+        if (!res.success) continue;
+        perRepo[repoPath] = res.count;
+        count += res.count;
+      }
+      callback({ success: true, count, perRepo });
+    } catch (error) {
+      callback({ success: false, error: error.message });
     }
-    // A spawn is already in-flight for this cwd → await it instead of spawning again
-    if (cached?.pending) {
-      try { callback(await cached.pending); } catch { callback({ success: false }); }
-      return;
-    }
-    const pending = runGit(["status", "--porcelain", "--no-renames"], repoPath).then((r) => {
-      const value = r.code === 0
-        ? { success: true, count: r.stdout.trim() ? r.stdout.trim().split("\n").length : 0 }
-        : { success: false, error: "Not a git repository or git not available" };
-      _countCache.set(repoPath, { ts: Date.now(), value, pending: null });
-      return value;
-    }).catch(() => ({ success: false }));
-    _countCache.set(repoPath, { ts: now, value: { success: false }, pending });
-    try { callback(await pending); } catch { callback({ success: false }); }
   });
 
   socket.on("gitFileStatus", ({ repoPath, filePath }, callback) => {
@@ -153,9 +196,13 @@ export function setupGitHandlers(socket) {
     }
   });
 
-  socket.on("gitDiff", ({ repoPath, file, status }, callback) => {
+  socket.on("gitDiff", ({ repoPath, file: rawFile, status }, callback) => {
     try {
       let diff = "";
+      // Callers hand this over either way: the git panel sends a repo-relative path, the
+      // mobile editor an absolute one. Joining an absolute path onto the repo would point
+      // at /repo/repo/file and read as an empty diff.
+      const file = toRepoRelative(repoPath, rawFile);
 
       if (file && status === "?") {
         const filePath = path.join(repoPath, file);
@@ -189,7 +236,7 @@ export function setupGitHandlers(socket) {
         }
       }
 
-      callback({ success: true, diff });
+      callback({ success: true, diff: capDiff(diff) });
     } catch (error) {
       callback({ success: false, error: error.message });
     }
@@ -324,13 +371,13 @@ export function setupGitHandlers(socket) {
       const repos = await Promise.all(found.map(async (repo) => {
         const [branchRes, countRes] = await Promise.all([
           runGit(["branch", "--show-current"], repo.path),
-          runGit(["status", "--porcelain", "--no-renames"], repo.path)
+          changedCountCached(repo.path)
         ]);
         return {
           ...repo,
           name: path.basename(repo.path),
           branch: branchRes.code === 0 ? branchRes.stdout.trim() || null : null,
-          changedCount: countRes.code === 0 ? countRes.stdout.split("\n").filter(Boolean).length : 0
+          changedCount: countRes.success ? countRes.count : 0
         };
       }));
       callback({ success: true, repos });
