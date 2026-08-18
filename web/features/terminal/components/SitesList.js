@@ -292,7 +292,7 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
       {/* Modal Overlay */}
       {isModalOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 modal-overlay"
+          className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200 modal-overlay"
           onClick={handleClose}
         >
           {/* Modal Content */}

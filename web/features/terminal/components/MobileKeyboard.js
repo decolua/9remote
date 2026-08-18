@@ -372,7 +372,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     <div className="flex flex-col w-full">
       {/* Paste Input Fallback */}
       {showPasteInput && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowPasteInput(false)}>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]" onClick={() => setShowPasteInput(false)}>
           <input
             ref={pasteInputRef}
             placeholder={t("mobileKeyboard.pasteHere")}
@@ -594,7 +594,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setVoiceLangOpen(true)}
                 title={t("voice.language")}
-                className="absolute right-1.5 -top-7 z-50 px-2.5 py-1 rounded bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors touch-none"
+                className="absolute right-1.5 -top-7 z-10 px-2.5 py-1 rounded bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors touch-none"
               >
                 {voiceLang}
               </button>

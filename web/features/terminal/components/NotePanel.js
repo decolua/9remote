@@ -113,7 +113,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4"
       onMouseDown={(e) => { e.preventDefault(); onClose(); }}
     >
       <div
