@@ -19,6 +19,7 @@ import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT } from "@/features/terminal/const
 // isFocused: pane receives keyboard input + shows active border
 function TerminalPane({
   socket,
+  workspacePath,
   connected,
   sessionId,
   isVisible,
@@ -32,8 +33,6 @@ function TerminalPane({
   sessionStatus = {},
   clearNotification,
   fileSocket,
-  changedCount = 0,
-  countFallback = false,
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
@@ -191,11 +190,8 @@ function TerminalPane({
     };
   }, [termRef, termReady, isVisible]);
 
-  // Count comes from the workspace-wide poll above, so this badge and the git tab agree.
-  // A workspace migrated from a group has no path to count, so those panes fall back to
-  // their own cwd rather than showing nothing.
-  const ownCount = useGitChangedCount(cwd, fileSocket, { enabled: countFallback && isVisible });
-  const shownCount = countFallback ? ownCount : changedCount;
+  // Each pane counts its own cwd; the hook shares one poll per unique cwd across panes.
+  const shownCount = useGitChangedCount(cwd, fileSocket, { enabled: isVisible });
 
   const badgeLabel = shownCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : shownCount;
 
@@ -277,14 +273,14 @@ function TerminalPane({
             e.stopPropagation();
             handleScrollToBottom();
           }}
-          className="absolute bottom-3 right-5 z-50 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94] touch-none"
+          className="absolute bottom-3 right-5 z-10 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94] touch-none"
           title={t("terminalPane.scrollToBottom")}
         >
           <ChevronDown size={20} />
         </button>
       )}
       {cwd && isFocused && (
-        <div className="absolute top-2 right-2 z-50 flex flex-col items-end gap-2 pointer-events-auto touch-none">
+        <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none">
           <div className="flex flex-row gap-2">
             {showNoteButton && (
               <button
@@ -318,7 +314,7 @@ function TerminalPane({
             <button
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); vibrate(); setRightPanelTab("files"); }}
+              onClick={(e) => { e.stopPropagation(); vibrate(); setRightPanelTab("files", workspacePath); }}
               className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
               title={t("terminalPane.openFolder")}
             >
@@ -353,7 +349,5 @@ export default memo(TerminalPane, (prev, next) => (
   prev.theme === next.theme &&
   prev.showFocusBorder === next.showFocusBorder &&
   prev.notifications === next.notifications &&
-  prev.sessionStatus === next.sessionStatus &&
-  prev.changedCount === next.changedCount &&
-  prev.countFallback === next.countFallback
+  prev.sessionStatus === next.sessionStatus
 ));

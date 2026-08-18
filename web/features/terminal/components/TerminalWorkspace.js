@@ -6,8 +6,6 @@ import { useI18n } from "@/shared/i18n";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX } from "@/features/terminal/constants/terminalConfig";
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
-import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { useWorkspaceChangedCount } from "@/features/terminal/hooks/useWorkspaceChangedCount";
 
 const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
 const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
@@ -36,7 +34,7 @@ export default function TerminalWorkspace({
   paneWidth = null, setPaneWidth,
   paneRegistry, bindSwipeTab, nav,
   onBack, onOpenRemote, onOpenFiles, onLogout, onStopCodespace, onUpdate, onRestart,
-  onDeleteWorkspace, onMoveSession, onReorderSession, onSetHiddenRepos, atStackBottom = false,
+  onDeleteWorkspace, onReorderSession, onSetHiddenRepos, atStackBottom = false,
   onAddWorkspace, onOpenSettings, homeDir, recentWorkspaces,
   rightPanel, editorPanel,
   codespaceInfo, tunnelUrl, apiKey, connectionMode,
@@ -56,13 +54,6 @@ export default function TerminalWorkspace({
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
   const panelRoot = activeWorkspace?.path || activeSession?.workspacePath || null;
   const showEmptyState = !sessions.length;
-
-  // One count for the whole workspace, shared by the pane badge and the git tab so the
-  // two can never show different numbers. Polled only while something displays it.
-  const showFolderButton = useTerminalStore((s) => s.showFolderButton);
-  const showGitButton = useTerminalStore((s) => s.showGitButton);
-  const gitCountsEnabled = (showFolderButton && showGitButton) || !!rightPanel?.open;
-  const gitCounts = useWorkspaceChangedCount(panelRoot, fileSocket, { enabled: gitCountsEnabled });
 
   // The collapsed panel stays mounted so its width can animate, but only after a first
   // open — otherwise a user who never opens it still pays for the tree and git scan.
@@ -148,6 +139,9 @@ export default function TerminalWorkspace({
 
   const renderPane = (sessionId, isVisible, isFocused) => (
     <TerminalPane
+      // Session's own workspace — the folder button opens the right panel's files tab
+      // keyed to it, not to whichever workspace currently owns the panel.
+      workspacePath={sessions.find((s) => s.id === sessionId)?.workspacePath}
       socket={socket}
       connected={connected}
       sessionId={sessionId}
@@ -161,8 +155,6 @@ export default function TerminalWorkspace({
       sessionStatus={sessionStatus}
       clearNotification={clearNotification}
       fileSocket={fileSocket}
-      changedCount={gitCounts.count}
-      countFallback={!panelRoot && gitCountsEnabled}
       mountDelay={mountDelayFor(sessionId, isFocused, workspaceIndex)}
     />
   );
@@ -206,10 +198,10 @@ export default function TerminalWorkspace({
               onRenameSession={nav.handleRenameSession}
               onDeleteSession={nav.handleDeleteSession}
               onReorderSession={onReorderSession}
-              onMoveSession={onMoveSession}
               onDeleteWorkspace={onDeleteWorkspace}
               onAddWorkspace={onAddWorkspace}
               onOpenSettings={onOpenSettings}
+              socketRef={socketRef}
               fileSocket={fileSocket}
               homeDir={homeDir}
               cwdBySession={cwdBySession}
@@ -406,8 +398,8 @@ export default function TerminalWorkspace({
               workspacePath={panelRoot}
               fileSocket={fileSocket}
               activeFile={editorPanel?.filePath}
-              tab={rightPanel.tab}
-              onTabChange={rightPanel.onTabChange}
+              tab={rightPanel.tabs?.[panelRoot ?? ""] || "files"}
+              onTabChange={(tab) => rightPanel.onTabChange(tab, panelRoot ?? "")}
               width={rightPanel.width}
               onResize={rightPanel.onResize}
               onClose={rightPanel.onToggle}
@@ -416,7 +408,6 @@ export default function TerminalWorkspace({
               onNewTerminal={rightPanel.onNewTerminal}
               onAddWorkspace={onAddWorkspace}
               homeDir={homeDir}
-              changedPerRepo={gitCounts.perRepo}
               hiddenRepos={activeWorkspace?.hiddenRepos || []}
               onHiddenReposChange={activeWorkspace && onSetHiddenRepos
                 ? (paths) => onSetHiddenRepos(activeWorkspace.id, paths)
@@ -432,6 +423,7 @@ export default function TerminalWorkspace({
         <TerminalStatusBar
           cwd={activeSessionId ? cwdBySession[activeSessionId] || "" : ""}
           fileSocket={fileSocket}
+          socketRef={socketRef}
           connected={connected}
           sessionState={activeSessionId ? sessionStatus[activeSessionId]?.state : "idle"}
           transport={transport}

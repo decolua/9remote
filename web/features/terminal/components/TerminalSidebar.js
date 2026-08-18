@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, PanelLeft, Settings } from "@/shared/components/ui/Icon";
+import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, PanelLeft, Settings, Download } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
+import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { AGENT_ICONS } from "../constants/agentLabels";
 import { vibrate } from "@/shared/utils/vibration";
@@ -118,7 +119,7 @@ function WorkspaceHeader({
 }
 
 // Desktop-only persistent sidebar: sessions grouped by workspace, full item ops
-// (rename / delete / move to workspace / drag-reorder within workspace).
+// (rename / delete / drag-reorder within workspace).
 export default function TerminalSidebar({
   allSessions = [],
   workspaces = [],
@@ -134,9 +135,9 @@ export default function TerminalSidebar({
   onRenameSession,
   onDeleteSession,
   onReorderSession,
-  onMoveSession,
   onAddWorkspace,
   onOpenSettings,
+  socketRef = null,
   fileSocket,
   homeDir,
   cwdBySession = {},
@@ -147,6 +148,16 @@ export default function TerminalSidebar({
 }) {
   const { t } = useI18n();
   const dragRef = useRef(null);
+
+  // PWA install — desktop only, so the row shows solely when the browser can
+  // actually install (Chromium beforeinstallprompt). Manual guides live in Settings.
+  const canInstall = usePwaInstallStore((s) => s.canInstall);
+  const isInstalled = usePwaInstallStore((s) => s.isInstalled);
+  const install = usePwaInstallStore((s) => s.install);
+  const isApp = typeof window !== "undefined" && (
+    window.matchMedia("(display-mode: standalone)").matches || !!window.ReactNativeWebView
+  );
+  const showInstall = canInstall && !isApp && !isInstalled;
 
   // Resize handle
   const startResize = (e) => {
@@ -171,7 +182,6 @@ export default function TerminalSidebar({
   const [ctxMenu, setCtxMenu] = useState(null); // { sessionId, x, y }
   const ctxRef = useRef(null);
   const ctxPos = useClampedMenu(ctxRef, ctxMenu?.left ?? 0, ctxMenu?.top ?? 0);
-  const [moveOpen, setMoveOpen] = useState(false);
 
   // Rename inline
   const [editingId, setEditingId] = useState(null);
@@ -232,7 +242,6 @@ export default function TerminalSidebar({
       top: e.clientY,
       name: s?.name || "",
     });
-    setMoveOpen(false);
   };
 
   // Touch long-press → context menu
@@ -249,8 +258,7 @@ export default function TerminalSidebar({
         top: touch.clientY,
         name: s?.name || "",
       });
-      setMoveOpen(false);
-    }, 500);
+      }, 500);
   };
   const clearLongPress = () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } };
 
@@ -506,8 +514,19 @@ export default function TerminalSidebar({
         )}
       </div>
 
-      {onOpenSettings && (
+      {(showInstall || onOpenSettings) && (
         <div className="p-1.5 border-t border-border-subtle flex-shrink-0">
+          {showInstall && (
+            <button
+              onClick={() => { vibrate(); install(); }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-text-muted hover:text-text hover:bg-surface-2 rounded-[3px] transition-colors"
+              title={t("menu.installApp")}
+            >
+              <Download size={14} />
+              <span>{t("menu.installApp")}</span>
+            </button>
+          )}
+          {onOpenSettings && (
           <button
             onClick={() => { vibrate(); onOpenSettings(); }}
             className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-text-muted hover:text-text hover:bg-surface-2 rounded-[3px] transition-colors"
@@ -516,6 +535,7 @@ export default function TerminalSidebar({
             <Settings size={14} />
             <span>{t("menu.settings")}</span>
           </button>
+          )}
         </div>
       )}
 
@@ -532,11 +552,12 @@ export default function TerminalSidebar({
       {createModalWsId !== null && (
         <NewTerminalModal
           onClose={() => setCreateModalWsId(null)}
-          onCreate={(name, shellId) => {
+          onCreate={(name, shellId, agent, yolo) => {
             const wsId = createModalWsId === "" ? null : createModalWsId;
-            onCreateNamedSession?.(name, wsId, shellId);
+            onCreateNamedSession?.(name, wsId, shellId, null, agent, yolo);
           }}
           shells={shells}
+          socketRef={socketRef}
           suggestName={`${t("terminal.defaultName")} ${(allSessions.filter(s => sessionWorkspaceId(s) === (createModalWsId === "" ? null : createModalWsId)).length + 1)}`}
         />
       )}
@@ -560,31 +581,6 @@ export default function TerminalSidebar({
           >
             <Pencil size={14} /> {t("sessions.editName")}
           </button>
-
-          {onMoveSession && (
-            <>
-              <button
-                onClick={() => setMoveOpen((v) => !v)}
-                className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
-              >
-                <ChevronRight size={14} className={moveOpen ? "rotate-90 transition-transform" : "transition-transform"} />
-                {t("workspaces.moveToWorkspace")}
-              </button>
-              {moveOpen && (
-                <div className="max-h-48 overflow-y-auto modal-scrollable">
-                  {[...workspaces, { id: null, name: t("workspaces.ungrouped") }].map((w) => (
-                    <button
-                      key={w.id ?? "ungrouped"}
-                      onClick={() => { onMoveSession(ctxMenu.sessionId, w.id); setCtxMenu(null); setMoveOpen(false); }}
-                      className="w-full text-left pl-9 pr-3 py-1.5 text-xs text-text-muted hover:text-text hover:bg-surface-3 truncate"
-                    >
-                      {w.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
 
           <div className="h-px bg-border-subtle my-1" />
           <button

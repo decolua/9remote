@@ -73,10 +73,9 @@ export default function WorkspaceLayout({ children }) {
     paneWidths,
     setPaneWidth,
     rightPanelOpen,
-    rightPanelTab,
+    rightPanelTabs,
     rightPanelWidth,
     toggleRightPanel,
-    closeRightPanel,
     setRightPanelTab,
     setRightPanelWidth,
     editorFilePath,
@@ -92,7 +91,7 @@ export default function WorkspaceLayout({ children }) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, loadWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, moveSession, reorderSession } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, loadWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useSocket();
   const [shells, setShells] = useState([]);
 
   const { updating, updateMode, resumeGrace, doUpdate, doRestart } = useAgentUpdate({
@@ -229,9 +228,6 @@ export default function WorkspaceLayout({ children }) {
   // the phone. A diff tab id carries a repo-relative path, so resolve it to the file;
   // its status rides along so the editor can show the diff straight away.
   const openSheetFile = useCallback((path) => {
-    // The drawer is what opened this file, so it must not be waiting underneath when the
-    // editor closes — the user would land on a panel they never opened.
-    closeRightPanel();
     if (isDiffPath(path)) {
       const { status, repoPath, filePath } = parseRepoDiffPath(path);
       setMobileEditor({
@@ -242,7 +238,7 @@ export default function WorkspaceLayout({ children }) {
       return;
     }
     setMobileEditor({ path, workspace: workspaces.find(w => w.id === activeWorkspaceId)?.path });
-  }, [workspaces, activeWorkspaceId, setMobileEditor, closeRightPanel]);
+  }, [workspaces, activeWorkspaceId, setMobileEditor]);
 
   // Lazy per-workspace mount: the FIRST time a workspace becomes active, mark it mounted so its
   // panes' XTerms initialize. Others stay as placeholders until visited — avoids mounting every
@@ -464,7 +460,6 @@ export default function WorkspaceLayout({ children }) {
             onUpdate={handleUpdate}
             onRestart={handleRestart}
             onDeleteWorkspace={deleteWorkspace}
-            onMoveSession={moveSession}
             onReorderSession={reorderSession}
             onAddWorkspace={openFolderPicker}
             onSetHiddenRepos={setWorkspaceHiddenRepos}
@@ -473,7 +468,7 @@ export default function WorkspaceLayout({ children }) {
             recentWorkspaces={recentWorkspaces}
             rightPanel={{
               open: rightPanelOpen,
-              tab: rightPanelTab,
+              tabs: rightPanelTabs,
               width: rightPanelWidth,
               onTabChange: setRightPanelTab,
               onResize: setRightPanelWidth,
@@ -558,6 +553,7 @@ export default function WorkspaceLayout({ children }) {
           return (
             <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
               <FileWorkspaceDesktop
+                key={ws}
                 workspace={ws}
                 fileSocket={fileSocket}
                 onBack={popView}

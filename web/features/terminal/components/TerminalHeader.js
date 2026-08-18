@@ -99,6 +99,19 @@ export default function TerminalHeader({
   }, [isActive, sessions, activeSessionId, onSwitchSession]);
   const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
 
+  // Mod+Alt+T opens the new-terminal modal (browser reserves bare Mod+T)
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        setCreateModalOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isActive]);
+
   // Close tab context menu on outside click / Escape
   useEffect(() => {
     if (!tabMenu.sessionId) return;
@@ -152,8 +165,8 @@ export default function TerminalHeader({
     setTabMenu({ sessionId: null, x: 0, y: 0 });
   };
 
-  const handleModalCreate = (name, shellId) => {
-    if (onCreateNamedSession) onCreateNamedSession(name, activeWorkspaceId, shellId);
+  const handleModalCreate = (name, shellId, agent, yolo) => {
+    if (onCreateNamedSession) onCreateNamedSession(name, activeWorkspaceId, shellId, null, agent, yolo);
     else onCreateSession?.(activeWorkspaceId);
   };
 
@@ -196,7 +209,8 @@ export default function TerminalHeader({
   }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, transport, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
-    <div className="px-2 sm:pl-0 sm:pr-2 pt-0 flex items-center gap-0 flex-shrink-0 bg-bg">
+    // Desktop left inset matches the panes row (px-1) plus the pane's p-px border
+    <div className="px-2 sm:pl-[5px] sm:pr-2 pt-0 flex items-center gap-0 flex-shrink-0 bg-bg">
       {onToggleSidebar && sidebarCollapsed && (
         <button
           onClick={() => { vibrate(); onToggleSidebar(); }}
@@ -369,6 +383,7 @@ export default function TerminalHeader({
           onClose={() => setCreateModalOpen(false)}
           onCreate={handleModalCreate}
           shells={shells}
+          socketRef={socketRef}
           suggestName={suggestTerminalName(activeWorkspaceId)}
         />
       )}
