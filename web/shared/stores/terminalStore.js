@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, PANE_WIDTH
+  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT
 } from "@/features/terminal/constants/terminalConfig";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
@@ -77,6 +77,28 @@ export const useTerminalStore = create(
       agentCaps: {},
       setAgentCaps: (caps) => set({ agentCaps: caps || {} }),
 
+      // TUI agent CLIs detected by the agent (new-terminal modal). agentClisAt =
+      // fetch timestamp for the TTL gate in useAgentClis. Not persisted.
+      agentClis: null,
+      agentClisAt: 0,
+      setAgentClis: (list) => set({ agentClis: Array.isArray(list) ? list : [], agentClisAt: Date.now() }),
+
+      // One-shot startup command per session (agent CLI launch). Consumed once by
+      // the join ack in termJoin — a rejoin must never re-run it. Not persisted.
+      pendingStartup: {},
+      queueStartup: (sessionId, cmd) => set((state) => ({
+        pendingStartup: { ...state.pendingStartup, [sessionId]: cmd }
+      })),
+      consumeStartup: (sessionId) => {
+        const cmd = get().pendingStartup[sessionId];
+        if (cmd === undefined) return null;
+        set((state) => {
+          const { [sessionId]: _, ...rest } = state.pendingStartup;
+          return { pendingStartup: rest };
+        });
+        return cmd;
+      },
+
       // Terminal font size override (null = use config defaults 14/12). Clamped: 10-16 mobile, 10-18 desktop.
       fontSize: null,
       setFontSize: (size) => set({ fontSize: size ? Math.max(10, Math.min(18, Math.round(size))) : null }),
@@ -109,14 +131,19 @@ export const useTerminalStore = create(
         paneWidths: { ...state.paneWidths, [workspaceId]: w == null ? null : clampWidth(w, PANE_WIDTH) }
       })),
 
-      // Right panel (file tree / git / worktrees). Hidden by default — it costs horizontal
-      // space the terminal needs. Persisted.
-      rightPanelOpen: true,
-      rightPanelTab: "files",
+      // Right panel (file tree / git / worktrees). Open by default on desktop only —
+      // on mobile it is a full-screen overlay over the terminal. Persisted (desktop).
+      rightPanelOpen: typeof window !== "undefined" && window.innerWidth >= DESKTOP_BREAKPOINT,
+      // Per-workspace tab choice: switching workspace restores its own files/git tab.
+      rightPanelTabs: {},
       rightPanelWidth: RIGHT_PANEL_WIDTH.default,
       toggleRightPanel: () => set((state) => ({ rightPanelOpen: !state.rightPanelOpen })),
       closeRightPanel: () => set({ rightPanelOpen: false }),
-      setRightPanelTab: (tab) => set({ rightPanelOpen: true, rightPanelTab: tab }),
+      setRightPanelTab: (tab, workspacePath) => set((state) => ({
+        rightPanelOpen: true,
+        // "" is the shared slot for a workspace-less panel — the tab must still switch.
+        ...(workspacePath != null ? { rightPanelTabs: { ...state.rightPanelTabs, [workspacePath]: tab } } : {})
+      })),
       setRightPanelWidth: (w) => set({ rightPanelWidth: clampWidth(w, RIGHT_PANEL_WIDTH) }),
 
       // Inline editor opened from the tree. A flex sibling of the panes row — panes keep
@@ -150,10 +177,12 @@ export const useTerminalStore = create(
       
       removeOpenedSession: (sessionId) => set((state) => {
         const { [sessionId]: _, ...drafts } = state.drafts;
+        const { [sessionId]: __, ...startups } = state.pendingStartup;
         return {
           openedSessions: state.openedSessions.filter(id => id !== sessionId),
           livePanes: state.livePanes.filter(id => id !== sessionId),
-          drafts
+          drafts,
+          pendingStartup: startups
         };
       }),
       
@@ -199,7 +228,7 @@ export const useTerminalStore = create(
         sidebarWidth: state.sidebarWidth,
         paneWidths: state.paneWidths,
         rightPanelOpen: state.rightPanelOpen,
-        rightPanelTab: state.rightPanelTab,
+        rightPanelTabs: state.rightPanelTabs,
         rightPanelWidth: state.rightPanelWidth,
         editorPanelWidth: state.editorPanelWidth
       }),
@@ -234,6 +263,8 @@ export const useTerminalStore = create(
         if (!Array.isArray(state.viewStack) || state.viewStack.length === 0) {
           state.viewStack = [{ type: "list" }];
         }
+        // Mobile: the panel overlays the terminal — never restore it open
+        if (window.innerWidth < DESKTOP_BREAKPOINT) state.rightPanelOpen = false;
       }
     }
   )

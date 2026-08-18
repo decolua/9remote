@@ -2,6 +2,7 @@ import pty from "node-pty";
 import * as daemonClient from "../ptyDaemonClient.js";
 import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveWorkspaces, loadSessionNote, saveSessionNote, deleteSessionNote, UPLOAD_DIR } from "../ptyHelper.js";
 import { resolveShell, getShellList } from "../constants.js";
+import { detectAgentClis } from "../agentCatalog.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
@@ -260,6 +261,12 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     persist();
     broadcastChanged();
     callback?.({ success: true });
+  });
+
+  // TUI agent CLIs detected on PATH (cached) — powers the new-terminal modal
+  socket.on("getAgentClis", (_payload, callback) => {
+    if (typeof _payload === "function") callback = _payload; // bare-emit legacy shape
+    callback?.({ success: true, agents: detectAgentClis() });
   });
 
   socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd }, callback) => {

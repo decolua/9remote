@@ -3,6 +3,8 @@
 import { useCallback, useEffect } from "react";
 import { useI18n } from "@/shared/i18n";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { agentLaunchCommand } from "@/features/terminal/constants/agentCli";
 
 // Session/workspace navigation: select, create, delete, rename, and the workspace-aware
 // tab cycling used by the PC input bar.
@@ -89,10 +91,14 @@ export function useSessionNavigation({
   // Named create (from the session list / sidebar / file tree). Keeps activeWorkspaceId
   // unchanged — the new session isn't in `sessions` yet (loadSessions is async) so
   // handleSelectSession would reset it. `cwd` overrides the inherited one (tree "new terminal here").
-  const handleCreateSession = useCallback((name, workspaceId = null, shellId = null, cwd = null) => {
+  // `agent` = {id,label,cmd,...} from the modal — the CLI is typed into the session on
+  // first join. `yolo` adds the agent's own skip-permission flag/env to that command.
+  const handleCreateSession = useCallback((name, workspaceId = null, shellId = null, cwd = null, agent = null, yolo = false) => {
     createSession(name, shellId, workspaceId, cwd || lastWorkspaceCwd(workspaceId), (result) => {
       if (!result.success) return alertCreateFailed(result.error);
       if (!result.sessionId) return;
+      const startupCmd = agentLaunchCommand(agent, yolo);
+      if (startupCmd) useTerminalStore.getState().queueStartup(result.sessionId, startupCmd);
       addOpenedSession(result.sessionId);
       // Auto-select the new terminal when created from within terminal view
       if (currentView.type === "terminal") replaceTopWithSession(result.sessionId);

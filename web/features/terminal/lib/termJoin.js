@@ -1,6 +1,7 @@
 import { termLog } from "@/shared/utils/termLog";
 import { writeChunked } from "@/features/terminal/lib/historyMirror";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { STARTUP_CMD_DELAY_MS } from "@/features/terminal/constants/terminalConfig";
 
 // joinSession flow: replay-window management + the emit/ack round-trip. Live output racing
 // the replay is QUEUED (not written) so it never lands between term.reset() and the
@@ -67,6 +68,14 @@ export function createJoinSession({ socket, sessionId, term, fitAddon, writeBatc
           // total = bytes agent holds; ceiling for scroll-up fetch.
           refs.historyTotalRef.current = result.total || 0;
           if (result.cwd) { refs.cwdRef.current = result.cwd; setCwd(result.cwd); useTerminalStore.getState().setCwd(sessionId, result.cwd); }
+          // One-shot agent-CLI startup command (new-terminal modal). Consume-once so
+          // a reconnect rejoin never re-runs it; delayed so the login shell reaches
+          // its prompt before the TUI boots.
+          const startupCmd = useTerminalStore.getState().consumeStartup(sessionId);
+          if (startupCmd) {
+            termLog("join", `startup cmd queued (${startupCmd})`);
+            setTimeout(() => socket.emit("input", { sessionId, data: `${startupCmd}\r` }), STARTUP_CMD_DELAY_MS);
+          }
           setTimeout(() => fitAddon.fit(), 200);
         } else {
           term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);

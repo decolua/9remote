@@ -32,7 +32,7 @@ export const COMMON_COMMANDS = [
 export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
 // Desktop pane width: null = auto (panes split the row evenly down to min, then the row
 // scrolls); a dragged number pins every pane to that fixed width. Double-click returns to auto.
-export const PANE_WIDTH = { min: 400, max: 800 };
+export const PANE_WIDTH = { min: 400, max: Infinity };
 // Gap between desktop panes (px) — matches the gap-1 class on the panes row.
 export const PANE_GAP_PX = 4;
 // Horizontal padding of the panes row (px) — matches the px-1 class on that row.
@@ -40,13 +40,13 @@ export const PANE_ROW_PADDING_PX = 8;
 export const MAX_LIVE_PANES = 12; // Max mounted XTerm panes kept alive (LRU); caps RAM
 
 // Left sidebar (workspace + terminal list)
-export const SIDEBAR_WIDTH = { default: 190, min: 180, max: 400 };
+export const SIDEBAR_WIDTH = { default: 190, min: 180, max: Infinity };
 
 // Right panel (file tree / git / worktrees)
-export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: 420 };
+export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: Infinity };
 
-// Inline editor opened from the file tree. Capped so it never crowds out the terminal.
-export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: 500 };
+// Inline editor opened from the file tree.
+export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: Infinity };
 
 // Branch + dirty poll for a workspace root. Shared per path, not per terminal.
 export const WORKSPACE_GIT_POLL_MS = 10000;
@@ -145,6 +145,14 @@ export const RECONNECT_WARM_MS = 8000;
 // and chunks stalled mid-transit; live output stays queued for this long, so keep
 // it short enough that a stall is not felt as a freeze.
 export const GAP_FETCH_TIMEOUT_MS = 3000;
+
+// Detected TUI agent CLIs (new-terminal modal) — how long the client trusts the
+// cached detection before re-asking the agent to rescan PATH.
+export const AGENT_CLIS_TTL_MS = 60000;
+
+// Delay before typing a queued agent-CLI startup command after the join ack —
+// lets the login shell reach its prompt so the TUI boots against a settled tty.
+export const STARTUP_CMD_DELAY_MS = 400;
 
 // Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
 export const TOUCH_SCROLL = {
