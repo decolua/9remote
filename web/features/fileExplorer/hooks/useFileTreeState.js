@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { STORAGE_KEYS } from "../constants/fileExplorer.js";
+import { STORAGE_KEYS, GIT_REFRESH_EVENT } from "../constants/fileExplorer.js";
 import { buildWorkspaceGitStatus } from "@/features/fileExplorer/lib/gitStatusMap";
 import { vibrate } from "@/shared/utils/vibration";
 
@@ -135,7 +135,7 @@ export function useFileTreeState({ workspace, fileSocket }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handler = () => loadGitStatus();
-    const events = ["fileExplorer:fileSaved", "fileExplorer:fileCreated", "fileExplorer:fileDeleted", "fileExplorer:fileRenamed"];
+    const events = ["fileExplorer:fileSaved", "fileExplorer:fileCreated", "fileExplorer:fileDeleted", "fileExplorer:fileRenamed", GIT_REFRESH_EVENT];
     events.forEach(ev => window.addEventListener(ev, handler));
     return () => events.forEach(ev => window.removeEventListener(ev, handler));
   }, [loadGitStatus]);

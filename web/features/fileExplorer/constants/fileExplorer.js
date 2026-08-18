@@ -217,6 +217,10 @@ export const BOTTOM_PANEL_MAX_HEIGHT = 70;
 export const MAX_RECENT_WORKSPACES = 20;
 export const MAX_RECENT_FILES = 20;
 
+// Broadcast when the repo state changed outside the panels (branch switch in a terminal),
+// so every git-backed view reloads without the user hitting refresh.
+export const GIT_REFRESH_EVENT = "fileExplorer:gitRefresh";
+
 // LocalStorage keys
 export const STORAGE_KEYS = {
   sidebarWidth: "fileExplorer.sidebarWidth",

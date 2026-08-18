@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, Files, Folder, FolderPlus, GitBranch, GitFork, Plus, RefreshCw, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
@@ -9,6 +9,8 @@ import { vibrate } from "@/shared/utils/vibration";
 import { RIGHT_PANEL_WIDTH } from "../constants/terminalConfig";
 import { useWorkspaceRepos } from "../hooks/useWorkspaceRepos";
 import { useWorkspaceRoots } from "../hooks/useWorkspaceRoots";
+import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
+import { GIT_REFRESH_EVENT } from "@/features/fileExplorer/constants/fileExplorer.js";
 
 const ExplorerPanel = dynamic(() => import("@/features/fileExplorer/components/ExplorerPanel"), { ssr: false });
 const ScmPanel = dynamic(() => import("@/features/fileExplorer/components/ScmPanel"), { ssr: false });
@@ -37,6 +39,24 @@ export default function TerminalRightPanel({
   const { repos, refresh: refreshRepos, scanning, deep, scanDeeper } = useWorkspaceRepos(workspacePath, fileSocket);
   const { roots, refresh: refreshRoots } = useWorkspaceRoots(workspacePath, fileSocket);
   const refresh = () => { refreshRepos(); refreshRoots(); };
+
+  // A checkout in a terminal leaves every panel here showing the old branch. Reuse the
+  // shared (ref-counted) branch poll and rescan only when the branch itself changed —
+  // keying off the dirty count instead would rescan on every keystroke-driven edit.
+  const { branch: liveBranch } = useWorkspaceGit(workspacePath, fileSocket);
+  // Stamped with the path so switching workspace is not read as a checkout, and the
+  // first poll result (null → branch) only seeds the baseline the mount already loaded.
+  const lastBranchRef = useRef({ path: null, branch: null });
+  useEffect(() => {
+    const seen = lastBranchRef.current;
+    lastBranchRef.current = { path: workspacePath, branch: liveBranch };
+    if (seen.path !== workspacePath || seen.branch === null || seen.branch === liveBranch) return;
+    refreshRepos();
+    refreshRoots();
+    window.dispatchEvent(new Event(GIT_REFRESH_EVENT));
+    // refreshRepos/refreshRoots are stable per (path, socket) — the branch drives this
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveBranch, workspacePath]);
 
   // Three filters, cheapest first: repos the user marked reference-only never show;
   // unchanged repos hide until asked for; and only the open repo mounts an ScmPanel, so
