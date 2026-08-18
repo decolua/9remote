@@ -1,23 +1,68 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pencil, Trash2 } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { vibrate } from "@/shared/utils/vibration";
+import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
+import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
+import { MAX_CHANGED_BADGE } from "@/features/terminal/constants/terminalConfig";
 
 const LONG_PRESS_MS = 500;
+
+// The tail of a path carries the meaning (the leaf folder), so overflow trims the
+// HEAD, not the tail. Width comes from the flexed span, so no pixel constants.
+let _measureCtx = null;
+function TailTruncate({ text, title, style, className = "" }) {
+  const ref = useRef(null);
+  const [head, setHead] = useState(0); // chars dropped from the front
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || el.clientWidth < 10) return;
+    const fit = () => {
+      if (!_measureCtx) _measureCtx = document.createElement("canvas").getContext("2d");
+      _measureCtx.font = getComputedStyle(el).font;
+      const avail = el.clientWidth;
+      if (_measureCtx.measureText(text).width <= avail) return setHead(0);
+      let h = 1;
+      while (h < text.length && _measureCtx.measureText(`…${text.slice(h)}`).width > avail) h++;
+      setHead(h);
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text]);
+  return (
+    <span ref={ref} title={title ?? text} style={style} className={`truncate ${className}`}>
+      {head ? `…${text.slice(head)}` : text}
+    </span>
+  );
+}
+
 
 // One terminal, one mini terminal window: titlebar with the classic dots, fake prompt
 // body, status riding as a badge. A div, not a button: the titlebar actions cannot
 // nest inside one. Long press still opens the full sheet.
 export default function SessionCard({
   session, status, hasNotification, connected,
-  onSelect, onLongPress, onRename, onDelete
+  onSelect, onLongPress, onRename, onDelete,
+  cwd, fileSocket, homeDir, shellCount = 1
 }) {
   const { t } = useI18n();
   const state = status?.state || "idle";
   const visual = statusVisual(state);
+  // Live checkout of where the terminal actually sits, not of its fixed workspace root —
+  // a `cd` into another worktree has to show that worktree's branch.
+  const gitPath = cwd || session.workspacePath || null;
+  const { branch, dirty, changedCount } = useWorkspaceGit(gitPath, fileSocket, { enabled: connected && !!fileSocket });
+  const basePath = session.workspacePath || null;
+  // Prompt path: relative to the workspace root while inside it, ~-shortened outside.
+  const promptPath = !gitPath ? "~"
+    : basePath && gitPath === basePath ? "~"
+    : basePath && gitPath.startsWith(`${basePath}/`) ? gitPath.slice(basePath.length + 1)
+    : shortenHomePath(gitPath, homeDir) || "~";
 
   // A ref, not a local: the timer has to survive the re-render a touch triggers.
   const pressTimer = useRef(null);
@@ -112,17 +157,35 @@ export default function SessionCard({
           <div className="text-[11.5px] leading-[1.7] space-y-0.5">
             <div className="flex items-center min-w-0">
               <span className="flex-shrink-0" style={{ color: "var(--card-accent-green)" }}>➜</span>
-              <span className="flex-shrink-0 mx-1" style={{ color: "var(--card-accent-cyan)" }}>~</span>
-              <span className="truncate" style={{ color: "var(--card-body-fg)" }}>{session.name || t("terminal.defaultName")}</span>
+              {/* A bare "~" row says nothing — fall back to the session name to fill it */}
+              {promptPath === "~" || !promptPath ? (
+                <>
+                  <span className="flex-shrink-0 mx-1" style={{ color: "var(--card-accent-cyan)" }}>~</span>
+                  <span className="truncate" style={{ color: "var(--card-body-fg)" }}>{session.name || t("terminal.defaultName")}</span>
+                </>
+              ) : (
+                <TailTruncate text={promptPath} title={gitPath || undefined} style={{ color: "var(--card-accent-cyan)" }} className="flex-1 min-w-0 mx-1" />
+              )}
             </div>
             {connected ? (
               <>
-                <div className="truncate" style={{ color: "var(--card-body-dim)" }}>
-                  <span style={{ color: "var(--card-accent-green)" }}>✓</span> connected
-                </div>
+                {branch && (
+                  <div className="flex items-center min-w-0 gap-1.5" style={{ color: "var(--card-body-dim)" }}>
+                    <span className="flex items-center min-w-0">
+                      <span className="flex-shrink-0" style={{ color: "var(--card-accent-amber)" }}>⎇</span>
+                      <span className="ml-1 truncate" title={branch}>{branch}{dirty ? "*" : ""}</span>
+                    </span>
+                    {changedCount > 0 && (
+                      <span className="flex-shrink-0 px-1 leading-tight bg-brand-500/15 text-brand-400 rounded-[2px] font-medium">
+                        {changedCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changedCount}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {session.createdAt && (
                   <div className="truncate" style={{ color: "var(--card-body-dim)" }}>
                     <span style={{ color: "var(--card-accent-amber)" }}>●</span> {t("sessions.created", { time: new Date(session.createdAt).toLocaleTimeString(undefined, { hour12: false }) })}
+                    {shellCount > 1 && session.shellId ? ` · ${session.shellId}` : ""}
                   </div>
                 )}
               </>
@@ -133,8 +196,7 @@ export default function SessionCard({
             )}
             <div className="flex items-center min-w-0">
               <span className="flex-shrink-0" style={{ color: "var(--card-accent-green)" }}>➜</span>
-              <span className="flex-shrink-0 mx-1" style={{ color: "var(--card-accent-cyan)" }}>~</span>
-              <span className="inline-block flex-shrink-0 w-[7px] h-[14px] animate-pulse" style={{ background: "var(--card-accent-green)", opacity: 0.8 }} />
+              <span className="inline-block flex-shrink-0 ml-1.5 w-[7px] h-[14px] animate-pulse" style={{ background: "var(--card-accent-green)", opacity: 0.8 }} />
             </div>
           </div>
         </div>

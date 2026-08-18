@@ -375,6 +375,7 @@ export default function WorkspaceLayout({ children }) {
         >
           <SessionList
             sessions={sessions}
+            cwdBySession={cwdBySession}
             connected={connected}
             onSelect={nav.handleSelectSession}
             onCreate={nav.handleCreateSession}

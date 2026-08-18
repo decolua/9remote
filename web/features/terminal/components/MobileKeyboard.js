@@ -34,9 +34,11 @@ import PathSuggestion from "@/shared/components/ui/PathSuggestion";
 import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/utils/pathSuggest";
 import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 
-const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange }) => {
+const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null }) => {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
+  // Soft-keyboard focus: the status strip yields its row as soon as the OS keyboard opens
+  const [inputFocused, setInputFocused] = useState(false);
   // Draft text lives in the store keyed by sessionId so it survives this component
   // unmounting (e.g. switching to remote view and back).
   const textInput = useTerminalStore((s) => s.drafts[sessionId] ?? "");
@@ -368,6 +370,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     );
   };
 
+  // Strip and the input's own top padding trade places — never both, no double gap
+  const stripVisible = !!statusStrip && !inputFocused && !isExpanded && !hasPhysicalKeyboard;
+
   return (
     <div className="flex flex-col w-full">
       {/* Paste Input Fallback */}
@@ -413,11 +418,15 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
         </div>
       </div>
 
+      {/* Status strip takes the row above the input only while the OS keyboard is closed.
+          When visible, it supplies the top spacing — the input panel drops its own. */}
+      {stripVisible && statusStrip}
+
       {/* Text Input Panel */}
       <div
         className={`transition-all duration-300 overflow-visible ${hasPhysicalKeyboard ? "" : (attachments.length ? "max-h-40" : "max-h-24")} opacity-100`}
       >
-        <div className="p-2 flex gap-2 items-end">
+        <div className={`${stripVisible ? "pt-0.5" : "pt-2"} px-2 pb-2 flex gap-2 items-end`}>
           <div className="relative flex-1 bg-surface-2 rounded-xl transition-all duration-150 ease-out input-focus-glow border border-border-subtle">
             <PathSuggestion
               items={pathItems}
@@ -471,9 +480,10 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
               onFocus={(e) => {
                 const len = e.target.value.length;
                 e.target.selectionStart = e.target.selectionEnd = len;
+                setInputFocused(true);
                 onInputFocusChange?.(true);
               }}
-              onBlur={() => onInputFocusChange?.(false)}
+              onBlur={() => { setInputFocused(false); onInputFocusChange?.(false); }}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
                 if (hasPhysicalKeyboard && e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {

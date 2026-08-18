@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { X, Terminal, Bot, Search, Check } from "@/shared/components/ui/Icon";
+import { useEffect, useRef, useState } from "react";
+import { X, Terminal, Bot, Check } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { agentIconUrl, canSkipPermissions } from "@/features/terminal/constants/agentCli";
+import LocationPicker from "@/features/terminal/components/LocationPicker";
+import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
 
-// Shared "New terminal" modal: pick what to launch (plain shell or a TUI agent CLI
-// detected on the host's PATH), name it, and on Windows pick the shell.
+// Shared "New terminal" modal: where it starts (workspace root / a repo's worktree),
+// what to launch (plain shell or a TUI agent CLI detected on the host's PATH), how it
+// runs, and what to call it — decision first, its dependents under it, name last.
 // Used by workspace TerminalHeader/Sidebar and home SessionList. Remount via `key` to reset.
 const SHELL_PREF_KEY = "9remote.terminal.shellPref";
 const AGENT_PREF_KEY = "9remote.terminal.agentPref";
@@ -44,14 +47,19 @@ function AgentAvatar({ agent }) {
   );
 }
 
-export default function NewTerminalModal({ onClose, onCreate, shells = [], suggestName = "", socketRef = null }) {
+export default function NewTerminalModal({
+  onClose, onCreate, shells = [], suggestName = "", socketRef = null,
+  workspacePath = null, workspaceName = "", fileSocket = null, homeDir = null
+}) {
   const { t } = useI18n();
   const agentClis = useAgentClis(socketRef);
   // "" = plain terminal. Held as an id (not the object) so the last-used agent
   // restores from localStorage before detection lands, with no effect/setState race.
   const [agentId, setAgentId] = useState(() => loadPref(AGENT_PREF_KEY) || "");
-  const [query, setQuery] = useState("");
   const [name, setName] = useState("");
+  // null = inherit the workspace's last cwd, same as before this picker existed
+  const [cwd, setCwd] = useState(null);
+  const [browsing, setBrowsing] = useState(false);
   // On by default — the agent acts without approval prompts unless the user opted out before
   const [skipPermissions, setSkipPermissions] = useState(() => loadPref(YOLO_PREF_KEY) !== "0");
   const [shellId, setShellId] = useState(() => {
@@ -59,13 +67,12 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
     if (saved && shells.some((s) => s.id === saved)) return saved;
     return shells[0]?.id || "";
   });
-  const inputRef = useRef(null);
   const nameRef = useRef(null);
   const listRef = useRef(null);
   const didScrollToPickRef = useRef(false);
 
   useEffect(() => {
-    requestAnimationFrame(() => inputRef.current?.focus());
+    requestAnimationFrame(() => nameRef.current?.focus());
   }, []);
 
   // Bring the restored pick into view once, after detection populates the list.
@@ -78,21 +85,19 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
 
   // A saved id the host no longer has (CLI uninstalled) falls back to plain terminal
   const agent = (agentId && agentClis?.find((a) => a.id === agentId)) || null;
+  const options = [null, ...(agentClis || [])];
 
-  // Picking a launcher moves focus to the name field — the next thing to fill in
-  const pick = (picked) => {
-    vibrate();
-    setAgentId(picked?.id || "");
-    requestAnimationFrame(() => { nameRef.current?.focus(); const el = nameRef.current; if (el) el.setSelectionRange(el.value.length, el.value.length); });
+  const pick = (picked) => { vibrate(); setAgentId(picked?.id || ""); };
+
+  // Roving focus across the 2-column grid — a radiogroup is arrow-navigated, not tabbed.
+  const onGridKey = (e, index) => {
+    const delta = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 2, ArrowUp: -2 }[e.key];
+    if (delta === undefined) return;
+    e.preventDefault();
+    const next = Math.max(0, Math.min(options.length - 1, index + delta));
+    pick(options[next]);
+    listRef.current?.querySelectorAll("[role=radio]")[next]?.focus();
   };
-
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return agentClis || [];
-    return (agentClis || []).filter((a) => a.label.toLowerCase().includes(q));
-  }, [agentClis, query]);
-
-  const showTerminalRow = !query.trim() || t("terminal.newTerminal").toLowerCase().includes(query.trim().toLowerCase());
 
   // Agent tabs default to "<Agent> <n>" so two Claude terminals stay tellable apart;
   // suggestName already carries the caller's per-workspace counter.
@@ -110,97 +115,92 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
     // An agent tab left unnamed takes the agent's name, not the host's generic "Term N"
     const suffix = suggestIndex ? ` ${suggestIndex}` : "";
     const finalName = name.trim() || (picked ? `${picked.label}${suffix}` : null);
-    onCreate?.(finalName, !picked ? (shellId || null) : null, picked, yolo);
+    onCreate?.(finalName, !picked ? (shellId || null) : null, picked, yolo, cwd);
     onClose?.();
   };
 
-  const rowClass = (active) =>
-    `w-full flex items-center gap-2.5 px-2.5 py-2 rounded-brand text-left transition-colors ${
-      active ? "bg-brand-500/15 text-text" : "text-text-muted hover:bg-surface-2 hover:text-text"
-    }`;
-
   return (
+    <>
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/70"
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       onClick={onClose}
     >
       <div
-        className="bg-surface rounded-brand-lg w-[22rem] max-w-full shadow-elev overflow-hidden flex flex-col max-h-[80vh]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="newTerminalTitle"
+        className="bg-surface rounded-brand-lg w-[22rem] max-w-full shadow-elev overflow-hidden flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === "Escape") onClose?.(); }}
       >
-        {/* Search filters the launcher list; the header doubles as the title bar */}
-        <div className="flex items-center gap-2 px-4 pt-4 pb-3">
-          <div className="relative flex-1">
-            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-            <input
-              type="text"
-              ref={inputRef}
-              value={query}
-              placeholder={t("terminal.searchAgents")}
-              onInput={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submit(matches.length === 1 && !showTerminalRow ? matches[0] : agent);
-                if (e.key === "Escape") onClose?.();
-              }}
-              className="w-full pl-8 pr-8 py-2 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-            />
-            {query && (
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text"
-                title={t("common.cancel")}
-              >
-                <X size={15} />
-              </button>
-            )}
+        {/* Title, then where the terminal will start — context before choices */}
+        <div className="px-4 pt-4 pb-3 space-y-2.5">
+          <div className="flex items-center gap-2">
+            <h2 id="newTerminalTitle" className="flex-1 text-sm font-semibold text-text">{t("terminal.newTerminal")}</h2>
+            <button onClick={onClose} aria-label={t("common.cancel")} className="text-text-muted hover:text-text shrink-0">
+              <X size={18} />
+            </button>
           </div>
-          <button onClick={onClose} className="text-text-muted hover:text-text shrink-0">
-            <X size={18} />
-          </button>
+          {workspacePath && (
+            <LocationPicker
+              workspacePath={workspacePath}
+              workspaceName={workspaceName}
+              fileSocket={fileSocket}
+              homeDir={homeDir}
+              value={cwd}
+              onChange={setCwd}
+              onBrowse={() => setBrowsing(true)}
+            />
+          )}
         </div>
 
-        <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-2 pb-1">
-          {showTerminalRow && (
-            <button type="button" onClick={() => pick(null)} className={rowClass(!agent)}>
-              <AgentAvatar agent={null} />
-              <span className="flex-1 text-sm font-medium truncate">{t("terminal.newTerminal")}</span>
-              {!agent && <Check size={15} className="text-brand-400 shrink-0" />}
-            </button>
-          )}
-          {matches.map((a) => (
-            <button
-              type="button"
-              key={a.id}
-              onClick={() => pick(a)}
-              onDoubleClick={() => submit(a)}
-              data-picked={agent?.id === a.id}
-              className={rowClass(agent?.id === a.id)}
-            >
-              <AgentAvatar agent={a} />
-              <span className="flex-1 text-sm font-medium truncate">{a.label}</span>
-              {agent?.id === a.id && <Check size={15} className="text-brand-400 shrink-0" />}
-            </button>
-          ))}
-          {!showTerminalRow && matches.length === 0 && (
-            <p className="px-2.5 py-6 text-center text-xs text-text-muted">{t("terminal.noAgentsFound")}</p>
-          )}
+        {/* What to launch — the decision the fields below depend on */}
+        <div
+          ref={listRef}
+          role="radiogroup"
+          aria-label={t("terminal.newTerminal")}
+          className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 pb-1 grid grid-cols-2 gap-1.5 content-start"
+        >
+          {options.map((a, i) => {
+            const active = (a?.id || "") === (agent?.id || "");
+            return (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={active}
+                tabIndex={active ? 0 : -1}
+                key={a?.id || "__plain"}
+                onClick={() => pick(a)}
+                onDoubleClick={() => submit(a)}
+                onKeyDown={(e) => onGridKey(e, i)}
+                data-picked={active}
+                className={`flex items-center gap-2 px-2.5 py-2 rounded-brand text-left transition-colors min-w-0 ${
+                  active ? "bg-brand-500/15 text-text" : "text-text-muted hover:bg-surface-2 hover:text-text"
+                }`}
+              >
+                <AgentAvatar agent={a} />
+                <span className="flex-1 text-sm font-medium truncate">{a ? a.label : t("terminal.plainShell")}</span>
+                {active && <Check size={14} className="text-brand-400 shrink-0" />}
+              </button>
+            );
+          })}
         </div>
 
         <div className="px-4 pt-3 pb-4 border-t border-border/60 space-y-3">
-          <input
-            type="text"
-            ref={nameRef}
-            value={name}
-            placeholder={defaultName}
-            onInput={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-              if (e.key === "Escape") onClose?.();
-            }}
-            className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-          />
+          {/* Dependent on the pick above, so they sit right under it */}
+          {!agent && shells.length > 0 && (
+            <select
+              value={shellId}
+              onChange={(e) => setShellId(e.target.value)}
+              aria-label={t("terminal.shell")}
+              className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            >
+              {shells.map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
+          )}
           {canSkipPermissions(agent) && (
             <label className="flex items-center gap-2 px-0.5 cursor-pointer select-none">
               <input
@@ -212,33 +212,50 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
               <span className="text-xs text-text-muted">{t("terminal.skipPermissions")}</span>
             </label>
           )}
-          {!agent && shells.length > 0 && (
-            <select
-              value={shellId}
-              onChange={(e) => setShellId(e.target.value)}
-              className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-            >
-              {shells.map((s) => (
-                <option key={s.id} value={s.id}>{s.label}</option>
-              ))}
-            </select>
-          )}
+          <div className="space-y-1">
+            <label htmlFor="newTerminalName" className="block text-[11px] font-medium text-text-muted px-0.5">
+              {t("terminal.nameLabel")}
+            </label>
+            <input
+              id="newTerminalName"
+              type="text"
+              ref={nameRef}
+              value={name}
+              placeholder={defaultName}
+              onInput={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            />
+          </div>
+          {/* Primary action last, at the end of the reading direction */}
           <div className="flex gap-2">
-            <button
-              onClick={() => submit()}
-              className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-brand transition-colors"
-            >
-              {t("common.create")}
-            </button>
             <button
               onClick={onClose}
               className="flex-1 py-2 text-sm text-text-muted bg-surface-2 hover:bg-surface-3 rounded-brand transition-colors"
             >
               {t("common.cancel")}
             </button>
+            <button
+              onClick={() => submit()}
+              className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-brand transition-colors"
+            >
+              {t("common.create")}
+            </button>
           </div>
         </div>
       </div>
-    </div>
+
+      </div>
+
+      {/* Sibling, not child: its backdrop click must not bubble into this modal's close */}
+      {browsing && (
+        <FolderPickerModal
+          fileSocket={fileSocket}
+          initialPath={cwd || workspacePath}
+          onSelect={(p) => { setBrowsing(false); if (p) setCwd(p); }}
+          onClose={() => setBrowsing(false)}
+        />
+      )}
+    </>
   );
 }

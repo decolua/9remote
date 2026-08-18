@@ -51,6 +51,8 @@ export default function TerminalHeader({
   rightPanelOpen = false,
   updateAvailable = null,
   canSelfUpdate = false,
+  fileSocket = null,
+  homeDir = null,
 }) {
   const { t } = useI18n();
   const tabsContainerRef = useRef(null);
@@ -165,8 +167,10 @@ export default function TerminalHeader({
     setTabMenu({ sessionId: null, x: 0, y: 0 });
   };
 
-  const handleModalCreate = (name, shellId, agent, yolo) => {
-    if (onCreateNamedSession) onCreateNamedSession(name, activeWorkspaceId, shellId, null, agent, yolo);
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) || null;
+
+  const handleModalCreate = (name, shellId, agent, yolo, cwd) => {
+    if (onCreateNamedSession) onCreateNamedSession(name, activeWorkspaceId, shellId, cwd || null, agent, yolo);
     else onCreateSession?.(activeWorkspaceId);
   };
 
@@ -385,6 +389,10 @@ export default function TerminalHeader({
           shells={shells}
           socketRef={socketRef}
           suggestName={suggestTerminalName(activeWorkspaceId)}
+          workspacePath={activeWorkspace?.path || null}
+          workspaceName={activeWorkspace?.name || ""}
+          fileSocket={fileSocket}
+          homeDir={homeDir}
         />
       )}
 

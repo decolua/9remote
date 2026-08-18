@@ -28,7 +28,7 @@ const VISIBLE_TABS = TABS.filter((t) => t.key !== "trees");
 // Roots are the workspace itself plus each of its worktrees — separate directories on
 // disk, so they cannot share one tree.
 export default function TerminalRightPanel({
-  workspacePath, fileSocket, activeFile,
+  workspacePath, filesRoot = null, fileSocket, activeFile,
   tab, onTabChange, width, onResize, onClose,
   onOpenFile, onNewTerminal, onAddWorkspace, onOpenFiles, homeDir,
   changedPerRepo = {}, hiddenRepos = [], onHiddenReposChange, isDesktop = true
@@ -37,7 +37,9 @@ export default function TerminalRightPanel({
   // A persisted "trees" tab must not strand the panel on hidden content
   const activeTab = tab === "trees" ? "git" : tab;
   const { repos, refresh: refreshRepos, scanning, deep, scanDeeper } = useWorkspaceRepos(workspacePath, fileSocket);
-  const { roots, refresh: refreshRoots } = useWorkspaceRoots(workspacePath, fileSocket);
+  // The files tab may be revealed at a pane's live cwd; the other tabs stay workspace-rooted
+  const effectiveFilesRoot = filesRoot || workspacePath;
+  const { roots, refresh: refreshRoots } = useWorkspaceRoots(effectiveFilesRoot, fileSocket);
   const refresh = () => { refreshRepos(); refreshRoots(); };
 
   // A checkout in a terminal leaves every panel here showing the old branch. Reuse the
@@ -95,9 +97,9 @@ export default function TerminalRightPanel({
   const [treeActions, setTreeActions] = useState(null);
 
   // Reset the open root when the workspace changes, without an effect round-trip.
-  const [rootState, setRootState] = useState({ forWorkspace: workspacePath, path: workspacePath });
-  const activeRoot = rootState.forWorkspace === workspacePath ? rootState.path : workspacePath;
-  const setActiveRoot = (path) => setRootState({ forWorkspace: workspacePath, path });
+  const [rootState, setRootState] = useState({ forWorkspace: effectiveFilesRoot, path: effectiveFilesRoot });
+  const activeRoot = rootState.forWorkspace === effectiveFilesRoot ? rootState.path : effectiveFilesRoot;
+  const setActiveRoot = (path) => setRootState({ forWorkspace: effectiveFilesRoot, path });
 
   const startResize = (e) => {
     e.preventDefault();

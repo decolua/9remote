@@ -46,6 +46,8 @@ function TerminalPane({
   const [selection, setSelection] = useState(null); // { text, x, y } from long-press select
 
   const setRightPanelTab = useTerminalStore((s) => s.setRightPanelTab);
+  const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
+  const paneCwd = useTerminalStore((s) => s.cwdBySession[sessionId]);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
   const showGitButton = useTerminalStore((s) => s.showGitButton);
@@ -314,9 +316,14 @@ function TerminalPane({
             <button
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); vibrate(); setRightPanelTab("files", workspacePath); }}
+              onClick={(e) => {
+                e.stopPropagation(); vibrate();
+                // Reveal where this terminal stands (OSC 7), not its fixed workspace root
+                setRightPanelRoot(workspacePath, paneCwd || workspacePath);
+                setRightPanelTab("files", workspacePath);
+              }}
               className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
-              title={t("terminalPane.openFolder")}
+              title={t("terminalPane.openFolderHere")}
             >
               <Folder size={16} />
               {showGitButton && shownCount > 0 && (

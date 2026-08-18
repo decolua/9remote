@@ -552,12 +552,16 @@ export default function TerminalSidebar({
       {createModalWsId !== null && (
         <NewTerminalModal
           onClose={() => setCreateModalWsId(null)}
-          onCreate={(name, shellId, agent, yolo) => {
+          onCreate={(name, shellId, agent, yolo, cwd) => {
             const wsId = createModalWsId === "" ? null : createModalWsId;
-            onCreateNamedSession?.(name, wsId, shellId, null, agent, yolo);
+            onCreateNamedSession?.(name, wsId, shellId, cwd || null, agent, yolo);
           }}
           shells={shells}
           socketRef={socketRef}
+          workspacePath={workspaces.find((w) => w.id === createModalWsId)?.path || null}
+          workspaceName={workspaces.find((w) => w.id === createModalWsId)?.name || ""}
+          fileSocket={fileSocket}
+          homeDir={homeDir}
           suggestName={`${t("terminal.defaultName")} ${(allSessions.filter(s => sessionWorkspaceId(s) === (createModalWsId === "" ? null : createModalWsId)).length + 1)}`}
         />
       )}

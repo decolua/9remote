@@ -263,6 +263,11 @@ export default {
     searchAgents: "Search terminal or agent",
     noAgentsFound: "No match",
     skipPermissions: "Skip permission prompts",
+    plainShell: "Terminal",
+    nameLabel: "Name (optional)",
+    workspaceRoot: "Workspace root",
+    detachedHead: "detached",
+    browseFolders: "Browse folders…",
     shell: "Shell"
   },
   files: {
@@ -697,6 +702,7 @@ export default {
     scrollToBottom: "Scroll to bottom",
     refresh: "Refresh terminal",
     openFolder: "Open folder",
+    openFolderHere: "Open files here",
     changedFiles: "Changed files",
     pasteOrType: "Paste or type here",
     paste: "Paste",

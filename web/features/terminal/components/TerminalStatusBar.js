@@ -9,10 +9,50 @@ import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { MAX_CHANGED_BADGE } from "@/features/terminal/constants/terminalConfig";
 import StatusBar from "@/shared/components/ui/StatusBar";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 
 const POLL_BRANCH_MS = 10000;
 
 const PLATFORM_LABEL = { darwin: "mac", win32: "win", linux: "linux" };
+
+// Mobile strip above the keyboard input, shown only while the soft keyboard is closed.
+// Width is scarce: branch + changed on the left, the cwd's leaf folder (the part that
+// identifies where you are), and a lone connection dot. Tap the path → reveal in files.
+export function MobileStatusStrip({ sessionId, fileSocket, onReveal }) {
+  const cwd = useTerminalStore((s) => s.cwdBySession[sessionId]) || "";
+  const { branch, changedCount } = useWorkspaceGit(cwd, fileSocket, { enabled: !!cwd && !!fileSocket });
+  // The last two segments name the folder and its parent — a lone leaf is cryptic,
+  // and a full path would never fit a phone-width strip
+  const segs = cwd ? cwd.replace(/\\+|\/+$/g, "").split(/[\\/]/).filter(Boolean) : [];
+  const tail = segs.length ? segs.slice(-2).join("/") : "";
+  return (
+    <div className="flex items-center justify-between gap-2 px-3 h-6 border-t border-border-subtle text-[10px] text-text-subtle bg-bg flex-shrink-0">
+      {branch && (
+        <span className="flex items-center gap-1 flex-shrink-0">
+          <GitBranch size={10} className="opacity-70" />
+          <span className="max-w-[90px] truncate text-text-muted">{branch}</span>
+          {changedCount > 0 && (
+            <span className="px-1 leading-tight bg-brand-500/15 text-brand-400 rounded-[2px] font-medium">
+              {changedCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changedCount}
+            </span>
+          )}
+        </span>
+      )}
+      {tail && (
+        <button
+          type="button"
+          onClick={onReveal ? () => onReveal(cwd) : undefined}
+          title={cwd}
+          className={`flex items-center gap-1 min-w-0 font-mono ${onReveal ? "hover:text-text" : ""}`}
+        >
+          <Folder size={10} className="opacity-70 flex-shrink-0" />
+          <span className="truncate">{tail}</span>
+        </button>
+      )}
+    </div>
+  );
+}
 
 // Desktop-only status bar content: session + cwd + git on the left, platform/version/
 // connection/state on the right. The shell comes from the shared StatusBar.

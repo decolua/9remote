@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX } from "@/features/terminal/constants/terminalConfig";
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
@@ -11,6 +12,7 @@ const TerminalHeader = dynamic(() => import("@/features/terminal/components/Term
 const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
 const TerminalSidebar = dynamic(() => import("@/features/terminal/components/TerminalSidebar"), { ssr: false });
 const TerminalStatusBar = dynamic(() => import("@/features/terminal/components/TerminalStatusBar"), { ssr: false });
+const MobileStatusStrip = dynamic(() => import("@/features/terminal/components/TerminalStatusBar").then((m) => m.MobileStatusStrip), { ssr: false });
 const TerminalRightPanel = dynamic(() => import("@/features/terminal/components/TerminalRightPanel"), { ssr: false });
 const TerminalEditorPanel = dynamic(() => import("@/features/terminal/components/TerminalEditorPanel"), { ssr: false });
 const TerminalEmptyState = dynamic(() => import("@/features/terminal/components/TerminalEmptyState"), { ssr: false });
@@ -52,7 +54,13 @@ export default function TerminalWorkspace({
   // Root the side panels track: the active workspace's own path, else the fixed
   // workspacePath of the focused terminal (a workspace migrated from a group has no path).
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
-  const panelRoot = activeWorkspace?.path || activeSession?.workspacePath || null;
+  const baseRoot = activeWorkspace?.path || activeSession?.workspacePath || null;
+  // A pane's folder button reveals its live cwd into the files tab only — git/worktrees
+  // tabs keep the workspace root, so a deep cwd must not blank their repo scan.
+  const rightPanelRoots = useTerminalStore((s) => s.rightPanelRoots);
+  const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
+  const setRightPanelTab = useTerminalStore((s) => s.setRightPanelTab);
+  const filesRoot = rightPanelRoots[baseRoot] || baseRoot;
   const showEmptyState = !sessions.length;
 
   // The collapsed panel stays mounted so its width can animate, but only after a first
@@ -171,6 +179,17 @@ export default function TerminalWorkspace({
       onInput={clearNotification}
       onSwitchSession={nav.switchSession}
       onSwitchToIndex={nav.switchToIndex}
+      statusStrip={(
+        <MobileStatusStrip
+          sessionId={sessionId}
+          fileSocket={fileSocket}
+          onReveal={(cwd) => {
+            const wsPath = sessions.find((s) => s.id === sessionId)?.workspacePath;
+            setRightPanelRoot(wsPath, cwd || wsPath);
+            setRightPanelTab("files", wsPath);
+          }}
+        />
+      )}
     />
   );
 
@@ -258,6 +277,8 @@ export default function TerminalWorkspace({
             sidebarCollapsed={sidebarCollapsed}
             onToggleRightPanel={rightPanel?.onToggle}
             rightPanelOpen={rightPanel?.open}
+            fileSocket={fileSocket}
+            homeDir={homeDir}
           />
           )}
 
@@ -365,7 +386,7 @@ export default function TerminalWorkspace({
           <div className={isDesktop ? "" : "absolute inset-0 z-40 animate-in slide-in-from-bottom duration-200"}>
             <TerminalEditorPanel
               filePath={editorPanel.filePath}
-              workspace={panelRoot}
+              workspace={filesRoot}
               fileSocket={fileSocket}
               width={editorPanel.width}
               onResize={editorPanel.onResize}
@@ -395,15 +416,16 @@ export default function TerminalWorkspace({
             aria-hidden={isDesktop && !rightPanel?.open}
           >
             <TerminalRightPanel
-              workspacePath={panelRoot}
+              workspacePath={baseRoot}
+              filesRoot={filesRoot}
               fileSocket={fileSocket}
               activeFile={editorPanel?.filePath}
-              tab={rightPanel.tabs?.[panelRoot ?? ""] || "files"}
-              onTabChange={(tab) => rightPanel.onTabChange(tab, panelRoot ?? "")}
+              tab={rightPanel.tabs?.[baseRoot ?? ""] || "files"}
+              onTabChange={(tab) => rightPanel.onTabChange(tab, baseRoot ?? "")}
               width={rightPanel.width}
               onResize={rightPanel.onResize}
               onClose={rightPanel.onToggle}
-              onOpenFiles={onOpenFiles ? () => onOpenFiles(panelRoot) : null}
+              onOpenFiles={onOpenFiles ? () => onOpenFiles(filesRoot) : null}
               onOpenFile={editorPanel?.onOpen}
               onNewTerminal={rightPanel.onNewTerminal}
               onAddWorkspace={onAddWorkspace}

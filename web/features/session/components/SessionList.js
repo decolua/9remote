@@ -22,7 +22,7 @@ const UNGROUPED_KEY = "ungrouped";
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
 // operations, so this screen would only be a larger, weaker copy of it.
 export default function SessionList({
-  sessions, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote,
+  sessions, cwdBySession = {}, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote,
   tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected,
   onStopCodespace, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush,
   notifications = {}, sessionStatus = {}, clearNotification, agentVersion,
@@ -187,6 +187,8 @@ export default function SessionList({
                   section={section}
                   items={items}
                   connected={connected}
+                  shellCount={shells.length}
+                  cwdBySession={cwdBySession}
                   fileSocket={fileSocket}
                   homeDir={homeDir}
                   sessionStatus={sessionStatus}
@@ -261,12 +263,16 @@ export default function SessionList({
       {terminalModal && (
         <NewTerminalModal
           onClose={() => setTerminalModal(null)}
-          onCreate={(name, shellId, agent, yolo) => {
-            onCreate?.(name, terminalModal.workspaceId, shellId, null, agent, yolo);
+          onCreate={(name, shellId, agent, yolo, cwd) => {
+            onCreate?.(name, terminalModal.workspaceId, shellId, cwd || null, agent, yolo);
             setTerminalModal(null);
           }}
           shells={shells}
           socketRef={socketRef}
+          workspacePath={workspaces.find((w) => w.id === terminalModal.workspaceId)?.path || null}
+          workspaceName={workspaces.find((w) => w.id === terminalModal.workspaceId)?.name || ""}
+          fileSocket={fileSocket}
+          homeDir={homeDir}
           suggestName={`${t("terminal.defaultName")} ${sessionsIn(terminalModal.workspaceId).length + 1}`}
         />
       )}
@@ -278,7 +284,7 @@ export default function SessionList({
 
 // One workspace: a header naming the folder and where it is, then its terminals.
 function WorkspaceSection({
-  section, items, connected, fileSocket, homeDir, sessionStatus, notifications,
+  section, items, connected, cwdBySession = {}, fileSocket, homeDir, sessionStatus, notifications, shellCount = 1,
   onSelect, onNewTerminal, onSessionMenu, onWorkspaceMenu, onRenameSession, onDeleteSession
 }) {
   const { t } = useI18n();
@@ -333,6 +339,10 @@ function WorkspaceSection({
               status={sessionStatus[session.id]}
               hasNotification={!!notifications[session.id]}
               connected={connected}
+              cwd={cwdBySession[session.id] || null}
+              fileSocket={fileSocket}
+              homeDir={homeDir}
+              shellCount={shellCount}
               onSelect={onSelect}
               onLongPress={onSessionMenu}
               onRename={onRenameSession}

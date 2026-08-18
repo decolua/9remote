@@ -144,6 +144,18 @@ export const useTerminalStore = create(
         // "" is the shared slot for a workspace-less panel — the tab must still switch.
         ...(workspacePath != null ? { rightPanelTabs: { ...state.rightPanelTabs, [workspacePath]: tab } } : {})
       })),
+
+      // Per-workspace root override for the side panel: a pane's folder button reveals
+      // the terminal's live cwd (OSC 7) as a snapshot — later `cd` must not move the tree.
+      // Dropping the key (root back at the workspace path) deletes the override.
+      rightPanelRoots: {},
+      setRightPanelRoot: (workspacePath, rootPath) => set((state) => {
+        if (workspacePath == null) return state;
+        const next = { ...state.rightPanelRoots };
+        if (!rootPath || rootPath === workspacePath) delete next[workspacePath];
+        else next[workspacePath] = rootPath;
+        return { rightPanelRoots: next };
+      }),
       setRightPanelWidth: (w) => set({ rightPanelWidth: clampWidth(w, RIGHT_PANEL_WIDTH) }),
 
       // Inline editor opened from the tree. A flex sibling of the panes row — panes keep
@@ -229,6 +241,7 @@ export const useTerminalStore = create(
         paneWidths: state.paneWidths,
         rightPanelOpen: state.rightPanelOpen,
         rightPanelTabs: state.rightPanelTabs,
+        rightPanelRoots: state.rightPanelRoots,
         rightPanelWidth: state.rightPanelWidth,
         editorPanelWidth: state.editorPanelWidth
       }),

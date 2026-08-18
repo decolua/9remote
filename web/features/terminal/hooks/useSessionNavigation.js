@@ -29,12 +29,6 @@ export function useSessionNavigation({
     [sessions]
   );
 
-  // Inherit cwd from the last session in the same workspace (null when none/ungrouped)
-  const lastWorkspaceCwd = useCallback((workspaceId) => {
-    const inWorkspace = sessions.filter((s) => sessionWorkspaceId(s) === (workspaceId ?? null) && s.cwd);
-    return inWorkspace.length ? inWorkspace[inWorkspace.length - 1].cwd : null;
-  }, [sessions]);
-
   const alertCreateFailed = useCallback(
     (error) => alert(t("workspace.failedCreateSession", { error })),
     [t]
@@ -94,7 +88,7 @@ export function useSessionNavigation({
   // `agent` = {id,label,cmd,...} from the modal — the CLI is typed into the session on
   // first join. `yolo` adds the agent's own skip-permission flag/env to that command.
   const handleCreateSession = useCallback((name, workspaceId = null, shellId = null, cwd = null, agent = null, yolo = false) => {
-    createSession(name, shellId, workspaceId, cwd || lastWorkspaceCwd(workspaceId), (result) => {
+    createSession(name, shellId, workspaceId, cwd || null, (result) => {
       if (!result.success) return alertCreateFailed(result.error);
       if (!result.sessionId) return;
       const startupCmd = agentLaunchCommand(agent, yolo);
@@ -103,17 +97,17 @@ export function useSessionNavigation({
       // Auto-select the new terminal when created from within terminal view
       if (currentView.type === "terminal") replaceTopWithSession(result.sessionId);
     });
-  }, [createSession, lastWorkspaceCwd, addOpenedSession, alertCreateFailed, currentView, replaceTopWithSession]);
+  }, [createSession, addOpenedSession, alertCreateFailed, currentView, replaceTopWithSession]);
 
   // Quick create in the active workspace (header "+" button)
   const handleQuickCreateSession = useCallback((shellId) => {
-    createSession(null, shellId, activeWorkspaceId, lastWorkspaceCwd(activeWorkspaceId), (result) => {
+    createSession(null, shellId, activeWorkspaceId, null, (result) => {
       if (!result.success) return alertCreateFailed(result.error);
       if (!result.sessionId) return;
       addOpenedSession(result.sessionId);
       replaceTopWithSession(result.sessionId);
     });
-  }, [createSession, activeWorkspaceId, lastWorkspaceCwd, addOpenedSession, alertCreateFailed, replaceTopWithSession]);
+  }, [createSession, activeWorkspaceId, addOpenedSession, alertCreateFailed, replaceTopWithSession]);
 
   // Create from the FileExplorer bottom panel — stay in the current view
   const handleCreateSessionInline = useCallback((onCreated) => {
@@ -162,7 +156,6 @@ export function useSessionNavigation({
   }, [renameSession, t]);
 
   return {
-    lastWorkspaceCwd,
     handleSelectSession,
     handleSelectWorkspace,
     handleCreateSession,
