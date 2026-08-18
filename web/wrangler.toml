@@ -36,6 +36,15 @@ binding = "DB"
 database_name = "9remote"
 database_id = "df1dac06-213c-444d-8751-b7918e044356"
 
+# Brute-force limiter for credential endpoints. Only FAILED attempts consume a
+# token (see shared/utils/rateLimit.js), so normal traffic never touches it.
+# Counted per Cloudflare location, so a distributed attacker gets a higher
+# effective ceiling — this raises the cost of exhaustive search, it is not a cap.
+[[ratelimits]]
+name = "LOGIN_RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
+
 # Signaling DO — WebSocket Hibernation relay for WebRTC signaling fallback.
 # Injected into .open-next/worker.js by scripts/injectSignalingDO.mjs at build time.
 [[durable_objects.bindings]]
@@ -81,6 +90,11 @@ id = "a36a2b65355945448c246928f4b3f517"
 binding = "DB"
 database_name = "9remote"
 database_id = "df1dac06-213c-444d-8751-b7918e044356"
+
+[[env.dev.ratelimits]]
+name = "LOGIN_RATE_LIMITER"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
 
 [[env.dev.durable_objects.bindings]]
 name = "SIGNALING_DO"

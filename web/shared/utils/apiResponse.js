@@ -15,3 +15,11 @@ export function jsonError(message, status = 400) {
 export function optionsResponse() {
   return new Response(null, { headers: corsHeaders });
 }
+
+// Retry-After lets a legitimate client back off correctly instead of hammering.
+export function jsonRateLimited(retryAfterSec = 60) {
+  return Response.json(
+    { error: "Too many failed attempts. Try again shortly." },
+    { status: 429, headers: { ...corsHeaders, "Retry-After": String(retryAfterSec) } }
+  );
+}
