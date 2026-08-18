@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Folder, GitBranch, Terminal } from "@/shared/components/ui/Icon";
 import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount";
+import { useQuota } from "@/features/quota/hooks/useQuota";
+import QuotaSegments from "@/features/quota/components/QuotaSegments";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { MAX_CHANGED_BADGE } from "@/features/terminal/constants/terminalConfig";
@@ -17,6 +19,7 @@ const PLATFORM_LABEL = { darwin: "mac", win32: "win", linux: "linux" };
 export default function TerminalStatusBar({
   cwd,
   fileSocket,
+  socketRef,
   connected,
   sessionState = "idle",
   transport = "ws",
@@ -26,6 +29,7 @@ export default function TerminalStatusBar({
 }) {
   const { t } = useI18n();
   const [branch, setBranch] = useState("");
+  const quota = useQuota(socketRef);
 
   const changed = useGitChangedCount(cwd, fileSocket, { enabled: !!cwd && !!fileSocket });
 
@@ -83,6 +87,7 @@ export default function TerminalStatusBar({
       )}
       </>}
       right={<>
+        <QuotaSegments quota={quota} />
         {platform && (
           <span className="uppercase tracking-wide">{PLATFORM_LABEL[platform] || platform}</span>
         )}
