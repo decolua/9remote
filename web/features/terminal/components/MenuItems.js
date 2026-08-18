@@ -15,7 +15,7 @@ import { saveLastRoute, getLastRoute } from "@/shared/hooks/useLastRoute";
 import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS } from "@/shared/constants/API";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { verifyServerConnection } from "@/shared/hooks/useAuth";
-import { USER_DISABLED_KEY } from "@/shared/hooks/useNotification";
+import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 
 export default function MenuItems({
   onRemote,
@@ -146,55 +146,11 @@ export default function MenuItems({
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const isOutdated = isAgentOutdated(agentVersion, webVersion) || isWebOutdated(agentVersion, webVersion);
 
+  const push = usePushToggle(subscribeToPush, unsubscribeFromPush);
   // Treat native WebView (Expo) the same as PWA for UI gating
-  const isExpoWebView = typeof window !== "undefined" && !!window.ReactNativeWebView;
   const isApp = typeof window !== "undefined" && (
-    window.matchMedia("(display-mode: standalone)").matches || isExpoWebView
+    window.matchMedia("(display-mode: standalone)").matches || push.isExpoWebView
   );
-  // WebPush on any SW+PushManager browser (desktop included), or native push in the Expo shell
-  const pushSupported = isExpoWebView ||
-    (typeof navigator !== "undefined" && "serviceWorker" in navigator && "PushManager" in window);
-
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [pushLoading, setPushLoading] = useState(false);
-
-  // Source of truth = actual push subscription, not Notification.permission (can't be revoked via JS)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    // Expo has no PushManager — the user toggle flag is the only local state
-    if (isExpoWebView) {
-      setPushEnabled(localStorage.getItem(USER_DISABLED_KEY) !== "1");
-      return;
-    }
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
-    navigator.serviceWorker.ready
-      .then((reg) => reg.pushManager?.getSubscription())
-      .then((sub) => setPushEnabled(!!sub))
-      .catch(() => {});
-  }, [isExpoWebView]);
-
-  // Toggle push on/off; enable requests permission via subscribeToPush
-  const handleTogglePush = useCallback(async () => {
-    if (pushLoading) return;
-    vibrate();
-    setPushLoading(true);
-    if (pushEnabled) {
-      await unsubscribeFromPush?.();
-      setPushEnabled(false);
-    } else {
-      await subscribeToPush?.();
-      // Confirm via real subscription (Expo has no PushManager)
-      let enabled = isExpoWebView;
-      if (!isExpoWebView && "serviceWorker" in navigator && "PushManager" in window) {
-        try {
-          const reg = await navigator.serviceWorker.ready;
-          enabled = !!(await reg.pushManager?.getSubscription());
-        } catch { enabled = false; }
-      }
-      setPushEnabled(enabled);
-    }
-    setPushLoading(false);
-  }, [pushEnabled, pushLoading, subscribeToPush, unsubscribeFromPush, isExpoWebView]);
 
   return (
     <div className="p-3 space-y-0.5">
@@ -216,10 +172,10 @@ export default function MenuItems({
       )}
 
       {/* Notifications switch - WebPush (desktop browser + PWA) or Expo native */}
-      {pushSupported && (
+      {push.supported && (
         <button
-          onClick={handleTogglePush}
-          disabled={pushLoading}
+          onClick={push.toggle}
+          disabled={push.loading}
           className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 disabled:opacity-50 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
         >
           <div className="flex items-center gap-2.5">
@@ -229,11 +185,11 @@ export default function MenuItems({
               <span className="text-xs text-text-muted">{t("menu.notificationsHint")}</span>
             </div>
           </div>
-          {pushLoading ? (
+          {push.loading ? (
             <Loader2 className="animate-spin text-text-muted" size={16} />
           ) : (
-            <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${pushEnabled ? "bg-brand-500" : "bg-surface-2"}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${pushEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+            <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${push.enabled ? "bg-brand-500" : "bg-surface-2"}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${push.enabled ? "translate-x-4" : "translate-x-0.5"}`} />
             </span>
           )}
         </button>

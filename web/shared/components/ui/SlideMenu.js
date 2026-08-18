@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useCallback, useState } from "react";
-import { X, Sparkles, Square, ChevronLeft, Loader2, Sun, Moon } from "@/shared/components/ui/Icon";
+import { X, ChevronLeft, Sun, Moon } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import MenuItems from "@/features/terminal/components/MenuItems";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
@@ -14,6 +14,9 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import CodespacePanel from "@/features/codespace/components/CodespacePanel";
+import SettingsDialog from "@/features/terminal/components/SettingsDialog";
+import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 
 /**
  * SlideMenu - Global full-screen menu that slides from right to left
@@ -42,6 +45,15 @@ export default function SlideMenu() {
   const [communityOpen, setCommunityOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const { theme: appTheme, toggleTheme } = useTheme();
+
+  // Desktop gets a centered two-pane settings dialog; the drawer stays for phones.
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDesktop(window.innerWidth >= DESKTOP_BREAKPOINT);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // Prevent body scroll when menu is open
   useEffect(() => {
@@ -159,24 +171,41 @@ export default function SlideMenu() {
     setCommunityOpen(false);
   }, []);
 
-  if (!isOpen) {
+  const overlays = (
+    <>
+      <SitesList
+        tunnelUrl={context.tunnelUrl}
+        socketRef={context.socketRef}
+        apiKey={context.apiKey}
+        isOpen={sitesModalOpen}
+        onClose={handleCloseSitesModal}
+      />
+      <CommandNotesPanel
+        isOpen={commandNotesOpen}
+        onClose={handleCloseCommandNotes}
+      />
+      <CommunityModal
+        isOpen={communityOpen}
+        onClose={handleCloseCommunity}
+      />
+    </>
+  );
+
+  if (!isOpen) return overlays;
+
+  if (isDesktop) {
     return (
       <>
-        <SitesList
-          tunnelUrl={context.tunnelUrl}
-          socketRef={context.socketRef}
-          apiKey={context.apiKey}
-          isOpen={sitesModalOpen}
-          onClose={handleCloseSitesModal}
+        <SettingsDialog
+          context={context}
+          callbacks={callbacks}
+          canInstall={canInstall}
+          isInstalled={isInstalled}
+          install={install}
+          onSites={callbacks.onSites ? () => { setSitesModalOpen(true); callbacks.onSites?.(); } : null}
+          onClose={close}
         />
-        <CommandNotesPanel
-          isOpen={commandNotesOpen}
-          onClose={handleCloseCommandNotes}
-        />
-        <CommunityModal
-          isOpen={communityOpen}
-          onClose={handleCloseCommunity}
-        />
+        {overlays}
       </>
     );
   }
@@ -325,118 +354,6 @@ export default function SlideMenu() {
         onClose={handleCloseCommunity}
       />
       <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
-    </div>
-  );
-}
-
-/**
- * Codespace Panel Component
- */
-function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
-  const { t } = useI18n();
-  const [autoStart, setAutoStart] = useState(null); // null = loading, true/false = status
-  const [toggling, setToggling] = useState(false);
-
-  // Load auto start status on mount
-  useEffect(() => {
-    if (!socketRef?.current || !codespaceInfo?.isCodespaces) {
-      // Not in codespaces or no socket, show OFF state
-      if (codespaceInfo?.isCodespaces && !socketRef?.current) {
-        console.log("CodespacePanel: socketRef not available");
-      }
-      setAutoStart(false);
-      return;
-    }
-    
-    socketRef.current.emit("getAutoStartStatus", (result) => {
-      console.log("getAutoStartStatus result:", result);
-      if (result.success) {
-        setAutoStart(result.enabled);
-      } else {
-        setAutoStart(false);
-      }
-    });
-  }, [socketRef, codespaceInfo]);
-
-  // Toggle auto start
-  const handleToggleAutoStart = useCallback(() => {
-    if (!socketRef?.current || toggling) return;
-    
-    setToggling(true);
-    const newValue = !autoStart;
-    
-    socketRef.current.emit("setAutoStart", { enabled: newValue }, (result) => {
-      setToggling(false);
-      if (result.success) {
-        setAutoStart(result.enabled);
-      }
-    });
-  }, [socketRef, autoStart, toggling]);
-
-  if (!codespaceInfo) return null;
-
-  return (
-    <div className="p-5">
-      {/* Info */}
-      <div className="space-y-3 mb-6">
-        <div className="flex items-center justify-between">
-          <span className="text-text-muted text-sm">{t("codespace.name")}</span>
-          <span className="text-text font-medium">{codespaceInfo.codespaceName || t("codespace.unknown")}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-text-muted text-sm">{t("codespace.status")}</span>
-          <span className="text-green-400 font-medium flex items-center gap-1">
-            <span className="w-2 h-2 bg-green-400 rounded-full" />
-            {t("codespace.running")}
-          </span>
-        </div>
-      </div>
-
-      {/* Auto Start Toggle */}
-      <div className="pt-4 border-t border-border mb-6">
-        <div className="flex items-center justify-between py-3">
-          <div>
-            <span className="text-text text-sm font-medium">{t("codespace.autoStart")}</span>
-            <p className="text-text-muted text-xs mt-0.5">{t("codespace.autoStartHint")}</p>
-          </div>
-          {autoStart === null ? (
-            <Loader2 className="animate-spin text-text-muted" size={20} />
-          ) : (
-            <button
-              onClick={handleToggleAutoStart}
-              disabled={toggling}
-              className={`relative w-12 h-6 rounded-full transition-colors ${
-                autoStart ? "bg-brand-500" : "bg-surface-2"
-              } ${toggling ? "opacity-50" : ""}`}
-            >
-              <span
-                className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                  autoStart ? "left-7" : "left-1"
-                }`}
-              />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Stop section */}
-      <div className="pt-4 border-t border-border space-y-3">
-        <button
-          onClick={onStop}
-          className="w-full py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-brand transition flex items-center justify-center gap-2"
-        >
-          <Square size={16} />
-          {t("codespace.stop")}
-        </button>
-        <p className="text-text text-sm flex items-start gap-2">
-          <span className="text-yellow-400">💡</span>
-          {t("codespace.stopHint")}
-        </p>
-        <p className="text-text-muted text-xs flex items-start gap-2">
-          <span className="text-orange-400">⚠️</span>
-          {t("codespace.restartHint")}
-        </p>
-      </div>
     </div>
   );
 }
