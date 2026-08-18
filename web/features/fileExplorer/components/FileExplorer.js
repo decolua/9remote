@@ -8,7 +8,7 @@ import { X, Search, GitBranch, Plus, ChevronLeft, Pencil, Copy, Trash2, File, Fo
 import { vibrate } from "@/shared/utils/vibration";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { useI18n } from "@/shared/i18n";
-import { buildGitStatusMap, sameStatusMap } from "@/features/fileExplorer/lib/gitStatusMap";
+import { buildWorkspaceGitStatus, sameStatusMap } from "@/features/fileExplorer/lib/gitStatusMap";
 import { useFileTransfer } from "@/features/fileExplorer/hooks/useFileTransfer";
 import { SearchBar, TransferBanner, NewItemModal, RenameModal, ConflictModal } from "./FileExplorerModals";
 
@@ -56,9 +56,9 @@ export default function FileExplorer({
       return;
     }
 
-    const result = await fileSocket.gitStatus(dirPath);
-    setHasGit(result.success);
-    const statusMap = buildGitStatusMap(result);
+    const result = await buildWorkspaceGitStatus(fileSocket, dirPath);
+    setHasGit(result.hasGit);
+    const statusMap = result.map;
     // Keep the previous reference when nothing changed — the map feeds every row.
     setGitStatusMap((prev) => (sameStatusMap(prev, statusMap) ? prev : statusMap));
   }, [fileSocket, isBrowsing]);

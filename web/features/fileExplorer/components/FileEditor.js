@@ -18,10 +18,12 @@ import EditorKeyBar from "./EditorKeyBar.js";
 export default function FileEditor({ filePath, fileSocket, onBack, line, column, workspace, diffStatus }) {
   const { t } = useI18n();
   const previewOnly = isPreviewable(filePath);
+  // Opened from a git entry — this overlay exists to show the diff, not the file.
+  const diffOnly = !!diffStatus;
   const fileName = filePath.split("/").pop();
 
-  const doc = useFileDocument({ filePath: previewOnly ? "" : filePath, fileSocket });
-  const guard = useUnsavedGuard({ dirty: !previewOnly && doc.dirty, onSave: doc.save });
+  const doc = useFileDocument({ filePath: !diffOnly && !previewOnly ? filePath : "", fileSocket });
+  const guard = useUnsavedGuard({ dirty: !diffOnly && !previewOnly && doc.dirty, onSave: doc.save });
 
   const viewRef = useRef(null);
   const [copied, setCopied] = useState(false);
@@ -32,7 +34,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
   const registerView = useCallback((readText, view) => { viewRef.current = view; }, []);
 
   useEffect(() => {
-    if (!workspace || !filePath) return;
+    if (diffOnly || !workspace || !filePath) return;
     let cancelled = false;
     fileSocket.gitFileStatus(workspace, filePath).then((r) => {
       if (cancelled) return;
@@ -105,7 +107,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
           </button>
         )}
 
-        {!previewOnly && (
+        {!previewOnly && !diffOnly && (
           <button
             onClick={() => { vibrate(); copyContent(); }}
             className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
@@ -115,7 +117,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
           </button>
         )}
 
-        {!previewOnly && (
+        {!previewOnly && !diffOnly && (
           <button
             onClick={() => { vibrate(); doc.save(); }}
             disabled={!doc.dirty || doc.saving}
@@ -138,7 +140,15 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
       )}
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        {previewOnly ? (
+        {diffOnly ? (
+          <div className="h-full overflow-auto p-2">
+            {diffLoading ? (
+              <div className="h-full flex items-center justify-center text-text-muted">{t("common.loading")}</div>
+            ) : diff ? <DiffBody diff={diff} /> : (
+              <div className="h-32 flex items-center justify-center text-text-muted text-sm">{t("git.noChanges")}</div>
+            )}
+          </div>
+        ) : previewOnly ? (
           <FilePreview filePath={filePath} fileSocket={fileSocket} />
         ) : doc.loading ? (
           <div className="h-full flex items-center justify-center text-text-muted">{t("common.loading")}</div>
@@ -156,7 +166,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
       </div>
 
       {/* Git diff, over the editor rather than beside it — there is no room beside it. */}
-      {diff !== null && (
+      {!diffOnly && diff !== null && (
         <div className="absolute inset-0 z-30 bg-bg flex flex-col">
           <div className="bg-surface-2 px-4 py-3 flex items-center justify-between flex-shrink-0">
             <span className="text-text font-medium truncate">{t("editor.gitDiff")}</span>
@@ -175,7 +185,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
         </div>
       )}
 
-      {!previewOnly && !doc.loading && <EditorKeyBar viewRef={viewRef} />}
+      {!previewOnly && !diffOnly && !doc.loading && <EditorKeyBar viewRef={viewRef} />}
 
       <UnsavedDialog
         isOpen={guard.asking}

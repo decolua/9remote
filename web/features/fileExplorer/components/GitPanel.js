@@ -191,8 +191,8 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           {/* Stats */}
           {showStats && (
             <div className="flex items-center gap-1 text-xs flex-shrink-0">
-              {file.added > 0 && <span className="text-green-400">+{file.added}</span>}
-              {file.deleted > 0 && <span className="text-red-400">-{file.deleted}</span>}
+              {file.added > 0 && <span className="text-[var(--success)]">+{file.added}</span>}
+              {file.deleted > 0 && <span className="text-[var(--danger)]">-{file.deleted}</span>}
             </div>
           )}
 
@@ -212,7 +212,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           {/* Discard button */}
           <button
             onClick={(e) => { e.stopPropagation(); vibrate(); handleDiscardFile(file.path, file.status); }}
-            className="p-1.5 text-text-muted hover:text-orange-400 hover:bg-surface-2 rounded-brand transition-all duration-200 flex-shrink-0"
+            className="p-1.5 text-text-muted hover:text-red-400 hover:bg-surface-2 rounded-brand transition-all duration-200 flex-shrink-0"
             title={t("git.discardChangesTitle")}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -277,7 +277,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           onClick={() => { vibrate(); setActiveTab("status"); }}
           className={`flex-1 py-3 text-center font-medium transition ${
             activeTab === "status"
-              ? "text-text border-b-2 border-emerald-500"
+              ? "text-text border-b-2 border-brand-500"
               : "text-text-muted hover:text-text"
           }`}
         >
@@ -287,7 +287,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
           onClick={() => { vibrate(); handleSwitchToDiff(); }}
           className={`flex-1 py-3 text-center font-medium transition ${
             activeTab === "diff"
-              ? "text-text border-b-2 border-emerald-500"
+              ? "text-text border-b-2 border-brand-500"
               : "text-text-muted hover:text-text"
           }`}
         >
@@ -369,7 +369,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                       loadDiff(file.path, file.status);
                     }
                   }}
-                  className="flex-1 min-w-0 px-3 py-2 bg-surface-2 rounded text-text focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all duration-150 ease-out"
+                  className="flex-1 min-w-0 px-3 py-2 bg-surface-2 rounded-brand text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
                 >
                   {statusFiles.map(file => (
                     <option key={file.path} value={file.path}>
@@ -381,7 +381,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                   <button
                     onClick={(e) => { e.stopPropagation(); vibrate(); handleOpenFile(selectedFile); }}
                     disabled={diffLoading}
-                    className="px-4 py-2 bg-surface-3 hover:bg-surface disabled:cursor-not-allowed text-text text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2"
+                    className="h-9 w-9 flex-shrink-0 bg-surface-2 hover:bg-surface-3 disabled:cursor-not-allowed text-text rounded-brand transition-all duration-200 flex items-center justify-center"
                     title={t("git.openFile")}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -392,7 +392,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
                 <button
                   onClick={() => { vibrate(); handleDiscard(); }}
                   disabled={!selectedFile || diffLoading}
-                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-surface-2 disabled:cursor-not-allowed text-white text-sm font-medium rounded-brand transition-all duration-200 flex items-center gap-2"
+                  className="h-9 w-9 flex-shrink-0 bg-red-500/10 hover:bg-red-500/20 disabled:bg-surface-2 disabled:cursor-not-allowed text-red-400 rounded-brand transition-all duration-200 flex items-center justify-center"
                   title={t("git.discardChangesTitle")}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

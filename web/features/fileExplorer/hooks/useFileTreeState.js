@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { STORAGE_KEYS } from "../constants/fileExplorer.js";
-import { buildGitStatusMap } from "@/features/fileExplorer/lib/gitStatusMap";
+import { buildWorkspaceGitStatus } from "@/features/fileExplorer/lib/gitStatusMap";
 import { vibrate } from "@/shared/utils/vibration";
 
 // Lazy directory cache for the desktop tree: which dirs are loaded, which are
@@ -96,11 +96,12 @@ export function useFileTreeState({ workspace, fileSocket }) {
     [fileSocket, showHidden]
   );
 
-  // Load git status and propagate folder-changed up parents
+  // Load git status and propagate folder-changed up parents. A workspace that is a
+  // parent folder of nested repos gets every repo's status merged in.
   const loadGitStatus = useCallback(async () => {
     if (!workspace) return;
-    const res = await fileSocket.gitStatus(workspace);
-    setGitStatusMap(buildGitStatusMap(res));
+    const { map } = await buildWorkspaceGitStatus(fileSocket, workspace);
+    setGitStatusMap(map);
   }, [fileSocket, workspace]);
 
   // Initial mount: load workspace root + restore expanded + git status

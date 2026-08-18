@@ -5,8 +5,10 @@ import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X, ExternalLink 
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import FileContextMenu from "@/shared/components/ui/FileContextMenu";
+import { useI18n } from "@/shared/i18n";
 import { GIT_STATUS_COLORS, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
 import { resolveFileIcon } from "../constants/fileIcons.js";
+import { commitSummary, pushSummary, pullSummary } from "../lib/gitOutput.js";
 
 const SECTION_CHANGES = "changes";
 const SECTION_UNTRACKED = "untracked";
@@ -30,12 +32,14 @@ function joinPath(base, rel) {
 }
 
 export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWithRepo = false }) {
+  const { t } = useI18n();
   const [branch, setBranch] = useState("");
   const [ahead, setAhead] = useState(null);
   const [behind, setBehind] = useState(null);
   const [files, setFiles] = useState([]);
   const [commitMsg, setCommitMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null); // { ok, text }
   const [expandedSections, setExpandedSections] = useState(new Set([SECTION_CHANGES, SECTION_UNTRACKED]));
   const [confirmAutoStageOpen, setConfirmAutoStageOpen] = useState(false);
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
@@ -110,13 +114,6 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
     setConfirmDiscardOpen(true);
   }, []);
 
-  const doCommit = useCallback(async () => {
-    if (!workspace || !commitMsg.trim()) return;
-    await fileSocket.gitCommit?.(workspace, commitMsg.trim());
-    setCommitMsg("");
-    reload();
-  }, [workspace, fileSocket, commitMsg, reload]);
-
   const handleCommitClick = useCallback(() => {
     if (!commitMsg.trim()) return;
     if (!files.length) return;
@@ -125,27 +122,43 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
 
   const confirmAutoStageAndCommit = useCallback(async () => {
     if (!workspace) return;
-    await fileSocket.gitAdd?.(workspace, ["."]);
-    await fileSocket.gitCommit?.(workspace, commitMsg.trim());
+    setResult(null);
+    const add = await fileSocket.gitAdd?.(workspace, ["."]);
+    if (add && !add.success) {
+      setResult({ ok: false, text: add.error || t("git.stageFailed") });
+      return;
+    }
+    const res = await fileSocket.gitCommit?.(workspace, commitMsg.trim());
+    setResult(res?.success
+      ? { ok: true, text: commitSummary(t, res.output) }
+      : { ok: false, text: res?.output || res?.error || t("git.commitFailed") });
     setCommitMsg("");
     reload();
-  }, [workspace, fileSocket, commitMsg, reload]);
+  }, [workspace, fileSocket, commitMsg, reload, t]);
 
   const handlePush = useCallback(async () => {
     if (!workspace) return;
     setLoading(true);
-    await fileSocket.gitPush?.(workspace);
+    setResult(null);
+    const res = await fileSocket.gitPush?.(workspace);
     setLoading(false);
+    setResult(res?.success
+      ? { ok: true, text: pushSummary(t, res.output) }
+      : { ok: false, text: res?.output || res?.error || t("git.pushFailed") });
     reload();
-  }, [workspace, fileSocket, reload]);
+  }, [workspace, fileSocket, reload, t]);
 
   const handlePull = useCallback(async () => {
     if (!workspace) return;
     setLoading(true);
-    await fileSocket.gitPull?.(workspace);
+    setResult(null);
+    const res = await fileSocket.gitPull?.(workspace);
     setLoading(false);
+    setResult(res?.success
+      ? { ok: true, text: pullSummary(t, res.output) }
+      : { ok: false, text: res?.output || res?.error || t("git.pullFailed") });
     reload();
-  }, [workspace, fileSocket, reload]);
+  }, [workspace, fileSocket, reload, t]);
 
   // Right-click context menu (vscode-style)
   const [ctxMenu, setCtxMenu] = useState(null);
@@ -161,13 +174,13 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
   const buildMenuItems = useCallback((file) => {
     const absPath = joinPath(workspace, file.path);
     return [
-      { key: "open", label: "Open File", icon: ExternalLink, disabled: file.status === "D",
+      { key: "open", label: t("git.openFile"), icon: ExternalLink, disabled: file.status === "D",
         onClick: () => onOpenFile?.(absPath) },
-      { key: "copyPath", label: "Copy Path", icon: ExternalLink, onClick: () => copyToClipboard(absPath) },
-      { key: "copyRel", label: "Copy Relative Path", icon: ExternalLink, onClick: () => copyToClipboard(file.path) },
-      { key: "copyName", label: "Copy Filename", icon: ExternalLink, onClick: () => copyToClipboard(basename(file.path)) },
+      { key: "copyPath", label: t("files.copyPath", { defaultValue: "Copy Path" }), icon: ExternalLink, onClick: () => copyToClipboard(absPath) },
+      { key: "copyRel", label: t("files.copyRelPath", { defaultValue: "Copy Relative Path" }), icon: ExternalLink, onClick: () => copyToClipboard(file.path) },
+      { key: "copyName", label: t("files.copyName", { defaultValue: "Copy Filename" }), icon: ExternalLink, onClick: () => copyToClipboard(basename(file.path)) },
     ];
-  }, [workspace, onOpenFile, copyToClipboard]);
+  }, [workspace, onOpenFile, copyToClipboard, t]);
 
   const renderFileRow = (file, isUntracked) => {
     const colorClass = GIT_STATUS_COLORS[file.status] || "text-text-muted";
@@ -195,7 +208,7 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
         <div className="absolute right-[22px] top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-2 pr-1 bg-surface-2 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             type="button"
-            title={isUntracked ? "Delete" : "Discard"}
+            title={isUntracked ? t("common.delete") : t("git.discard")}
             onClick={(e) => { e.stopPropagation(); vibrate(); requestDiscard(file); }}
             className="p-0.5 text-text-muted hover:text-text"
           >
@@ -203,7 +216,7 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
           </button>
           <button
             type="button"
-            title="Stage"
+            title={t("git.stage")}
             onClick={(e) => { e.stopPropagation(); vibrate(); stageFile(file); }}
             className="p-0.5 text-text-muted hover:text-text"
           >
@@ -243,7 +256,7 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
           {behind > 0 && <span className="text-[10px] font-medium px-1.5 rounded-brand bg-surface-3 text-text-muted">↓{behind}</span>}
           <button
             type="button"
-            title="Refresh"
+            title={t("common.refresh")}
             onClick={() => { vibrate(); reload(); }}
             className="p-1 text-text-muted hover:text-text"
           >
@@ -255,7 +268,7 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
           value={commitMsg}
           onChange={(e) => setCommitMsg(e.target.value)}
           rows={2}
-          placeholder="Message"
+          placeholder={t("git.commitPlaceholder")}
           className="w-full bg-surface-2 border border-border rounded-brand px-2 py-1 text-xs text-text placeholder-text-subtle focus:outline-none focus:border-brand-500 resize-none"
         />
 
@@ -266,16 +279,16 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
             onClick={handleCommitClick}
             className="flex-1 h-7 text-xs rounded-brand bg-brand-500 text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Commit
+            {t("git.commit")}
           </button>
           <button
             type="button"
             onClick={() => { vibrate(); stageAll(); }}
             disabled={!files.length}
             className="px-2 h-7 text-xs rounded-brand bg-surface-2 text-text hover:bg-surface-3 disabled:opacity-40"
-            title="Stage all"
+            title={t("git.stageAll")}
           >
-            Stage All
+            {t("git.stageAll")}
           </button>
         </div>
 
@@ -285,41 +298,55 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
             onClick={() => { vibrate(); handlePush(); }}
             className="flex-1 h-6 text-[11px] rounded-brand bg-surface-2 text-text hover:bg-surface-3"
           >
-            Push
+            {t("git.push")}
           </button>
           <button
             type="button"
             onClick={() => { vibrate(); handlePull(); }}
             className="flex-1 h-6 text-[11px] rounded-brand bg-surface-2 text-text hover:bg-surface-3"
           >
-            Pull
+            {t("git.pull")}
           </button>
         </div>
+
+        {result && (
+          <div className={`text-[11px] leading-snug break-words rounded-brand px-2 py-1 ${
+            result.ok
+              ? "text-[var(--success)] bg-[rgba(var(--success-rgb),0.1)]"
+              : "text-[var(--danger)] bg-[rgba(var(--danger-rgb),0.1)]"
+          }`}>
+            {result.text}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto">
-        {renderSection(SECTION_CHANGES, "Changes", changes, false)}
-        {renderSection(SECTION_UNTRACKED, "Untracked", untracked, true)}
+        {renderSection(SECTION_CHANGES, t("git.changes"), changes, false)}
+        {renderSection(SECTION_UNTRACKED, t("git.untracked"), untracked, true)}
       </div>
 
       <ConfirmDialog
         isOpen={confirmAutoStageOpen}
         onClose={() => setConfirmAutoStageOpen(false)}
         onConfirm={confirmAutoStageAndCommit}
-        title="Stage All & Commit"
-        message="No changes are staged. Stage all changes and commit?"
-        confirmText="Stage & Commit"
-        cancelText="Cancel"
+        title={t("git.stageAllConfirmTitle")}
+        message={t("git.stageAllConfirmMessage")}
+        confirmText={t("git.stageAndCommit")}
+        cancelText={t("common.cancel")}
       />
 
       <ConfirmDialog
         isOpen={confirmDiscardOpen}
         onClose={() => { setConfirmDiscardOpen(false); setDiscardTarget(null); }}
         onConfirm={() => { if (discardTarget) discardFile(discardTarget); setDiscardTarget(null); }}
-        title="Discard Changes"
-        message={discardTarget ? `Discard changes to ${basename(discardTarget.path)}?` : ""}
-        confirmText="Discard"
-        cancelText="Cancel"
+        title={t("git.discardConfirmTitle")}
+        message={discardTarget
+          ? (discardTarget.status === "?"
+            ? t("git.discardConfirmDelete", { name: basename(discardTarget.path) })
+            : t("git.discardConfirmDiscard", { name: basename(discardTarget.path) }))
+          : ""}
+        confirmText={t("git.discard")}
+        cancelText={t("common.cancel")}
       />
 
       {ctxMenu && (
