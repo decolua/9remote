@@ -10,6 +10,14 @@ const RECONNECT_MAX_MS = 30000;
 // (bad apiKey → 401, wrong URL) never opens, so without a cap we'd retry forever.
 // A transient network blip recovers within this many attempts.
 const MAX_PRE_OPEN_FAILURES = 5;
+// retryNow() is driven by visibilitychange / resume / network-change, which fire
+// in bursts on mobile (a single app switch can trigger all three). Each accepted
+// call costs a fresh WS upgrade, and every upgrade runs the DO's session gate —
+// one D1 read. Collapse a burst into a single attempt.
+const RETRY_NOW_THROTTLE_MS = 3000;
+// A socket that has been handshaking longer than this is presumed wedged, so
+// replacing it is worth another upgrade. Below it, let the handshake finish.
+const HANDSHAKE_STALL_MS = 5000;
 
 function sigData(msg) {
   if (msg.type === "offer" || msg.type === "answer") return { sdp: msg.sdp };
@@ -43,6 +51,9 @@ export class SignalingClient {
     this._openedOnce = false;
     this._closed = false;     // intentional disconnect — stops reconnect
     this._state = ADAPTER_STATE.idle;
+    this._lastRetryNowAt = 0;
+    this._connectingSince = 0;
+    this._retryNowTimer = null;
   }
 
   get ready() { return this._ws?.readyState === 1; } // OPEN
@@ -72,6 +83,31 @@ export class SignalingClient {
    * the pre-open cap so a relay abandoned on the old network gets a fresh start. */
   retryNow() {
     if (this._closed || this.ready) return;
+
+    const now = Date.now();
+    // Burst guard. Without it, visibility + resume + network-change on one app
+    // switch each tore down the in-flight socket and opened another.
+    //
+    // Deferred, never dropped: after MAX_PRE_OPEN_FAILURES the close handler stops
+    // scheduling, leaving retryNow as the only way back. Discarding a throttled
+    // call could therefore strand the relay until some later event happened to
+    // fire — so the burst collapses into one attempt at the end of the window.
+    const sinceLast = now - this._lastRetryNowAt;
+    if (sinceLast < RETRY_NOW_THROTTLE_MS) {
+      this._scheduleRetryNow(RETRY_NOW_THROTTLE_MS - sinceLast);
+      return;
+    }
+
+    // A handshake that started moments ago is most likely the retry a previous
+    // caller already triggered — let it finish rather than restarting it. Only a
+    // stalled one is worth replacing.
+    if (this._state === ADAPTER_STATE.connecting
+        && now - this._connectingSince < HANDSHAKE_STALL_MS) {
+      this._scheduleRetryNow(HANDSHAKE_STALL_MS - (now - this._connectingSince));
+      return;
+    }
+
+    this._lastRetryNowAt = now;
     this._attempt = 0;
     this._preOpenFails = 0;
     clearTimeout(this._reconnectTimer);
@@ -84,9 +120,21 @@ export class SignalingClient {
     this._open();
   }
 
+  /** One pending re-check per client — repeated calls inside the window collapse
+   * onto the timer already armed instead of stacking up. */
+  _scheduleRetryNow(delay) {
+    if (this._retryNowTimer) return;
+    this._retryNowTimer = setTimeout(() => {
+      this._retryNowTimer = null;
+      this.retryNow();
+    }, delay);
+  }
+
   disconnect() {
     this._closed = true;
     this._stopPing();
+    clearTimeout(this._retryNowTimer);
+    this._retryNowTimer = null;
     clearTimeout(this._reconnectTimer);
     try { this._ws?.close(); } catch {}
     this._ws = null;
@@ -95,6 +143,7 @@ export class SignalingClient {
 
   _open() {
     this._setState(ADAPTER_STATE.connecting);
+    this._connectingSince = Date.now();
     const ws = new WebSocket(this._url);
     this._ws = ws;
     ws.addEventListener("open", () => {
