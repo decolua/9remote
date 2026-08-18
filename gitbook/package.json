@@ -24,7 +24,7 @@
     "remark-rehype": "^11.1.2"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "latest",
+    "@opennextjs/cloudflare": "1.20.1",
     "@tailwindcss/postcss": "^4",
     "tailwindcss": "^4"
   }

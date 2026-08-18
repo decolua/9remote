@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "2.4.0",
+  "version": "2.5.1",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "main": "dist/server.cjs",
@@ -49,6 +49,7 @@
     "sharp": "0.33.5",
     "socket.io": "^4.8.3",
     "utf-8-validate": "6.0.6",
+    "https-proxy-agent": "^7.0.0",
     "web-push": "^3.6.7"
   },
   "optionalDependencies": {
