@@ -72,7 +72,7 @@ export default function TerminalHeader({
   const suggestTerminalName = (workspaceId) => `${t("terminal.defaultName")} ${sessions.filter((s) => sessionWorkspaceId(s) === (workspaceId ?? null)).length + 1}`;
 
   // Reliable focus+select on conditional mount (autoFocus is flaky)
-  useEffect(() => { if (editingTabId) requestAnimationFrame(() => { tabInputRef.current?.focus(); tabInputRef.current?.select(); }); }, [editingTabId]);
+  useEffect(() => { if (editingTabId) requestAnimationFrame(() => { tabInputRef.current?.focus(); const el = tabInputRef.current; if (el) el.setSelectionRange(el.value.length, el.value.length); }); }, [editingTabId]);
 
   // Ctrl+←/→ prev/next tab (wrap), Ctrl+1..9 jump tab N (9 = last if longer)
   useEffect(() => {

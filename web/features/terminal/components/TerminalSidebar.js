@@ -209,7 +209,7 @@ export default function TerminalSidebar({
   const [drag, setDrag] = useState(null); // { workspaceId, ids, fromIdx, overIdx, el }
   const suppressClickRef = useRef(false);
 
-  useEffect(() => { if (editingId) requestAnimationFrame(() => { renameInputRef.current?.focus(); renameInputRef.current?.select(); }); }, [editingId]);
+  useEffect(() => { if (editingId) requestAnimationFrame(() => { renameInputRef.current?.focus(); const el = renameInputRef.current; if (el) el.setSelectionRange(el.value.length, el.value.length); }); }, [editingId]);
 
   // Close context menu on outside click / Escape
   useEffect(() => {

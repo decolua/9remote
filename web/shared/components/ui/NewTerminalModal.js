@@ -82,7 +82,7 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
   const pick = (picked) => {
     vibrate();
     setAgentId(picked?.id || "");
-    requestAnimationFrame(() => { nameRef.current?.focus(); nameRef.current?.select(); });
+    requestAnimationFrame(() => { nameRef.current?.focus(); const el = nameRef.current; if (el) el.setSelectionRange(el.value.length, el.value.length); });
   };
 
   const matches = useMemo(() => {

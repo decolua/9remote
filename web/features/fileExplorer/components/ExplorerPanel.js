@@ -74,7 +74,8 @@ export default function ExplorerPanel({
   useEffect(() => {
     if (renameTarget && renameInputRef.current) {
       renameInputRef.current.focus();
-      renameInputRef.current.select();
+      const len = renameInputRef.current.value.length;
+      renameInputRef.current.setSelectionRange(len, len);
     }
   }, [renameTarget]);
 
