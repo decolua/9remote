@@ -1,9 +1,12 @@
 import chalk from "chalk";
 import qrcode from "qrcode-terminal";
 import { STEP, DEBUG } from "../../lib/constants.js";
+import { createLogger } from "../../lib/logger.js";
 import { createTempKey } from "../utils/token.js";
 import { setStep } from "../core/localApi.js";
 import { COLORS, WORKER_URL, TUI } from "../config.js";
+
+const logger = createLogger("session");
 
 export function showQRCode(url, title = "📱 Scan QR to connect:") {
   console.log(COLORS.orange(`\n${title}`));
@@ -22,13 +25,23 @@ export function buildQRString(url) {
 
 export async function showConnectionInfo(selectedKey, tunnelUrl) {
   const tempKeyData = await createTempKey(selectedKey, WORKER_URL);
+  const width = Math.min(TUI.headerWidth, process.stdout.columns || 55);
+
+  // A failed temp key must never hold the UI on the progress screen: the server
+  // and tunnel are already up, only the QR is missing. Reach READY without one —
+  // the user regenerates it from the UI.
   if (!tempKeyData) {
-    console.log(chalk.red("❌ Failed to create temp key"));
+    logger.warn("Temp key creation failed — showing UI without a QR");
+    await setStep(STEP.READY, { tunnelUrl, permanentKey: selectedKey, workerUrl: WORKER_URL });
+    console.log(chalk.red("\n❌ Failed to create one-time key — generate a new one from the menu"));
+    console.log(COLORS.orange("═".repeat(width)));
+    console.log(chalk.white("App URL".padEnd(14)) + chalk.gray(`${WORKER_URL}/login`));
+    console.log(chalk.white("Key".padEnd(14)) + chalk.gray(selectedKey));
+    console.log(COLORS.orange("═".repeat(width)));
     return;
   }
 
   const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
-  const width = Math.min(TUI.headerWidth, process.stdout.columns || 55);
 
   await setStep(STEP.READY, {
     tunnelUrl,

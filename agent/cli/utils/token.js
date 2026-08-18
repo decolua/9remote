@@ -1,5 +1,7 @@
 import { browserFetch } from "../../lib/constants.js";
+import { createLogger } from "../../lib/logger.js";
 
+const logger = createLogger("session");
 const TEMP_KEY_EXPIRY_MINUTES = 30;
 
 /**
@@ -20,13 +22,14 @@ export async function createTempKey(apiKey, workerUrl) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || "Failed to create temp key");
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.error || `HTTP ${response.status}`);
     }
 
     return await response.json();
   } catch (error) {
-    console.error("Error creating temp key:", error);
+    // logger, not console: the TUI clears the screen and the reason would be lost
+    logger.error(`Temp key creation failed: ${error?.message || error}`);
     return null;
   }
 }
