@@ -144,6 +144,7 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
   // localStorage is only readable on the client, so seed lazily rather than in an effect.
   const [recent] = useState(() => (typeof window === "undefined" ? [] : getRecentWorkspaces()));
   const searchRef = useRef(null);
+  const isDesktopRef = useRef(false);
   const genRef = useRef(0);
   const previewGenRef = useRef(0);
   const debounceTimerRef = useRef(null);
@@ -408,9 +409,9 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
 
   // Filter-first on desktop (orca picker pattern): type to narrow, arrows + Enter to walk in.
   useEffect(() => {
-    if (typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches) {
-      searchRef.current?.focus();
-    }
+    if (typeof window === "undefined") return;
+    isDesktopRef.current = window.matchMedia("(min-width: 640px)").matches;
+    if (isDesktopRef.current) searchRef.current?.focus();
   }, []);
 
   // Esc closes only when the filter is already empty (input-level Esc handles the clear).
@@ -633,7 +634,11 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
                   key={f.path}
                   onClick={() => rowGo(f)}
                   onDoubleClick={() => rowPick(f)}
-                  onMouseDown={(e) => { e.preventDefault(); searchRef.current?.focus(); }}
+                  onMouseDown={(e) => {
+                    if (!isDesktopRef.current) return;
+                    e.preventDefault();
+                    searchRef.current?.focus();
+                  }}
                   className={`group w-full flex items-center gap-2 pl-3 pr-2 py-2 text-sm text-text rounded-[3px] hover:bg-surface-2 active:bg-surface-2 transition-colors ${
                     (filter || preview) && idx === hiIdx ? "bg-surface-2 ring-1 ring-brand-500/40" : ""
                   }`}

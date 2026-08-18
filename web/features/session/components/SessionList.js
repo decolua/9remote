@@ -154,7 +154,7 @@ export default function SessionList({
       </header>
 
       <div
-        className="relative z-10 flex-1 overflow-auto modal-scrollable px-4 pb-6"
+        className="relative z-10 flex-1 overflow-auto modal-scrollable px-4 pt-4 pb-6"
         style={{ overflowAnchor: "none" }}
       >
         {showBanner && (
