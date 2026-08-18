@@ -1,4 +1,4 @@
-import { spawnQuickTunnel, killCloudflared } from "../utils/cloudflared.js";
+import { spawnQuickTunnel, killCloudflared, hasLiveTunnel } from "../utils/cloudflared.js";
 import { computeDelay, retryForever } from "../utils/backoff.js";
 import { RETRY_CONFIG } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
@@ -25,6 +25,12 @@ export function makeTunnelRestartHandler({ onUrlUpdate, setTunnel, onRetry }) {
   return async (port) => {
     try {
       const r = await spawnQuickTunnelWithRetry(port, onUrlUpdate, null, onRetry);
+      // A background reconnect loop may still be waiting out its backoff from an
+      // earlier failure. It has no way to notice this tunnel, so on its next wake
+      // it spawns another cloudflared, whose startup kills the stale pid — which
+      // is the tunnel serving traffic right now. Cancel it: the restart succeeded,
+      // so there is nothing left for that loop to recover.
+      cancelActiveBgTunnel();
       setTunnel(r.child);
       await onUrlUpdate(r.tunnelUrl);
       logger.info(`Tunnel restarted: ${r.tunnelUrl}`);
@@ -49,6 +55,13 @@ export function startBackgroundTunnelReconnect(localPort, { onUrlUpdate, onResta
     config: RETRY_CONFIG.tunnelRateLimit,
     task: async () => {
       if (ctx.cancelled) return true;
+      // Another path may have brought a tunnel up while this loop sat in its
+      // backoff. Spawning now would kill it during startup's stale-pid cleanup,
+      // taking down a working tunnel to replace it with an identical one.
+      if (hasLiveTunnel()) {
+        logger.info("bg-tunnel: a tunnel is already live — standing down");
+        return true;
+      }
       const r = await spawnQuickTunnel(localPort, onUrlUpdate, onRestart);
       // Spawn resolved after cancel — clean up the orphan, skip side effects
       if (ctx.cancelled) { try { killCloudflared(); } catch {} return true; }

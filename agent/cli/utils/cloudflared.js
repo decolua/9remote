@@ -20,7 +20,97 @@ const TUNNEL_CONFIG = {
   internetCheckTimeoutMs: 3000,
   internetCheckHost: "1.1.1.1",
   internetCheckPort: 443,
+  // Edge-liveness probe. Separate from the 5s tick: the tick also does cheap
+  // local checks (pid, network fingerprint) that are worth running often, while
+  // this one crosses the network and must not run on every tick.
+  //
+  // Killing the tunnel is expensive — the URL changes and every client has to
+  // reconnect — so one unlucky probe must not trigger it. trycloudflare offers
+  // no uptime guarantee and rate-limits at 200 in-flight requests, so isolated
+  // failures are expected; only a sustained one means the edge is really gone.
+  // Matches the retry-before-verdict shape already used by the sleep/wake and
+  // network-change branches below, and the debounce in tunnelHealth.js.
+  edgeProbeIntervalMs: 15000,
+  edgeProbeFailureThreshold: 3,
+  readyTimeoutMs: 1500,
 };
+
+// cloudflared's own readiness endpoint. It reports how many edge connections the
+// process currently holds, which is what "is the tunnel alive" actually means —
+// unlike our external probe, it involves no DNS and no round trip through the
+// edge, so it cannot fail for reasons unrelated to the tunnel.
+//
+// This matters because cloudflared already repairs itself: it keeps up to 4
+// connections to different PoPs, redials with backoff, rotates edge IPs, and
+// falls back QUIC->HTTP/2 (supervisor.go: "reconnects them if they disconnect").
+// Killing it mid-recovery throws away that work and rotates the URL for nothing.
+//
+// Served on the first free port in 20241-20245 with no extra flags; /ready is
+// 200 with readyConnections>0, 503 when the process holds no connection at all.
+const CLOUDFLARED_METRICS_PORTS = [20241, 20242, 20243, 20244, 20245];
+let metricsPort = null;
+
+async function fetchReady(port, timeoutMs) {
+  try {
+    const res = await fetch(`http://localhost:${port}/ready`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body = await res.json();
+    return typeof body?.readyConnections === "number" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Connection count from the metrics server on `port`, but only if it belongs to
+ * the tunnel we manage. Any other cloudflared on this machine also answers on
+ * these ports, and trusting it would report a healthy tunnel while ours is dead
+ * — the one case where a restart really is needed. */
+async function readyConnectionsOn(port, timeoutMs) {
+  const body = await fetchReady(port, timeoutMs);
+  if (!body) return null;
+  const host = await fetchQuickTunnelHost(port, timeoutMs);
+  // No hostname (named tunnel, older build) is not proof of a mismatch, so it is
+  // accepted; a hostname that disagrees with our URL is.
+  if (host && activeTunnelUrl && !activeTunnelUrl.includes(host)) return null;
+  return body.readyConnections;
+}
+
+/** Edge connections cloudflared reports, or null when it cannot be asked (older
+ * build, port taken by something else, metrics server not up yet). */
+async function readyConnections(timeoutMs) {
+  if (metricsPort !== null) {
+    const conns = await readyConnectionsOn(metricsPort, timeoutMs);
+    if (conns !== null) return conns;
+    // Gone, or now serving a different tunnel after a respawn — rediscover.
+    metricsPort = null;
+  }
+  // Probed in parallel, not in sequence: five ports each waiting out the timeout
+  // would take 5x longer than the 5s monitor tick, stacking ticks on a machine
+  // where nothing answers. In parallel the whole sweep costs one timeout.
+  const results = await Promise.all(
+    CLOUDFLARED_METRICS_PORTS.map(async (port) => ({
+      port,
+      conns: await readyConnectionsOn(port, timeoutMs),
+    }))
+  );
+  const hit = results.find((r) => r.conns !== null);
+  if (!hit) return null;
+  metricsPort = hit.port;
+  return hit.conns;
+}
+
+async function fetchQuickTunnelHost(port, timeoutMs) {
+  try {
+    const res = await fetch(`http://localhost:${port}/quicktunnel`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body = await res.json();
+    return body?.hostname || null;
+  } catch {
+    return null;
+  }
+}
 
 // Sleep/wake detection — setInterval misses ticks while OS suspends the process,
 // so the gap between ticks jumps far past the poll interval. Tuned above CPU spikes.
@@ -39,6 +129,8 @@ let activeTunnelUrl = null;
 let tunnelReadyAt = 0;
 let lastScheduleAt = 0;
 let killInFlight = false;
+let edgeProbeAt = 0;
+let edgeFailStreak = 0;
 const NETWORK_CHANGE_COOLDOWN_MS = 30000;
 const SCHEDULE_DEBOUNCE_MS = 5000;
 
@@ -427,6 +519,11 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
         lastUrl = tunnelUrl;
         activeTunnelUrl = tunnelUrl;
         tunnelReadyAt = Date.now();
+        // Fresh tunnel — failures counted against the previous one must not carry
+        // over, or an inherited streak could kill this one on its first miss.
+        edgeFailStreak = 0;
+        edgeProbeAt = 0;
+        metricsPort = null; // new process may land on a different metrics port
         clearTimeout(timeout);
         cleanup();
         startNetworkMonitor();
@@ -441,6 +538,8 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
         lastUrl = tunnelUrl;
         activeTunnelUrl = tunnelUrl;
         tunnelReadyAt = Date.now();
+        edgeFailStreak = 0;
+        edgeProbeAt = 0;
         onUrlUpdate?.(tunnelUrl);
       }
     };
@@ -613,12 +712,24 @@ export function killCloudflared() {
 /**
  * Reset restart counter and stop network monitor
  */
+/** A cloudflared is running and has a URL. Used by the background reconnect loop
+ * to stand down instead of spawning over a tunnel that recovered by another path
+ * (restart handler, network-change restart) while the loop was in its backoff. */
+export function hasLiveTunnel() {
+  if (!activeTunnelUrl) return false;
+  const pid = readPid("cloudflared");
+  return !!pid && isAlive(pid);
+}
+
 export function resetRestartCounter() {
   restartFailCount = 0;
   restartInFlight = false;
   restartCallback = null;
   currentRestartArg = null;
   activeTunnelUrl = null;
+  edgeFailStreak = 0;
+  edgeProbeAt = 0;
+  metricsPort = null;
   stopNetworkMonitor();
 }
 
@@ -699,15 +810,39 @@ function startNetworkMonitor() {
 
     if (!fingerprintChanged && !cloudflaredDead) {
       // Process alive, no network change — but the edge connection may have died
-      // silently (cloudflared stays running). Probe once; if unreachable, kill +
-      // restart so the exit handler's scheduleRestart picks it up.
-      if (activeTunnelUrl && tunnelReadyAt && Date.now() - tunnelReadyAt > NETWORK_CHANGE_COOLDOWN_MS) {
+      // silently (cloudflared stays running). Probe periodically, and only act
+      // once the failures are consecutive: a single miss is far more often a DNS
+      // hiccup or a slow response than a dead edge, and killing on it costs the
+      // URL. The streak resets on any success, so a real outage still converges.
+      //
+      // Counted across ticks rather than retried inside one: the tick fires every
+      // 5s, so awaiting several probes here would overrun the interval.
+      if (activeTunnelUrl && tunnelReadyAt
+          && Date.now() - tunnelReadyAt > NETWORK_CHANGE_COOLDOWN_MS
+          && now - edgeProbeAt >= TUNNEL_CONFIG.edgeProbeIntervalMs) {
+        edgeProbeAt = now;
         const probe = await probeTunnelOnce(activeTunnelUrl);
-        if (!probe.ok) {
-          logger.warn("tunnel unreachable but cloudflared alive — edge lost, restarting");
+        if (probe.ok) {
+          edgeFailStreak = 0;
+        } else if (++edgeFailStreak >= TUNNEL_CONFIG.edgeProbeFailureThreshold) {
+          // Last word before killing: ask cloudflared itself. While it still holds
+          // an edge connection the fault is on the path to us (DNS, ISP, the edge
+          // POP for our region), and a restart would not fix it — it would only
+          // rotate the URL and disconnect every client. Only act when the process
+          // reports no connections, or cannot be asked at all.
+          const conns = await readyConnections(TUNNEL_CONFIG.readyTimeoutMs);
+          if (conns > 0) {
+            logger.info(`edge probe failing but cloudflared holds ${conns} connection(s) — not restarting`);
+            edgeFailStreak = 0;
+            return;
+          }
+          logger.warn(`tunnel unreachable but cloudflared alive — edge lost after ${edgeFailStreak} probes (ready=${conns ?? "unknown"}), restarting`);
+          edgeFailStreak = 0;
           setLastStatus("unreachable");
           killCloudflared();
           scheduleRestart(currentRestartArg, "tunnel unreachable (edge lost)");
+        } else {
+          logger.debug(`edge probe failed (${edgeFailStreak}/${TUNNEL_CONFIG.edgeProbeFailureThreshold}) — ${probe.dnsCode ?? probe.httpStatus ?? "no response"}`);
         }
       }
       return;
