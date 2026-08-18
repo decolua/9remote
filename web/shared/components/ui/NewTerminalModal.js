@@ -12,7 +12,8 @@ import { agentIconUrl, canSkipPermissions } from "@/features/terminal/constants/
 // Used by workspace TerminalHeader/Sidebar and home SessionList. Remount via `key` to reset.
 const SHELL_PREF_KEY = "9remote.terminal.shellPref";
 const AGENT_PREF_KEY = "9remote.terminal.agentPref";
-const YOLO_PREF_KEY = "9remote.terminal.yoloPref";
+// v2: default flipped to on — a new key so an old opt-out value isn't read as one
+const YOLO_PREF_KEY = "9remote.terminal.yoloPref2";
 
 export function loadShellPref() {
   try { return localStorage.getItem(SHELL_PREF_KEY) || null; } catch { return null; }
@@ -51,8 +52,8 @@ export default function NewTerminalModal({ onClose, onCreate, shells = [], sugge
   const [agentId, setAgentId] = useState(() => loadPref(AGENT_PREF_KEY) || "");
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
-  // Off unless the user turned it on before — this lets the agent act without approval
-  const [skipPermissions, setSkipPermissions] = useState(() => loadPref(YOLO_PREF_KEY) === "1");
+  // On by default — the agent acts without approval prompts unless the user opted out before
+  const [skipPermissions, setSkipPermissions] = useState(() => loadPref(YOLO_PREF_KEY) !== "0");
   const [shellId, setShellId] = useState(() => {
     const saved = loadShellPref();
     if (saved && shells.some((s) => s.id === saved)) return saved;
