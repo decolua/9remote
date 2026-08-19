@@ -57,7 +57,7 @@ async function handleStop(getActiveTunnel, setActiveTunnel) {
     setActiveTunnel(null);
     logger.info("Tunnel stopped");
   }
-  await setStep(STEP.STOPPED, { tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+  await setStep(STEP.STOPPED, { tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "" });
   updateTrayTooltip({ tunnelUrl: "", running: true });
 }
 

@@ -258,13 +258,13 @@ export function handleStart(req, res) {
 
 export function handleStopTunnel(req, res) {
   jsonOk(res);
-  updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+  updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "" });
   writeCmd("stop-tunnel");
 }
 
 export function handleShutdown(req, res) {
   jsonOk(res);
-  updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null });
+  updateUiState({ step: STEP.STOPPED, stepDesc: "", tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "" });
   writeCmd("shutdown");
 }
 
