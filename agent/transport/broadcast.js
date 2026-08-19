@@ -78,8 +78,10 @@ export function broadcast(_io, event, data) {
     try { pm.emit(event, data); } catch (e) { logger.warn(`emit ${event} failed: ${e.message}`); }
   }
   if (event === "output") {
-    // Only log when there's a duplicate risk (>1 PM) — per-output logging drowns agent.log.
-    if (targets.length > 1) logger.warn(`DUPLICATE: output → ${targets.length} PMs: ${targets.join(", ")}`);
+    // A real duplicate is the SAME peer reached via 2 PMs (RTC virtual + WS race) —
+    // several distinct peers legitimately watch one session, that is not spam-worthy.
+    const peers = targets.map((t) => t.split(":")[0]);
+    if (new Set(peers).size !== peers.length) logger.warn(`DUPLICATE: output same peer twice: ${targets.join(", ")}`);
   } else {
     logger.debug(`bc ${event} → ${targets.length} target(s)`);
   }

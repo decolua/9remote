@@ -1,11 +1,13 @@
 import * as daemonClient from "../ptyDaemonClient.js";
 import { UPLOAD_DIR, saveSessionMetadata } from "../ptyHelper.js";
+import { getClaudeSessionId } from "../statusManager.js";
 import { setClipboardFromFile } from "../../../lib/clipboardSystem.js";
 import fs from "fs";
 import path from "path";
 
 const PERSISTENCE_MODE = "daemon";
 const PASTE_KEY = "\x16"; // Ctrl+V — tell the CLI to read the OS clipboard
+const RESUME_EXIT_MS = 2000; // wait for claude to exit before relaunching the conversation
 
 // Debounce metadata writes on resize so rapid layout changes don't write the file
 // on every event — but the last size always lands before the next agent restart.
@@ -37,6 +39,23 @@ export function setupInputHandlers(socket, sessions) {
     if (session.pty) {
       try { session.pty.resize(cols, rows); } catch (e) { console.log(`Resize failed for ${sessionId}: ${e.message}`); }
     }
+  });
+
+  // Resume the exact claude conversation of this session: Claude Code hard-wraps output
+  // at launch width, so after a layout change the only true fix is exit + `--resume <id>`,
+  // which re-renders the whole transcript at the current PTY size.
+  socket.on("session-resume", ({ sessionId }) => {
+    if (!sessionId) return;
+    const session = sessions.get(sessionId);
+    if (!session) return;
+    const csid = getClaudeSessionId(sessionId);
+    if (!csid) return;
+    const send = (data) => {
+      if (session.daemon && daemonClient.isConnected()) return daemonClient.sendInput(sessionId, data);
+      if (session.pty) session.pty.write(data);
+    };
+    send("\x03\x03"); // Ctrl+C x2 — exit claude
+    setTimeout(() => send(`claude --resume ${csid}\r`), RESUME_EXIT_MS);
   });
 
   socket.on("upload-file", ({ sessionId, filename, size, content }) => {

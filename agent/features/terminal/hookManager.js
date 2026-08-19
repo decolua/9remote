@@ -49,8 +49,13 @@ const BINARIES = {
   rovodev: "acli", hermes: "hermes", amp: "amp", pi: "pi",
 };
 
-const buildCurlCmd = (type, tool) =>
-  `command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 "${NOTIFY_URL}?type=${type}&sessionId=$NINE_REMOTE_SESSION_ID&tool=${tool}" > /dev/null 2>&1 & true`;
+// claudeSessionId: claude hooks receive their session id on stdin JSON — capture it so
+// the agent can relaunch that exact conversation later via `claude --resume <id>`.
+const buildCurlCmd = (type, tool, { claudeSessionId = false } = {}) => {
+  const prefix = claudeSessionId ? `csid=$(cat 2>/dev/null | sed -n 's/.*"session_id" *: *"\\([^"]*\\)".*/\\1/p'); ` : "";
+  const extra = claudeSessionId ? "&csid=$csid" : "";
+  return `${prefix}command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 "${NOTIFY_URL}?type=${type}&sessionId=$NINE_REMOTE_SESSION_ID${extra}&tool=${tool}" > /dev/null 2>&1 & true`;
+};
 
 // Legacy config-dir fallback for the original four tools (binary-on-PATH is the primary check)
 const TOOL_DIRS = {
@@ -122,12 +127,16 @@ function restoreClaudeEnv(settings) {
 
 // ─── Kind: json-nested (Claude-style hooks object) ──────────────────────────
 // events: { <eventKey>: type }, matchers: { <eventKey>: matcher }, timeoutFn, extra(settings)
-function makeNestedJsonHook(tool, events, timeoutFn, { matchers = {}, extra } = {}) {
+function makeNestedJsonHook(tool, events, timeoutFn, { matchers = {}, extra, claudeSessionId = false } = {}) {
   const buildEntry = (key, type) => ({
-    hooks: [{ type: "command", command: buildCurlCmd(type, tool), timeout: timeoutFn(STOP_MS) }],
+    hooks: [{ type: "command", command: buildCurlCmd(type, tool, { claudeSessionId }), timeout: timeoutFn(STOP_MS) }],
     ...(matchers[key] != null ? { matcher: matchers[key] } : {}),
   });
+  // Any of our entries, old shape included — enable() replaces stale ones instead of duplicating.
   const isOwn = (grp) => grp?.hooks?.some((h) => typeof h.command === "string" && h.command.includes(`&tool=${tool}`));
+  // isEnabled demands the current shape, so a claude hook missing the csid capture reads as off.
+  const isCurrent = (grp) => grp?.hooks?.some((h) =>
+    typeof h.command === "string" && h.command.includes(`&tool=${tool}`) && (!claudeSessionId || h.command.includes("&csid=")));
   return {
     enable(filePath) {
       const settings = readJsonFile(filePath);
@@ -155,7 +164,7 @@ function makeNestedJsonHook(tool, events, timeoutFn, { matchers = {}, extra } = 
     },
     isEnabled(filePath) {
       const s = readJsonFile(filePath);
-      return Object.keys(events).every((k) => (s.hooks?.[k] || []).some(isOwn));
+      return Object.keys(events).every((k) => (s.hooks?.[k] || []).some(isCurrent));
     },
   };
 }
@@ -410,7 +419,7 @@ const TOOL_REGISTRY = {
   claude: makeNestedJsonHook("claude",
     { UserPromptSubmit: "working", PostToolUse: "working", Stop: "done", Notification: "blocked" },
     (ms) => ms,
-    { matchers: { Notification: "permission_prompt" }, extra: applyClaudeEnv }),
+    { matchers: { Notification: "permission_prompt" }, extra: applyClaudeEnv, claudeSessionId: true }),
   codex: codexHook,
   gemini: makeNestedJsonHook("gemini",
     { BeforeAgent: "working", PreToolUse: "working", PostToolUse: "working", AfterAgent: "done", Notification: "blocked" },

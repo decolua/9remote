@@ -28,6 +28,19 @@ export const TYPE_TO_STATE = Object.freeze({
 const sessionStatus = new Map();
 const clearCallbacks = new Set();
 
+// Claude Code conversation id per 9Remote session (captured by the claude hook).
+// Kept apart from the state map so the reaper can't clear it — it powers exact resume.
+const claudeSessionIds = new Map();
+
+export function setClaudeSessionId(sessionId, csid) {
+  if (!sessionId || !csid) return;
+  claudeSessionIds.set(sessionId, csid);
+}
+
+export function getClaudeSessionId(sessionId) {
+  return claudeSessionIds.get(sessionId) || null;
+}
+
 export function applyEvent({ type, sessionId, tool, message } = {}) {
   if (!sessionId) return null;
   const state = TYPE_TO_STATE[type] || STATES.IDLE;
@@ -88,6 +101,10 @@ export function getStatus(sessionId) {
 export function getStatuses() {
   const out = {};
   for (const [id, entry] of sessionStatus) out[id] = entry;
+  // Attach claude ids for sessions that have no live state entry too (idle tab)
+  for (const [id, csid] of claudeSessionIds) {
+    out[id] = out[id] ? { ...out[id], claudeSessionId: csid } : { claudeSessionId: csid };
+  }
   return out;
 }
 

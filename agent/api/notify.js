@@ -6,11 +6,14 @@ import { jsonOk, jsonErr } from "../lib/router.js";
 import { getIO } from "../transport/server.js";
 import { broadcast } from "../transport/broadcast.js";
 import { sendPushNotification } from "../features/terminal/pushManager.js";
-import { applyEvent, STATES } from "../features/terminal/statusManager.js";
+import { applyEvent, STATES, setClaudeSessionId, getClaudeSessionId } from "../features/terminal/statusManager.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
 
 const pushLastTime = {};
 const PUSH_RATE_LIMIT_MS = 10000;
+// Claude session ids are uuid-like; this endpoint is localhost-public, so anything
+// else would later be typed into the user's PTY by the resume flow.
+const CLAUDE_SESSION_ID_RE = /^[0-9a-f-]{1,64}$/i;
 
 function parseNotifyParams(body, query) {
   if (query) {
@@ -18,6 +21,7 @@ function parseNotifyParams(body, query) {
       type: query.type || "stop",
       sessionId: query.sessionId || "",
       tool: query.tool || "claude",
+      csid: query.csid || "",
     };
   }
   const data = JSON.parse(body || "{}");
@@ -25,6 +29,7 @@ function parseNotifyParams(body, query) {
     type: data.type || "stop",
     sessionId: data.sessionId || "",
     tool: data.tool || "claude",
+    csid: data.csid || "",
   };
 }
 
@@ -42,10 +47,13 @@ export function handleNotifyGet(req, res, { query }) {
   jsonOk(res, { success: true });
 }
 
-function dispatchNotify({ type, sessionId, tool }) {
+function dispatchNotify({ type, sessionId, tool, csid }) {
   const now = Date.now();
   const io = getIO();
   if (!io || !sessionId) return;
+
+  // Claude conversation id from the hook — stored before the broadcast below carries it
+  if (csid && CLAUDE_SESSION_ID_RE.test(csid)) setClaudeSessionId(sessionId, csid);
 
   const notification = { type, sessionId, tool, timestamp: now };
 
@@ -54,7 +62,7 @@ function dispatchNotify({ type, sessionId, tool }) {
   const state = entry?.state || STATES.IDLE;
 
   // Type A — in-app badge + 4-state signal. chatNotification kept for legacy web clients.
-  broadcast(io, "statusChange", { sessionId, state, tool, since: now });
+  broadcast(io, "statusChange", { sessionId, state, tool, since: now, ...(getClaudeSessionId(sessionId) ? { claudeSessionId: getClaudeSessionId(sessionId) } : {}) });
   addNotification(sessionId, notification);
   broadcast(io, "chatNotification", notification);
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2 } from "@/shared/components/ui/Icon";
+import { Pencil, Trash2, RotateCw } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { vibrate } from "@/shared/utils/vibration";
@@ -47,7 +47,7 @@ function TailTruncate({ text, title, style, className = "" }) {
 // nest inside one. Long press still opens the full sheet.
 export default function SessionCard({
   session, status, hasNotification, connected,
-  onSelect, onLongPress, onRename, onDelete,
+  onSelect, onLongPress, onRename, onDelete, onResume,
   cwd, fileSocket, homeDir, shellCount = 1
 }) {
   const { t } = useI18n();
@@ -110,6 +110,19 @@ export default function SessionCard({
             {session.name || t("terminal.defaultName")}
           </span>
           <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            {onResume && status?.claudeSessionId && (
+              <button
+                type="button"
+                onClick={() => { vibrate(); onResume(session); }}
+                disabled={!connected}
+                className="p-1.5 rounded-md transition-colors hover:bg-emerald-500/10 disabled:cursor-not-allowed"
+                style={{ color: connected ? "var(--card-accent-amber)" : "var(--card-btn-disabled)" }}
+                aria-label={t("sessions.resumeSession")}
+                title={t("sessions.resumeSession")}
+              >
+                <RotateCw size={16} />
+              </button>
+            )}
             {onRename && (
               <button
                 type="button"

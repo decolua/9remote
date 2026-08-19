@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import PromptDialog from "@/shared/components/ui/PromptDialog";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import SitesList from "@/features/terminal/components/SitesList";
@@ -245,8 +246,6 @@ export default function SessionList({
           onChange={(value) => setRenaming({ ...renaming, value })}
           onSubmit={submitRename}
           onClose={() => setRenaming(null)}
-          confirmLabel={t("common.confirm")}
-          cancelLabel={t("common.cancel")}
         />
       )}
 
@@ -347,6 +346,7 @@ function WorkspaceSection({
               onLongPress={onSessionMenu}
               onRename={onRenameSession}
               onDelete={onDeleteSession}
+              onResume={socketRef ? (session) => socketRef.current?.emit("session-resume", { sessionId: session.id }) : null}
             />
           ))}
           {/* Inline dashed card to add a terminal — desktop only; hidden on mobile when the
@@ -494,36 +494,3 @@ function ActionSheet({ title, actions, onClose }) {
   );
 }
 
-function PromptDialog({ title, value, onChange, onSubmit, onClose, confirmLabel, cancelLabel }) {
-  return (
-    <div
-      className="fixed inset-0 z-[85] flex items-center justify-center px-4"
-      style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
-      onClick={onClose}
-    >
-      <div className="absolute inset-0 bg-black/60" />
-      <div className="relative card-elev w-full max-w-xs p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-[14px] font-semibold text-text mb-3">{title}</h3>
-        <input
-          autoFocus
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); if (e.key === "Escape") onClose(); }}
-          className="w-full bg-surface-2 border border-border-subtle rounded-brand px-3 py-2 text-sm text-text outline-none focus:border-brand-500"
-        />
-        <div className="flex gap-2 mt-4">
-          <button
-            onClick={onSubmit}
-            disabled={!value.trim()}
-            className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 rounded-brand disabled:opacity-40"
-          >
-            {confirmLabel}
-          </button>
-          <button onClick={onClose} className="flex-1 py-2 text-sm text-text-muted bg-surface-2 rounded-brand">
-            {cancelLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
