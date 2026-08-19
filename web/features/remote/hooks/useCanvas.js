@@ -51,6 +51,8 @@ export function useCanvas(socketEmitFunctions) {
   const gestureStartRef = useRef({ time: 0, distance: 0, centerX: 0, centerY: 0 });
   const multiTouchLatchRef = useRef(false);
   const twoFingerMaxMovedRef = useRef(0);
+  // True while the current 1-finger touch started in the letterbox (outside the canvas)
+  const touchOutsideRef = useRef(false);
 
   // Hand-hold and trackpad scroll-lock timers/state
   const handLongPressTimerRef = useRef(null);
@@ -212,13 +214,13 @@ export function useCanvas(socketEmitFunctions) {
     const ctx = {
       canvasRef, canvasContainerRef, containerSize, displaySizeAt,
       getCanvasCoordinates, socketEmitFunctions,
-      canvasZoom, fitScale, virtualCursor,
+      canvasZoom, fitScale, virtualCursor, canvasPan,
       setCanvasZoom, setCanvasPan, setVirtualCursor,
       isZooming, isPanning, isEdgeScrolling, recentZoomGesture,
       lastTouchDistance, lastTouchCenter,
       setIsZooming, setIsPanning, setIsEdgeScrolling, setRecentZoomGesture,
       setLastTouchDistance, setLastTouchCenter,
-      gestureLockRef, gestureStartRef, multiTouchLatchRef, twoFingerMaxMovedRef,
+      gestureLockRef, gestureStartRef, multiTouchLatchRef, twoFingerMaxMovedRef, touchOutsideRef,
       longPressTriggeredRef, touchStartPosRef,
       edgeScrollAccumRef, velocityRef, lastTouchTimeRef,
       touchStartTimeRef, touchTotalMoveRef,
@@ -271,7 +273,7 @@ export function useCanvas(socketEmitFunctions) {
     handleTouchEvent(ctx, event, type, options);
   }, [
     isZooming, isPanning, isEdgeScrolling, canvasZoom, lastTouchDistance, lastTouchCenter,
-    recentZoomGesture, fitScale, virtualCursor, getCanvasCoordinates, showClickIndicator,
+    recentZoomGesture, fitScale, virtualCursor, canvasPan, getCanvasCoordinates, showClickIndicator,
     socketEmitFunctions, cancelLongPress, startLongPress, checkDoubleClick, stopMomentum,
     startMomentumScroll, emitVirtualCursor, emitScrollFromDelta, emitHScrollFromDelta,
     canvasRef, canvasContainerRef, containerSize, displaySizeAt,

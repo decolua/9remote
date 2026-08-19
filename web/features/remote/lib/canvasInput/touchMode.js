@@ -1,8 +1,22 @@
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { vibrate } from "@/shared/utils/vibration";
-import { clamp, maxPanFor, clampPan, zoomAtFocal, classifyGestureIntent, panWithEdgeOverflow, touchDistance, touchCenter } from "@/features/remote/lib/canvasGeometry";
+import { clamp, maxPanFor, clampPan, zoomAtFocal, classifyGestureIntent, panWithEdgeOverflow, touchDistance, touchCenter, toCanvasPoint } from "@/features/remote/lib/canvasGeometry";
 
 const MAX_ZOOM = 4;
+
+// Raw (unclamped) canvas-px hit test — letterbox taps must not become edge clicks
+function isOnCanvas(ctx, clientX, clientY) {
+  const canvas = ctx.canvasRef.current;
+  const container = ctx.canvasContainerRef.current;
+  if (!canvas || !container || canvas.width === 0) return false;
+  const p = toCanvasPoint({
+    clientX, clientY,
+    containerRect: container.getBoundingClientRect(),
+    pan: ctx.canvasPan,
+    totalScale: ctx.fitScale * ctx.canvasZoom
+  });
+  return p.x >= 0 && p.x <= canvas.width && p.y >= 0 && p.y <= canvas.height;
+}
 
 // Direct-mode touch: 2-finger pinch/scroll with gesture intent locking, 1-finger
 // pan + edge-overflow scroll with momentum, touchend click/drag dispatch, and the
@@ -99,9 +113,11 @@ export function handleTouchEvent(ctx, event, type, options) {
       ctx.edgeScrollAccumRef.current = { x: 0, y: 0 };
       ctx.stopMomentum();
 
+      ctx.touchOutsideRef.current = !isOnCanvas(ctx, touch.clientX, touch.clientY);
+
       if (selectionMode) {
         handleSelection(touch.clientX, touch.clientY, "start");
-      } else if (!dragMode) {
+      } else if (!dragMode && !ctx.touchOutsideRef.current) {
         const { percentX, percentY } = ctx.getCanvasCoordinates(touch.clientX, touch.clientY);
         ctx.startLongPress(touch.clientX, touch.clientY, percentX, percentY);
       }
@@ -226,7 +242,7 @@ export function handleTouchEvent(ctx, event, type, options) {
       if (touch) {
         if (selectionMode) {
           handleSelection(touch.clientX, touch.clientY, "end");
-        } else {
+        } else if (!ctx.touchOutsideRef.current) {
           const { percentX, percentY } = ctx.getCanvasCoordinates(touch.clientX, touch.clientY);
           ctx.showClickIndicator(touch.clientX, touch.clientY);
 
