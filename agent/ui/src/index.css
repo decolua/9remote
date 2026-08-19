@@ -44,13 +44,22 @@
   --warn: #D97706;
   --warn-rgb: 217, 119, 6;
   --info: #7C3AED;
+  /* Cinematic light layers — login light-mode parity (dark ink on paper) */
+  --grid-line: rgba(0, 0, 0, 0.6);
+  --light-1: rgba(0, 0, 0, 0.045);
+  --light-2: rgba(0, 0, 0, 0.03);
+  --light-3: rgba(0, 0, 0, 0.02);
+  --row-bg: rgba(255, 255, 255, 0.72);
+  --row-hover: rgba(20, 30, 60, 0.04);
+  --pane-right-bg: rgba(255, 255, 255, 0.5);
+  --qr-plate-shadow: 0 24px 60px -20px rgba(60, 70, 120, 0.35), 0 0 0 1px var(--border-subtle);
   --shadow-soft: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
   --shadow-elev:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
     0 24px 50px -20px rgba(60, 70, 120, 0.35);
 }
 
-/* Dark theme — Claude-like neutral warm dark (web default) */
+/* Dark theme — web-login orca zinc (globals.css parity) */
 :root[data-theme="dark"] {
   --brand-500: #FF6A3D;
   --brand-600: #e5572c;
@@ -58,23 +67,23 @@
   --brand-tint: rgba(255, 106, 61, 0.12);
   --brand-rgb: 255, 106, 61;
   --ring: rgba(255, 106, 61, 0.55);
-  --bg-body: #1a1a1a;
-  --bg-main: #1a1a1a;
-  --bg-alt: #242424;
-  --surface: #16151C;
-  --surface-2: rgba(44, 42, 54, 0.6);
+  --bg-body: #0a0a0a;
+  --bg-main: #0a0a0a;
+  --bg-alt: #171717;
+  --surface: #171717;
+  --surface-2: #262626;
   --sidebar: #0C1120;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-subtle: rgba(255, 255, 255, 0.05);
-  --text-main: #EAF0FF;
-  --text-muted: #8B98B8;
-  --glass-bg: rgba(56, 56, 61, 0.6);
+  --border: rgba(255, 255, 255, 0.10);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --text-main: #fafafa;
+  --text-muted: #a1a1a1;
+  --glass-bg: rgba(38, 38, 38, 0.7);
   --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-hover: rgba(48, 46, 58, 0.72);
+  --glass-hover: #2a2a2a;
   --grid-opacity: 0.04;
   --header-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --surface-3: #2A3556;
-  --text-subtle: #5B6685;
+  --surface-3: #2a2a2a;
+  --text-subtle: #737373;
   --success: #34E5A4;
   --success-rgb: 52, 229, 164;
   --danger: #FF5252;
@@ -86,6 +95,15 @@
   --shadow-elev:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
     0 24px 60px -18px rgba(3, 6, 16, 0.9);
+  /* Cinematic light layers (login landing-light / hero-glow parity) */
+  --grid-line: rgba(255, 255, 255, 1);
+  --light-1: rgba(255, 255, 255, 0.10);
+  --light-2: rgba(255, 255, 255, 0.07);
+  --light-3: rgba(255, 255, 255, 0.035);
+  --row-bg: rgba(255, 255, 255, 0.04);
+  --row-hover: rgba(255, 255, 255, 0.03);
+  --pane-right-bg: rgba(23, 23, 23, 0.28);
+  --qr-plate-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-subtle);
 }
 
 @layer base {
@@ -412,4 +430,92 @@
 
 .card-act { color: var(--text-muted); transition: all 0.15s ease; }
 .card-act:hover { background: var(--surface-2); color: var(--text-main); }
+
+/* ═══ Login-parity cinematic background (main-screen redesign) ═══ */
+
+/* Square grid, fading out toward the bottom (landing-grid parity) */
+.bg-sq-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: var(--grid-opacity);
+  -webkit-mask-image: radial-gradient(ellipse 120% 90% at 50% 0%, #000 30%, transparent 80%);
+  mask-image: radial-gradient(ellipse 120% 90% at 50% 0%, #000 30%, transparent 80%);
+}
+
+/* Drifting white light — landing-light parity */
+.bg-light-drift {
+  background:
+    radial-gradient(820px 620px at 18% 10%, var(--light-1), transparent 60%),
+    radial-gradient(720px 540px at 84% 80%, var(--light-2), transparent 65%),
+    radial-gradient(620px 420px at 55% 45%, var(--light-3), transparent 60%);
+  animation: light-drift 18s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes light-drift {
+  0%   { transform: translate3d(-2%, -1%, 0) scale(1.05); opacity: 0.82; }
+  100% { transform: translate3d(2%, 2%, 0) scale(1.16); opacity: 1; }
+}
+
+/* Hero glow over the pairing pane — login-hero-glow parity (absolute in pane) */
+.pane-hero-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 700px at 58% 30%, var(--light-1), transparent 62%),
+    radial-gradient(1100px 800px at 12% 95%, var(--light-2), transparent 68%);
+  animation: hero-glow-drift 16s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes hero-glow-drift {
+  0%   { transform: translate3d(-1.5%, -1%, 0) scale(1.04); opacity: 0.8; }
+  100% { transform: translate3d(2%, 1.5%, 0) scale(1.12); opacity: 1; }
+}
+
+/* Gradient text — login-hero-grad parity */
+.brand-grad-text {
+  background: linear-gradient(to bottom, var(--text-main), var(--text-muted));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Logo tile — dark glass with a faint brand halo */
+.logo-glass {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 0 22px -6px rgba(var(--brand-rgb), 0.45);
+}
+[data-theme="light"] .logo-glass {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.6));
+  border: 1px solid rgba(20, 30, 60, 0.10);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 22px -8px rgba(var(--brand-rgb), 0.35);
+}
+
+/* Flat list row — hover does the grouping, no divider lines */
+.row-hover { transition: background-color 0.15s ease; }
+.row-hover:hover { background: var(--row-hover); }
+
+/* Header icon button (brand row) */
+.hdr-icon {
+  background: var(--row-bg);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+}
+.hdr-icon:hover {
+  color: var(--text-main);
+  border-color: var(--border);
+}
+
+/* Tunnel chip dot blink while connecting */
+@keyframes chip-blink { 50% { opacity: 0.35; } }
+.chip-blink { animation: chip-blink 1.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-light-drift, .pane-hero-glow, .chip-blink { animation: none; }
+}
 

@@ -22,10 +22,12 @@ export default function SettingsMenu({ isStopped, onStop, onShutdown, logs = [],
 
   const run = (fn) => { setOpen(false); fn?.(); };
 
-  // Trigger button: glass-btn (header) vs compact term-btn (terminal header)
+  // Trigger button: glass-btn (default) vs hdr-icon (brand row) vs compact term-btn (terminal header)
   const triggerClass = variant === "glass"
     ? "glass-btn w-10 h-10 rounded-xl flex items-center justify-center"
-    : "p-1.5 rounded-lg transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0 term-btn";
+    : variant === "hdr"
+      ? "hdr-icon w-10 h-10 rounded-[9px] flex items-center justify-center"
+      : "p-1.5 rounded-lg transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0 term-btn";
   const triggerStyle = variant === "glass" ? undefined : { background: "var(--surface-2)", color: "var(--text-main)" };
 
   return (

@@ -1,5 +1,4 @@
-import { useState, useRef, useEffect } from "preact/hooks";
-import StepProgress from "../components/StepProgress";
+import { useState, useEffect } from "preact/hooks";
 import QRCard from "../components/QRCard";
 import ConfirmPopup from "../components/ConfirmPopup";
 import SettingsMenu from "../components/SettingsMenu";
@@ -27,23 +26,13 @@ function Toggle({ on, onClick, activeColor = "linear-gradient(135deg, var(--bran
   );
 }
 
-/** Square feature icon — mockup .sic */
-function Sic({ icon, active }) {
-  return (
-    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-      style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-      <span className="material-symbols-outlined" style={{ fontSize: 20, color: active ? "var(--brand-400)" : "var(--text-muted)" }}>{icon}</span>
-    </div>
-  );
-}
-
-/** Permission chip — mockup .perm (click to request when missing) */
+/** Permission chip — click to request when missing */
 function PermChip({ granted, label, onRequest }) {
   return (
     <button
       onClick={granted ? undefined : onRequest}
       className="flex items-center gap-1.5 text-[11.5px] px-2.5 py-1 rounded-lg"
-      style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: granted ? "var(--success)" : "var(--text-muted)", cursor: granted ? "default" : "pointer" }}
+      style={{ background: "var(--row-bg)", border: "1px solid var(--border-subtle)", color: granted ? "var(--success)" : "var(--text-muted)", cursor: granted ? "default" : "pointer" }}
       title={granted ? "" : "Click to grant permission"}
     >
       {granted && <span className="material-symbols-outlined" style={{ fontSize: 15 }}>check_circle</span>}
@@ -62,13 +51,21 @@ const getSleepModeLabels = (t) => ({
   "never": t("remote.sleepModes.never"),
 });
 
-/** Single service row — mockup .srv (square icon + body + right control) */
+/** Flat list row — icon + body + right control, hover groups it (no divider lines) */
 function SrvRow({ icon, active, name, desc, children, extra }) {
   return (
-    <div className="flex items-center gap-3.5 py-3.5 border-t first:border-t-0 first:pt-0" style={{ borderColor: "var(--border)" }}>
-      <Sic icon={icon} active={active} />
+    <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
+      <div
+        className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0"
+        style={{
+          background: active ? "rgba(var(--brand-rgb),0.08)" : "var(--row-bg)",
+          border: `1px solid ${active ? "rgba(var(--brand-rgb),0.3)" : "var(--border-subtle)"}`,
+        }}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 18, color: active ? "var(--brand-400)" : "var(--text-muted)" }}>{icon}</span>
+      </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>{name}</p>
+        <p className="text-[13.5px] font-semibold" style={{ color: "var(--text-main)" }}>{name}</p>
         {desc && <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>{desc}</p>}
         {extra}
       </div>
@@ -77,22 +74,33 @@ function SrvRow({ icon, active, name, desc, children, extra }) {
   );
 }
 
-/** Remote Services card — Terminal (always on) + Desktop + startup rows (pro5 .srv pattern) */
-function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle, sleepInhibitMode, sleepInhibitPresets, onSleepInhibitChange, unlockStatus, onRequestUnlockInstall, onRequestUnlockUninstall, t }) {
+/** Section — mono uppercase label + hairline, content rows below (login parity) */
+function Section({ title, count, first, children }) {
+  return (
+    <div className={first ? "" : "mt-10"}>
+      <div
+        className="flex items-center gap-2.5 font-mono text-[11px] uppercase tracking-[0.12em] pb-2.5 mb-1"
+        style={{ color: "var(--text-subtle)", borderBottom: "1px solid var(--border-subtle)" }}
+      >
+        {title}
+        {count != null && (
+          <span className="ml-auto tracking-normal" style={{ color: "var(--text-muted)" }}>{count}</span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Services rows — Desktop (always on) + startup + sleep + unlock */
+function Services({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle, sleepInhibitMode, sleepInhibitPresets, onSleepInhibitChange, unlockStatus, onRequestUnlockInstall, onRequestUnlockUninstall, t }) {
   const permEntries = Object.entries(getPermissionMeta(t));
   // Desktop toggle requires all permissions granted
   const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
   const toggleDisabled = !canEnableDesktop && !desktopEnabled;
   const sleepLabels = getSleepModeLabels(t);
   return (
-    <div className="card-elev p-5">
-      {/* Card header */}
-      <div className="flex items-center gap-2.5 mb-1">
-        <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--brand-400)" }}>tune</span>
-        <h3 className="text-[15px] font-semibold" style={{ color: "var(--text-main)" }}>Remote services</h3>
-      </div>
-
-      {/* Desktop — toggle + permission chips */}
+    <>
       <SrvRow
         icon="desktop_windows"
         active={desktopEnabled}
@@ -108,26 +116,16 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
         <Toggle on={desktopEnabled} onClick={onDesktopToggle} disabled={toggleDisabled} title={toggleDisabled ? t("dialogs.grantPermissions") : ""} />
       </SrvRow>
 
-      {/* Auto-start on boot */}
-      <SrvRow
-        icon="rocket_launch"
-        active={!!autoStart}
-        name={t("remote.launchOnStartup")}
-      >
+      <SrvRow icon="rocket_launch" active={!!autoStart} name={t("remote.launchOnStartup")}>
         <Toggle on={!!autoStart} onClick={onAutoStartToggle} />
       </SrvRow>
 
-      {/* Keep awake */}
-      <SrvRow
-        icon="coffee"
-        active={(sleepInhibitMode || "never") !== "never"}
-        name={t("remote.preventSleep")}
-      >
+      <SrvRow icon="coffee" active={(sleepInhibitMode || "never") !== "never"} name={t("remote.preventSleep")}>
         <select
           value={sleepInhibitMode || "never"}
           onChange={(e) => onSleepInhibitChange?.(e.target.value)}
           className="flex-shrink-0 text-[12.5px] px-3 py-2 rounded-lg"
-          style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border)", cursor: "pointer" }}
+          style={{ background: "var(--row-bg)", color: "var(--text-main)", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
         >
           {(sleepInhibitPresets || []).map((m) => (
             <option key={m} value={m}>{sleepLabels[m] || m}</option>
@@ -159,7 +157,7 @@ function ServicesCard({ desktopEnabled, onDesktopToggle, permissions, onRequestP
           />
         </SrvRow>
       )}
-    </div>
+    </>
   );
 }
 
@@ -275,14 +273,14 @@ function mergeClients(approvedDevices, connections, rejectedDevices = []) {
   return [...approved, ...pending].sort((a, b) => rank[a.status] - rank[b.status]);
 }
 
-// Status pill styling — mockup .st (inline chip next to device name)
+// Status pill styling — inline chip next to device name
 const STATUS_META = {
   online:  { color: "var(--success)",     bg: "rgba(var(--success-rgb),0.14)", label: "Online" },
-  offline: { color: "var(--text-subtle)", bg: "var(--surface-2)",              label: "Offline" },
+  offline: { color: "var(--text-subtle)", bg: "var(--row-bg)",                 label: "Offline" },
   pending: { color: "var(--warn)",        bg: "rgba(var(--warn-rgb),0.14)",    label: "Pending" },
 };
 
-// Rough device icon from label — laptop vs phone (mockup .di)
+// Rough device icon from label — laptop vs phone
 const deviceIcon = (name) => (/mac|book|laptop|pc|windows|desktop|linux/i.test(name || "") ? "laptop_mac" : "smartphone");
 
 function ClientItem({ client, onRemove, onApprove, onLabel }) {
@@ -301,11 +299,14 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
 
   return (
     <div
-      className={`flex items-center gap-3.5 py-3 ${isPending ? "rounded-lg px-3 -mx-3" : "border-t first:border-t-0"}`}
-      style={isPending ? { background: "linear-gradient(100deg, rgba(var(--warn-rgb),0.08), transparent)" } : { borderColor: "var(--border)" }}
+      className={`row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl ${isPending ? "border border-dashed" : ""}`}
+      style={isPending ? { borderColor: "rgba(var(--warn-rgb),0.35)" } : {}}
     >
-      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--text-muted)" }}>{deviceIcon(name)}</span>
+      <div
+        className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0"
+        style={{ background: "var(--row-bg)", border: "1px solid var(--border-subtle)" }}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--text-muted)" }}>{deviceIcon(name)}</span>
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-[13.5px] font-semibold flex items-center gap-2 min-w-0" style={{ color: "var(--text-main)" }}>
@@ -329,8 +330,7 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
       {isPending ? (
         <button
           onClick={() => onApprove?.(client)}
-          className="flex-shrink-0 text-[12.5px] font-semibold px-3.5 py-2 rounded-lg"
-          style={{ background: "linear-gradient(135deg, var(--brand-500), var(--brand-400))", color: "#fff" }}
+          className="flex-shrink-0 text-[12.5px] font-semibold px-3.5 py-2 rounded-lg btn-primary"
           title="Approve this device"
         >
           Approve
@@ -338,8 +338,8 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
       ) : (
         <button
           onClick={() => onRemove(client)}
-          className="flex-shrink-0 text-[12.5px] font-semibold px-3.5 py-2 rounded-lg card-act"
-          style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+          className="glass-btn flex-shrink-0 text-[12px] font-semibold px-3.5 py-2 rounded-lg"
+          style={{ color: "var(--text-muted)" }}
           title="Disconnect and remove this device"
         >
           {client.status === "online" ? "Disconnect" : "Remove"}
@@ -349,107 +349,48 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
   );
 }
 
-
-/** Header icon-only button — uses native tooltip for clarity */
-function HeaderIconBtn({ icon, title, danger, onClick }) {
-  const btnClass = danger ? "btn-danger w-10 h-10 rounded-lg flex items-center justify-center" : "glass-btn w-10 h-10 rounded-lg flex items-center justify-center";
+/** Brand-row icon button */
+function HeaderIconBtn({ icon, title, onClick }) {
   return (
-    <button onClick={onClick} title={title} className={btnClass} style={danger ? undefined : { color: "var(--text-muted)" }}>
-      <span className="material-symbols-outlined text-xl">{icon}</span>
+    <button
+      onClick={onClick}
+      title={title}
+      className="hdr-icon w-10 h-10 rounded-[9px] grid place-items-center flex-shrink-0"
+    >
+      <span className="material-symbols-outlined" style={{ fontSize: 19 }}>{icon}</span>
     </button>
   );
 }
 
-/** Connection empty-state shown in panel when tunnel offline — single Connect CTA */
-function ConnectionEmpty({ onStart, t }) {
-  const [connecting, setConnecting] = useState(false);
-  const handleConnect = () => { setConnecting(true); onStart?.(); };
+/** Tunnel status chip — the single spot where tunnel state is visible.
+ *  offline → Connect CTA · connecting → live stepDesc · online → green. */
+function TunnelChip({ step, stepDesc, onStart, t }) {
+  // STEP enum: STOPPED=0, PREPARING=1 … READY=5
+  const isStopped = step === 0;
+  const isReady = step === 5;
+  const dotColor = isReady ? "var(--success)" : isStopped ? "var(--danger)" : "var(--warn)";
+  const label = isReady
+    ? "tunnel · online"
+    : isStopped
+      ? "tunnel · offline"
+      : `tunnel · connecting — ${stepDesc || "…"}`;
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-8 text-center max-w-sm w-full mx-auto">
-      <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: "var(--glass-bg)" }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--text-muted)" }}>cloud_off</span>
-      </div>
-      <div className="flex flex-col gap-1">
-        <p className="text-base font-semibold" style={{ color: "var(--text-main)" }}>{t("connection.tunnelOffline")}</p>
-        <p className="text-xs leading-5" style={{ color: "var(--text-muted)" }}>{t("connection.startTunnel")}</p>
-      </div>
-      <button
-        onClick={!connecting ? handleConnect : undefined}
-        disabled={connecting}
-        className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-sm font-semibold"
-        style={{ borderRadius: "var(--radius-brand)", opacity: connecting ? 0.7 : 1 }}
-      >
-        <span className="material-symbols-outlined text-base">play_arrow</span>
-        {connecting ? t("connection.connecting") : t("connection.connect")}
-      </button>
-    </div>
-  );
-}
-
-/** Top bar — brand + connection status + global actions (login-style, no sidebar) */
-function Header({ version, isReady, isStopped, transport, onTransportChange, theme, onToggleTheme, onOpenTerminal, onStop, onShutdown, logs, onClearLogs }) {
-  const { t } = useI18n();
-  return (
-    <header className="shrink-0 flex items-center justify-between gap-3 px-6 lg:px-10 pt-5 pb-1">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-10 h-10 rounded-[11px] grid place-items-center flex-shrink-0" style={{ background: "var(--brand-500)", boxShadow: "0 8px 20px -6px rgba(var(--brand-rgb),0.45)" }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 22, color: "#fff" }}>terminal</span>
-        </div>
-        <div className="flex flex-col leading-none min-w-0">
-          <span className="text-[22px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>9Remote</span>
-          {version && <span className="font-mono text-[11px] mt-1" style={{ color: "var(--text-subtle)" }}>v{version}</span>}
-        </div>
-        {isReady && (
-          <div className="ml-2 hidden sm:block">
-            <ConnectionStatus transport={transport} onTransportChange={onTransportChange} />
-          </div>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <HeaderIconBtn icon="open_in_new" title={t("menu.terminals")} onClick={onOpenTerminal} />
-        <HeaderIconBtn
-          icon={theme === "dark" ? "light_mode" : "dark_mode"}
-          title={theme === "dark" ? t("header.lightMode") : t("header.darkMode")}
-          onClick={onToggleTheme}
-        />
-        <SettingsMenu isStopped={isStopped} onStop={onStop} onShutdown={onShutdown} logs={logs} onClearLogs={onClearLogs} />
-      </div>
-    </header>
-  );
-}
-
-// One status line: green if RTC or Tunnel has peers, yellow if DO up but no peers, red if DO down.
-function ConnectionStatus({ transport, onTransportChange }) {
-  const sig = transport?.signaling || "off";
-  const rtc = transport?.rtcPeers || 0;
-  const ws = transport?.wsPeers || 0;
-  const rtcDisabled = transport?.rtcDisabled;
-  const alive = rtc > 0 || ws > 0;
-  const dot = alive ? "var(--success)" : sig === "connected" ? "var(--warn)" : "var(--danger)";
-  const label = alive ? "Connected" : sig === "connected" ? "Ready" : "Offline";
-
-  const toggleRtc = async () => {
-    const next = !rtcDisabled;
-    onTransportChange?.({ ...transport, rtcDisabled: next });
-    await fetch("/api/ui/rtc-toggle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ disabled: next })
-    }).catch(() => onTransportChange?.({ ...transport, rtcDisabled: !next }));
-  };
-
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${alive ? "health-dot" : ""}`} style={{ background: dot }} />
-      <span className="text-[12.5px] font-medium" style={{ color: "var(--text-main)" }}>{label}</span>
-      {/* Debug toggle — dev builds only (Vite drops this in production) */}
-      {import.meta.env.DEV && (
+    <div
+      className="relative z-[1] inline-flex items-center gap-2 font-mono text-xs px-3.5 py-[7px] rounded-full mb-5 max-w-full"
+      style={{ border: "1px solid var(--border-subtle)", background: "var(--row-bg)", color: isReady ? "var(--text-main)" : "var(--text-muted)" }}
+    >
+      <span
+        className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${!isStopped && !isReady ? "chip-blink" : ""}`}
+        style={{ background: dotColor, boxShadow: isReady ? "0 0 10px rgba(var(--success-rgb),0.9)" : undefined }}
+      />
+      <span className="truncate">{label}</span>
+      {isStopped && (
         <button
-          onClick={toggleRtc}
-          title={rtcDisabled ? "RTC OFF (debug) — click to enable" : "Disable RTC (debug)"}
-          className="ml-auto flex-shrink-0 w-2.5 h-2.5 rounded-full transition-all"
-          style={{ background: rtcDisabled ? "var(--danger)" : "transparent", border: rtcDisabled ? "none" : "1px solid var(--text-muted)", opacity: 0.4 }}
-        />
+          onClick={onStart}
+          className="btn-primary ml-1.5 px-3 py-[3px] rounded-[7px] text-xs"
+        >
+          {t("connection.connect")}
+        </button>
       )}
     </div>
   );
@@ -458,7 +399,7 @@ function ConnectionStatus({ transport, onTransportChange }) {
 export default function MainScreen({
   step, stepDesc = "", healthCheck, transport, onTransportChange, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
-  onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey,   onRegenerateKey, logs = [], onClearLogs,
+  onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [], onClearLogs,
   theme, onToggleTheme,
   pendingDevice, onDeviceApprove, onDeviceReject,
   approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected, onDeviceLabel,
@@ -474,7 +415,6 @@ export default function MainScreen({
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [deviceToLabel, setDeviceToLabel] = useState(null);
   const [labelInput, setLabelInput] = useState("");
-  const scrollRef = useRef(null);
 
   // Open the web app at its login page. No auto-login: the user signs in manually.
   const openWebTerminal = async () => {
@@ -490,10 +430,17 @@ export default function MainScreen({
     }
   };
 
-  // STEP enum: STOPPED=0, PREPARING=1, CONNECTING=2, TUNNELING=3, VERIFYING=4, READY=5
-  const isReady = step === 5;
-  const isStopped = step === 0;
-  const isConnecting = step > 0 && step < 5;
+  // Dev-only RTC debug toggle (kept from the old header pill)
+  const rtcDisabled = transport?.rtcDisabled;
+  const toggleRtc = async () => {
+    const next = !rtcDisabled;
+    onTransportChange?.({ ...transport, rtcDisabled: next });
+    await fetch("/api/ui/rtc-toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ disabled: next })
+    }).catch(() => onTransportChange?.({ ...transport, rtcDisabled: !next }));
+  };
 
   // Refresh devices list whenever connections update (so offline/online stays in sync)
   useEffect(() => { onFetchDevices?.(); }, [connections.length]);
@@ -502,119 +449,119 @@ export default function MainScreen({
   const onlineCount = clients.filter((c) => c.status === "online").length;
 
   return (
-    <div className="h-full w-full flex flex-col overflow-hidden isolate" style={{ background: "var(--bg-body)" }}>
-      {/* Background — login AnimatedBackground parity: base + accent grid + 2 brand glow blobs */}
-      <div className="dot-grid-bg fixed inset-0 pointer-events-none" style={{ zIndex: -4 }} aria-hidden="true" />
-      <div className="agent-grid fixed inset-0 pointer-events-none" style={{ zIndex: -3 }} aria-hidden="true" />
-      <div className="agent-glow-tl fixed pointer-events-none" style={{ top: "-10%", left: "-5%", width: "min(700px, 90vw)", height: "min(700px, 90vw)", borderRadius: "50%", zIndex: -2 }} aria-hidden="true" />
-      <div className="agent-glow-br fixed pointer-events-none" style={{ bottom: "-15%", right: "-10%", width: "min(800px, 95vw)", height: "min(800px, 95vw)", borderRadius: "50%", zIndex: -2 }} aria-hidden="true" />
+    <div className="h-full w-full flex overflow-hidden isolate" style={{ background: "var(--bg-body)" }}>
+      {/* Background — square grid + drifting white light (login parity) */}
+      <div className="bg-sq-grid fixed inset-0 pointer-events-none" style={{ zIndex: -3 }} aria-hidden="true" />
+      <div className="bg-light-drift fixed inset-0 pointer-events-none" style={{ zIndex: -2 }} aria-hidden="true" />
 
-      <Header
-        version={version}
-        isReady={isReady}
-        isStopped={isStopped}
-        transport={transport}
-        onTransportChange={onTransportChange}
-        theme={theme}
-        onToggleTheme={onToggleTheme}
-        onOpenTerminal={openWebTerminal}
-        onStop={() => setShowDisconnectConfirm(true)}
-        onShutdown={() => setShowShutdownConfirm(true)}
-        logs={logs}
-        onClearLogs={onClearLogs}
-      />
+      {/* Full-bleed 50/50 split — pairing left, manage right.
+          Mobile: single column, whole page scrolls; panes get own scroll from lg. */}
+      <main className="flex-1 min-w-0 grid grid-cols-1 lg:grid-cols-2 overflow-y-auto lg:overflow-hidden">
 
-      {!isConnecting && <UpdateBanner version={updateVersion} />}
+        {/* ═══ LEFT — pairing ═══ */}
+        <section className="relative flex flex-col p-6 lg:p-10 min-w-0 lg:overflow-y-auto">
+          <div className="pane-hero-glow" aria-hidden="true" />
 
-      {/* Main — whole pane scrolls (login-style single column) */}
-      <main ref={scrollRef} className="flex-1 min-w-0 h-full relative overflow-y-auto">
-        <div className="px-6 lg:px-10 pb-6 lg:pb-10 pt-5">
-          <div className="max-w-7xl mx-auto flex flex-col gap-4">
-              {isStopped && (
-                <ConnectionEmpty onStart={onStart} t={t} />
-              )}
+          {/* my-auto centers when room, collapses when overflowing (justify-center would clip the top) */}
+          <div className="relative z-[1] flex flex-col items-center my-auto">
+            <TunnelChip step={step} stepDesc={stepDesc} onStart={onStart} t={t} />
 
-              {isConnecting && (
-                <div className="flex-1 flex flex-col gap-4 max-w-2xl w-full mx-auto">
-                  <StepProgress currentStep={step} activeDesc={stepDesc} healthCheck={healthCheck} t={t} />
-                </div>
-              )}
+            <h1 className="brand-grad-text text-[30px] lg:text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-center mb-5">
+              {t("connection.pairDevice")}
+            </h1>
 
-              {isReady && (
-                <>
-                  {/* QR (1fr) left + Config & Clients (1.7fr) right — pro5 ratio */}
-                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,1fr)_1.7fr] gap-4 items-stretch">
-                    <div>
-                      <QRCard
-                        qrUrl={qrUrl}
-                        oneTimeKey={oneTimeKey}
-                        oneTimeKeyExpiresAt={oneTimeKeyExpiresAt}
-                        permanentKey={permanentKey}
-                        onGenerateOneTimeKey={onGenerateOneTimeKey}
-                        onRegenerateKey={onRegenerateKey}
-                        onStopTunnel={onStopTunnel}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-4">
-                      <ServicesCard
-                        desktopEnabled={desktopEnabled}
-                        onDesktopToggle={onDesktopToggle}
-                        permissions={permissions}
-                        onRequestPermission={onRequestPermission}
-                        autoStart={autoStart}
-                        onAutoStartToggle={onAutoStartToggle}
-                        sleepInhibitMode={sleepInhibitMode}
-                        sleepInhibitPresets={sleepInhibitPresets}
-                        onSleepInhibitChange={onSleepInhibitChange}
-                        unlockStatus={unlockStatus}
-                        onRequestUnlockInstall={onRequestUnlockInstall}
-                        onRequestUnlockUninstall={onRequestUnlockUninstall}
-                        t={t}
-                      />
-
-                      {/* Clients (merged devices + live connections) */}
-                      <div className="card-elev p-5 flex flex-col gap-1">
-                      <div className="flex items-center gap-2.5 mb-2">
-                        <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 20, color: "var(--brand-400)" }}>devices</span>
-                        <h3 className="text-[15px] font-semibold flex-1" style={{ color: "var(--text-main)" }}>Clients</h3>
-                        {clients.length > 0 && (
-                          <span className="text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>
-                            {onlineCount}/{clients.length} online
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Auto-approve toggle */}
-                      <div className="flex items-center gap-3 py-2.5">
-                        <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 18, color: autoApprove ? "var(--brand-400)" : "var(--text-muted)" }}>
-                          {autoApprove ? "lock_open" : "lock"}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium" style={{ color: "var(--text-main)" }}>{t("clients.autoApprove")}</p>
-                        </div>
-                        <Toggle on={autoApprove} onClick={onAutoApproveToggle} title={autoApprove ? "Disable auto-approve" : "Enable auto-approve"} />
-                      </div>
-
-                      {clients.length === 0 ? (
-                        <p className="text-xs text-center py-3" style={{ color: "var(--text-muted)" }}>No clients yet</p>
-                      ) : (
-                        clients.map((c) => (
-                          <ClientItem
-                            key={c.deviceId}
-                            client={c}
-                            onRemove={setDeviceToRemove}
-                            onApprove={(cl) => onDeviceApproveRejected?.(cl.deviceId)}
-                            onLabel={(cl) => { setDeviceToLabel(cl); setLabelInput(cl.label || ""); }}
-                          />
-                        ))
-                      )}
-                      </div>
-                    </div>
-                  </div>
-                  </>
-                )}
+            <QRCard
+              qrUrl={qrUrl}
+              oneTimeKey={oneTimeKey}
+              oneTimeKeyExpiresAt={oneTimeKeyExpiresAt}
+              permanentKey={permanentKey}
+              onGenerateOneTimeKey={onGenerateOneTimeKey}
+              onRegenerateKey={onRegenerateKey}
+              onStopTunnel={onStopTunnel}
+            />
           </div>
-        </div>
+        </section>
+
+        {/* ═══ RIGHT — manage (translucent pane, light passes through) ═══ */}
+        <section
+          className="relative min-w-0 pt-10 pb-11 pr-8 pl-6 lg:pl-14 lg:pr-12 lg:overflow-y-auto"
+          style={{ background: "var(--pane-right-bg)" }}
+        >
+          {/* Brand row — logo + actions (login header parity) */}
+          <div className="flex items-center gap-3 mb-10">
+            <div className="logo-glass w-10 h-10 rounded-[11px] grid place-items-center flex-shrink-0">
+              <span className="material-symbols-outlined" style={{ fontSize: 21, color: "var(--text-main)" }}>terminal</span>
+            </div>
+            <div className="flex flex-col leading-none min-w-0">
+              <span className="brand-grad-text text-[20px] font-bold tracking-[-0.02em]">9Remote</span>
+              {version && <span className="font-mono text-[11px] mt-[5px]" style={{ color: "var(--text-subtle)" }}>v{version}</span>}
+            </div>
+            <div className="flex-1" />
+            <HeaderIconBtn icon="open_in_new" title={t("menu.terminals")} onClick={openWebTerminal} />
+            <HeaderIconBtn
+              icon={theme === "dark" ? "light_mode" : "dark_mode"}
+              title={theme === "dark" ? t("header.lightMode") : t("header.darkMode")}
+              onClick={onToggleTheme}
+            />
+            {import.meta.env.DEV && (
+              <button
+                onClick={toggleRtc}
+                title={rtcDisabled ? "RTC OFF (debug) — click to enable" : "Disable RTC (debug)"}
+                className="w-[14px] h-[14px] rounded-full flex-shrink-0 self-center transition-all"
+                style={{ background: rtcDisabled ? "var(--danger)" : "transparent", border: rtcDisabled ? "none" : "1px solid var(--text-muted)", opacity: 0.4 }}
+              />
+            )}
+            <SettingsMenu variant="hdr" isStopped={step === 0} onStop={() => setShowDisconnectConfirm(true)} onShutdown={() => setShowShutdownConfirm(true)} logs={logs} onClearLogs={onClearLogs} />
+          </div>
+
+          <UpdateBanner version={updateVersion} />
+
+          {/* Services */}
+          <Section title="Services" first>
+            <Services
+              desktopEnabled={desktopEnabled}
+              onDesktopToggle={onDesktopToggle}
+              permissions={permissions}
+              onRequestPermission={onRequestPermission}
+              autoStart={autoStart}
+              onAutoStartToggle={onAutoStartToggle}
+              sleepInhibitMode={sleepInhibitMode}
+              sleepInhibitPresets={sleepInhibitPresets}
+              onSleepInhibitChange={onSleepInhibitChange}
+              unlockStatus={unlockStatus}
+              onRequestUnlockInstall={onRequestUnlockInstall}
+              onRequestUnlockUninstall={onRequestUnlockUninstall}
+              t={t}
+            />
+          </Section>
+
+          {/* Clients */}
+          <Section title="Clients" count={clients.length > 0 ? `${onlineCount}/${clients.length}` : null}>
+            <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
+              <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 19, color: autoApprove ? "var(--brand-400)" : "var(--text-muted)" }}>
+                {autoApprove ? "lock_open" : "lock"}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13.5px] font-semibold" style={{ color: "var(--text-main)" }}>{t("clients.autoApprove")}</p>
+              </div>
+              <Toggle on={autoApprove} onClick={onAutoApproveToggle} title={autoApprove ? "Disable auto-approve" : "Enable auto-approve"} />
+            </div>
+
+            {clients.length === 0 ? (
+              <p className="text-xs text-center py-4" style={{ color: "var(--text-muted)" }}>No clients yet</p>
+            ) : (
+              clients.map((c) => (
+                <ClientItem
+                  key={c.deviceId}
+                  client={c}
+                  onRemove={setDeviceToRemove}
+                  onApprove={(cl) => onDeviceApproveRejected?.(cl.deviceId)}
+                  onLabel={(cl) => { setDeviceToLabel(cl); setLabelInput(cl.label || ""); }}
+                />
+              ))
+            )}
+          </Section>
+        </section>
       </main>
 
       {showDisconnectConfirm && (

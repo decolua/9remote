@@ -191,6 +191,16 @@ export default function App() {
   const pendingDeviceRef = useRef(null);
   useEffect(() => { pendingDeviceRef.current = pendingDevice; }, [pendingDevice]);
 
+  // Auto-issue a one-time key on open so the QR renders immediately while the
+  // tunnel connects in the background (key is minted via the worker, not the tunnel).
+  const autoKeyRef = useRef(false);
+  useEffect(() => {
+    if (autoKeyRef.current) return;
+    if (!mainState.permanentKey || mainState.oneTimeKey || mainState.qrUrl) return;
+    autoKeyRef.current = true;
+    fetch("/api/key/one-time", { method: "POST" }).catch(() => {});
+  }, [mainState.permanentKey, mainState.oneTimeKey, mainState.qrUrl]);
+
   const handleRequestPermission = async (type) => {
     await fetch("/api/permissions/request", {
       method: "POST",
