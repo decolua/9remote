@@ -75,7 +75,7 @@ export default function LocationPicker({ workspacePath, workspaceName, fileSocke
       {open && (
         <div
           role="listbox"
-          className="absolute z-10 left-0 right-0 top-full mt-1 max-h-72 overflow-y-auto scrollbar-thin bg-surface rounded-brand border border-border shadow-elev py-1"
+          className="absolute z-10 left-0 right-0 top-full mt-1 max-h-72 overflow-y-auto scrollbar-thin bg-surface-2 rounded-brand border border-border-subtle shadow-lg py-1"
         >
           {loading && (
             <div className="flex items-center justify-center py-4 text-text-muted">
@@ -97,7 +97,7 @@ export default function LocationPicker({ workspacePath, workspaceName, fileSocke
                     key={e.path}
                     onClick={() => pick(e.path)}
                     className={`w-full flex items-start gap-2 px-3 py-1.5 text-left transition-colors ${
-                      selected ? "bg-brand-500/15" : "hover:bg-surface-2"
+                      selected ? "bg-brand-500/15" : "hover:bg-surface-3"
                     }`}
                   >
                     {e.branch || e.detached
@@ -111,7 +111,7 @@ export default function LocationPicker({ workspacePath, workspaceName, fileSocke
                         {selected && <Check size={12} className="text-brand-400 shrink-0" />}
                       </span>
                       <span className="truncate text-[10px] text-text-subtle leading-tight" title={e.path}>
-                        {shortenHomePath(e.path, homeDir)}
+                        {e.path.split("/").filter(Boolean).pop() || e.path}
                       </span>
                     </span>
                   </button>
@@ -121,11 +121,11 @@ export default function LocationPicker({ workspacePath, workspaceName, fileSocke
           ))}
           {onBrowse && (
             <>
-              <div className="my-1 border-t border-border/60" />
+              <div className="my-1 h-px bg-border-subtle" />
               <button
                 type="button"
                 onClick={() => { vibrate(); setOpen(false); onBrowse(); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-text-muted hover:bg-surface-2 hover:text-text transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-text-muted hover:bg-surface-3 hover:text-text transition-colors"
               >
                 <FolderOpen size={12} className="shrink-0 opacity-70" />
                 {t("terminal.browseFolders")}

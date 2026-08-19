@@ -192,6 +192,7 @@ export default {
     deleteTitle: "Delete Session",
     deleteMessage: "Are you sure you want to delete \"{name}\"?",
     editName: "Edit name",
+    resumeSession: "Resume session",
     newTerminal: "New terminal",
     options: "Options",
   },

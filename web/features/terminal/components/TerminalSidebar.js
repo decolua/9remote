@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, PanelLeft, Settings, Download } from "@/shared/components/ui/Icon";
+import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, PanelLeft, Settings, Download, RotateCw } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { statusVisual } from "@/shared/utils/statusVisual";
@@ -9,6 +9,7 @@ import { AGENT_ICONS } from "../constants/agentLabels";
 import { vibrate } from "@/shared/utils/vibration";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import PromptDialog from "@/shared/components/ui/PromptDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { SIDEBAR_WIDTH } from "../constants/terminalConfig";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
@@ -183,10 +184,8 @@ export default function TerminalSidebar({
   const ctxRef = useRef(null);
   const ctxPos = useClampedMenu(ctxRef, ctxMenu?.left ?? 0, ctxMenu?.top ?? 0);
 
-  // Rename inline
-  const [editingId, setEditingId] = useState(null);
-  const [editName, setEditName] = useState("");
-  const renameInputRef = useRef(null);
+  // Rename prompt (shared modal — same UX as tab header and session list)
+  const [renameDialog, setRenameDialog] = useState({ sessionId: null, name: "", value: "" });
 
   // Delete confirm
   const [delConfirm, setDelConfirm] = useState(null); // { sessionId, name }
@@ -208,8 +207,6 @@ export default function TerminalSidebar({
   // Drag reorder (within workspace)
   const [drag, setDrag] = useState(null); // { workspaceId, ids, fromIdx, overIdx, el }
   const suppressClickRef = useRef(false);
-
-  useEffect(() => { if (editingId) requestAnimationFrame(() => { renameInputRef.current?.focus(); const el = renameInputRef.current; if (el) el.setSelectionRange(el.value.length, el.value.length); }); }, [editingId]);
 
   // Close context menu on outside click / Escape
   useEffect(() => {
@@ -263,15 +260,14 @@ export default function TerminalSidebar({
   const clearLongPress = () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } };
 
   const startRename = (sessionId) => {
-    const s = sessionById(sessionId);
-    setEditingId(sessionId);
-    setEditName(s?.name || "");
+    const name = sessionById(sessionId)?.name || "";
+    setRenameDialog({ sessionId, name, value: name });
     setCtxMenu(null);
   };
   const saveRename = () => {
-    if (editingId && editName.trim()) onRenameSession?.(editingId, editName.trim());
-    setEditingId(null);
-    setEditName("");
+    const value = renameDialog.value.trim();
+    if (renameDialog.sessionId && value) onRenameSession?.(renameDialog.sessionId, value);
+    setRenameDialog({ sessionId: null, name: "", value: "" });
   };
 
   // Drag reorder via grip handle — reads target from dataset (stable handler)
@@ -345,15 +341,11 @@ export default function TerminalSidebar({
 
   const handleItemClick = (e) => {
     if (suppressClickRef.current) { suppressClickRef.current = false; return; }
-    const sessionId = e.currentTarget.dataset.sid;
-    if (editingId === sessionId) return;
     vibrate();
-    onSelectSession?.(sessionId);
+    onSelectSession?.(e.currentTarget.dataset.sid);
   };
 
   const handleTouchStart = (e) => {
-    const sessionId = e.currentTarget.dataset.sid;
-    if (editingId === sessionId) return;
     startLongPress(e);
   };
 
@@ -447,39 +439,21 @@ export default function TerminalSidebar({
                       )}
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
                       <span className="flex-1 min-w-0 flex flex-col">
-                        {editingId === s.id ? (
-                          <input
-                            ref={renameInputRef}
-                            type="text"
-                            value={editName}
-                            onClick={(e) => e.stopPropagation()}
-                            onInput={(e) => setEditName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveRename();
-                              if (e.key === "Escape") { setEditingId(null); setEditName(""); }
-                            }}
-                            onBlur={saveRename}
-                            className="bg-transparent border-b border-brand-500 outline-none text-sm text-text max-w-full"
-                          />
-                        ) : (
-                          <>
-                            <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
-                              {AGENT_ICONS[tool] ? (
-                                <img src={AGENT_ICONS[tool]} alt={tool} className="w-3.5 h-3.5 flex-shrink-0" />
-                              ) : (
-                                <Terminal size={13} className="flex-shrink-0" />
-                              )}
-                              <span className="text-[13px] truncate">{s.name || t("terminal.defaultName")}</span>
-                            </span>
-                            <SessionMeta
-                              session={s}
-                              fileSocket={fileSocket}
-                              cwd={cwdBySession[s.id] ?? s.workspacePath}
-                              basePath={workspaceGitPath(grp)}
-                              homeDir={homeDir}
-                            />
-                          </>
-                        )}
+                        <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
+                          {AGENT_ICONS[tool] ? (
+                            <img src={AGENT_ICONS[tool]} alt={tool} className="w-3.5 h-3.5 flex-shrink-0" />
+                          ) : (
+                            <Terminal size={13} className="flex-shrink-0" />
+                          )}
+                          <span className="text-[13px] truncate">{s.name || t("terminal.defaultName")}</span>
+                        </span>
+                        <SessionMeta
+                          session={s}
+                          fileSocket={fileSocket}
+                          cwd={cwdBySession[s.id] ?? s.workspacePath}
+                          basePath={workspaceGitPath(grp)}
+                          homeDir={homeDir}
+                        />
                       </span>
                       {/* Unread output on a terminal the user isn't looking at */}
                       {hasNotif && !isActive && (
@@ -585,6 +559,18 @@ export default function TerminalSidebar({
           >
             <Pencil size={14} /> {t("sessions.editName")}
           </button>
+          {sessionStatus[ctxMenu.sessionId]?.claudeSessionId && (
+            <button
+              onClick={() => {
+                vibrate();
+                socketRef?.current?.emit("session-resume", { sessionId: ctxMenu.sessionId });
+                setCtxMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
+            >
+              <RotateCw size={14} /> {t("sessions.resumeSession")}
+            </button>
+          )}
 
           <div className="h-px bg-border-subtle my-1" />
           <button
@@ -594,6 +580,18 @@ export default function TerminalSidebar({
             <Trash2 size={14} /> {t("sessions.deleteTitle")}
           </button>
         </div>
+      )}
+
+      {/* Rename prompt (shared modal) */}
+      {renameDialog.sessionId && (
+        <PromptDialog
+          title={t("sessions.editName")}
+          placeholder={renameDialog.name}
+          value={renameDialog.value}
+          onChange={(value) => setRenameDialog({ ...renameDialog, value })}
+          onSubmit={saveRename}
+          onClose={() => setRenameDialog({ sessionId: null, name: "", value: "" })}
+        />
       )}
 
       {/* Delete confirm */}

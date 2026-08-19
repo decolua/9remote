@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Plus, Pencil, Trash2, X, Download, Globe } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Plus, Pencil, Trash2, X, Download, Globe, RotateCw } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SitesList from "./SitesList";
 import { vibrate } from "@/shared/utils/vibration";
@@ -10,6 +10,7 @@ import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { isAgentOutdated } from "./AgentOutdatedBanner";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
+import PromptDialog from "@/shared/components/ui/PromptDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 
@@ -62,19 +63,14 @@ export default function TerminalHeader({
   const [sitesOpen, setSitesOpen] = useState(false);
   const tabMenuRef = useRef(null);
   const tabMenuPos = useClampedMenu(tabMenuRef, tabMenu.x, tabMenu.y);
-  const [editingTabId, setEditingTabId] = useState(null);
-  const [editTabName, setEditTabName] = useState("");
   const [tabDeleteConfirm, setTabDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
+  // Tab rename prompt (shared modal; inline input lost the iOS gesture window for focus)
+  const [renameDialog, setRenameDialog] = useState({ sessionId: null, name: "", value: "" });
   // New terminal modal (named create)
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
-  const tabInputRef = useRef(null);
-
   // Suggested default name based on terminal count in active group
   const suggestTerminalName = (workspaceId) => `${t("terminal.defaultName")} ${sessions.filter((s) => sessionWorkspaceId(s) === (workspaceId ?? null)).length + 1}`;
-
-  // Reliable focus+select on conditional mount (autoFocus is flaky)
-  useEffect(() => { if (editingTabId) requestAnimationFrame(() => { tabInputRef.current?.focus(); const el = tabInputRef.current; if (el) el.setSelectionRange(el.value.length, el.value.length); }); }, [editingTabId]);
 
   // Ctrl+←/→ prev/next tab (wrap), Ctrl+1..9 jump tab N (9 = last if longer)
   useEffect(() => {
@@ -151,15 +147,14 @@ export default function TerminalHeader({
   };
 
   const startTabRename = (session) => {
-    setEditingTabId(session.id);
-    setEditTabName(session.name || "");
+    setRenameDialog({ sessionId: session.id, name: session.name || "", value: session.name || "" });
     setTabMenu({ sessionId: null, x: 0, y: 0 });
   };
 
-  const saveTabRename = (sessionId) => {
-    if (editTabName.trim()) onRenameSession?.(sessionId, editTabName.trim());
-    setEditingTabId(null);
-    setEditTabName("");
+  const saveTabRename = () => {
+    const value = renameDialog.value.trim();
+    if (renameDialog.sessionId && value) onRenameSession?.(renameDialog.sessionId, value);
+    setRenameDialog({ sessionId: null, name: "", value: "" });
   };
 
   const openTabDeleteConfirm = (session) => {
@@ -248,38 +243,21 @@ export default function TerminalHeader({
               <button
                 key={session.id}
                 ref={isActiveTab ? activeTabRef : null}
-                onMouseDown={(e) => { if (editingTabId !== session.id) e.preventDefault(); }}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  if (editingTabId === session.id) return;
                   vibrate();
                   onSwitchSession?.(session.id);
                 }}
                 onContextMenu={(e) => handleTabContextMenu(e, session)}
-                onTouchStart={(e) => { if (editingTabId === session.id) return; handleTabTouchStart(e, session); }}
-                onTouchMove={editingTabId === session.id ? undefined : clearTabLongPress}
-                onTouchEnd={editingTabId === session.id ? undefined : clearTabLongPress}
+                onTouchStart={(e) => handleTabTouchStart(e, session)}
+                onTouchMove={clearTabLongPress}
+                onTouchEnd={clearTabLongPress}
                 className={`term-tab px-2 sm:px-2.5 py-1 text-xs font-medium transition-all duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   isActiveTab ? "term-tab-active" : ""
                 }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} title={t(v.label)} />
-                {editingTabId === session.id ? (
-                  <input
-                    type="text"
-                    ref={tabInputRef}
-                    value={editTabName}
-                    onClick={(e) => e.stopPropagation()}
-                    onInput={(e) => setEditTabName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") saveTabRename(session.id);
-                      if (e.key === "Escape") { setEditingTabId(null); setEditTabName(""); }
-                    }}
-                    onBlur={() => saveTabRename(session.id)}
-                    className="bg-transparent border-b border-brand-500 outline-none max-w-[120px] text-text"
-                  />
-                ) : (
-                  <span className="truncate max-w-[120px]">{session.name || t("terminal.defaultName")}</span>
-                )}
+                <span className="truncate max-w-[120px]">{session.name || t("terminal.defaultName")}</span>
               </button>
             );
           })}
@@ -372,6 +350,18 @@ export default function TerminalHeader({
           >
             <Pencil size={14} /> {t("sessions.editName")}
           </button>
+          {sessionStatus[tabMenu.sessionId]?.claudeSessionId && (
+            <button
+              onClick={() => {
+                vibrate();
+                socketRef?.current?.emit("session-resume", { sessionId: tabMenu.sessionId });
+                setTabMenu({ sessionId: null, x: 0, y: 0 });
+              }}
+              className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
+            >
+              <RotateCw size={14} /> {t("sessions.resumeSession")}
+            </button>
+          )}
           <button
             onClick={() => openTabDeleteConfirm(sessions.find((s) => s.id === tabMenu.sessionId))}
             className="w-full text-left px-3 py-1.5 text-sm text-red-500 hover:bg-red-500/10 flex items-center gap-2"
@@ -379,6 +369,18 @@ export default function TerminalHeader({
             <Trash2 size={14} /> {t("sessions.deleteTitle")}
           </button>
         </div>
+      )}
+
+      {/* Tab rename dialog (shared prompt) */}
+      {renameDialog.sessionId && (
+        <PromptDialog
+          title={t("sessions.editName")}
+          placeholder={renameDialog.name}
+          value={renameDialog.value}
+          onChange={(value) => setRenameDialog({ ...renameDialog, value })}
+          onSubmit={saveTabRename}
+          onClose={() => setRenameDialog({ sessionId: null, name: "", value: "" })}
+        />
       )}
 
       {/* New terminal modal (shared) */}

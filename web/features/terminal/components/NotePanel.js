@@ -1,103 +1,109 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { EditorView, basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
-import { markdown } from "@codemirror/lang-markdown";
-import { oneDark } from "@codemirror/theme-one-dark";
-import { Copy, X, Check, Trash2 } from "@/shared/components/ui/Icon";
+import { Copy, X, Check, Trash2, Plus } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
-import { useTheme } from "@/shared/theme/ThemeProvider";
 import { vibrate } from "@/shared/utils/vibration";
 
 const SAVE_DEBOUNCE_MS = 500;
 
-// Overlay markdown editor for a terminal session's note. CodeMirror is the single
-// source of truth: load once on mount, save directly to the socket on each edit.
-// No two-way echo → no keystroke race.
+// Quick checklist stored as markdown task-list text via the existing getNote/saveNote
+// socket API — the agent never learns about checklists, it just keeps the text.
+const ITEM_RE = /^- \[([ xX])\] ?/;
+
+function parseItems(text) {
+  return (text || "").split("\n").map((l) => l.trim()).filter(Boolean).map((line) => {
+    const m = line.match(ITEM_RE);
+    return m ? { done: m[1] !== " ", text: line.slice(m[0].length) } : { done: false, text: line };
+  });
+}
+
+function serializeItems(items) {
+  return items.map((i) => `- [${i.done ? "x" : " "}] ${i.text}`).join("\n");
+}
+
 export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) {
   const { t } = useI18n();
-  const { theme } = useTheme();
-  const editorRef = useRef(null);
-  const viewRef = useRef(null);
-  const saveTimerRef = useRef(null);
-  const pendingAppendRef = useRef(appendOnOpen);
+  const [items, setItems] = useState(null); // null until loaded
+  const [input, setInput] = useState("");
   const [copied, setCopied] = useState(false);
-  const [hasText, setHasText] = useState(false);
+  const itemsRef = useRef([]);
+  const saveTimerRef = useRef(null);
+  const appendRef = useRef(appendOnOpen);
 
-  const save = useCallback(() => {
-    if (!socket || !sessionId) return;
+  const doSave = useCallback((value) => {
+    socket?.emit("saveNote", { sessionId, text: value }, () => {});
+  }, [socket, sessionId]);
+
+  // Any mutation flows through here: update state + debounce-save the whole list
+  const mutate = useCallback((fn) => {
+    setItems((prev) => {
+      const next = fn(prev || []);
+      itemsRef.current = next;
+      return next;
+    });
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
-      const view = viewRef.current;
-      if (!view) return;
-      // Ack-style emit matches useFileSocket — keeps the proxy control channel reliable
-      socket.emit("saveNote", { sessionId, text: view.state.doc.toString() }, () => {});
+      doSave(serializeItems(itemsRef.current));
     }, SAVE_DEBOUNCE_MS);
-  }, [socket, sessionId]);
+  }, [doSave]);
 
-  // Load note once, build the editor with that content. Append selection text if requested.
+  // Load once on open; append selection text (each line = one unchecked item)
   useEffect(() => {
-    if (!socket || !sessionId || !editorRef.current) return;
-    let view;
+    if (!socket || !sessionId) return;
     let cancelled = false;
     socket.emit("getNote", { sessionId }, (res) => {
       if (cancelled) return;
-      let initial = res?.success ? (res.text || "") : "";
-      if (pendingAppendRef.current) {
-        const sep = initial && !initial.endsWith("\n") ? "\n" : "";
-        initial = `${initial}${sep}${pendingAppendRef.current}`;
-        pendingAppendRef.current = null;
+      let next = parseItems(res?.success ? res.text : "");
+      let appended = false;
+      if (appendRef.current) {
+        const extra = appendRef.current.split("\n").map((l) => l.trim()).filter(Boolean).map((text) => ({ done: false, text }));
+        if (extra.length) { next = [...next, ...extra]; appended = true; }
+        appendRef.current = null;
       }
-      const isDark = theme !== "light";
-      const updateListener = EditorView.updateListener.of((u) => {
-        if (u.docChanged) {
-          setHasText(u.state.doc.length > 0);
-          save();
-        }
-      });
-      const state = EditorState.create({
-        doc: initial,
-        extensions: [
-          basicSetup,
-          markdown(),
-          EditorView.lineWrapping,
-          updateListener,
-          EditorView.theme({
-            "&": { height: "100%", fontSize: "13px" },
-            ".cm-scroller": { fontFamily: "ui-monospace, monospace" },
-            ".cm-content": { padding: "12px" },
-            ".cm-url, .cm-link, .cm-formatting-link": { textDecoration: "none" }
-          }),
-          ...(isDark ? [oneDark] : [])
-        ]
-      });
-      view = new EditorView({ state, parent: editorRef.current });
-      viewRef.current = view;
-      setHasText(initial.length > 0);
-      // If append produced new content, persist it
-      if (initial !== (res?.success ? (res.text || "") : "")) save();
+      itemsRef.current = next;
+      setItems(next);
+      // Appended selection must survive a close-without-edit — save it now
+      if (appended) doSave(serializeItems(next));
     });
+    return () => { cancelled = true; };
+  }, [socket, sessionId, doSave]);
+
+  // Flush pending save on unmount
+  useEffect(() => {
     return () => {
-      cancelled = true;
-      // Flush pending save on unmount
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
-        if (view) socket?.emit("saveNote", { sessionId, text: view.state.doc.toString() }, () => {});
+        doSave(serializeItems(itemsRef.current));
       }
-      view?.destroy();
-      viewRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, sessionId]);
+  }, [doSave]);
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    vibrate();
+    setInput("");
+    mutate((prev) => [...prev, { done: false, text }]);
+  };
+
+  const handleToggle = (idx) => {
+    vibrate();
+    mutate((prev) => prev.map((it, i) => (i === idx ? { ...it, done: !it.done } : it)));
+  };
+
+  const handleRemove = (idx) => {
+    vibrate();
+    mutate((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const handleCopy = async () => {
     vibrate();
-    const txt = viewRef.current?.state.doc.toString() || "";
     try {
-      await navigator.clipboard?.writeText(txt);
+      await navigator.clipboard?.writeText(serializeItems(items || []));
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     } catch {}
@@ -105,11 +111,10 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
 
   const handleClear = () => {
     vibrate();
-    const view = viewRef.current;
-    if (!view) return;
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "" } });
-    setHasText(false);
+    mutate(() => []);
   };
+
+  const hasItems = (items?.length || 0) > 0;
 
   return (
     <div
@@ -124,12 +129,12 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface flex-shrink-0">
           <span className="text-text text-sm font-medium">{t("note.title")}</span>
           <div className="flex items-center gap-1">
-            <button onClick={handleCopy} disabled={!hasText}
+            <button onClick={handleCopy} disabled={!hasItems}
               className="p-2 hover:bg-surface-2 text-text rounded-brand transition-colors disabled:opacity-40"
               title={t("note.copy")}>
               {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
             </button>
-            <button onClick={handleClear} disabled={!hasText}
+            <button onClick={handleClear} disabled={!hasItems}
               className="p-2 hover:bg-surface-2 text-red-400 rounded-brand transition-colors disabled:opacity-40"
               title={t("note.clear")}>
               <Trash2 size={16} />
@@ -141,13 +146,61 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose }) 
             </button>
           </div>
         </div>
-        <div ref={editorRef} className="flex-1 min-h-0 overflow-hidden note-cm" />
+
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {items === null ? null : !hasItems ? (
+            <p className="text-text-subtle text-sm px-4 py-6 text-center">{t("note.placeholder")}</p>
+          ) : (
+            <ul className="py-1">
+              {items.map((item, idx) => (
+                <li key={idx} className="flex items-center gap-2 px-3 py-1.5">
+                  <button
+                    onClick={() => handleToggle(idx)}
+                    className={`w-5 h-5 flex-shrink-0 flex items-center justify-center rounded border-2 transition-colors ${
+                      item.done ? "bg-brand-500 border-brand-500" : "border-border hover:border-brand-400"
+                    }`}
+                  >
+                    {item.done && <Check size={13} className="text-white" />}
+                  </button>
+                  <span
+                    onClick={() => handleToggle(idx)}
+                    className={`flex-1 text-sm break-words cursor-pointer select-none ${
+                      item.done ? "text-text-subtle line-through" : "text-text"
+                    }`}
+                  >
+                    {item.text}
+                  </span>
+                  <button
+                    onClick={() => handleRemove(idx)}
+                    className="p-1.5 text-text-subtle hover:text-red-400 rounded-brand transition-colors"
+                    title="Remove"
+                  >
+                    <X size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Render only after load — an add before getNote returns would be overwritten by the load callback */}
+        {items !== null && (
+        <form onSubmit={handleAdd} className="flex items-center gap-2 p-3 border-t border-border flex-shrink-0">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={t("note.placeholder")}
+            className="flex-1 min-w-0 bg-surface-2 border border-border-subtle focus-within:border-brand-500 rounded-brand px-3 py-2 text-sm text-text outline-none placeholder:text-text-subtle transition-colors"
+            autoFocus
+          />
+          <button type="submit" disabled={!input.trim()}
+            className="p-2 bg-brand-500 hover:bg-brand-600 text-white rounded-brand transition-colors disabled:opacity-40"
+            title="Add">
+            <Plus size={16} />
+          </button>
+        </form>
+        )}
       </div>
-      <style jsx global>{`
-        .note-cm .cm-editor{height:100%}
-        .note-cm .cm-scroller{overflow:auto}
-        .note-cm .cm-gutters{border-right:1px solid var(--border,#262e3a);background:transparent}
-      `}</style>
     </div>
   );
 }

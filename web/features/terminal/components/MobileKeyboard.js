@@ -37,8 +37,17 @@ import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null }) => {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
-  // Soft-keyboard focus: the status strip yields its row as soon as the OS keyboard opens
-  const [inputFocused, setInputFocused] = useState(false);
+  // True only when the OS soft keyboard actually covers the screen (viewport shrinks) —
+  // input focus alone is not proof: a Bluetooth keyboard keeps focus with no keyboard shown
+  const [kbOpen, setKbOpen] = useState(false);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => setKbOpen(window.innerHeight - vv.height > 150);
+    vv.addEventListener("resize", onResize);
+    onResize();
+    return () => vv.removeEventListener("resize", onResize);
+  }, []);
   // Draft text lives in the store keyed by sessionId so it survives this component
   // unmounting (e.g. switching to remote view and back).
   const textInput = useTerminalStore((s) => s.drafts[sessionId] ?? "");
@@ -370,8 +379,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     );
   };
 
-  // Strip and the input's own top padding trade places — never both, no double gap
-  const stripVisible = !!statusStrip && !inputFocused && !isExpanded && !hasPhysicalKeyboard;
+  // The strip stays until the OS keyboard actually takes the space — visualViewport
+  // shrink is the real signal, unlike focus which can exist without any keyboard
+  const stripVisible = !!statusStrip && !isExpanded && !kbOpen && !hasPhysicalKeyboard;
 
   return (
     <div className="flex flex-col w-full">
@@ -480,10 +490,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
               onFocus={(e) => {
                 const len = e.target.value.length;
                 e.target.selectionStart = e.target.selectionEnd = len;
-                setInputFocused(true);
                 onInputFocusChange?.(true);
               }}
-              onBlur={() => { setInputFocused(false); onInputFocusChange?.(false); }}
+              onBlur={() => onInputFocusChange?.(false)}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
                 if (hasPhysicalKeyboard && e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {

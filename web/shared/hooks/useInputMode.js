@@ -5,13 +5,20 @@ import { useEffect, useState } from "react";
 // Detect primary input device: "mouse" (PC with physical mouse+keyboard) or "touch".
 // Uses CSS media query `(pointer: fine) and (hover: hover)` + `navigator.maxTouchPoints`.
 // Auto-updates if the user plugs/unplugs a mouse (rare, but supported).
+const FINE_POINTER_QUERY = "(pointer: fine) and (hover: hover)";
+
 export function useInputMode() {
-  const [mode, setMode] = useState("touch");
+  // Sync at init, not after mount: a "touch" default paints one wrong frame on every
+  // remount — visible as the status strip flashing on desktop pane switches
+  const [mode, setMode] = useState(() => {
+    if (typeof window === "undefined") return "touch";
+    return window.matchMedia(FINE_POINTER_QUERY).matches ? "mouse" : "touch";
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const mm = window.matchMedia("(pointer: fine) and (hover: hover)");
+    const mm = window.matchMedia(FINE_POINTER_QUERY);
     const compute = () => {
       const hasFinePointer = mm.matches;
       setMode(hasFinePointer ? "mouse" : "touch");

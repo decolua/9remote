@@ -167,12 +167,16 @@ export function useNotification(socketRef, connected) {
       });
     };
 
-    // Single status transition from a hook (working/blocked/done) — patch one entry
-    const handleStatusChange = ({ sessionId, state, tool, since }) => {
+    // Single status transition from a hook (working/blocked/done) — patch one entry.
+    // claudeSessionId rides along when the hook reported it; kept across transitions.
+    const handleStatusChange = ({ sessionId, state, tool, since, claudeSessionId }) => {
       if (!sessionId) return;
       setSessionStatus((prev) => ({
         ...prev,
-        [sessionId]: { state, tool: tool || prev[sessionId]?.tool, since },
+        [sessionId]: {
+          state, tool: tool || prev[sessionId]?.tool, since,
+          ...(claudeSessionId || prev[sessionId]?.claudeSessionId ? { claudeSessionId: claudeSessionId || prev[sessionId]?.claudeSessionId } : {}),
+        },
       }));
     };
 
