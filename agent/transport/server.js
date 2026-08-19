@@ -470,6 +470,10 @@ export async function startTransportServer(server) {
         socket.data.approved = true;
         socket.data.rtcHost = rtcSession;
         rtcSession.data.protocol?.attachSocket(socket)
+          // The virtual session's terminal:ready rode RTC and could race the client's
+          // listener binding — re-emit on this socket so the session list always gets a
+          // fetch trigger (client handler is idempotent).
+          .then(() => socket.emit("terminal:ready"))
           .catch((e) => pushUiLog(`RTC session attachSocket failed: ${e.message}`));
         pushUiLog(`Tunnel attached to RTC session: ${deviceId.slice(0, 8)}...`);
         socket.once("device:clientReady", () => socket.emit("device:approved"));

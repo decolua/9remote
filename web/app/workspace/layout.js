@@ -285,22 +285,14 @@ export default function WorkspaceLayout({ children }) {
     else storePopView();
   }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor]);
 
-  // Load sessions + workspaces when the socket connects
+  // Load sessions + workspaces when the socket connects.
+  // Lost-packet retry lives in useSocket (loadedRef-gated, every view).
   useEffect(() => {
     if (socket) {
       loadSessions();
       loadWorkspaces();
     }
   }, [socket, loadSessions, loadWorkspaces]);
-
-  // Retry once after 1s if still empty in terminal view (guards a rare connect race where the
-  // terminal:ready reply arrives too late)
-  useEffect(() => {
-    if (currentView.type !== "terminal") return;
-    if (sessions.length || workspaces.length) return;
-    const timer = setTimeout(() => { loadSessions(); loadWorkspaces(); }, 1000);
-    return () => clearTimeout(timer);
-  }, [currentView.type, sessions.length, workspaces.length, loadSessions, loadWorkspaces]);
 
   // Drop openedSessions that no longer exist. Delayed to avoid racing newly-created sessions
   // (server create → loadSessions is async).

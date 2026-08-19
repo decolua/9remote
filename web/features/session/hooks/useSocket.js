@@ -52,6 +52,10 @@ export function useSocket() {
   // Needed here because socket.on("device:rejected") must call it, but it's defined after.
   const disconnectRef = useRef(null);
 
+  // Whether each list has ever received a response — gates the retry below.
+  // An empty [] response counts; only lost packets keep retrying.
+  const loadedRef = useRef({ sessions: false, workspaces: false });
+
   const handleSocketReady = useCallback((socket, auth) => {
     // Reset approval status on new connection
     setApprovalStatus(null);
@@ -69,8 +73,14 @@ export function useSocket() {
     // Server emits "terminal:ready" AFTER getSessions/getWorkspaces handlers are registered
     // (async setupSocketFeatures). Fetching here avoids the F5 race that returned empty.
     socket.on("terminal:ready", () => {
-      socket.emit("getWorkspaces", (list) => setWorkspaces(Array.isArray(list) ? list : []));
-      socket.emit("getSessions", (list) => setSessions(Array.isArray(list) ? list : []));
+      socket.emit("getWorkspaces", (list) => {
+        loadedRef.current.workspaces = true;
+        setWorkspaces(Array.isArray(list) ? list : []);
+      });
+      socket.emit("getSessions", (list) => {
+        loadedRef.current.sessions = true;
+        setSessions(Array.isArray(list) ? list : []);
+      });
     });
 
     socket.on("device:rejected", () => {
@@ -97,8 +107,14 @@ export function useSocket() {
 
     // Workspaces changed elsewhere — refresh both lists
     socket.on("workspacesChanged", () => {
-      socket.emit("getWorkspaces", (list) => setWorkspaces(Array.isArray(list) ? list : []));
-      socket.emit("getSessions", (list) => setSessions(Array.isArray(list) ? list : []));
+      socket.emit("getWorkspaces", (list) => {
+        loadedRef.current.workspaces = true;
+        setWorkspaces(Array.isArray(list) ? list : []);
+      });
+      socket.emit("getSessions", (list) => {
+        loadedRef.current.sessions = true;
+        setSessions(Array.isArray(list) ? list : []);
+      });
     });
 
     socket.on("codespace:stopping", handleCodespaceStopping);
@@ -122,8 +138,9 @@ export function useSocket() {
   // Load sessions list
   const loadSessions = useCallback(() => {
     if (!socketRef.current) return;
-    
+
     socketRef.current.emit("getSessions", (list) => {
+      loadedRef.current.sessions = true;
       setSessions(Array.isArray(list) ? list : []);
     });
   }, [socketRef]);
@@ -131,8 +148,24 @@ export function useSocket() {
   // Load workspaces list
   const loadWorkspaces = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit("getWorkspaces", (list) => setWorkspaces(Array.isArray(list) ? list : []));
+    socketRef.current.emit("getWorkspaces", (list) => {
+      loadedRef.current.workspaces = true;
+      setWorkspaces(Array.isArray(list) ? list : []);
+    });
   }, [socketRef]);
+
+  // terminal:ready is one-shot over a racy multi-carrier transport — if it or a fetch
+  // ack is dropped, the lists stay empty forever. Retry while connected until each
+  // list has ever received a response; receiving [] also counts (stops forever then).
+  useEffect(() => {
+    if (!connected) return;
+    const timer = setInterval(() => {
+      if (loadedRef.current.sessions && loadedRef.current.workspaces) return;
+      loadSessions();
+      loadWorkspaces();
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [connected, loadSessions, loadWorkspaces]);
 
   // Create new session (workspaceId optional). cwd = a folder picked in the tree, else
   // inherited from the last session in the workspace.
