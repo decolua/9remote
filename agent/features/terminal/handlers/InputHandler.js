@@ -1,6 +1,7 @@
 import * as daemonClient from "../ptyDaemonClient.js";
 import { UPLOAD_DIR, saveSessionMetadata } from "../ptyHelper.js";
-import { getClaudeSessionId } from "../statusManager.js";
+import { getClaudeSessionId, isClaudeYolo, setClaudeYolo } from "../statusManager.js";
+import { CLAUDE_YOLO_FLAG } from "../agentCatalog.js";
 import { setClipboardFromFile } from "../../../lib/clipboardSystem.js";
 import fs from "fs";
 import path from "path";
@@ -8,6 +9,28 @@ import path from "path";
 const PERSISTENCE_MODE = "daemon";
 const PASTE_KEY = "\x16"; // Ctrl+V — tell the CLI to read the OS clipboard
 const RESUME_EXIT_MS = 2000; // wait for claude to exit before relaunching the conversation
+
+// Keystrokes arrive piecemeal, so rebuild the current line to spot claude launch
+// lines (modal send is one chunk, hand typing is many). Capped so a running TUI
+// can't grow the buffer forever; dropped once the line is evaluated on Enter.
+const INPUT_LINE_CAP = 256;
+const inputLines = new Map(); // sessionId -> partial line since last Enter
+
+function evalClaudeLine(sessionId, line) {
+  if (!CLAUDE_YOLO_FLAG || !/^\s*claude\b/.test(line)) return;
+  setClaudeYolo(sessionId, line.includes(CLAUDE_YOLO_FLAG));
+}
+
+function trackClaudeYolo(sessionId, data) {
+  if (typeof data !== "string" || !data) return;
+  const line = (inputLines.get(sessionId) || "") + data;
+  if (data.includes("\r") || data.includes("\n")) {
+    for (const part of line.split(/\r\n|\r|\n/)) evalClaudeLine(sessionId, part);
+    inputLines.delete(sessionId);
+  } else {
+    inputLines.set(sessionId, line.slice(-INPUT_LINE_CAP));
+  }
+}
 
 // Debounce metadata writes on resize so rapid layout changes don't write the file
 // on every event — but the last size always lands before the next agent restart.
@@ -23,6 +46,7 @@ export function setupInputHandlers(socket, sessions) {
     if (!sessionId) return;
     const session = sessions.get(sessionId);
     if (!session) return;
+    trackClaudeYolo(sessionId, data);
     if (session.daemon && daemonClient.isConnected()) return daemonClient.sendInput(sessionId, data);
     if (session.pty) session.pty.write(Buffer.isBuffer(data) ? data.toString("utf-8") : data);
   });
@@ -55,7 +79,10 @@ export function setupInputHandlers(socket, sessions) {
       if (session.pty) session.pty.write(data);
     };
     send("\x03\x03"); // Ctrl+C x2 — exit claude
-    setTimeout(() => send(`claude --resume ${csid}\r`), RESUME_EXIT_MS);
+    // Re-apply the skip-permission flag when the conversation was launched with it —
+    // --resume alone resets to default (per-action approval) mode.
+    const yoloFlag = isClaudeYolo(sessionId) ? ` ${CLAUDE_YOLO_FLAG}` : "";
+    setTimeout(() => send(`claude --resume ${csid}${yoloFlag}\r`), RESUME_EXIT_MS);
   });
 
   socket.on("upload-file", ({ sessionId, filename, size, content }) => {

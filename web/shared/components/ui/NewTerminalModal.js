@@ -72,6 +72,8 @@ export default function NewTerminalModal({
   const didScrollToPickRef = useRef(false);
 
   useEffect(() => {
+    // No autofocus on touch — the popping keyboard shoves the centered modal up abruptly
+    if (!window.matchMedia("(pointer: fine)").matches) return;
     requestAnimationFrame(() => nameRef.current?.focus());
   }, []);
 
@@ -101,9 +103,10 @@ export default function NewTerminalModal({
 
   // Agent tabs default to "<Agent> <n>" so two Claude terminals stay tellable apart;
   // suggestName already carries the caller's per-workspace counter.
+  // Short name keeps the mobile placeholder tidy; buttons keep the full label.
   const suggestIndex = suggestName.match(/\d+$/)?.[0];
   const defaultName = agent
-    ? `${agent.label}${suggestIndex ? ` ${suggestIndex}` : ""}`
+    ? `${agent.short || agent.label}${suggestIndex ? ` ${suggestIndex}` : ""}`
     : (suggestName || t("terminal.defaultName"));
 
   const submit = (picked = agent) => {
@@ -114,7 +117,7 @@ export default function NewTerminalModal({
     const yolo = skipPermissions && canSkipPermissions(picked);
     // An agent tab left unnamed takes the agent's name, not the host's generic "Term N"
     const suffix = suggestIndex ? ` ${suggestIndex}` : "";
-    const finalName = name.trim() || (picked ? `${picked.label}${suffix}` : null);
+    const finalName = name.trim() || (picked ? `${picked.short || picked.label}${suffix}` : null);
     onCreate?.(finalName, !picked ? (shellId || null) : null, picked, yolo, cwd);
     onClose?.();
   };

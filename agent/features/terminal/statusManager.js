@@ -41,6 +41,20 @@ export function getClaudeSessionId(sessionId) {
   return claudeSessionIds.get(sessionId) || null;
 }
 
+// Whether the session's claude was launched with its skip-permission flag (sniffed
+// from the launch line by InputHandler). Powers re-applying the flag on exact resume.
+const claudeYoloSessions = new Set();
+
+export function setClaudeYolo(sessionId, on) {
+  if (!sessionId) return;
+  if (on) claudeYoloSessions.add(sessionId);
+  else claudeYoloSessions.delete(sessionId);
+}
+
+export function isClaudeYolo(sessionId) {
+  return claudeYoloSessions.has(sessionId);
+}
+
 export function applyEvent({ type, sessionId, tool, message } = {}) {
   if (!sessionId) return null;
   const state = TYPE_TO_STATE[type] || STATES.IDLE;
