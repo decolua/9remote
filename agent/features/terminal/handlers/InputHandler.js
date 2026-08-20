@@ -2,6 +2,7 @@ import * as daemonClient from "../ptyDaemonClient.js";
 import { UPLOAD_DIR, saveSessionMetadata } from "../ptyHelper.js";
 import { getClaudeSessionId, isClaudeYolo, setClaudeYolo } from "../statusManager.js";
 import { CLAUDE_YOLO_FLAG } from "../agentCatalog.js";
+import { RESIZE_MIN_COLS, RESIZE_MIN_ROWS, RESIZE_MAX_COLS, RESIZE_MAX_ROWS, RESIZE_SHRINK_SETTLE_MS } from "../constants.js";
 import { setClipboardFromFile } from "../../../lib/clipboardSystem.js";
 import fs from "fs";
 import path from "path";
@@ -41,6 +42,33 @@ function persistSessionsDebounced(sessions) {
   resizeSaveTimer = setTimeout(() => { resizeSaveTimer = null; saveSessionMetadata(sessions); }, RESIZE_SAVE_DEBOUNCE_MS);
 }
 
+const isSaneSize = (n, min, max) => Number.isInteger(n) && n >= min && n <= max;
+
+// Pending shrink per session — a later resize (in either direction) supersedes it.
+const shrinkTimers = new Map();
+
+function clearShrink(sessionId) {
+  const t = shrinkTimers.get(sessionId);
+  if (!t) return;
+  clearTimeout(t);
+  shrinkTimers.delete(sessionId);
+}
+
+// Apply a validated size to the PTY and remember it, so a respawn (daemon restart)
+// inherits the real size instead of 80×24. Only reached for sizes that survived
+// both the sanity floor and the shrink settle window.
+function applyResize(sessions, sessionId, cols, rows) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  session.lastCols = cols;
+  session.lastRows = rows;
+  persistSessionsDebounced(sessions);
+  if (session.daemon && daemonClient.isConnected()) return daemonClient.resizeSession(sessionId, cols, rows);
+  if (session.pty) {
+    try { session.pty.resize(cols, rows); } catch (e) { console.log(`Resize failed for ${sessionId}: ${e.message}`); }
+  }
+}
+
 export function setupInputHandlers(socket, sessions) {
   socket.on("input", ({ sessionId, data }) => {
     if (!sessionId) return;
@@ -55,14 +83,22 @@ export function setupInputHandlers(socket, sessions) {
     if (!sessionId) return;
     const session = sessions.get(sessionId);
     if (!session) return;
-    // Track last client size so a respawned PTY (daemon restart) inherits it instead of 80×24.
-    session.lastCols = cols;
-    session.lastRows = rows;
-    persistSessionsDebounced(sessions); // survive agent restart too (R1 v2)
-    if (session.daemon && daemonClient.isConnected()) return daemonClient.resizeSession(sessionId, cols, rows);
-    if (session.pty) {
-      try { session.pty.resize(cols, rows); } catch (e) { console.log(`Resize failed for ${sessionId}: ${e.message}`); }
-    }
+    // Reject sizes no real layout produces — a pane measured mid-transition, or a
+    // malformed payload. Emitting them would re-wrap scrollback narrow forever.
+    if (!isSaneSize(cols, RESIZE_MIN_COLS, RESIZE_MAX_COLS)) return;
+    if (!isSaneSize(rows, RESIZE_MIN_ROWS, RESIZE_MAX_ROWS)) return;
+
+    // Any newer size supersedes a shrink still waiting out its window.
+    clearShrink(sessionId);
+    if (cols >= (session.lastCols ?? 0)) return applyResize(sessions, sessionId, cols, rows);
+
+    // Narrower than current: hold it. A transient dip (panel slide, soft keyboard)
+    // is followed by the real size before the window elapses, and that later call
+    // clears this timer — so only a size the client actually settled on lands.
+    shrinkTimers.set(sessionId, setTimeout(() => {
+      shrinkTimers.delete(sessionId);
+      applyResize(sessions, sessionId, cols, rows);
+    }, RESIZE_SHRINK_SETTLE_MS));
   });
 
   // Resume the exact claude conversation of this session: Claude Code hard-wraps output

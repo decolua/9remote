@@ -228,6 +228,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
 
       if (term.element && width >= 100 && height >= 100) {
         fitAddon.fit();
+        // This width gate is far looser than MIN_COLS — 100px is ~10 cols, never a
+        // real layout — so emitResize does the deciding. Marking the term ready is
+        // still right: the ResizeObserver settles the true size right after.
         emitResize();
         setTermReady(true);
       } else {

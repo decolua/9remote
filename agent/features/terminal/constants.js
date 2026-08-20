@@ -62,3 +62,19 @@ export function resolveShell(shellId) {
   const label = envShell.split("/").pop();
   return { id: label, label, path: envShell, args: ["-l"] };
 }
+
+// Resize guard — PTY cols is a ONE-WAY operation: a shell that re-wraps its
+// scrollback at a narrow width can never restore it, so a transient bad size is
+// permanent damage. The client already filters, but this is the trust boundary
+// (multiple clients share one session, and old clients keep sending).
+// Floor: the narrowest real layout is ~42 cols (360px phone at 13px mono), so
+// anything under 20 is a mid-transition measurement, not a device.
+export const RESIZE_MIN_COLS = 20;
+export const RESIZE_MIN_ROWS = 4;
+// Sanity ceiling — beyond this it's a malformed payload, not a display.
+export const RESIZE_MAX_COLS = 2000;
+export const RESIZE_MAX_ROWS = 500;
+// Shrinking is the damaging direction, so it waits out a settle window (a panel
+// transition or soft-keyboard shrink cancels itself within it). Growing applies
+// immediately — it costs nothing and keeps rotate-to-landscape responsive.
+export const RESIZE_SHRINK_SETTLE_MS = 300;

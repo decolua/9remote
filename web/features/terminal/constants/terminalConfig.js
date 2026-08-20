@@ -157,7 +157,12 @@ export const ADDONS = {
 // Floor for emitting resize — below this the layout hasn't settled (app-resume
 // reconnect, soft-KB transition) and the shell would re-wrap scrollback to a
 // narrow width, permanently shrinking older output. Skip emit until cols/rows sane.
-export const MIN_COLS = 10;
+// Cols is deliberately well above a "non-zero width" check: the narrowest genuine
+// container is a 320px phone (~37 cols) and a desktop pane can't go under
+// PANE_WIDTH.min = 400px (~47 cols), while a 10-col floor admits anything over
+// ~93px — so a pane measured mid-transition (panel sliding, soft keyboard, first
+// paint) passes it and locks the PTY narrow. Cols is one-way; there is no undo.
+export const MIN_COLS = 30;
 export const MIN_ROWS = 2;
 
 // Debounce before force-refitting a freshly mounted pane whose size was under floor at
