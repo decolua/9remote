@@ -23,6 +23,11 @@ import { useWorkspaceFileNav } from "@/features/fileExplorer/hooks/useWorkspaceF
 import { usePaneRegistry } from "@/features/terminal/hooks/usePaneRegistry";
 import { useSessionNavigation } from "@/features/terminal/hooks/useSessionNavigation";
 import { useAgentUpdate } from "@/features/session/hooks/useAgentUpdate";
+import { useGlobalShortcuts } from "@/shared/hooks/useGlobalShortcuts";
+import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
+import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
+import { loadTerminalPrefs } from "@/features/terminal/constants/agentCli";
+import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import TerminalWorkspace from "@/features/terminal/components/TerminalWorkspace";
 import ReconnectScreen from "@/features/session/components/ReconnectScreen";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
@@ -35,6 +40,8 @@ const FileEditor = dynamic(() => import("@/features/fileExplorer/components/File
 const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPanel"), { ssr: false });
 const FileWorkspaceDesktop = dynamic(() => import("@/features/fileExplorer/components/FileWorkspaceDesktop"), { ssr: false });
 const FolderPickerModal = dynamic(() => import("@/features/terminal/components/FolderPickerModal"), { ssr: false });
+const CommandPalette = dynamic(() => import("@/features/fileExplorer/components/CommandPalette"), { ssr: false });
+const ShortcutsModal = dynamic(() => import("@/shared/components/ui/ShortcutsModal"), { ssr: false });
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import UpdateModal from "@/shared/components/ui/UpdateModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -213,6 +220,47 @@ export default function WorkspaceLayout({ children }) {
   const createTerminalAt = useCallback((folderPath) => {
     nav.handleCreateSession(null, activeWorkspaceId, null, folderPath);
   }, [nav, activeWorkspaceId]);
+
+  // Mod+Shift chords for the workspace shell. Desktop-only — a phone has no physical
+  // keyboard to serve, and the mobile input bar already owns Tab / Ctrl+1-9.
+  const agentClis = useAgentClis(socketRef);
+  const openShortcutsModal = useShortcutsModalStore((st) => st.open);
+  const shortcutsOpen = useShortcutsModalStore((st) => st.isOpen);
+  const closeShortcutsModal = useShortcutsModalStore((st) => st.close);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const paletteWorkspace = workspaces.find((w) => w.id === activeWorkspaceId)?.path
+    || sessions.find((s) => s.id === activeSessionId)?.workspacePath
+    || null;
+
+  // Replays the new-terminal modal's last choice (agent + skip-permissions + shell) so
+  // the chord opens what the user last opened, not a bare shell. An agent that has since
+  // left the host's PATH falls back to a plain terminal, same as the modal does.
+  const createTerminalFromPrefs = useCallback(() => {
+    const { agentId, shellId, yolo } = loadTerminalPrefs();
+    const agent = (agentId && agentClis?.find((a) => a.id === agentId)) || null;
+    const index = sessions.filter((s) => sessionWorkspaceId(s) === (activeWorkspaceId ?? null)).length + 1;
+    const name = agent ? `${agent.short || agent.label} ${index}` : null;
+    // At the bottom of the desktop stack the view is "list", where handleCreateSession
+    // does not auto-focus — without this the pane would open behind the empty state.
+    if (currentView.type !== "terminal") {
+      nav.handleQuickCreateSession(agent ? null : shellId, agent, yolo, name);
+      return;
+    }
+    nav.handleCreateSession(name, activeWorkspaceId, agent ? null : shellId, null, agent, yolo);
+  }, [agentClis, sessions, activeWorkspaceId, currentView, nav]);
+
+  // Gated on the terminal view too: remote desktop forwards every keystroke to the host
+  // machine, and the full-screen file explorer runs its own chord set — neither may be
+  // shadowed by a capture-phase listener sitting above them.
+  useGlobalShortcuts({
+    sessionPrev: () => nav.switchSession("prev"),
+    sessionNext: () => nav.switchSession("next"),
+    sessionIndex: (index) => nav.switchToIndex(index),
+    newTerminal: createTerminalFromPrefs,
+    toggleSidebar,
+    palette: () => { if (paletteWorkspace) setQuickOpen(true); },
+    help: openShortcutsModal
+  }, isDesktop && isTerminalView);
 
   // Side panel's "open full": swap the docked panel for the full editor route. The
   // workspace root rides along so the desktop editor mounts the right tree.
@@ -621,6 +669,19 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Global Slide Menu — single instance at page level */}
         <SlideMenu />
+
+        {/* Mod+Shift+P file search — reuses the file explorer's palette in files mode */}
+        {quickOpen && paletteWorkspace && (
+          <CommandPalette
+            mode="files"
+            workspace={paletteWorkspace}
+            fileSocket={fileSocket}
+            onClose={() => setQuickOpen(false)}
+            onOpenFile={(path) => openEditorFile(path)}
+          />
+        )}
+
+        <ShortcutsModal isOpen={shortcutsOpen} onClose={closeShortcutsModal} />
 
         <ConfirmDialog
           isOpen={confirmDialog.isOpen}

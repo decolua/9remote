@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, GitBranch, StickyNote, Wallpaper } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, GitBranch, StickyNote, Wallpaper, Keyboard } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -17,6 +17,8 @@ import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { verifyServerConnection } from "@/shared/hooks/useAuth";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
+import { useInputMode } from "@/shared/hooks/useInputMode";
+import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 
 export default function MenuItems({
   onRemote,
@@ -44,6 +46,9 @@ export default function MenuItems({
   onOpenBackgroundPicker
 }) {
   const { t } = useI18n();
+  const inputMode = useInputMode();
+  const openShortcuts = useShortcutsModalStore((s) => s.open);
+  const closeMenu = useSlideMenuStore((s) => s.close);
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
@@ -328,6 +333,17 @@ export default function MenuItems({
         >
           <FileText className="text-brand-500" size={16} />
           <span className="text-sm">{t("menu.commandNotes")}</span>
+        </button>
+      )}
+
+      {/* Keyboard shortcuts — only meaningful with a physical keyboard */}
+      {inputMode === "mouse" && (
+        <button
+          onClick={() => { vibrate(); closeMenu(); openShortcuts(); }}
+          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
+        >
+          <Keyboard className="text-brand-500" size={16} />
+          <span className="text-sm">{t("shortcuts.menuLabel")}</span>
         </button>
       )}
 

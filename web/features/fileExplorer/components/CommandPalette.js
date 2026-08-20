@@ -3,16 +3,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { isMac } from "@/features/terminal/constants/shortcuts";
+
+// Mod renders as the platform's own modifier — a hardcoded "Ctrl" reads as wrong on macOS.
+const MOD = isMac() ? "\u2318" : "Ctrl+";
 
 const COMMANDS = [
   { id: "openExplorer", label: "View: Show Explorer", icon: "FolderOpen", shortcut: "" },
   { id: "openSearch", label: "View: Show Search", icon: "Search", shortcut: "" },
   { id: "openScm", label: "View: Show Source Control", icon: "GitBranch", shortcut: "" },
   { id: "openSettings", label: "View: Show Settings", icon: "Settings", shortcut: "" },
-  { id: "toggleSidebar", label: "View: Toggle Sidebar Visibility", icon: "PanelLeft", shortcut: "Ctrl+B" },
-  { id: "togglePanel", label: "View: Toggle Terminal Panel", icon: "Terminal", shortcut: "Ctrl+J" },
+  { id: "toggleSidebar", label: "View: Toggle Sidebar Visibility", icon: "PanelLeft", shortcut: `${MOD}B` },
+  { id: "togglePanel", label: "View: Toggle Terminal Panel", icon: "Terminal", shortcut: `${MOD}J` },
   { id: "closeAll", label: "View: Close All Editors", icon: "X", shortcut: "" },
-  { id: "switchWorkspace", label: "Workspaces: Switch Workspace", icon: "Folder", shortcut: "Ctrl+R" }
+  // No chord is bound to this one — an invented label would teach a key that does nothing.
+  { id: "switchWorkspace", label: "Workspaces: Switch Workspace", icon: "Folder", shortcut: "" }
 ];
 
 const SEARCH_DEBOUNCE_MS = 200;

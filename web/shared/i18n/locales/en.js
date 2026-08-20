@@ -806,5 +806,16 @@ export default {
     language: "Voice language",
     clear: "Clear",
     denied: "Microphone blocked — allow mic access in your browser settings"
+  },
+  shortcuts: {
+    title: "Keyboard shortcuts",
+    menuLabel: "Keyboard shortcuts",
+    sessionPrev: "Previous terminal",
+    sessionNext: "Next terminal",
+    sessionIndex: "Go to terminal 1-9",
+    palette: "Search files",
+    newTerminal: "New terminal",
+    toggleSidebar: "Toggle sidebar",
+    help: "Keyboard shortcuts"
   }
 };

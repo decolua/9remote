@@ -16,6 +16,8 @@ import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { groupSessionsByWorkspace, shortenHomePath, workspaceGitPath } from "../lib/workspaceGrouping";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { sessionWorkspaceId } from "../lib/paneLayout";
+import { useInputMode } from "@/shared/hooks/useInputMode";
+import { withHint } from "../constants/shortcuts";
 import BranchBadge from "./BranchBadge";
 
 // Guess agent tool from session name when no live status tool is set — drives the icon.
@@ -58,6 +60,7 @@ function WorkspaceHeader({
   onToggleCollapse, onSelect, onNewTerminal, onDelete
 }) {
   const { t } = useI18n();
+  const hasKeyboard = useInputMode() === "mouse";
   const gitPath = workspaceGitPath(workspace);
   const { branch, dirty } = useWorkspaceGit(gitPath, fileSocket);
   // Hover-reveal on pointer devices; always visible on touch, which has no hover.
@@ -100,7 +103,7 @@ function WorkspaceHeader({
           onClick={(e) => { e.stopPropagation(); vibrate(); onNewTerminal(); }}
           disabled={!connected}
           className={`p-0.5 text-text-subtle hover:text-brand-500 rounded-[2px] hover:bg-surface-2 transition-colors disabled:opacity-40 ${revealCls}`}
-          title={t("terminal.newTerminal")}
+          title={hasKeyboard && isActive ? withHint(t("terminal.newTerminal"), "newTerminal") : t("terminal.newTerminal")}
         >
           <Plus size={12} />
         </button>
@@ -148,6 +151,8 @@ export default function TerminalSidebar({
   onCollapse,
 }) {
   const { t } = useI18n();
+  const hasKeyboard = useInputMode() === "mouse";
+  const collapseHint = hasKeyboard ? withHint(t("common.close"), "toggleSidebar") : t("common.close");
   const dragRef = useRef(null);
 
   // PWA install — desktop only, so the row shows solely when the browser can
@@ -370,7 +375,7 @@ export default function TerminalSidebar({
           <button
             onClick={() => { vibrate(); onCollapse(); }}
             className="p-1 text-text-muted hover:text-text rounded-[3px] hover:bg-surface-2 transition-colors flex-shrink-0"
-            title={t("common.close")}
+            title={collapseHint}
           >
             <PanelLeft size={14} />
           </button>

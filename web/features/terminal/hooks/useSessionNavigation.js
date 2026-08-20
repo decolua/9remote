@@ -99,11 +99,15 @@ export function useSessionNavigation({
     });
   }, [createSession, addOpenedSession, alertCreateFailed, currentView, replaceTopWithSession]);
 
-  // Quick create in the active workspace (header "+" button)
-  const handleQuickCreateSession = useCallback((shellId) => {
-    createSession(null, shellId, activeWorkspaceId, null, (result) => {
+  // Quick create in the active workspace (header "+" button, Mod+Shift+Enter chord).
+  // Always focuses the new pane, unlike handleCreateSession which only does so from
+  // terminal view. `agent`/`yolo`/`name` let the chord replay the modal's last choice.
+  const handleQuickCreateSession = useCallback((shellId, agent = null, yolo = false, name = null) => {
+    createSession(name, shellId, activeWorkspaceId, null, (result) => {
       if (!result.success) return alertCreateFailed(result.error);
       if (!result.sessionId) return;
+      const startupCmd = agentLaunchCommand(agent, yolo);
+      if (startupCmd) useTerminalStore.getState().queueStartup(result.sessionId, startupCmd);
       addOpenedSession(result.sessionId);
       replaceTopWithSession(result.sessionId);
     });

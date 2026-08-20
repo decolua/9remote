@@ -7,6 +7,8 @@ import SitesList from "./SitesList";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useI18n } from "@/shared/i18n";
+import { useInputMode } from "@/shared/hooks/useInputMode";
+import { withHint, tabIndexHint } from "@/features/terminal/constants/shortcuts";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { isAgentOutdated } from "./AgentOutdatedBanner";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
@@ -56,6 +58,9 @@ export default function TerminalHeader({
   homeDir = null,
 }) {
   const { t } = useI18n();
+  // Chords only fire on desktop, so only a pointer device gets the hint.
+  const hasKeyboard = useInputMode() === "mouse";
+  const hint = (label, id) => (hasKeyboard ? withHint(label, id) : label);
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
   // Tab right-click context menu (rename/delete)
@@ -166,7 +171,9 @@ export default function TerminalHeader({
 
   const handleModalCreate = (name, shellId, agent, yolo, cwd) => {
     if (onCreateNamedSession) onCreateNamedSession(name, activeWorkspaceId, shellId, cwd || null, agent, yolo);
-    else onCreateSession?.(activeWorkspaceId);
+    // No arg: onCreateSession is handleQuickCreateSession(shellId, …), which reads the
+    // active workspace from the store itself — passing an id here would land as a shell.
+    else onCreateSession?.();
   };
 
   useEffect(() => {
@@ -214,7 +221,7 @@ export default function TerminalHeader({
         <button
           onClick={() => { vibrate(); onToggleSidebar(); }}
           className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
-          title={t("common.open")}
+          title={hint(t("common.open"), "toggleSidebar")}
         >
           <PanelLeft size={16} />
         </button>
@@ -235,13 +242,16 @@ export default function TerminalHeader({
       {/* overflow-auto whitelists this for mobile touchmove (see page.js preventScroll) */}
       <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-dark-400 scrollbar-track-transparent">
         <div className="flex gap-0 min-w-max items-center">
-          {sessions.map((session) => {
+          {sessions.map((session, tabIndex) => {
             const isActiveTab = session.id === activeSessionId;
             const st = sessionStatus[session.id]?.state || "idle";
             const v = statusVisual(st);
+            const tabName = session.name || t("terminal.defaultName");
+            const chord = hasKeyboard ? tabIndexHint(tabIndex) : null;
             return (
               <button
                 key={session.id}
+                title={chord ? `${tabName} · ${chord}` : tabName}
                 ref={isActiveTab ? activeTabRef : null}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
@@ -257,7 +267,7 @@ export default function TerminalHeader({
                 }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} title={t(v.label)} />
-                <span className="truncate max-w-[120px]">{session.name || t("terminal.defaultName")}</span>
+                <span className="truncate max-w-[120px]">{tabName}</span>
               </button>
             );
           })}
@@ -267,7 +277,7 @@ export default function TerminalHeader({
                 onClick={() => { vibrate(); setCreateModalOpen(true); }}
                 disabled={!connected}
                 className="p-1.5 text-text-muted hover:bg-surface-2 hover:text-text transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
-                title={t("terminal.newTerminal")}
+                title={hint(t("terminal.newTerminal"), "newTerminal")}
               >
                 <Plus size={16} />
               </button>
