@@ -59,7 +59,7 @@ export default function TerminalWorkspace({
   // tabs keep the workspace root, so a deep cwd must not blank their repo scan.
   const rightPanelRoots = useTerminalStore((s) => s.rightPanelRoots);
   const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
-  const setRightPanelTab = useTerminalStore((s) => s.setRightPanelTab);
+  const openRightPanel = useTerminalStore((s) => s.openRightPanel);
   const filesRoot = rightPanelRoots[baseRoot] || baseRoot;
   const showEmptyState = !sessions.length;
 
@@ -186,7 +186,8 @@ export default function TerminalWorkspace({
           onReveal={(cwd) => {
             const wsPath = sessions.find((s) => s.id === sessionId)?.workspacePath;
             setRightPanelRoot(wsPath, cwd || wsPath);
-            setRightPanelTab("files", wsPath);
+            // Mobile-only strip: open on the workspace's saved tab, not forced to files
+            openRightPanel();
           }}
         />
       )}

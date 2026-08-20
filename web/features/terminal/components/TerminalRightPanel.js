@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, Files, Folder, FolderPlus, GitBranch, GitFork, Plus, RefreshCw, X } from "@/shared/components/ui/Icon";
+import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, Package, Plus, RefreshCw, Search, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import { vibrate } from "@/shared/utils/vibration";
@@ -11,6 +11,7 @@ import { useWorkspaceRepos } from "../hooks/useWorkspaceRepos";
 import { useWorkspaceRoots } from "../hooks/useWorkspaceRoots";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { GIT_REFRESH_EVENT } from "@/features/fileExplorer/constants/fileExplorer.js";
+import { SearchBar } from "@/features/fileExplorer/components/FileExplorerModals";
 
 const ExplorerPanel = dynamic(() => import("@/features/fileExplorer/components/ExplorerPanel"), { ssr: false });
 const ScmPanel = dynamic(() => import("@/features/fileExplorer/components/ScmPanel"), { ssr: false });
@@ -101,6 +102,43 @@ export default function TerminalRightPanel({
   const activeRoot = rootState.forWorkspace === effectiveFilesRoot ? rootState.path : effectiveFilesRoot;
   const setActiveRoot = (path) => setRootState({ forWorkspace: effectiveFilesRoot, path });
 
+  // File search over the effective root — same flow as the full-page FileExplorer.
+  const [searchState, setSearchState] = useState({ forRoot: null, show: false, query: "", results: [], loading: false });
+  // A stale search from another root reads as closed, without an effect round-trip.
+  const search = searchState.forRoot === effectiveFilesRoot
+    ? searchState
+    : { show: false, query: "", results: [], loading: false };
+  const searchTimerRef = useRef(null);
+
+  const closeSearch = useCallback(() => {
+    setSearchState({ forRoot: null, show: false, query: "", results: [], loading: false });
+  }, []);
+
+  const toggleSearch = () => {
+    if (search.show) return closeSearch();
+    setSearchState({ forRoot: effectiveFilesRoot, show: true, query: "", results: [], loading: false });
+  };
+
+  const handleSearch = useCallback((query) => {
+    setSearchState((prev) => ({ ...prev, query }));
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!query || query.length < 2) {
+      setSearchState((prev) => ({ ...prev, results: [], loading: false }));
+      return;
+    }
+    setSearchState((prev) => ({ ...prev, loading: true }));
+    searchTimerRef.current = setTimeout(async () => {
+      const result = await fileSocket.searchFiles(effectiveFilesRoot, query);
+      // Ignore out-of-order replies once the query moved on.
+      setSearchState((prev) => (prev.query === query && prev.loading
+        ? { ...prev, results: result.success ? result.files : [], loading: false }
+        : prev));
+    }, 300);
+  }, [fileSocket, effectiveFilesRoot]);
+
+  // Clear the debounce timer on unmount.
+  useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); }, []);
+
   const startResize = (e) => {
     e.preventDefault();
     const startX = e.clientX;
@@ -170,6 +208,12 @@ export default function TerminalRightPanel({
               <PanelButton icon={FolderPlus} label={t("files.newFolder")} onClick={treeActions.newFolder} />
             </>
           )}
+          <PanelButton
+            icon={Search}
+            label={t("files.searchFiles")}
+            onClick={toggleSearch}
+            active={search.show}
+          />
           <div className="flex-1" />
           {treeActions?.hasExpanded && (
             <PanelButton
@@ -192,6 +236,10 @@ export default function TerminalRightPanel({
         </div>
       )}
 
+      {activeTab === "files" && workspacePath && search.show && (
+        <SearchBar compact query={search.query} loading={search.loading} onChange={handleSearch} onClose={closeSearch} />
+      )}
+
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {!workspacePath ? (
           <div className="p-4 flex flex-col items-center gap-2 text-center">
@@ -207,7 +255,14 @@ export default function TerminalRightPanel({
             )}
           </div>
         ) : activeTab === "files" ? (
-          roots.map((root) => (
+          search.show && search.query.length >= 2 ? (
+            <SearchResults
+              results={search.results}
+              loading={search.loading}
+              workspace={effectiveFilesRoot}
+              onOpen={(path) => { onOpenFile?.(path); closeSearch(); }}
+            />
+          ) : roots.map((root) => (
             <RootSection
               key={root.path}
               root={root}
@@ -286,6 +341,33 @@ export default function TerminalRightPanel({
           className="absolute top-0 left-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-500/40 transition-colors z-20"
         />
       )}
+    </div>
+  );
+}
+
+// Flat file-search results replacing the tree while a query is active.
+function SearchResults({ results, loading, workspace, onOpen }) {
+  const { t } = useI18n();
+  if (loading) return <p className="p-4 text-xs text-text-subtle">{t("files.searching")}</p>;
+  if (!results.length) return <p className="p-4 text-xs text-text-subtle">{t("files.noFilesFound")}</p>;
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
+      {results.map((file) => (
+        <button
+          key={file.path}
+          onClick={() => { vibrate(); onOpen(file.path); }}
+          className="w-full px-2 py-1.5 flex items-center gap-2 border-b border-border-subtle hover:bg-surface-2 transition-colors text-left"
+          title={file.path}
+        >
+          {file.type === "binary"
+            ? <Package size={14} className="text-red-500/70 flex-shrink-0" />
+            : <File size={14} className="text-text-subtle flex-shrink-0" />}
+          <span className="truncate text-xs text-text flex-1">{file.name}</span>
+          <span className="truncate text-[10px] text-text-subtle max-w-[45%]">
+            {file.path.replace(workspace, "").replace(/^\//, "")}
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

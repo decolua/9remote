@@ -139,6 +139,7 @@ export const useTerminalStore = create(
       rightPanelWidth: RIGHT_PANEL_WIDTH.default,
       toggleRightPanel: () => set((state) => ({ rightPanelOpen: !state.rightPanelOpen })),
       closeRightPanel: () => set({ rightPanelOpen: false }),
+      openRightPanel: () => set({ rightPanelOpen: true }),
       setRightPanelTab: (tab, workspacePath) => set((state) => ({
         rightPanelOpen: true,
         // "" is the shared slot for a workspace-less panel — the tab must still switch.
