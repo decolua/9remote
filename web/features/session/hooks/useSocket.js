@@ -56,9 +56,44 @@ export function useSocket() {
   // An empty [] response counts; only lost packets keep retrying.
   const loadedRef = useRef({ sessions: false, workspaces: false });
 
+  // A non-array ack is a carrier failure, not an answer: PM rejects every pending ack
+  // with { error: "rtc-closed" } when RTC dies. Marking it loaded would stop the retry
+  // below forever and leave the lists empty until a full reload.
+  const applySessions = useCallback((list) => {
+    if (!Array.isArray(list)) return;
+    loadedRef.current.sessions = true;
+    setSessions(list);
+  }, []);
+
+  const applyWorkspaces = useCallback((list) => {
+    if (!Array.isArray(list)) return;
+    loadedRef.current.workspaces = true;
+    setWorkspaces(list);
+  }, []);
+
+  const fetchLists = useCallback((socket) => {
+    if (!socket) return;
+    socket.emit("getWorkspaces", applyWorkspaces);
+    socket.emit("getSessions", applySessions);
+  }, [applySessions, applyWorkspaces]);
+
+  // The proxy socket this hook's listeners are bound to. onConnect fires again on
+  // every carrier reconnect after a full outage, but the proxy — and the listeners
+  // tracked on it — survive, so re-binding would stack a fresh closure set per outage.
+  const boundSocketRef = useRef(null);
+
   const handleSocketReady = useCallback((socket, auth) => {
     // Reset approval status on new connection
     setApprovalStatus(null);
+    // A reconnect may have missed create/delete done elsewhere while we were away,
+    // so neither list is trustworthy until the agent answers again.
+    loadedRef.current = { sessions: false, workspaces: false };
+
+    if (boundSocketRef.current === socket) {
+      fetchLists(socket);
+      return;
+    }
+    boundSocketRef.current = socket;
 
     // Listen for device approval flow
     socket.on("device:pendingApproval", () => {
@@ -72,15 +107,14 @@ export function useSocket() {
 
     // Server emits "terminal:ready" AFTER getSessions/getWorkspaces handlers are registered
     // (async setupSocketFeatures). Fetching here avoids the F5 race that returned empty.
-    socket.on("terminal:ready", () => {
-      socket.emit("getWorkspaces", (list) => {
-        loadedRef.current.workspaces = true;
-        setWorkspaces(Array.isArray(list) ? list : []);
-      });
-      socket.emit("getSessions", (list) => {
-        loadedRef.current.sessions = true;
-        setSessions(Array.isArray(list) ? list : []);
-      });
+    socket.on("terminal:ready", () => fetchLists(socket));
+
+    // Carrier rejoin (resume from background, RTC<->WS switch). The agent keeps the
+    // same session, so it may not re-emit "terminal:ready" — refetch here or the
+    // lists keep showing what was true before the device went to sleep.
+    socket.on("connect", () => {
+      loadedRef.current = { sessions: false, workspaces: false };
+      fetchLists(socket);
     });
 
     socket.on("device:rejected", () => {
@@ -106,22 +140,13 @@ export function useSocket() {
     });
 
     // Workspaces changed elsewhere — refresh both lists
-    socket.on("workspacesChanged", () => {
-      socket.emit("getWorkspaces", (list) => {
-        loadedRef.current.workspaces = true;
-        setWorkspaces(Array.isArray(list) ? list : []);
-      });
-      socket.emit("getSessions", (list) => {
-        loadedRef.current.sessions = true;
-        setSessions(Array.isArray(list) ? list : []);
-      });
-    });
+    socket.on("workspacesChanged", () => fetchLists(socket));
 
     socket.on("codespace:stopping", handleCodespaceStopping);
 
     // Signal server that client listeners are ready
     socket.emit("device:clientReady");
-  }, [removeTempKey, handleCodespaceStopping]);
+  }, [removeTempKey, handleCodespaceStopping, fetchLists]);
 
   const { socket, socketRef, protocolRef, connected, connectionMode, transport, retryStatus, disconnect } = useBaseSocket({
     namespace: "",
@@ -138,21 +163,14 @@ export function useSocket() {
   // Load sessions list
   const loadSessions = useCallback(() => {
     if (!socketRef.current) return;
-
-    socketRef.current.emit("getSessions", (list) => {
-      loadedRef.current.sessions = true;
-      setSessions(Array.isArray(list) ? list : []);
-    });
-  }, [socketRef]);
+    socketRef.current.emit("getSessions", applySessions);
+  }, [socketRef, applySessions]);
 
   // Load workspaces list
   const loadWorkspaces = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit("getWorkspaces", (list) => {
-      loadedRef.current.workspaces = true;
-      setWorkspaces(Array.isArray(list) ? list : []);
-    });
-  }, [socketRef]);
+    socketRef.current.emit("getWorkspaces", applyWorkspaces);
+  }, [socketRef, applyWorkspaces]);
 
   // terminal:ready is one-shot over a racy multi-carrier transport — if it or a fetch
   // ack is dropped, the lists stay empty forever. Retry while connected until each
@@ -165,6 +183,25 @@ export function useSocket() {
       loadWorkspaces();
     }, 2000);
     return () => clearInterval(timer);
+  }, [connected, loadSessions, loadWorkspaces]);
+
+  // Coming back from background. Carrier events can't be relied on here: if WS stayed
+  // up while only RTC died and recovered, the agent keeps the same session (no
+  // "terminal:ready") and PM skips the rejoin because the other carrier is ready — so
+  // nothing else would refetch, and the lists would still show pre-sleep state.
+  // Gated on `connected`: with no carrier ready PM buffers control sends in an
+  // unbounded array, and a phone toggled on/off while offline would pile them up.
+  // Re-running on `connected` also covers becoming visible while still offline.
+  useEffect(() => {
+    if (!connected) return;
+    const refetch = () => {
+      if (document.visibilityState !== "visible") return;
+      loadSessions();
+      loadWorkspaces();
+    };
+    refetch();
+    document.addEventListener("visibilitychange", refetch);
+    return () => document.removeEventListener("visibilitychange", refetch);
   }, [connected, loadSessions, loadWorkspaces]);
 
   // Create new session (workspaceId optional). cwd = a folder picked in the tree, else
