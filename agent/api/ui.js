@@ -3,7 +3,7 @@
  */
 
 import { STEP, PERMISSION_POLL_FAST_MS, PERMISSION_POLL_FAST_DURATION } from "../lib/constants.js";
-import { setSseEmitter, readRecentLogs, clearRecentLogs, createLogger } from "../lib/logger.js";
+import { setSseEmitter, readRecentLogs, clearRecentLogs, createLogger, IS_DEBUG } from "../lib/logger.js";
 import { LOG_TAIL_LINES } from "../lib/constants.js";
 import { writeCmd } from "../cli/utils/state.js";
 import { checkPermissions, openPermissionPane } from "../cli/utils/permissions.js";
@@ -96,6 +96,11 @@ export function pushUiEvent(type, data) {
 
 export function pushUiLog(message) {
   pushUiEvent("log", { message: `[${new Date().toLocaleTimeString(undefined, { hour12: false })}] ${message}` });
+}
+
+// Dev-only UI log — per-socket noise stays out of prod (AGENT_DEBUG=1 to see it)
+export function pushUiLogDebug(message) {
+  if (IS_DEBUG) pushUiLog(message);
 }
 
 // Bridge logger → SSE. Forward the formatted line as-is — it already carries a 24h
