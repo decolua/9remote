@@ -9,7 +9,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { termLog } from "@/shared/utils/termLog";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECONNECT_WARM_MS, HISTORY_FETCH } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECONNECT_WARM_MS, HISTORY_FETCH, applyTerminalBackground, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { createGapFetch } from "@/features/terminal/lib/gapFetch";
@@ -39,6 +39,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const cwdRef = useRef(null); // Track current working directory
   const [cwd, setCwd] = useState(null); // Reactive cwd for toolbar UI
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
+  const terminalBackground = useTerminalStore((s) => s.terminalBackground);
   const fontSizeSetting = useTerminalStore((s) => s.fontSize);
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
@@ -144,7 +145,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     const term = new XTerm({
       ...TERMINAL_OPTIONS,
       fontSize: fontSizeSetting ?? (window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize),
-      theme: resolveTerminalTheme(theme, terminalTheme) || THEMES.dark
+      // Mobile-only background image feature — must be set before open(), immutable after
+      allowTransparency: window.innerWidth < DESKTOP_BREAKPOINT,
+      theme: applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, theme === "dark" ? terminalBackground : "none")
     });
 
     const fitAddon = new FitAddon();
@@ -362,9 +365,24 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       // carrier, no scrollback gap. Skip reset+rejoin (which clears xterm = white flash) and
       // let output continue. Don't skip mid-join: the in-flight join's replay packets write on
       // the current buffer and would duplicate without the reset.
+      // The warm timestamp can be faked fresh by pre-close output flushing on resume, so
+      // verify against the agent's latest seq and gap-fetch what the dead carrier dropped.
       const sinceOutput = Date.now() - lastOutputAtRef.current;
       if (!joiningRef.current && sinceOutput < RECONNECT_WARM_MS) {
-        termLog("reconnect", `warm skip (${sinceOutput}ms < ${RECONNECT_WARM_MS})`);
+        if (lastSeqRef.current == null) { // old agent sends no seq → nothing to verify against
+          termLog("reconnect", `warm skip (${sinceOutput}ms < ${RECONNECT_WARM_MS}, no seq)`);
+          return;
+        }
+        socket.emit("peekSeq", { sessionId }, (res) => {
+          const agentSeq = res?.seq;
+          if (agentSeq == null || agentSeq <= (lastSeqRef.current ?? 0)) {
+            termLog("reconnect", `warm skip verified (seq ${lastSeqRef.current} vs ${agentSeq})`);
+            return;
+          }
+          if (joiningRef.current || gapFetch.isBusy()) return; // recovery already running
+          termLog("reconnect", `warm skip falsified: peekSeq ${lastSeqRef.current} → ${agentSeq} → gapFetch`);
+          gapFetch.start(agentSeq);
+        });
         return;
       }
       termLog("reconnect", `reset+rejoin (sinceOutput=${sinceOutput}ms joining=${joiningRef.current})`);
@@ -503,12 +521,14 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     return () => clearTimeout(timer);
   }, [isFocused, doResize]);
 
-  // Update theme (app mode + sub-theme)
+  // Update theme (app mode + sub-theme + background preset + dim level)
   useEffect(() => {
-    if (termRef.current) {
-      termRef.current.options.theme = resolveTerminalTheme(theme, terminalTheme) || THEMES.dark;
-    }
-  }, [theme, terminalTheme]);
+    const term = termRef.current;
+    if (!term) return;
+    // Alpha bg only valid on a mobile terminal while the app is in dark mode
+    const bgKey = term.options.allowTransparency && theme === "dark" ? terminalBackground : "none";
+    term.options.theme = applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, bgKey);
+  }, [theme, terminalTheme, terminalBackground]);
 
   useTermTouchGestures({
     termRef, termReady, isVisible, socket, sessionId,

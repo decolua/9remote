@@ -356,6 +356,13 @@ html.terminal-page body {
   pointer-events: none;
 }
 
+/* Mobile background image: clear xterm's opaque layers (viewport/composition) so the
+   pane's background layers show through the fully transparent canvas */
+.terminal-has-bg .xterm .xterm-viewport,
+.terminal-has-bg .xterm .composition-view {
+  background-color: transparent !important;
+}
+
 /* Terminal wrapper — default clip; .is-scrollable unlocks pan when soft-KB shrinks viewport */
 .terminal-wrapper {
   position: relative;

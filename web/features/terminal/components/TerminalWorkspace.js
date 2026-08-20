@@ -95,6 +95,19 @@ export default function TerminalWorkspace({
     return () => ro.disconnect();
   }, [isDesktop]);
 
+  // Pull the agent-saved custom background once per connection — the agent is the
+  // source of truth, so a fresh device gets the same wallpaper as everyone else.
+  useEffect(() => {
+    if (!connected || !socket?.emit) return;
+    let cancelled = false;
+    socket.emit("bg:get", {}, (res) => {
+      if (!cancelled && res?.success && res.dataUrl) {
+        useTerminalStore.getState().setCustomBgDataUrl(res.dataUrl);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [connected, socket]);
+
   const paneCount = workspaceOpenedSessions.length;
   const autoBase = rowWidth - sidebarWidth - PANE_ROW_PADDING_PX;
   const autoWidth = rowWidth > 0 && paneCount > 0

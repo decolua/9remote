@@ -16,6 +16,7 @@ import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import SettingsDialog from "@/features/terminal/components/SettingsDialog";
+import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPickerSheet";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 
 /**
@@ -44,6 +45,7 @@ export default function SlideMenu() {
   const [commandNotesOpen, setCommandNotesOpen] = useState(false);
   const [communityOpen, setCommunityOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [bgPickerOpen, setBgPickerOpen] = useState(false);
   const { theme: appTheme, toggleTheme } = useTheme();
 
   // Desktop gets a centered two-pane settings dialog; the drawer stays for phones.
@@ -171,6 +173,16 @@ export default function SlideMenu() {
     setCommunityOpen(false);
   }, []);
 
+  // Close the drawer first so the sheet's live preview shows the terminal behind
+  const handleOpenBackgroundPicker = useCallback(() => {
+    close();
+    setBgPickerOpen(true);
+  }, [close]);
+
+  const handleCloseBackgroundPicker = useCallback(() => {
+    setBgPickerOpen(false);
+  }, []);
+
   const overlays = (
     <>
       <SitesList
@@ -187,6 +199,11 @@ export default function SlideMenu() {
       <CommunityModal
         isOpen={communityOpen}
         onClose={handleCloseCommunity}
+      />
+      <BackgroundPickerSheet
+        isOpen={bgPickerOpen}
+        onClose={handleCloseBackgroundPicker}
+        socketRef={context.socketRef}
       />
     </>
   );
@@ -323,6 +340,7 @@ export default function SlideMenu() {
               unsubscribeFromPush={context.unsubscribeFromPush}
               onUpdate={handleUpdate}
               onRestart={handleRestart}
+              onOpenBackgroundPicker={handleOpenBackgroundPicker}
             />
           )}
 
@@ -352,6 +370,11 @@ export default function SlideMenu() {
       <CommunityModal
         isOpen={communityOpen}
         onClose={handleCloseCommunity}
+      />
+      <BackgroundPickerSheet
+        isOpen={bgPickerOpen}
+        onClose={handleCloseBackgroundPicker}
+        socketRef={context.socketRef}
       />
       <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
     </div>

@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT
+  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY
 } from "@/features/terminal/constants/terminalConfig";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
@@ -106,6 +106,23 @@ export const useTerminalStore = create(
       // Terminal palette sub-theme (default = Vesper). Resolved against app mode in useXTerm.
       terminalTheme: "default",
       setTerminalTheme: (key) => set({ terminalTheme: key || "default" }),
+
+      // Mobile terminal background preset (image behind a semi-transparent pane).
+      terminalBackground: "none",
+      setTerminalBackground: (key) => set({ terminalBackground: key || "none" }),
+
+      // Veil opacity over the background image (null = config default). Persisted.
+      terminalBackgroundOpacity: null,
+      setTerminalBackgroundOpacity: (v) => set({
+        terminalBackgroundOpacity: v == null
+          ? TERMINAL_BG_ALPHA
+          : Number((Math.max(TERMINAL_BG_OPACITY.min, Math.min(TERMINAL_BG_OPACITY.max, Math.round(v / TERMINAL_BG_OPACITY.step) * TERMINAL_BG_OPACITY.step)).toFixed(2)))
+      }),
+
+      // Agent-saved custom background (dataUrl). Not persisted — refetched via bg:get
+      // on connect so the agent stays the source of truth (and localStorage stays light).
+      customBgDataUrl: null,
+      setCustomBgDataUrl: (v) => set({ customBgDataUrl: v || null }),
 
       // Per-pane quick-action button visibility (folder / git / note). Default all on.
       showFolderButton: true,
@@ -234,6 +251,8 @@ export const useTerminalStore = create(
         webglEnabled: state.webglEnabled,
         fontSize: state.fontSize,
         terminalTheme: state.terminalTheme,
+        terminalBackground: state.terminalBackground,
+        terminalBackgroundOpacity: state.terminalBackgroundOpacity,
         showFolderButton: state.showFolderButton,
         showGitButton: state.showGitButton,
         showNoteButton: state.showNoteButton,

@@ -76,6 +76,8 @@ export const {
   FileJson,
   FileCode,
   Image,
+  Wallpaper,
+  ImageOff,
   Menu,
   Share,
   Smartphone,

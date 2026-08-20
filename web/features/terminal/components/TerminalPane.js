@@ -12,7 +12,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
+import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc } from "@/features/terminal/constants/terminalConfig";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
@@ -46,9 +46,13 @@ function TerminalPane({
   const [selection, setSelection] = useState(null); // { text, x, y } from long-press select
 
   const setRightPanelTab = useTerminalStore((s) => s.setRightPanelTab);
+  const openRightPanel = useTerminalStore((s) => s.openRightPanel);
   const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
   const paneCwd = useTerminalStore((s) => s.cwdBySession[sessionId]);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
+  const terminalBackground = useTerminalStore((s) => s.terminalBackground);
+  const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
+  const customBgDataUrl = useTerminalStore((s) => s.customBgDataUrl);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
   const showGitButton = useTerminalStore((s) => s.showGitButton);
   const showNoteButton = useTerminalStore((s) => s.showNoteButton);
@@ -217,10 +221,20 @@ function TerminalPane({
     showFocusBorder && isFocused ? "terminal-focus-glow" : ""
   ].filter(Boolean).join(" ");
 
+  // Mobile-only background image on the pane: veil + screen-lift layers dim it, the
+  // xterm canvas above stays fully transparent so padding can't create a bright frame
+  const bgSrc = backgroundSrc(terminalBackground, customBgDataUrl);
+  const bgActive = !!bgSrc && theme === "dark" && typeof window !== "undefined" && window.innerWidth < DESKTOP_BREAKPOINT;
+  const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
+  const lift = `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})`;
+
   return (
     <div
-      className={`h-full w-full flex flex-col overflow-hidden relative touch-none px-1.5 py-1.5 ${focusClass}`}
-      style={{ background: currentTheme.background }}
+      className={`h-full w-full flex flex-col overflow-hidden relative touch-none px-1.5 py-1.5 ${focusClass}${bgActive ? " terminal-has-bg" : ""}`}
+      style={bgActive ? {
+        background: `linear-gradient(${veil},${veil}), linear-gradient(${lift},${lift}), center / cover no-repeat url("${bgSrc}")`,
+        backgroundBlendMode: "normal, screen, normal"
+      } : { background: currentTheme.background }}
       onMouseDown={handlePaneClick}
       onTouchStart={() => handlePaneClick()}
     >
@@ -320,7 +334,9 @@ function TerminalPane({
                 e.stopPropagation(); vibrate();
                 // Reveal where this terminal stands (OSC 7), not its fixed workspace root
                 setRightPanelRoot(workspacePath, paneCwd || workspacePath);
-                setRightPanelTab("files", workspacePath);
+                // Desktop jumps to files; mobile keeps the workspace's saved tab
+                if (window.innerWidth >= DESKTOP_BREAKPOINT) setRightPanelTab("files", workspacePath);
+                else openRightPanel();
               }}
               className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
               title={t("terminalPane.openFolderHere")}

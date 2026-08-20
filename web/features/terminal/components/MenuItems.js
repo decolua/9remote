@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, GitBranch, StickyNote } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, GitBranch, StickyNote, Wallpaper } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
+import { TERMINAL_BACKGROUNDS } from "@/features/terminal/constants/terminalConfig";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import AgentSwitcher from "@/features/terminal/components/AgentSwitcher";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
@@ -39,7 +40,8 @@ export default function MenuItems({
   subscribeToPush = null,
   unsubscribeFromPush = null,
   onUpdate,
-  onRestart
+  onRestart,
+  onOpenBackgroundPicker
 }) {
   const { t } = useI18n();
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
@@ -49,6 +51,7 @@ export default function MenuItems({
   const setFontSize = useTerminalStore((s) => s.setFontSize);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const setTerminalTheme = useTerminalStore((s) => s.setTerminalTheme);
+  const terminalBackground = useTerminalStore((s) => s.terminalBackground);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
   const setShowFolderButton = useTerminalStore((s) => s.setShowFolderButton);
   const showGitButton = useTerminalStore((s) => s.showGitButton);
@@ -286,6 +289,19 @@ export default function MenuItems({
             </div>
           )}
         </div>
+      )}
+
+      {/* Terminal background picker — standalone row (mobile, dark mode only) */}
+      {appMode === "dark" && (
+        <button
+          onClick={() => { vibrate(); onOpenBackgroundPicker?.(); }}
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+        >
+          <Wallpaper className="text-brand-500 flex-shrink-0" size={16} />
+          <span className="text-sm flex-1 min-w-0">{t("menu.terminalBackground")}</span>
+          <span className="text-xs text-text-muted truncate max-w-[90px]">{TERMINAL_BACKGROUNDS[terminalBackground]?.label || TERMINAL_BACKGROUNDS.none.label}</span>
+          <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
+        </button>
       )}
 
       {/* Sites */}

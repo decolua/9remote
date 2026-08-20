@@ -20,6 +20,7 @@ export const PATHS = {
   PIDS:    path.join(ROOT, "pids"),
   BUFFERS: path.join(ROOT, "buffers"),
   DAEMON:  path.join(ROOT, "daemon"),
+  BACKGROUNDS: path.join(ROOT, "backgrounds"),
 };
 
 // Force public DNS to bypass macOS mDNSResponder negative cache

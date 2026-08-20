@@ -104,6 +104,43 @@ export const TERMINAL_OPTIONS = {
   macOptionIsMeta: true
 };
 
+// Mobile terminal background presets (image behind a semi-transparent terminal)
+export const TERMINAL_BG_ALPHA = 0.75;
+// Veil + screen-lift layers painted on the PANE (canvas stays fully transparent),
+// so text padding can't create a bright un-veiled frame. RGBA triplets for CSS.
+export const TERMINAL_BG_VEIL_RGB = "16,16,20";
+export const TERMINAL_BG_LIFT_RGB = "116,120,136";
+export const TERMINAL_BG_LIFT = 0.28;
+export const TERMINAL_BG_DARK = "#101014";
+// User-adjustable veil opacity range (null = TERMINAL_BG_ALPHA default)
+export const TERMINAL_BG_OPACITY = { min: 0.3, max: 0.95, step: 0.05 };
+export const TERMINAL_BACKGROUNDS = {
+  none: { label: "None" },
+  custom: { label: "Custom" },
+  art1: { label: "Anime 1", src: "/backgrounds/bg9.jpg" },
+  art2: { label: "Anime 2", src: "/backgrounds/bg2.jpg" },
+  art3: { label: "Anime 3", src: "/backgrounds/bg3.jpg" },
+  art4: { label: "Anime 4", src: "/backgrounds/bg4.jpg" },
+  art5: { label: "Anime 5", src: "/backgrounds/bg5.jpg" },
+  art6: { label: "Anime 6", src: "/backgrounds/bg6.jpg" },
+  art7: { label: "Anime 7", src: "/backgrounds/bg7.jpg" },
+  art8: { label: "Anime 8", src: "/backgrounds/bg8.jpg" }
+};
+
+// When a background is active the canvas paints NOTHING (alpha 00) — the dim veil
+// lives on the pane's background layers instead. RGB is kept so minimumContrastRatio
+// still computes text contrast against the near-black it visually sits on.
+export function applyTerminalBackground(xtermTheme, bgKey) {
+  if (!xtermTheme || !bgKey || bgKey === "none" || !TERMINAL_BACKGROUNDS[bgKey]) return xtermTheme;
+  return { ...xtermTheme, background: `${TERMINAL_BG_DARK}00` };
+}
+
+// Renderable src for a background key — "custom" pulls the agent-saved dataUrl.
+export function backgroundSrc(bgKey, customDataUrl) {
+  if (bgKey === "custom") return customDataUrl || null;
+  return TERMINAL_BACKGROUNDS[bgKey]?.src || null;
+}
+
 // Renderer config (VS Code parity)
 export const RENDERER = {
   gpuAcceleration: "auto",      // "auto" | "on" | "off"

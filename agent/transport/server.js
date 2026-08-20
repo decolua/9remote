@@ -15,6 +15,7 @@ import { checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerHandlers } from "../features/fileExplorer/fileExplorerSocket.js";
 import { setupClipboardHandlers } from "../features/clipboard/clipboardSocket.js";
 import { setupQuotaTrackerHandlers } from "../features/quotaTracker/quotaTrackerSocket.js";
+import { setupBackgroundHandlers } from "../features/terminal/backgroundSocket.js";
 import { trackConnection, untrackConnection, pushUiLog, pushUiLogDebug, clearOneTimeKey, pushUiEvent, setRemoteAvailable, pushTransportState } from "../api/ui.js";
 import {
   loadApprovedDevices,
@@ -65,6 +66,7 @@ async function setupSocketFeatures(socket) {
   setupFileExplorerHandlers(socket);
   setupClipboardHandlers(socket);
   setupQuotaTrackerHandlers(socket);
+  setupBackgroundHandlers(socket);
   await setupTerminalHandlers(socket, ioInstance, loadApiKey());
   socket.emit("terminal:ready");
 }
