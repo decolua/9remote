@@ -5,7 +5,7 @@ import { X, Terminal, Bot, Check } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
-import { agentIconUrl, canSkipPermissions } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
 import LocationPicker from "@/features/terminal/components/LocationPicker";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
 
@@ -13,23 +13,6 @@ import FolderPickerModal from "@/features/terminal/components/FolderPickerModal"
 // what to launch (plain shell or a TUI agent CLI detected on the host's PATH), how it
 // runs, and what to call it — decision first, its dependents under it, name last.
 // Used by workspace TerminalHeader/Sidebar and home SessionList. Remount via `key` to reset.
-const SHELL_PREF_KEY = "9remote.terminal.shellPref";
-const AGENT_PREF_KEY = "9remote.terminal.agentPref";
-// v2: default flipped to on — a new key so an old opt-out value isn't read as one
-const YOLO_PREF_KEY = "9remote.terminal.yoloPref2";
-
-export function loadShellPref() {
-  try { return localStorage.getItem(SHELL_PREF_KEY) || null; } catch { return null; }
-}
-
-function loadPref(key) {
-  try { return localStorage.getItem(key) || null; } catch { return null; }
-}
-
-function savePref(key, value) {
-  try { localStorage.setItem(key, value); } catch {}
-}
-
 // Agent logo, falling back to a neutral glyph when an agent ships no bundled icon
 function AgentAvatar({ agent }) {
   const [broken, setBroken] = useState(false);
@@ -55,13 +38,13 @@ export default function NewTerminalModal({
   const agentClis = useAgentClis(socketRef);
   // "" = plain terminal. Held as an id (not the object) so the last-used agent
   // restores from localStorage before detection lands, with no effect/setState race.
-  const [agentId, setAgentId] = useState(() => loadPref(AGENT_PREF_KEY) || "");
+  const [agentId, setAgentId] = useState(() => loadTerminalPrefs().agentId);
   const [name, setName] = useState("");
   // null = inherit the workspace's last cwd, same as before this picker existed
   const [cwd, setCwd] = useState(null);
   const [browsing, setBrowsing] = useState(false);
   // On by default — the agent acts without approval prompts unless the user opted out before
-  const [skipPermissions, setSkipPermissions] = useState(() => loadPref(YOLO_PREF_KEY) !== "0");
+  const [skipPermissions, setSkipPermissions] = useState(() => loadTerminalPrefs().yolo);
   const [shellId, setShellId] = useState(() => {
     const saved = loadShellPref();
     if (saved && shells.some((s) => s.id === saved)) return saved;
@@ -111,9 +94,9 @@ export default function NewTerminalModal({
 
   const submit = (picked = agent) => {
     vibrate();
-    if (!picked && shellId) savePref(SHELL_PREF_KEY, shellId);
-    savePref(AGENT_PREF_KEY, picked?.id || "");
-    savePref(YOLO_PREF_KEY, skipPermissions ? "1" : "0");
+    if (!picked && shellId) savePref(TERMINAL_PREF_KEYS.shell, shellId);
+    savePref(TERMINAL_PREF_KEYS.agent, picked?.id || "");
+    savePref(TERMINAL_PREF_KEYS.yolo, skipPermissions ? "1" : "0");
     const yolo = skipPermissions && canSkipPermissions(picked);
     // An agent tab left unnamed takes the agent's name, not the host's generic "Term N"
     const suffix = suggestIndex ? ` ${suggestIndex}` : "";

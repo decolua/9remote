@@ -26,3 +26,33 @@ export function agentLaunchCommand(agent, skipPermissions = false) {
   }
   return agent.cmd;
 }
+
+// Last-used new-terminal choices, shared by the modal (which writes them) and the
+// Mod+Shift+Enter chord (which replays them without opening the modal).
+const SHELL_PREF_KEY = "9remote.terminal.shellPref";
+const AGENT_PREF_KEY = "9remote.terminal.agentPref";
+// v2: default flipped to on — a new key so an old opt-out value isn't read as one
+const YOLO_PREF_KEY = "9remote.terminal.yoloPref2";
+
+function loadPref(key) {
+  try { return localStorage.getItem(key) || null; } catch { return null; }
+}
+
+export function savePref(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
+}
+
+export const TERMINAL_PREF_KEYS = { shell: SHELL_PREF_KEY, agent: AGENT_PREF_KEY, yolo: YOLO_PREF_KEY };
+
+export function loadShellPref() {
+  return loadPref(SHELL_PREF_KEY);
+}
+
+// yolo defaults to on, matching the modal's opt-out toggle.
+export function loadTerminalPrefs() {
+  return {
+    agentId: loadPref(AGENT_PREF_KEY) || "",
+    shellId: loadPref(SHELL_PREF_KEY),
+    yolo: loadPref(YOLO_PREF_KEY) !== "0"
+  };
+}
