@@ -445,7 +445,7 @@ export default function TerminalSidebar({
                           ) : (
                             <Terminal size={13} className="flex-shrink-0" />
                           )}
-                          <span className="text-[13px] truncate">{s.name || t("terminal.defaultName")}</span>
+                          <span className="text-[12px] truncate">{s.name || t("terminal.defaultName")}</span>
                         </span>
                         <SessionMeta
                           session={s}

@@ -209,7 +209,7 @@ export default function TerminalHeader({
 
   return (
     // Desktop left inset matches the panes row (px-1) plus the pane's p-px border
-    <div className="px-2 sm:pl-[5px] sm:pr-2 pt-0 flex items-center gap-0 flex-shrink-0 bg-bg">
+    <div className="px-2 sm:pl-[5px] sm:pr-2 py-0.5 sm:py-0 flex items-center gap-0 flex-shrink-0 bg-bg">
       {onToggleSidebar && sidebarCollapsed && (
         <button
           onClick={() => { vibrate(); onToggleSidebar(); }}

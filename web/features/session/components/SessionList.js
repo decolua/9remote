@@ -189,6 +189,7 @@ export default function SessionList({
                   items={items}
                   connected={connected}
                   shellCount={shells.length}
+                  socketRef={socketRef}
                   cwdBySession={cwdBySession}
                   fileSocket={fileSocket}
                   homeDir={homeDir}
@@ -283,7 +284,7 @@ export default function SessionList({
 
 // One workspace: a header naming the folder and where it is, then its terminals.
 function WorkspaceSection({
-  section, items, connected, cwdBySession = {}, fileSocket, homeDir, sessionStatus, notifications, shellCount = 1,
+  section, items, connected, cwdBySession = {}, fileSocket, homeDir, sessionStatus, notifications, shellCount = 1, socketRef,
   onSelect, onNewTerminal, onSessionMenu, onWorkspaceMenu, onRenameSession, onDeleteSession
 }) {
   const { t } = useI18n();
@@ -396,13 +397,16 @@ function HeaderButton({ icon: Icon, label, onClick, disabled }) {
 }
 
 // First run: the two things this app can do, each taking half the screen so neither
-// reads as the secondary one.
+// reads as the secondary one. Accent drives each card's halo + icon tint.
+const CARD_ACCENT = { workspace: "#f59e0b", remote: "#06b6d4" };
+
 function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected }) {
   const { t } = useI18n();
   return (
-    <div className="h-full flex flex-col gap-3 py-3">
+    <div className="h-full flex flex-col gap-4 py-3">
       <BigCard
-        icon={<Folder size={40} strokeWidth={1.25} />}
+        accent={CARD_ACCENT.workspace}
+        icon={<Folder size={30} strokeWidth={1.5} />}
         title={t("workspaces.cardWorkspaceTitle")}
         desc={t("workspaces.cardWorkspaceDesc")}
         action={t("workspaces.selectFolder")}
@@ -416,7 +420,7 @@ function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected
                 key={w.path}
                 role="button"
                 onClick={(e) => { e.stopPropagation(); vibrate(); onAddWorkspace?.(w.path); }}
-                className="px-2 py-1 text-[11px] text-text-muted bg-surface-2/70 border border-border-subtle rounded-brand truncate max-w-[46%]"
+                className="welcome-chip px-2 py-1 text-[11px] text-text-muted rounded-brand truncate max-w-[46%]"
               >
                 {shortenHomePath(w.path, homeDir)}
               </span>
@@ -426,7 +430,8 @@ function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected
       </BigCard>
 
       <BigCard
-        icon={<Monitor size={40} strokeWidth={1.25} />}
+        accent={CARD_ACCENT.remote}
+        icon={<Monitor size={30} strokeWidth={1.5} />}
         title={t("workspaces.cardRemoteTitle")}
         desc={t("workspaces.cardRemoteDesc")}
         action={t("menu.remoteDesktop")}
@@ -437,17 +442,36 @@ function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected
   );
 }
 
-function BigCard({ icon, title, desc, action, onClick, disabled, children }) {
+function BigCard({ icon, title, desc, action, onClick, disabled, accent, children }) {
   return (
     <button
       onClick={() => { vibrate(); onClick?.(); }}
       disabled={disabled}
-      className="flex-1 min-h-0 card-elev border border-border-subtle p-6 flex flex-col items-center justify-center gap-2 text-center transition-transform duration-150 active:scale-[0.985] disabled:opacity-40"
+      style={{ "--welcome-glow": `${accent}55` }}
+      className="group relative flex-1 min-h-0 welcome-glass rounded-3xl p-6 flex flex-col items-center justify-center gap-2 text-center transition-all duration-200 active:scale-[0.985] enabled:hover:-translate-y-0.5 disabled:opacity-40 disabled:saturate-50"
     >
-      <span className="text-text">{icon}</span>
+      {/* Accent halo bleeding out of the top edge — what the glass refracts */}
+      <span
+        aria-hidden
+        className="absolute -top-10 left-1/2 -translate-x-1/2 w-56 h-32 rounded-full pointer-events-none blur-3xl opacity-40 -z-10 transition-opacity duration-300 group-hover:opacity-70"
+        style={{ background: `radial-gradient(closest-side, ${accent}45, transparent)` }}
+      />
+      {/* Icon in a tinted lens */}
+      <span
+        className="flex items-center justify-center w-16 h-16 rounded-full mb-1"
+        style={{
+          background: `${accent}1f`,
+          boxShadow: `inset 0 0 0 1px ${accent}45, 0 8px 24px -8px ${accent}66`
+        }}
+      >
+        <span style={{ color: accent }}>{icon}</span>
+      </span>
       <span className="text-[16px] font-semibold text-text">{title}</span>
       <span className="text-[12px] text-text-muted leading-snug max-w-[36ch]">{desc}</span>
-      <span className="mt-1 px-3 py-1.5 text-[12px] font-medium text-text bg-text/10 rounded-brand">
+      <span
+        className="mt-1 px-3.5 py-1.5 text-[12px] font-medium rounded-full"
+        style={{ color: accent, background: `${accent}1a`, boxShadow: `inset 0 0 0 1px ${accent}33` }}
+      >
         {action}
       </span>
       {children}

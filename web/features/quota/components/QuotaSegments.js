@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { PROVIDER_LABELS, quotaBarColor } from "../constants/quotaConfig";
+import { agentIconUrl } from "@/features/terminal/constants/agentCli";
 
 // One segment per provider that has quota data. Click opens a popover with the
 // windows' reset times (and per-model buckets for Gemini) or the fetch error.
@@ -29,6 +30,22 @@ function MiniBar({ usedPct }) {
         style={{ width: `${Math.min(100, Math.max(0, usedPct))}%` }}
       />
     </span>
+  );
+}
+
+// Provider logo from the bundled agent icons; falls back to the text label
+function ProviderLogo({ provider }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <span className="text-text-subtle">{PROVIDER_LABELS[provider] || provider}</span>;
+  return (
+    <img
+      src={agentIconUrl(provider)}
+      alt=""
+      width={14}
+      height={14}
+      onError={() => setBroken(true)}
+      className="w-3.5 h-3.5 object-contain"
+    />
   );
 }
 
@@ -99,7 +116,7 @@ export default function QuotaSegments({ quota }) {
               onClick={() => setOpenProvider(openProvider === p.provider ? null : p.provider)}
               title={`${PROVIDER_LABELS[p.provider] || p.provider} ${t("terminal.quotaUsageTitle")}`}
             >
-              <span className="text-text-subtle">{PROVIDER_LABELS[p.provider] || p.provider}</span>
+              <ProviderLogo provider={p.provider} />
               <MiniBar usedPct={preview.usedPercent} />
               <span className="tabular-nums">{Math.round(preview.usedPercent)}%</span>
             </button>
