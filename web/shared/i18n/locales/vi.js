@@ -295,6 +295,8 @@ export default {
     folder: "Thư mục",
     placeholderFile: "filename.js",
     placeholderFolder: "ten-thu-muc",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Sao chép đường dẫn",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

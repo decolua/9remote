@@ -244,6 +244,8 @@ export default {
     folder: "Папка",
     placeholderFile: "filename.js",
     placeholderFolder: "folder-name",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Копировать путь",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

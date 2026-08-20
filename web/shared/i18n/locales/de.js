@@ -244,6 +244,8 @@ export default {
     folder: "Ordner",
     placeholderFile: "dateiname.js",
     placeholderFolder: "ordner-name",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Pfad kopieren",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

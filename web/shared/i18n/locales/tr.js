@@ -244,6 +244,8 @@ export default {
     folder: "Klasör",
     placeholderFile: "dosyaadi.js",
     placeholderFolder: "klasor-adi",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Yolu kopyala",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

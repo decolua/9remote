@@ -243,6 +243,8 @@ export default {
     folder: "پوشه",
     placeholderFile: "filename.js",
     placeholderFolder: "folder-name",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "کپی مسیر",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

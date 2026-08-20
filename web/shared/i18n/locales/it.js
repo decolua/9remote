@@ -244,6 +244,8 @@ export default {
     folder: "Cartella",
     placeholderFile: "nomefile.js",
     placeholderFolder: "nome-cartella",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Copia percorso",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

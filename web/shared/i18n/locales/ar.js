@@ -243,6 +243,8 @@ export default {
     folder: "مجلد",
     placeholderFile: "filename.js",
     placeholderFolder: "folder-name",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "نسخ المسار",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

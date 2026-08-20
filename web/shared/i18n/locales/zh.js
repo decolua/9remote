@@ -244,6 +244,8 @@ export default {
     folder: "文件夹",
     placeholderFile: "filename.js",
     placeholderFolder: "folder-name",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "复制路径",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

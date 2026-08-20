@@ -316,6 +316,8 @@ export default {
     folder: "Folder",
     placeholderFile: "filename.js",
     placeholderFolder: "folder-name",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Copy path",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

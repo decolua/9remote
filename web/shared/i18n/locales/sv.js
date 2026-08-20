@@ -244,6 +244,8 @@ export default {
     folder: "Mapp",
     placeholderFile: "filnamn.js",
     placeholderFolder: "mappnamn",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Kopiera sökväg",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

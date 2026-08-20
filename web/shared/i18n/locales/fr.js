@@ -244,6 +244,8 @@ export default {
     folder: "Dossier",
     placeholderFile: "filename.js",
     placeholderFolder: "nom-dossier",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Copier le chemin",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

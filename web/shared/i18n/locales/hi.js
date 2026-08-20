@@ -243,6 +243,8 @@ export default {
     folder: "फ़ोल्डर",
     placeholderFile: "filename.js",
     placeholderFolder: "folder-name",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "पथ कॉपी करें",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

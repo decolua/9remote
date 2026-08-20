@@ -82,6 +82,6 @@ export function useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone, o
 
   return {
     transfer, dragOver, conflict, downloadState,
-    handleDrop, handleDragOver, handleDragLeave, handleDownload, resolveConflict
+    startUpload, handleDrop, handleDragOver, handleDragLeave, handleDownload, resolveConflict
   };
 }

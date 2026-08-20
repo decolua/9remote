@@ -244,6 +244,8 @@ export default {
     folder: "Map",
     placeholderFile: "bestandsnaam.js",
     placeholderFolder: "map-naam",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Pad kopiëren",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

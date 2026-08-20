@@ -244,6 +244,8 @@ export default {
     folder: "Carpeta",
     placeholderFile: "filename.js",
     placeholderFolder: "nombre-carpeta",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Copiar ruta",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

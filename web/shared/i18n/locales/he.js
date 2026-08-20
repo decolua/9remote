@@ -243,6 +243,8 @@ export default {
     folder: "תיקייה",
     placeholderFile: "filename.js",
     placeholderFolder: "folder-name",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "העתק נתיב",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

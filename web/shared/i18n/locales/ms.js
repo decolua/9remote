@@ -244,6 +244,8 @@ export default {
     folder: "Folder",
     placeholderFile: "namafile.js",
     placeholderFolder: "nama-folder",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Salin laluan",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

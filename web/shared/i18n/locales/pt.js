@@ -244,6 +244,8 @@ export default {
     folder: "Pasta",
     placeholderFile: "filename.js",
     placeholderFolder: "nome-da-pasta",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Copiar caminho",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

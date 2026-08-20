@@ -244,6 +244,8 @@ export default {
     folder: "Folder",
     placeholderFile: "namaberkas.js",
     placeholderFolder: "nama-folder",
+    pickFile: "Choose files",
+    pickFolder: "Choose folder",
     copyPath: "Salin path",
     copyRelPath: "Copy Relative Path",
     copyName: "Copy Filename",

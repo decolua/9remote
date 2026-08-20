@@ -95,7 +95,7 @@ export default function FileExplorer({
 
   const {
     transfer, dragOver, conflict, downloadState,
-    handleDrop, handleDragOver, handleDragLeave, handleDownload, resolveConflict
+    startUpload, handleDrop, handleDragOver, handleDragLeave, handleDownload, resolveConflict
   } = useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone: loadFiles, onError: setError });
 
   // Search files with debounce
@@ -236,6 +236,18 @@ export default function FileExplorer({
     } else {
       setError(result.error);
     }
+  };
+
+  // Device-picker upload: reset value so picking the same file twice still fires onChange.
+  const uploadFileInputRef = useRef(null);
+  const uploadFolderInputRef = useRef(null);
+  const handleUploadPick = (e) => {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!picked.length) return;
+    const items = picked.map((f) => ({ file: f, relativePath: f.webkitRelativePath || f.name }));
+    setShowNewItemModal(false);
+    startUpload(items);
   };
 
   const getDisplayPath = () => currentPath.replace(/^\/Users\/[^/]+/, "~");
@@ -469,14 +481,20 @@ export default function FileExplorer({
       )}
 
       {showNewItemModal && (
-        <NewItemModal
-          type={newItemType}
-          name={newItemName}
-          onTypeChange={setNewItemType}
-          onNameChange={setNewItemName}
-          onSubmit={handleCreateItem}
-          onClose={() => setShowNewItemModal(false)}
-        />
+        <>
+          <NewItemModal
+            type={newItemType}
+            name={newItemName}
+            onTypeChange={setNewItemType}
+            onNameChange={setNewItemName}
+            onSubmit={handleCreateItem}
+            onPickFile={() => uploadFileInputRef.current?.click()}
+            onPickFolder={() => uploadFolderInputRef.current?.click()}
+            onClose={() => setShowNewItemModal(false)}
+          />
+          <input ref={uploadFileInputRef} type="file" multiple className="hidden" onChange={handleUploadPick} />
+          <input ref={uploadFolderInputRef} type="file" className="hidden" webkitdirectory="" onChange={handleUploadPick} />
+        </>
       )}
 
       {renameModal && (

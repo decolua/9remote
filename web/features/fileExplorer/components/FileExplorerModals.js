@@ -1,8 +1,9 @@
 "use client";
 
-import { X, File, Folder, Loader2, Search } from "@/shared/components/ui/Icon";
+import { X, File, Folder, Loader2, Search, Upload } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import { useState } from "react";
 
 // Modal + banner layer for the mobile FileExplorer: new item, rename, copy
 // conflict, and the transfer/error banners. Extracted verbatim from FileExplorer.
@@ -25,8 +26,36 @@ export function TransferBanner({ label, ratio }) {
   );
 }
 
-export function SearchBar({ query, loading, onChange, onClose }) {
+export function SearchBar({ query, loading, onChange, onClose, compact = false }) {
   const { t } = useI18n();
+  // Compact variant for narrow panels: bordered input with inline icons, matching SearchPanel.
+  if (compact) {
+    return (
+      <div className="px-2 py-1.5 border-b border-border-subtle flex-shrink-0">
+        <div className="relative">
+          <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-subtle pointer-events-none" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={t("files.searchPlaceholder")}
+            className="w-full min-w-0 bg-surface-2 border border-border rounded-brand pl-7 pr-7 h-8 text-xs text-text placeholder-text-subtle focus:outline-none focus:border-brand-500"
+            autoFocus
+          />
+          {loading ? (
+            <Loader2 size={14} className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-brand-500" />
+          ) : (
+            <button
+              onClick={() => { vibrate(); onClose(); }}
+              className="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-text-subtle hover:text-text"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="bg-surface-2 px-4 py-2 flex items-center gap-2 flex-shrink-0">
       <Search className="text-text-muted flex-shrink-0" size={20} />
@@ -35,7 +64,7 @@ export function SearchBar({ query, loading, onChange, onClose }) {
         value={query}
         onChange={(e) => onChange(e.target.value)}
         placeholder={t("files.searchPlaceholder")}
-        className="flex-1 bg-transparent text-text placeholder-text-subtle focus:outline-none"
+        className="flex-1 min-w-0 w-0 bg-transparent text-text placeholder-text-subtle focus:outline-none"
         autoFocus
       />
       {loading && <Loader2 className="animate-spin text-brand-500" size={16} />}
@@ -49,8 +78,11 @@ export function SearchBar({ query, loading, onChange, onClose }) {
   );
 }
 
-export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit, onClose }) {
+export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit, onPickFile, onPickFolder, onClose }) {
   const { t } = useI18n();
+  // Folder picking needs webkitdirectory — hide the button where the browser lacks it.
+  const [dirPickerOk] = useState(() => typeof document !== "undefined" && "webkitdirectory" in document.createElement("input"));
+  const isUpload = type === "upload";
   return (
     <div className={MODAL_WRAP}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
@@ -72,20 +104,42 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
             >
               <Folder size={16} className="text-orange-500/70" /> {t("files.folder")}
             </button>
+            <button
+              onClick={() => { vibrate(); onTypeChange("upload"); }}
+              className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${isUpload ? "bg-brand-500 text-white" : "bg-surface-2 text-text"}`}
+            >
+              <Upload size={16} className="text-brand-500" /> {t("common.upload")}
+            </button>
           </div>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onSubmit()}
-            placeholder={type === "file" ? t("files.placeholderFile") : t("files.placeholderFolder")}
-            className={INPUT}
-            autoFocus
-          />
-          <div className="flex gap-2">
-            <button onClick={() => { vibrate(); onClose(); }} className={BTN_MUTED}>{t("common.cancel")}</button>
-            <button onClick={() => { vibrate(); onSubmit(); }} className={BTN_BRAND}>{t("common.create")}</button>
-          </div>
+          {isUpload ? (
+            <>
+              <button onClick={() => { vibrate(); onPickFile(); }} className={`${BTN_BRAND} flex items-center justify-center gap-2`}>
+                <File size={16} /> {t("files.pickFile")}
+              </button>
+              {dirPickerOk && (
+                <button onClick={() => { vibrate(); onPickFolder(); }} className={`${BTN_MUTED} flex items-center justify-center gap-2`}>
+                  <Folder size={16} /> {t("files.pickFolder")}
+                </button>
+              )}
+              <button onClick={() => { vibrate(); onClose(); }} className={BTN_MUTED}>{t("common.cancel")}</button>
+            </>
+          ) : (
+            <>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => onNameChange(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && onSubmit()}
+                placeholder={type === "file" ? t("files.placeholderFile") : t("files.placeholderFolder")}
+                className={INPUT}
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button onClick={() => { vibrate(); onClose(); }} className={BTN_MUTED}>{t("common.cancel")}</button>
+                <button onClick={() => { vibrate(); onSubmit(); }} className={BTN_BRAND}>{t("common.create")}</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
