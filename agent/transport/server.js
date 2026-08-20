@@ -15,7 +15,7 @@ import { checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerHandlers } from "../features/fileExplorer/fileExplorerSocket.js";
 import { setupClipboardHandlers } from "../features/clipboard/clipboardSocket.js";
 import { setupQuotaTrackerHandlers } from "../features/quotaTracker/quotaTrackerSocket.js";
-import { trackConnection, untrackConnection, pushUiLog, clearOneTimeKey, pushUiEvent, setRemoteAvailable, pushTransportState } from "../api/ui.js";
+import { trackConnection, untrackConnection, pushUiLog, pushUiLogDebug, clearOneTimeKey, pushUiEvent, setRemoteAvailable, pushTransportState } from "../api/ui.js";
 import {
   loadApprovedDevices,
   isDeviceApproved,
@@ -102,7 +102,7 @@ async function attachTransportBus(socket) {
   // Virtual session: RTC dying with no WS fallback means the session is over.
   if (socket.isVirtual) {
     pm._onDead = () => {
-      pushUiLog(`RTC session closed: ${socket.handshake.auth?.deviceId?.slice(0, 8)}...`);
+      pushUiLogDebug(`RTC session closed: ${socket.handshake.auth?.deviceId?.slice(0, 8)}...`);
       try { pm.close(); } catch {}
       unregisterProtocol(pm);
       socket.disconnect();
@@ -145,7 +145,7 @@ export function setRtcTestDisabled(disabled) {
       if (pm) { try { pm.close(); } catch {} unregisterProtocol(pm); }
     } catch {}
     rtcSessions.delete(peerId);
-    pushUiLog(`RTC test-disabled: killed session ${peerId?.slice(0, 8)}`);
+    pushUiLogDebug(`RTC test-disabled: killed session ${peerId?.slice(0, 8)}`);
   }
 }
 
@@ -173,7 +173,7 @@ function handleRtcOffer(peerId) {
     // Live (or still building — protocol not attached yet) → the offer is
     // already routed to its PM. Only a closed PM is stale and worth rebuilding.
     if (!existing.data.protocol?._closed) return;
-    pushUiLog(`Stale RTC session ${deviceId.slice(0, 8)} — rebuilding`);
+    pushUiLogDebug(`Stale RTC session ${deviceId.slice(0, 8)} — rebuilding`);
     try { existing.disconnect(); } catch {}
     rtcSessions.delete(peerId);
   }
@@ -242,7 +242,7 @@ async function buildRtcSession(peerId, deviceId) {
     if (rtcSessions.get(peerId) === socket) rtcSessions.delete(peerId);
     untrackConnection(socket.id);
   });
-  pushUiLog(`RTC session: ${deviceId.slice(0, 8)}...`);
+  pushUiLogDebug(`RTC session: ${deviceId.slice(0, 8)}...`);
   await setupSocketFeatures(socket);
   // Client waits for this before loading sessions (mirrors the socket.io path).
   socket.once("device:clientReady", () => socket.emit("device:approved"));
@@ -336,7 +336,7 @@ export function disconnectDeviceSockets(deviceId) {
     vs.disconnect();
     count++;
   }
-  if (count) pushUiLog(`Disconnected ${count} socket(s) for device ${deviceId.slice(0, 8)}...`);
+  if (count) pushUiLogDebug(`Disconnected ${count} socket(s) for device ${deviceId.slice(0, 8)}...`);
   return count;
 }
 
@@ -428,7 +428,7 @@ export async function startTransportServer(server) {
     if (!isTunnel && isLoopback && originOk && verifyLocalToken(socket.handshake.auth?.localToken)) {
       socket.data.approved = true;
       socket.data.localUi = true;
-      pushUiLog("Local UI connected — trusted (token)");
+      pushUiLogDebug("Local UI connected — trusted (token)");
       // emits "terminal:ready" when handlers registered
       setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
       return; // do not track in Clients list
@@ -442,13 +442,13 @@ export async function startTransportServer(server) {
     }
 
     trackConnection(socket.id, ip, deviceId);
-    pushUiLog(`Client connected: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);
+    pushUiLogDebug(`Client connected: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);
 
     socket.on("disconnect", (reason) => {
       untrackConnection(socket.id);
       removePendingApproval(socket.id);
       const pm = socket.data?.protocol;
-      pushUiLog(`Client disconnected: ${ip} (${reason}) pm=${pm?._deviceId?.slice(0, 12) || "none"} remoteAttached=${!!socket.data?.remoteAttached}`);
+      pushUiLogDebug(`Client disconnected: ${ip} (${reason}) pm=${pm?._deviceId?.slice(0, 12) || "none"} remoteAttached=${!!socket.data?.remoteAttached}`);
       // PM cleanup deferred: remoteSocket grace timer handles it if remote was attached;
       // otherwise close immediately
       if (pm && !socket.data?.remoteAttached) {
@@ -475,7 +475,7 @@ export async function startTransportServer(server) {
           // fetch trigger (client handler is idempotent).
           .then(() => socket.emit("terminal:ready"))
           .catch((e) => pushUiLog(`RTC session attachSocket failed: ${e.message}`));
-        pushUiLog(`Tunnel attached to RTC session: ${deviceId.slice(0, 8)}...`);
+        pushUiLogDebug(`Tunnel attached to RTC session: ${deviceId.slice(0, 8)}...`);
         socket.once("device:clientReady", () => socket.emit("device:approved"));
         return;
       }
@@ -485,7 +485,7 @@ export async function startTransportServer(server) {
       // second PM now (which would duplicate-broadcast to this client).
       if (peerId && !socket.data._rtcWaited && hasPendingOffer(peerId)) {
         socket.data._rtcWaited = true;
-        pushUiLog(`WS first, RTC offer pending → grace 500ms (device ${deviceId.slice(0, 8)})`);
+        pushUiLogDebug(`WS first, RTC offer pending → grace 500ms (device ${deviceId.slice(0, 8)})`);
         setTimeout(route, 500);
         return;
       }
@@ -493,7 +493,7 @@ export async function startTransportServer(server) {
       // Check device approval
       if (deviceId && isDeviceApproved(deviceId)) {
         // Known device — allow immediately
-        pushUiLog(`Device recognized: ${deviceId.slice(0, 8)}...`);
+        pushUiLogDebug(`Device recognized: ${deviceId.slice(0, 8)}...`);
         socket.data.approved = true;
         // emits "terminal:ready" when handlers registered
         setupSocketFeatures(socket).catch((e) => pushUiLog(`Feature setup failed: ${e.message}`));
@@ -523,7 +523,7 @@ export async function startTransportServer(server) {
         // real socket so Approve unlocks it and the client gets the waiting modal.
         const prevId = getPendingSocketId(deviceId);
         if (prevId && !rtcPeerId(prevId)) {
-          pushUiLog(`Device ${deviceId?.slice(0, 8)} already pending, ignoring duplicate`);
+          pushUiLogDebug(`Device ${deviceId?.slice(0, 8)} already pending, ignoring duplicate`);
           socket.disconnect(true);
           return;
         }
