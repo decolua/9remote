@@ -90,7 +90,7 @@ export const MAX_CHANGED_BADGE = 999; // Cap changed-count badge; above shows "9
 // XTerm.js default options
 export const TERMINAL_OPTIONS = {
   cursorBlink: true,
-  fontSize: 14,
+  fontSize: 13,
   fontSizeMobile: 13,
   fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", "Noto Sans Mono", Menlo, Monaco, "Courier New", monospace',
   scrollback: 15000,
