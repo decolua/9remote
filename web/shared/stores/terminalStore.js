@@ -83,6 +83,14 @@ export const useTerminalStore = create(
       agentClisAt: 0,
       setAgentClis: (list) => set({ agentClis: Array.isArray(list) ? list : [], agentClisAt: Date.now() }),
 
+      // Which agent CLI each session was launched with (sessionId -> agentId). The host
+      // doesn't track it, so the client records it at create time. Persisted so the
+      // mobile status strip can show that CLI's quota after a reload.
+      agentBySession: {},
+      setSessionAgent: (sessionId, agentId) => set((state) => ({
+        agentBySession: { ...state.agentBySession, [sessionId]: agentId }
+      })),
+
       // One-shot startup command per session (agent CLI launch). Consumed once by
       // the join ack in termJoin — a rejoin must never re-run it. Not persisted.
       pendingStartup: {},
@@ -246,6 +254,7 @@ export const useTerminalStore = create(
       partialize: (state) => ({
         viewStack: state.viewStack,
         openedSessions: state.openedSessions,
+        agentBySession: state.agentBySession,
         activeWorkspaceId: state.activeWorkspaceId,
         collapsedWorkspaces: state.collapsedWorkspaces,
         webglEnabled: state.webglEnabled,

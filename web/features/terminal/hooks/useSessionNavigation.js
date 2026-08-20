@@ -93,6 +93,7 @@ export function useSessionNavigation({
       if (!result.sessionId) return;
       const startupCmd = agentLaunchCommand(agent, yolo);
       if (startupCmd) useTerminalStore.getState().queueStartup(result.sessionId, startupCmd);
+      if (agent?.id) useTerminalStore.getState().setSessionAgent(result.sessionId, agent.id);
       addOpenedSession(result.sessionId);
       // Auto-select the new terminal when created from within terminal view
       if (currentView.type === "terminal") replaceTopWithSession(result.sessionId);

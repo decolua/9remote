@@ -196,6 +196,7 @@ export default function TerminalWorkspace({
         <MobileStatusStrip
           sessionId={sessionId}
           fileSocket={fileSocket}
+          socketRef={socketRef}
           onReveal={(cwd) => {
             const wsPath = sessions.find((s) => s.id === sessionId)?.workspacePath;
             setRightPanelRoot(wsPath, cwd || wsPath);

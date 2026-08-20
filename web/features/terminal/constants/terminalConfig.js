@@ -87,6 +87,12 @@ export const INPUT_CONTROL_KEYS = {
 export const WATCH_DEBOUNCE_MS = 400; // Debounce gitStatus refresh on file changes
 export const MAX_CHANGED_BADGE = 999; // Cap changed-count badge; above shows "999+"
 
+// Mobile status strip: the right slot alternates between the cwd folder and the
+// running CLI's 5h quota, since a phone-width bar fits only one at a time.
+export const STRIP_ROTATE_MS = 5000;
+export const STRIP_FADE_MS = 250;
+export const STRIP_QUOTA_PIN_PCT = 90; // At/above this the quota page stops rotating away
+
 // XTerm.js default options
 export const TERMINAL_OPTIONS = {
   cursorBlink: true,
