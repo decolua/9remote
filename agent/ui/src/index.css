@@ -510,6 +510,7 @@
   color: var(--text-main);
   border-color: var(--border);
 }
+.hdr-icon:disabled { opacity: 0.5; }
 
 /* Tunnel chip dot blink while connecting */
 @keyframes chip-blink { 50% { opacity: 0.35; } }

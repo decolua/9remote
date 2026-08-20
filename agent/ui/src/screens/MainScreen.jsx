@@ -350,33 +350,33 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
 }
 
 /** Brand-row icon button */
-function HeaderIconBtn({ icon, title, onClick }) {
+function HeaderIconBtn({ icon, title, onClick, danger, disabled, spin }) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       title={title}
       className="hdr-icon w-10 h-10 rounded-[9px] grid place-items-center flex-shrink-0"
+      style={danger ? { color: "var(--danger)" } : undefined}
     >
-      <span className="material-symbols-outlined" style={{ fontSize: 19 }}>{icon}</span>
+      <span className={`material-symbols-outlined ${spin ? "animate-spin" : ""}`} style={{ fontSize: 19 }}>{icon}</span>
     </button>
   );
 }
 
-/** Tunnel status chip — the single spot where tunnel state is visible.
- *  offline → Connect CTA · connecting → live stepDesc · online → green. */
-function TunnelChip({ step, stepDesc, onStart, t }) {
+/** Tunnel status chip — the single spot where tunnel state is visible. */
+function TunnelChip({ step, onRestart }) {
   // STEP enum: STOPPED=0, PREPARING=1 … READY=5
   const isStopped = step === 0;
   const isReady = step === 5;
+  const canRestart = (isStopped || isReady) && onRestart;
   const dotColor = isReady ? "var(--success)" : isStopped ? "var(--danger)" : "var(--warn)";
-  const label = isReady
-    ? "tunnel · online"
-    : isStopped
-      ? "tunnel · offline"
-      : `tunnel · connecting — ${stepDesc || "…"}`;
+  const label = isReady ? "tunnel · online" : isStopped ? "tunnel · offline" : "tunnel · connecting";
   return (
     <div
-      className="relative z-[1] inline-flex items-center gap-2 font-mono text-xs px-3.5 py-[7px] rounded-full mb-5 max-w-full"
+      onClick={canRestart ? onRestart : undefined}
+      title={canRestart ? "Restart tunnel" : undefined}
+      className={`inline-flex items-center gap-2 font-mono text-xs px-3.5 py-[7px] rounded-full max-w-full transition-colors ${canRestart ? "cursor-pointer hover:opacity-80" : ""}`}
       style={{ border: "1px solid var(--border-subtle)", background: "var(--row-bg)", color: isReady ? "var(--text-main)" : "var(--text-muted)" }}
     >
       <span
@@ -384,22 +384,69 @@ function TunnelChip({ step, stepDesc, onStart, t }) {
         style={{ background: dotColor, boxShadow: isReady ? "0 0 10px rgba(var(--success-rgb),0.9)" : undefined }}
       />
       <span className="truncate">{label}</span>
-      {isStopped && (
-        <button
-          onClick={onStart}
-          className="btn-primary ml-1.5 px-3 py-[3px] rounded-[7px] text-xs"
-        >
-          {t("connection.connect")}
-        </button>
-      )}
+    </div>
+  );
+}
+
+/** RTC/WS peer counts — live transport status beside the tunnel chip */
+function RtcChip({ transport }) {
+  const rtc = transport?.rtcPeers || 0;
+  const ws = transport?.wsPeers || 0;
+  const alive = rtc > 0 || ws > 0;
+  return (
+    <div
+      className="inline-flex items-center gap-2 font-mono text-xs px-3.5 py-[7px] rounded-full"
+      style={{ border: "1px solid var(--border-subtle)", background: "var(--row-bg)", color: alive ? "var(--text-main)" : "var(--text-subtle)" }}
+    >
+      <span
+        className="w-[7px] h-[7px] rounded-full flex-shrink-0"
+        style={{ background: alive ? "var(--success)" : "var(--text-subtle)", boxShadow: alive ? "0 0 10px rgba(var(--success-rgb),0.9)" : undefined }}
+      />
+      <span>{alive ? `rtc ${rtc} · ws ${ws}` : "rtc · idle"}</span>
+    </div>
+  );
+}
+
+// Setup steps shown as dots while connecting (labels shared with StepProgress)
+const STEP_KEYS = ["steps.preparing", "steps.connecting", "steps.tunneling", "steps.verifying", "steps.ready"];
+
+/** Step-by-step progress under the chips — only while connecting */
+function TunnelSteps({ step, stepDesc, t }) {
+  const activeIdx = Math.min(Math.max(step - 1, 0), STEP_KEYS.length - 1);
+  return (
+    <div className="relative z-[1] flex flex-col items-center gap-2 mb-4">
+      <div className="flex items-center">
+        {STEP_KEYS.map((key, i) => {
+          const done = i < activeIdx;
+          const active = i === activeIdx;
+          return (
+            <div key={key} className="flex items-center">
+              <span
+                className={`w-[9px] h-[9px] rounded-full ${active ? "chip-blink" : ""}`}
+                style={{
+                  background: done || active ? "var(--brand-500)" : "var(--row-hover)",
+                  border: done || active ? "none" : "1px solid var(--border)",
+                  boxShadow: active ? "0 0 8px rgba(var(--brand-rgb),0.7)" : undefined,
+                }}
+              />
+              {i < STEP_KEYS.length - 1 && (
+                <span className="w-5 h-px" style={{ background: done ? "var(--brand-500)" : "var(--border)" }} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <span className="text-[11px] font-mono text-center max-w-full truncate" style={{ color: "var(--text-subtle)" }}>
+        {t(STEP_KEYS[activeIdx])}{stepDesc ? ` — ${stepDesc}` : ""}
+      </span>
     </div>
   );
 }
 
 export default function MainScreen({
-  step, stepDesc = "", healthCheck, transport, onTransportChange, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
+  step, stepDesc = "", healthCheck, transport, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
-  onRequestPermission, onDesktopToggle, onStop, onStart, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [], onClearLogs,
+  onRequestPermission, onDesktopToggle, onStop, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [], onClearLogs,
   theme, onToggleTheme,
   pendingDevice, onDeviceApprove, onDeviceReject,
   approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected, onDeviceLabel,
@@ -407,7 +454,6 @@ export default function MainScreen({
   autoStart = false, onAutoStartToggle,
   sleepInhibitMode = "never", sleepInhibitPresets = [], onSleepInhibitChange,
   unlockStatus = null, onRequestUnlockInstall, onRequestUnlockUninstall,
-  onStopTunnel,
 }) {
   const { t } = useI18n();
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -428,18 +474,6 @@ export default function MainScreen({
     } catch {
       win.close();
     }
-  };
-
-  // Dev-only RTC debug toggle (kept from the old header pill)
-  const rtcDisabled = transport?.rtcDisabled;
-  const toggleRtc = async () => {
-    const next = !rtcDisabled;
-    onTransportChange?.({ ...transport, rtcDisabled: next });
-    await fetch("/api/ui/rtc-toggle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ disabled: next })
-    }).catch(() => onTransportChange?.({ ...transport, rtcDisabled: !next }));
   };
 
   // Refresh devices list whenever connections update (so offline/online stays in sync)
@@ -464,7 +498,15 @@ export default function MainScreen({
 
           {/* my-auto centers when room, collapses when overflowing (justify-center would clip the top) */}
           <div className="relative z-[1] flex flex-col items-center my-auto">
-            <TunnelChip step={step} stepDesc={stepDesc} onStart={onStart} t={t} />
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
+              <TunnelChip step={step} onRestart={onStop} />
+              <RtcChip transport={transport} />
+            </div>
+            {step > 0 && step < 5 ? (
+              <TunnelSteps step={step} stepDesc={stepDesc} t={t} />
+            ) : (
+              <div className="h-2" />
+            )}
 
             <h1 className="brand-grad-text text-[30px] lg:text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-center mb-5">
               {t("connection.pairDevice")}
@@ -477,7 +519,6 @@ export default function MainScreen({
               permanentKey={permanentKey}
               onGenerateOneTimeKey={onGenerateOneTimeKey}
               onRegenerateKey={onRegenerateKey}
-              onStopTunnel={onStopTunnel}
             />
           </div>
         </section>
@@ -503,14 +544,6 @@ export default function MainScreen({
               title={theme === "dark" ? t("header.lightMode") : t("header.darkMode")}
               onClick={onToggleTheme}
             />
-            {import.meta.env.DEV && (
-              <button
-                onClick={toggleRtc}
-                title={rtcDisabled ? "RTC OFF (debug) — click to enable" : "Disable RTC (debug)"}
-                className="w-[14px] h-[14px] rounded-full flex-shrink-0 self-center transition-all"
-                style={{ background: rtcDisabled ? "var(--danger)" : "transparent", border: rtcDisabled ? "none" : "1px solid var(--text-muted)", opacity: 0.4 }}
-              />
-            )}
             <SettingsMenu variant="hdr" isStopped={step === 0} onStop={() => setShowDisconnectConfirm(true)} onShutdown={() => setShowShutdownConfirm(true)} logs={logs} onClearLogs={onClearLogs} />
           </div>
 

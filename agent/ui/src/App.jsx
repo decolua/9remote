@@ -213,14 +213,6 @@ export default function App() {
     fetch("/api/ui/stop", { method: "POST" }).catch(() => {});
   };
 
-  const handleStart = () => {
-    fetch("/api/ui/start", { method: "POST" }).catch(() => {});
-  };
-
-  const handleStopTunnel = () => {
-    fetch("/api/ui/stop-tunnel", { method: "POST" }).catch(() => {});
-  };
-
   const handleShutdown = () => {
     fetch("/api/ui/shutdown", { method: "POST" }).catch(() => {});
     setMainState(defaultState);
@@ -397,7 +389,6 @@ export default function App() {
       stepDesc={mainState.stepDesc}
       healthCheck={mainState.healthCheck}
       transport={transport}
-      onTransportChange={setTransport}
       tunnelUrl={mainState.tunnelUrl}
       oneTimeKey={mainState.oneTimeKey}
       oneTimeKeyExpiresAt={mainState.oneTimeKeyExpiresAt}
@@ -410,8 +401,6 @@ export default function App() {
       onRequestPermission={handleRequestPermission}
       onDesktopToggle={handleDesktopToggle}
       onStop={handleStop}
-      onStart={handleStart}
-      onStopTunnel={handleStopTunnel}
       onShutdown={handleShutdown}
       onGenerateOneTimeKey={handleGenerateOneTimeKey}
       onRegenerateKey={handleRegenerateKey}
