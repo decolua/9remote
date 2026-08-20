@@ -50,9 +50,8 @@ export function attachWatchers(pm) {
       try { ws.forceReconnect?.(); } catch {}
     }
     // WS not ready but not a zombie → leave it alone. WsProtocol's own
-    // visibility handler already calls _forceReconnect, and calling retryNow
-    // here would kill a healthy mid-handshake socket on every tab focus →
-    // onConnect → handleSocketReady → UI flash.
+    // visibility handler owns that path (it calls retryNow, guarded against
+    // killing a mid-handshake socket → no onConnect → handleSocketReady flash).
     // Signaling rides the tunnel WS *or* the DO relay — an RTC-only session
     // has no ws adapter at all, so gating on WS here left it stuck forever.
     if (pm._awaitingApproval) return; // host hasn't approved yet — nothing to retry

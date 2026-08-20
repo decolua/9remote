@@ -118,6 +118,7 @@ export class WsProtocol extends BaseProtocol {
     this._maxAttempts = this._auth.tempKey ? RETRY.maxAttempts : RETRY.savedKeyMaxAttempts;
     this._reconnectMaxAttempts = RETRY.reconnectMaxAttempts;
     this._destroyed = false;
+    this._attachNetworkListeners();
     this._setState(ADAPTER_STATE.connecting);
     this._connectInternal();
   }
@@ -232,18 +233,36 @@ export class WsProtocol extends BaseProtocol {
       this._lastMsgAt = Date.now(); // TEMP DIAGNOSTIC — app event over WS
       this._emit("message", { event, data, source: "ws" });
     });
+  }
 
-    this._removeNetworkListeners();
+  /**
+   * Environment listeners, bound for the adapter's whole lifetime — NOT per socket.
+   * A session that never opened one (agent offline at page load) still needs the
+   * resume path, or it burns its attempts and stays stuck on the failed screen.
+   */
+  _attachNetworkListeners() {
+    if (this._visibilityHandler) return;
 
+    // Resume = the first moment the network is real again, so start a fresh
+    // attempt window instead of _forceReconnect (which returns early while a
+    // retry timer is pending, leaving the stale counter to run out).
+    // Skip while a handshake is in flight — killing it would flash the UI.
     this._visibilityHandler = () => {
-      if (document.visibilityState === "visible" && !this._socket?.connected) this._forceReconnect();
+      if (document.visibilityState !== "visible") return;
+      if (this._socket?.connected || this._connecting) return;
+      this.retryNow();
     };
     this._offlineHandler = () => {
       this._socket?.disconnect();
       this._socket = null;
       this._setState(ADAPTER_STATE.degraded);
     };
-    this._onlineHandler = () => this._forceReconnect();
+    // Same reasoning as the visibility handler: a network handover is a fresh
+    // start, and _forceReconnect would be swallowed by a pending retry timer.
+    this._onlineHandler = () => {
+      if (this._socket?.connected || this._connecting) return;
+      this.retryNow();
+    };
 
     document.addEventListener("visibilitychange", this._visibilityHandler);
     window.addEventListener("offline", this._offlineHandler);
@@ -292,6 +311,15 @@ export class WsProtocol extends BaseProtocol {
 
   async _doRetry() {
     if (this._destroyed) return;
+    // Backgrounded: the OS cuts networking, so every attempt is a guaranteed
+    // failure. Counting them burns the whole budget while hidden — the user
+    // returns to "14/15" or a dead "failed" state. Hold the counter instead;
+    // the visibility handler starts a real window on resume.
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      this._retryScheduled = false;
+      this._scheduleRetry();
+      return;
+    }
     this._retryAttempt++;
     const attempt = this._retryAttempt;
 
