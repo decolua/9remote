@@ -113,7 +113,7 @@ export const TERMINAL_BG_LIFT_RGB = "116,120,136";
 export const TERMINAL_BG_LIFT = 0.28;
 export const TERMINAL_BG_DARK = "#101014";
 // User-adjustable veil opacity range (null = TERMINAL_BG_ALPHA default)
-export const TERMINAL_BG_OPACITY = { min: 0.3, max: 0.95, step: 0.05 };
+export const TERMINAL_BG_OPACITY = { min: 0.3, max: 0.95, step: 0.01 };
 export const TERMINAL_BACKGROUNDS = {
   none: { label: "None" },
   custom: { label: "Custom" },

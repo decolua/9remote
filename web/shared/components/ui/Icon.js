@@ -88,6 +88,7 @@ export const {
   Send,
   SendHorizontal,
   ExternalLink,
+  Link2,
   ChevronDown,
   ChevronsDownUp,
   ChevronUp,

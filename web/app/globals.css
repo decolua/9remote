@@ -848,3 +848,13 @@ body.keyboard-open .safe-area-bottom {
 /* Diff docked beside a terminal: same step down the editor takes there, so the two
    panels read at one size rather than two. */
 .diff-themed-compact .d2h-diff-table { font-size: 10px; line-height: 1.45; }
+
+/* Brand range slider — native accent-color renders a chunky OS thumb on mobile,
+   so paint the track/thumb ourselves for a smooth, on-theme drag. */
+.brand-range { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; touch-action: none; }
+.brand-range::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: var(--surface-3, var(--surface-2)); background-image: linear-gradient(var(--color-brand-500), var(--color-brand-500)); background-repeat: no-repeat; background-size: var(--pct, 0%) 100%; }
+.brand-range::-moz-range-track { height: 6px; border-radius: 999px; background: var(--surface-3, var(--surface-2)); }
+.brand-range::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--color-brand-500); }
+.brand-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 999px; background: #fff; border: 3px solid var(--color-brand-500); box-shadow: 0 1px 4px rgba(0,0,0,0.3); transition: transform 120ms ease-out; }
+.brand-range::-moz-range-thumb { width: 18px; height: 18px; border-radius: 999px; background: #fff; border: 3px solid var(--color-brand-500); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+.brand-range:active::-webkit-slider-thumb { transform: scale(1.15); }
