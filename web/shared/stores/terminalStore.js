@@ -115,9 +115,10 @@ export const useTerminalStore = create(
       terminalTheme: "default",
       setTerminalTheme: (key) => set({ terminalTheme: key || "default" }),
 
-      // Mobile terminal background preset (image behind a semi-transparent pane).
-      terminalBackground: "none",
-      setTerminalBackground: (key) => set({ terminalBackground: key || "none" }),
+      // Selected terminal background pool (ordered keys, e.g. ["art1", "custom:abc"]).
+      // Pane i in display order renders keys[i % len] — round-robin by panel index.
+      terminalBackgrounds: [],
+      setTerminalBackgrounds: (keys) => set({ terminalBackgrounds: Array.isArray(keys) ? keys.filter(Boolean) : [] }),
 
       // Veil opacity over the background image (null = config default). Persisted.
       terminalBackgroundOpacity: null,
@@ -127,10 +128,10 @@ export const useTerminalStore = create(
           : Number((Math.max(TERMINAL_BG_OPACITY.min, Math.min(TERMINAL_BG_OPACITY.max, Math.round(v / TERMINAL_BG_OPACITY.step) * TERMINAL_BG_OPACITY.step)).toFixed(2)))
       }),
 
-      // Agent-saved custom background (dataUrl). Not persisted — refetched via bg:get
-      // on connect so the agent stays the source of truth (and localStorage stays light).
-      customBgDataUrl: null,
-      setCustomBgDataUrl: (v) => set({ customBgDataUrl: v || null }),
+      // Agent-saved custom backgrounds ([{id, dataUrl}]). Not persisted — refetched
+      // via bg:list on connect so the agent stays the source of truth (and localStorage stays light).
+      customBackgrounds: [],
+      setCustomBackgrounds: (items) => set({ customBackgrounds: Array.isArray(items) ? items.filter((it) => it?.id && it?.dataUrl) : [] }),
 
       // Per-pane quick-action button visibility (folder / git / note). Default all on.
       showFolderButton: true,
@@ -260,7 +261,7 @@ export const useTerminalStore = create(
         webglEnabled: state.webglEnabled,
         fontSize: state.fontSize,
         terminalTheme: state.terminalTheme,
-        terminalBackground: state.terminalBackground,
+        terminalBackgrounds: state.terminalBackgrounds,
         terminalBackgroundOpacity: state.terminalBackgroundOpacity,
         showFolderButton: state.showFolderButton,
         showGitButton: state.showGitButton,
@@ -304,6 +305,11 @@ export const useTerminalStore = create(
         if (!state) return;
         if (!Array.isArray(state.viewStack) || state.viewStack.length === 0) {
           state.viewStack = [{ type: "list" }];
+        }
+        // Legacy single-preset state migrates into the ordered pool
+        if (!Array.isArray(state.terminalBackgrounds)) state.terminalBackgrounds = [];
+        if (state.terminalBackground && state.terminalBackground !== "none" && state.terminalBackgrounds.length === 0) {
+          state.terminalBackgrounds = [state.terminalBackground];
         }
         // Mobile: the panel overlays the terminal — never restore it open
         if (window.innerWidth < DESKTOP_BREAKPOINT) state.rightPanelOpen = false;

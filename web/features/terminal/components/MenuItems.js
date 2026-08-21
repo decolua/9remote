@@ -8,7 +8,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
-import { TERMINAL_BACKGROUNDS } from "@/features/terminal/constants/terminalConfig";
+import { backgroundLabel } from "@/features/terminal/constants/terminalConfig";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import AgentSwitcher from "@/features/terminal/components/AgentSwitcher";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
@@ -56,7 +56,7 @@ export default function MenuItems({
   const setFontSize = useTerminalStore((s) => s.setFontSize);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const setTerminalTheme = useTerminalStore((s) => s.setTerminalTheme);
-  const terminalBackground = useTerminalStore((s) => s.terminalBackground);
+  const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
   const setShowFolderButton = useTerminalStore((s) => s.setShowFolderButton);
   const showGitButton = useTerminalStore((s) => s.showGitButton);
@@ -304,7 +304,11 @@ export default function MenuItems({
         >
           <Wallpaper className="text-brand-500 flex-shrink-0" size={16} />
           <span className="text-sm flex-1 min-w-0">{t("menu.terminalBackground")}</span>
-          <span className="text-xs text-text-muted truncate max-w-[90px]">{TERMINAL_BACKGROUNDS[terminalBackground]?.label || TERMINAL_BACKGROUNDS.none.label}</span>
+          <span className="text-xs text-text-muted truncate max-w-[90px]">
+            {terminalBackgrounds.length > 1
+              ? `${backgroundLabel(terminalBackgrounds[0])} +${terminalBackgrounds.length - 1}`
+              : backgroundLabel(terminalBackgrounds[0])}
+          </span>
           <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
         </button>
       )}

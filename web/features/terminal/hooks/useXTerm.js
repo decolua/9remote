@@ -21,7 +21,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
-export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, onInput, onSelectionMade }) {
+export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, bgKey = "none", onInput, onSelectionMade }) {
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const writeBatcherRef = useRef(null);
@@ -39,7 +39,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const cwdRef = useRef(null); // Track current working directory
   const [cwd, setCwd] = useState(null); // Reactive cwd for toolbar UI
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
-  const terminalBackground = useTerminalStore((s) => s.terminalBackground);
+  // Pane background key: computed by the pane from the shared pool + display index
   const fontSizeSetting = useTerminalStore((s) => s.fontSize);
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
@@ -147,7 +147,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       fontSize: fontSizeSetting ?? (window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize),
       // Mobile-only background image feature — must be set before open(), immutable after
       allowTransparency: window.innerWidth < DESKTOP_BREAKPOINT,
-      theme: applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, theme === "dark" ? terminalBackground : "none")
+      theme: applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, theme === "dark" ? bgKey : "none")
     });
 
     const fitAddon = new FitAddon();
@@ -529,9 +529,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     const term = termRef.current;
     if (!term) return;
     // Alpha bg only valid on a mobile terminal while the app is in dark mode
-    const bgKey = term.options.allowTransparency && theme === "dark" ? terminalBackground : "none";
-    term.options.theme = applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, bgKey);
-  }, [theme, terminalTheme, terminalBackground]);
+    const effKey = term.options.allowTransparency && theme === "dark" ? bgKey : "none";
+    term.options.theme = applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, effKey);
+  }, [theme, terminalTheme, bgKey]);
 
   useTermTouchGestures({
     termRef, termReady, isVisible, socket, sessionId,

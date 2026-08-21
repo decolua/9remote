@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX } from "@/features/terminal/constants/terminalConfig";
+import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 
@@ -95,17 +95,27 @@ export default function TerminalWorkspace({
     return () => ro.disconnect();
   }, [isDesktop]);
 
-  // Pull the agent-saved custom background once per connection — the agent is the
-  // source of truth, so a fresh device gets the same wallpaper as everyone else.
+  // Pull the agent-saved custom backgrounds once per connection — the agent is the
+  // source of truth, so a fresh device gets the same wallpapers as everyone else.
+  // bg:list is new; older agents only answer bg:get (single legacy image).
   useEffect(() => {
     if (!connected || !socket?.emit) return;
     let cancelled = false;
-    socket.emit("bg:get", {}, (res) => {
+    // An old agent has no bg:list handler, so its ack never fires — fall back to
+    // the legacy single-image bg:get on timeout, not just on a failed ack.
+    const legacyFetch = () => socket.emit("bg:get", {}, (res) => {
       if (!cancelled && res?.success && res.dataUrl) {
-        useTerminalStore.getState().setCustomBgDataUrl(res.dataUrl);
+        useTerminalStore.getState().setCustomBackgrounds([{ id: "custom", dataUrl: res.dataUrl }]);
       }
     });
-    return () => { cancelled = true; };
+    const timer = setTimeout(() => { if (!cancelled) legacyFetch(); }, BG_LIST_TIMEOUT_MS);
+    socket.emit("bg:list", {}, (res) => {
+      if (cancelled) return;
+      clearTimeout(timer);
+      if (res?.success && Array.isArray(res.items)) useTerminalStore.getState().setCustomBackgrounds(res.items);
+      else legacyFetch();
+    });
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [connected, socket]);
 
   const paneCount = workspaceOpenedSessions.length;
@@ -158,7 +168,7 @@ export default function TerminalWorkspace({
     setPaneWidth?.(Math.max(PANE_WIDTH.min, Math.floor((base - (paneCount - 1) * PANE_GAP_PX) / paneCount)));
   };
 
-  const renderPane = (sessionId, isVisible, isFocused) => (
+  const renderPane = (sessionId, isVisible, isFocused, bgIndex = 0) => (
     <TerminalPane
       // Session's own workspace — the folder button opens the right panel's files tab
       // keyed to it, not to whichever workspace currently owns the panel.
@@ -177,6 +187,7 @@ export default function TerminalWorkspace({
       clearNotification={clearNotification}
       fileSocket={fileSocket}
       mountDelay={mountDelayFor(sessionId, isFocused, workspaceIndex)}
+      bgIndex={bgIndex}
     />
   );
 
@@ -323,6 +334,8 @@ export default function TerminalWorkspace({
               const inActiveWorkspace = workspaceSessionIds.has(sessionId);
               const isFocused = sessionId === activeSessionId;
               const isVisible = inActiveWorkspace && (isDesktop || isFocused);
+              // Background pool position — panes round-robin by display order
+              const bgIndex = workspaceIndex.get(sessionId) ?? 0;
               // Panes outside the active workspace stay mounted (LRU) but fully hidden
               return (
                 <div
@@ -352,7 +365,7 @@ export default function TerminalWorkspace({
                     <>
                       {/* Focus ring is redundant when the workspace has a single pane */}
                       <div className={`absolute inset-x-0 top-0 bottom-16 overflow-hidden p-px ${focusBorderClass(isFocused && workspaceOpenedSessions.length > 1, sessionStatus[sessionId]?.state || "idle")}`}>
-                        {renderPane(sessionId, isVisible, isFocused)}
+                        {renderPane(sessionId, isVisible, isFocused, bgIndex)}
                       </div>
                       {/* Per-pane input slot — absolute, reserved below the fixed-height terminal.
                           Full keyboard on the focused pane, ghost on the others. */}
@@ -375,7 +388,7 @@ export default function TerminalWorkspace({
                         )}
                       </div>
                     </>
-                  ) : renderPane(sessionId, isVisible, isFocused)}
+                  ) : renderPane(sessionId, isVisible, isFocused, bgIndex)}
 
                   {/* Splitter — drags the one shared width; double-click returns to auto-fit. */}
                   {inActiveWorkspace && isDesktop && (

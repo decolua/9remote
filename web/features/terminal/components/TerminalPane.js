@@ -12,7 +12,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc } from "@/features/terminal/constants/terminalConfig";
+import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, paneBackgroundKey } from "@/features/terminal/constants/terminalConfig";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
@@ -33,6 +33,7 @@ function TerminalPane({
   sessionStatus = {},
   clearNotification,
   fileSocket,
+  bgIndex = 0,
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
@@ -50,9 +51,10 @@ function TerminalPane({
   const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
   const paneCwd = useTerminalStore((s) => s.cwdBySession[sessionId]);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
-  const terminalBackground = useTerminalStore((s) => s.terminalBackground);
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
-  const customBgDataUrl = useTerminalStore((s) => s.customBgDataUrl);
+  const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
+  const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
+  const paneBgKey = paneBackgroundKey(terminalBackgrounds, bgIndex);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
   const showGitButton = useTerminalStore((s) => s.showGitButton);
   const showNoteButton = useTerminalStore((s) => s.showNoteButton);
@@ -134,7 +136,7 @@ function TerminalPane({
   }, [scrollCursorIntoView]);
 
   const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
-    socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay,
+    socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: paneBgKey,
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
@@ -223,7 +225,7 @@ function TerminalPane({
 
   // Mobile-only background image on the pane: veil + screen-lift layers dim it, the
   // xterm canvas above stays fully transparent so padding can't create a bright frame
-  const bgSrc = backgroundSrc(terminalBackground, customBgDataUrl);
+  const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
   const bgActive = !!bgSrc && theme === "dark" && typeof window !== "undefined" && window.innerWidth < DESKTOP_BREAKPOINT;
   const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
   const lift = `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})`;
@@ -368,6 +370,7 @@ export default memo(TerminalPane, (prev, next) => (
   prev.sessionId === next.sessionId &&
   prev.isVisible === next.isVisible &&
   prev.isFocused === next.isFocused &&
+  prev.bgIndex === next.bgIndex &&
   prev.connected === next.connected &&
   prev.theme === next.theme &&
   prev.showFocusBorder === next.showFocusBorder &&

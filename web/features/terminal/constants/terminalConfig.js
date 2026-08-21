@@ -122,7 +122,6 @@ export const TERMINAL_BG_DARK = "#101014";
 export const TERMINAL_BG_OPACITY = { min: 0.3, max: 0.95, step: 0.01 };
 export const TERMINAL_BACKGROUNDS = {
   none: { label: "None" },
-  custom: { label: "Custom" },
   art1: { label: "Anime 1", src: "/backgrounds/bg9.jpg" },
   art2: { label: "Anime 2", src: "/backgrounds/bg2.jpg" },
   art3: { label: "Anime 3", src: "/backgrounds/bg3.jpg" },
@@ -137,14 +136,37 @@ export const TERMINAL_BACKGROUNDS = {
 // lives on the pane's background layers instead. RGB is kept so minimumContrastRatio
 // still computes text contrast against the near-black it visually sits on.
 export function applyTerminalBackground(xtermTheme, bgKey) {
-  if (!xtermTheme || !bgKey || bgKey === "none" || !TERMINAL_BACKGROUNDS[bgKey]) return xtermTheme;
+  if (!xtermTheme || !bgKey || bgKey === "none") return xtermTheme;
+  if (!TERMINAL_BACKGROUNDS[bgKey] && !String(bgKey).startsWith("custom")) return xtermTheme;
   return { ...xtermTheme, background: `${TERMINAL_BG_DARK}00` };
 }
 
-// Renderable src for a background key — "custom" pulls the agent-saved dataUrl.
-export function backgroundSrc(bgKey, customDataUrl) {
-  if (bgKey === "custom") return customDataUrl || null;
+// Custom keys reference the agent-saved list: "custom" = legacy single file,
+// "custom:<id>" = a picked tile. Returns the list id or null.
+export function customBgId(bgKey) {
+  if (bgKey === "custom") return "custom";
+  return typeof bgKey === "string" && bgKey.startsWith("custom:") ? bgKey.slice(7) : null;
+}
+
+// Renderable src for a background key — custom keys pull from the agent-saved items.
+export function backgroundSrc(bgKey, customItems = []) {
+  const id = customBgId(bgKey);
+  if (id) return customItems.find((it) => it?.id === id)?.dataUrl || null;
   return TERMINAL_BACKGROUNDS[bgKey]?.src || null;
+}
+
+// Human label for any background key (menu row / sheet tiles).
+export function backgroundLabel(bgKey) {
+  return TERMINAL_BACKGROUNDS[bgKey]?.label || (customBgId(bgKey) ? "Custom" : TERMINAL_BACKGROUNDS.none.label);
+}
+
+// An old agent never acks bg:list — fall back to legacy bg:get after this.
+export const BG_LIST_TIMEOUT_MS = 4000;
+
+// Pane i in display order renders pool[i % len] — empty pool means no background.
+export function paneBackgroundKey(keys, index) {
+  if (!Array.isArray(keys) || keys.length === 0) return "none";
+  return keys[index % keys.length] || "none";
 }
 
 // Renderer config (VS Code parity)

@@ -72,7 +72,8 @@ export function useTerminalPageViewport({ setKeyboardOpen }) {
         e.target.closest(".overflow-auto") ||
         e.target.closest(".overflow-x-auto") ||
         e.target.closest(".overflow-y-auto") ||
-        e.target.closest(".modal-scrollable")
+        e.target.closest(".modal-scrollable") ||
+        e.target.closest(".brand-range")
       ) return;
       e.preventDefault();
     };
