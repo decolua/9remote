@@ -3,6 +3,7 @@ import { createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("mode");
 import { saveState } from "../utils/state.js";
+import { headOf } from "../utils/apiKey.js";
 import { killCloudflared, spawnQuickTunnel } from "../utils/cloudflared.js";
 import { updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import {
@@ -29,7 +30,7 @@ async function startServerAndTunnel(selectedKey) {
     const res = await browserFetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: selectedKey }),
+      body: JSON.stringify({ apiKey: headOf(selectedKey) }),
     });
     if (!res.ok) { logger.error(`Session create failed: ${res.status}`); return null; }
   } catch (e) {

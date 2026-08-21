@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS, TUNNEL_VERIFY_TIMEOUT_MS, CONNECT_TIMEOUT_MS } from "@/shared/constants/API";
+import { headOf } from "@/shared/utils/apiKey";
 import { useSessionStorage } from "./useSessionStorage";
 
 
@@ -37,7 +38,7 @@ export function useAuth() {
         response = await fetch(API_ENDPOINTS.connect, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(credentials),
+          body: JSON.stringify({ ...credentials, apiKey: headOf(credentials.apiKey) }),
           signal: controller.signal
         });
       } catch (e) {
@@ -53,6 +54,10 @@ export function useAuth() {
 
       const data = await response.json();
 
+      // v2 keys travel as HEAD only — the TAIL never leaves the browser (it
+      // is kept in the device-trust store and proven to the agent directly).
+      const apiKey = headOf(credentials.apiKey || data.apiKey);
+
       // /api/connect already validated the apiKey/session — agent is alive.
       // Tunnel liveness is no longer probed here: RTC is established via the DO
       // signaling relay (independent of the tunnel), and the tunnel is a fallback
@@ -60,7 +65,7 @@ export function useAuth() {
 
       // Save auth data to session storage (include tempKey and localIp if provided)
       setAuth({
-        apiKey: credentials.apiKey || data.apiKey,
+        apiKey,
         tunnelUrl: data.tunnelUrl,
         mode: "remote",
         tempKey: credentials.tempKey ? credentials.tempKey.toUpperCase() : null,
@@ -68,10 +73,10 @@ export function useAuth() {
       });
 
       // Return success with flag to ask user about saving key
-      return { 
-        success: true, 
+      return {
+        success: true,
         shouldAskToSave: true,
-        apiKey: credentials.apiKey || data.apiKey 
+        apiKey
       };
     } catch (err) {
       setError(err.message);

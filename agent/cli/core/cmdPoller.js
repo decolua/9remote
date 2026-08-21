@@ -2,12 +2,13 @@ import { browserFetch, SERVER_PORT, STEP } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("cmd");
-import { readAndClearCmd, loadKey, saveKey } from "../utils/state.js";
+import { readAndClearCmd, loadKey, saveKey, loadState } from "../utils/state.js";
 import { stopTunnelHealthWatchdog, updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import { ensureCloudflared, spawnQuickTunnel } from "../utils/cloudflared.js";
 import { updateTrayTooltip } from "../utils/tray.js";
 import { getConsistentMachineId } from "../utils/machineId.js";
-import { generateApiKeyWithMachine, maskApiKey } from "../utils/apiKey.js";
+import { generateApiKeyV2, headOf, maskApiKey } from "../utils/apiKey.js";
+import { registerSession } from "../utils/token.js";
 import { apiGet, pushUiState, setStep, onBinaryProgress } from "./localApi.js";
 import { makeTunnelRestartHandler, startBackgroundTunnelReconnect, cancelActiveBgTunnel } from "../tunnel/manager.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
@@ -83,7 +84,7 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     const sessionResponse = await browserFetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey }),
+      body: JSON.stringify({ apiKey: headOf(apiKey) }),
     });
     if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
 
@@ -141,10 +142,17 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
 
 async function handleRegenerate() {
   const machineId = await getConsistentMachineId();
-  const { key } = generateApiKeyWithMachine(machineId);
+  const key = generateApiKeyV2(machineId);
   const existing = loadKey();
+  // Register before storing — a key with no session row can never log in.
+  if (!(await registerSession(key, WORKER_URL, loadState()?.tunnelUrl, existing?.key))) {
+    logger.error("Key regeneration aborted — could not register the new key");
+    return;
+  }
   saveKey(machineId, key, existing?.name || "Default");
-  await pushUiState({ permanentKey: key });
+  // pairingUsed: the old code belonged to the replaced key — clearing it must
+  // not make the UI auto-mint a fresh one (mirrors api/key.js handleRegenerate).
+  await pushUiState({ permanentKey: key, oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "", pairingUsed: true });
   logger.info(`Key regenerated: ${maskApiKey(key)}`);
 }
 

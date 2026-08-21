@@ -8,9 +8,9 @@ import { saveState, saveKey } from "../utils/state.js";
 import { ensureCloudflared, killCloudflared, spawnQuickTunnel } from "../utils/cloudflared.js";
 import { updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import { selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval, resetProgress } from "../utils/tui.js";
-import { createTempKey } from "../utils/token.js";
+import { createTempKey, connectUrlOf, registerSession } from "../utils/token.js";
 import { getConsistentMachineId } from "../utils/machineId.js";
-import { generateApiKeyWithMachine } from "../utils/apiKey.js";
+import { generateApiKeyV2, headOf } from "../utils/apiKey.js";
 import {
   apiGet, apiPost, pushUiState, setStep, onBinaryProgress,
   isServerRunning, fetchServerState, setTuiActive,
@@ -63,7 +63,7 @@ export async function tuiMode() {
     const res = await browserFetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: keyData.key }),
+      body: JSON.stringify({ apiKey: headOf(keyData.key) }),
     });
     if (!res.ok) throw new Error(`Session create failed: ${res.status}`);
   } catch (err) {
@@ -76,9 +76,9 @@ export async function tuiMode() {
   // tempKey first — connect URL is Worker-based, doesn't depend on the tunnel.
   // RTC signaling goes via the DO; the tunnel is a fallback transport.
   const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
-  const connectUrl = tempKeyData ? `${WORKER_URL}/login?k=${tempKeyData.tempKey}` : `${WORKER_URL}/login`;
+  const connectUrl = connectUrlOf(WORKER_URL, tempKeyData);
 
-  let currentOneTimeKey = tempKeyData?.tempKey || "";
+  let currentOneTimeKey = tempKeyData?.oneTimeKey || "";
   let currentConnectUrl = connectUrl;
   let currentTunnelUrl = "";
   let menuHeader = null;
@@ -134,7 +134,7 @@ export async function tuiMode() {
 
   await setStep(STEP.READY, {
     tunnelUrl: currentTunnelUrl,
-    oneTimeKey: tempKeyData?.tempKey || "",
+    oneTimeKey: tempKeyData?.oneTimeKey || "",
     oneTimeKeyExpiresAt: tempKeyData?.expiresAt || null,
     permanentKey: keyData.key,
     qrUrl: connectUrl,
@@ -294,24 +294,27 @@ async function tuiKeysMenu(keyData, tunnelUrl, setHeader, getHeader) {
   if (action === "otk") {
     const newTempKey = await createTempKey(keyData.key, WORKER_URL);
     if (newTempKey) {
-      const newConnectUrl = `${WORKER_URL}/login?k=${newTempKey.tempKey}`;
-      setHeader(await buildMenuHeader(newTempKey.tempKey, keyData.key, newConnectUrl, tunnelUrl));
-      await pushUiState({ oneTimeKey: newTempKey.tempKey, oneTimeKeyExpiresAt: newTempKey.expiresAt, qrUrl: newConnectUrl });
+      const newConnectUrl = connectUrlOf(WORKER_URL, newTempKey);
+      setHeader(await buildMenuHeader(newTempKey.oneTimeKey, keyData.key, newConnectUrl, tunnelUrl));
+      await pushUiState({ oneTimeKey: newTempKey.oneTimeKey, oneTimeKeyExpiresAt: newTempKey.expiresAt, qrUrl: newConnectUrl });
     }
   } else if (action === "regen") {
     const confirmed = await tuiConfirm(chalk.yellow("Replace current key and disconnect all sessions? Continue?"));
     if (confirmed) {
       const machineId = await getConsistentMachineId();
-      const { key } = generateApiKeyWithMachine(machineId);
+      const key = generateApiKeyV2(machineId);
+      // Register before storing — a key with no session row can never log in.
+      if (!(await registerSession(key, WORKER_URL, tunnelUrl, keyData.key))) {
+        setHeader(chalk.red("Key regeneration failed — could not reach the server"));
+        return;
+      }
       const next = saveKey(machineId, key, keyData.name || "Default");
       Object.assign(keyData, next);
-      await pushUiState({ permanentKey: keyData.key });
-      const newTmp = await createTempKey(keyData.key, WORKER_URL);
-      if (newTmp) {
-        const newUrl = `${WORKER_URL}/login?k=${newTmp.tempKey}`;
-        setHeader(await buildMenuHeader(newTmp.tempKey, keyData.key, newUrl, tunnelUrl));
-        await pushUiState({ oneTimeKey: newTmp.tempKey, oneTimeKeyExpiresAt: newTmp.expiresAt, qrUrl: newUrl });
-      }
+      // Separate lifecycles: replacing this key does NOT mint a pairing code.
+      // The old code is dropped (it redeems to the key just retired) and the QR
+      // goes with it; "New One-Time Key" is how the user gets the next one.
+      setHeader(await buildMenuHeader("", keyData.key, "", tunnelUrl));
+      await pushUiState({ permanentKey: keyData.key, oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "", pairingUsed: true });
     }
   }
 }

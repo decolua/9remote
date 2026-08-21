@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { verifyApiKeyCrc } from "@/shared/utils/apiKey";
+import { verifyApiKeyCrc, normalizeApiKey } from "@/shared/utils/apiKey";
 import { decryptToken } from "@/shared/utils/token";
 import { withD1Retry, cachedLookup, cacheKeys, CACHE_TTL } from "@/shared/utils/db";
 import { RATE_LIMITS, clientIp, isRateLimited, recordFailure, clearFailures } from "@/shared/utils/rateLimit";
@@ -66,6 +66,9 @@ export async function POST(request) {
       await recordFailure(SCOPE, ip, RATE_LIMITS.connect, env.LOGIN_RATE_LIMITER);
       return jsonError("Invalid API key", 401);
     }
+
+    // v2 keys are stored/looked up by HEAD — normalize a full-key presentation
+    apiKey = normalizeApiKey(apiKey);
 
     clearFailures(SCOPE, ip);
 

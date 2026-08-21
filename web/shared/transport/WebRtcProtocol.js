@@ -4,6 +4,7 @@ import { API_ENDPOINTS } from "@/shared/constants/API";
 import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
+import { getTrust, setTrust, getPendingFp2, takePendingFp2, fp2OfPublicKey, verifySdpSignature } from "./lib/deviceTrust";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 // Shared decoder worker (one instance for all WebRtcProtocol instances)
@@ -345,6 +346,18 @@ export class WebRtcProtocol extends BaseProtocol {
           termLog("switch", "rtc duplicate answer ignored");
           return;
         }
+        // Signed answer — verify against the pinned host key (or the pairing
+        // fp2 on first contact) before trusting the relayed SDP.
+        if (msg.pub && msg.sig) {
+          const ok = await this._verifyHostAnswer(msg);
+          if (!ok) {
+            console.error("[rtc] host key verification FAILED — relayed answer rejected");
+            termLog("switch", "rtc→closed reason=host-key-rejected");
+            this._cleanupPeer();
+            this._setState(ADAPTER_STATE.closed);
+            return;
+          }
+        }
         await this._pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
         this._answerApplied = true; // signaling reached the agent — a later failure is connectivity, not routing
         debugLog("transport", "[rtc] answer set");
@@ -363,6 +376,55 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────────
+
+  /**
+   * Host-key verification for a signed answer (see .docs/PLAN-e2e-key-security.md):
+   * - pinned key: the answer must be signed by exactly that key
+   * - first contact during pairing: fp2 from the pairing code must match
+   * - no pin and no pending fp2 (legacy agent / manual key login): accept
+   * Returns true when the answer may be trusted.
+   */
+  async _verifyHostAnswer(msg) {
+    const apiKey = this._ctx?.auth?.apiKey;
+    if (!apiKey) return true;
+    const trust = getTrust(apiKey);
+    if (trust?.hostPubKey) {
+      if (trust.hostPubKey !== msg.pub) {
+        // Pinned key differs: either the agent's host key rotated (reinstall)
+        // or a relay is swapping the peer. A fresh pairing fp2 that matches
+        // the new key is out-of-band consent to re-pin; otherwise reject.
+        const pendingFp2 = getPendingFp2();
+        if (pendingFp2 && (await fp2OfPublicKey(msg.pub)) === pendingFp2) {
+          setTrust(apiKey, { hostPubKey: msg.pub, fp2: pendingFp2 });
+          debugLog("transport", "[rtc] host key re-pinned via fresh pairing fp2");
+          return true;
+        }
+        return false;
+      }
+      const sig = await verifySdpSignature(msg.pub, msg.sdp, msg.sig);
+      if (sig === false) return false;
+      if (sig === null) {
+        // Browser without Ed25519 WebCrypto — fall back to the stored fp2
+        return (await fp2OfPublicKey(msg.pub)) === trust.fp2;
+      }
+      return true;
+    }
+    const pendingFp2 = getPendingFp2();
+    if (pendingFp2) {
+      const fp2 = await fp2OfPublicKey(msg.pub);
+      if (fp2 !== pendingFp2) {
+        // Single-shot: a mismatch burns the pending fp2 so a stale one (wrong
+        // code, expired pairing of another agent) can't reject the right agent
+        // for the rest of the tab session.
+        takePendingFp2();
+        return false;
+      }
+      setTrust(apiKey, { hostPubKey: msg.pub, fp2 });
+      debugLog("transport", "[rtc] host key pinned via pairing fp2");
+      return true;
+    }
+    return true; // no out-of-band anchor available — legacy behavior
+  }
 
   /**
    * Classify this network's NAT from what this peer attempt observed.

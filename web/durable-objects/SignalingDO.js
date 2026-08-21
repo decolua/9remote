@@ -83,8 +83,11 @@ export async function handleSignaling(request, env) {
   }
 
   // apiKey gate — no valid session = no signaling. Stops RTC-bypass of device approval.
-  const apiKey = url.searchParams.get("apiKey");
+  let apiKey = url.searchParams.get("apiKey");
   if (!apiKey) return new Response("Missing apiKey", { status: 401 });
+  // v2 keys room by HEAD — strip the private tail if a full key was presented.
+  // Local regex (this file is inlined into worker.js and cannot import utils).
+  apiKey = apiKey.replace(/^(sk-[a-z0-9]{8}-[a-np-z1-9]{8})-[a-np-z1-9]{8}$/, "$1");
   if (gateRateLimited(apiKey)) return new Response("Too many signaling attempts", { status: 429 });
   if (!(await sessionExists(apiKey, env))) return new Response("Unauthorized", { status: 401 });
 

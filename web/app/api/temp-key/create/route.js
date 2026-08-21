@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { verifyApiKeyCrc } from "@/shared/utils/apiKey";
+import { verifyApiKeyCrc, normalizeApiKey } from "@/shared/utils/apiKey";
 import { withD1Retry } from "@/shared/utils/db";
 import { jsonOk, jsonError, optionsResponse } from "@/shared/utils/apiResponse";
 
@@ -37,6 +37,9 @@ export async function POST(request) {
     const { apiKey, expiryMinutes = TEMP_KEY_EXPIRY_MINUTES } = await request.json();
 
     if (!apiKey || !(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
+    // v2 keys pass the format check alone — a live session row is the real gate
+    const session = await withD1Retry(() => env.DB.prepare("SELECT 1 FROM sessions WHERE apiKey = ?").bind(normalizeApiKey(apiKey)).first());
+    if (!session) return jsonError("Invalid API key");
 
     await withD1Retry(() => env.DB.prepare(`DELETE FROM temp_keys WHERE api_key = ?`).bind(apiKey).run());
 

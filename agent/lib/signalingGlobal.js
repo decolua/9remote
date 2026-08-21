@@ -39,9 +39,20 @@ export function onSignalingReady(fn) {
   return () => { _readyListeners.delete(fn); };
 }
 
-// Idempotent — safe to call again if apiKey changes (it shouldn't at runtime).
+// Idempotent for the same key. When the key CHANGES (user regenerated it) the
+// old room is abandoned and we rejoin under the new one — otherwise the agent
+// keeps listening on the retired room while clients that hold the new key sit
+// in a room nobody answers, spinning forever.
+let _roomKey = null;
+
 export function initSignalingGlobal(apiKey) {
-  if (_client || !apiKey) return;
+  if (!apiKey) return;
+  if (_client) {
+    if (_roomKey === apiKey) return;
+    logger.info(`apiKey changed — rejoining signaling room ${apiKey.slice(0, 8)}...`);
+    stopSignalingGlobal();
+  }
+  _roomKey = apiKey;
   const doUrl = WORKER_URL.replace(/^http/, "ws") + "/signaling";
   _client = new SignalingClient({
     url: doUrl, role: "agent", roomId: apiKey, apiKey,
@@ -110,6 +121,12 @@ export function pendingPeersOf(deviceId) {
   return [..._pendingOffers.keys()].filter((p) => p.split(":")[0] === deviceId);
 }
 
+/** A client just reached us (so the network is back) — revive a relay that hit
+ *  its pre-open cap. No-op when it is already connected or was never started. */
+export function retrySignalingNow() {
+  try { _client?.retryNow?.(); } catch (e) { logger.warn(`retrySignalingNow: ${e.message}`); }
+}
+
 export function isSignalingReady() {
   return !!_client?.ready;
 }
@@ -130,6 +147,7 @@ export function getSignalingState() {
 export function stopSignalingGlobal() {
   try { _client?.disconnect(); } catch {}
   _client = null;
+  _roomKey = null;
   _handlers.clear();
   _pendingOffers.clear();
 }

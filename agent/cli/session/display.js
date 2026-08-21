@@ -2,7 +2,7 @@ import chalk from "chalk";
 import qrcode from "qrcode-terminal";
 import { STEP, DEBUG } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
-import { createTempKey } from "../utils/token.js";
+import { createTempKey, connectUrlOf } from "../utils/token.js";
 import { setStep } from "../core/localApi.js";
 import { COLORS, WORKER_URL, TUI } from "../config.js";
 
@@ -41,11 +41,11 @@ export async function showConnectionInfo(selectedKey, tunnelUrl) {
     return;
   }
 
-  const connectUrl = `${WORKER_URL}/login?k=${tempKeyData.tempKey}`;
+  const connectUrl = connectUrlOf(WORKER_URL, tempKeyData);
 
   await setStep(STEP.READY, {
     tunnelUrl,
-    oneTimeKey: tempKeyData.tempKey,
+    oneTimeKey: tempKeyData.oneTimeKey,
     oneTimeKeyExpiresAt: tempKeyData.expiresAt,
     permanentKey: selectedKey,
     qrUrl: connectUrl,
@@ -54,10 +54,10 @@ export async function showConnectionInfo(selectedKey, tunnelUrl) {
 
   showQRCode(connectUrl);
 
-  console.log(chalk.gray(`\nQR will expire in 30 minutes (one-time use)\n`));
+  console.log(chalk.gray(`\nQR will expire in 10 minutes (one-time use)\n`));
   console.log(COLORS.orange("═".repeat(width)));
   console.log(chalk.white("App URL".padEnd(14)) + chalk.gray(`${WORKER_URL}/login`));
-  console.log(chalk.white("One-Time Key".padEnd(14)) + COLORS.orange.bold(tempKeyData.tempKey));
+  console.log(chalk.white("One-Time Key".padEnd(14)) + COLORS.orange.bold(tempKeyData.oneTimeKey));
   console.log(chalk.white("Key".padEnd(14)) + chalk.gray(selectedKey));
   console.log(COLORS.orange("═".repeat(width)));
 }

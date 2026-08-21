@@ -5,6 +5,7 @@ import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER } from "../lib/transportConstant
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { resolveCandidate } from "../lib/mdnsResolver.js";
 import { createLogger } from "../lib/logger.js";
+import { getHostPublicKeyB64, signSdp } from "../lib/hostKey.js";
 
 const logger = createLogger("webrtc");
 
@@ -90,6 +91,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._signaling = null;
     this._iceGraceTimer = null;
     this._answerTimer = null;
+    this._closed = false;
   }
 
   /**
@@ -103,15 +105,20 @@ export class WebRtcProtocol extends BaseProtocol {
     this._setState(ADAPTER_STATE.connecting);
 
     const rtcCfg = ctx.profile?.rtc || {};
+    // Register the signaling handler FIRST: the TURN fetch below is a network
+    // round-trip, and an offer arriving during it would find no handler and be
+    // dropped. STUN-only is a fine starting point — _refreshTurn swaps the ICE
+    // servers in for the next peer, and a live peer is not disturbed.
+    this._signaling = ctx.signaling;
+    this._signaling?.on?.((msg) => this._handleSignal(msg, rtcCfg));
+
     if (rtcCfg.enableTurn && ctx.auth?.apiKey && rtcCfg.turnApiUrl) {
       await this._refreshTurn(rtcCfg);
     }
-
-    this._signaling = ctx.signaling;
-    this._signaling?.on?.((msg) => this._handleSignal(msg, rtcCfg));
   }
 
   disconnect() {
+    this._closed = true; // stops an in-flight TURN refresh from re-arming
     clearTimeout(this._refreshTimer);
     this._signaling?.off?.();
     this._signaling = null;
@@ -269,7 +276,14 @@ export class WebRtcProtocol extends BaseProtocol {
         if (type !== "answer" || settled) return;
         settled = true;
         clearAnswerTimer();
-        this._signaling?.send?.({ type: "answer", sdp: answerSdp });
+        // Signed answer — lets the client verify (via the pinned host key) that
+        // the relay never swapped the peer. Legacy clients ignore the extras.
+        this._signaling?.send?.({
+          type: "answer",
+          sdp: answerSdp,
+          pub: getHostPublicKeyB64(),
+          sig: signSdp(answerSdp)
+        });
         resolve();
       });
       this._pc.onLocalCandidate((candidate, mid) => {
@@ -313,6 +327,9 @@ export class WebRtcProtocol extends BaseProtocol {
 
   async _refreshTurn(rtcCfg) {
     const servers = await fetchTurnIceServers(rtcCfg.turnApiUrl, this._ctx.auth.apiKey);
+    // disconnect() may have run while the fetch was in flight — re-arming here
+    // would leave a dead adapter polling TURN for the life of the process.
+    if (this._closed) return;
     if (servers?.length) {
       this._iceServers = servers;
       if (REMOTE_CONFIG.logging?.webrtc) console.log(`[WebRtcProtocol] TURN credentials loaded (${servers.length} servers)`);

@@ -8,9 +8,16 @@ const RECONNECT_MAX_MS = 30000;
 // Cap failures before the first successful open — a misconfigured/unreachable DO
 // (bad apiKey → 401) never opens; without this cap we'd retry forever.
 const MAX_PRE_OPEN_FAILURES = 5;
+// After giving up, retryNow() is the only way back — the agent has no
+// visibilitychange to lean on, so callers (a client connecting over the
+// tunnel) drive it. Throttled so a burst of connections costs one attempt.
+const RETRY_NOW_THROTTLE_MS = 3000;
 
 function sigData(msg) {
-  if (msg.type === "offer" || msg.type === "answer") return { sdp: msg.sdp };
+  // Answers carry the host-key signature (pub/sig) for client-side verification —
+  // they must survive the relay envelope, not be flattened to {sdp}.
+  if (msg.type === "offer") return { sdp: msg.sdp };
+  if (msg.type === "answer") return { sdp: msg.sdp, pub: msg.pub, sig: msg.sig };
   if (msg.type === "ice") return { candidate: msg.candidate, mid: msg.mid };
   return msg; // error → {message}
 }
@@ -91,6 +98,22 @@ export class SignalingClient {
     // else every failure doubles the retry timers (exponential storm).
     ws.addEventListener("close", () => { if (this._ws === ws) this._onClose(); });
     ws.addEventListener("error", () => { if (this._ws === ws) this._onClose(); });
+  }
+
+  /** Network may be back (e.g. a client just reached us over the tunnel) —
+   *  retry immediately and clear the pre-open cap, which otherwise strands the
+   *  relay for the life of the process. Throttled: many clients may call this
+   *  at once, and each accepted call costs a WS upgrade + a D1 read in the DO. */
+  retryNow() {
+    if (this._closed || this._ws) return;
+    const now = Date.now();
+    if (now - (this._lastRetryNowAt || 0) < RETRY_NOW_THROTTLE_MS) return;
+    this._lastRetryNowAt = now;
+    this._attempt = 0;
+    this._preOpenFails = 0;
+    clearTimeout(this._reconnectTimer);
+    this._reconnectTimer = null;
+    this._open();
   }
 
   _onClose() {

@@ -20,7 +20,9 @@ const RETRY_NOW_THROTTLE_MS = 3000;
 const HANDSHAKE_STALL_MS = 5000;
 
 function sigData(msg) {
-  if (msg.type === "offer" || msg.type === "answer") return { sdp: msg.sdp };
+  // Mirror of the agent client: answers carry pub/sig (host-key signature)
+  if (msg.type === "offer") return { sdp: msg.sdp };
+  if (msg.type === "answer") return { sdp: msg.sdp, pub: msg.pub, sig: msg.sig };
   if (msg.type === "ice") return { candidate: msg.candidate, mid: msg.mid };
   return msg; // error → {message}
 }
