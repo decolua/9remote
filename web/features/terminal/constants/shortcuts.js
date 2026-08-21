@@ -21,6 +21,11 @@ export const SESSION_INDEX_SHORTCUT = {
   pc: "Ctrl+Shift+1…9"
 };
 
+// Display order: session index sits after the prev/next pair — the three are one group.
+export const SHORTCUT_ROWS = [
+  SHORTCUTS[0], SHORTCUTS[1], SESSION_INDEX_SHORTCUT, ...SHORTCUTS.slice(2)
+];
+
 const DIGIT_CODE = /^Digit([1-9])$/;
 
 // Which modifier the VIEWING device's keyboard actually has — this is a browser-level
@@ -40,6 +45,22 @@ export const isMac = () => {
 };
 
 export const shortcutLabel = (entry) => (isMac() ? entry.mac : entry.pc);
+
+// Keycap style shared by the shortcuts modal and the settings pane.
+export const SHORTCUT_KEY_CLS = "inline-flex h-6 min-w-6 items-center justify-center px-1.5 font-mono text-xs font-medium text-text leading-none select-none bg-surface-2 border border-border border-b-2 rounded-md shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)] whitespace-nowrap";
+
+const MAC_MODIFIERS = new Set(["⌘", "⌥", "⇧", "⌃"]);
+
+// "⌘⇧P" → ["⌘","⇧","P"]; "Ctrl+Shift+P" → ["Ctrl","Shift","P"] — one keycap each.
+export function shortcutKeys(entry) {
+  const label = shortcutLabel(entry);
+  if (label.includes("+")) return label.split("+");
+  const keys = [];
+  let i = 0;
+  while (i < label.length && MAC_MODIFIERS.has(label[i])) { keys.push(label[i]); i++; }
+  if (i < label.length) keys.push(label.slice(i));
+  return keys;
+}
 
 // Editable target — but xterm's hidden helper textarea is the terminal itself, not a form field.
 const isEditableTarget = (target) => {

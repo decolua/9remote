@@ -6,8 +6,12 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { agentIconUrl, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
+import { SHORTCUTS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import LocationPicker from "@/features/terminal/components/LocationPicker";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
+
+// The quick-create chord (create from last prefs, no modal) hinted at in the title bar
+const NEW_TERMINAL_SHORTCUT = SHORTCUTS.find((s) => s.id === "newTerminal");
 
 // Shared "New terminal" modal: where it starts (workspace root / a repo's worktree),
 // what to launch (plain shell or a TUI agent CLI detected on the host's PATH), how it
@@ -71,6 +75,10 @@ export default function NewTerminalModal({
   // A saved id the host no longer has (CLI uninstalled) falls back to plain terminal
   const agent = (agentId && agentClis?.find((a) => a.id === agentId)) || null;
   const options = [null, ...(agentClis || [])];
+  const canSkip = canSkipPermissions(agent);
+  // The agent's own skip-mode token, e.g. --yolo / GOOSE_MODE=auto — null for plain shells
+  const skipFlag = agent?.yolo
+    || (agent?.yoloEnv ? Object.entries(agent.yoloEnv).map(([k, v]) => `${k}=${v}`).join(" ") : null);
 
   const pick = (picked) => { vibrate(); setAgentId(picked?.id || ""); };
 
@@ -124,6 +132,13 @@ export default function NewTerminalModal({
         <div className="px-4 pt-4 pb-3 space-y-2.5">
           <div className="flex items-center gap-2">
             <h2 id="newTerminalTitle" className="flex-1 text-sm font-semibold text-text">{t("terminal.newTerminal")}</h2>
+            {NEW_TERMINAL_SHORTCUT && (
+              <span className="inline-flex items-center gap-1 shrink-0" aria-hidden="true">
+                {shortcutKeys(NEW_TERMINAL_SHORTCUT).map((key) => (
+                  <kbd key={key} className={SHORTCUT_KEY_CLS}>{key}</kbd>
+                ))}
+              </span>
+            )}
             <button onClick={onClose} aria-label={t("common.cancel")} className="text-text-muted hover:text-text shrink-0">
               <X size={18} />
             </button>
@@ -187,17 +202,21 @@ export default function NewTerminalModal({
               ))}
             </select>
           )}
-          {canSkipPermissions(agent) && (
-            <label className="flex items-center gap-2 px-0.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={skipPermissions}
-                onChange={(e) => setSkipPermissions(e.target.checked)}
-                className="w-4 h-4 accent-brand-500 cursor-pointer"
-              />
+          {/* Always mounted — dimmed when the pick has no skip mode, so switching picks never resizes */}
+          <label className={`flex items-center gap-2 px-0.5 select-none ${canSkip ? "cursor-pointer" : "opacity-50 cursor-not-allowed"}`}>
+            <input
+              type="checkbox"
+              checked={canSkip && skipPermissions}
+              disabled={!canSkip}
+              onChange={(e) => setSkipPermissions(e.target.checked)}
+              className="w-4 h-4 accent-brand-500 cursor-pointer disabled:cursor-not-allowed"
+            />
+            {skipFlag ? (
+              <code className="min-w-0 text-xs font-mono text-text-muted truncate">{skipFlag}</code>
+            ) : (
               <span className="text-xs text-text-muted">{t("terminal.skipPermissions")}</span>
-            </label>
-          )}
+            )}
+          </label>
           <div className="space-y-1">
             <label htmlFor="newTerminalName" className="block text-[11px] font-medium text-text-muted px-0.5">
               {t("terminal.nameLabel")}

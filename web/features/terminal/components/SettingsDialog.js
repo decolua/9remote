@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type, FolderOpen,
-  GitBranch, StickyNote, Sun, Moon
+  GitBranch, StickyNote, Sun, Moon, Keyboard
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -13,12 +13,13 @@ import { useTheme } from "@/shared/theme/ThemeProvider";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
 import { SETTINGS_CATEGORIES } from "@/features/terminal/constants/settingsCategories";
+import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard };
 
 /**
  * SettingsDialog - desktop settings surface: centered modal, category nav on the
@@ -263,6 +264,24 @@ export default function SettingsDialog({
                   <ToggleRow icon={StickyNote} label={t("menu.showNote")} value={showNoteButton} onChange={setShowNoteButton} />
                 </Group>
               </div>
+            )}
+
+            {section === "shortcuts" && (
+              <ul className="flex flex-col">
+                {SHORTCUT_ROWS.map((entry) => (
+                  <li
+                    key={entry.id}
+                    className="flex items-center justify-between gap-4 px-3 py-2.5 rounded-brand hover:bg-surface-2"
+                  >
+                    <span className="text-sm text-text min-w-0 truncate">{t(`shortcuts.${entry.id}`)}</span>
+                    <span className="inline-flex items-center gap-1 flex-shrink-0">
+                      {shortcutKeys(entry).map((key) => (
+                        <kbd key={key} className={SHORTCUT_KEY_CLS}>{key}</kbd>
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
 
             {section === "codespace" && (

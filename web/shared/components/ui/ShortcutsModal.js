@@ -3,12 +3,7 @@
 import { useEffect } from "react";
 import { X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
-import { SHORTCUTS, SESSION_INDEX_SHORTCUT, shortcutLabel } from "@/features/terminal/constants/shortcuts";
-
-// Session index sits after the prev/next pair — the three are one group to the user.
-const ROWS = [
-  SHORTCUTS[0], SHORTCUTS[1], SESSION_INDEX_SHORTCUT, ...SHORTCUTS.slice(2)
-];
+import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 
 export default function ShortcutsModal({ isOpen, onClose }) {
   const { t } = useI18n();
@@ -41,12 +36,14 @@ export default function ShortcutsModal({ isOpen, onClose }) {
         </div>
         <div className="flex-1 overflow-y-auto modal-scrollable px-5 pb-5">
           <ul className="flex flex-col gap-1">
-            {ROWS.map((entry) => (
+            {SHORTCUT_ROWS.map((entry) => (
               <li key={entry.id} className="flex items-center justify-between gap-4 py-2">
                 <span className="text-sm text-text min-w-0 truncate">{t(`shortcuts.${entry.id}`)}</span>
-                <kbd className="text-xs font-semibold text-text-muted px-2 py-1 bg-surface-2 rounded-brand whitespace-nowrap flex-shrink-0">
-                  {shortcutLabel(entry)}
-                </kbd>
+                <span className="inline-flex items-center gap-1 flex-shrink-0">
+                  {shortcutKeys(entry).map((key) => (
+                    <kbd key={key} className={SHORTCUT_KEY_CLS}>{key}</kbd>
+                  ))}
+                </span>
               </li>
             ))}
           </ul>
