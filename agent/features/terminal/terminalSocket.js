@@ -16,7 +16,8 @@ import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
-import { touchWorking, startReaper, getStatuses } from "./statusManager.js";
+import { touchWorking, startReaper, getStatuses, setSessionAgent, clearSessionAgent, onAgentChange } from "./statusManager.js";
+import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
 
@@ -26,6 +27,31 @@ const PERSISTENCE_MODE = "daemon";
 const PKG_VERSION = typeof __CLI_VERSION__ !== "undefined"
   ? __CLI_VERSION__
   : JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "package.json"), "utf8")).version;
+
+// OSC 0/2 title scan on daemon output — many agent CLIs announce themselves in the
+// title before any hook fires. Tail buffer joins sequences split across chunks.
+const OSC_TITLE_RE = /\x1b\](?:0|2);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+const TITLE_TAIL_MAX = 256;
+const titleTails = new Map(); // sessionId -> unterminated OSC fragment
+
+function scanTitleForAgent(sessionId, text) {
+  const buf = (titleTails.get(sessionId) || "") + text;
+  let last = null;
+  OSC_TITLE_RE.lastIndex = 0;
+  for (let m; (m = OSC_TITLE_RE.exec(buf)); ) last = m[1];
+  if (last) {
+    const agentId = agentIdFromTitle(last);
+    if (agentId) setSessionAgent(sessionId, agentId);
+  }
+  // Keep only an unterminated trailing OSC; a completed one needs no carry-over
+  const cut = buf.lastIndexOf("\x1b]");
+  const frag = cut === -1 ? "" : buf.slice(cut);
+  if (frag && frag.length <= TITLE_TAIL_MAX && !frag.slice(3).includes("\x07") && !frag.includes("\x1b\\")) {
+    titleTails.set(sessionId, frag);
+  } else {
+    titleTails.delete(sessionId);
+  }
+}
 
 // Store sessions: sessionId -> { pty, name, createdAt, buffer, daemon }
 const sessions = new Map();
@@ -186,6 +212,8 @@ export function setupTerminalSocket(io, apiKey) {
     daemonClient.on("output", ({ sessionId, enc, data, replay }) => {
       // Live (non-replay) output = agent still producing → keep working status alive.
       if (replay !== true) touchWorking(sessionId);
+      // Title-based agent detection (works for replay too — same session, same CLI)
+      if (enc === "b64") scanTitleForAgent(sessionId, Buffer.from(data, "base64").toString("utf8"));
       // Live advances the seq; replay (rejoin tail) snapshots the current seq so
       // the client can resync after a reset+replay without a false gap.
       const seq = replay === true ? currentSeq(sessionId) : nextSeq(sessionId);
@@ -195,6 +223,8 @@ export function setupTerminalSocket(io, apiKey) {
 
     // Clear stuck "working" entries (agent crashed / Stop hook never fired).
     startReaper((sessionId) => broadcast(io, "statusState", getStatuses()));
+    // Hookless agent detection (launch line / OSC title) → push new tool to clients
+    onAgentChange(() => broadcast(io, "statusState", getStatuses()));
 
     daemonClient.on("cwdChange", ({ sessionId, cwd }) => {
       const session = sessions.get(sessionId);
@@ -204,6 +234,8 @@ export function setupTerminalSocket(io, apiKey) {
     daemonClient.on("sessionClosed", (sessionId) => {
       sessions.delete(sessionId);
       clearSeqSession(sessionId); // drop seq counter + gap ring
+      clearSessionAgent(sessionId);
+      titleTails.delete(sessionId);
       // Drop any stale finished-badge so title count + UI stay in sync
       clearNotification(sessionId);
       broadcast(io, "sessionClosed", sessionId);

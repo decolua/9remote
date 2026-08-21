@@ -49,6 +49,45 @@ export const AGENT_CLIS = [
 // Claude's skip-permission flag, reused when resuming a conversation from a session card
 export const CLAUDE_YOLO_FLAG = AGENT_CLIS.find((a) => a.id === "claude")?.yolo || "";
 
+// --- Session agent detection (typed launch line + OSC title) ---
+// Fills statusManager's `tool` for sessions whose hook never fired; hook events stay authoritative.
+
+const CMD_TOKEN_TO_ID = new Map(AGENT_CLIS.map((a) => [a.cmd, a.id]));
+const ENV_PREFIX_RE = /^[A-Za-z_][A-Za-z0-9_]*=\S*\s*/;
+const LEADING_TOKEN_RE = /^[^\s;|&'"`]+/;
+
+// First shell token of a launch line, skipping env prefixes and sudo → agent id.
+export function agentIdFromLaunchLine(line = "") {
+  let rest = line.trim();
+  while (true) {
+    if (ENV_PREFIX_RE.test(rest)) { rest = rest.replace(ENV_PREFIX_RE, ""); continue; }
+    if (/^sudo\s+/.test(rest)) { rest = rest.replace(/^sudo\s+/, ""); continue; }
+    break;
+  }
+  const token = rest.match(LEADING_TOKEN_RE)?.[0];
+  if (!token) return null;
+  return CMD_TOKEN_TO_ID.get(token.split("/").pop().replace(/\.(exe|cmd|bat|ps1)$/i, "")) || null;
+}
+
+const isWordChar = (c) => /[a-z0-9]/.test(c);
+
+// Match an OSC 0/2 title against known agent names (label/short/cmd), whole-word.
+export function agentIdFromTitle(title = "") {
+  const t = title.toLowerCase();
+  if (!t) return null;
+  for (const { id, label, short, cmd } of AGENT_CLIS) {
+    const tokens = new Set([label.toLowerCase(), ...(short ? [short.toLowerCase()] : []), cmd]);
+    for (const token of tokens) {
+      const i = t.indexOf(token);
+      if (i === -1) continue;
+      const before = i > 0 ? t[i - 1] : "";
+      const after = i + token.length < t.length ? t[i + token.length] : "";
+      if (!isWordChar(before) && !isWordChar(after)) return id;
+    }
+  }
+  return null;
+}
+
 const DETECT_CACHE_TTL_MS = 60 * 1000;
 let detectCache = { at: 0, result: [] };
 

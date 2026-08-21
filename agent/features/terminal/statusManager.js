@@ -45,6 +45,31 @@ export function getClaudeSessionId(sessionId) {
 // from the launch line by InputHandler). Powers re-applying the flag on exact resume.
 const claudeYoloSessions = new Set();
 
+// Agent CLI per session detected without hooks (typed launch line or OSC title).
+// Fills `tool` only where no hook entry provided one; hook events stay authoritative.
+const sessionAgents = new Map();
+const agentChangeCallbacks = new Set();
+
+export function setSessionAgent(sessionId, agentId) {
+  if (!sessionId || !agentId || sessionAgents.get(sessionId) === agentId) return;
+  sessionAgents.set(sessionId, agentId);
+  for (const cb of agentChangeCallbacks) { try { cb(sessionId, agentId); } catch {} }
+}
+
+export function getSessionAgent(sessionId) {
+  return sessionAgents.get(sessionId) || null;
+}
+
+export function clearSessionAgent(sessionId) {
+  if (!sessionId) return;
+  sessionAgents.delete(sessionId);
+}
+
+export function onAgentChange(cb) {
+  agentChangeCallbacks.add(cb);
+  return () => agentChangeCallbacks.delete(cb);
+}
+
 export function setClaudeYolo(sessionId, on) {
   if (!sessionId) return;
   if (on) claudeYoloSessions.add(sessionId);
@@ -118,6 +143,11 @@ export function getStatuses() {
   // Attach claude ids for sessions that have no live state entry too (idle tab)
   for (const [id, csid] of claudeSessionIds) {
     out[id] = out[id] ? { ...out[id], claudeSessionId: csid } : { claudeSessionId: csid };
+  }
+  // Hookless detection fills tool only where no hook entry provided one
+  for (const [id, agentId] of sessionAgents) {
+    if (!out[id]) out[id] = { tool: agentId };
+    else if (!out[id].tool) out[id] = { ...out[id], tool: agentId };
   }
   return out;
 }
