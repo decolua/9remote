@@ -67,7 +67,23 @@ let migratedSessionPaths = {};
 
 // Merge live daemon sessions with persisted metadata.
 // Daemon-known sessions are live; metadata-only ones survived a daemon respawn → mark needsRespawn.
-async function syncDaemonSessions() {
+// Serialised: the daemon "connected" event can fire while an initial sync is
+// still awaiting listSessions(). Two runs interleaving would have the later
+// sessions.clear() wipe the entries the earlier one had just rebuilt.
+let syncInFlight = null;
+
+function syncDaemonSessions() {
+  // Queue tail swallows the PREVIOUS run's rejection (so one failure doesn't
+  // poison the chain), while the promise handed back to this caller keeps its
+  // own — awaiting a failed sync must still throw for the caller.
+  const mine = (syncInFlight || Promise.resolve())
+    .catch(() => {})
+    .then(() => _syncDaemonSessions());
+  syncInFlight = mine.catch(() => {});
+  return mine;
+}
+
+async function _syncDaemonSessions() {
   const daemonSessions = await daemonClient.listSessions();
   const liveById = new Map(daemonSessions.map((s) => [s.id, s]));
   const metadata = loadSessionMetadata();

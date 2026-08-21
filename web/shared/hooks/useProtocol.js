@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSessionStorage } from "./useSessionStorage";
 import { useDeviceId } from "./useDeviceId";
 import { ProtocolManager } from "@/shared/transport/ProtocolManager";
+import { buildHandshakeProof } from "@/shared/transport/lib/deviceTrust";
 
 /**
  * Persist rotated tunnelUrl/localIp back to sessionStorage
@@ -65,10 +66,16 @@ export function useProtocol({
       return;
     }
 
+    let manager = null;
+    let cancelled = false;
+
     const wsConfig = {
       tunnelUrl: auth.tunnelUrl,
       localIp: auth.localIp || null,
       namespace,
+      // proof is filled in below (async) — admission is decided straight from
+      // the handshake, with no challenge round-trip. The pairing fp2 is NOT sent
+      // here: it must stay unknown to the server (enrollment goes over RTC).
       socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, deviceId, ...socketOptions.auth } },
       apiKey: auth.apiKey,
       deviceId,
@@ -95,12 +102,18 @@ export function useProtocol({
       onTransportChange: (type) => setTransport(type)
     } : null;
 
-    const manager = new ProtocolManager(wsConfig, rtcConfig);
-    managerRef.current = manager;
-    manager.connect();
+    (async () => {
+      const proof = await buildHandshakeProof(auth.apiKey, deviceId);
+      if (cancelled) return;
+      if (proof) wsConfig.socketOptions.auth.proof = proof;
+      manager = new ProtocolManager(wsConfig, rtcConfig);
+      managerRef.current = manager;
+      manager.connect();
+    })();
 
     return () => {
-      manager.disconnect();
+      cancelled = true;
+      manager?.disconnect();
       managerRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

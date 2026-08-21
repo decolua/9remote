@@ -199,8 +199,19 @@ export async function setupRemoteHandlers(socket, apiKey) {
         protocol.emit("screen-locked", { locked, ready });
       }
     };
-    // computeAndEmit is async — an unguarded rejection would escape the timer
-    const pollDesktop = (force) => computeAndEmit(force).catch((err) => logger.error(`desktop poll: ${err.message}`));
+    // computeAndEmit is async — an unguarded rejection would escape the timer.
+    // It is also driven from two places (this interval and the client's
+    // get-unlock-state), and it mutates the shared readyFailCount/lastReady
+    // verdict across an await — overlapping runs would double-count a single
+    // failure and flip the verdict early. One poll at a time.
+    let pollInFlight = false;
+    const pollDesktop = (force) => {
+      if (pollInFlight) return;
+      pollInFlight = true;
+      return computeAndEmit(force)
+        .catch((err) => logger.error(`desktop poll: ${err.message}`))
+        .finally(() => { pollInFlight = false; });
+    };
     pollDesktop();
     desktopPoll = setInterval(() => pollDesktop(false), cfg.pollIntervalMs);
     // Web requests the current state on mount (its listener races the first
@@ -284,7 +295,13 @@ export async function setupRemoteHandlers(socket, apiKey) {
   let lastLen = -1;
   let lastHash = "";
   let seeded = false;
+  // Guarded: the read is awaited before lastLen/lastHash/seeded are updated, so
+  // a slow clipboard (large payload, busy host) could let the next tick observe
+  // the pre-update baseline and emit the same change twice.
+  let clipInFlight = false;
   const pollClipboard = async () => {
+    if (clipInFlight) return;
+    clipInFlight = true;
     try {
       const text = await readClipboardText(REMOTE_CONFIG.clipboard.maxTextLength);
       const len = text == null ? 0 : text.length;
@@ -296,6 +313,8 @@ export async function setupRemoteHandlers(socket, apiKey) {
       if (text != null) protocol.emit("clipboard-update", { text, hash });
     } catch (err) {
       logger.error(`clipboard poll: ${err.message}`);
+    } finally {
+      clipInFlight = false;
     }
   };
   let clipboardTimer = null;

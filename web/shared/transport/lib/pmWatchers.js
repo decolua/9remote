@@ -8,16 +8,20 @@ import { selectedIceResponses } from "./controlRouting";
 // handover. Both classes of event invalidate an RTC peer well before its own timers
 // notice, so they drive the recovery paths on the PM.
 // Extracted verbatim from ProtocolManager — pm is the manager instance.
+// One app switch on mobile fires visibilitychange + resume (+ often online and
+// connection-change) within milliseconds of each other. Each one used to drive
+// the recovery path independently — probing, restarting, and racing on the same
+// peer. Collapsing the burst into a single pass is what keeps them from fighting.
+const RESUME_COALESCE_MS = 150;
+
 export function attachWatchers(pm) {
   // Visibility-based RTC health check — restart frozen RTC when tab becomes visible.
   // WS may survive background suspension (socket.io keepalive) while the RTC
   // PeerConnection freezes/closes; without this, RTC never recovers on resume.
-  const visibilityHandler = () => {
+  const runResumeCheck = () => {
     termLog("switch", `visibility=${document.visibilityState}`);
-    if (document.visibilityState !== "visible") {
-      if (document.visibilityState === "hidden") pm._hiddenAt = Date.now();
-      return;
-    }
+    // Went away again while the burst was coalescing — nothing to recover.
+    if (document.visibilityState !== "visible") return;
     const ws = pm._adapters.get("ws");
     const rtc = pm._adapters.get("rtc");
     termLog("switch", `resume check: ws=${ws?.ready ? "ready" : ws?.state} rtc=${rtc?.ready ? "ready" : rtc?.state}`);
@@ -81,6 +85,14 @@ export function attachWatchers(pm) {
       probeRtcOnResume(pm);
     }
   };
+
+  // Coalesced entry point — every resume-ish event goes through this, so a
+  // burst results in exactly one recovery pass.
+  const visibilityHandler = () => {
+    if (document.visibilityState === "hidden") { pm._hiddenAt = Date.now(); return; }
+    clearTimeout(pm._resumeCoalesceTimer);
+    pm._resumeCoalesceTimer = setTimeout(runResumeCheck, RESUME_COALESCE_MS);
+  };
   document.addEventListener("visibilitychange", visibilityHandler);
 
   // Page Lifecycle: a tab returning from frozen→active may NOT fire
@@ -128,6 +140,8 @@ export function attachWatchers(pm) {
       navigator.connection?.removeEventListener?.("change", netHandler);
       clearTimeout(pm._netDebounceTimer);
       pm._netDebounceTimer = null;
+      clearTimeout(pm._resumeCoalesceTimer);
+      pm._resumeCoalesceTimer = null;
     }
   };
 }

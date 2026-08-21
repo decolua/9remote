@@ -14,6 +14,10 @@ const RETRY = BEHAVIOR.retry;
  * Owns: connection strategy (tunnel/local-first), retry, visibility reconnect.
  * Channels: control (Socket.IO emit). Binary supported via "tiles-bin-v2".
  */
+// A single app switch can fire visibilitychange + online back to back; both
+// drive retryNow. Collapse that burst (same value SignalingClient uses).
+const RETRY_NOW_THROTTLE_MS = 3000;
+
 export class WsProtocol extends BaseProtocol {
   static id = "ws";
   static capabilities = { control: true, binary: true, file: true, signaling: "ws" };
@@ -26,6 +30,7 @@ export class WsProtocol extends BaseProtocol {
     this._retryTimer = null;
     this._retryAttempt = 0;
     this._retryScheduled = false;
+    this._retryNowTimer = null;
     this._destroyed = false;
     this._blocked = false;
     this._updating = false;
@@ -76,6 +81,29 @@ export class WsProtocol extends BaseProtocol {
    */
   retryNow() {
     if (this._blocked) return;
+    // Mobile fires visibilitychange and online within milliseconds of one
+    // another, and both handlers land here. Since retryNow clears _connecting
+    // itself, the second call would tear down the socket the first one had just
+    // started handshaking — so collapse a burst into one attempt. Mirrors the
+    // throttle SignalingClient already applies to its own retryNow.
+    const now = Date.now();
+    const sinceLast = now - (this._lastRetryNowAt || 0);
+    if (sinceLast < RETRY_NOW_THROTTLE_MS) {
+      // Deferred, never dropped: the throttled call may be the only one that
+      // knows the network is back, so re-run it at the end of the window
+      // instead of discarding it (one pending re-check, not a queue).
+      if (!this._retryNowTimer) {
+        this._retryNowTimer = setTimeout(() => {
+          this._retryNowTimer = null;
+          this.retryNow();
+        }, RETRY_NOW_THROTTLE_MS - sinceLast);
+      }
+      debugLog("transport", "[ws] retryNow throttled → deferred");
+      return;
+    }
+    this._lastRetryNowAt = now;
+    clearTimeout(this._retryNowTimer);
+    this._retryNowTimer = null;
     clearTimeout(this._retryTimer);
     clearTimeout(this._connectingTimer);
     this._retryTimer = null;
@@ -357,6 +385,8 @@ export class WsProtocol extends BaseProtocol {
   _cancelRetry() {
     clearTimeout(this._retryTimer);
     this._retryTimer = null;
+    clearTimeout(this._retryNowTimer);
+    this._retryNowTimer = null;
     this._retryAttempt = 0;
     this._retryScheduled = false;
     this._ctx?.onRetryStatus?.({ isRetrying: false, attempt: 0, maxAttempts: this._maxAttempts, failed: false });

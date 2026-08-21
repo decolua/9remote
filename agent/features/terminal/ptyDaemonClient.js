@@ -155,7 +155,6 @@ function prepareDaemonCopy(sourceScript) {
 // Client state
 let client = null;
 let connected = false;
-let reconnecting = false;
 let messageBuffer = "";
 let requestId = 0;
 const pendingRequests = new Map();
@@ -473,9 +472,23 @@ async function killStaleDaemon() {
 /**
  * Connect to daemon
  */
+// In-flight connect shared by every concurrent caller. Without it a second
+// caller arriving mid-connect returned undefined (falsy) and its socket fell
+// back to buffer mode even though the daemon was coming up fine.
+let connectingPromise = null;
+
 async function connectToDaemon() {
-  if (connected || reconnecting) return;
-  reconnecting = true;
+  if (connected) return true;
+  // connectingPromise is the single gate: callers arriving mid-connect await
+  // the same attempt instead of getting undefined (which read as "failed" and
+  // dropped the socket to buffer mode).
+  if (connectingPromise) return connectingPromise;
+  connectingPromise = _connectToDaemon().finally(() => { connectingPromise = null; });
+  return connectingPromise;
+}
+
+async function _connectToDaemon() {
+  if (connected) return true;
 
   try {    
     // Check if daemon is running
@@ -491,7 +504,6 @@ async function connectToDaemon() {
       // Start daemon
       if (!(await startDaemon())) {
         console.error("[DaemonClient] ❌ Failed to start daemon");
-        reconnecting = false;
         return false;
       }
     }
@@ -501,7 +513,6 @@ async function connectToDaemon() {
       const timeout = setTimeout(() => {
         console.error("[DaemonClient] ❌ Connection timeout after 5s");
         if (client) client.destroy();
-        reconnecting = false;
         resolve(false);
       }, 5000);
 
@@ -510,7 +521,6 @@ async function connectToDaemon() {
       client.on("connect", () => {
         clearTimeout(timeout);
         connected = true;
-        reconnecting = false;
         emit("connected");
         resolve(true);
       });
@@ -538,9 +548,9 @@ async function connectToDaemon() {
         
         // Auto-reconnect after 2s
         setTimeout(() => {
-          if (!connected && !reconnecting) {
-            connectToDaemon();
-          }
+          // connectToDaemon's own gate decides whether an attempt is already
+          // running — no separate flag to go stale here.
+          if (!connected) connectToDaemon();
         }, 2000);
       });
 
@@ -548,13 +558,11 @@ async function connectToDaemon() {
         clearTimeout(timeout);
         console.error("[DaemonClient] ❌ Connection error:", err.message);
         console.error("[DaemonClient] Error code:", err.code);
-        reconnecting = false;
         resolve(false);
       });
     });
   } catch (e) {
     console.error("[DaemonClient] ❌ Connect error:", e);
-    reconnecting = false;
     return false;
   }
 }

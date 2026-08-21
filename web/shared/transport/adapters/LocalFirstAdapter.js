@@ -18,6 +18,13 @@ export class LocalFirstAdapter {
   }
 
   connect({ onSocket, onFail }) {
+    // socket.io keeps emitting connect_error after a successful connect (later
+    // transport errors), so the local probe's error handler could fire once the
+    // local socket had already won — spawning a pointless second socket to the
+    // tunnel. One settle per connect attempt.
+    let settled = false;
+    const win = (socket, mode) => { if (settled) { try { socket.disconnect(); } catch {} return; } settled = true; onSocket(socket, mode); };
+    const fail = () => { if (settled) return; settled = true; onFail?.(); };
     const mkUrl = (base) => this._namespace ? `${base}${this._namespace}` : base;
     const mkOpts = (mode) => ({
       ...DEFAULT_SOCKET_OPTIONS,
@@ -28,8 +35,8 @@ export class LocalFirstAdapter {
 
     const connectTunnel = () => {
       const socket = io(mkUrl(this._tunnelUrl), mkOpts("tunnel"));
-      socket.once("connect", () => onSocket(socket, "tunnel"));
-      socket.once("connect_error", () => onFail?.());
+      socket.once("connect", () => win(socket, "tunnel"));
+      socket.once("connect_error", () => fail());
     };
 
     // HTTPS pages block ws:// (Mixed Content) — skip local probe, use tunnel directly
@@ -39,7 +46,13 @@ export class LocalFirstAdapter {
     }
 
     const localSocket = io(mkUrl(`http://${this._localIp}`), mkOpts("local"));
-    localSocket.once("connect", () => onSocket(localSocket, "local"));
-    localSocket.once("connect_error", () => { localSocket.disconnect(); connectTunnel(); });
+    localSocket.once("connect", () => win(localSocket, "local"));
+    localSocket.once("connect_error", () => {
+      // Only fall back while the local probe is still the live attempt — a late
+      // error after it connected must not open a second socket to the tunnel.
+      if (settled) return;
+      localSocket.disconnect();
+      connectTunnel();
+    });
   }
 }

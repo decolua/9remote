@@ -27,7 +27,11 @@ export class TunnelAdapter {
       auth: { ...this._socketOptions.auth, connectionMode: "tunnel" }
     });
 
-    socket.once("connect", () => onSocket(socket, "tunnel"));
-    socket.once("connect_error", () => onFail?.());
+    // socket.io keeps emitting connect_error after a successful connect, and a
+    // late one would report failure for a socket that is actually up (the PM
+    // then schedules a needless retry). One settle per attempt.
+    let settled = false;
+    socket.once("connect", () => { if (settled) return; settled = true; onSocket(socket, "tunnel"); });
+    socket.once("connect_error", () => { if (settled) return; settled = true; onFail?.(); });
   }
 }

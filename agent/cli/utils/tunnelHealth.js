@@ -24,8 +24,22 @@ async function pushState(data) {
   } catch {}
 }
 
+// Guards against overlapping runs: the probe is awaited inside an interval, so
+// a stalled request (DNS hang outliving its timeout) would let the next tick
+// start a second run and double-count the flap debounce below.
+let checkInFlight = false;
+
 async function runCheck() {
-  if (!currentUrl || paused) return;
+  if (!currentUrl || paused || checkInFlight) return;
+  checkInFlight = true;
+  try {
+    await runCheckInner();
+  } finally {
+    checkInFlight = false;
+  }
+}
+
+async function runCheckInner() {
   const res = await probeTunnelOnce(currentUrl);
   const status = res.ok ? "healthy" : "unreachable";
 

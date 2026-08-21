@@ -13,6 +13,7 @@ import { handleWsStateChange, handleRtcStateChange } from "./lib/adapterStateHan
 import { buildConfig, initialState } from "./lib/pmConfig";
 import { initSignalingClient, handleApprovalSignal, onSignalingReady, sendSignaling, flushSigBuffer, refreshTunnelUrl } from "./lib/pmSignaling";
 import { sendControl, flushBuffer, dispatch, onBinary, scheduleAckTimeout } from "./lib/pmMessaging";
+import { handleDeviceAuthEvent, maybeSendEnroll, DEVICE_AUTH_EVENTS } from "./lib/deviceTrust";
 
 // Auto-register built-in adapters
 registerProtocol(WsProtocol);
@@ -39,6 +40,12 @@ export class ProtocolManager {
     // on/off delegate to current raw socket. Survives WS disconnect.
     this._proxySocket = createProxySocket(this);
     this.socketRef = { current: this._proxySocket };
+    // Device-auth events arrive on either carrier: WS fires proxy listeners
+    // natively, RTC dispatch invokes them via the proxy map — one registration
+    // covers both (see lib/deviceTrust).
+    for (const ev of DEVICE_AUTH_EVENTS) {
+      this._proxySocket.on(ev, (data) => handleDeviceAuthEvent(this, ev, data));
+    }
     // Environment watchers (tab visibility/resume/freeze, network handover) drive the
     // RTC recovery paths — see lib/pmWatchers.
     this._watchers = attachWatchers(this);
@@ -348,6 +355,9 @@ export class ProtocolManager {
 
     if (adapterId === "ws") handleWsStateChange(this, state);
     if (adapterId === "rtc") handleRtcStateChange(this, state);
+
+    // Pairing enrollment rides the RTC control channel — try as soon as it opens
+    if (adapterId === "rtc" && state === ADAPTER_STATE.open) maybeSendEnroll(this);
 
     this._recomputeType();
     this._connected = this._anyAdapterReady();

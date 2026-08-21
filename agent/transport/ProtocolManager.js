@@ -88,6 +88,11 @@ export class ProtocolManager {
       }
       this._adapters.set(id, inst);
     }
+    // Arm DO signaling as part of init: the two used to be separate calls, and
+    // any await between them was a window where an inbound offer had no handler.
+    // Idempotent — setupSignaling is also called on its own to re-arm after the
+    // RTC debug toggle (see broadcast.notifyRtcEnabled).
+    this.setupSignaling(this._socket);
   }
 
   /**
@@ -97,6 +102,24 @@ export class ProtocolManager {
    */
   async attachSocket(socket) {
     if (!socket || this._adapters.has("ws")) return;
+    // Claim the slot BEFORE the await below: two sockets attaching at once
+    // (tunnel reconnect racing the RTC-session hand-off) would both clear the
+    // has("ws") check, build two adapters, and leak the first one.
+    // A concurrent attach is already building the carrier. Chain onto it rather
+    // than returning its promise: this call carries a DIFFERENT socket, and
+    // handing back the other one's result would silently drop this one.
+    if (this._attachingWs) {
+      this._attachingWs = this._attachingWs
+        .catch(() => {})
+        .then(() => this.attachSocket(socket));
+      return this._attachingWs;
+    }
+    this._attachingWs = this._attachSocketInternal(socket)
+      .finally(() => { this._attachingWs = null; });
+    return this._attachingWs;
+  }
+
+  async _attachSocketInternal(socket) {
     this._socket = socket;
     this._auth.socketId = socket.id;
     const Adapter = getProtocol("ws");
@@ -118,6 +141,7 @@ export class ProtocolManager {
   }
 
   setupSignaling(_socket) {
+    if (this._offGlobalSig) return; // already armed (init did it, or a re-arm ran)
     // Register with the process-wide DO signaling client, keyed by the client
     // deviceId this PM serves. Buffered offers (arrived before this PM existed)
     // are flushed by onSignalingMessage. Device approval re-checked on offer.
