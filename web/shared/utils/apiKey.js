@@ -14,16 +14,45 @@ async function generateHmac(secret, machineId, keyId) {
 }
 
 /**
- * Parse API key format: sk-{machineId8}-{keyId4}-{crc6}
+ * Parse API key format: sk-{machineId8}-{keyId4}-{crc6} (legacy)
+ * or v2: sk-{machineId8}-{rand8}-{rand8} — same shape, routing-only, no CRC.
  */
 export function parseApiKey(apiKey) {
   if (!apiKey || !apiKey.startsWith("sk-")) return null;
+  if (/^sk-[a-z0-9]{8}-[a-np-z1-9]{8}-[a-np-z1-9]{8}$/.test(apiKey)) {
+    const [, machineId, a, b] = apiKey.split("-");
+    return { machineId, keyId: a, version: 2, tail: b };
+  }
+  // v2 HEAD (what the agent registers and clients present for routing)
+  if (/^sk-[a-z0-9]{8}-[a-np-z1-9]{8}$/.test(apiKey)) {
+    const [, machineId, a] = apiKey.split("-");
+    return { machineId, keyId: a, version: 2 };
+  }
   const parts = apiKey.split("-");
   if (parts.length === 4) {
     const [, machineId, keyId, crc] = parts;
     return { machineId, keyId, crc };
   }
   return null;
+}
+
+/** HEAD of a v2 key (routing part); v1 keys pass through unchanged. */
+export function headOf(apiKey) {
+  if (typeof apiKey !== "string" || !/^sk-[a-z0-9]{8}-[a-np-z1-9]{8}-[a-np-z1-9]{8}$/.test(apiKey)) return apiKey || null;
+  const parts = apiKey.split("-");
+  return `${parts[0]}-${parts[1]}-${parts[2]}`;
+}
+
+/** TAIL of a v2 key; null for legacy keys. */
+export function tailOf(apiKey) {
+  if (typeof apiKey !== "string" || !/^sk-[a-z0-9]{8}-[a-np-z1-9]{8}-[a-np-z1-9]{8}$/.test(apiKey)) return null;
+  return apiKey.split("-")[3];
+}
+
+/** Route lookups speak HEAD — a client may still present a full v2 key
+ *  (cached old web, manual paste), so normalize before any D1 compare. */
+export function normalizeApiKey(apiKey) {
+  return headOf(apiKey);
 }
 
 /**
@@ -35,6 +64,8 @@ export async function verifyApiKeyCrc(apiKey, env) {
   if (!env?.API_KEY_SECRET) throw new Error("API_KEY_SECRET not configured");
   const parsed = parseApiKey(apiKey);
   if (!parsed) return false;
+  // v2 (full or HEAD) has no CRC — format check in parseApiKey is the whole validation
+  if (parsed.version === 2) return true;
   const { machineId, keyId, crc } = parsed;
   const hmac = await generateHmac(env.API_KEY_SECRET, machineId, keyId);
   return hmac.slice(0, crc.length) === crc;

@@ -2,7 +2,8 @@
  * Device approval manager — persists approved deviceIds to ~/.9remote/approvedDevices.json
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, existsSync, mkdirSync } from "fs";
+import { writeJsonAtomic } from "./atomicFile.js";
 import { join } from "path";
 import { PATHS, LOCAL_UI_DEVICE_ID } from "./constants.js";
 import { readSettings, writeSettings } from "./settings.js";
@@ -52,7 +53,7 @@ export function loadApprovedDevices() {
 function saveApprovedDevices() {
   try {
     ensureDir();
-    writeFileSync(DEVICES_FILE, JSON.stringify(Object.fromEntries(approvedDevices), null, 2));
+    writeJsonAtomic(DEVICES_FILE, Object.fromEntries(approvedDevices));
   } catch {}
 }
 
@@ -84,7 +85,9 @@ export function isDeviceKicked(deviceId) {
 export function approveDevice(deviceId) {
   if (!deviceId || deviceId === LOCAL_UI_DEVICE_ID) return;
   kickedDevices.delete(deviceId);
-  approvedDevices.set(deviceId, { approvedAt: new Date().toISOString() });
+  // Preserve meta (secret, label) — re-approving a device must not silently
+  // strip its enrollment back to the string-only check.
+  approvedDevices.set(deviceId, { ...approvedDevices.get(deviceId), approvedAt: new Date().toISOString() });
   saveApprovedDevices();
 }
 
@@ -102,8 +105,31 @@ export function setDeviceLabel(deviceId, label) {
   return true;
 }
 
+// ── TAIL proof state ────────────────────────────────────────────────────────
+// Approval ("the host allows this device") and proof ("this device holds the
+// key TAIL") are separate things. Proof belongs to the KEY, so the record is
+// which key HEAD the device proved against — not a boolean. Regenerating the
+// key retires every old proof: no client can hold a TAIL that no longer
+// exists, and demanding one would lock everyone out of their own machine.
+//
+// Devices approved before the split (or paired with a v1 key) never prove, so
+// they carry no record and stay on the legacy path.
+
+export function hasProvenTail(deviceId, keyHead) {
+  const proven = approvedDevices.get(deviceId)?.provenKey;
+  return !!proven && !!keyHead && proven === keyHead;
+}
+
+export function markTailProven(deviceId, keyHead) {
+  const meta = approvedDevices.get(deviceId);
+  if (!meta || !keyHead || meta.provenKey === keyHead) return;
+  approvedDevices.set(deviceId, { ...meta, provenKey: keyHead });
+  saveApprovedDevices();
+}
+
 export function getApprovedDevices() {
-  return [...approvedDevices.entries()].map(([id, meta]) => ({ deviceId: id, ...meta }));
+  // Never expose the device secret through the API/UI
+  return [...approvedDevices.entries()].map(([id, meta]) => ({ deviceId: id, approvedAt: meta.approvedAt, label: meta.label || "" }));
 }
 
 // Pending approval queue

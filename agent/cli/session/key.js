@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { getConsistentMachineId } from "../utils/machineId.js";
-import { generateApiKeyWithMachine } from "../utils/apiKey.js";
+import { generateApiKeyV2 } from "../utils/apiKey.js";
 import { loadKey, saveKey } from "../utils/state.js";
 import { isCodespaces } from "../../features/terminal/codespaceManager.js";
 
@@ -16,7 +16,8 @@ export async function ensureKeyData() {
   }
   let keyData = loadKey();
   if (!keyData.key) {
-    const { key } = generateApiKeyWithMachine(machineId);
+    // New installs get a v2 key (routing-only; entry needs the per-device secret)
+    const key = generateApiKeyV2(machineId);
     keyData = saveKey(machineId, key, "Default");
   }
   return keyData;
