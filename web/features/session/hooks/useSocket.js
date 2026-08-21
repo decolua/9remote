@@ -112,8 +112,13 @@ export function useSocket() {
     // Carrier rejoin (resume from background, RTC<->WS switch). The agent keeps the
     // same session, so it may not re-emit "terminal:ready" — refetch here or the
     // lists keep showing what was true before the device went to sleep.
+    // clientReady re-asserts per connection: onConnect above fires once per PM
+    // lifetime, but the agent defers per-socket device:* answers on this event —
+    // a reconnect that skips it (e.g. zombie RTC kept "connected") would never
+    // get its pending/approved notification.
     socket.on("connect", () => {
       loadedRef.current = { sessions: false, workspaces: false };
+      socket.emit("device:clientReady");
       fetchLists(socket);
     });
 

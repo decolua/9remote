@@ -13,6 +13,11 @@ export function unregisterProtocol(pm) {
   logger.debug(`unregister peer=${pm._deviceId?.slice(0, 12)} active=${active.size}`);
 }
 
+// Snapshot of live PMs — kick/cleanup paths sweep this by device
+export function activeProtocols() {
+  return [...active];
+}
+
 // Live carrier counts for the UI transport badges
 export function getTransportStats() {
   let rtcPeers = 0, wsPeers = 0;

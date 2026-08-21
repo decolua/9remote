@@ -4,7 +4,7 @@
 
 import { jsonOk, jsonErr, parseJsonBody } from "../lib/router.js";
 import { approveSocketDevice, rejectSocketDevice, disconnectDeviceSockets, approveRejectedDevice } from "../transport/server.js";
-import { getAllPendingApprovals, getApprovedDevices, removeDevice, getRejectedDevices, clearRejectedDevice, isAutoApprove, setAutoApprove, setDeviceLabel } from "../lib/deviceApproval.js";
+import { getAllPendingApprovals, getApprovedDevices, removeDevice, getRejectedDevices, clearRejectedDevice, kickDevice, isAutoApprove, setAutoApprove, setDeviceLabel } from "../lib/deviceApproval.js";
 
 export async function handleApprove(req, res) {
   const data = await parseJsonBody(req, res);
@@ -58,6 +58,9 @@ export async function handleRemove(req, res) {
 export async function handleDisconnect(req, res) {
   const data = await parseJsonBody(req, res);
   if (!data) return;
+  // Disconnect = kick + require re-approval: the client's next connect lands in
+  // the pending flow ("waiting for approval" modal) instead of silently returning.
+  kickDevice(data.deviceId);
   const count = disconnectDeviceSockets(data.deviceId);
   jsonOk(res, { disconnected: count });
 }

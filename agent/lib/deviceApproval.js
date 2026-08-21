@@ -22,6 +22,10 @@ const pendingApprovals = new Map();
 // Rejected devices (RAM only, cleared on restart): deviceId -> { ip, rejectedAt, socketId }
 const rejectedDevices = new Map();
 
+// Kicked via "Disconnect" (RAM only): still approved on disk, but the next
+// connect must be re-approved — clears on approve/reject/remove or restart.
+const kickedDevices = new Set();
+
 function ensureDir() {
   if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
 }
@@ -57,13 +61,35 @@ export function isDeviceApproved(deviceId) {
   return approvedDevices.has(deviceId);
 }
 
+// Single decision table for every inbound connection, regardless of carrier.
+// A kicked device asks again even with auto-approve on — the host's explicit
+// Disconnect must not be instantly undone.
+export function gateDevice(deviceId) {
+  if (deviceId && kickedDevices.has(deviceId)) return "unknown";
+  if (deviceId && isDeviceApproved(deviceId)) return "approved";
+  if (deviceId && isDeviceRejected(deviceId)) return "rejected";
+  if (isAutoApprove()) return "auto";
+  return "unknown";
+}
+
+export function kickDevice(deviceId) {
+  if (!deviceId || deviceId === LOCAL_UI_DEVICE_ID) return;
+  kickedDevices.add(deviceId);
+}
+
+export function isDeviceKicked(deviceId) {
+  return kickedDevices.has(deviceId);
+}
+
 export function approveDevice(deviceId) {
   if (!deviceId || deviceId === LOCAL_UI_DEVICE_ID) return;
+  kickedDevices.delete(deviceId);
   approvedDevices.set(deviceId, { approvedAt: new Date().toISOString() });
   saveApprovedDevices();
 }
 
 export function removeDevice(deviceId) {
+  kickedDevices.delete(deviceId);
   approvedDevices.delete(deviceId);
   saveApprovedDevices();
 }
@@ -117,6 +143,7 @@ export function getAllPendingApprovals() {
 // Rejected devices (pending re-approval from Clients list)
 export function markDeviceRejected(deviceId, data) {
   if (!deviceId) return;
+  kickedDevices.delete(deviceId); // rejected supersedes kicked
   rejectedDevices.set(deviceId, { ...data, rejectedAt: new Date().toISOString() });
 }
 
