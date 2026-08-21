@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "preact/hooks";
 import MainScreen from "./screens/MainScreen";
 
 const PENDING_POLL_MS = 3000;
+// Mirrors STEP.READY in agent/lib/constants.js (the UI bundle can't import it).
+const STEP_READY = 5;
 
 const defaultHealthCheck = { running: false, timeoutMs: 0, startedAt: null, logs: [] };
 const defaultTunnelHealth = { status: "unknown", checkedAt: null };
@@ -12,6 +14,9 @@ const defaultState = {
   tunnelUrl: "",
   oneTimeKey: "",
   oneTimeKeyExpiresAt: null,
+  // Set by the server once a code has been consumed (or the key replaced), so
+  // the auto-mint effect below does not issue a replacement nobody asked for.
+  pairingUsed: false,
   permanentKey: "",
   qrUrl: "",
   latency: null,
@@ -69,6 +74,7 @@ export default function App() {
           tunnelUrl: data.tunnelUrl ?? "",
           oneTimeKey: data.oneTimeKey ?? "",
           oneTimeKeyExpiresAt: data.oneTimeKeyExpiresAt ?? null,
+          pairingUsed: data.pairingUsed ?? false,
           permanentKey: data.permanentKey ?? "",
           qrUrl: data.qrUrl ?? "",
           latency: data.latency ?? null,
@@ -107,6 +113,7 @@ export default function App() {
             tunnelUrl: data.tunnelUrl ?? "",
             oneTimeKey: data.oneTimeKey ?? "",
             oneTimeKeyExpiresAt: data.oneTimeKeyExpiresAt ?? null,
+            pairingUsed: data.pairingUsed ?? false,
             permanentKey: data.permanentKey ?? "",
             qrUrl: data.qrUrl ?? "",
             latency: data.latency ?? null,
@@ -197,9 +204,18 @@ export default function App() {
   useEffect(() => {
     if (autoKeyRef.current) return;
     if (!mainState.permanentKey || mainState.oneTimeKey || mainState.qrUrl) return;
+    // A code already paired a device (or the key was just replaced) — minting
+    // another one here would reopen a pairing window nobody asked for. The user
+    // mints the next one explicitly.
+    if (mainState.pairingUsed) return;
+    // Only while the server is actually serving. stop-tunnel / restart-tunnel /
+    // shutdown all clear oneTimeKey on their way to STOPPED or PREPARING, and
+    // without this the effect read that as "no code yet" and minted one for a
+    // session that is going away.
+    if (mainState.step !== STEP_READY) return;
     autoKeyRef.current = true;
     fetch("/api/key/one-time", { method: "POST" }).catch(() => {});
-  }, [mainState.permanentKey, mainState.oneTimeKey, mainState.qrUrl]);
+  }, [mainState.permanentKey, mainState.oneTimeKey, mainState.qrUrl, mainState.pairingUsed, mainState.step]);
 
   const handleRequestPermission = async (type) => {
     await fetch("/api/permissions/request", {

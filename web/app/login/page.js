@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense, useMemo } from "react";
+import { useState, useEffect, Suspense, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/shared/hooks/useAuth";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
@@ -20,6 +20,29 @@ import CodespaceList from "@/features/codespace/components/CodespaceList";
 import { useGithub } from "@/features/codespace/hooks/useGithub";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { buildCodespaceUrl } from "@/shared/constants/github";
+import { setPendingFp2, setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
+import { headOf, tailOf } from "@/shared/utils/apiKey";
+
+// One-time pairing input: "K7QP3M9X" (6-char tempKey + 2-char fp2, no
+// separator), a bare "K7QP3M", or a full login URL carrying either in
+// query/fragment. A hyphenated "K7QP3M-9X" is still accepted — older agents
+// emit it, and users may re-type an old code. The fp2 stays in the browser
+// (device trust); only the 6-char tempKey is ever sent anywhere.
+function parsePairingInput(raw) {
+  const str = String(raw || "").trim();
+  const split = (code) => ({ tempKey: code.slice(0, 6), fp2: code.slice(6, 8) });
+
+  const hashMatch = /#([A-NP-Z1-9]{6}-?[A-NP-Z1-9]{2})$/i.exec(str);
+  if (hashMatch) return split(hashMatch[1].toUpperCase().replace("-", ""));
+
+  const codeMatch = /^([A-NP-Z1-9]{6}-?[A-NP-Z1-9]{2})$/i.exec(str);
+  if (codeMatch) return split(codeMatch[1].toUpperCase().replace("-", ""));
+
+  const kMatch = /[?&]k=([A-NP-Z1-9]{6})(?:[^A-NP-Z1-9]|$)/i.exec(str);
+  if (kMatch) return { tempKey: kMatch[1].toUpperCase() };
+  if (/^[A-NP-Z1-9]{6}$/i.test(str)) return { tempKey: str.toUpperCase() };
+  return null;
+}
 
 // Terminal-glyph laptop + phone hero illustration (brand-tinted, theme-agnostic)
 function LoginContent() {
@@ -45,9 +68,27 @@ function LoginContent() {
   const { loading, error, authenticateWithToken, authenticateWithApiKey } = useAuth();
   const { loadKeys, saveKey, removeKey, renameKey, hasStoredKeys, updateLastLogin } = useApiKeyStorage();
 
-  // Check for token (old) or temp key (new) in URL (QR code auth)
+  // Check for token (old) or temp key (new) in URL (QR code auth).
+  // The v2 pairing code rides the #fragment (never sent to the server); the
+  // ?k= query stays supported for legacy-agent QRs. Parsed once — the value is
+  // stashed in sessionStorage because StrictMode remounts re-run the
+  // initializer after the URL has already been scrubbed.
   const token = useMemo(() => searchParams.get("t"), [searchParams]);
-  const tempKey = useMemo(() => searchParams.get("k"), [searchParams]);
+  const [tempKey] = useState(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stashed = sessionStorage.getItem("9remote_url_pairing");
+      if (stashed) return stashed;
+      const parsed = parsePairingInput(window.location.hash) || parsePairingInput(window.location.search);
+      if (parsed?.tempKey) {
+        if (parsed.fp2) setPendingFp2(parsed.fp2);
+        sessionStorage.setItem("9remote_url_pairing", parsed.tempKey);
+        window.history.replaceState(null, "", window.location.pathname);
+        return parsed.tempKey;
+      }
+    } catch {}
+    return null;
+  });
   const isTokenAuth = !!token || !!tempKey;
 
   // Load saved data after hydration (client-side only)
@@ -71,7 +112,7 @@ function LoginContent() {
   const handleCodespaceConnect = (cs, apiKey) => {
     const tunnelUrl = buildCodespaceUrl(cs.name);
     setAuth({
-      apiKey,
+      apiKey: headOf(apiKey), // v2 keys route by HEAD; the TAIL stays local
       tunnelUrl,
       mode: "remote"
     });
@@ -86,50 +127,57 @@ function LoginContent() {
     }
   };
 
+  // Handle temp key auth
+  const authenticateWithTempKey = useCallback(async (tk) => {
+    const result = await authenticateWithToken(tk, true);
+    // The URL stash served its purpose — drop it so a later /login visit in
+    // this tab doesn't replay a consumed key
+    try { sessionStorage.removeItem("9remote_url_pairing"); } catch {}
+    if (result.success) {
+      // Auto save API key if "Remember this key" is checked. withTail re-attaches
+      // a TAIL already held for this key — a one-time login only returns the HEAD.
+      if (rememberKey && result.apiKey) {
+        saveKey(withTail(result.apiKey));
+      }
+      router.push("/workspace/");
+    }
+  }, [authenticateWithToken, rememberKey, saveKey, router]);
+
   useEffect(() => {
     if (token) {
       authenticateWithToken(token);
     } else if (tempKey) {
       authenticateWithTempKey(tempKey);
     }
-  }, [token, tempKey, authenticateWithToken]);
+  }, [token, tempKey, authenticateWithToken, authenticateWithTempKey]);
 
-  // Handle temp key auth
-  const authenticateWithTempKey = async (tk) => {
-    const result = await authenticateWithToken(tk, true);
-    if (result.success) {
-      // Auto save API key if "Remember this key" is checked
-      if (rememberKey && result.apiKey) {
-        saveKey(result.apiKey);
-      }
-      router.push("/workspace/");
-    }
-  };
-
-  // Check if input is one-time key (6 chars alphanumeric, case-insensitive)
-  const isOneTimeKey = (key) => {
-    return key.length === 6 && /^[A-Z0-9]+$/i.test(key);
-  };
-
-  // Handle API key submit (supports both API key and one-time key)
+  // Handle API key submit (supports API key and one-time key, with or without fp2)
   const handleConnect = async () => {
     const trimmedKey = apiKey.trim();
     if (!trimmedKey) return;
 
-    // Detect one-time key vs API key (one-time key is case-insensitive, uppercase it)
-    if (isOneTimeKey(trimmedKey)) {
-      const result = await authenticateWithToken(trimmedKey.toUpperCase(), true);
+    // Detect one-time key (optionally with the fp2 suffix) vs API key
+    const parsed = parsePairingInput(trimmedKey);
+    if (parsed?.tempKey) {
+      if (parsed.fp2) setPendingFp2(parsed.fp2);
+      const result = await authenticateWithToken(parsed.tempKey, true);
       if (result.success) {
         if (rememberKey && result.apiKey) {
-          saveKey(result.apiKey);
+          saveKey(withTail(result.apiKey));
         }
         router.push("/workspace/");
       }
     } else {
-      const result = await authenticateWithApiKey(apiKey);
+      // Typed full v2 key — the TAIL stays local (trust store) and is proven
+      // to the agent directly; only the HEAD ever goes to the Worker.
+      const tail = tailOf(trimmedKey);
+      if (tail) setTrust(headOf(trimmedKey), { tail });
+      const result = await authenticateWithApiKey(trimmedKey);
       if (result.success) {
         if (rememberKey) {
-          saveKey(result.apiKey || apiKey);
+          // Store the FULL key: useAuth returns the HEAD, and saving that
+          // would drop the TAIL, leaving later logins unable to prove it.
+          saveKey(trimmedKey);
         }
         router.push("/workspace/");
       }
@@ -139,6 +187,10 @@ function LoginContent() {
   // Handle login with saved key
   const handleLoginWithSavedKey = async (key) => {
     if (!key) return;
+    // Stored keys may be full v2 keys — re-seed the TAIL so this tab (or a
+    // fresh browser profile) can answer the agent's challenge.
+    const savedTail = tailOf(key);
+    if (savedTail) setTrust(headOf(key), { tail: savedTail });
     setLoginLoadingKey(key);
     let result;
     try {
@@ -178,12 +230,15 @@ function LoginContent() {
     setEditingKeyId(null);
   };
 
-  // Handle QR scan result
-  const handleQRScan = async (tempKey) => {
-    const result = await authenticateWithToken(tempKey, true);
+  // Handle QR scan result — may be a bare code or a full login URL
+  const handleQRScan = async (scanned) => {
+    const parsed = parsePairingInput(scanned);
+    if (!parsed?.tempKey) return;
+    if (parsed.fp2) setPendingFp2(parsed.fp2);
+    const result = await authenticateWithToken(parsed.tempKey, true);
     if (result.success) {
       if (rememberKey && result.apiKey) {
-        saveKey(result.apiKey);
+        saveKey(withTail(result.apiKey));
       }
       router.push("/workspace/");
     }

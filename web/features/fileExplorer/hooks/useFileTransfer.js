@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { dataTransferToItems } from "@/features/fileExplorer/lib/dataTransfer";
 import { vibrate } from "@/shared/utils/vibration";
 
@@ -14,17 +14,24 @@ export function useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone, o
   const [downloadState, setDownloadState] = useState(null); // { name, ratio }
 
   // Kick off an upload batch into the current directory.
+  // Batches can overlap (a second drop while the first is still uploading), and
+  // they share one progress slot: without a stamp the older batch's completion
+  // would clear the newer batch's UI, and its progress events would fight for
+  // the same bar. Only the newest batch may write.
+  const uploadSeqRef = useRef(0);
   const startUpload = useCallback(async (items) => {
     if (!items.length || !fileSocket.uploadFiles) return;
+    const seq = ++uploadSeqRef.current;
+    const isCurrent = () => seq === uploadSeqRef.current;
     setTransfer({ total: items.length, done: 0, current: items[0]?.file?.name || "", ratio: 0 });
     await fileSocket.uploadFiles(currentPath, items, {
       onConflict: ({ file }, relativePath) => new Promise((resolve) => {
         setConflict({ name: relativePath || file.name, resolve });
       }),
-      onProgress: (file, ratio) => setTransfer((p) => p ? { ...p, current: file.name, ratio } : p),
-      onFileDone: (file) => setTransfer((p) => p ? { ...p, done: p.done + 1 } : p)
+      onProgress: (file, ratio) => { if (isCurrent()) setTransfer((p) => p ? { ...p, current: file.name, ratio } : p); },
+      onFileDone: (file) => { if (isCurrent()) setTransfer((p) => p ? { ...p, done: p.done + 1 } : p); }
     });
-    setTransfer(null);
+    if (isCurrent()) setTransfer(null);
     onDone?.(currentPath);
   }, [fileSocket, currentPath, onDone]);
 
@@ -54,8 +61,14 @@ export function useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone, o
   }, [isBrowsing, startUpload]);
 
   // Trigger a browser save for a file or folder (folder arrives as .zip).
+  // Same single-slot problem as uploads: a second download started while one is
+  // running would share the progress bar, and whichever finished first would
+  // clear it for both.
+  const downloadSeqRef = useRef(0);
   const handleDownload = useCallback((file) => {
     if (!fileSocket.downloadFile) return;
+    const seq = ++downloadSeqRef.current;
+    const isCurrent = () => seq === downloadSeqRef.current;
     setDownloadState({ name: file.name, ratio: 0 });
     fileSocket.downloadFile(file.path, {
       onSave: (blob, meta) => {
@@ -66,10 +79,10 @@ export function useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone, o
         a.click();
         a.remove();
         URL.revokeObjectURL(a.href);
-        setDownloadState(null);
+        if (isCurrent()) setDownloadState(null);
       },
-      onProgress: (ratio) => setDownloadState((p) => p ? { ...p, ratio } : p),
-      onError: (e) => { onError?.(e.message || "Download failed"); setDownloadState(null); }
+      onProgress: (ratio) => { if (isCurrent()) setDownloadState((p) => p ? { ...p, ratio } : p); },
+      onError: (e) => { onError?.(e.message || "Download failed"); if (isCurrent()) setDownloadState(null); }
     });
   }, [fileSocket, onError]);
 

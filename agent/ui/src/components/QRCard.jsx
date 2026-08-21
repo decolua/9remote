@@ -4,6 +4,8 @@ import ConfirmPopup from "./ConfirmPopup";
 import { useI18n } from "../i18n";
 
 const ENDPOINT = "9remote.cc";
+// Release a stuck spinner if the request fails (the value never changes then).
+const BUSY_TIMEOUT_MS = 15000;
 
 function formatCountdown(ms) {
   if (ms <= 0) return "Expired";
@@ -13,15 +15,24 @@ function formatCountdown(ms) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function IconBtn({ icon, onClick, title, danger }) {
+function IconBtn({ icon, onClick, title, danger, busy }) {
   return (
     <button
       onClick={onClick}
       title={title}
+      disabled={busy}
       className="glass-btn w-7 h-7 flex items-center justify-center flex-shrink-0"
-      style={danger ? { color: "rgba(255,100,100,0.7)" } : { color: "var(--text-muted)" }}
+      style={{
+        ...(danger ? { color: "rgba(255,100,100,0.7)" } : { color: "var(--text-muted)" }),
+        ...(busy ? { opacity: 0.6, cursor: "default" } : null)
+      }}
     >
-      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{icon}</span>
+      <span
+        className={`material-symbols-outlined${busy ? " qr-spin" : ""}`}
+        style={{ fontSize: 15 }}
+      >
+        {icon}
+      </span>
     </button>
   );
 }
@@ -32,6 +43,9 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
   const [countdown, setCountdown] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null); // "oneTime" | "permanent"
   const [popup, setPopup] = useState(null); // "oneTime" | "regen" | "stop" | null
+  // Which generate button is mid-flight. Cleared when the new value arrives via
+  // the state stream (below), so the spinner tracks the real work, not a timer.
+  const [busy, setBusy] = useState(null); // "oneTime" | "permanent" | null
 
   useEffect(() => {
     if (!qrUrl || !canvasRef.current) return;
@@ -50,6 +64,25 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
     return () => clearInterval(id);
   }, [oneTimeKeyExpiresAt]);
 
+  // Stop each spinner as soon as ITS value actually arrives — the two buttons
+  // are independent, so a regenerate must not clear a one-time key spinner.
+  // Keyed on the value itself: the effect re-runs only when it changes.
+  useEffect(() => {
+    setBusy((b) => (b === "oneTime" ? null : b));
+  }, [oneTimeKey]);
+
+  useEffect(() => {
+    setBusy((b) => (b === "permanent" ? null : b));
+  }, [permanentKey]);
+
+  // Failsafe: a failed request never changes the value, so release the spinner
+  // instead of leaving the button disabled forever.
+  useEffect(() => {
+    if (!busy) return;
+    const id = setTimeout(() => setBusy(null), BUSY_TIMEOUT_MS);
+    return () => clearTimeout(id);
+  }, [busy]);
+
   const copy = (text, which) => {
     navigator.clipboard.writeText(text).catch(() => {});
     setCopiedKey(which);
@@ -62,7 +95,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
         <ConfirmPopup
           message="Generate a new one-time key? The current one will expire immediately."
           confirmLabel="Generate"
-          onConfirm={() => { setPopup(null); onGenerateOneTimeKey?.(); }}
+          onConfirm={() => { setPopup(null); setBusy("oneTime"); onGenerateOneTimeKey?.(); }}
           onCancel={() => setPopup(null)}
         />
       )}
@@ -71,7 +104,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
           message="Regenerate permanent key? All existing sessions will be disconnected."
           confirmLabel="Regenerate"
           confirmDanger
-          onConfirm={() => { setPopup(null); onRegenerateKey?.(); }}
+          onConfirm={() => { setPopup(null); setBusy("permanent"); onRegenerateKey?.(); }}
           onCancel={() => setPopup(null)}
         />
       )}
@@ -132,7 +165,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
                 title="Copy one-time key"
               />
             )}
-            <IconBtn icon="refresh" onClick={() => setPopup("oneTime")} title="New one-time key" />
+            <IconBtn icon="refresh" onClick={() => setPopup("oneTime")} title="New one-time key" busy={busy === "oneTime"} />
           </div>
         </div>
 
@@ -154,7 +187,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
                 title="Copy permanent key"
               />
             )}
-            <IconBtn icon="autorenew" onClick={() => setPopup("regen")} title="Regenerate permanent key" danger />
+            <IconBtn icon="autorenew" onClick={() => setPopup("regen")} title="Regenerate permanent key" danger busy={busy === "permanent"} />
           </div>
         </div>
 

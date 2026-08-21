@@ -11,7 +11,8 @@ import { isAutoStartEnabled, setAutoStart } from "../cli/utils/autostart.js";
 import { jsonOk, jsonErr } from "../lib/router.js";
 import { getLocalToken } from "../lib/localToken.js";
 import { LOCAL_UI_ORIGINS } from "../lib/constants.js";
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, existsSync, mkdirSync } from "fs";
+import { writeJsonAtomic } from "../lib/atomicFile.js";
 import { join } from "path";
 import { PATHS } from "../lib/constants.js";
 import { readSettings, writeSettings } from "../lib/settings.js";
@@ -36,6 +37,9 @@ let uiState = {
   tunnelUrl: "",
   oneTimeKey: "",
   oneTimeKeyExpiresAt: null,
+  // A pairing code was minted and consumed at least once — the UI must not
+  // silently mint another one (each code opens a fresh pairing window).
+  pairingUsed: false,
   permanentKey: "",
   qrUrl: "",
   latency: null,
@@ -64,7 +68,10 @@ export function loadUiState() {
     if (existsSync(UI_STATE_FILE)) {
       const saved = JSON.parse(readFileSync(UI_STATE_FILE, "utf8"));
       if (saved.step === STEP.READY && saved.permanentKey) {
-        uiState = { ...uiState, ...saved };
+        // pairingUsed is per-run: it only exists to stop the UI auto-minting a
+        // replacement code right after one was consumed (or the key replaced).
+        // Persisting it would silence the QR on every later start too.
+        uiState = { ...uiState, ...saved, pairingUsed: false };
       }
     }
   } catch { }
@@ -73,7 +80,7 @@ export function loadUiState() {
 function saveUiState() {
   try {
     ensureDir();
-    writeFileSync(UI_STATE_FILE, JSON.stringify(uiState), { mode: 0o600 });
+    writeJsonAtomic(UI_STATE_FILE, uiState, { spaces: 0 });
   } catch { }
 }
 
@@ -118,7 +125,11 @@ export function updateUiState(data) {
 }
 
 export function clearOneTimeKey() {
-  updateUiState({ oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "" });
+  // Intentionally does NOT clear the pairing window (lib/pairingCode.js):
+  // enrollment happens after the tempKey is consumed, so the window must
+  // outlive the code display — its own 10-minute TTL bounds it.
+  // pairingUsed stops the UI from auto-minting a replacement code.
+  updateUiState({ oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "", pairingUsed: true });
 }
 
 // Latest available update { version } or null — set by periodic check, read by serverInfo

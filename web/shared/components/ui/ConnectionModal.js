@@ -16,9 +16,14 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   const { t } = useI18n();
 
   // PWA resume grace — tab just became visible; WS/RTC are re-establishing.
-  // Suppress everything (including approval/retry) for the grace window so the
-  // modal doesn't flash. Real disconnects show up once the grace elapses.
-  if (suppress) return null;
+  // Suppress the CONNECTION states (retry/failed) so they don't flash, but NOT
+  // an approval verdict: that is a standing answer from the host, not a
+  // transient carrier state. Hiding it left the user staring at a blank
+  // workspace while the agent was still waiting for them to click Approve —
+  // and switching to the agent window to click it is exactly what triggers the
+  // grace on the way back.
+  const isApproval = approvalStatus === "pending" || approvalStatus === "rejected";
+  if (suppress && !isApproval) return null;
 
   const handleBackToLogin = () => {
     if (onLogout) {

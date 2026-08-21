@@ -4,6 +4,10 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { WORKER_API } from "@/shared/constants/API";
 
+// Resume on mobile triggers several list-refresh paths within a few ms; this
+// window collapses them into one round-trip.
+const FETCH_COALESCE_MS = 120;
+
 // Socket.io connection management hook for Terminal
 export function useSocket() {
   const [sessions, setSessions] = useState([]);
@@ -17,6 +21,21 @@ export function useSocket() {
   const [canSelfUpdate, setCanSelfUpdate] = useState(false);
   const [approvalStatus, setApprovalStatus] = useState(null); // null | "pending" | "approved" | "rejected"
   const { getAuth } = useSessionStorage();
+
+  // Approval arrives on TWO independent carriers — socket.io device:* events
+  // and the DO signaling relay (which answers before any socket exists). Both
+  // funnel through here so the verdict follows one set of rules instead of
+  // whichever path happened to fire last.
+  //   pending/rejected  = a policy answer from the host; only the host changes it
+  //   approved          = terminal for this session
+  //   carrier-reconnect = NOT an answer, must never clear a standing verdict
+  const applyApproval = useCallback((next) => {
+    setApprovalStatus((prev) => {
+      if (next === "reconnect") return prev === "approved" ? null : prev;
+      if (prev === "approved" && next === "pending") return prev; // stale late signal
+      return next;
+    });
+  }, []);
 
   // Remove one-time key from worker after device is approved
   const removeTempKey = useCallback(async () => {
@@ -71,11 +90,37 @@ export function useSocket() {
     setWorkspaces(list);
   }, []);
 
+  // Four independent sources ask for these lists (terminal:ready, the socket
+  // "connect" rejoin, the visibility refetch, and the 2s retry) — a single
+  // resume used to fire up to 8 emits at once, and their acks can land out of
+  // order, letting an older snapshot overwrite a newer one. Collapse the burst
+  // and stamp each request so only the newest answer is applied.
+  // One counter PER LIST: a shared one made the two requests cancel each other
+  // (getSessions bumped the seq the getWorkspaces ack was waiting on, so the
+  // workspace list never applied).
+  const sessionSeqRef = useRef(0);
+  const workspaceSeqRef = useRef(0);
+  const fetchTimerRef = useRef(null);
+
+  const emitSessions = useCallback((socket) => {
+    const seq = ++sessionSeqRef.current;
+    socket.emit("getSessions", (list) => { if (seq === sessionSeqRef.current) applySessions(list); });
+  }, [applySessions]);
+
+  const emitWorkspaces = useCallback((socket) => {
+    const seq = ++workspaceSeqRef.current;
+    socket.emit("getWorkspaces", (list) => { if (seq === workspaceSeqRef.current) applyWorkspaces(list); });
+  }, [applyWorkspaces]);
+
   const fetchLists = useCallback((socket) => {
     if (!socket) return;
-    socket.emit("getWorkspaces", applyWorkspaces);
-    socket.emit("getSessions", applySessions);
-  }, [applySessions, applyWorkspaces]);
+    if (fetchTimerRef.current) return; // burst already pending
+    fetchTimerRef.current = setTimeout(() => {
+      fetchTimerRef.current = null;
+      emitWorkspaces(socket);
+      emitSessions(socket);
+    }, FETCH_COALESCE_MS);
+  }, [emitSessions, emitWorkspaces]);
 
   // The proxy socket this hook's listeners are bound to. onConnect fires again on
   // every carrier reconnect after a full outage, but the proxy — and the listeners
@@ -83,8 +128,8 @@ export function useSocket() {
   const boundSocketRef = useRef(null);
 
   const handleSocketReady = useCallback((socket, auth) => {
-    // Reset approval status on new connection
-    setApprovalStatus(null);
+    // A carrier coming up is not a verdict — see applyApproval.
+    applyApproval("reconnect");
     // A reconnect may have missed create/delete done elsewhere while we were away,
     // so neither list is trustworthy until the agent answers again.
     loadedRef.current = { sessions: false, workspaces: false };
@@ -96,12 +141,10 @@ export function useSocket() {
     boundSocketRef.current = socket;
 
     // Listen for device approval flow
-    socket.on("device:pendingApproval", () => {
-      setApprovalStatus("pending");
-    });
+    socket.on("device:pendingApproval", () => applyApproval("pending"));
 
     socket.on("device:approved", () => {
-      setApprovalStatus("approved");
+      applyApproval("approved");
       removeTempKey();
     });
 
@@ -123,7 +166,7 @@ export function useSocket() {
     });
 
     socket.on("device:rejected", () => {
-      setApprovalStatus("rejected");
+      applyApproval("rejected");
       // Stop auto-reconnect — user must re-submit key to try again
       disconnectRef.current?.();
     });
@@ -151,15 +194,15 @@ export function useSocket() {
 
     // Signal server that client listeners are ready
     socket.emit("device:clientReady");
-  }, [removeTempKey, handleCodespaceStopping, fetchLists]);
+  }, [removeTempKey, handleCodespaceStopping, fetchLists, applyApproval]);
 
   const { socket, socketRef, protocolRef, connected, connectionMode, transport, retryStatus, disconnect } = useBaseSocket({
     namespace: "",
     redirectOnNoAuth: "/",
     onConnect: handleSocketReady,
     onDisconnect: handleDisconnect,
-    // Agent refused over signaling — same modal as the socket.io device:* events
-    onApproval: setApprovalStatus
+    // Agent refused over signaling — same funnel as the socket.io device:* events
+    onApproval: applyApproval
   });
 
   // Keep ref in sync so event handlers registered above can call disconnect
@@ -167,15 +210,19 @@ export function useSocket() {
 
   // Load sessions list
   const loadSessions = useCallback(() => {
-    if (!socketRef.current) return;
-    socketRef.current.emit("getSessions", applySessions);
-  }, [socketRef, applySessions]);
+    if (socketRef.current) emitSessions(socketRef.current);
+  }, [socketRef, emitSessions]);
 
   // Load workspaces list
   const loadWorkspaces = useCallback(() => {
-    if (!socketRef.current) return;
-    socketRef.current.emit("getWorkspaces", applyWorkspaces);
-  }, [socketRef, applyWorkspaces]);
+    if (socketRef.current) emitWorkspaces(socketRef.current);
+  }, [socketRef, emitWorkspaces]);
+
+  // Pending coalesce timer must not outlive the hook — it captures the socket
+  // and would fire after unmount.
+  useEffect(() => () => {
+    if (fetchTimerRef.current) { clearTimeout(fetchTimerRef.current); fetchTimerRef.current = null; }
+  }, []);
 
   // terminal:ready is one-shot over a racy multi-carrier transport — if it or a fetch
   // ack is dropped, the lists stay empty forever. Retry while connected until each
