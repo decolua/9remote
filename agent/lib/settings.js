@@ -2,6 +2,7 @@
 import fs from "fs";
 import path from "path";
 import { PATHS } from "./constants.js";
+import { writeJsonAtomic } from "./atomicFile.js";
 
 const FILE = path.join(PATHS.CONFIG, "settings.json");
 
@@ -17,7 +18,7 @@ export function writeSettings(patch) {
   try {
     ensureDir();
     const next = { ...readSettings(), ...patch };
-    fs.writeFileSync(FILE, JSON.stringify(next, null, 2));
+    writeJsonAtomic(FILE, next);
     return next;
   } catch { return null; }
 }

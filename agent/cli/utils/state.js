@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { PATHS } from "../../lib/constants.js";
+import { writeJsonAtomic } from "../../lib/atomicFile.js";
 
 const STATE_DIR = PATHS.STATE;
 const STATE_FILE = path.join(PATHS.STATE, "state.json");
@@ -38,7 +39,7 @@ export function loadState() {
 export function saveState(state) {
   try {
     ensureDir();
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
+    writeJsonAtomic(STATE_FILE, state);
   } catch (error) {
     console.error("Error saving state:", error);
   }
@@ -71,7 +72,7 @@ export function saveSettings(patch) {
   try {
     ensureDir();
     const next = { ...loadSettings(), ...patch };
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), { mode: 0o600 });
+    writeJsonAtomic(SETTINGS_FILE, next);
     return next;
   } catch (error) {
     console.error("Error saving settings:", error);
@@ -103,7 +104,7 @@ export function loadKey() {
 export function writeCmd(cmd) {
   try {
     ensureDir();
-    fs.writeFileSync(CMD_FILE, JSON.stringify({ cmd, ts: Date.now() }));
+    writeJsonAtomic(CMD_FILE, { cmd, ts: Date.now() }, { spaces: 0 });
   } catch {}
 }
 
@@ -131,7 +132,7 @@ export function saveKey(machineId, key, name = "Default") {
       name,
       createdAt: new Date().toISOString()
     };
-    fs.writeFileSync(KEYS_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
+    writeJsonAtomic(KEYS_FILE, data);
     return data;
   } catch (error) {
     console.error("Error saving key:", error);

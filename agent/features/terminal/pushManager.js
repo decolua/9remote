@@ -4,6 +4,7 @@ import path from "path";
 import webpush from "web-push";
 import { PATHS, TOOL_LABELS } from "../../lib/constants.js";
 import { pushUiLog } from "../../api/ui.js";
+import { writeJsonAtomic } from "../../lib/atomicFile.js";
 
 const VAPID_CONFIG_PATH = path.join(PATHS.CONFIG, "vapid.json");
 const PUSH_SUBS_PATH = path.join(PATHS.CONFIG, "push-subscriptions.json");
@@ -26,7 +27,7 @@ function loadVapidKeys() {
 function saveVapidKeys(keys) {
   const dir = path.dirname(VAPID_CONFIG_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(VAPID_CONFIG_PATH, JSON.stringify(keys, null, 2), "utf8");
+  writeJsonAtomic(VAPID_CONFIG_PATH, keys);
 }
 
 function initVapidKeys() {
@@ -54,7 +55,7 @@ function savePushSubscriptions() {
   try {
     const dir = path.dirname(PUSH_SUBS_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(PUSH_SUBS_PATH, JSON.stringify(pushSubscriptions, null, 2), "utf8");
+    writeJsonAtomic(PUSH_SUBS_PATH, pushSubscriptions);
   } catch (e) {
     pushUiLog(`Failed to save push subscriptions: ${e.message}`);
   }

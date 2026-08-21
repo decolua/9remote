@@ -6,6 +6,7 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 import { SERVER_PORT, PATHS as APP_PATHS, CLAUDE_SCROLLBACK_ENV, AI_TOOLS } from "../../lib/constants.js";
+import { writeJsonAtomic } from "../../lib/atomicFile.js";
 
 const NOTIFY_URL = `http://localhost:${SERVER_PORT}/api/notify`;
 // JS identifier cannot start with a digit, so plugin export name differs from the file mark
@@ -98,9 +99,10 @@ function readJsonFile(filePath) {
 }
 
 function writeJsonFile(filePath, data) {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+  // Atomic: these are the AI tools' own settings files (Claude/Codex/...), and
+  // a torn write would corrupt config the agent does not own. Mode is left at
+  // the default — unlike our own state, these are not secrets-only files.
+  writeJsonAtomic(filePath, data, { mode: 0o644 });
 }
 
 // Backup original env values then apply scrollback fix
