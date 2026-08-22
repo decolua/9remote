@@ -109,6 +109,12 @@ export function decideAdmission(socket, deviceId) {
   // the same question.
   const presented = presentedTailOf(socket.handshake?.auth, openSealedTail);
 
+  // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
+  const auth = socket.handshake?.auth;
+  logger.info(`[seal] admission: sealed=${auth?.keyTailSealed ? "yes" : "no"} plain=${auth?.keyTail ? "yes" : "no"} ` +
+    `resolved=${presented === undefined ? "none" : presented === null ? "FAILED-TO-OPEN" : "ok"} ` +
+    `matches=${presented ? verifyKeyTail(presented) : "n/a"}`);
+
   // An RTC-only session (VirtualSocket, offer arrived before the tunnel) has no
   // socket.io handshake, so it carries no TAIL — the client sends it with the
   // WS connect that follows. Demanding it here would drop a session the gate

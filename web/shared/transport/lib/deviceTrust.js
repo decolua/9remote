@@ -72,17 +72,32 @@ export async function hostFingerprint(edPubB64, xPubB64) {
 }
 
 export async function pinHostKeysWithFp2(apiKey, hostKeys) {
-  if (!apiKey || !hostKeys?.ed || !hostKeys?.x) return false;
+  // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
+  console.log("[seal] pin?", { hasEd: !!hostKeys?.ed, hasX: !!hostKeys?.x, pending: getPendingFp2() });
+  if (!apiKey || !hostKeys?.ed || !hostKeys?.x) {
+    console.log("[seal] pin SKIPPED — agent sent no sealing key (old agent?)");
+    return false;
+  }
   // Anchored already — unless the pin predates sealing, in which case it holds
   // a fingerprint from a scheme that no longer exists and would otherwise keep
   // the device from ever pairing again.
   const trust = getTrust(apiKey);
-  if (trust?.hostPubKey && trust?.hostSealKey) return false;
+  if (trust?.hostPubKey && trust?.hostSealKey) {
+    console.log("[seal] pin SKIPPED — already anchored");
+    return false;
+  }
   const pending = getPendingFp2();
-  if (!pending) return false;                     // no out-of-band anchor to check against
+  if (!pending) {
+    console.log("[seal] pin SKIPPED — no pending fp2 (logged in without scanning a code)");
+    return false;
+  }
   const fp2 = await hostFingerprint(hostKeys.ed, hostKeys.x);
-  if (fp2 !== pending) return false;              // the server named a different agent
+  if (fp2 !== pending) {
+    console.log("[seal] pin REFUSED — fp2 mismatch", { computed: fp2, expected: pending });
+    return false;
+  }
   setTrust(apiKey, { hostPubKey: hostKeys.ed, hostSealKey: hostKeys.x, fp2 });
+  console.log("[seal] pin OK — fp2", fp2, "sealing key stored");
   return true;
 }
 

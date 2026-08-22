@@ -29,16 +29,25 @@ export async function freshAuth(baseAuth = {}, connectionMode) {
 
   delete auth.keyTail;
   delete auth.keyTailSealed;
-  if (!tail) return auth;
+  if (!tail) {
+    // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
+    console.log("[seal] no tail held — nothing to send");
+    return auth;
+  }
 
   if (trust?.hostSealKey) {
     const sealed = await sealTail(tail, trust.hostSealKey);
     if (sealed) {
       auth.keyTailSealed = sealed;
+      console.log("[seal] SEALED tail for", connectionMode, "— tail is not on the wire");
       return auth;
     }
+    console.log("[seal] seal FAILED (no X25519 in this browser?) — falling back to plain");
     // Sealing failed — a browser without X25519, or a stored key that no longer
     // imports. The tail still has to reach the agent for this device to connect.
+  }
+  if (!trust?.hostSealKey) {
+    console.log("[seal] PLAIN tail for", connectionMode, "— no sealing key pinned");
   }
   auth.keyTail = tail;
   return auth;

@@ -111,7 +111,9 @@ export async function POST(request) {
     if (sessionMissing) return jsonError("Session not found or expired", 404);
     if (!cached) return jsonError("Server not ready. Please wait...", 503);
 
-    console.log(`[connect] apiKey=${apiKey?.slice(0,8)} tunnelUrl=${cached.tunnelUrl} localIp=${cached.localIp || "none"}`);
+    console.log(`[connect] apiKey=${apiKey?.slice(0,8)} tunnelUrl=${cached.tunnelUrl} localIp=${cached.localIp || "none"}` +
+      // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
+      ` [seal] hostKeys=${cached.hostKeys ? (cached.hostKeys.x ? "ed+x" : "ed only (agent has not registered a sealing key)") : "none"}`);
 
     return jsonOk({ tunnelUrl: cached.tunnelUrl, apiKey, tempKey, localIp: cached.localIp, hostKeys: cached.hostKeys || null });
   } catch (e) {

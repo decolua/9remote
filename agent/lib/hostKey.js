@@ -89,7 +89,10 @@ export function openSealedTail(sealed) {
 // reading two characters vouches for the signing key and the sealing key at once.
 export function getHostFp2() {
   const k = load();
-  return hostFp2Of(k.publicKeyB64, k.x25519PublicKeyB64);
+  const fp2 = hostFp2Of(k.publicKeyB64, k.x25519PublicKeyB64);
+  // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
+  console.log(`[seal] agent fp2=${fp2} ed=${k.publicKeyB64.slice(0, 12)}... x=${k.x25519PublicKeyB64.slice(0, 12)}...`);
+  return fp2;
 }
 
 export function signSdp(sdp) {

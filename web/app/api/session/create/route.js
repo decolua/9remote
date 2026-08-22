@@ -59,6 +59,10 @@ export async function POST(request) {
       expiresAt = datetime('now', '+7 days')
   `).bind(machineId, apiKey, keyToWrite, sealKeyToWrite).run());
 
+  // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
+  console.log(`[seal] session/create apiKey=${apiKey?.slice(0, 12)} sentEd=${!!hostPublicKey} sentX=${!!hostX25519Key} ` +
+    `hadEd=${!!existing?.hostPublicKey} accepted=${accepted} wroteX=${!!sealKeyToWrite}`);
+
   // A restart reuses the apiKey but drops the old tunnelUrl — clear the cache so
   // clients do not keep resolving to the previous run's tunnel.
   invalidateCache(cacheKeys.tunnel(apiKey));

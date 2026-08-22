@@ -444,6 +444,13 @@ export class WebRtcProtocol extends BaseProtocol {
     // produce. Treating it as a pin would reject the agent forever with no way
     // back; it is stale, so it anchors nothing and pairing starts over.
     const pinned = trust?.hostPubKey && trust?.hostSealKey ? trust : null;
+    // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
+    console.log("[seal] verify answer:", {
+      agentSentXpub: !!msg.xpub,
+      pinned: !!pinned,
+      stalePin: !!(trust?.hostPubKey && !trust?.hostSealKey),
+      pendingFp2: getPendingFp2()
+    });
     if (pinned) {
       if (pinned.hostPubKey !== msg.pub) {
         // Pinned key differs: either the agent's host key rotated (reinstall)
@@ -469,6 +476,8 @@ export class WebRtcProtocol extends BaseProtocol {
     if (pendingFp2) {
       const fp2 = await hostFingerprint(msg.pub, msg.xpub);
       if (fp2 !== pendingFp2) {
+        console.log("[seal] REJECTED — fp2", fp2, "!= code", pendingFp2,
+          msg.xpub ? "" : "(agent sent no sealing key — needs the source build)");
         // Single-shot: a mismatch burns the pending fp2 so a stale one (wrong
         // code, expired pairing of another agent) can't reject the right agent
         // for the rest of the tab session.
@@ -476,6 +485,7 @@ export class WebRtcProtocol extends BaseProtocol {
         return false;
       }
       setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub, fp2 });
+      console.log("[seal] pinned via RTC — fp2", fp2, "sealing key stored");
       debugLog("transport", "[rtc] host key pinned via pairing fp2");
       return true;
     }
