@@ -410,9 +410,9 @@ export default function WorkspaceLayout({ children }) {
             the bottom of the stack goes straight to the terminal view instead. */}
         {!isDesktop && (
         <div
-          className={`absolute inset-0 transition-all duration-150 ease-out ${currentView.type === "list"
-            ? "translate-x-0 opacity-100 z-10"
-            : "-translate-x-full opacity-0 z-0 pointer-events-none"
+          className={`absolute inset-0 transition-opacity duration-150 ease-out ${currentView.type === "list"
+            ? "opacity-100 z-10"
+            : "opacity-0 z-0 pointer-events-none"
             }`}
         >
           <SessionList
@@ -571,7 +571,7 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Workspace List */}
         {currentView.type === "workspaces" && (
-          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <WorkspaceList
               onSelect={handleSelectWorkspace}
               onBrowse={handleBrowseFolder}
@@ -584,7 +584,7 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Browse Folder (selecting a workspace) */}
         {currentView.type === "browse" && (
-          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <FileExplorer
               workspace={currentView.path}
               fileSocket={fileSocket}
@@ -608,7 +608,7 @@ export default function WorkspaceLayout({ children }) {
           // file outright; otherwise restore the workspace's last open tabs.
           const routeFile = currentView.type === "editor" ? currentView.path : null;
           return (
-            <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+            <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
               <FileWorkspaceDesktop
                 key={ws}
                 workspace={ws}
@@ -633,7 +633,7 @@ export default function WorkspaceLayout({ children }) {
 
         {/* File Explorer (workspace mode) — mobile only */}
         {!isDesktop && currentView.type === "files" && (
-          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <FileExplorer
               workspace={currentView.workspace}
               initialPath={currentView.currentPath}
@@ -650,7 +650,7 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Git Panel — mobile only */}
         {!isDesktop && currentView.type === "git" && (
-          <div className="absolute inset-0 z-30 transition-all duration-300 ease-out animate-in slide-in-from-right">
+          <div className="absolute inset-0 z-30 transition-all duration-300 ease-out">
             <GitPanel
               workspace={currentView.workspace}
               fileSocket={fileSocket}
@@ -663,7 +663,7 @@ export default function WorkspaceLayout({ children }) {
         {/* Mobile editor overlay — above whichever view opened it (files or git), so Back (X)
             returns to that view without a viewStack push. */}
         {!isDesktop && mobileEditor && (
-          <div className="absolute inset-0 z-40 transition-all duration-300 ease-out animate-in slide-in-from-right">
+          <div className="absolute inset-0 z-40 transition-all duration-300 ease-out">
             <FileEditor
               filePath={mobileEditor.path}
               line={mobileEditor.line}
