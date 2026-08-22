@@ -59,12 +59,24 @@ export function setTrust(apiKey, patch) {
  *
  * Returns true when the keys were pinned.
  */
+/**
+ * The fingerprint the agent prints on its pairing code: one value over both
+ * host keys. An agent that presents no sealing key cannot produce it, and that
+ * is the intended answer — v2 has not shipped, so there is no such agent to
+ * stay compatible with, and accepting a single-key form would let a peer opt
+ * out of being anchored for sealing simply by omitting the key.
+ */
+export async function hostFingerprint(edPubB64, xPubB64) {
+  if (!edPubB64 || !xPubB64) return null;
+  return await hostFp2Of(edPubB64, xPubB64);
+}
+
 export async function pinHostKeysWithFp2(apiKey, hostKeys) {
   if (!apiKey || !hostKeys?.ed || !hostKeys?.x) return false;
   if (getTrust(apiKey)?.hostPubKey) return false; // already anchored; do not overwrite
   const pending = getPendingFp2();
   if (!pending) return false;                     // no out-of-band anchor to check against
-  const fp2 = await hostFp2Of(hostKeys.ed, hostKeys.x);
+  const fp2 = await hostFingerprint(hostKeys.ed, hostKeys.x);
   if (fp2 !== pending) return false;              // the server named a different agent
   setTrust(apiKey, { hostPubKey: hostKeys.ed, hostSealKey: hostKeys.x, fp2 });
   return true;
@@ -132,15 +144,6 @@ function b64ToBytes(b64) {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
-}
-
-// Mirror of agent lib/hostKey.js — 2 chars of sha256(pub) over a 32-char
-// alphabet (10 bits, bias-free: 256 % 32 === 0, no confusables).
-const FP2_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-export async function fp2OfPublicKey(publicKeyB64) {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", b64ToBytes(publicKeyB64)));
-  return FP2_ALPHABET[digest[0] % 32] + FP2_ALPHABET[digest[1] % 32];
 }
 
 /** Ed25519 signature check; resolves null when the browser lacks Ed25519

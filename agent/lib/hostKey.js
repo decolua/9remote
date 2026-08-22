@@ -14,17 +14,6 @@ const HOST_KEY_FILE = join(PATHS.CONFIG, "hostKey.json");
 // Ed25519 requires exactly 32 bytes.
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 
-// fp2 — 2 chars of sha256(public key raw) mapped onto a 32-char alphabet
-// (10 bits, no confusables, bias-free: 256 % 32 === 0). Must mirror the web
-// side (web/shared/transport/lib/deviceTrust.js fp2OfPublicKey).
-const FP2_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-export function fp2OfPublicKey(publicKeyB64) {
-  const raw = Buffer.from(publicKeyB64, "base64");
-  const digest = crypto.createHash("sha256").update(raw).digest();
-  return FP2_ALPHABET[digest[0] % 32] + FP2_ALPHABET[digest[1] % 32];
-}
-
 let _cached = null;
 
 function load() {

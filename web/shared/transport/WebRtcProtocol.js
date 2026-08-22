@@ -4,7 +4,7 @@ import { API_ENDPOINTS } from "@/shared/constants/API";
 import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
-import { getTrust, setTrust, getPendingFp2, takePendingFp2, fp2OfPublicKey, verifySdpSignature } from "./lib/deviceTrust";
+import { getTrust, setTrust, getPendingFp2, takePendingFp2, hostFingerprint, verifySdpSignature } from "./lib/deviceTrust";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 
 // Shared decoder worker (one instance for all WebRtcProtocol instances)
@@ -445,8 +445,8 @@ export class WebRtcProtocol extends BaseProtocol {
         // or a relay is swapping the peer. A fresh pairing fp2 that matches
         // the new key is out-of-band consent to re-pin; otherwise reject.
         const pendingFp2 = getPendingFp2();
-        if (pendingFp2 && (await fp2OfPublicKey(msg.pub)) === pendingFp2) {
-          setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub || null, fp2: pendingFp2 });
+        if (pendingFp2 && (await hostFingerprint(msg.pub, msg.xpub)) === pendingFp2) {
+          setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub, fp2: pendingFp2 });
           debugLog("transport", "[rtc] host key re-pinned via fresh pairing fp2");
           return true;
         }
@@ -456,13 +456,13 @@ export class WebRtcProtocol extends BaseProtocol {
       if (sig === false) return false;
       if (sig === null) {
         // Browser without Ed25519 WebCrypto — fall back to the stored fp2
-        return (await fp2OfPublicKey(msg.pub)) === trust.fp2;
+        return (await hostFingerprint(msg.pub, msg.xpub)) === trust.fp2;
       }
       return true;
     }
     const pendingFp2 = getPendingFp2();
     if (pendingFp2) {
-      const fp2 = await fp2OfPublicKey(msg.pub);
+      const fp2 = await hostFingerprint(msg.pub, msg.xpub);
       if (fp2 !== pendingFp2) {
         // Single-shot: a mismatch burns the pending fp2 so a stale one (wrong
         // code, expired pairing of another agent) can't reject the right agent
@@ -470,7 +470,7 @@ export class WebRtcProtocol extends BaseProtocol {
         takePendingFp2();
         return false;
       }
-      setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub || null, fp2 });
+      setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub, fp2 });
       debugLog("transport", "[rtc] host key pinned via pairing fp2");
       return true;
     }

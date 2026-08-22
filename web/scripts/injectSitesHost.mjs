@@ -64,7 +64,14 @@ async function handleSitesHost(request, url, env) {
   // evicted), so hand back the proxy shell and let it register and retry.
   const asset = route.kind === "browse" ? "/proxy.html" : route.asset;
 
-  const res = await env.ASSETS.fetch(new URL(asset, url.origin));
+  // Cloudflare Assets answers /proxy.html with a 307 to /proxy (it strips the
+  // extension), and a redirect is not what the iframe or importScripts can use.
+  // Follow it here so the caller gets the document itself.
+  let res = await env.ASSETS.fetch(new URL(asset, url.origin));
+  if (res.status >= 300 && res.status < 400) {
+    const location = res.headers.get("location");
+    if (location) res = await env.ASSETS.fetch(new URL(location, url.origin));
+  }
   const headers = new Headers(res.headers);
   for (const [k, v] of Object.entries(route.headers)) headers.set(k, v);
   return new Response(res.body, { status: res.status, headers });
