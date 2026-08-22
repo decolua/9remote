@@ -83,6 +83,13 @@
   border-color: rgba(0, 0, 0, 0.06);
 }
 
+/* Ellipsis at the head so the folder name (the tail) survives truncation */
+.path-tail {
+  direction: rtl;
+  text-align: left;
+  unicode-bidi: plaintext;
+}
+
 /* Empty session list: borderless poster stage — content sits naked on a cinematic
    backdrop (same white light as login), split in two by a hairline + brand dot. */
 .empty-stage {

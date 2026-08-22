@@ -43,7 +43,7 @@ export default function TerminalEmptyState({ onAddWorkspace, onOpenRemote, recen
                 role="button"
                 title={w.path}
                 onClick={(e) => { e.stopPropagation(); vibrate(); onOpenRecent?.(w.path); }}
-                className="welcome-chip px-2 py-1 text-[11px] font-mono text-text-muted rounded-full truncate max-w-[180px]"
+                className="welcome-chip path-tail px-2 py-1 text-[11px] font-mono text-text-muted rounded-full truncate max-w-[180px]"
               >
                 {shortenHomePath(w.path, homeDir)}
               </span>

@@ -427,8 +427,9 @@ function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected
               <span
                 key={w.path}
                 role="button"
+                title={w.path}
                 onClick={(e) => { e.stopPropagation(); vibrate(); onAddWorkspace?.(w.path); }}
-                className="welcome-chip px-2 py-1 text-[11px] font-mono text-text-muted rounded-full truncate max-w-[46%]"
+                className="welcome-chip path-tail px-2 py-1 text-[11px] font-mono text-text-muted rounded-full truncate max-w-[46%]"
               >
                 {shortenHomePath(w.path, homeDir)}
               </span>
