@@ -54,6 +54,14 @@ export default function OfficeViewer({ filePath, fileSocket }) {
             inWrapper: true,
             renderAltChunks: false
           });
+          // docx-preview copies a relationship's target straight into href with
+          // no scheme check, so a hyperlink in the file can be javascript: or a
+          // data: document — one click and it runs on this origin, where the
+          // keys are. Only the schemes a document link legitimately uses stay.
+          for (const a of docxRef.current.querySelectorAll("a[href]")) {
+            const href = a.getAttribute("href") || "";
+            if (!/^(https?:|mailto:|#)/i.test(href.trim())) a.removeAttribute("href");
+          }
           if (!cancelled) setLoading(false);
         } else {
           const XLSX = await import("xlsx");

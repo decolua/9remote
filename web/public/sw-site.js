@@ -7,6 +7,8 @@
 // The browser may terminate this worker any idle moment; module state (the
 // bridge pointer) dies with it. Every request re-discovers the bridge on demand.
 
+importScripts("/swBridgeClaim.js");
+
 const BROWSE_RE = /^\/browse\/(\d{1,5})(\/.*)?$/;
 const BRIDGE_TIMEOUT_MS = 60000;
 const BRIDGE_DISCOVER_MS = 3000;
@@ -35,6 +37,10 @@ self.addEventListener("message", (event) => {
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
   if (msg.type === "bridge-hello") {
+    // Every browsed site shares this origin and can send this message. Only the
+    // shell may hold the role, or a site would receive the other tabs' requests
+    // and get to answer them.
+    if (!canBeBridge(event.source?.url, self.location.origin)) return;
     bridgeClient = event.source;
     if (bridgeResolve) {
       const resolve = bridgeResolve;
@@ -76,7 +82,11 @@ function discoverBridge() {
       }, BRIDGE_DISCOVER_MS);
     });
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      for (const client of clients) client.postMessage({ type: "sw-hello" });
+      // Asking only the shell — a site that answered would be claiming a role it
+      // cannot have anyway, and there is no reason to prompt it.
+      for (const client of clients) {
+        if (canBeBridge(client.url, self.location.origin)) client.postMessage({ type: "sw-hello" });
+      }
     }).catch(() => {});
   }
   return bridgeDiscover;
@@ -194,6 +204,18 @@ function requestViaBridge(reqId, port, method, target, headers, bodyB64) {
 async function handle(request, url, inScope) {
   const port = inScope ? Number(inScope[1]) : await portFromReferrer(request);
   if (!port) return new Response("9Remote: no site context for this request", { status: 503 });
+
+  // Every site shares this origin, so nothing in the browser stops one from
+  // fetching another's paths — normally a different port is a different origin
+  // and the same-origin policy would. A subresource must belong to the page
+  // asking for it; a navigation is the shell opening a tab and has no referrer
+  // to match against.
+  if (inScope && request.mode !== "navigate") {
+    const from = await portFromReferrer(request);
+    if (from && from !== port) {
+      return new Response("9Remote: cross-site request refused", { status: 403 });
+    }
+  }
 
   await discoverBridge();
   if (!bridgeClient) return new Response("9Remote: bridge not connected — open the 9Remote app", { status: 503 });
