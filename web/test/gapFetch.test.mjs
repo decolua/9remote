@@ -133,6 +133,43 @@ test("cancel suppresses the fallback timer and pending ack", async () => {
   assert.equal(fallbacks, 0);
 });
 
+test("a long transfer that keeps making progress is not aborted by the stall timer", async () => {
+  let fallbacks = 0;
+  const painted = [];
+  const acks = [];
+  const gf = createGapFetch({
+    emit: (p, ack) => acks.push(ack), flush: () => {},
+    writeChunk: (d) => painted.push(d),
+    onGapChunk: () => {},
+    onFallback: () => { fallbacks++; },
+    log: () => {},
+    getFromSeq: () => 11
+  });
+  gf.start(14);
+  acks[0]({ hit: true, count: 4 });
+  // Chunks trickle in slower than the timeout would allow in total, but each one re-arms it.
+  const step = Math.floor(REAL_TIMEOUT * 0.6);
+  for (let seq = 11; seq <= 14; seq++) {
+    await new Promise((r) => setTimeout(r, step));
+    gf.handleGapChunk(`c${seq}`, seq);
+  }
+  assert.equal(fallbacks, 0, "progress must push the deadline back, not accumulate toward it");
+  assert.equal(painted.length, 4);
+});
+
+test("batched packets (one seq per merged packet) complete the range", async () => {
+  const painted = [];
+  const { gf, state } = makeGap({ lastSeq: 10, painted });
+  gf.start(20);
+  // The agent merges 11..20 into two packets stamped with their last seq.
+  state.acks[0]({ hit: true, count: 2 });
+  gf.handleGapChunk("first-half", 15);
+  gf.handleGapChunk("second-half", 20);
+  await flush();
+  assert.deepEqual(painted, ["first-half", "second-half"]);
+  assert.equal(gf.isBusy(), false, "range must settle on the packet count, not the seq count");
+});
+
 await Promise.all(tests);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

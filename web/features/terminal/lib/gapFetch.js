@@ -18,6 +18,12 @@ export function createGapFetch({ emit, writeChunk, flush, onGapChunk, onFallback
 
   const isBusy = () => awaiting !== null;
 
+  // (Re)arm the stall deadline — called on start and after every chunk that lands.
+  const armTimer = (gapState) => {
+    clearTimeout(gapState.timer);
+    gapState.timer = setTimeout(() => fallback(gapState, "stalled"), GAP_FETCH_TIMEOUT_MS);
+  };
+
   const finish = (gapState) => {
     // Cancelled (reconnect/unmount nulled the state) → the rejoin owns the buffer now;
     // painting here would land on content we no longer own.
@@ -61,8 +67,9 @@ export function createGapFetch({ emit, writeChunk, flush, onGapChunk, onFallback
     };
     awaiting = gapState;
     // Safety: ack never returns, or chunks stall in transit (carrier drop) → reset+rejoin
-    // instead of queueing live output forever.
-    gapState.timer = setTimeout(() => fallback(gapState, "timeout"), GAP_FETCH_TIMEOUT_MS);
+    // instead of queueing live output forever. The deadline measures SILENCE, not total
+    // duration — a long gap streams many packets and must not be aborted mid-transfer.
+    armTimer(gapState);
     emit({ fromSeq, toSeq }, (res) => {
       if (gapState.settled || awaiting !== gapState) return; // cancelled meanwhile
       if (!res?.hit) return fallback(gapState, "miss"); // evicted from the ring
@@ -88,6 +95,7 @@ export function createGapFetch({ emit, writeChunk, flush, onGapChunk, onFallback
     if (!gap || seq == null) return false;
     if (seq < gap.fromSeq || seq > gap.toSeq) return false;
     if (gap.seen.has(seq)) return true; // retransmit — already painted
+    armTimer(gap); // progress → push the stall deadline back
     writeChunk(data);
     onGapChunk(seq);
     // Count DISTINCT seqs: a duplicate delivery must not make the set look complete while a

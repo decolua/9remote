@@ -13,6 +13,10 @@ const test = (name, fn) => {
   catch (e) { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); }
 };
 
+// getGap merges consecutive chunks into batched b64 packets, so a range's CONTENT is
+// the concatenation of its packets and only the last seq of each packet is reported.
+const gapText = (gap) => gap.map((c) => Buffer.from(c.data, "base64").toString("utf-8")).join("");
+
 // Each test uses a unique session id — the store is module-level state.
 let n = 0;
 const sid = () => `s${++n}`;
@@ -51,21 +55,32 @@ test("getGap returns the exact requested range, in order", () => {
   const s = sid();
   for (let i = 1; i <= 5; i++) cacheChunk(s, nextSeq(s), `d${i}`, undefined);
   const gap = getGap(s, 2, 4);
-  assert.deepEqual(gap.map((c) => c.seq), [2, 3, 4]);
-  assert.deepEqual(gap.map((c) => c.data), ["d2", "d3", "d4"]);
+  assert.equal(gapText(gap), "d2d3d4");
+  assert.equal(gap.at(-1).seq, 4, "last packet must carry the range's final seq");
 });
 
-test("getGap preserves the encoding flag (b64 chunks decode correctly)", () => {
+test("getGap mixes b64 and raw chunks into one correctly decoded stream", () => {
   const s = sid();
-  cacheChunk(s, nextSeq(s), "AAA=", "b64");
-  const [c] = getGap(s, 1, 1);
-  assert.equal(c.enc, "b64");
+  cacheChunk(s, nextSeq(s), Buffer.from("AB").toString("base64"), "b64");
+  cacheChunk(s, nextSeq(s), "CD", undefined);
+  const gap = getGap(s, 1, 2);
+  assert.ok(gap.every((c) => c.enc === "b64"), "packets are always b64");
+  assert.equal(gapText(gap), "ABCD");
 });
 
 test("single-chunk gap works (from === to)", () => {
   const s = sid();
   cacheChunk(s, nextSeq(s), "only", undefined);
-  assert.deepEqual(getGap(s, 1, 1).map((c) => c.data), ["only"]);
+  assert.equal(gapText(getGap(s, 1, 1)), "only");
+});
+
+test("a large gap is batched into few packets, not one per chunk", () => {
+  const s = sid();
+  const N = 400;
+  for (let i = 1; i <= N; i++) cacheChunk(s, nextSeq(s), "x".repeat(1024), undefined);
+  const gap = getGap(s, 1, N);
+  assert.ok(gap.length < N / 10, `expected batching, got ${gap.length} packets for ${N} chunks`);
+  assert.equal(gapText(gap).length, N * 1024, "no bytes lost in batching");
 });
 
 test("empty range (to < from) returns [] not null — nothing to send, not a miss", () => {
@@ -95,21 +110,23 @@ test("unknown session → null (no crash, caller falls back)", () => {
 
 test("ring evicts oldest chunks; evicted range reads as a miss, recent range hits", () => {
   const s = sid();
-  const N = 600; // > CHUNK_RING (500)
-  for (let i = 1; i <= N; i++) cacheChunk(s, nextSeq(s), `d${i}`, undefined);
+  const CHUNK = 64 * 1024;
+  const N = 100; // 6.4MB > RING_MAX_BYTES (4MB)
+  for (let i = 1; i <= N; i++) cacheChunk(s, nextSeq(s), "x".repeat(CHUNK), undefined);
   assert.equal(getGap(s, 1, 10), null, "long-evicted range must miss, not return stale data");
-  const recent = getGap(s, N - 4, N);
-  assert.deepEqual(recent.map((c) => c.seq), [N - 4, N - 3, N - 2, N - 1, N]);
+  assert.equal(gapText(getGap(s, N - 4, N)).length, 5 * CHUNK, "recent range must still hit");
 });
 
-test("ring stays bounded — memory cannot grow without limit on a chatty session", () => {
+test("ring is bounded by BYTES — a chatty stream of small chunks keeps a long window", () => {
   const s = sid();
+  // 5000 tiny chunks are far under the byte cap: a count-based ring would have evicted
+  // most of them, leaving a phone app-switch unrecoverable.
   for (let i = 1; i <= 5000; i++) cacheChunk(s, nextSeq(s), "x".repeat(10), undefined);
-  // Walk back until the first miss: that distance is the retained window.
-  const last = currentSeq(s);
-  let retained = 0;
-  while (retained < 5000 && getGap(s, last - retained, last) !== null) retained++;
-  assert.ok(retained <= 501, `ring retained ${retained} chunks — expected a bounded window`);
+  assert.notEqual(getGap(s, 1, 5000), null, "small chunks must not be evicted by count");
+  // And the cap does bite once the bytes are real.
+  const big = sid();
+  for (let i = 1; i <= 100; i++) cacheChunk(big, nextSeq(big), "y".repeat(64 * 1024), undefined);
+  assert.equal(getGap(big, 1, 1), null, "byte cap must evict once exceeded");
 });
 
 // ── clearSession (the leak fix) ────────────────────────────────────────────
@@ -141,7 +158,7 @@ test("clearSession only affects its own session", () => {
   cacheChunk(b, nextSeq(b), "b1", undefined);
   clearSession(a);
   assert.equal(getGap(a, 1, 1), null);
-  assert.deepEqual(getGap(b, 1, 1).map((c) => c.data), ["b1"], "sibling session must survive");
+  assert.equal(gapText(getGap(b, 1, 1)), "b1", "sibling session must survive");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
