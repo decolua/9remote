@@ -28,11 +28,9 @@ export function parseApiKey(apiKey) {
     const [, machineId, a] = apiKey.split("-");
     return { machineId, keyId: a, version: 2 };
   }
-  const parts = apiKey.split("-");
-  if (parts.length === 4) {
-    const [, machineId, keyId, crc] = parts;
-    return { machineId, keyId, crc };
-  }
+  // Legacy CRC is always the first 6 hex chars of the HMAC — anything else is forged.
+  const legacy = apiKey.match(/^sk-([a-z0-9]{8})-([a-z0-9]{4})-([0-9a-f]{6})$/);
+  if (legacy) return { machineId: legacy[1], keyId: legacy[2], crc: legacy[3] };
   return null;
 }
 

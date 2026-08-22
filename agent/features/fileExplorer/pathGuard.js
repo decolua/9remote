@@ -27,16 +27,32 @@ function canonicalize(p) {
   }
 }
 
+// macOS/Windows filesystems are case-insensitive but realpath keeps the caller's
+// casing, so ~/.SSH would read the same file while dodging a case-sensitive compare.
+const CASE_INSENSITIVE_FS = process.platform === "darwin" || process.platform === "win32";
+const fold = (p) => (CASE_INSENSITIVE_FS ? p.toLowerCase() : p);
+
+// Blocklist entries go through canonicalize too — on macOS /etc/ssh realpaths to
+// /private/etc/ssh, which a literal compare would never match.
+const CANONICAL_ABS_PATHS = SENSITIVE_ABS_PATHS.flatMap((p) => {
+  const real = canonicalize(p);
+  return real && real !== p ? [p, real] : [p];
+});
+
+function isUnder(abs, target) {
+  const a = fold(abs), t = fold(target);
+  return a === t || a.startsWith(t + path.sep);
+}
+
 // Check if absolute path is inside any sensitive location
 export function isSensitivePath(input) {
   const abs = canonicalize(input);
   if (!abs) return false;
-  for (const sys of SENSITIVE_ABS_PATHS) {
-    if (abs === sys || abs.startsWith(sys + path.sep)) return true;
+  for (const sys of CANONICAL_ABS_PATHS) {
+    if (isUnder(abs, sys)) return true;
   }
   for (const rel of SENSITIVE_HOME_DIRS) {
-    const sensitive = path.join(HOME, rel);
-    if (abs === sensitive || abs.startsWith(sensitive + path.sep)) return true;
+    if (isUnder(abs, path.join(HOME, rel))) return true;
   }
   return false;
 }

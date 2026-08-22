@@ -85,6 +85,9 @@ function resolveInside(s, relPath) {
   }
   // realpath also collapses symlinks — anything pointing outside the root stops here.
   if (real !== s.realRoot && !real.startsWith(s.realRoot + path.sep)) return null;
+  // The root is only checked when the session is minted; a root near $HOME would
+  // otherwise expose ~/.ssh and friends to every subsequent asset request.
+  if (isSensitivePath(real)) return null;
   return fs.statSync(real).isFile() ? real : null;
 }
 

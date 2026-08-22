@@ -34,7 +34,11 @@ export default function DiffBody({ diff, compact = false, className = "" }) {
         renderNothingWhenEmpty: false
       }).draw();
     } catch {
-      node.innerHTML = `<pre class="text-text-muted p-4">${diff}</pre>`;
+      // textContent, not innerHTML — the diff carries file contents verbatim.
+      node.replaceChildren(Object.assign(document.createElement("pre"), {
+        className: "text-text-muted p-4",
+        textContent: diff
+      }));
     }
   }, [diff, sideBySide]);
 
