@@ -12,7 +12,7 @@ export default function OfficeViewer({ filePath, fileSocket }) {
   const [error, setError] = useState("");
   const [sheets, setSheets] = useState([]);
   const [active, setActive] = useState(0);
-  const [sheetHtml, setSheetHtml] = useState("");
+  const [rows, setRows] = useState([]);
   const docxRef = useRef(null);
   const wbRef = useRef(null);
   const XLSXRef = useRef(null);
@@ -27,7 +27,7 @@ export default function OfficeViewer({ filePath, fileSocket }) {
     setError("");
     setSheets([]);
     setActive(0);
-    setSheetHtml("");
+    setRows([]);
     wbRef.current = null;
     if (docxRef.current) docxRef.current.innerHTML = "";
 
@@ -37,7 +37,9 @@ export default function OfficeViewer({ filePath, fileSocket }) {
       if (!wb || !XLSX) return;
       const name = wb.SheetNames[idx];
       if (!name) return;
-      setSheetHtml(XLSX.utils.sheet_to_html(wb.Sheets[name]));
+      // sheet_to_json, not sheet_to_html — the latter leaves rich-text runs and
+      // link targets unescaped, and the result would need dangerouslySetInnerHTML.
+      setRows(XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }));
       setLoading(false);
     };
 
@@ -89,7 +91,7 @@ export default function OfficeViewer({ filePath, fileSocket }) {
     const XLSX = XLSXRef.current;
     if (!wb || !XLSX) return;
     const name = wb.SheetNames[active];
-    if (name) setSheetHtml(XLSX.utils.sheet_to_html(wb.Sheets[name]));
+    if (name) setRows(XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }));
   }, [active]);
 
   if (loading) {
@@ -128,7 +130,21 @@ export default function OfficeViewer({ filePath, fileSocket }) {
         {isDocx ? (
           <div ref={docxRef} className="p-4" />
         ) : (
-          <div className="p-2 [&_table]:border-collapse [&_td]:border [&_td]:border-gray-300 [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1" dangerouslySetInnerHTML={{ __html: sheetHtml }} />
+          <div className="p-2">
+            <table className="border-collapse">
+              <tbody>
+                {rows.map((row, r) => (
+                  <tr key={r}>
+                    {row.map((cell, c) => (
+                      <td key={c} className="border border-gray-300 px-2 py-1 whitespace-pre-wrap align-top">
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
