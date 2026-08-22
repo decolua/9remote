@@ -46,7 +46,12 @@ export default function OfficeViewer({ filePath, fileSocket }) {
         if (isDocx) {
           const { renderAsync } = await import("docx-preview");
           if (cancelled || !docxRef.current) return;
-          await renderAsync(new Blob([buf]), docxRef.current, undefined, { inWrapper: true });
+          // altChunk embeds raw HTML from the file into an unsandboxed iframe srcdoc,
+          // which would run on our origin — the library defaults it on.
+          await renderAsync(new Blob([buf]), docxRef.current, undefined, {
+            inWrapper: true,
+            renderAltChunks: false
+          });
           if (!cancelled) setLoading(false);
         } else {
           const XLSX = await import("xlsx");

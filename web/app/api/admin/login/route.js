@@ -46,7 +46,7 @@ export async function POST(request) {
     const token = await signAdminToken(env, { adminId: row.id, username: row.username });
     return new Response(JSON.stringify({ success: true, username: row.username }), {
       status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json", "Set-Cookie": buildSetCookie(token) }
+      headers: { ...corsHeaders, "Content-Type": "application/json", "Set-Cookie": buildSetCookie(token, request) }
     });
   } catch (e) {
     return jsonError(e?.message || String(e), 500);

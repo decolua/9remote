@@ -91,7 +91,11 @@ export async function handleSignaling(request, env) {
   if (gateRateLimited(apiKey)) return new Response("Too many signaling attempts", { status: 429 });
   if (!(await sessionExists(apiKey, env))) return new Response("Unauthorized", { status: 401 });
 
-  const roomId = decodeURIComponent(match[1]);
+  // The room IS the key — without this, any valid session could join someone
+  // else's room and answer offers in place of their agent.
+  const roomId = decodeURIComponent(match[1]).replace(/^(sk-[a-z0-9]{8}-[a-np-z1-9]{8})-[a-np-z1-9]{8}$/, "$1");
+  if (roomId !== apiKey) return new Response("Room does not match apiKey", { status: 403 });
+
   const id = env.SIGNALING_DO.idFromName(roomId);
   return env.SIGNALING_DO.get(id).fetch(request);
 }

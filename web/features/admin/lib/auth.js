@@ -41,17 +41,35 @@ export function readTokenFromRequest(request) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function buildSetCookie(token, maxAgeSec = ADMIN_TOKEN_TTL_SEC) {
+// Secure would strip the cookie on a plain-http dev origin, so it follows the
+// scheme the request actually arrived on rather than being hardcoded.
+function secureFlag(request) {
+  try {
+    return new URL(request.url).protocol === "https:" ? ["Secure"] : [];
+  } catch {
+    return ["Secure"];
+  }
+}
+
+export function buildSetCookie(token, request, maxAgeSec = ADMIN_TOKEN_TTL_SEC) {
   const parts = [
     `${ADMIN_COOKIE_NAME}=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
     "SameSite=Lax",
+    ...secureFlag(request),
     `Max-Age=${maxAgeSec}`
   ];
   return parts.join("; ");
 }
 
-export function buildClearCookie() {
-  return `${ADMIN_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+export function buildClearCookie(request) {
+  return [
+    `${ADMIN_COOKIE_NAME}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    ...secureFlag(request),
+    "Max-Age=0"
+  ].join("; ");
 }
