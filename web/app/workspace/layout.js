@@ -551,15 +551,14 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Remote Desktop */}
         {currentView.type === "remote" && (
-          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <RemoteDesktop onClose={popView} socketRef={socketRef} protocolRef={protocolRef} connected={connected} connectionMode={connectionMode} transport={transport} hostPlatform={platform} />
           </div>
         )}
 
-        {/* Local sites browser (SW + transport bus, no tunnel needed).
-            storePopView, not popView: in-iframe navigation piles entries onto the
-            parent history, so router.back() would step through the site instead
-            of leaving it. */}
+        {/* Local sites browser (SW + transport bus, no tunnel needed). Store-only
+            overlay (OVERLAY_VIEWS): kept out of the URL/history because in-iframe
+            navigation would otherwise pile entries onto the parent history. */}
         {currentView.type === "site" && (
           <BrowserView
             socketRef={socketRef}

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { pathToView, viewToPath } from "@/features/terminal/constants/routeConfig";
+import { pathToView, viewToPath, OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
 
 // URL is the single source of truth for navigation. Browser history drives the
 // viewStack (URL -> store). Store changes from in-app forward actions (open
@@ -16,6 +16,10 @@ export function useRouteSync(hydrated) {
   const router = useRouter();
   const { viewStack, pushView, setViewStack } = useTerminalStore();
   const currentView = viewStack[viewStack.length - 1];
+  // Overlay views have no URL of their own — compare against the view below them
+  const routedView = OVERLAY_VIEWS.includes(currentView?.type)
+    ? viewStack[viewStack.length - 2]
+    : currentView;
   const lastSyncedPath = useRef(null);
   const prevViewRef = useRef(null);
   const navSourceRef = useRef(null); // "url" | "store"
@@ -28,7 +32,7 @@ export function useRouteSync(hydrated) {
     const target = viewToPath(view);
     if (target === lastSyncedPath.current) return; // already in sync
     lastSyncedPath.current = target;
-    if (viewToPath(currentView) === target) return; // store already matches
+    if (routedView && viewToPath(routedView) === target) return; // store already matches
     navSourceRef.current = "url";
     if (view.type === "list") {
       setViewStack([{ type: "list" }]);
@@ -47,6 +51,8 @@ export function useRouteSync(hydrated) {
   // URL already matches, so no duplicate history entries are created.
   useEffect(() => {
     if (!hydrated) return;
+    // Overlay views (site browser) live outside the URL — nothing to mirror
+    if (OVERLAY_VIEWS.includes(currentView?.type)) return;
     const target = viewToPath(currentView);
     if (target === lastSyncedPath.current) return;
     const currentUrlPath = viewToPath(pathToView(pathname, searchParams));

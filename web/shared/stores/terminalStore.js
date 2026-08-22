@@ -7,6 +7,7 @@ import {
 } from "@/features/terminal/constants/terminalConfig";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
+import { OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
 
 const clampWidth = (w, { min, max }) => Math.max(min, Math.min(max, Math.round(w)));
 
@@ -215,9 +216,15 @@ export const useTerminalStore = create(
 
 
       // Actions
-      pushView: (view) => set((state) => ({
-        viewStack: [...(Array.isArray(state.viewStack) ? state.viewStack : []), view]
-      })),
+      // A non-overlay view replaces a trailing overlay (site browser) instead of
+      // stacking on it — the overlay has no URL entry, so it must never be buried.
+      pushView: (view) => set((state) => {
+        const stack = Array.isArray(state.viewStack) ? state.viewStack : [];
+        const base = OVERLAY_VIEWS.includes(view?.type)
+          ? stack
+          : stack.filter((v, i) => !(OVERLAY_VIEWS.includes(v?.type) && i === stack.length - 1));
+        return { viewStack: [...base, view] };
+      }),
 
       popView: () => set((state) => {
         const stack = Array.isArray(state.viewStack) ? state.viewStack : [];
@@ -328,6 +335,9 @@ export const useTerminalStore = create(
         if (!Array.isArray(state.viewStack) || state.viewStack.length === 0) {
           state.viewStack = [{ type: "list" }];
         }
+        // Overlay views aren't in the URL — a reload must not restore them on top
+        state.viewStack = state.viewStack.filter((v) => !OVERLAY_VIEWS.includes(v?.type));
+        if (state.viewStack.length === 0) state.viewStack = [{ type: "list" }];
         // Legacy single-preset state migrates into the ordered pool
         if (!Array.isArray(state.terminalBackgrounds)) state.terminalBackgrounds = [];
         if (state.terminalBackground && state.terminalBackground !== "none" && state.terminalBackgrounds.length === 0) {

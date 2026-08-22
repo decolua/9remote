@@ -11,9 +11,13 @@ export const VIEW_TO_PATH = {
   git: (v) => withQuery(`${WORKSPACE_BASE}/git`, { ws: v.workspace }),
   remote: () => `${WORKSPACE_BASE}/remote`,
   workspaces: () => `${WORKSPACE_BASE}/workspaces`,
-  browse: (v) => withQuery(`${WORKSPACE_BASE}/browse`, { path: v.path }),
-  site: (v) => withQuery(`${WORKSPACE_BASE}/site`, { port: v.port, path: v.path === "/" || !v.path ? "" : v.path })
+  browse: (v) => withQuery(`${WORKSPACE_BASE}/browse`, { path: v.path })
 };
+
+// Views rendered as a store-only overlay: never mirrored into the URL. The site
+// browser's iframe piles its own entries onto the parent history, so keeping it
+// out of history is the only way Back stays predictable.
+export const OVERLAY_VIEWS = ["site"];
 
 // First path segment after base -> view type
 export const SEGMENT_TO_TYPE = {
@@ -24,8 +28,7 @@ export const SEGMENT_TO_TYPE = {
   git: "git",
   remote: "remote",
   workspaces: "workspaces",
-  browse: "browse",
-  site: "site"
+  browse: "browse"
 };
 
 // Build "?a=b" string, skipping empty values
@@ -51,7 +54,6 @@ export function pathToView(pathname, searchParams) {
     case "editor": return { type, path: q("path"), line: numOrUndef(q("line")), column: numOrUndef(q("col")) };
     case "git": return { type, workspace: q("ws") };
     case "browse": return { type, path: q("path") };
-    case "site": return { type, port: numOrUndef(q("port")), path: q("path") || "/" };
     default: return { type };
   }
 }

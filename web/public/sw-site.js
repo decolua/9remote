@@ -115,8 +115,10 @@ function inScopeScript(port) {
     var next = scoped(url.pathname);
     if (next) form.setAttribute("action", next + url.search);
   }, true);
+  // pushState is downgraded to replaceState: an iframe entry lands on the parent
+  // app's joint history, so an SPA route change here would swallow the app's Back.
+  var nativeReplace = history.replaceState.bind(history);
   ["pushState", "replaceState"].forEach(function (name) {
-    var original = history[name];
     history[name] = function (state, title, path) {
       if (typeof path === "string") {
         try {
@@ -127,7 +129,7 @@ function inScopeScript(port) {
           }
         } catch (err) { /* leave path as-is */ }
       }
-      return original.call(history, state, title, path);
+      return nativeReplace(state, title, path);
     };
   });
 })();

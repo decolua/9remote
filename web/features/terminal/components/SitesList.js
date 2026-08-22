@@ -140,7 +140,7 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
   const handleSelectSite = async (site) => {
     const { port } = site;
     // Inside the workspace, the in-app site view (SW over the transport bus) replaces the popup.
-    // pushView (store-driven) — router.push here would desync useRouteSync's back handling.
+    // Store-only overlay (never in the URL) — see OVERLAY_VIEWS in routeConfig.
     const inWorkspace = typeof window !== "undefined" && window.location.pathname.startsWith("/workspace");
     if (inWorkspace && socketRef?.current?.connected) {
       socketRef.current.emit("startProxySession", port);
