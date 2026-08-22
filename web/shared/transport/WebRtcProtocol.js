@@ -439,8 +439,13 @@ export class WebRtcProtocol extends BaseProtocol {
     const apiKey = this._ctx?.auth?.apiKey;
     if (!apiKey) return true;
     const trust = getTrust(apiKey);
-    if (trust?.hostPubKey) {
-      if (trust.hostPubKey !== msg.pub) {
+    // A pin from before sealing has no sealing key, and its fp2 was computed
+    // over the signing key alone — a fingerprint this build can no longer
+    // produce. Treating it as a pin would reject the agent forever with no way
+    // back; it is stale, so it anchors nothing and pairing starts over.
+    const pinned = trust?.hostPubKey && trust?.hostSealKey ? trust : null;
+    if (pinned) {
+      if (pinned.hostPubKey !== msg.pub) {
         // Pinned key differs: either the agent's host key rotated (reinstall)
         // or a relay is swapping the peer. A fresh pairing fp2 that matches
         // the new key is out-of-band consent to re-pin; otherwise reject.
@@ -456,7 +461,7 @@ export class WebRtcProtocol extends BaseProtocol {
       if (sig === false) return false;
       if (sig === null) {
         // Browser without Ed25519 WebCrypto — fall back to the stored fp2
-        return (await hostFingerprint(msg.pub, msg.xpub)) === trust.fp2;
+        return (await hostFingerprint(msg.pub, msg.xpub)) === pinned.fp2;
       }
       return true;
     }

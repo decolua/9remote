@@ -73,7 +73,11 @@ export async function hostFingerprint(edPubB64, xPubB64) {
 
 export async function pinHostKeysWithFp2(apiKey, hostKeys) {
   if (!apiKey || !hostKeys?.ed || !hostKeys?.x) return false;
-  if (getTrust(apiKey)?.hostPubKey) return false; // already anchored; do not overwrite
+  // Anchored already — unless the pin predates sealing, in which case it holds
+  // a fingerprint from a scheme that no longer exists and would otherwise keep
+  // the device from ever pairing again.
+  const trust = getTrust(apiKey);
+  if (trust?.hostPubKey && trust?.hostSealKey) return false;
   const pending = getPendingFp2();
   if (!pending) return false;                     // no out-of-band anchor to check against
   const fp2 = await hostFingerprint(hostKeys.ed, hostKeys.x);
