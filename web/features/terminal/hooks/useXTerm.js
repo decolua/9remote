@@ -9,7 +9,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { termLog } from "@/shared/utils/termLog";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECONNECT_WARM_MS, HISTORY_FETCH, applyTerminalBackground, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, HISTORY_FETCH, applyTerminalBackground, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { createGapFetch } from "@/features/terminal/lib/gapFetch";
@@ -77,7 +77,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
   const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers
   const userAtTopRef = useRef(false); // true only when the user actively scrolled up to top
-  const lastOutputAtRef = useRef(0);  // ts of last live output — warm gate for reconnect skip
+  const lastOutputAtRef = useRef(0);  // ts of last live output (diagnostics)
   const outputTotalRef = useRef(0);   // bytes received this session — dup detector
 
   // Emit resize only if cols/rows are above the sane-size floor. A transient tiny size
@@ -273,6 +273,10 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     term.textarea?.addEventListener("keyup", maybeFetchHistory);
     maybeFetchHistoryRef.current = maybeFetchHistory;
 
+    // Recovery single-flight state: one pending debounce timer, one peek round-trip.
+    let peekTimer = null;
+    let peekInFlight = false;
+
     // Gap-recovery state machine (plan G): request a missing live-output range and append it —
     // no reset, no flash. Live output meanwhile is queued, then flushed after the gap.
     const gapFetch = createGapFetch({
@@ -292,20 +296,49 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       getFromSeq: () => (lastSeqRef.current ?? 0) + 1
     });
 
-    /** On becoming visible, ASK the agent for its newest seq instead of waiting for the next
-     *  chunk — output produced while backgrounded otherwise stays missing until the terminal
-     *  prints again (a finished command leaves the pane silently truncated). */
-    const checkSeqOnVisible = () => {
+    /** Blind recovery: wipe and replay the daemon tail. Only for cases seq recovery can't
+     *  serve — no baseline, or the agent's counter rewound (agent restarted). */
+    const hardRejoin = (why) => {
+      if (!termRef.current) return;
+      termLog("reconnect", `reset+rejoin (${why})`);
+      termRef.current.reset();
+      doJoinSessionRef.current?.(true);
+    };
+
+    /** Single entry point for seq-based recovery: ASK the agent for its newest seq instead of
+     *  waiting for the next chunk — output produced while backgrounded otherwise stays missing
+     *  until the terminal prints again (a finished command leaves the pane silently truncated).
+     *  Resume fires several triggers at once (visibilitychange, socket connect, focus), so the
+     *  peek is debounced and single-flighted: one round-trip decides, one recovery runs. */
+    const runRecover = (reason) => {
+      peekTimer = null;
       if (!isVisibleRef.current) return;        // pane is LRU-hidden (other group) — don't recover into a zero-size buffer
-      if (lastSeqRef.current == null) return;   // no seq baseline yet (old agent / fresh pane)
       if (joiningRef.current || gapFetch.isBusy()) return; // recovery already running
+      if (peekInFlight) return;                 // an earlier peek owns this decision
+      if (lastSeqRef.current == null) return hardRejoin(`${reason}: no seq baseline`);
+      peekInFlight = true;
       socket.emit("peekSeq", { sessionId }, (res) => {
+        peekInFlight = false;
         const agentSeq = res?.seq;
-        if (agentSeq == null) return;           // agent too old to answer → warm path handles it
-        if (agentSeq <= (lastSeqRef.current ?? 0)) return; // nothing missed
-        termLog("reconnect", `peekSeq ${lastSeqRef.current} → ${agentSeq} → recover`);
+        if (agentSeq == null) return hardRejoin(`${reason}: agent has no seq`); // agent too old to answer
+        const lastSeq = lastSeqRef.current ?? 0;
+        // Counter rewound → the agent process restarted and its ring is a different stream.
+        // Every later live chunk would classify as STALE and be dropped forever.
+        if (agentSeq < lastSeq) return hardRejoin(`${reason}: seq rewound ${lastSeq} → ${agentSeq}`);
+        if (agentSeq === lastSeq) {
+          termLog("reconnect", `${reason}: nothing missed (seq ${lastSeq})`);
+          return;
+        }
+        if (joiningRef.current || gapFetch.isBusy()) return; // a rejoin started meanwhile
+        termLog("reconnect", `${reason}: peekSeq ${lastSeqRef.current} → ${agentSeq} → gapFetch`);
         gapFetch.start(agentSeq);
       });
+    };
+
+    // Debounce so a resume storm (visibility + connect + focus within ms) yields one peek.
+    const scheduleRecover = (reason) => {
+      if (peekTimer) clearTimeout(peekTimer);
+      peekTimer = setTimeout(() => runRecover(reason), RECOVER_DEBOUNCE_MS);
     };
 
     // Output routing: prefix replay / join replay / gap / queues / seq classify / live
@@ -361,36 +394,16 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         joinQueue: joinQueueRef,
       });
       gapFetch.cancel();
+      peekInFlight = false; // an ack from the dead carrier never arrives — don't wedge recovery
       setHistoryFetching(false);
       setJoining(false); // rejoin below will set it true again on emit
       if (!isVisibleRef.current) { needsRejoinRef.current = true; termLog("reconnect", "deferred (pane hidden) → needsRejoin=true"); return; }
-      // Warm reconnect: live output arrived recently → agent still streaming over the new
-      // carrier, no scrollback gap. Skip reset+rejoin (which clears xterm = white flash) and
-      // let output continue. Don't skip mid-join: the in-flight join's replay packets write on
-      // the current buffer and would duplicate without the reset.
-      // The warm timestamp can be faked fresh by pre-close output flushing on resume, so
-      // verify against the agent's latest seq and gap-fetch what the dead carrier dropped.
-      const sinceOutput = Date.now() - lastOutputAtRef.current;
-      if (!joiningRef.current && sinceOutput < RECONNECT_WARM_MS) {
-        if (lastSeqRef.current == null) { // old agent sends no seq → nothing to verify against
-          termLog("reconnect", `warm skip (${sinceOutput}ms < ${RECONNECT_WARM_MS}, no seq)`);
-          return;
-        }
-        socket.emit("peekSeq", { sessionId }, (res) => {
-          const agentSeq = res?.seq;
-          if (agentSeq == null || agentSeq <= (lastSeqRef.current ?? 0)) {
-            termLog("reconnect", `warm skip verified (seq ${lastSeqRef.current} vs ${agentSeq})`);
-            return;
-          }
-          if (joiningRef.current || gapFetch.isBusy()) return; // recovery already running
-          termLog("reconnect", `warm skip falsified: peekSeq ${lastSeqRef.current} → ${agentSeq} → gapFetch`);
-          gapFetch.start(agentSeq);
-        });
-        return;
-      }
-      termLog("reconnect", `reset+rejoin (sinceOutput=${sinceOutput}ms joining=${joiningRef.current})`);
-      termRef.current.reset();
-      doJoinSession(true);
+      // Seq-first: ask the agent what we missed and append exactly that — no reset, no flash,
+      // and nothing lost above the join tail. How LONG the app was backgrounded is irrelevant;
+      // what matters is whether the ring still holds the missing range. A miss or a stalled
+      // transfer falls back to reset+rejoin via gapFetch.onFallback.
+      // Only a missing/rewound seq baseline needs the blind reset+rejoin.
+      scheduleRecover("reconnect");
     };
     socket.on("connect", handleReconnect);
 
@@ -411,7 +424,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     const handleVisibilityChange = () => {
       if (!document.hidden && termRef.current) {
         termRef.current.refresh(0, termRef.current.rows - 1);
-        checkSeqOnVisible();
+        scheduleRecover("visible");
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -430,6 +443,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       // Gap fetch in flight → kill its fallback timer, else it fires after unmount
       gapFetch.cancel();
+      if (peekTimer) clearTimeout(peekTimer);
       if (webglAddonRef.current) webglAddonRef.current.dispose();
       if (writeBatcherRef.current) writeBatcherRef.current.dispose();
       fitAddon.dispose();
@@ -531,6 +545,8 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     // Alpha bg only valid on a mobile terminal while the app is in dark mode
     const effKey = term.options.allowTransparency && theme === "dark" ? bgKey : "none";
     term.options.theme = applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, effKey);
+    // Force a full repaint — stale transparent pixels must not survive a bg switch
+    term.refresh(0, term.rows - 1);
   }, [theme, terminalTheme, bgKey]);
 
   useTermTouchGestures({

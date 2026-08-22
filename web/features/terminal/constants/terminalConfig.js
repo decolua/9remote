@@ -87,6 +87,10 @@ export const INPUT_CONTROL_KEYS = {
 export const WATCH_DEBOUNCE_MS = 400; // Debounce gitStatus refresh on file changes
 export const MAX_CHANGED_BADGE = 999; // Cap changed-count badge; above shows "999+"
 
+// Note checklist: default suggestion chips — tapping one sends the chip text plus the
+// checklist (markdown) into the pane's terminal. User-added chips live in terminalStore.
+export const NOTE_SUGGESTIONS = ["check again", "continue", "summarize"];
+
 // Mobile status strip: the right slot alternates between the cwd folder and the
 // running CLI's 5h quota, since a phone-width bar fits only one at a time.
 export const STRIP_ROTATE_MS = 5000;
@@ -169,6 +173,16 @@ export function paneBackgroundKey(keys, index) {
   return keys[index % keys.length] || "none";
 }
 
+// Drop pool keys that can't render — custom ids no longer in the agent-saved list
+// (deleted on another device / a lost ack) must not occupy a round-robin slot.
+export function resolvableBackgroundKeys(keys, customItems = []) {
+  if (!Array.isArray(keys)) return [];
+  return keys.filter((k) => {
+    const id = customBgId(k);
+    return !id || customItems.some((it) => it?.id === id);
+  });
+}
+
 // Renderer config (VS Code parity)
 export const RENDERER = {
   gpuAcceleration: "auto",      // "auto" | "on" | "off"
@@ -204,16 +218,16 @@ export const SETTLE_DEBOUNCE_MS = 100;
 // PTY cols is one-way, so wait for the layout to truly settle before emitting.
 export const ORIENTATION_SETTLE_MS = 600;
 
-// Reconnect "warm" window: if live output arrived within this many ms before a
-// "connect" (carrier switch), the agent is still streaming over the new carrier
-// and there's no scrollback gap → skip the reset+rejoin (which flashes xterm).
-// Longer backgrounds fall through to a real reset+rejoin to recover the gap.
-export const RECONNECT_WARM_MS = 8000;
+// Resume recovery: a resume fires several triggers within ms (visibilitychange,
+// socket connect, pane focus). Debounce them into ONE peekSeq round-trip so a
+// single decision drives a single recovery.
+export const RECOVER_DEBOUNCE_MS = 150;
 
-// Gap recovery (seq-based): how long to wait for a requestGap ack AND all its
-// chunks before giving up and doing a full reset+rejoin. Covers both a lost ack
-// and chunks stalled mid-transit; live output stays queued for this long, so keep
-// it short enough that a stall is not felt as a freeze.
+// Gap recovery (seq-based): how long the transfer may go SILENT — no ack, no new
+// chunk — before giving up and doing a full reset+rejoin. Re-armed on every chunk
+// that lands, so a long gap streams for as long as it makes progress. Live output
+// stays queued while it runs, so keep it short enough that a real stall is not
+// felt as a freeze.
 export const GAP_FETCH_TIMEOUT_MS = 3000;
 
 // Detected TUI agent CLIs (new-terminal modal) — how long the client trusts the

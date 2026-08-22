@@ -6,7 +6,7 @@ import { X, ImageOff, Loader2, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { TERMINAL_BACKGROUNDS, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_BACKGROUNDS, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, TERMINAL_BG_VEIL_RGB, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
 import { fileToScaledDataUrl } from "@/features/terminal/lib/backgroundImage";
 
 // Old agents have no bg:save handler — the ack never fires, so time the request out.
@@ -43,9 +43,11 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
   const handleClose = () => { setError(""); onClose(); };
 
   // Toggle a tile in/out of the ordered pool — the number badge shows its turn.
+  // None is not a pool entry: tapping it clears the pool (no background anywhere).
   const toggleBackground = (key) => {
     vibrate();
     const { terminalBackgrounds: keys, setTerminalBackgrounds: setKeys } = useTerminalStore.getState();
+    if (key === "none") { setKeys([]); return; }
     setKeys(keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]);
   };
 
@@ -109,11 +111,15 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
   const { min, max, step } = TERMINAL_BG_OPACITY;
   const pct = `${((opacity - min) / (max - min)) * 100}%`;
 
+  // Pool pruned of dead custom keys — badges and the None state follow what actually renders
+  const activeKeys = resolvableBackgroundKeys(terminalBackgrounds, customBackgrounds);
+
   // Shared tile markup — called (not used as a component) so React sees a stable
   // <button> type and the images don't remount on every render.
   const renderTile = (key, label, src) => {
-    const order = terminalBackgrounds.indexOf(key);
-    const selected = order !== -1;
+    const isNone = key === "none";
+    const order = isNone ? -1 : activeKeys.indexOf(key);
+    const selected = isNone ? activeKeys.length === 0 : order !== -1;
     return (
       <button
         onClick={() => toggleBackground(key)}
@@ -127,8 +133,8 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
               className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
               loading="lazy"
             />
-            {/* Light fixed scrim only — the tile previews the image, not the pane's live dim */}
-            <span className="pointer-events-none absolute inset-0 bg-black/25" />
+            {/* Live dim preview — mirrors the pane's veil at the current opacity */}
+            <span className="pointer-events-none absolute inset-0" style={{ background: `rgba(${TERMINAL_BG_VEIL_RGB},${opacity})` }} />
             <div className="absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-black/75 to-transparent" />
             <span className="absolute bottom-2 left-0 right-0 px-2 text-xs font-medium text-white truncate">{label}</span>
           </>
@@ -147,7 +153,7 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
             ? "ring-2 ring-inset ring-brand-500"
             : "ring-1 ring-inset ring-white/15 group-hover:ring-2 group-hover:ring-inset group-hover:ring-brand-500/60"
         }`} />
-        {selected && (
+        {selected && !isNone && (
           <span className="absolute top-2 right-2 flex items-center justify-center w-6 h-6 bg-brand-500 rounded-full shadow-lg text-white text-xs font-semibold">
             {order + 1}
           </span>
@@ -185,16 +191,6 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
               </div>
             ))}
 
-            {/* Add tile — picks a new image from the device */}
-            <button
-              onClick={openPicker}
-              disabled={saving}
-              className="group relative block w-full aspect-[9/16] rounded-2xl overflow-hidden border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-text-muted hover:border-brand-500 hover:text-brand-500 transition-colors disabled:opacity-40"
-            >
-              {saving ? <Loader2 size={24} className="animate-spin" /> : <Plus size={24} strokeWidth={1.75} />}
-              <span className="text-xs font-medium">{t("menu.bgAdd")}</span>
-            </button>
-
             {customBackgrounds.map((it) => (
               <div key={`custom:${it.id}`} className="relative">
                 {renderTile(`custom:${it.id}`, t("menu.bgCustomLabel"), it.dataUrl)}
@@ -207,6 +203,16 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
                 </button>
               </div>
             ))}
+
+            {/* Add tile — last in the grid, picks a new image from the device */}
+            <button
+              onClick={openPicker}
+              disabled={saving}
+              className="group relative block w-full aspect-[9/16] rounded-2xl overflow-hidden border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-text-muted hover:border-brand-500 hover:text-brand-500 transition-colors disabled:opacity-40"
+            >
+              {saving ? <Loader2 size={24} className="animate-spin" /> : <Plus size={24} strokeWidth={1.75} />}
+              <span className="text-xs font-medium">{t("menu.bgAdd")}</span>
+            </button>
           </div>
         </div>
 
@@ -215,7 +221,7 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
         )}
 
         {/* Dim control pinned below the grid — stays reachable while the tiles scroll */}
-        {terminalBackgrounds.length > 0 && (
+        {activeKeys.length > 0 && (
           <div className="flex-shrink-0 border-t border-border px-5 pt-3 pb-5">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-sm text-text">{t("menu.bgDim")}</span>
@@ -228,7 +234,7 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
               step={step}
               value={opacity}
               onChange={(e) => setTerminalBackgroundOpacity(Number(e.target.value))}
-              className="brand-range"
+              className="brand-range brand-range-lg"
               style={{ "--pct": pct }}
               aria-label={t("menu.bgDim")}
             />

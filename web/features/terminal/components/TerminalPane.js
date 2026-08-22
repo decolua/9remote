@@ -12,7 +12,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, paneBackgroundKey } from "@/features/terminal/constants/terminalConfig";
+import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, paneBackgroundKey, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
@@ -54,13 +54,16 @@ function TerminalPane({
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
   const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
-  const paneBgKey = paneBackgroundKey(terminalBackgrounds, bgIndex);
+  const paneBgKey = paneBackgroundKey(resolvableBackgroundKeys(terminalBackgrounds, customBackgrounds), bgIndex);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
   const showGitButton = useTerminalStore((s) => s.showGitButton);
   const showNoteButton = useTerminalStore((s) => s.showNoteButton);
+  const notePinned = useTerminalStore((s) => !!s.pinnedNotes?.[sessionId]);
+  const setNotePinned = useTerminalStore((s) => s.setNotePinned);
 
-  // Note overlay state: open + optional text to append (from selection menu)
-  const [noteOpen, setNoteOpen] = useState(false);
+  // The modal is transient local state; the pinned strip is persisted per session so a
+  // remounted pane (LRU eviction, reload) comes back with it.
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteAppend, setNoteAppend] = useState(null);
 
 // Scroll wrapper so the cursor/content stays visible after a viewport shrink (soft KB).
@@ -135,8 +138,15 @@ function TerminalPane({
     };
   }, [scrollCursorIntoView]);
 
+  // Mobile-only background image on the pane: veil + screen-lift layers dim it, the
+  // xterm canvas above stays fully transparent so padding can't create a bright frame
+  const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
+  const bgActive = !!bgSrc && theme === "dark" && typeof window !== "undefined" && window.innerWidth < DESKTOP_BREAKPOINT;
+
   const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
-    socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: paneBgKey,
+    // Effective key — the canvas goes transparent only when the image actually renders,
+    // so a pool key without a resolvable item (deleted/raced) falls back to opaque, not black
+    socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: bgActive ? paneBgKey : "none",
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
@@ -223,10 +233,6 @@ function TerminalPane({
     showFocusBorder && isFocused ? "terminal-focus-glow" : ""
   ].filter(Boolean).join(" ");
 
-  // Mobile-only background image on the pane: veil + screen-lift layers dim it, the
-  // xterm canvas above stays fully transparent so padding can't create a bright frame
-  const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
-  const bgActive = !!bgSrc && theme === "dark" && typeof window !== "undefined" && window.innerWidth < DESKTOP_BREAKPOINT;
   const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
   const lift = `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})`;
 
@@ -240,6 +246,17 @@ function TerminalPane({
       onMouseDown={handlePaneClick}
       onTouchStart={() => handlePaneClick()}
     >
+      {/* Pinned checklist sits in flow above the terminal, like the bottom status bar */}
+      {notePinned && showNoteButton && (
+        <NotePanel
+          socket={socket}
+          sessionId={sessionId}
+          variant="pinned"
+          onExpand={() => setNoteModalOpen(true)}
+          onClose={() => setNotePinned(sessionId, false)}
+        />
+      )}
+
       {/* Mobile: scroll wrapper; terminal keeps fixed (keyboard-closed) height so PTY size stays put */}
       <div
         ref={scrollRef}
@@ -275,7 +292,7 @@ function TerminalPane({
             position={selection}
             onOpenUrl={(url) => window.open(url, "_blank")}
             onCopy={(txt) => { try { navigator.clipboard?.writeText(txt); } catch {} }}
-            onAddToNote={(txt) => { setSelection(null); setNoteAppend(txt); setNoteOpen(true); }}
+            onAddToNote={(txt) => { setSelection(null); setNoteAppend(txt); setNoteModalOpen(true); }}
             onClose={() => { termRef.current?.clearSelection(); setSelection(null); }}
           />
         )}
@@ -304,7 +321,7 @@ function TerminalPane({
               <button
                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); vibrate(); setNoteAppend(null); setNoteOpen(true); }}
+                onClick={(e) => { e.stopPropagation(); vibrate(); setNoteAppend(null); setNoteModalOpen(true); }}
                 className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
                 title={t("terminalPane.note")}
               >
@@ -354,12 +371,14 @@ function TerminalPane({
         </div>
       )}
 
-      {noteOpen && showNoteButton && (
+      {noteModalOpen && showNoteButton && (
         <NotePanel
           socket={socket}
           sessionId={sessionId}
           appendOnOpen={noteAppend}
-          onClose={() => { setNoteOpen(false); setNoteAppend(null); }}
+          pinned={notePinned}
+          onPin={(next) => setNotePinned(sessionId, next)}
+          onClose={() => { setNoteModalOpen(false); setNoteAppend(null); }}
         />
       )}
     </div>

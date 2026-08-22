@@ -141,6 +141,21 @@ export const useTerminalStore = create(
       setShowGitButton: (v) => set({ showGitButton: !!v }),
       setShowNoteButton: (v) => set({ showNoteButton: !!v }),
 
+      // User-added note suggestion chips on top of NOTE_SUGGESTIONS. Persisted.
+      noteChips: [],
+      addNoteChip: (text) => set((state) => ({ noteChips: [...state.noteChips, text] })),
+      removeNoteChip: (text) => set((state) => ({ noteChips: state.noteChips.filter((c) => c !== text) })),
+
+      // Which sessions keep the checklist pinned above their terminal. Persisted, so a
+      // pane remounted by the LRU (or a page reload) comes back with its strip.
+      pinnedNotes: {},
+      setNotePinned: (sessionId, pinned) => set((state) => {
+        const next = { ...state.pinnedNotes };
+        if (pinned) next[sessionId] = true;
+        else delete next[sessionId];
+        return { pinnedNotes: next };
+      }),
+
       // Desktop sidebar collapse (terminal view). Persisted.
       sidebarCollapsed: false,
       toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
@@ -271,6 +286,8 @@ export const useTerminalStore = create(
         showFolderButton: state.showFolderButton,
         showGitButton: state.showGitButton,
         showNoteButton: state.showNoteButton,
+        noteChips: state.noteChips,
+        pinnedNotes: state.pinnedNotes,
         sidebarCollapsed: state.sidebarCollapsed,
         sidebarWidth: state.sidebarWidth,
         paneWidths: state.paneWidths,
