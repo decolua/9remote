@@ -9,7 +9,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { termLog } from "@/shared/utils/termLog";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, HISTORY_FETCH, applyTerminalBackground, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS, HISTORY_FETCH, applyTerminalBackground, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { createGapFetch } from "@/features/terminal/lib/gapFetch";
@@ -71,7 +71,8 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const joinQueueRef = useRef([]);
   const joinGenRef = useRef(0); // stale-ack guard: only the current join's ack clears the spinner
   const scrollDisposeRef = useRef(null);    // disposable from term.onScroll
-  const needsRejoinRef = useRef(false);     // reconnect fired while pane hidden → defer rejoin until visible
+  const pendingRecoverRef = useRef(null);   // recovery asked for while pane hidden/busy → reason, replayed when it can run
+  const requestRecoverRef = useRef(null);   // single recovery entry point, shared with the visibility effect
   const isVisibleRef = useRef(isVisible);   // mirror isVisible for socket handlers
   useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
   const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
@@ -273,9 +274,14 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     term.textarea?.addEventListener("keyup", maybeFetchHistory);
     maybeFetchHistoryRef.current = maybeFetchHistory;
 
-    // Recovery single-flight state: one pending debounce timer, one peek round-trip.
+    // Recovery single-flight state: one pending debounce timer, one peek round-trip,
+    // one deadline so a peek whose ack never returns can't wedge recovery forever.
+    // peekGen retires a timed-out peek: its late ack must not clobber the peek that
+    // replaced it, nor drive a gapFetch off a seq that is no longer current.
     let peekTimer = null;
+    let peekDeadline = null;
     let peekInFlight = false;
+    let peekGen = 0;
 
     // Gap-recovery state machine (plan G): request a missing live-output range and append it —
     // no reset, no flash. Live output meanwhile is queued, then flushed after the gap.
@@ -300,6 +306,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
      *  serve — no baseline, or the agent's counter rewound (agent restarted). */
     const hardRejoin = (why) => {
       if (!termRef.current) return;
+      pendingRecoverRef.current = null; // the rejoin refetches everything — nothing left to recover
       termLog("reconnect", `reset+rejoin (${why})`);
       termRef.current.reset();
       doJoinSessionRef.current?.(true);
@@ -308,16 +315,28 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     /** Single entry point for seq-based recovery: ASK the agent for its newest seq instead of
      *  waiting for the next chunk — output produced while backgrounded otherwise stays missing
      *  until the terminal prints again (a finished command leaves the pane silently truncated).
-     *  Resume fires several triggers at once (visibilitychange, socket connect, focus), so the
-     *  peek is debounced and single-flighted: one round-trip decides, one recovery runs. */
+     *  Every caller goes through requestRecover below; this only runs once a peek may fire. */
     const runRecover = (reason) => {
       peekTimer = null;
-      if (!isVisibleRef.current) return;        // pane is LRU-hidden (other group) — don't recover into a zero-size buffer
-      if (joiningRef.current || gapFetch.isBusy()) return; // recovery already running
-      if (peekInFlight) return;                 // an earlier peek owns this decision
+      // Visibility can flip during the debounce (group switch right after a resume) — re-check
+      // at fire time, else the peek recovers into a zero-size buffer and wraps wrong.
+      if (!isVisibleRef.current) { pendingRecoverRef.current = reason; return; }
+      if (joiningRef.current || gapFetch.isBusy()) return; // recovery already running — it covers this
       if (lastSeqRef.current == null) return hardRejoin(`${reason}: no seq baseline`);
+      const gen = ++peekGen;
       peekInFlight = true;
+      peekDeadline = setTimeout(() => {
+        peekDeadline = null;
+        peekInFlight = false;
+        peekGen++; // retire this peek — a late ack now belongs to nobody
+        termLog("reconnect", `${reason}: peekSeq timed out → retry`);
+        pendingRecoverRef.current = pendingRecoverRef.current || reason;
+        drainPending();
+      }, PEEK_TIMEOUT_MS);
       socket.emit("peekSeq", { sessionId }, (res) => {
+        if (gen !== peekGen) return; // this peek was retired (timeout/reconnect) — a newer one owns the decision
+        clearTimeout(peekDeadline);
+        peekDeadline = null;
         peekInFlight = false;
         const agentSeq = res?.seq;
         if (agentSeq == null) return hardRejoin(`${reason}: agent has no seq`); // agent too old to answer
@@ -327,19 +346,32 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         if (agentSeq < lastSeq) return hardRejoin(`${reason}: seq rewound ${lastSeq} → ${agentSeq}`);
         if (agentSeq === lastSeq) {
           termLog("reconnect", `${reason}: nothing missed (seq ${lastSeq})`);
-          return;
+          return drainPending();
         }
-        if (joiningRef.current || gapFetch.isBusy()) return; // a rejoin started meanwhile
-        termLog("reconnect", `${reason}: peekSeq ${lastSeqRef.current} → ${agentSeq} → gapFetch`);
+        if (joiningRef.current || gapFetch.isBusy()) return drainPending(); // a rejoin started meanwhile
+        termLog("reconnect", `${reason}: peekSeq ${lastSeq} → ${agentSeq} → gapFetch`);
         gapFetch.start(agentSeq);
       });
     };
 
-    // Debounce so a resume storm (visibility + connect + focus within ms) yields one peek.
-    const scheduleRecover = (reason) => {
+    /** The ONE door into recovery. A resume fires several triggers at once (visibilitychange,
+     *  socket connect, pane focus), so the peek is debounced into a single round-trip. A request
+     *  that can't run right now is REMEMBERED, not dropped: a hidden pane would recover into a
+     *  zero-size buffer (wrong wrap), so it waits for the visibility effect to replay it. */
+    const requestRecover = (reason) => {
+      if (!isVisibleRef.current || peekInFlight) { pendingRecoverRef.current = reason; return; }
       if (peekTimer) clearTimeout(peekTimer);
       peekTimer = setTimeout(() => runRecover(reason), RECOVER_DEBOUNCE_MS);
     };
+    requestRecoverRef.current = requestRecover;
+
+    // Replay a request that arrived while a peek owned the decision.
+    function drainPending() {
+      const reason = pendingRecoverRef.current;
+      if (!reason) return;
+      pendingRecoverRef.current = null;
+      requestRecover(reason);
+    }
 
     // Output routing: prefix replay / join replay / gap / queues / seq classify / live
     const { handleOutput } = createOutputRouter({
@@ -371,12 +403,10 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     });
     // Stagger initial join by mountDelay so a freshly-entered group's panes don't all join at
     // once (focus pane = 0ms, siblings stagger ~120ms). Rejoins pass 0.
-    if (mountDelay > 0) {
-      const id = setTimeout(doJoinSession, mountDelay);
-      doJoinSessionRef.current = doJoinSession;
-      return () => clearTimeout(id); // unmount before fire → cancel
-    }
-    doJoinSession();
+    // A staggered pane must still reach the listeners below — returning early here left every
+    // non-focused pane without a reconnect/visibility handler, so it never recovered anything.
+    const joinTimer = mountDelay > 0 ? setTimeout(doJoinSession, mountDelay) : null;
+    if (!joinTimer) doJoinSession();
     doJoinSessionRef.current = doJoinSession;
 
     // On reconnect → clear stale content and rejoin to get the latest scrollback.
@@ -394,16 +424,18 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         joinQueue: joinQueueRef,
       });
       gapFetch.cancel();
+      clearTimeout(peekDeadline); peekDeadline = null;
       peekInFlight = false; // an ack from the dead carrier never arrives — don't wedge recovery
+      peekGen++;            // and if it does arrive late, it must not decide anything
       setHistoryFetching(false);
       setJoining(false); // rejoin below will set it true again on emit
-      if (!isVisibleRef.current) { needsRejoinRef.current = true; termLog("reconnect", "deferred (pane hidden) → needsRejoin=true"); return; }
       // Seq-first: ask the agent what we missed and append exactly that — no reset, no flash,
       // and nothing lost above the join tail. How LONG the app was backgrounded is irrelevant;
       // what matters is whether the ring still holds the missing range. A miss or a stalled
       // transfer falls back to reset+rejoin via gapFetch.onFallback.
-      // Only a missing/rewound seq baseline needs the blind reset+rejoin.
-      scheduleRecover("reconnect");
+      // Only a missing/rewound seq baseline needs the blind reset+rejoin. A hidden pane defers
+      // inside requestRecover — the request is kept, not dropped.
+      requestRecover("reconnect");
     };
     socket.on("connect", handleReconnect);
 
@@ -424,7 +456,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     const handleVisibilityChange = () => {
       if (!document.hidden && termRef.current) {
         termRef.current.refresh(0, termRef.current.rows - 1);
-        scheduleRecover("visible");
+        requestRecover("visible");
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -443,7 +475,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       // Gap fetch in flight → kill its fallback timer, else it fires after unmount
       gapFetch.cancel();
+      if (joinTimer) clearTimeout(joinTimer); // unmount before the staggered join fired
       if (peekTimer) clearTimeout(peekTimer);
+      if (peekDeadline) clearTimeout(peekDeadline);
       if (webglAddonRef.current) webglAddonRef.current.dispose();
       if (writeBatcherRef.current) writeBatcherRef.current.dispose();
       fitAddon.dispose();
@@ -508,14 +542,14 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   useEffect(() => {
     if (!isVisible || !fitAddonRef.current || !termRef.current) return;
     const timer = setTimeout(() => {
-      // Reconnect fired while this pane was hidden → snapshot was never fetched at the right
-      // size. Now visible: reset + rejoin so the daemon serializes at the correct cols.
-      if (needsRejoinRef.current) {
-        needsRejoinRef.current = false;
-        termLog("join", "deferred needsRejoin → fire (pane now visible)");
-        termRef.current.reset();
-        doJoinSessionRef.current?.(true);
-        return;
+      // Recovery was asked for while this pane was hidden → run it now that the buffer has a
+      // real size. Seq-first, so nothing above the join tail is lost; only a missing/rewound
+      // baseline falls back to the blind reset+rejoin inside runRecover.
+      if (pendingRecoverRef.current) {
+        const reason = pendingRecoverRef.current;
+        pendingRecoverRef.current = null;
+        termLog("reconnect", `deferred recover → fire (pane now visible, ${reason})`);
+        requestRecoverRef.current?.(reason);
       }
       // force: pane may have been hidden during reconnect → daemon snapshot stale, and
       // cols/rows unchanged would skip emit → PTY never gets SIGWINCH to redraw.

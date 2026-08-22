@@ -223,6 +223,11 @@ export const ORIENTATION_SETTLE_MS = 600;
 // single decision drives a single recovery.
 export const RECOVER_DEBOUNCE_MS = 150;
 
+// How long a peekSeq ack may take before recovery stops waiting on it. A zombie carrier
+// swallows the ack without ever firing a reconnect, and the single-flight guard would
+// then block every later recovery for the pane's lifetime.
+export const PEEK_TIMEOUT_MS = 4000;
+
 // Gap recovery (seq-based): how long the transfer may go SILENT — no ack, no new
 // chunk — before giving up and doing a full reset+rejoin. Re-armed on every chunk
 // that lands, so a long gap streams for as long as it makes progress. Live output
