@@ -104,19 +104,22 @@ export function decideAdmission(socket, deviceId) {
   // v1 key (no split): nothing to prove — behave exactly as before the split.
   if (!isTailProofEnabled()) return "admit";
 
+  // Sealed when the client could reach our X25519 key, plain over RTC. Resolved
+  // once — opening a seal is an ECDH and a decrypt, and the branch below asks
+  // the same question.
+  const presented = presentedTailOf(socket.handshake?.auth, openSealedTail);
+
   // An RTC-only session (VirtualSocket, offer arrived before the tunnel) has no
   // socket.io handshake, so it carries no TAIL — the client sends it with the
   // WS connect that follows. Demanding it here would drop a session the gate
   // already admitted and bounce the device back into the approval modal, even
   // with auto-approve on. The WS carrier still presents it when it attaches.
-  if (socket.isVirtual && presentedTailOf(socket.handshake?.auth, openSealedTail) === undefined) {
+  if (socket.isVirtual && presented === undefined) {
     if (gate === "auto") approveDevice(deviceId);
     return "admit";
   }
 
   const keyHead = headOf(loadKey()?.key || "");
-  // Sealed when the client could reach our X25519 key, plain over RTC.
-  const presented = presentedTailOf(socket.handshake?.auth, openSealedTail);
 
   // An enrollment that already ran on this socket counts too — the TAIL reached
   // that device through the fp2-checked RTC channel.
