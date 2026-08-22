@@ -6,38 +6,32 @@ import Button from "./Button";
 
 /**
  * QR Scanner Modal Component
- * Uses html5-qrcode library from CDN
+ * Uses the bundled html5-qrcode library, imported on demand.
  */
 export default function QRScanner({ isOpen, onClose, onScan }) {
   const scannerRef = useRef(null);
   const html5QrCodeRef = useRef(null);
+  const ctorRef = useRef(null);
   const [error, setError] = useState("");
   const [scanStatus, setScanStatus] = useState(""); // "detected" | "authenticating" | ""
   const [status, setStatus] = useState("Loading library...");
 
-  // Load html5-qrcode from CDN
+  // Bundled, not fetched: this component renders on the login screen, where the
+  // key is typed and the session cookie is set. A script pulled from a CDN at
+  // that moment runs with the same reach as our own code and nothing verifies
+  // what came back. Dynamic import keeps it out of the main chunk all the same.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    
-    // Check if already loaded
-    if (window.Html5Qrcode) {
+    let cancelled = false;
+    import("html5-qrcode").then(({ Html5Qrcode }) => {
+      if (cancelled) return;
+      ctorRef.current = Html5Qrcode;
       setStatus("Library loaded ✓");
-      return;
-    }
-
-    setStatus("Loading html5-qrcode from CDN...");
-
-    const script = document.createElement("script");
-    script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
-    script.async = true;
-    script.onload = () => {
-      setStatus("Library loaded ✓");
-    };
-    script.onerror = () => {
-      setError("Failed to load QR scanner library from CDN");
+    }).catch(() => {
+      if (cancelled) return;
+      setError("Failed to load QR scanner library");
       setStatus("Library load FAILED ✗");
-    };
-    document.body.appendChild(script);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   // Handle scan result
@@ -105,29 +99,18 @@ export default function QRScanner({ isOpen, onClose, onScan }) {
   useEffect(() => {
     if (!isOpen) return;
     
-    // Wait for library to load
-    if (!window.Html5Qrcode) {
-      setStatus("Waiting for library...");
-      const checkInterval = setInterval(() => {
-        if (window.Html5Qrcode) {
-          clearInterval(checkInterval);
-          initScanner();
-        }
-      }, 100);
-      
-      // Timeout after 10 seconds
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        if (!window.Html5Qrcode) {
-          setError("Library failed to load after 10s");
-          setStatus("Timeout loading library");
-        }
-      }, 10000);
-      
-      return () => clearInterval(checkInterval);
-    }
-
-    initScanner();
+    // The import may still be in flight — await the same promise rather than
+    // polling a global that no longer exists.
+    let cancelled = false;
+    import("html5-qrcode").then(({ Html5Qrcode }) => {
+      if (cancelled) return;
+      ctorRef.current = Html5Qrcode;
+      initScanner();
+    }).catch(() => {
+      if (cancelled) return;
+      setError("Failed to load QR scanner library");
+      setStatus("Library load FAILED ✗");
+    });
 
     async function initScanner() {
       // Wait for DOM element to be ready
@@ -146,7 +129,7 @@ export default function QRScanner({ isOpen, onClose, onScan }) {
         // Clear any existing content
         element.innerHTML = "";
         
-        const html5QrCode = new window.Html5Qrcode("qr-reader");
+        const html5QrCode = new ctorRef.current("qr-reader");
         html5QrCodeRef.current = html5QrCode;
 
         setStatus("Requesting camera access...");
@@ -186,6 +169,7 @@ export default function QRScanner({ isOpen, onClose, onScan }) {
     }
 
     return () => {
+      cancelled = true;
       if (html5QrCodeRef.current) {
         html5QrCodeRef.current.stop().catch(() => {});
         html5QrCodeRef.current = null;

@@ -50,6 +50,7 @@
     "diff2html": "^3.4.55",
     "docx-preview": "^0.4.0",
     "hterm-umd": "^1.0.1",
+    "html5-qrcode": "^2.3.8",
     "jose": "^6.2.3",
     "libsodium-wrappers": "^0.8.4",
     "lucide-react": "^0.563.0",

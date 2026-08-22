@@ -79,6 +79,26 @@ export function tailOf(apiKey) {
 }
 
 /**
+ * Does a presented key belong to THIS agent?
+ *
+ * The tunnel-facing HTTP routes have no device-auth handshake to lean on, so
+ * they compare here. Shape is not identity: a v2 key carries no CRC, and the
+ * pattern check that stood in for verification accepted any string matching it.
+ *
+ * Compared on the HEAD, because that is what clients present — useAuth stores
+ * headOf(key) and the tail never leaves the browser. So this establishes "holds
+ * the head of this agent's current key", which is what these routes can ask for
+ * without putting the tail in an HTTP header.
+ */
+export function matchesLocalKey(presented, storedKey) {
+  if (typeof presented !== "string" || !presented || !storedKey) return false;
+  const a = Buffer.from(headOf(presented) || "", "utf8");
+  const b = Buffer.from(headOf(storedKey) || "", "utf8");
+  // Length guard first — timingSafeEqual throws when the two differ.
+  return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
  * Parse API key and extract machineId + keyId
  * Format: sk-{machineId}-{keyId}-{crc8}
  * @param {string} apiKey
@@ -112,20 +132,6 @@ export function parseApiKey(apiKey) {
   }
   
   return null;
-}
-
-/**
- * Verify API key CRC — supports both old (16+6+8) and new (8+4+6) format
- */
-
-/**
- * Verify API key CRC
- * @param {string} apiKey
- * @returns {boolean}
- */
-export function verifyApiKeyCrc(apiKey) {
-  const parsed = parseApiKey(apiKey);
-  return parsed !== null;
 }
 
 /**

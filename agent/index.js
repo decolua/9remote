@@ -22,7 +22,7 @@ import { createProxyServer, handleProxyRequest, startProxySession, endProxySessi
 import { handlePreviewRequest } from "./features/fileExplorer/previewServer.js";
 import { initializeTerminal } from "./features/terminal/terminalSocket.js";
 import { handleLocalSites } from "./api/localSites.js";
-import { verifyApiKeyCrc } from "./cli/utils/apiKey.js";
+import { matchesLocalKey } from "./cli/utils/apiKey.js";
 import { generateLocalToken } from "./lib/localToken.js";
 import { isNewerVersion } from "./cli/utils/updateChecker.js";
 
@@ -45,7 +45,7 @@ import { handleDesktopUnlockGet, handleDesktopUnlockInstall, handleDesktopUnlock
 import { handleSessionsList, handleSessionDelete } from "./api/sessions.js";
 import { handleSystemStats } from "./api/system.js";
 import * as sleepInhibitor from "./lib/sleepInhibitor.js";
-import { loadSettings } from "./cli/utils/state.js";
+import { loadSettings, loadKey } from "./cli/utils/state.js";
 import { REMOTE_CONFIG } from "./features/remote/REMOTE_CONFIG.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -121,9 +121,10 @@ function handleCodespaceStop(req, res) {
 let proxyServer;
 
 async function handleProxyStartEnd(req, res, { pathname }) {
-  // Verify API key (required for tunnel access)
+  // Against the key this agent holds — a shape check would let any string
+  // matching the v2 pattern open a proxy session to any loopback port.
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ") || !verifyApiKeyCrc(authHeader.slice(7))) {
+  if (!authHeader || !authHeader.startsWith("Bearer ") || !matchesLocalKey(authHeader.slice(7), loadKey()?.key)) {
     jsonErr(res, 401, "Unauthorized");
     return;
   }
