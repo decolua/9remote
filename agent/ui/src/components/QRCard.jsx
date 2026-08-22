@@ -47,14 +47,17 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
   // the state stream (below), so the spinner tracks the real work, not a timer.
   const [busy, setBusy] = useState(null); // "oneTime" | "permanent" | null
 
+  // An expired key is useless — hide it (and its QR) instead of showing a dead value.
+  const expired = countdown !== null && countdown <= 0;
+
   useEffect(() => {
-    if (!qrUrl || !canvasRef.current) return;
+    if (!qrUrl || expired || !canvasRef.current) return;
     QRCode.toCanvas(canvasRef.current, qrUrl, {
       width: 200,
       margin: 1,
       color: { dark: "#0f1923", light: "#ffffff" },
     }).catch(() => {});
-  }, [qrUrl]);
+  }, [qrUrl, expired]);
 
   useEffect(() => {
     if (!oneTimeKeyExpiresAt) { setCountdown(null); return; }
@@ -115,7 +118,7 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
           className="bg-white p-3.5 rounded-[14px] flex items-center justify-center flex-shrink-0"
           style={{ boxShadow: "var(--qr-plate-shadow)" }}
         >
-          {qrUrl ? (
+          {qrUrl && !expired ? (
             <canvas ref={canvasRef} />
           ) : (
             <div className="w-[200px] h-[200px] grid place-items-center">
@@ -149,16 +152,16 @@ export default function QRCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permane
             <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 16, color: "var(--text-muted)" }}>timer</span>
             <span
               className="flex-1 font-mono font-bold tracking-[0.18em] text-base truncate"
-              style={{ color: oneTimeKey ? "var(--brand-400)" : "var(--border)" }}
+              style={{ color: oneTimeKey && !expired ? "var(--brand-400)" : "var(--border)" }}
             >
-              {oneTimeKey || "• • • • • •"}
+              {oneTimeKey && !expired ? oneTimeKey : "• • • • • •"}
             </span>
             {countdown !== null && (
               <span className={`text-xs font-mono flex-shrink-0 ${countdown <= 0 ? "text-red-400" : ""}`} style={countdown > 0 ? { color: "var(--text-muted)" } : {}}>
                 {formatCountdown(countdown)}
               </span>
             )}
-            {oneTimeKey && (
+            {oneTimeKey && !expired && (
               <IconBtn
                 icon={copiedKey === "oneTime" ? "check" : "content_copy"}
                 onClick={() => copy(oneTimeKey, "oneTime")}
