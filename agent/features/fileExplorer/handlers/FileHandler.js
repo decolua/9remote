@@ -26,7 +26,7 @@ function formatSize(bytes) {
 // Downscale + re-encode an image buffer so the output stays under
 // MAX_IMAGE_SCALED_SIZE. Tries quality steps, then width steps. Never enlarges.
 // Returns { buffer, width, height, originalWidth, originalHeight }.
-async function scaleImageToDataUrl(buffer) {
+export async function scaleImageBuffer(buffer) {
   const meta = await sharp(buffer).metadata();
   const originalWidth = meta.width || 0;
   const originalHeight = meta.height || 0;
@@ -240,7 +240,7 @@ export function setupFileHandlers(socket) {
       if (stat.size > cap) return callback({ success: false, error: `File too large (${formatSize(stat.size)}). Max ${formatSize(cap)}` });
       const buffer = fs.readFileSync(filePath);
       if (isImage) {
-        const scaled = await scaleImageToDataUrl(buffer);
+        const scaled = await scaleImageBuffer(buffer);
         const dataUrl = `data:image/jpeg;base64,${scaled.buffer.toString("base64")}`;
         callback({
           success: true,
@@ -271,7 +271,7 @@ export function setupFileHandlers(socket) {
       const stat = fs.statSync(filePath);
       if (stat.size > MAX_IMAGE_RAW_SIZE) return callback({ success: false, error: `Image too large (${formatSize(stat.size)}). Max ${formatSize(MAX_IMAGE_RAW_SIZE)}` });
       const buffer = fs.readFileSync(filePath);
-      const scaled = await scaleImageToDataUrl(buffer);
+      const scaled = await scaleImageBuffer(buffer);
       const dataUrl = `data:image/jpeg;base64,${scaled.buffer.toString("base64")}`;
       callback({
         success: true,

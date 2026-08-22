@@ -12,7 +12,8 @@ import { AckTracker } from "./ackTracker.js";
 import { planChunks } from "./chunkPlan.js";
 import { resolveSafePath } from "./sanitize.js";
 import { isSensitivePath } from "../pathGuard.js";
-import { getMimeType } from "../constants.js";
+import { getMimeType, isStreamScalableImage, MAX_IMAGE_RAW_SIZE } from "../constants.js";
+import { scaleImageBuffer } from "../handlers/FileHandler.js";
 
 let _idSeq = 1;
 
@@ -179,18 +180,49 @@ export class TransferManager {
   // Stream a media file for progressive playback (MSE on the client) over FILE
   // frames. Reuses _streamDownload — only the entry validation differs: a higher
   // cap (media is streamed, not held in memory on either side) + MIME in the ack.
+  // Static raster images take the scaled branch instead: the client decodes the
+  // bytes into a full-resolution bitmap, and a modern photo is more RAM than a
+  // phone's web process is allowed — WebKit kills the page.
   startStreamMedia({ filePath }, cb) {
     try {
       if (isSensitivePath(filePath)) return cb?.({ success: false, error: "Access denied" });
       if (!fs.existsSync(filePath)) return cb?.({ success: false, error: "Not found" });
       const stat = fs.statSync(filePath);
       if (!stat.isFile()) return cb?.({ success: false, error: "Not a file" });
+      if (isStreamScalableImage(filePath)) return this._startScaledImage(filePath, stat, cb);
       if (stat.size > FILE_TRANSFER.maxStreamMediaSize) {
         return cb?.({ success: false, error: `File too large (max ${FILE_TRANSFER.maxStreamMediaSize} bytes)` });
       }
       const streamId = _idSeq++;
       cb?.({ success: true, streamId, size: stat.size, mime: getMimeType(filePath) });
       this._streamDownload(streamId, filePath, stat.size);
+    } catch (e) {
+      cb?.({ success: false, error: e.message });
+    }
+  }
+
+  // Scale server-side (same pipeline readMedia uses) and stream the bounded
+  // JPEG. Ack carries the scaled + original dims so the client toolbar can show
+  // both without decoding anything itself.
+  async _startScaledImage(filePath, stat, cb) {
+    try {
+      if (stat.size > MAX_IMAGE_RAW_SIZE) {
+        return cb?.({ success: false, error: `Image too large (max ${MAX_IMAGE_RAW_SIZE} bytes)` });
+      }
+      const scaled = await scaleImageBuffer(fs.readFileSync(filePath));
+      const streamId = _idSeq++;
+      cb?.({
+        success: true,
+        streamId,
+        size: stat.size,
+        mime: "image/jpeg",
+        width: scaled.width,
+        height: scaled.height,
+        originalWidth: scaled.originalWidth,
+        originalHeight: scaled.originalHeight,
+        scaled: scaled.buffer.length < stat.size
+      });
+      this._streamBuffer(streamId, scaled.buffer);
     } catch (e) {
       cb?.({ success: false, error: e.message });
     }
@@ -238,6 +270,31 @@ export class TransferManager {
     archive.pipe(sender);
     archive.directory(dirPath, path.basename(dirPath));
     archive.finalize();
+  }
+
+  // Stream an in-memory buffer as FILE frames — same backpressure + done
+  // contract as _streamDownload, for already-transformed payloads.
+  _streamBuffer(downloadId, buffer) {
+    const pm = this._pm;
+    let offset = 0;
+    let cancelled = false;
+    this._downloads.set(downloadId, { cancel: () => { cancelled = true; } });
+
+    const sendNext = () => {
+      while (offset < buffer.length) {
+        const chunk = buffer.subarray(offset, offset + FILE_TRANSFER.chunkSize);
+        const ok = pm?.sendBinary(CHANNELS.file, encodeFileFrame(downloadId, offset, chunk));
+        if (!ok) {
+          // Backpressure (RTC buffer full / WS not writable) — retry shortly.
+          setTimeout(() => { if (!cancelled) sendNext(); }, 50);
+          return;
+        }
+        offset += chunk.length;
+      }
+      this.socket.emit("download:done", { downloadId });
+      this._downloads.delete(downloadId);
+    };
+    sendNext();
   }
 
   _streamDownload(downloadId, filePath, size) {

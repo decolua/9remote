@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Loader2 } from "@/shared/components/ui/Icon";
-import { isImageFile } from "../constants/fileExplorer.js";
+import { isImageFile, IMAGE_RENDER_MAX_BYTES } from "../constants/fileExplorer.js";
 
 export { isImageFile };
 
@@ -23,9 +23,14 @@ export default function ImageViewer({ filePath, fileSocket }) {
   const [loading, setLoading] = useState(true);
   const [scale, setScale] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [oversized, setOversized] = useState(0);
 
   const containerRef = useRef(null);
   const imgRef = useRef(null);
+  // Blob withheld for exceeding IMAGE_RENDER_MAX_BYTES (rendered only on opt-in)
+  const withheldRef = useRef(null);
+  // Live object URL — revoked on file switch + unmount
+  const urlRef = useRef(null);
   // Gesture refs (avoid re-renders mid-gesture)
   const pinchRef = useRef(null);
   const panRef = useRef(null);
@@ -33,7 +38,6 @@ export default function ImageViewer({ filePath, fileSocket }) {
 
   useEffect(() => {
     let cancelled = false;
-    let revoke = null;
     const chunks = [];
     let blobMime = "";
 
@@ -43,6 +47,12 @@ export default function ImageViewer({ filePath, fileSocket }) {
     setMeta(null);
     setScale(1);
     setPos({ x: 0, y: 0 });
+    setOversized(0);
+    withheldRef.current = null;
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
 
     // TIFF → browser can't render natively → keep readMedia (Sharp converts to JPEG).
     // All other image formats stream via the file DC (avoids control-channel overflow).
@@ -62,18 +72,32 @@ export default function ImageViewer({ filePath, fileSocket }) {
     }
 
     const cancel = fileSocket.streamMedia(filePath, {
-      onMeta: ({ mime: m, size: s }) => {
+      onMeta: (info) => {
         if (cancelled) return;
-        blobMime = m || "image/*";
-        setMeta(prev => ({ ...prev, size: s }));
+        blobMime = info.mime || "image/*";
+        setMeta({
+          size: info.size,
+          width: info.width,
+          height: info.height,
+          scaled: info.scaled,
+          originalWidth: info.originalWidth,
+          originalHeight: info.originalHeight
+        });
       },
       onChunk: (payload) => { if (!cancelled) chunks.push(payload); },
       onDone: () => {
         if (cancelled) return;
         const blob = new Blob(chunks, { type: blobMime });
-        const url = URL.createObjectURL(blob);
-        revoke = url;
-        setDataUrl(url);
+        // Oversized blob → withhold: mobile WebKit would decode it full-res and
+        // kill the page. The user can still opt in below.
+        if (blob.size > IMAGE_RENDER_MAX_BYTES) {
+          withheldRef.current = blob;
+          setOversized(blob.size);
+          setLoading(false);
+          return;
+        }
+        urlRef.current = URL.createObjectURL(blob);
+        setDataUrl(urlRef.current);
         setLoading(false);
       },
       onError: (e) => {
@@ -86,9 +110,21 @@ export default function ImageViewer({ filePath, fileSocket }) {
     return () => {
       cancelled = true;
       cancel?.();
-      if (revoke) URL.revokeObjectURL(revoke);
     };
   }, [filePath, fileSocket]);
+
+  // Revoke the live object URL on unmount (the per-file effect revokes on switch).
+  useEffect(() => () => {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+  }, []);
+
+  const openOversized = () => {
+    const blob = withheldRef.current;
+    if (!blob) return;
+    urlRef.current = URL.createObjectURL(blob);
+    setDataUrl(urlRef.current);
+    setOversized(0);
+  };
 
   // Clamp pan so the image can't be dragged off-screen
   const clampPos = useCallback((x, y, s) => {
@@ -196,6 +232,17 @@ export default function ImageViewer({ filePath, fileSocket }) {
   }
   if (error) {
     return <div className="h-full flex items-center justify-center text-red-400 text-sm">{error}</div>;
+  }
+  if (oversized) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3 text-text-muted px-6 text-center">
+        <span className="text-sm font-medium text-text truncate max-w-full">{filePath.split("/").pop()}</span>
+        <span className="text-xs">{formatSize(oversized)} — decoding an image this large can crash mobile Safari.</span>
+        <button onClick={openOversized} className="px-3 py-1.5 rounded bg-surface-2 hover:bg-surface-3 text-text text-sm">
+          Open anyway
+        </button>
+      </div>
+    );
   }
 
   const dims = meta?.width && meta?.height ? `${meta.width}×${meta.height}` : "";

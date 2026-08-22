@@ -259,3 +259,9 @@ export const EDITOR_FONT_MAX = 28;
 
 // Max open editor tabs on desktop; newest at head (LRU), oldest evicted past this
 export const MAX_OPEN_TABS = 5;
+
+// Mobile WebKit decodes whatever bytes it is given into a full-resolution bitmap,
+// and an oversized one gets the whole page killed ("The page could not load").
+// The agent normally streams a pre-scaled JPEG (≤3MB); a blob past this cap is
+// withheld behind an explicit "Open anyway" instead of auto-decoded.
+export const IMAGE_RENDER_MAX_BYTES = 4 * 1024 * 1024;

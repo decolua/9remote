@@ -207,7 +207,9 @@ export function downloadFile({ socket, protocolRef: _protocolRef, filePath, onSa
  * Stream a media file for progressive playback via MediaSource Extensions.
  * Frames arrive ordered (file DC is ordered, reliable) but may land before the
  * caller's SourceBuffer is open — caller must queue onChunk until ready.
- * @param {object} ctx - { socket, filePath, onMeta({mime,size}), onChunk(Uint8Array), onDone(), onError(err) }
+ * Images: the agent streams a server-scaled JPEG and the ack carries its dims
+ * (width/height + originalWidth/originalHeight/scaled) alongside mime/size.
+ * @param {object} ctx - { socket, filePath, onMeta(meta), onChunk(Uint8Array), onDone(), onError(err) }
  * @returns {Function} cancel()
  */
 export function streamMedia({ socket, filePath, onMeta, onChunk, onDone, onError }) {
@@ -255,7 +257,15 @@ export function streamMedia({ socket, filePath, onMeta, onChunk, onDone, onError
   emitAck(socket, "streamMedia:start", { filePath }).then((res) => {
     if (!res.success) { cleanup(); onError?.(new Error(res.error)); return; }
     streamId = res.streamId;
-    onMeta?.({ mime: res.mime, size: res.size });
+    onMeta?.({
+      mime: res.mime,
+      size: res.size,
+      width: res.width,
+      height: res.height,
+      scaled: res.scaled,
+      originalWidth: res.originalWidth,
+      originalHeight: res.originalHeight
+    });
     drain();
   }).catch((e) => { cleanup(); onError?.(e); });
 

@@ -96,6 +96,11 @@ export function hasExt(filePath, exts) {
   return exts.some((e) => lower.endsWith(e));
 }
 export const isImageFile = (p) => hasExt(p, IMAGE_EXTENSIONS);
+// Static raster formats the stream path re-encodes server-side (client decodes a
+// bounded bitmap instead of a full-res one that can OOM-kill mobile WebKit).
+// Animated/vector/ico formats stream raw — small, or lossy to convert.
+export const STREAM_SCALE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".avif"];
+export const isStreamScalableImage = (p) => hasExt(p, STREAM_SCALE_EXTENSIONS);
 export const isVideoFile = (p) => hasExt(p, VIDEO_EXTENSIONS);
 export const isAudioFile = (p) => hasExt(p, AUDIO_EXTENSIONS);
 export const isPdfFile = (p) => hasExt(p, PDF_EXTENSIONS);
