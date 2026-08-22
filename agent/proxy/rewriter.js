@@ -11,9 +11,11 @@ const URL_ATTRS = [
 ];
 
 /**
- * Rewrite URL to proxy path
+ * Rewrite URL to proxy path.
+ * Takes the session id, not the port: the id is what addresses this site from
+ * outside, and a port in the path would be guessable by anyone with the URL.
  */
-export function rewriteUrl(url, targetPort) {
+export function rewriteUrl(url, sessionId, targetPort) {
   if (!url || SKIP_PREFIXES.some(p => url.startsWith(p))) {
     return url;
   }
@@ -23,11 +25,11 @@ export function rewriteUrl(url, targetPort) {
   }
   
   if (url.startsWith(`http://localhost:${targetPort}`)) {
-    return url.replace(`http://localhost:${targetPort}`, `/proxy/${targetPort}`);
+    return url.replace(`http://localhost:${targetPort}`, `/proxy/${sessionId}`);
   }
   
   if (url.startsWith("/") && !url.startsWith("//")) {
-    return `/proxy/${targetPort}${url}`;
+    return `/proxy/${sessionId}${url}`;
   }
   
   return url;
@@ -36,8 +38,8 @@ export function rewriteUrl(url, targetPort) {
 /**
  * Rewrite all links in HTML content
  */
-export function rewriteHtmlLinks(html, targetPort) {
-  const proxyBase = `/proxy/${targetPort}`;
+export function rewriteHtmlLinks(html, sessionId, targetPort) {
+  const proxyBase = `/proxy/${sessionId}`;
   
   // Rewrite standard URL attributes
   const attrPattern = new RegExp(
@@ -49,12 +51,12 @@ export function rewriteHtmlLinks(html, targetPort) {
     if (attr.toLowerCase() === "srcset") {
       const rewritten = url.split(",").map(part => {
         const [srcUrl, ...rest] = part.trim().split(/\s+/);
-        const newUrl = rewriteUrl(srcUrl, targetPort);
+        const newUrl = rewriteUrl(srcUrl, sessionId, targetPort);
         return rest.length ? `${newUrl} ${rest.join(" ")}` : newUrl;
       }).join(", ");
       return `${attr}=${quote}${rewritten}${quote}`;
     }
-    return `${attr}=${quote}${rewriteUrl(url, targetPort)}${quote}`;
+    return `${attr}=${quote}${rewriteUrl(url, sessionId, targetPort)}${quote}`;
   });
   
   // Rewrite inline style url()

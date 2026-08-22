@@ -10,6 +10,7 @@ import { useI18n } from "@/shared/i18n";
 import { getCustomPorts, saveCustomPorts, getSiteLabels, saveSiteLabels } from "@/features/terminal/lib/sitesStorage";
 
 const SOCKET_SITES_TIMEOUT_MS = 8000;
+const PROXY_START_TIMEOUT_MS = 5000;
 
 // Returns null when the socket path is unavailable so the caller can fall back to the tunnel.
 function fetchSitesOverSocket(socketRef) {
@@ -41,11 +42,22 @@ function resolveProxyBase(tunnelUrl, localIp) {
 }
 
 // Toggles a proxy session on the agent. Socket first so it works without a live tunnel.
+// Starting returns the session id that addresses the site — the URL is no longer
+// derivable from the port, which is what stopped it being guessable.
 async function setProxySession(action, { socketRef, base, apiKey, port }) {
   const socket = socketRef?.current;
   if (socket?.connected) {
-    socket.emit(action === "start" ? "startProxySession" : "endProxySession", port);
-    return true;
+    if (action !== "start") {
+      socket.emit("endProxySession", port);
+      return true;
+    }
+    return await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), PROXY_START_TIMEOUT_MS);
+      socket.emit("startProxySession", port, (reply) => {
+        clearTimeout(timer);
+        resolve(reply?.sessionId || false);
+      });
+    });
   }
   if (!base) return false;
   const response = await fetch(`${base}/api/proxy/${action}`, {
@@ -53,7 +65,10 @@ async function setProxySession(action, { socketRef, base, apiKey, port }) {
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({ port })
   }).catch(() => null);
-  return !!response?.ok;
+  if (!response?.ok) return false;
+  if (action !== "start") return true;
+  const data = await response.json().catch(() => null);
+  return data?.sessionId || false;
 }
 
 export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
@@ -154,7 +169,6 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
       alert(t("sites.startProxyFailed", { name: site.name }));
       return;
     }
-    const proxyUrl = `${base}/proxy/${port}/`;
     
     // If window already open, focus it
     if (openedWindows[port] && !openedWindows[port].closed) {
@@ -174,8 +188,8 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
     setOpenedWindows(prev => ({ ...prev, [port]: windowRef }));
 
     // Start proxy session
-    const started = await setProxySession("start", { socketRef, base, apiKey, port }).catch(() => false);
-    if (!started) {
+    const sessionId = await setProxySession("start", { socketRef, base, apiKey, port }).catch(() => false);
+    if (!sessionId) {
       console.error("[SitesList] Failed to start proxy session for port", port);
       alert(t("sites.startProxyFailed", { name: site.name }));
       windowRef.close();
@@ -187,7 +201,7 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
       return;
     }
 
-    windowRef.location.href = proxyUrl;
+    windowRef.location.href = `${base}/proxy/${sessionId}/`;
     onSelectSite?.(site);
 
     // Start polling to check if window is closed

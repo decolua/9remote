@@ -30,8 +30,8 @@ export function setupPushHandlers(socket, io) {
   // Proxy sessions over the socket bus — the tunnel URL may be stale/absent on RTC or LAN
   socket.on("startProxySession", (port, callback) => {
     if (!port) return;
-    startProxySession(port);
-    if (typeof callback === "function") callback({ ok: true });
+    const sessionId = startProxySession(port);
+    if (typeof callback === "function") callback(sessionId ? { ok: true, sessionId } : { error: "bad-port" });
   });
 
   socket.on("endProxySession", (port, callback) => {

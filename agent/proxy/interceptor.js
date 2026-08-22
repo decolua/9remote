@@ -2,7 +2,7 @@
  * Service Worker registration script
  */
 
-export function getInterceptorScript(targetPort) {
+export function getInterceptorScript(sessionId, targetPort) {
   return `
 <script data-proxy-injected="true">
 (function() {
@@ -10,7 +10,7 @@ export function getInterceptorScript(targetPort) {
   window.__proxyInterceptorLoaded = true;
   
   var targetPort = ${targetPort};
-  var proxyBase = '/proxy/' + targetPort;
+  var proxyBase = '/proxy/' + ${JSON.stringify(sessionId)};
   
   console.log('[9Remote Proxy] Registering Service Worker for port:', targetPort);
   

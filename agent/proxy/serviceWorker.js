@@ -3,8 +3,8 @@
  * SW intercepts all fetch requests and rewrites URLs to include proxy prefix
  */
 
-export function getServiceWorkerScript(targetPort) {
-  const proxyBase = `/proxy/${targetPort}`;
+export function getServiceWorkerScript(sessionId, targetPort) {
+  const proxyBase = `/proxy/${sessionId}`;
   
   return `
 // Service Worker for 9Remote Proxy - Port ${targetPort}
@@ -67,8 +67,8 @@ self.addEventListener('fetch', (event) => {
 /**
  * Script to register the Service Worker - injected into HTML
  */
-export function getSwRegistrationScript(targetPort) {
-  const proxyBase = `/proxy/${targetPort}`;
+export function getSwRegistrationScript(sessionId, targetPort) {
+  const proxyBase = `/proxy/${sessionId}`;
   
   return `
 <script data-proxy-injected="true">

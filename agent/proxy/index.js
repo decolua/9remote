@@ -4,23 +4,61 @@
 
 import { createGunzip, createInflate, createBrotliDecompress } from "zlib";
 import httpProxy from "http-proxy";
+import { randomUUID } from "crypto";
 import { rewriteUrl, rewriteHtmlLinks } from "./rewriter.js";
-import { getInterceptorScript } from "./interceptor.js";
 import { getServiceWorkerScript, getSwRegistrationScript } from "./serviceWorker.js";
 
-// Active proxy sessions - ports currently being viewed
-const activeProxyPorts = new Set();
+// Active proxy sessions — ports currently being viewed, addressed by an
+// unguessable id rather than by the port itself.
+//
+// /proxy/* is public, so it answers anyone who reaches the tunnel hostname.
+// Keying the URL on the port meant the address was 3000 or 5173 or 8080 — the
+// session was the only secret and it wasn't one. The id in the path is the
+// secret now, the same shape previewServer.js has always used.
+const sessionsById = new Map();  // id → port (number)
+const idsByPort = new Map();     // port (number) → id
 
+function normalizePort(port) {
+  const n = Number(port);
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : null;
+}
+
+/** @returns {string|null} the session id to put in the URL, null for a bad port */
 export function startProxySession(port) {
-  activeProxyPorts.add(String(port));
+  const n = normalizePort(port);
+  if (n === null) return null;
+  // Reopening a window calls start again; a second id would strand the first.
+  const existing = idsByPort.get(n);
+  if (existing) return existing;
+  const id = randomUUID();
+  sessionsById.set(id, n);
+  idsByPort.set(n, id);
+  return id;
 }
 
 export function endProxySession(port) {
-  activeProxyPorts.delete(String(port));
+  const n = normalizePort(port);
+  if (n === null) return;
+  const id = idsByPort.get(n);
+  if (id) sessionsById.delete(id);
+  idsByPort.delete(n);
 }
 
+/** @returns {number|null} the port this id was minted for */
+export function resolveProxySession(id) {
+  return typeof id === "string" && id ? (sessionsById.get(id) ?? null) : null;
+}
+
+/** Port-keyed check for the bus handler, which arrives over an authed socket. */
 export function isProxySessionActive(port) {
-  return activeProxyPorts.has(String(port));
+  const n = normalizePort(port);
+  return n !== null && idsByPort.has(n);
+}
+
+/** The id for a port, so the caller can build the URL. */
+export function proxySessionId(port) {
+  const n = normalizePort(port);
+  return n === null ? null : (idsByPort.get(n) ?? null);
 }
 
 // ─── Site requests over the transport bus (RTC data channel / WS) ────────────
@@ -148,6 +186,7 @@ export function createProxyServer() {''
   
   proxy.on("proxyRes", (proxyRes, req, res) => {
     const targetPort = req._proxyTargetPort;
+    const sessionId = req._proxySessionId;
     const contentType = proxyRes.headers["content-type"] || "";
     const contentEncoding = proxyRes.headers["content-encoding"] || "";
     const isHtml = contentType.includes("text/html");
@@ -155,7 +194,7 @@ export function createProxyServer() {''
     
     // Rewrite redirect location
     if (headers.location) {
-      headers.location = rewriteUrl(headers.location, targetPort);
+      headers.location = rewriteUrl(headers.location, sessionId, targetPort);
     }
     
     // JSON/RSC responses: remove complex rewriting, SW will handle it
@@ -197,8 +236,8 @@ export function createProxyServer() {''
     });
     sourceStream.on("end", () => {
       let html = Buffer.concat(chunks).toString("utf8");
-      html = rewriteHtmlLinks(html, targetPort);
-      const script = getSwRegistrationScript(targetPort);
+      html = rewriteHtmlLinks(html, sessionId, targetPort);
+      const script = getSwRegistrationScript(sessionId, targetPort);
       html = injectScript(html, script);
       res.writeHead(proxyRes.statusCode, headers);
       res.end(html);
@@ -211,10 +250,14 @@ export function createProxyServer() {''
 /**
  * Handle proxy request
  */
-export function handleProxyRequest(proxy, req, res, targetPort, targetPath, search) {
+export function handleProxyRequest(proxy, req, res, sessionId, targetPath, search) {
+  // The id in the path IS the credential here — this route is public, so an
+  // unresolvable id is the same answer as no session at all.
+  const targetPort = resolveProxySession(sessionId);
+
   // Serve Service Worker script
-  if (targetPath === "/sw.js") {
-    const swScript = getServiceWorkerScript(targetPort);
+  if (targetPort && targetPath === "/sw.js") {
+    const swScript = getServiceWorkerScript(sessionId, targetPort);
     res.writeHead(200, {
       "Content-Type": "application/javascript; charset=utf-8",
       "Service-Worker-Allowed": "/",
@@ -224,8 +267,7 @@ export function handleProxyRequest(proxy, req, res, targetPort, targetPath, sear
     return;
   }
   
-  // Check if proxy session is active for this port
-  if (!isProxySessionActive(targetPort)) {
+  if (!targetPort) {
     res.writeHead(401, { "Content-Type": "text/html" });
     res.end(`
       <!DOCTYPE html>
@@ -243,6 +285,7 @@ export function handleProxyRequest(proxy, req, res, targetPort, targetPath, sear
   }
 
   req._proxyTargetPort = targetPort;
+  req._proxySessionId = sessionId;
   req.url = targetPath + (search || "");
   
   proxy.web(req, res, {

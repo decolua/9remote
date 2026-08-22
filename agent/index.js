@@ -131,12 +131,21 @@ async function handleProxyStartEnd(req, res, { pathname }) {
   const data = await parseJsonBody(req, res);
   if (!data) return;
   if (!data.port) { jsonErr(res, 400, "Port required"); return; }
-  pathname.endsWith("start") ? startProxySession(data.port) : endProxySession(data.port);
-  jsonOk(res, { success: true });
+  if (!pathname.endsWith("start")) {
+    endProxySession(data.port);
+    jsonOk(res, { success: true });
+    return;
+  }
+  // The caller cannot derive the URL any more — hand back the id it needs.
+  const sessionId = startProxySession(data.port);
+  if (!sessionId) { jsonErr(res, 400, "Invalid port"); return; }
+  jsonOk(res, { success: true, sessionId });
 }
 
 function handleProxy(req, res, { pathname, search }) {
-  const match = pathname.match(/^\/proxy\/(\d+)(\/.*)?$/);
+  // A session id, not a port — see proxy/index.js. Ports were guessable and
+  // this route is public.
+  const match = pathname.match(/^\/proxy\/([0-9a-f-]{36})(\/.*)?$/);
   if (match) {
     handleProxyRequest(proxyServer, req, res, match[1], match[2] || "/", search);
   } else {
