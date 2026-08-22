@@ -13,6 +13,16 @@ const BRIDGE_DISCOVER_MS = 3000;
 const MAX_REQUEST_BODY_BYTES = 512 * 1024;
 const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
 
+// 'self' is this origin, which the worker serves entirely from the agent — so a
+// site keeps working while losing the ability to post what it finds elsewhere.
+// frame-ancestors names the shell, the only page meant to hold these documents.
+const SITE_CSP = [
+  "connect-src 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+  "base-uri 'self'"
+].join("; ");
+
 let bridgeClient = null;
 let bridgeDiscover = null; // in-flight discovery promise
 let bridgeResolve = null;  // its resolver — hello handler fires it
@@ -240,6 +250,12 @@ async function handle(request, url, inScope) {
   if (msg.status === 204 || msg.status === 304) {
     return new Response(null, { status: msg.status, headers: resHeaders });
   }
+
+  // The site's own framing headers were stripped upstream so it can render
+  // here at all; put a policy of our own back in their place. The origin is
+  // already separate from the app's, so this is the second line, not the first:
+  // it keeps a page from carrying anything it reads out to a server of its own.
+  resHeaders.set("Content-Security-Policy", SITE_CSP);
 
   const bytes = base64ToBytes(msg.bodyB64);
   if ((resHeaders.get("content-type") || "").includes("text/html")) {

@@ -1,0 +1,162 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>9Remote site proxy</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1220; }
+  iframe { width: 100%; height: 100%; border: 0; display: block; }
+  p { font: 14px system-ui; color: #94a3b8; text-align: center; padding-top: 3rem; margin: 0; }
+</style>
+<p id="status">Connecting to local site…</p>
+<script>
+// Proxy shell for the sites origin.
+//
+// This page is ours, the site inside it is not. It lives here so the browsed
+// server gets an origin with nothing worth stealing: the app's storage — the
+// device-trust tail, the saved keys — belongs to the app's own origin and is
+// unreachable from this one.
+//
+// It sits between two parties that cannot address each other. The service
+// worker can only postMessage its own clients, and the transport socket lives
+// in the app on the other origin, so this page carries each request across:
+//   SW --(MessageChannel port)--> proxy --(postMessage)--> app --> agent
+// and the reply back along the same path.
+(function () {
+  "use strict";
+
+  // Only the app may drive this page, and only this page's opener is told
+  // anything. An opaque origin sends the literal "null" — never a match.
+  var APP_ORIGIN = (function () {
+    var h = location.hostname;
+    if (h === "sites.9remote.cc") return "https://9remote.cc";
+    if (h === "sites-dev.9remote.cc") return "https://dev.9remote.cc";
+    if (h === "sites.localhost") return location.protocol + "//localhost" + (location.port ? ":" + location.port : "");
+    return null;
+  })();
+
+  var status = document.getElementById("status");
+  var frame = null;
+  var pending = new Map(); // reqId -> MessagePort back to the SW
+  var reqSeq = 0;
+
+  function fail(text) {
+    if (status) status.textContent = text;
+  }
+
+  function parseHash() {
+    var h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+    var port = Number(h.get("port"));
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+    return { port: port, path: h.get("path") || "/" };
+  }
+
+  // ── SW side ───────────────────────────────────────────────────────────────
+
+  navigator.serviceWorker.addEventListener("message", function (event) {
+    var msg = event.data;
+    if (!msg || typeof msg !== "object") return;
+
+    if (msg.type === "http-request") {
+      // The SW handed us a port for this one request; remember it, ask the app,
+      // and answer on that port when the app replies.
+      var id = "px-" + (++reqSeq);
+      var replyPort = event.ports && event.ports[0];
+      if (!replyPort) return;
+      pending.set(id, replyPort);
+      post({ type: "site:request", id: id, payload: msg });
+      return;
+    }
+
+    if (msg.type === "site-nav") {
+      post({ type: "site:nav", port: msg.port, path: msg.path });
+      return;
+    }
+
+    // The worker restarted and lost its bridge pointer — re-announce.
+    if (msg.type === "sw-hello") {
+      helloTo(event.source);
+    }
+  });
+
+  function helloTo(worker) {
+    try { worker && worker.postMessage({ type: "bridge-hello" }); } catch (e) { /* gone */ }
+  }
+
+  // ── App side ──────────────────────────────────────────────────────────────
+
+  function post(message) {
+    if (!APP_ORIGIN) return;
+    parent.postMessage(message, APP_ORIGIN);
+  }
+
+  window.addEventListener("message", function (event) {
+    // Everything below acts on the app's word; an unchecked origin here would
+    // let any page that frames us speak for it.
+    if (!APP_ORIGIN || event.origin !== APP_ORIGIN || event.source !== parent) return;
+    var msg = event.data;
+    if (!msg || typeof msg !== "object") return;
+
+    if (msg.type === "site:reply") {
+      var port = pending.get(msg.id);
+      if (!port) return;
+      pending.delete(msg.id);
+      try { port.postMessage(msg.payload); } catch (e) { /* SW gone */ }
+      return;
+    }
+
+    // The app asks for a different address in the same shell — cheaper than
+    // tearing the iframe (and its worker registration) down and back up.
+    if (msg.type === "site:navigate") {
+      show(msg.port, msg.path);
+    }
+  });
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+
+  function show(port, path) {
+    var src = "/browse/" + Number(port) + (path || "/");
+    if (!frame) {
+      frame = document.createElement("iframe");
+      frame.title = "local site";
+      document.body.appendChild(frame);
+      if (status) status.remove();
+    }
+    frame.src = src;
+  }
+
+  if (!APP_ORIGIN) {
+    fail("9Remote: unknown host");
+    return;
+  }
+  if (!("serviceWorker" in navigator)) {
+    fail("Cannot connect: service worker unavailable");
+    return;
+  }
+
+  navigator.serviceWorker.register("/sw-site.js", { scope: "/" }).then(function (reg) {
+    var sayHello = function () { helloTo(reg.active || reg.waiting || reg.installing); };
+    sayHello();
+    reg.addEventListener("updatefound", function () {
+      var installing = reg.installing;
+      installing && installing.addEventListener("statechange", function () {
+        if (installing.state === "activated") sayHello();
+      });
+    });
+
+    // The frame must not load before the worker controls this origin, or the
+    // request goes to the edge and comes back as this same page.
+    var start = function () {
+      var target = parseHash();
+      if (!target) return fail("9Remote: no site address");
+      show(target.port, target.path);
+      post({ type: "site:ready" });
+    };
+    if (navigator.serviceWorker.controller) return start();
+    navigator.serviceWorker.addEventListener("controllerchange", start, { once: true });
+    // Activation without a controllerchange happens; don't hang forever on it.
+    setTimeout(function () { if (!frame) start(); }, 4000);
+  }).catch(function () {
+    fail("Cannot connect: service worker blocked");
+    post({ type: "site:swBlocked" });
+  });
+})();
+</script>

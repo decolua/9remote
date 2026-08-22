@@ -7,6 +7,13 @@ compatibility_flags = ["nodejs_compat"]
 pattern = "9remote.cc/*"
 zone_name = "9remote.cc"
 
+# Browsed local sites render here, never on the app origin (see shared/utils/sitesHost.js).
+# custom_domain so `deploy` creates the DNS record and cert itself — a plain
+# route would need the hostname to already resolve.
+[[routes]]
+pattern = "sites.9remote.cc"
+custom_domain = true
+
 [vars]
 CLOUDFLARE_ACCOUNT_ID = "4499702710a2818880232d356243a422"
 TURN_KEY_ID = "7e896708cbd77c30e5d1211f48ea859f"
@@ -63,6 +70,7 @@ enabled = true
 
 [assets]
 directory = ".open-next/assets"
+binding = "ASSETS"
 
 [env.dev]
 name = "9remote-worker-dev"
@@ -72,6 +80,10 @@ compatibility_flags = ["nodejs_compat"]
 [[env.dev.routes]]
 pattern = "dev.9remote.cc/*"
 zone_name = "9remote.cc"
+
+[[env.dev.routes]]
+pattern = "sites-dev.9remote.cc"
+custom_domain = true
 
 [env.dev.vars]
 CLOUDFLARE_ACCOUNT_ID = "4499702710a2818880232d356243a422"
@@ -105,3 +117,4 @@ crons = ["0 * * * *"]
 
 [env.dev.assets]
 directory = ".open-next/assets"
+binding = "ASSETS"

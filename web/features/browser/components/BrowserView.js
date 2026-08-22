@@ -5,15 +5,17 @@ import { ChevronLeft, Globe, Loader2, Plus, RotateCw, X } from "@/shared/compone
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { initSiteBridge, fetchLocalSites, parseSiteAddress } from "../lib/siteBridge";
-import { SITE_NAV_EVENT } from "../constants/browserConfig";
+import { SITE_NAV_EVENT, siteProxySrc } from "../constants/browserConfig";
 
 let tabKeySeq = 0;
 const newTab = (port, path) => ({ key: `site-${++tabKeySeq}`, port, path: path || "/", srcTick: 0 });
 const tabAddress = (tab) => (tab ? `localhost:${tab.port}${tab.path || "/"}` : "");
+// Points at the shell on the sites origin, not at a path here: the browsed page
+// must not share an origin with the app's stored credentials.
 const srcOf = (tab) => {
-  const base = `/browse/${tab.port}${tab.path || "/"}`;
-  if (!tab.srcTick) return base;
-  return `${base}${base.includes("?") ? "&" : "?"}r=${tab.srcTick}`;
+  const base = siteProxySrc(tab.port, tab.path);
+  if (!base || !tab.srcTick) return base;
+  return `${base}&r=${tab.srcTick}`;
 };
 
 export default function BrowserView({ socketRef, connected = false, initialPort, initialPath, onBack }) {

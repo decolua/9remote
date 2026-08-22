@@ -4,10 +4,14 @@
 // socket (proxySocket facade: emit routes RTC-first, on/off survive reconnects).
 // One instance per page; initSiteBridge is idempotent.
 
-import { SITE_SW_URL, SITE_SW_SCOPE, SITE_NAV_EVENT, SITE_REPLY_TIMEOUT_MS, SITES_FETCH_TIMEOUT_MS } from "../constants/browserConfig";
+import { SITE_NAV_EVENT, SITE_REPLY_TIMEOUT_MS, SITES_FETCH_TIMEOUT_MS, isSitesOrigin, SITES_ORIGIN } from "../constants/browserConfig";
 
 let socket = null;
 let initiated = false;
+// The proxy shell on the sites origin. It owns the service worker now — this
+// page cannot reach that worker directly, which is the point: the worker serves
+// the browsed site, and the site must not land on the origin holding the keys.
+let proxyWindow = null;
 
 // reqId → {slots: [], total, status, headers, resolve, timer}
 const pendingChunks = new Map();
@@ -63,25 +67,35 @@ function runAgentRequest(msg) {
   });
 }
 
-function onSwMessage(event) {
+function onProxyMessage(event) {
+  // The proxy shell asks this page to reach the agent, so anything arriving
+  // here speaks with the socket's authority. Only the shell's own origin may.
+  if (!isSitesOrigin(event.origin)) return;
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
-  if (msg.type === "http-request") {
-    runAgentRequest(msg).then((reply) => event.ports?.[0]?.postMessage(reply));
+
+  if (msg.type === "site:request") {
+    runAgentRequest(msg.payload).then((reply) => {
+      try {
+        event.source?.postMessage({ type: "site:reply", id: msg.id, payload: reply }, SITES_ORIGIN);
+      } catch { /* shell gone */ }
+    });
     return;
   }
-  if (msg.type === "site-nav") {
+  if (msg.type === "site:nav") {
     window.dispatchEvent(new CustomEvent(SITE_NAV_EVENT, { detail: { port: msg.port, path: msg.path } }));
     return;
   }
-  // SW woke up (browser killed it idle) and lost its bridge pointer — re-hello
-  if (msg.type === "sw-hello") {
-    try { event.source?.postMessage?.({ type: "bridge-hello" }); } catch { /* worker gone */ }
+  if (msg.type === "site:ready") {
+    proxyWindow = event.source;
   }
 }
 
-async function helloToWorker(worker) {
-  try { worker?.postMessage?.({ type: "bridge-hello" }); } catch { /* not ready */ }
+/** Point the open shell at another address without reloading it. */
+export function navigateSite(port, path) {
+  try {
+    proxyWindow?.postMessage({ type: "site:navigate", port, path }, SITES_ORIGIN);
+  } catch { /* shell gone */ }
 }
 
 export async function initSiteBridge(sock) {
@@ -90,22 +104,9 @@ export async function initSiteBridge(sock) {
     socket = sock;
     socket.on?.("site:httpChunk", onChunk);
   }
-  if (!initiated && typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+  if (!initiated && typeof window !== "undefined") {
     initiated = true;
-    navigator.serviceWorker.addEventListener("message", onSwMessage);
-    try {
-      const reg = await navigator.serviceWorker.register(SITE_SW_URL, { scope: SITE_SW_SCOPE });
-      const sayHello = () => helloToWorker(reg.active || reg.waiting || reg.installing);
-      sayHello();
-      // An installing worker becomes active later — re-hello so it knows this page
-      reg.addEventListener("updatefound", () => {
-        reg.installing?.addEventListener("statechange", () => {
-          if (reg.installing?.state === "activated" || reg.waiting?.state === "activated") sayHello();
-        });
-      });
-    } catch (err) {
-      console.error("[siteBridge] SW registration failed:", err);
-    }
+    window.addEventListener("message", onProxyMessage);
   }
 }
 
