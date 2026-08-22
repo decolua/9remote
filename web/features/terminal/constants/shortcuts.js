@@ -5,8 +5,8 @@
 
 // `code` matches the physical key (layout-independent); `key` is for named keys.
 export const SHORTCUTS = [
-  { id: "sessionPrev", key: "ArrowLeft", label: "Previous terminal", mac: "⌘⇧←", pc: "Ctrl+Shift+←", skipInInput: true },
-  { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "⌘⇧→", pc: "Ctrl+Shift+→", skipInInput: true },
+  { id: "sessionPrev", key: "ArrowLeft", label: "Previous terminal", mac: "⌘⇧←", pc: "Ctrl+Shift+←" },
+  { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "⌘⇧→", pc: "Ctrl+Shift+→" },
   { id: "palette", code: "KeyP", label: "Search files", mac: "⌘⇧P", pc: "Ctrl+Shift+P" },
   { id: "newTerminal", key: "Enter", label: "New terminal", mac: "⌘⇧↵", pc: "Ctrl+Shift+Enter" },
   { id: "toggleSidebar", code: "KeyB", label: "Toggle sidebar", mac: "⌘⇧B", pc: "Ctrl+Shift+B" },
