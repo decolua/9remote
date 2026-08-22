@@ -6,12 +6,11 @@
 
 import { SITE_NAV_EVENT, SITE_REPLY_TIMEOUT_MS, SITES_FETCH_TIMEOUT_MS, isSitesOrigin, SITES_ORIGIN } from "../constants/browserConfig";
 
+// The proxy shell on the sites origin owns the service worker now — this page
+// cannot reach that worker directly, which is the point: the worker serves the
+// browsed site, and the site must not land on the origin holding the keys.
 let socket = null;
 let initiated = false;
-// The proxy shell on the sites origin. It owns the service worker now — this
-// page cannot reach that worker directly, which is the point: the worker serves
-// the browsed site, and the site must not land on the origin holding the keys.
-let proxyWindow = null;
 
 // reqId → {slots: [], total, status, headers, resolve, timer}
 const pendingChunks = new Map();
@@ -86,16 +85,8 @@ function onProxyMessage(event) {
     window.dispatchEvent(new CustomEvent(SITE_NAV_EVENT, { detail: { port: msg.port, path: msg.path } }));
     return;
   }
-  if (msg.type === "site:ready") {
-    proxyWindow = event.source;
-  }
-}
-
-/** Point the open shell at another address without reloading it. */
-export function navigateSite(port, path) {
-  try {
-    proxyWindow?.postMessage({ type: "site:navigate", port, path }, SITES_ORIGIN);
-  } catch { /* shell gone */ }
+  // Noted but unused: the shell is addressed by its src, not by messages.
+  if (msg.type === "site:ready") return;
 }
 
 export async function initSiteBridge(sock) {

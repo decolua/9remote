@@ -103,11 +103,6 @@
       return;
     }
 
-    // The app asks for a different address in the same shell — cheaper than
-    // tearing the iframe (and its worker registration) down and back up.
-    if (msg.type === "site:navigate") {
-      show(msg.port, msg.path);
-    }
   });
 
   // ── Boot ──────────────────────────────────────────────────────────────────

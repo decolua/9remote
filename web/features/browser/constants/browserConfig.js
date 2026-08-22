@@ -31,10 +31,15 @@ export function isSitesOrigin(origin) {
  * reaches the server, so the address being browsed stays out of edge logs.
  * Returns null for a port that is not a real one rather than interpolating it.
  */
-export function siteProxySrc(port, path) {
+export function siteProxySrc(port, path, tick = 0) {
   const n = Number(port);
   if (!Number.isInteger(n) || n < 1 || n > 65535) return null;
-  return `${SITES_ORIGIN}/proxy.html#port=${n}&path=${encodeURIComponent(path || "/")}`;
+  // The tick goes in the QUERY, not the fragment: changing only a fragment is a
+  // same-document navigation, so the iframe would keep showing the old site
+  // instead of reloading. The address itself stays in the fragment, which never
+  // reaches the server.
+  const q = tick ? `?r=${tick}` : "";
+  return `${SITES_ORIGIN}/proxy.html${q}#port=${n}&path=${encodeURIComponent(path || "/")}`;
 }
 
 export const SITE_NAV_EVENT = "site-nav";

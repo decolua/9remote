@@ -47,7 +47,11 @@ const routeCheck = `
 src = src.replace(/(const url = new URL\(request\.url\);)/, "$1" + routeCheck);
 
 // 3. Inline DO class + handler before `export default`.
-src = src.replace(/(export default)/, `\n// injectSignalingDO — class + handler\n${doSrc}\n\n$1`);
+// A replacer FUNCTION, not a template. doSrc contains `"$1"` — SignalingDO
+// strips a key's tail with .replace(re, "$1") — and inside a replacement STRING
+// that reads as "the first capture group", so each one would be rewritten to
+// "export default", corrupting the bundle into a syntax error.
+src = src.replace("export default", () => `\n// injectSignalingDO — class + handler\n${doSrc}\n\nexport default`);
 
 writeFileSync(workerPath, src);
 console.log("[injectSignalingDO] worker.js patched (inlined SignalingDO + handleSignaling)");

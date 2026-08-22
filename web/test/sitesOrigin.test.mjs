@@ -197,5 +197,21 @@ test("an unrecognised host may be framed by nobody", () => {
   assert.equal(csp, "frame-ancestors 'none'");
 });
 
+test("a reload changes the part of the URL the browser acts on", () => {
+  // Only the fragment differing is a same-document navigation: the iframe would
+  // fire hashchange and keep showing the old site. The tick has to land in the
+  // query for a reload to be a reload.
+  const first = siteProxySrc(3000, "/");
+  const again = siteProxySrc(3000, "/", 1);
+  assert.notEqual(first.split("#")[0], again.split("#")[0], "reload would not navigate");
+});
+
+test("the address still rides in the fragment", () => {
+  const src = siteProxySrc(3000, "/secret/path", 2);
+  const [beforeHash] = src.split("#");
+  assert.ok(!beforeHash.includes("secret"), "path leaked into the request URL");
+  assert.ok(!beforeHash.includes("3000"), "port leaked into the request URL");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

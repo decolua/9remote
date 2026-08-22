@@ -51,13 +51,17 @@ async function setProxySession(action, { socketRef, base, apiKey, port }) {
       socket.emit("endProxySession", port);
       return true;
     }
-    return await new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(false), PROXY_START_TIMEOUT_MS);
+    const viaSocket = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), PROXY_START_TIMEOUT_MS);
       socket.emit("startProxySession", port, (reply) => {
         clearTimeout(timer);
-        resolve(reply?.sessionId || false);
+        // An agent from before session ids answers {ok:true} with no id. It
+        // still opened the session, and its /proxy/ still keys on the port —
+        // so fall through and let the HTTP call report what that agent does.
+        resolve(reply?.sessionId || null);
       });
     });
+    if (viaSocket) return viaSocket;
   }
   if (!base) return false;
   const response = await fetch(`${base}/api/proxy/${action}`, {
@@ -68,7 +72,9 @@ async function setProxySession(action, { socketRef, base, apiKey, port }) {
   if (!response?.ok) return false;
   if (action !== "start") return true;
   const data = await response.json().catch(() => null);
-  return data?.sessionId || false;
+  // No id means an agent that still routes /proxy/ by port — the session did
+  // open, so hand back the port and let the caller build that URL.
+  return data?.sessionId || String(port);
 }
 
 export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {

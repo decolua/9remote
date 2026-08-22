@@ -91,13 +91,30 @@ const nextConfig = {
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
       { key: "Content-Security-Policy-Report-Only", value: csp }
     ];
+    // The sites shell and its worker, which in production never reach Next at
+    // all (the worker branches on hostname first). In `next dev` there is no
+    // such branch, so without this the app's own headers apply: X-Frame-Options
+    // DENY refuses to be framed, and no Service-Worker-Allowed means the worker
+    // cannot claim scope "/". Both are exactly what the feature needs.
+    const sitesShellHeaders = [
+      { key: "Cache-Control", value: "no-store" },
+      { key: "Origin-Agent-Cluster", value: "?1" },
+      { key: "Service-Worker-Allowed", value: "/" },
+      { key: "Content-Security-Policy", value: "frame-ancestors 'self' http://localhost:3000" }
+    ];
+
     return [
       {
         source: "/_next/static/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }, ...securityHeaders]
       },
+      { source: "/proxy.html", headers: sitesShellHeaders },
+      { source: "/sw-site.js", headers: sitesShellHeaders },
       {
-        source: "/:path*",
+        // Next appends the headers of every rule that matches rather than
+        // letting a later one win, so the catch-all has to exclude the two
+        // paths above or X-Frame-Options would come along regardless.
+        source: "/:path((?!proxy\\.html$|sw-site\\.js$).*)",
         headers: [
           { key: "Cache-Control", value: "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" },
           ...securityHeaders

@@ -25,9 +25,13 @@ export async function POST(request) {
 
   let pairedNow = false;
   if (existing?.hostPublicKey && hostPublicKey && existing.hostPublicKey !== hostPublicKey && tempKey) {
+    // expires_at is epoch milliseconds here, not a datetime string — temp-key
+    // create binds Date.now() + minutes, and verify compares it as a number.
+    // datetime('now') would compare an integer against text, which in SQLite
+    // makes the integer always smaller, so nothing would ever match.
     const paired = await withD1Retry(() => env.DB.prepare(
-      "SELECT 1 AS ok FROM temp_keys WHERE temp_key = ? AND api_key = ? AND expires_at > datetime('now')"
-    ).bind(String(tempKey).toUpperCase(), apiKey).first());
+      "SELECT 1 AS ok FROM temp_keys WHERE temp_key = ? AND api_key = ? AND expires_at > ?"
+    ).bind(String(tempKey).toUpperCase(), apiKey, Date.now()).first());
     pairedNow = !!paired;
   }
 

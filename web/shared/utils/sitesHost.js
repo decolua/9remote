@@ -16,6 +16,8 @@
 const SITES_HOSTS = new Map([
   ["sites.9remote.cc", "https://9remote.cc"],
   ["sites-dev.9remote.cc", "https://dev.9remote.cc"],
+  // `next dev` never reaches this module — it has no hostname branch — so the
+  // dev entry only matters under `wrangler dev`, which serves on 3000 too.
   ["sites.localhost", "http://localhost:3000"]
 ]);
 

@@ -12,11 +12,9 @@ const newTab = (port, path) => ({ key: `site-${++tabKeySeq}`, port, path: path |
 const tabAddress = (tab) => (tab ? `localhost:${tab.port}${tab.path || "/"}` : "");
 // Points at the shell on the sites origin, not at a path here: the browsed page
 // must not share an origin with the app's stored credentials.
-const srcOf = (tab) => {
-  const base = siteProxySrc(tab.port, tab.path);
-  if (!base || !tab.srcTick) return base;
-  return `${base}&r=${tab.srcTick}`;
-};
+// A changed address is a changed document here — the tick forces the iframe to
+// navigate rather than resolve to the same URL it already has.
+const srcOf = (tab) => siteProxySrc(tab.port, tab.path, tab.srcTick);
 
 export default function BrowserView({ socketRef, connected = false, initialPort, initialPath, onBack }) {
   const { t } = useI18n();
@@ -97,11 +95,10 @@ export default function BrowserView({ socketRef, connected = false, initialPort,
     setState((prev) => {
       const existing = prev.tabs.find((tab) => tab.key === prev.activeKey);
       if (existing) {
-        const sameTarget = existing.port === port && existing.path === path;
         return {
           tabs: prev.tabs.map((tab) => (
             tab.key === prev.activeKey
-              ? { ...tab, port, path, srcTick: sameTarget ? tab.srcTick + 1 : tab.srcTick }
+              ? { ...tab, port, path, srcTick: tab.srcTick + 1 }
               : tab
           )),
           activeKey: prev.activeKey,
