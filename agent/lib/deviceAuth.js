@@ -24,49 +24,22 @@ export function isTailProofEnabled() {
   return !!agentTail();
 }
 
-function hmacB64(secret, message) {
-  return crypto.createHmac("sha256", Buffer.from(secret, "utf8"))
-    .update(Buffer.from(message, "utf8"))
-    .digest("base64");
-}
-
-function macMatches(message, mac) {
-  const tail = agentTail();
-  if (!tail || !mac) return false;
-  const a = Buffer.from(mac);
-  const b = Buffer.from(hmacB64(tail, message));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
-// Replay guard for handshake proofs. The client picks the nonce, so a captured
-// proof must not be reusable: it expires with the timestamp window, and each
-// nonce is accepted exactly once inside that window.
-const PROOF_WINDOW_MS = 2 * 60 * 1000;
-const seenNonces = new Map(); // nonce -> expiry
-
-function nonceUsed(nonce) {
-  const now = Date.now();
-  if (seenNonces.size > 4096) {
-    for (const [n, exp] of seenNonces) if (exp <= now) seenNonces.delete(n);
-  }
-  const exp = seenNonces.get(nonce);
-  if (exp && exp > now) return true;
-  seenNonces.set(nonce, now + PROOF_WINDOW_MS);
-  return false;
-}
-
 /**
- * Verify the proof carried in the socket.io handshake — no round-trip, so
- * admission is decided the moment a socket connects.
- * @param {{ts:number, nonce:string, mac:string}} proof
+ * Does this connection carry the key TAIL?
+ *
+ * The client sends it verbatim in the handshake. That is safe here and only
+ * here: the carriers are a Cloudflare Tunnel to the user's own machine and the
+ * RTC data channel — neither is this project's server. The TAIL never goes to
+ * the Worker (which stores only the HEAD) nor over the DO signaling relay.
+ *
+ * Compared in constant time so a wrong value leaks nothing through timing.
  */
-export function verifyHandshakeProof(proof, deviceId) {
-  if (!proof?.mac || !proof?.nonce || !Number.isFinite(proof.ts) || !deviceId) return false;
-  if (Math.abs(Date.now() - proof.ts) > PROOF_WINDOW_MS) return false;
-  if (!macMatches(`${proof.ts}.${proof.nonce}.${deviceId}`, proof.mac)) return false;
-  // Signature is valid — only now spend a nonce slot (an invalid proof must not
-  // let an attacker burn nonces a legitimate client might pick).
-  return !nonceUsed(proof.nonce);
+export function verifyKeyTail(presentedTail) {
+  const tail = agentTail();
+  if (!tail || !presentedTail) return false;
+  const a = Buffer.from(String(presentedTail), "utf8");
+  const b = Buffer.from(tail, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 /**
@@ -105,36 +78,35 @@ export function decideAdmission(socket, deviceId) {
   if (!isTailProofEnabled()) return "admit";
 
   // An RTC-only session (VirtualSocket, offer arrived before the tunnel) has no
-  // socket.io handshake, so it carries no proof — the client sends it with the
-  // WS connect that follows. Demanding proof here would drop a session the gate
+  // socket.io handshake, so it carries no TAIL — the client sends it with the
+  // WS connect that follows. Demanding it here would drop a session the gate
   // already admitted and bounce the device back into the approval modal, even
-  // with auto-approve on. The WS carrier still proves when it attaches.
-  if (socket.isVirtual && !socket.handshake?.auth?.proof) {
+  // with auto-approve on. The WS carrier still presents it when it attaches.
+  if (socket.isVirtual && !socket.handshake?.auth?.keyTail) {
     if (gate === "auto") approveDevice(deviceId);
     return "admit";
   }
 
-  // The proof rides the handshake, so this needs no round-trip. An enrollment
-  // that already ran on this socket counts too (the TAIL only ever reached the
-  // device through the fp2-checked RTC channel).
   const keyHead = headOf(loadKey()?.key || "");
-  const presented = socket.handshake?.auth?.proof;
+  const presented = socket.handshake?.auth?.keyTail;
 
-  if (socket.data?.provenDevice === true || verifyHandshakeProof(presented, deviceId)) {
+  // An enrollment that already ran on this socket counts too — the TAIL reached
+  // that device through the fp2-checked RTC channel.
+  if (socket.data?.provenDevice === true || verifyKeyTail(presented)) {
     socket.data.provenDevice = true;
     if (gate === "auto") approveDevice(deviceId); // create the entry first
     markTailProven(deviceId, keyHead);
     return "admit";
   }
 
-  // A proof was presented and it did NOT verify: this is an impostor (or a
-  // client holding a retired TAIL). Never admit — no grandfathering here.
+  // A TAIL was presented and it does NOT match: an impostor, or a client still
+  // holding the TAIL of a regenerated key. Never admit — no grandfathering.
   if (presented) return "hold";
 
-  // No proof at all. Not an attack signal by itself: a pre-split client, a v1
+  // No TAIL at all. Not an attack signal by itself: a pre-split client, a v1
   // pairing, or a device whose TAIL was retired when the key was regenerated —
   // none of them can produce a TAIL that no longer exists. Only demand one from
-  // a device that proved against THIS key before (its client clearly can).
+  // a device that presented it against THIS key before (its client clearly can).
   if (gate === "approved" && !hasProvenTail(deviceId, keyHead)) return "admit";
   return "hold";
 }

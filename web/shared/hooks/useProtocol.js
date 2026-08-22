@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useSessionStorage } from "./useSessionStorage";
 import { useDeviceId } from "./useDeviceId";
 import { ProtocolManager } from "@/shared/transport/ProtocolManager";
-import { buildHandshakeProof } from "@/shared/transport/lib/deviceTrust";
 
 /**
  * Persist rotated tunnelUrl/localIp back to sessionStorage
@@ -67,15 +66,15 @@ export function useProtocol({
     }
 
     let manager = null;
-    let cancelled = false;
 
     const wsConfig = {
       tunnelUrl: auth.tunnelUrl,
       localIp: auth.localIp || null,
       namespace,
-      // proof is filled in below (async) — admission is decided straight from
-      // the handshake, with no challenge round-trip. The pairing fp2 is NOT sent
-      // here: it must stay unknown to the server (enrollment goes over RTC).
+      // The adapters sign a fresh proof per connect attempt, so admission is
+      // decided straight from the handshake with no challenge round-trip. The
+      // pairing fp2 is NOT sent here: it must stay unknown to the server
+      // (enrollment goes over RTC instead).
       socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, deviceId, ...socketOptions.auth } },
       apiKey: auth.apiKey,
       deviceId,
@@ -102,17 +101,13 @@ export function useProtocol({
       onTransportChange: (type) => setTransport(type)
     } : null;
 
-    (async () => {
-      const proof = await buildHandshakeProof(auth.apiKey, deviceId);
-      if (cancelled) return;
-      if (proof) wsConfig.socketOptions.auth.proof = proof;
-      manager = new ProtocolManager(wsConfig, rtcConfig);
-      managerRef.current = manager;
-      manager.connect();
-    })();
+    // Proof is signed per connect attempt inside the adapters (freshAuth) —
+    // it expires in minutes and socket.io reconnects on its own.
+    manager = new ProtocolManager(wsConfig, rtcConfig);
+    managerRef.current = manager;
+    manager.connect();
 
     return () => {
-      cancelled = true;
       manager?.disconnect();
       managerRef.current = null;
     };

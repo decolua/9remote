@@ -7,7 +7,6 @@ import { useDeviceId } from "./useDeviceId";
 import { ProtocolManager } from "@/shared/transport/ProtocolManager";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { debugLog } from "@/shared/utils/debugLog";
-import { buildHandshakeProof } from "@/shared/transport/lib/deviceTrust";
 
 /**
  * Base socket hook — thin wrapper around WsProtocol.
@@ -46,14 +45,14 @@ export function useBaseSocket(config = {}) {
     }
 
     let protocol = null;
-    let cancelled = false;
 
     const wsConfig = {
       tunnelUrl: auth.tunnelUrl,
       localIp: auth.localIp || null,
       namespace,
-      // proof is filled in below (async) so admission is decided straight from
-      // the handshake — no challenge round-trip, no timeout. The pairing fp2 is
+      // The adapters attach a freshly-signed proof per connect attempt, so
+      // admission is decided straight from the handshake — no challenge
+      // round-trip, no timeout. The pairing fp2 is
       // deliberately NOT sent here: the handshake rides the tunnel, and fp2 must
       // stay unknown to the server (enrollment goes over RTC instead).
       socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, tempKey: auth.tempKey ?? null, deviceId, ...socketOptions.auth } },
@@ -90,17 +89,14 @@ export function useBaseSocket(config = {}) {
       }
     } : null;
 
-    (async () => {
-      const proof = await buildHandshakeProof(auth.apiKey, deviceId);
-      if (cancelled) return;
-      if (proof) wsConfig.socketOptions.auth.proof = proof;
-      protocol = new ProtocolManager(wsConfig, rtcConfig);
-      protocolRef.current = protocol;
-      protocol.connect();
-    })();
+    // The device proof is NOT built here: it expires in minutes and socket.io
+    // reconnects on its own, so it is computed per connect attempt inside the
+    // adapters (see adapters/freshAuth).
+    protocol = new ProtocolManager(wsConfig, rtcConfig);
+    protocolRef.current = protocol;
+    protocol.connect();
 
     return () => {
-      cancelled = true;
       protocol?.disconnect();
       protocolRef.current = null;
       socketRef.current = null;

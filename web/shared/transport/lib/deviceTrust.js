@@ -1,8 +1,8 @@
 // Device trust — client half of the E2E key security (see .docs/PLAN-e2e-key-security.md).
 // Holds, per key HEAD: the pinned agent host key (verified via the pairing
-// fp2) and the v2 key TAIL (typed as part of the key, or delivered inside the
-// fp2-checked RTC channel at enroll time — never through the Worker). Also
-// answers agent auth challenges.
+// fp2) and the v2 key TAIL — typed as part of the key, or delivered inside the
+// fp2-checked RTC channel at enroll time. Neither ever reaches the Worker; the
+// TAIL travels only to the agent itself (see adapters/freshAuth).
 
 import { CHANNELS } from "@/shared/constants/transport";
 
@@ -111,12 +111,6 @@ function b64ToBytes(b64) {
   return bytes;
 }
 
-function bytesToB64(bytes) {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin);
-}
-
 // Mirror of agent lib/hostKey.js — 2 chars of sha256(pub) over a 32-char
 // alphabet (10 bits, bias-free: 256 % 32 === 0, no confusables).
 const FP2_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -137,33 +131,9 @@ export async function verifySdpSignature(publicKeyB64, sdp, sigB64) {
   }
 }
 
-/** HMAC-SHA256(secret, message) → base64 — the device proof. */
-export async function deviceProof(secret, message) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
-  return bytesToB64(new Uint8Array(mac));
-}
-
-/**
- * Proof carried in the socket.io handshake, so admission needs no extra
- * round-trip (and no timeout waiting for one). The agent replays the same
- * message and compares; a client-chosen nonce plus a timestamp window makes
- * a captured proof useless later (see agent lib/deviceAuth verifyHandshakeProof).
- * Returns null when this device holds no TAIL — the agent then applies its
- * legacy/grandfather path.
- */
-export async function buildHandshakeProof(apiKey, deviceId) {
-  const tail = getTrust(apiKey)?.tail;
-  if (!tail || !deviceId) return null;
-  try {
-    const ts = Date.now();
-    const nonce = bytesToB64(crypto.getRandomValues(new Uint8Array(12)));
-    const mac = await deviceProof(tail, `${ts}.${nonce}.${deviceId}`);
-    return { ts, nonce, mac };
-  } catch {
-    return null; // no WebCrypto (insecure context) — fall back to legacy path
-  }
-}
+// The TAIL itself travels in the handshake (see adapters/freshAuth) — the
+// carriers are the user's own tunnel and the RTC channel, not this project's
+// server — so no HMAC proof is derived from it here.
 
 // ── PM integration — control-channel events both directions ──────────────────
 

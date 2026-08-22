@@ -1,4 +1,5 @@
 import { io } from "socket.io-client";
+import { freshAuth } from "./freshAuth";
 
 const DEFAULT_SOCKET_OPTIONS = {
   transports: ["websocket"],
@@ -30,7 +31,9 @@ export class LocalFirstAdapter {
       ...DEFAULT_SOCKET_OPTIONS,
       ...this._socketOptions,
       path: "/socket.io",
-      auth: { ...this._socketOptions.auth, connectionMode: mode }
+      // Function form: socket.io calls it per (re)connect, so a TAIL that
+      // arrived mid-session (enrollment) is picked up without a fresh mount.
+      auth: (cb) => cb(freshAuth(this._socketOptions.auth, mode))
     });
 
     const connectTunnel = () => {

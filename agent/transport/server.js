@@ -67,19 +67,17 @@ async function setupSocketFeatures(socket) {
     clearOneTimeKey();
   }
   await attachTransportBus(socket);
-  // Pairing enrollment \u2014 registered before any await below: the client sends
-  // it the moment its RTC opens, which can race the proof wait. Valid only
-  // while a pairing code is live; the key TAIL is emitted on the RTC carrier
-  // only (never the tunnel).
+  // Pairing enrollment \u2014 registered before any await below: the client sends it
+  // the moment its RTC opens. Valid only while a pairing code is live, and the
+  // TAIL it delivers goes out on the RTC carrier only.
   socket.on("device:enroll", (data) => handleDeviceEnroll(socket, data));
   // RTC-only session \u2014 same admission rules as the WS path (decideAdmission),
   // but there is no modal to fall back to here: an impostor session is dropped.
-  // Challenge rides the PM (buffered until the DC opens).
   if (socket.isVirtual) {
     const deviceId = socket.handshake.auth?.deviceId || null;
     const ok = decideAdmission(socket, deviceId) === "admit";
     if (!ok) {
-      pushUiLog(`Device proof failed (RTC): ${socket.handshake.auth?.deviceId?.slice(0, 8)} \u2014 dropping session`);
+      pushUiLog(`Device not admitted (RTC): ${socket.handshake.auth?.deviceId?.slice(0, 8)} \u2014 dropping session`);
       socket.disconnect();
       return;
     }
@@ -556,8 +554,8 @@ export async function startTransportServer(server) {
       if (!socket.connected) return; // disconnected during the grace wait
       const peerId = socket.handshake.auth?.peerId || null;
       const holdForApproval = () => {
-        // Unlocked while this path was waiting (proof timeout racing a
-        // releaseDevice from the device's RTC session) — nothing to hold.
+        // Unlocked while this path was deciding (a releaseDevice from the
+        // device's own RTC session) — nothing left to hold.
         if (socket.data.approved) return;
         // Already pending — an RTC peer raised it first. Hand the entry to this
         // real socket so Approve unlocks it and the client gets the waiting modal.
@@ -592,12 +590,11 @@ export async function startTransportServer(server) {
 
       const rtcSession = peerId ? rtcSessions.get(peerId) : null;
       if (rtcSession && isDeviceApproved(deviceId)) {
-        // The RTC-only session was admitted without a handshake proof (a
-        // VirtualSocket has no socket.io handshake to carry one). This WS DOES
-        // carry it, so verify here — otherwise connecting RTC-first would be a
-        // way to skip the TAIL check entirely.
+        // The RTC-only session was admitted without a TAIL (a VirtualSocket has
+        // no socket.io handshake to carry one). This WS DOES carry it, so check
+        // here — otherwise connecting RTC-first would skip the TAIL entirely.
         if (decideAdmission(socket, deviceId) !== "admit") {
-          pushUiLog(`Device proof failed on RTC attach: ${deviceId.slice(0, 8)}`);
+          pushUiLog(`Device TAIL check failed on RTC attach: ${deviceId.slice(0, 8)}`);
           return void holdForApproval();
         }
         socket.data.approved = true;
