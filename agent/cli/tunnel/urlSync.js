@@ -2,6 +2,7 @@ import { browserFetch, SERVER_PORT, RETRY_CONFIG } from "../../lib/constants.js"
 import { createLogger } from "../../lib/logger.js";
 import { retryForever } from "../utils/backoff.js";
 import { headOf } from "../utils/apiKey.js";
+import { sessionMutationAuth } from "../../lib/hostKey.js";
 import {
   startTunnelHealthWatchdog,
   pauseHealthWatchdog, resumeHealthWatchdog, setLastStatus,
@@ -36,7 +37,10 @@ export async function updateTunnelUrl(selectedKey, tunnelUrl) {
       const res = await browserFetch(`${WORKER_URL}/api/session/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: headOf(selectedKey), tunnelUrl, localIp: lanIp ? `${lanIp}:${SERVER_PORT}` : null }),
+        body: JSON.stringify((() => {
+          const fields = { apiKey: headOf(selectedKey), tunnelUrl, localIp: lanIp ? `${lanIp}:${SERVER_PORT}` : null };
+          return { ...fields, ...sessionMutationAuth(fields) };
+        })()),
       });
       if (ctx.cancelled) return true;
       if (res.ok) {

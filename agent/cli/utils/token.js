@@ -1,8 +1,8 @@
 import { browserFetch } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
-import { getHostFp2 } from "../../lib/hostKey.js";
+import { getHostFp2, getHostPublicKeyB64, sessionMutationAuth } from "../../lib/hostKey.js";
 import { headOf } from "./apiKey.js";
-import { setActivePairing } from "../../lib/pairingCode.js";
+import { setActivePairing, getActivePairing } from "../../lib/pairingCode.js";
 
 const logger = createLogger("session");
 const TEMP_KEY_EXPIRY_MINUTES = 10;
@@ -71,7 +71,15 @@ export async function registerSession(apiKey, workerUrl, tunnelUrl, previousKey)
     const res = await browserFetch(`${workerUrl}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: headOf(apiKey) })
+      // The public half rides along so the Worker can demand a signature on
+      // every later mutation of this row. The Worker will not swap a key it
+      // already holds for a different one, unless a pairing code is live —
+      // which is how a reinstalled agent re-registers after losing hostKey.json.
+      body: JSON.stringify({
+        apiKey: headOf(apiKey),
+        hostPublicKey: getHostPublicKeyB64(),
+        tempKey: getActivePairing()?.tempKey || undefined
+      })
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     // Carry the live tunnel over to the new key, else clients resolve nothing
@@ -80,7 +88,10 @@ export async function registerSession(apiKey, workerUrl, tunnelUrl, previousKey)
       await browserFetch(`${workerUrl}/api/session/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: headOf(apiKey), tunnelUrl })
+        body: JSON.stringify({
+          apiKey: headOf(apiKey), tunnelUrl,
+          ...sessionMutationAuth({ apiKey: headOf(apiKey), tunnelUrl })
+        })
       }).catch(() => {});
     }
     // Retire the replaced key only after the new one is live — a regenerated
@@ -90,7 +101,10 @@ export async function registerSession(apiKey, workerUrl, tunnelUrl, previousKey)
       await browserFetch(`${workerUrl}/api/session/delete`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: headOf(previousKey) })
+        body: JSON.stringify({
+          apiKey: headOf(previousKey),
+          ...sessionMutationAuth({ apiKey: headOf(previousKey) })
+        })
       }).catch(() => {});
     }
     return true;

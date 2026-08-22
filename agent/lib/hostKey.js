@@ -69,6 +69,26 @@ export function signSdp(sdp) {
   return sig.toString("base64");
 }
 
+// Same key, used to prove a session mutation came from this machine rather than
+// from whoever knows the apiKey HEAD. Mirrors web/shared/utils/sessionMutationAuth.js.
+const MUTATION_PREFIX = "9remote-session-v1";
+
+export function signSessionMutation({ apiKey, tunnelUrl, localIp, ts }) {
+  // Length-prefixed so no two different field splits produce one string.
+  const field = (v) => {
+    const s = v == null ? "" : String(v);
+    return `${s.length}:${s}`;
+  };
+  const payload = `${MUTATION_PREFIX}|${field(apiKey)}${field(tunnelUrl)}${field(localIp)}${field(ts)}`;
+  return crypto.sign(null, Buffer.from(payload, "utf8"), load().privateKey).toString("base64");
+}
+
+/** Body fields a mutating session request must carry to prove ownership. */
+export function sessionMutationAuth(fields) {
+  const ts = Date.now();
+  return { ts, sig: signSessionMutation({ ...fields, ts }) };
+}
+
 export function verifySig(publicKeyB64, message, sigB64) {
   try {
     const spki = Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(publicKeyB64, "base64")]);
