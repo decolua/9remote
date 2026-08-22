@@ -4,7 +4,7 @@ import { getNotifications, getStatuses, clearStatus, STATES } from "../statusMan
 import { getAutoStartStatus, setAutoStart, isCodespaces } from "../codespaceManager.js";
 import { writeCmd } from "../../../cli/utils/state.js";
 import { scanLocalSites } from "../portScanner.js";
-import { startProxySession, endProxySession } from "../../../proxy/index.js";
+import { startProxySession, endProxySession, setupSiteRequestHandler } from "../../../proxy/index.js";
 
 export function setupPushHandlers(socket, io) {
   // Full 4-state map (idle/working/blocked/done). New name; UI consumes this.
@@ -39,6 +39,9 @@ export function setupPushHandlers(socket, io) {
     endProxySession(port);
     if (typeof callback === "function") callback({ ok: true });
   });
+
+  // HTTP-for-localhost over the bus — feeds the web app's /browse/ service worker
+  setupSiteRequestHandler(socket);
 
   // Trigger agent self-update via socket (authenticated, no HTTP through tunnel)
   socket.on("requestUpdate", () => writeCmd("update"));

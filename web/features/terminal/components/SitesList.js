@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { Globe, X, Trash2, RefreshCw, Loader2, Pencil, Check, ChevronRight } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useI18n } from "@/shared/i18n";
 import { getCustomPorts, saveCustomPorts, getSiteLabels, saveSiteLabels } from "@/features/terminal/lib/sitesStorage";
@@ -57,6 +58,7 @@ async function setProxySession(action, { socketRef, base, apiKey, port }) {
 
 export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
   const { t } = useI18n();
+  const pushView = useTerminalStore((s) => s.pushView);
   const { getAuth } = useSessionStorage();
   const [customPorts, setCustomPorts] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -137,6 +139,16 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
 
   const handleSelectSite = async (site) => {
     const { port } = site;
+    // Inside the workspace, the in-app site view (SW over the transport bus) replaces the popup.
+    // pushView (store-driven) — router.push here would desync useRouteSync's back handling.
+    const inWorkspace = typeof window !== "undefined" && window.location.pathname.startsWith("/workspace");
+    if (inWorkspace && socketRef?.current?.connected) {
+      socketRef.current.emit("startProxySession", port);
+      pushView({ type: "site", port, path: "/" });
+      onSelectSite?.(site);
+      handleCloseModal();
+      return;
+    }
     const base = resolveProxyBase(tunnelUrl, getAuth()?.localIp);
     if (!base) {
       alert(t("sites.startProxyFailed", { name: site.name }));

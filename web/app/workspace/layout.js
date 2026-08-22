@@ -34,6 +34,7 @@ import AnimatedBackground from "@/features/landing/components/AnimatedBackground
 
 const SessionList = dynamic(() => import("@/features/session/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
+const BrowserView = dynamic(() => import("@/features/browser/components/BrowserView"), { ssr: false });
 const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/WorkspaceList"), { ssr: false });
 const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/FileExplorer"), { ssr: false });
 const FileEditor = dynamic(() => import("@/features/fileExplorer/components/FileEditor"), { ssr: false });
@@ -553,6 +554,20 @@ export default function WorkspaceLayout({ children }) {
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out animate-in slide-in-from-right">
             <RemoteDesktop onClose={popView} socketRef={socketRef} protocolRef={protocolRef} connected={connected} connectionMode={connectionMode} transport={transport} hostPlatform={platform} />
           </div>
+        )}
+
+        {/* Local sites browser (SW + transport bus, no tunnel needed).
+            storePopView, not popView: in-iframe navigation piles entries onto the
+            parent history, so router.back() would step through the site instead
+            of leaving it. */}
+        {currentView.type === "site" && (
+          <BrowserView
+            socketRef={socketRef}
+            connected={connected}
+            initialPort={currentView.port}
+            initialPath={currentView.path}
+            onBack={storePopView}
+          />
         )}
 
         {/* Workspace List */}

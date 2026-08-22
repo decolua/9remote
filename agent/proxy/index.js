@@ -19,8 +19,93 @@ export function endProxySession(port) {
   activeProxyPorts.delete(String(port));
 }
 
-function isProxySessionActive(port) {
+export function isProxySessionActive(port) {
   return activeProxyPorts.has(String(port));
+}
+
+// ─── Site requests over the transport bus (RTC data channel / WS) ────────────
+// The web client's service worker is the consumer: it serves /browse/<port>/
+// pages from responses carried here, so sites load without the tunnel HTTP origin.
+
+const SITE_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]);
+const SITE_MAX_BODY_B64_CHARS = 700000; // ~512KB binary
+const SITE_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
+// JSON envelope overhead must stay under the RTC control-channel max (65536)
+const SITE_CHUNK_B64_CHARS = 48000;
+const SITE_FETCH_TIMEOUT_MS = 60000;
+// Hop-by-hop / embedding-hostile headers never pass either direction
+const SITE_STRIP_HEADERS = new Set([
+  "host", "connection", "cookie", "set-cookie", "content-encoding", "content-length",
+  "x-frame-options", "content-security-policy", "strict-transport-security", "transfer-encoding"
+]);
+// Also dropped outbound: forwarding the browser's accept-encoding makes undici
+// hand back a still-compressed body (it only auto-decodes its own default),
+// which the client would try to parse as HTML.
+const SITE_STRIP_REQUEST_HEADERS = new Set([...SITE_STRIP_HEADERS, "accept-encoding"]);
+
+function siteChunk(socket, payload) {
+  socket.emit("site:httpChunk", payload);
+}
+
+function siteError(socket, reqId, error) {
+  siteChunk(socket, { reqId, seq: 0, total: 1, b64: "", done: true, error });
+}
+
+export function setupSiteRequestHandler(socket) {
+  socket.on("site:httpRequest", async (data, callback) => {
+    if (typeof callback === "function") callback({ ok: true });
+
+    const { reqId, port, method, target, headers = {}, bodyB64 } = data || {};
+    if (typeof reqId !== "string" || !reqId) return;
+    const portNum = Number(port);
+    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) return siteError(socket, reqId, "bad-port");
+    // Same gate as the HTTP proxy: only ports with a live viewing session
+    if (!isProxySessionActive(portNum)) return siteError(socket, reqId, "no-session");
+    if (!SITE_METHODS.has(method)) return siteError(socket, reqId, "bad-method");
+    if (typeof target !== "string" || !target.startsWith("/")) return siteError(socket, reqId, "bad-target");
+    if (typeof bodyB64 === "string" && bodyB64.length > SITE_MAX_BODY_B64_CHARS) return siteError(socket, reqId, "body-too-large");
+
+    const outHeaders = {};
+    for (const [key, value] of Object.entries(headers || {})) {
+      if (SITE_STRIP_REQUEST_HEADERS.has(key.toLowerCase())) continue;
+      outHeaders[key] = value;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SITE_FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(`http://localhost:${portNum}${target}`, {
+        method,
+        headers: outHeaders,
+        body: bodyB64 ? Buffer.from(bodyB64, "base64") : undefined,
+        redirect: "manual",
+        signal: controller.signal
+      });
+
+      const headersOut = {};
+      for (const [key, value] of res.headers) {
+        if (!SITE_STRIP_HEADERS.has(key.toLowerCase())) headersOut[key] = value;
+      }
+
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > SITE_MAX_RESPONSE_BYTES) return siteError(socket, reqId, "too-large");
+
+      const b64 = buf.toString("base64");
+      const total = Math.max(1, Math.ceil(b64.length / SITE_CHUNK_B64_CHARS));
+      for (let seq = 0; seq < total; seq++) {
+        siteChunk(socket, {
+          reqId, seq, total,
+          ...(seq === 0 ? { status: res.status, headers: headersOut } : {}),
+          b64: b64.slice(seq * SITE_CHUNK_B64_CHARS, (seq + 1) * SITE_CHUNK_B64_CHARS),
+          done: seq === total - 1
+        });
+      }
+    } catch (err) {
+      siteError(socket, reqId, err.name === "AbortError" ? "timeout" : err.message);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 }
 
 /**

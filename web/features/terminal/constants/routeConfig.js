@@ -11,7 +11,8 @@ export const VIEW_TO_PATH = {
   git: (v) => withQuery(`${WORKSPACE_BASE}/git`, { ws: v.workspace }),
   remote: () => `${WORKSPACE_BASE}/remote`,
   workspaces: () => `${WORKSPACE_BASE}/workspaces`,
-  browse: (v) => withQuery(`${WORKSPACE_BASE}/browse`, { path: v.path })
+  browse: (v) => withQuery(`${WORKSPACE_BASE}/browse`, { path: v.path }),
+  site: (v) => withQuery(`${WORKSPACE_BASE}/site`, { port: v.port, path: v.path === "/" || !v.path ? "" : v.path })
 };
 
 // First path segment after base -> view type
@@ -23,7 +24,8 @@ export const SEGMENT_TO_TYPE = {
   git: "git",
   remote: "remote",
   workspaces: "workspaces",
-  browse: "browse"
+  browse: "browse",
+  site: "site"
 };
 
 // Build "?a=b" string, skipping empty values
@@ -49,6 +51,7 @@ export function pathToView(pathname, searchParams) {
     case "editor": return { type, path: q("path"), line: numOrUndef(q("line")), column: numOrUndef(q("col")) };
     case "git": return { type, workspace: q("ws") };
     case "browse": return { type, path: q("path") };
+    case "site": return { type, port: numOrUndef(q("port")), path: q("path") || "/" };
     default: return { type };
   }
 }
