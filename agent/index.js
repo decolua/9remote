@@ -19,6 +19,7 @@ const logger = createLogger("server");
 import { startTransportServer, getIO } from "./transport/server.js";
 import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
+import { handlePreviewRequest } from "./features/fileExplorer/previewServer.js";
 import { initializeTerminal } from "./features/terminal/terminalSocket.js";
 import { handleLocalSites } from "./api/localSites.js";
 import { verifyApiKeyCrc } from "./cli/utils/apiKey.js";
@@ -143,6 +144,11 @@ function handleProxy(req, res, { pathname, search }) {
   }
 }
 
+// HTML file preview — static serving of the file's directory behind a session id.
+function handlePreview(req, res, ctx) {
+  handlePreviewRequest(req, res, ctx);
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // ROUTE TABLE — single source of truth for all HTTP endpoints
 // public: true = accessible via tunnel, false/omit = localhost-only
@@ -160,6 +166,7 @@ const ROUTES = [
   { path: "/api/notify",           method: "POST", public: true, handler: handleNotifyPost },
   { path: "/api/notify",           method: "GET",  public: true, handler: handleNotifyGet },
   { path: "/proxy/*",              method: "*",    public: true, handler: handleProxy },
+  { path: "/preview/*",            method: "GET",  public: true, handler: handlePreview },
 
   // UI state & SSE (localhost-only)
   { path: "/api/ui/events",        method: "GET",  handler: handleSseEvents },

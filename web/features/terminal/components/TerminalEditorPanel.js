@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { Save, X, ExternalLink } from "@/shared/components/ui/Icon";
+import { Save, X, ExternalLink, Eye, FileCode } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { EDITOR_PANEL_WIDTH } from "../constants/terminalConfig";
 import { resolveFileIcon } from "@/features/fileExplorer/constants/fileIcons";
-import { isDiffPath, parseRepoDiffPath, makeDiffPath, GIT_STATUS_COLORS } from "@/features/fileExplorer/constants/fileExplorer";
+import { isDiffPath, parseRepoDiffPath, makeDiffPath, GIT_STATUS_COLORS, isHtmlFile } from "@/features/fileExplorer/constants/fileExplorer";
 import { isPreviewable } from "@/features/fileExplorer/components/FilePreview";
 import { useFileDocument } from "@/features/fileExplorer/hooks/useFileDocument";
 import { useUnsavedGuard } from "@/features/fileExplorer/hooks/useUnsavedGuard";
@@ -16,12 +16,14 @@ import UnsavedDialog from "@/features/fileExplorer/components/UnsavedDialog";
 
 const CodeEditor = dynamic(() => import("@/features/fileExplorer/components/CodeEditor"), { ssr: false });
 const FilePreview = dynamic(() => import("@/features/fileExplorer/components/FilePreview"), { ssr: false });
+const HtmlViewer = dynamic(() => import("@/features/fileExplorer/components/HtmlViewer"), { ssr: false });
 const DiffView = dynamic(() => import("@/features/fileExplorer/components/DiffView"), { ssr: false });
 
 // A file opened from the tree, edited without leaving the terminal. Narrow on purpose —
 // this is for a quick read or fix, not a replacement for the full editor view.
 export default function TerminalEditorPanel({
-  filePath, workspace, fileSocket, width, onResize, onClose, onOpenFull, isDesktop = true
+  filePath, workspace, fileSocket, width, onResize, onClose, onOpenFull, isDesktop = true,
+  previewSeq = 0
 }) {
   const { t } = useI18n();
 
@@ -36,6 +38,29 @@ export default function TerminalEditorPanel({
 
   const doc = useFileDocument({ filePath: editable ? filePath : "", fileSocket });
   const guard = useUnsavedGuard({ dirty: editable && doc.dirty, onSave: doc.save });
+
+  // HTML files can flip between source and rendered view; one file = one mode.
+  const canPreviewHtml = editable && isHtmlFile(filePath);
+  const [htmlPreview, setHtmlPreview] = useState(false);
+  const [saveSeq, setSaveSeq] = useState(0);
+  const [lastPath, setLastPath] = useState(filePath);
+  const [prevSaved, setPrevSaved] = useState(false);
+  const [lastPreviewSeq, setLastPreviewSeq] = useState(previewSeq);
+  // Adjust during render (not in an effect) — the sanctioned reset-on-prop pattern.
+  if (lastPath !== filePath) {
+    setLastPath(filePath);
+    setHtmlPreview(false);
+  }
+  // A Preview asked for from the tree opens rendered; runs after the path reset above.
+  if (lastPreviewSeq !== previewSeq) {
+    setLastPreviewSeq(previewSeq);
+    if (previewSeq && canPreviewHtml) setHtmlPreview(true);
+  }
+  // Edge-trigger justSaved into a counter the preview can reload on.
+  if (doc.justSaved !== prevSaved) {
+    setPrevSaved(doc.justSaved);
+    if (doc.justSaved) setSaveSeq((s) => s + 1);
+  }
 
   // Escape closes, but goes through the guard so it cannot throw away unsaved edits.
   useEffect(() => {
@@ -85,6 +110,16 @@ export default function TerminalEditorPanel({
           </span>
         )}
 
+        {canPreviewHtml && (
+          <button
+            onClick={() => { vibrate(); setHtmlPreview((v) => !v); }}
+            title={htmlPreview ? t("editor.editCode") : t("editor.preview")}
+            className="p-1 text-text-muted hover:text-text rounded-[3px] hover:bg-surface-2 transition-colors"
+          >
+            {htmlPreview ? <FileCode size={13} /> : <Eye size={13} />}
+          </button>
+        )}
+
         {editable && (
           <button
             onClick={() => { vibrate(); doc.save(); }}
@@ -128,6 +163,8 @@ export default function TerminalEditorPanel({
           <DiffView diffPath={makeDiffPath(diff.status, diff.filePath)} workspace={diffRepo} fileSocket={fileSocket} compact />
         ) : isPreviewable(filePath) ? (
           <FilePreview filePath={filePath} fileSocket={fileSocket} />
+        ) : htmlPreview && canPreviewHtml ? (
+          <HtmlViewer filePath={filePath} fileSocket={fileSocket} reloadKey={saveSeq} />
         ) : doc.loading ? (
           <div className="h-full flex items-center justify-center text-text-muted text-xs">{t("common.loading")}</div>
         ) : (

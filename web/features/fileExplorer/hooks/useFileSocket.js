@@ -383,6 +383,21 @@ export function useFileSocket(socketRef, protocolRef) {
     });
   }, [socketRef, protocolRef]);
 
+  // HTML preview: mint/end a static-serving session on the agent's HTTP server.
+  const previewStart = useCallback((filePath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) { resolve({ success: false, error: "Not connected" }); return; }
+      socketRef.current.emit("preview:start", { filePath }, resolve);
+    });
+  }, [socketRef]);
+
+  const previewEnd = useCallback((sessionId) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) { resolve({ success: false }); return; }
+      socketRef.current.emit("preview:end", { sessionId }, resolve);
+    });
+  }, [socketRef]);
+
   // Memoize the returned object so the ref stays stable across renders.
   // Without this, consumers' effects keyed on `fileSocket` re-run every render
   // (e.g. TerminalPane re-runs git/watch setup on every keystroke → agent git spawn storm).
@@ -426,11 +441,13 @@ export function useFileSocket(socketRef, protocolRef) {
     gitLog,
     uploadFiles,
     downloadFile,
-    streamMedia
+    streamMedia,
+    previewStart,
+    previewEnd
   }), [getSystemInfo, getFiles, readFile, readImage, readMedia, writeFile, createItem, deleteItem,
     renameItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
     searchInFiles, replaceInFiles, watchDir, unwatchDir, revealInOS, openInTerminal,
     getFileTree, gitBranch, gitScanRepos, gitWorkspaceChangedCount, gitRefreshRepos, gitWorktreeList, gitWorktreeAdd,
     gitWorktreeRemove, gitBranchList, gitBranchCheckout, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog,
-    uploadFiles, downloadFile, streamMedia]);
+    uploadFiles, downloadFile, streamMedia, previewStart, previewEnd]);
 }

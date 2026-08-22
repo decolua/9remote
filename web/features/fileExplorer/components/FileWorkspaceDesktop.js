@@ -84,6 +84,7 @@ export default function FileWorkspaceDesktop({
   // Editor state for status bar
   const [editorState, setEditorState] = useState({ line: 1, column: 1, language: "", encoding: "UTF-8" });
   const [gitBranch, setGitBranch] = useState("");
+  const [previewRequest, setPreviewRequest] = useState({ path: null, seq: 0 });
 
   // Command palette
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -100,6 +101,8 @@ export default function FileWorkspaceDesktop({
     setOpenedFiles(prev => [filePath, ...prev.filter(p => p !== filePath)].slice(0, MAX_OPEN_TABS));
     setActiveFile(filePath);
     if (opts.line) setEditorState(s => ({ ...s, jumpLine: opts.line, jumpColumn: opts.column }));
+    // Bumped seq, not a boolean: reopening an already-open tab must re-trigger preview.
+    if (opts.preview) setPreviewRequest(r => ({ path: filePath, seq: r.seq + 1 }));
   }, []);
 
   // Expose openFile via ref so the parent layout can route GitPanel/explorer clicks
@@ -198,6 +201,7 @@ export default function FileWorkspaceDesktop({
               onCloseAll={handleCloseAll}
               onOpenFile={handleOpenFile}
               onEditorStateChange={setEditorState}
+              previewRequest={previewRequest}
             />
             {bottomVisible && socket && (
               <BottomPanel

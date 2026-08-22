@@ -2,11 +2,13 @@
 import { setupFileHandlers } from "./handlers/FileHandler.js";
 import { setupGitHandlers } from "./handlers/GitHandler.js";
 import { TransferManager } from "./transfer/TransferManager.js";
+import { setupPreviewHandlers } from "./previewServer.js";
 
 // Per-socket file explorer handlers (called from the single connection handler).
 export function setupFileExplorerHandlers(socket) {
   setupFileHandlers(socket);
   setupGitHandlers(socket);
+  setupPreviewHandlers(socket);
   setupTransferHandlers(socket);
 }
 

@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, Copy, GitBranch, Loader2, Save, X } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Copy, GitBranch, Loader2, Save, X, Eye, FileCode } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import CodeEditor from "./CodeEditor.js";
 import DiffBody from "./DiffBody.js";
 import FilePreview, { isPreviewable } from "./FilePreview.js";
+import HtmlViewer from "./HtmlViewer.js";
 import UnsavedDialog from "./UnsavedDialog.js";
+import { isHtmlFile } from "../constants/fileExplorer.js";
 import { useFileDocument } from "../hooks/useFileDocument.js";
 import { useUnsavedGuard } from "../hooks/useUnsavedGuard.js";
 import EditorKeyBar from "./EditorKeyBar.js";
@@ -15,7 +17,7 @@ import EditorKeyBar from "./EditorKeyBar.js";
 // Mobile full-screen editor. The editing itself is CodeEditor + useFileDocument, the same
 // pair the desktop tabs and the terminal panel use; what is special here is the chrome —
 // a key bar, because a phone keyboard has no Esc, Tab or arrows.
-export default function FileEditor({ filePath, fileSocket, onBack, line, column, workspace, diffStatus }) {
+export default function FileEditor({ filePath, fileSocket, onBack, line, column, workspace, diffStatus, preview = false }) {
   const { t } = useI18n();
   const previewOnly = isPreviewable(filePath);
   // Opened from a git entry — this overlay exists to show the diff, not the file.
@@ -30,6 +32,24 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
   const [gitStatus, setGitStatus] = useState(null);
   const [diff, setDiff] = useState(null);   // null = hidden
   const [diffLoading, setDiffLoading] = useState(false);
+
+  // HTML files can flip between source and rendered view; one file = one mode.
+  const canPreviewHtml = !diffOnly && !previewOnly && isHtmlFile(filePath);
+  // Opened by a Preview click, this starts rendered; every other open starts as source.
+  const [htmlPreview, setHtmlPreview] = useState(preview && canPreviewHtml);
+  const [saveSeq, setSaveSeq] = useState(0);
+  const [lastPath, setLastPath] = useState(filePath);
+  const [prevSaved, setPrevSaved] = useState(false);
+  // Adjust during render (not in an effect) — the sanctioned reset-on-prop pattern.
+  if (lastPath !== filePath) {
+    setLastPath(filePath);
+    setHtmlPreview(preview && canPreviewHtml);
+  }
+  // Edge-trigger justSaved into a counter the preview can reload on.
+  if (doc.justSaved !== prevSaved) {
+    setPrevSaved(doc.justSaved);
+    if (doc.justSaved) setSaveSeq((s) => s + 1);
+  }
 
   const registerView = useCallback((readText, view) => { viewRef.current = view; }, []);
 
@@ -107,6 +127,16 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
           </button>
         )}
 
+        {canPreviewHtml && (
+          <button
+            onClick={() => { vibrate(); setHtmlPreview((v) => !v); }}
+            title={htmlPreview ? t("editor.editCode") : t("editor.preview")}
+            className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
+          >
+            {htmlPreview ? <FileCode size={16} /> : <Eye size={16} />}
+          </button>
+        )}
+
         {!previewOnly && !diffOnly && (
           <button
             onClick={() => { vibrate(); copyContent(); }}
@@ -150,6 +180,8 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
           </div>
         ) : previewOnly ? (
           <FilePreview filePath={filePath} fileSocket={fileSocket} />
+        ) : htmlPreview && canPreviewHtml ? (
+          <HtmlViewer filePath={filePath} fileSocket={fileSocket} reloadKey={saveSeq} />
         ) : doc.loading ? (
           <div className="h-full flex items-center justify-center text-text-muted">{t("common.loading")}</div>
         ) : (
@@ -185,7 +217,7 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
         </div>
       )}
 
-      {!previewOnly && !diffOnly && !doc.loading && <EditorKeyBar viewRef={viewRef} />}
+      {!previewOnly && !diffOnly && !doc.loading && !htmlPreview && <EditorKeyBar viewRef={viewRef} />}
 
       <UnsavedDialog
         isOpen={guard.asking}

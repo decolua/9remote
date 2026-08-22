@@ -89,7 +89,8 @@ export default function WorkspaceLayout({ children }) {
     editorPanelWidth,
     setEditorPanelWidth,
     openEditorFile,
-    closeEditorFile
+    closeEditorFile,
+    editorPreviewSeq
   } = useTerminalStore();
 
   useEffect(() => {
@@ -275,7 +276,7 @@ export default function WorkspaceLayout({ children }) {
   // Mobile sheet (git tab) opens files in the full FileEditor overlay — one file UI on
   // the phone. A diff tab id carries a repo-relative path, so resolve it to the file;
   // its status rides along so the editor can show the diff straight away.
-  const openSheetFile = useCallback((path) => {
+  const openSheetFile = useCallback((path, opts = {}) => {
     if (isDiffPath(path)) {
       const { status, repoPath, filePath } = parseRepoDiffPath(path);
       setMobileEditor({
@@ -285,7 +286,7 @@ export default function WorkspaceLayout({ children }) {
       });
       return;
     }
-    setMobileEditor({ path, workspace: workspaces.find(w => w.id === activeWorkspaceId)?.path });
+    setMobileEditor({ path, workspace: workspaces.find(w => w.id === activeWorkspaceId)?.path, preview: !!opts.preview });
   }, [workspaces, activeWorkspaceId, setMobileEditor]);
 
   // Lazy per-workspace mount: the FIRST time a workspace becomes active, mark it mounted so its
@@ -518,6 +519,7 @@ export default function WorkspaceLayout({ children }) {
             }}
             editorPanel={{
               filePath: editorFilePath,
+              previewSeq: editorPreviewSeq,
               width: editorPanelWidth,
               onResize: setEditorPanelWidth,
               onOpen: isDesktop ? openEditorFile : openSheetFile,
@@ -653,6 +655,7 @@ export default function WorkspaceLayout({ children }) {
               line={mobileEditor.line}
               column={mobileEditor.column}
               diffStatus={mobileEditor.diffStatus}
+              preview={mobileEditor.preview}
               fileSocket={fileSocket}
               onBack={() => setMobileEditor(null)}
               workspace={mobileEditor.workspace || currentView.workspace}

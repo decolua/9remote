@@ -414,6 +414,7 @@ export default function TerminalWorkspace({
           <div className={isDesktop ? "" : "absolute inset-0 z-40 animate-in slide-in-from-bottom duration-200"}>
             <TerminalEditorPanel
               filePath={editorPanel.filePath}
+              previewSeq={editorPanel.previewSeq}
               workspace={filesRoot}
               fileSocket={fileSocket}
               width={editorPanel.width}

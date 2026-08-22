@@ -190,8 +190,13 @@ export const useTerminalStore = create(
       editorFilePath: null,
       editorPanelWidth: EDITOR_PANEL_WIDTH.default,
       setEditorPanelWidth: (w) => set({ editorPanelWidth: clampWidth(w, EDITOR_PANEL_WIDTH) }),
-      openEditorFile: (filePath) => set({ editorFilePath: filePath }),
-      closeEditorFile: () => set({ editorFilePath: null }),
+      // Bumped seq, not a boolean: reopening the same file must re-trigger preview.
+      editorPreviewSeq: 0,
+      openEditorFile: (filePath, opts = {}) => set((st) => ({
+        editorFilePath: filePath,
+        editorPreviewSeq: opts.preview ? st.editorPreviewSeq + 1 : 0
+      })),
+      closeEditorFile: () => set({ editorFilePath: null, editorPreviewSeq: 0 }),
 
 
       // Actions

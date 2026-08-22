@@ -17,7 +17,8 @@ export default function EditorArea({
   onCloseOthers,
   onCloseAll,
   onOpenFile,
-  onEditorStateChange
+  onEditorStateChange,
+  previewRequest
 }) {
   const [dirtyFiles, setDirtyFiles] = useState(() => new Set());
   // Path awaiting an answer about its unsaved edits. Held here rather than in the pane:
@@ -128,6 +129,7 @@ export default function EditorArea({
               onCursorChange={onEditorStateChange}
               onDirtyChange={handleDirtyChange}
               onRegisterSaver={registerSaver}
+              previewSeq={previewRequest?.path === path ? previewRequest.seq : 0}
             />
           </div>
         ))}

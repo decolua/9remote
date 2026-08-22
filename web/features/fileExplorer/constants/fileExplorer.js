@@ -88,6 +88,8 @@ export const DOCX_EXTENSIONS = [".docx"];
 
 export const SHEET_EXTENSIONS = [".xlsx", ".xls", ".csv", ".tsv"];
 
+export const HTML_EXTENSIONS = [".html", ".htm", ".xhtml"];
+
 export function hasExt(filePath, exts) {
   if (!filePath) return false;
   const lower = filePath.toLowerCase();
@@ -99,6 +101,7 @@ export const isAudioFile = (p) => hasExt(p, AUDIO_EXTENSIONS);
 export const isPdfFile = (p) => hasExt(p, PDF_EXTENSIONS);
 export const isDocxFile = (p) => hasExt(p, DOCX_EXTENSIONS);
 export const isSheetFile = (p) => hasExt(p, SHEET_EXTENSIONS);
+export const isHtmlFile = (p) => hasExt(p, HTML_EXTENSIONS);
 // Previewable = browser/lib can render without the text editor. Used to route
 // away from the text editor and the binary rejection in readFile.
 export const isPreviewableFile = (p) =>

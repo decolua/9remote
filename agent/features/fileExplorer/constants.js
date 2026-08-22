@@ -11,6 +11,10 @@ export const MAX_IMAGE_SCALED_SIZE = 3 * 1024 * 1024; // output data URL cap (po
 export const IMAGE_SCALE_MAX_DIM = 1600; // max width/height after downscale
 export const MAX_SEARCH_RESULTS = 200;
 export const MAX_MATCHES_PER_FILE = 10;
+// HTML preview sessions: TTL refreshed on every request, capped count to bound
+// how many directories stay exposed through the public /preview route.
+export const PREVIEW_SESSION_TTL_MS = 10 * 60 * 1000;
+export const MAX_PREVIEW_SESSIONS = 16;
 export const DEFAULT_TREE_DEPTH = 3;
 export const DEFAULT_GIT_LOG_LIMIT = 20;
 // spawnSync defaults to a 1MB stdout buffer — a whole-repo `git diff` blows past that and
@@ -67,7 +71,14 @@ export const MIME_BY_EXT = {
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   xls: "application/vnd.ms-excel",
-  csv: "text/csv", tsv: "text/tab-separated-values"
+  csv: "text/csv", tsv: "text/tab-separated-values",
+  // Static-site types the HTML preview serves alongside the media above.
+  html: "text/html", htm: "text/html", xhtml: "text/html",
+  css: "text/css", js: "text/javascript", mjs: "text/javascript",
+  json: "application/json", map: "application/json", webmanifest: "application/manifest+json",
+  txt: "text/plain", md: "text/markdown", xml: "text/xml", svgz: "image/svg+xml",
+  woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", otf: "font/otf",
+  eot: "application/vnd.ms-fontobject", wasm: "application/wasm"
 };
 
 export function getMimeType(filePath) {
