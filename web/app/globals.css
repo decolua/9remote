@@ -73,18 +73,7 @@
   box-shadow: var(--card-shine), var(--shadow-elev), 0 0 28px -6px var(--status-glow, transparent);
 }
 
-/* Welcome cards: cinematic glass — stronger blur + saturation and an accent halo
-   set per card via --welcome-glow. Radius comes from the component (rounded-3xl). */
-.welcome-glass {
-  background: var(--card-glass-bg);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  border: 1px solid var(--card-glass-border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow-elev),
-    0 0 44px -10px var(--welcome-glow, transparent);
-}
-
-/* Frosted chip for recent-workspace pills inside the welcome glass cards */
+/* Frosted chip for recent-workspace pills on the empty session stage */
 .welcome-chip {
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -92,6 +81,118 @@
 :root.light .welcome-chip {
   background: rgba(255, 255, 255, 0.65);
   border-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Empty session list: borderless poster stage — content sits naked on a cinematic
+   backdrop (same white light as login), split in two by a hairline + brand dot. */
+.empty-stage {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.empty-stage > .empty-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(to right, var(--color-brand-500) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-brand-500) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: .04;
+}
+:root.light .empty-stage > .empty-grid { opacity: .08; }
+.empty-stage::before {
+  content: "";
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background:
+    radial-gradient(480px 360px at 22% 18%, rgba(255,255,255,.14), transparent 62%),
+    radial-gradient(420px 320px at 84% 82%, rgba(255,255,255,.08), transparent 66%);
+  animation: emptyStageDrift 18s ease-in-out infinite alternate;
+}
+@keyframes emptyStageDrift {
+  0%   { transform: translate3d(-1.5%, -1%, 0) scale(1.04); }
+  100% { transform: translate3d(2%, 1.5%, 0) scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .empty-stage::before { animation: none; }
+}
+.empty-stage::after {
+  content: "";
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(140% 110% at 50% 50%, transparent 45%, rgba(0,0,0,.45) 100%);
+}
+:root.light .empty-stage::before {
+  background:
+    radial-gradient(480px 360px at 22% 18%, rgba(0,0,0,.06), transparent 62%),
+    radial-gradient(420px 320px at 84% 82%, rgba(0,0,0,.03), transparent 66%);
+  opacity: .8;
+}
+:root.light .empty-stage::after {
+  background: radial-gradient(140% 110% at 50% 50%, transparent 50%, rgba(0,0,0,.08) 100%);
+}
+/* Poster half: one tappable half of the stage, content centred like the mock */
+.empty-half {
+  position: relative; z-index: 2;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 24px 28px;
+}
+/* Hairline divider with a glowing brand dot at its centre */
+.empty-hairline {
+  position: relative; z-index: 2;
+  flex-shrink: 0; height: 1px; margin: 0 40px;
+  background: linear-gradient(to right, transparent, var(--border), transparent);
+}
+.empty-hairline::after {
+  content: "";
+  position: absolute; left: 50%; top: 50%;
+  width: 3px; height: 3px; border-radius: 50%;
+  background: var(--color-brand-500);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 8px 1px rgba(229, 106, 74, 0.8);
+}
+/* Wide screens: the same stage split left/right instead of top/bottom */
+@media (min-width: 1024px) {
+  .empty-stage-h { flex-direction: row; }
+  .empty-stage-h .empty-half { padding: 40px 56px; }
+  .empty-stage-h .empty-hairline {
+    width: 1px; height: auto; margin: 40px 0;
+    background: linear-gradient(to bottom, transparent, var(--border), transparent);
+  }
+  /* Poster type scales with the room a desktop pane gives it */
+  .empty-stage-h .empty-word { font-size: 60px; margin-bottom: 14px; }
+}
+
+/* Giant gradient word — same treatment as .login-hero-grad, poster-sized */
+.empty-word {
+  font-size: 44px; font-weight: 800; letter-spacing: -0.045em; line-height: 1.05;
+  margin-bottom: 12px;
+  /* Two-word titles wrap here rather than overflowing a narrow phone */
+  overflow-wrap: break-word; hyphens: none;
+}
+/* Mono index line above the word: "01 / workspace · pty" */
+.empty-idx {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 11px; color: var(--text-subtle);
+  margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+}
+.empty-idx b { color: var(--color-brand-500); font-weight: 500; }
+.empty-meta {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 12px; color: var(--text-muted); line-height: 1.8;
+}
+.empty-meta b { color: var(--color-brand-500); font-weight: 400; }
+.empty-go {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 18px;
+  width: fit-content;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 12.5px; color: var(--text);
+  padding: 9px 16px; border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+}
+:root.light .empty-go {
+  background: rgba(255, 255, 255, 0.65);
+  border-color: rgba(0, 0, 0, 0.08);
 }
 
 /* Default = dark theme tokens (orca-style neutral zinc) */

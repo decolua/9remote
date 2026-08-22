@@ -110,6 +110,7 @@ export const {
   Shield,
   ArrowUp,
   ArrowDown,
+  ArrowRight,
   Bug,
   Pin,
   PinOff,

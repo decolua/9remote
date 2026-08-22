@@ -7,7 +7,7 @@ import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import {
-  Folder, Monitor, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap
+  Folder, Monitor, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap, ArrowRight
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -396,86 +396,68 @@ function HeaderButton({ icon: Icon, label, onClick, disabled }) {
   );
 }
 
-// First run: the two things this app can do, each taking half the screen so neither
-// reads as the secondary one. Accent drives each card's halo + icon tint.
-const CARD_ACCENT = { workspace: "#f59e0b", remote: "#06b6d4" };
-
+// First run: the two things this app can do as naked poster halves on a cinematic
+// stage (same white light as login), split by a hairline + brand dot.
 function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected }) {
   const { t } = useI18n();
+  const remoteReady = connected && !!onOpenRemote;
   return (
-    <div className="h-full flex flex-col gap-4 py-3">
-      <BigCard
-        accent={CARD_ACCENT.workspace}
-        icon={<Folder size={30} strokeWidth={1.5} />}
-        title={t("workspaces.cardWorkspaceTitle")}
-        desc={t("workspaces.cardWorkspaceDesc")}
-        action={t("workspaces.selectFolder")}
-        onClick={onAddWorkspace}
+    // Bleed past the scroll container's px-4 pt-4 pb-6 so the backdrop reaches the edges
+    <div className="empty-stage w-[calc(100%_+_2rem)] h-[calc(100%_+_2.5rem)] -mx-4 -mt-4 -mb-6">
+      <div className="empty-grid" />
+
+      <button
+        onClick={() => { vibrate(); onAddWorkspace?.(); }}
         disabled={!connected}
+        className="empty-half text-left active:opacity-80 enabled:active:scale-[0.99] transition-all duration-150 disabled:opacity-40 disabled:saturate-50"
       >
+        <span className="empty-idx"><b>01</b> / {t("workspaces.emptyTagWorkspace")}</span>
+        <span className="empty-word login-hero-grad">{t("workspaces.emptyWordTerminal")}</span>
+        <span
+          className="empty-meta"
+          dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaWorkspace") }}
+        />
+        <span className="empty-go">
+          {t("workspaces.selectFolder")}
+          <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
+        </span>
         {!!recent.length && (
-          <span className="flex flex-wrap gap-1.5 justify-center pt-3 w-full">
+          <span className="flex flex-wrap gap-1.5 mt-4 max-w-full">
             {recent.slice(0, 3).map((w) => (
               <span
                 key={w.path}
                 role="button"
                 onClick={(e) => { e.stopPropagation(); vibrate(); onAddWorkspace?.(w.path); }}
-                className="welcome-chip px-2 py-1 text-[11px] text-text-muted rounded-brand truncate max-w-[46%]"
+                className="welcome-chip px-2 py-1 text-[11px] font-mono text-text-muted rounded-full truncate max-w-[46%]"
               >
                 {shortenHomePath(w.path, homeDir)}
               </span>
             ))}
           </span>
         )}
-      </BigCard>
+      </button>
 
-      <BigCard
-        accent={CARD_ACCENT.remote}
-        icon={<Monitor size={30} strokeWidth={1.5} />}
-        title={t("workspaces.cardRemoteTitle")}
-        desc={t("workspaces.cardRemoteDesc")}
-        action={t("menu.remoteDesktop")}
-        onClick={onOpenRemote}
-        disabled={!connected || !onOpenRemote}
-      />
+      <div className="empty-hairline" aria-hidden />
+
+      <button
+        onClick={() => { vibrate(); onOpenRemote?.(); }}
+        disabled={!remoteReady}
+        className="empty-half text-left active:opacity-80 enabled:active:scale-[0.99] transition-all duration-150 disabled:opacity-40 disabled:saturate-50"
+      >
+        <span className="empty-idx"><b>02</b> / {t("workspaces.emptyTagRemote")}</span>
+        <span className="empty-word login-hero-grad">{t("workspaces.emptyWordRemote")}</span>
+        <span
+          className="empty-meta"
+          dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaRemote") }}
+        />
+        {remoteReady && (
+          <span className="empty-go">
+            {t("menu.remoteDesktop")}
+            <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
+          </span>
+        )}
+      </button>
     </div>
-  );
-}
-
-function BigCard({ icon, title, desc, action, onClick, disabled, accent, children }) {
-  return (
-    <button
-      onClick={() => { vibrate(); onClick?.(); }}
-      disabled={disabled}
-      style={{ "--welcome-glow": `${accent}55` }}
-      className="group relative flex-1 min-h-0 welcome-glass rounded-3xl p-6 flex flex-col items-center justify-center gap-2 text-center transition-all duration-200 active:scale-[0.985] enabled:hover:-translate-y-0.5 disabled:opacity-40 disabled:saturate-50"
-    >
-      {/* Accent halo bleeding out of the top edge — what the glass refracts */}
-      <span
-        aria-hidden
-        className="absolute -top-10 left-1/2 -translate-x-1/2 w-56 h-32 rounded-full pointer-events-none blur-3xl opacity-40 -z-10 transition-opacity duration-300 group-hover:opacity-70"
-        style={{ background: `radial-gradient(closest-side, ${accent}45, transparent)` }}
-      />
-      {/* Icon in a tinted lens */}
-      <span
-        className="flex items-center justify-center w-16 h-16 rounded-full mb-1"
-        style={{
-          background: `${accent}1f`,
-          boxShadow: `inset 0 0 0 1px ${accent}45, 0 8px 24px -8px ${accent}66`
-        }}
-      >
-        <span style={{ color: accent }}>{icon}</span>
-      </span>
-      <span className="text-[16px] font-semibold text-text">{title}</span>
-      <span className="text-[12px] text-text-muted leading-snug max-w-[36ch]">{desc}</span>
-      <span
-        className="mt-1 px-3.5 py-1.5 text-[12px] font-medium rounded-full"
-        style={{ color: accent, background: `${accent}1a`, boxShadow: `inset 0 0 0 1px ${accent}33` }}
-      >
-        {action}
-      </span>
-      {children}
-    </button>
   );
 }
 

@@ -267,7 +267,6 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   const createInteractionHandler = (type) => (e) => {
     handleCanvasInteraction(e, type, {
       streaming,
-      socket: socketRef?.current,
       selectionMode,
       selectionStart,
       dragMode,
@@ -321,8 +320,19 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
           />
         )}
         {!connected ? (
-          <div className="flex-1 flex items-center justify-center bg-bg">
-            <Spinner size="lg" text={t("remote.connecting")} />
+          // Same poster stage the session list and terminal empty state open on, so the
+          // wait reads as part of the app rather than a bare spinner.
+          <div className="flex-1 min-w-0 empty-stage">
+            <div className="empty-grid" />
+            <div className="empty-half">
+              <span className="empty-idx"><b>01</b> / {t("workspaces.emptyTagRemote")}</span>
+              <span className="empty-word login-hero-grad">{t("workspaces.emptyWordRemote")}</span>
+              <span className="empty-meta" dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaRemote") }} />
+              <span className="empty-go">
+                <Spinner size="sm" />
+                {t("remote.connecting")}
+              </span>
+            </div>
           </div>
         ) : (
           <RemoteCanvas
