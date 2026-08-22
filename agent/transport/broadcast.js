@@ -71,23 +71,36 @@ export function notifyRtcEnabled() {
   logger.debug(`notifyRtcEnabled: signaled ${active.size} PM(s)`);
 }
 
+// Duplicate output is per-frame, so warn at most once per peer-set per interval.
+const DUPLICATE_WARN_INTERVAL_MS = 10_000;
+let lastDuplicateKey = "";
+let lastDuplicateAt = 0;
+
+function warnDuplicate(peers, targets) {
+  const key = [...peers].sort().join("|");
+  const now = Date.now();
+  if (key === lastDuplicateKey && now - lastDuplicateAt < DUPLICATE_WARN_INTERVAL_MS) return;
+  lastDuplicateKey = key;
+  lastDuplicateAt = now;
+  logger.warn(`DUPLICATE: output same peer twice: ${targets.join(", ")}`);
+}
+
 // Broadcast event to all active PMs (routes via best adapter — RTC if WS down).
-// Logs every target — if 2 PMs share a peer (RTC virtual + WS race) the client gets
-// duplicate output; this line is the smoking gun.
+// If 2 PMs share one peerId (RTC virtual + WS race) the client gets duplicate output.
 export function broadcast(_io, event, data) {
+  const peers = [];
   const targets = [];
   for (const pm of active) {
     // Skip PMs with no ready adapter — avoids buffering into dying/orphan PMs
     if (!pm.hasReadyAdapter?.()) continue;
+    peers.push(pm._deviceId || "");
     targets.push(`${pm._deviceId?.slice(0, 12)}:${pm.type}`);
     try { pm.emit(event, data); } catch (e) { logger.warn(`emit ${event} failed: ${e.message}`); }
   }
+  // Compare the FULL peerId ("deviceId:tab") — distinct tabs of one device are legit.
   if (event === "output") {
-    // A real duplicate is the SAME peer reached via 2 PMs (RTC virtual + WS race) —
-    // several distinct peers legitimately watch one session, that is not spam-worthy.
-    const peers = targets.map((t) => t.split(":")[0]);
-    if (new Set(peers).size !== peers.length) logger.warn(`DUPLICATE: output same peer twice: ${targets.join(", ")}`);
-  } else {
-    logger.debug(`bc ${event} → ${targets.length} target(s)`);
+    if (new Set(peers).size !== peers.length) warnDuplicate(peers, targets);
+    return;
   }
+  logger.debug(`bc ${event} → ${targets.length} target(s)`);
 }
