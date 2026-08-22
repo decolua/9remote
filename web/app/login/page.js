@@ -187,18 +187,23 @@ function LoginContent() {
   // Handle login with saved key
   const handleLoginWithSavedKey = async (key) => {
     if (!key) return;
-    // Stored keys may be full v2 keys — re-seed the TAIL so this tab (or a
-    // fresh browser profile) can answer the agent's challenge.
+    // A stored key may be a full v2 key (re-seed its TAIL so a fresh browser
+    // profile can answer the agent) or just the HEAD, from a one-time login
+    // saved before the TAIL arrived — withTail repairs that entry from the
+    // trust store, otherwise the device could no longer prove itself and the
+    // agent would hold it for approval on every visit.
     const savedTail = tailOf(key);
     if (savedTail) setTrust(headOf(key), { tail: savedTail });
+    const fullKey = savedTail ? key : withTail(key);
     setLoginLoadingKey(key);
     let result;
     try {
-      result = await authenticateWithApiKey(key);
+      result = await authenticateWithApiKey(fullKey);
     } finally {
       setLoginLoadingKey(null);
     }
     if (result?.success) {
+      if (fullKey !== key) saveKey(fullKey); // persist the repaired entry
       updateLastLogin(key);
       // From login always land on workspace home — last-route restore is for in-app switching
       router.push("/workspace/");
