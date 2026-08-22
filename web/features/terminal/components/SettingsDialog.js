@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type, FolderOpen,
-  GitBranch, StickyNote, Sun, Moon, Keyboard
+  GitBranch, ListChecks, Sun, Moon, Keyboard
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -261,7 +261,7 @@ export default function SettingsDialog({
                 <Group title={t("menu.showButtons")}>
                   <ToggleRow icon={FolderOpen} label={t("menu.showFolder")} value={showFolderButton} onChange={setShowFolderButton} />
                   <ToggleRow icon={GitBranch} label={t("menu.showGit")} value={showGitButton} onChange={setShowGitButton} />
-                  <ToggleRow icon={StickyNote} label={t("menu.showNote")} value={showNoteButton} onChange={setShowNoteButton} />
+                  <ToggleRow icon={ListChecks} label={t("menu.showNote")} value={showNoteButton} onChange={setShowNoteButton} />
                 </Group>
               </div>
             )}

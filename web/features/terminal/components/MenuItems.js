@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, GitBranch, StickyNote, Wallpaper, Keyboard } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, GitBranch, ListChecks, Wallpaper, Keyboard } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -282,7 +282,7 @@ export default function MenuItems({
                 </button>
               </div>
               <div className="flex items-center gap-2.5">
-                <StickyNote className="text-text" size={16} />
+                <ListChecks className="text-text" size={16} />
                 <span className="text-sm">{t("menu.showNote")}</span>
                 <button
                   onClick={() => { vibrate(); setShowNoteButton(!showNoteButton); }}

@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Copy, X, Check, Trash2, Plus, GripVertical, Pin, PinOff, ExternalLink } from "@/shared/components/ui/Icon";
+import { Copy, X, Check, Trash2, Plus, GripVertical, Pin, PinOff, Maximize2 } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { NOTE_SUGGESTIONS, INPUT_ENTER_DELAY, INPUT_MAX_HEIGHT_MOBILE, INPUT_MAX_HEIGHT_DESKTOP, DESKTOP_BREAKPOINT } from "../constants/terminalConfig";
+import { NOTE_SUGGESTIONS, NOTE_SYNC_EVENT, INPUT_ENTER_DELAY, INPUT_MAX_HEIGHT_MOBILE, INPUT_MAX_HEIGHT_DESKTOP, DESKTOP_BREAKPOINT } from "../constants/terminalConfig";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
 
 const SAVE_DEBOUNCE_MS = 500;
@@ -24,6 +24,11 @@ function parseItems(text) {
 function serializeItems(items) {
   return items.map((i) => `- [${i.done ? "x" : " "}] ${i.text}`).join("\n");
 }
+
+// Latest items per session, shared by every mount. Saves are debounced, so a strip that
+// mounts right after the first item is added would read an empty note from the agent —
+// and it mounts too late to hear the sync event. This is what it reads instead.
+const noteCache = new Map();
 
 const writeClipboard = (text) => {
   try { navigator.clipboard?.writeText(text).catch(() => {}); } catch {}
@@ -46,6 +51,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
   // movement is written straight to style.transform, so a drag never re-renders the list.
   const [dragId, setDragId] = useState(null);
   const rowElsRef = useRef(new Map()); // item id -> <li> element
+  const dragIdRef = useRef(null); // readable from the sync listener without re-subscribing
   const [addingChip, setAddingChip] = useState(false);
   const [chipInput, setChipInput] = useState("");
   const itemsRef = useRef([]);
@@ -53,48 +59,89 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
   const idSeqRef = useRef(0);
   const saveTimerRef = useRef(null);
   const appendRef = useRef(appendOnOpen);
+  const [instanceId] = useState(() => Symbol("note"));
+  // Parents pass an inline onPin; a ref keeps it out of the load effect's deps
+  const onPinRef = useRef(onPin);
+  useEffect(() => { onPinRef.current = onPin; });
 
   const withIds = (list) => list.map((it) => ({ ...it, id: ++idSeqRef.current }));
+
+  // Selection text handed in on open, consumed once, one item per line
+  const appendLines = () => {
+    const raw = appendRef.current;
+    appendRef.current = null;
+    if (!raw) return [];
+    return raw.split("\n").map((l) => l.trim()).filter(Boolean).map((text) => ({ done: false, text }));
+  };
 
   const doSave = useCallback((value) => {
     socket?.emit("saveNote", { sessionId, text: value }, () => {});
   }, [socket, sessionId]);
 
-  // Any mutation flows through here: update state + debounce-save the whole list
+  // Any mutation flows through here: update state + debounce-save the whole list, and
+  // tell this session's other NotePanel mount (pinned strip vs modal) about the change.
   const mutate = useCallback((fn) => {
-    setItems((prev) => {
-      const next = fn(prev || []);
-      itemsRef.current = next;
-      return next;
-    });
+    const next = fn(itemsRef.current || []);
+    itemsRef.current = next;
+    noteCache.set(sessionId, next);
+    setItems(next);
+    window.dispatchEvent(new CustomEvent(NOTE_SYNC_EVENT, { detail: { sessionId, items: next, from: instanceId } }));
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
       doSave(serializeItems(itemsRef.current));
     }, SAVE_DEBOUNCE_MS);
-  }, [doSave]);
+  }, [doSave, sessionId, instanceId]);
 
   // Load once on open; append selection text (each line = one unchecked item)
   useEffect(() => {
     if (!socket || !sessionId) return;
     let cancelled = false;
-    socket.emit("getNote", { sessionId }, (res) => {
-      if (cancelled) return;
-      let next = parseItems(res?.success ? res.text : "");
-      let appended = false;
-      if (appendRef.current) {
-        const extra = appendRef.current.split("\n").map((l) => l.trim()).filter(Boolean).map((text) => ({ done: false, text }));
-        if (extra.length) { next = [...next, ...extra]; appended = true; }
-        appendRef.current = null;
-      }
-      next = withIds(next);
+    const cached = noteCache.get(sessionId);
+    const adopt = (next, appended) => {
+      for (const it of next) if (it.id > idSeqRef.current) idSeqRef.current = it.id;
       itemsRef.current = next;
+      noteCache.set(sessionId, next);
       setItems(next);
       // Appended selection must survive a close-without-edit — save it now
       if (appended) doSave(serializeItems(next));
+    };
+    if (cached) {
+      const extra = appendLines();
+      adopt(extra.length ? [...cached, ...withIds(extra)] : cached, extra.length > 0);
+      return;
+    }
+    socket.emit("getNote", { sessionId }, (res) => {
+      if (cancelled) return;
+      const next = parseItems(res?.success ? res.text : "");
+      const extra = appendLines();
+      // Selection text landing in an empty note starts a checklist too — pin it
+      if (extra.length && !next.length) onPinRef.current?.(true);
+      adopt(withIds([...next, ...extra]), extra.length > 0);
     });
     return () => { cancelled = true; };
   }, [socket, sessionId, doSave]);
+
+  // Adopt changes made by this session's other mount — it already saved them
+  useEffect(() => {
+    const onSync = (e) => {
+      const d = e.detail;
+      if (!d || d.sessionId !== sessionId || d.from === instanceId) return;
+      // A drag holds the pre-drag order; swapping the list under it would land the row
+      // in the wrong slot. The drop broadcasts its own version a moment later anyway.
+      if (dragIdRef.current != null) return;
+      // That mount owns this version and is saving it; our pending save is now stale
+      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+      // Ids are minted per mount, so keep ours ahead of any id we adopt — two mounts
+      // must never hand out the same id to different items.
+      for (const it of d.items) if (it.id > idSeqRef.current) idSeqRef.current = it.id;
+      itemsRef.current = d.items;
+      noteCache.set(sessionId, d.items);
+      setItems(d.items);
+    };
+    window.addEventListener(NOTE_SYNC_EVENT, onSync);
+    return () => window.removeEventListener(NOTE_SYNC_EVENT, onSync);
+  }, [sessionId, instanceId]);
 
   // Flush pending save on unmount
   useEffect(() => {
@@ -128,6 +175,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
     // a list the user deliberately unpinned.
     if (!itemsRef.current.length) onPin?.(true);
     mutate((prev) => [...prev, ...withIds(lines.map((text) => ({ done: false, text })))]);
+    inputRef.current?.focus();
   };
 
   const handleToggle = (id) => {
@@ -148,6 +196,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
     e.preventDefault();
     vibrate();
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    dragIdRef.current = item.id;
     setDragId(item.id);
 
     const order = (itemsRef.current || []).map((it) => it.id);
@@ -192,6 +241,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
       clearTransforms();
+      dragIdRef.current = null;
       setDragId(null);
       if (toIdx === fromIdx) return;
       mutate((prev) => {
@@ -274,15 +324,19 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
   // Guard the spread: a corrupted persisted store must not crash the whole modal
   const chips = [...NOTE_SUGGESTIONS, ...(Array.isArray(noteChips) ? noteChips : [])];
 
-  // Pinned: one thin strip under the header showing only the current task — the same
-  // shape as the bottom status bar, so it reads as chrome rather than a floating card.
+  // Pinned: one thin strip at the very top of the pane showing only the current task —
+  // the same shape as the bottom status bar, so it reads as chrome rather than a card.
+  // Negative margins cancel the pane's padding so it spans edge to edge like that bar.
   // Ticking it advances to the next unchecked item; the modal (expand) holds the rest.
   if (variant === "pinned") {
-    const current = items?.find((it) => !it.done) || null;
+    // Nothing to show yet (still loading, or every item deleted) — an empty strip would
+    // just eat a terminal row. It comes back on its own once an item exists.
+    if (!hasItems) return null;
+    const current = items.find((it) => !it.done) || null;
     return (
       <div
         style={{ height: STATUS_BAR_HEIGHT }}
-        className="flex items-center gap-2 px-2 flex-shrink-0 bg-surface border-b border-border-subtle text-[11px] text-text-muted select-none"
+        className="flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface border-b border-border-subtle text-[11px] text-text-muted select-none"
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
       >
@@ -296,18 +350,14 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
             <span className="flex-1 min-w-0 truncate text-text" title={current.text}>{current.text}</span>
           </>
         ) : (
-          <span className="flex-1 min-w-0 truncate">
-            {hasItems ? t("note.allDone") : t("note.empty")}
-          </span>
+          <span className="flex-1 min-w-0 truncate">{t("note.allDone")}</span>
         )}
-        {hasItems && (
-          <span className="flex-shrink-0 text-text-subtle">{doneCount}/{items.length}</span>
-        )}
+        <span className="flex-shrink-0 text-text-subtle">{doneCount}/{items.length}</span>
         <button
           onClick={() => { vibrate(); onExpand?.(); }}
           className="p-0.5 text-text-muted hover:text-text rounded-[2px] hover:bg-white/10 transition-colors flex-shrink-0"
           title={t("note.expand")}>
-          <ExternalLink size={12} />
+          <Maximize2 size={12} />
         </button>
         <button
           onClick={() => { vibrate(); onClose(); }}
@@ -501,7 +551,10 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
             placeholder={t("note.multilinePlaceholder")}
             className="flex-1 min-w-0 resize-none bg-surface-2 border border-border-subtle focus-within:border-brand-500 rounded-brand px-3 py-2 text-sm text-text outline-none placeholder:text-text-subtle transition-colors"
           />
+          {/* Tapping the button would blur the box and drop the soft keyboard between
+              items — swallow the blur, then hand focus straight back. */}
           <button type="submit" disabled={!input.trim()}
+            onMouseDown={(e) => e.preventDefault()}
             className="p-2 bg-brand-500 hover:bg-brand-600 text-white rounded-brand transition-colors disabled:opacity-40 flex-shrink-0"
             title={t("note.addLines")}>
             <Plus size={16} />

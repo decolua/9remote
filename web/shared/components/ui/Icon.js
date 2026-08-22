@@ -60,6 +60,8 @@ export const {
   Pencil,
   StickyNote,
   SquarePen,
+  ListChecks,
+  Maximize2,
   Sparkles,
   Globe,
   Palette,

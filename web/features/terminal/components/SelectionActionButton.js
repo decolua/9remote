@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Copy, X, StickyNote } from "@/shared/components/ui/Icon";
+import { ExternalLink, Copy, X, ListChecks } from "@/shared/components/ui/Icon";
 import { LINK_PATTERNS } from "../constants/linkPatterns";
 import { useI18n } from "@/shared/i18n";
 
@@ -83,7 +83,7 @@ export default function SelectionActionButton({
               onClick={() => handleAction("addNote")}
               className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface-2 text-text text-left rounded-brand transition-colors mb-1"
             >
-              <StickyNote size={20} />
+              <ListChecks size={20} />
               <span>{t("terminalPane.addToNote")}</span>
             </button>
           )}

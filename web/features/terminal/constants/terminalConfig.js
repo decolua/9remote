@@ -91,6 +91,10 @@ export const MAX_CHANGED_BADGE = 999; // Cap changed-count badge; above shows "9
 // checklist (markdown) into the pane's terminal. User-added chips live in terminalStore.
 export const NOTE_SUGGESTIONS = ["check again", "continue", "summarize"];
 
+// The pinned strip and the modal are separate mounts of NotePanel, so an edit in one
+// is broadcast to the other (detail: {sessionId, items}) instead of re-reading the agent.
+export const NOTE_SYNC_EVENT = "terminal:noteSync";
+
 // Mobile status strip: the right slot alternates between the cwd folder and the
 // running CLI's 5h quota, since a phone-width bar fits only one at a time.
 export const STRIP_ROTATE_MS = 5000;

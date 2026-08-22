@@ -6,7 +6,7 @@ import SelectionActionButton from "@/features/terminal/components/SelectionActio
 import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
-import { ChevronDown, Folder, RefreshCw, SquarePen } from "@/shared/components/ui/Icon";
+import { ChevronDown, Folder, RefreshCw, ListChecks } from "@/shared/components/ui/Icon";
 import NotePanel from "@/features/terminal/components/NotePanel";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -315,7 +315,7 @@ function TerminalPane({
         </button>
       )}
       {cwd && isFocused && (
-        <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none">
+        <div className={`absolute right-2 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none ${notePinned && showNoteButton ? "top-9" : "top-2"}`}>
           <div className="flex flex-row gap-2">
             {showNoteButton && (
               <button
@@ -325,7 +325,7 @@ function TerminalPane({
                 className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
                 title={t("terminalPane.note")}
               >
-                <SquarePen size={16} />
+                <ListChecks size={16} />
               </button>
             )}
             <button
