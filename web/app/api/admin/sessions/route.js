@@ -20,15 +20,15 @@ export async function GET(request) {
     const pageSize = Math.max(1, Math.min(200, parseInt(url.searchParams.get("pageSize") || String(PAGE_SIZE_DEFAULT), 10)));
     const offset = (page - 1) * pageSize;
 
-    const where = search ? "WHERE machineId LIKE ? OR shortId LIKE ? OR publicIp LIKE ? OR localIp LIKE ?" : "";
-    const params = search ? [`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`] : [];
+    const where = search ? "WHERE machineId LIKE ? OR publicIp LIKE ? OR localIp LIKE ?" : "";
+    const params = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
 
     // Read replica: a browsed list is the one place seconds of lag costs nothing,
     // and this pair is the heaviest scan in the app (COUNT + sorted page).
     const db = readDb(env);
     const totalRow = await withD1Retry(() => db.prepare(`SELECT COUNT(*) AS c FROM sessions ${where}`).bind(...params).first());
     const rows = await withD1Retry(() => db.prepare(`
-      SELECT machineId, apiKey, shortId, tunnelUrl, publicIp, localIp, createdAt, lastAccessAt, expiresAt
+      SELECT machineId, apiKey, tunnelUrl, publicIp, localIp, createdAt, lastAccessAt, expiresAt
       FROM sessions ${where}
       ORDER BY ${sortBy} ${order.toUpperCase()}
       LIMIT ? OFFSET ?

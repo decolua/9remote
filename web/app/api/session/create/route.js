@@ -10,7 +10,7 @@ export function OPTIONS() { return optionsResponse(); }
 export async function POST(request) {
   try {
   const { env } = getCloudflareContext();
-  const { apiKey, shortId, hostPublicKey, tempKey } = await request.json();
+  const { apiKey, hostPublicKey, tempKey } = await request.json();
 
   if (!(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
   const { machineId } = parseApiKey(apiKey);
@@ -38,17 +38,16 @@ export async function POST(request) {
   }) ? (hostPublicKey || null) : existing.hostPublicKey;
 
   await withD1Retry(() => env.DB.prepare(`
-    INSERT INTO sessions (machineId, apiKey, shortId, hostPublicKey, tunnelUrl, lastAccessAt, expiresAt)
-    VALUES (?, ?, ?, ?, NULL, datetime('now'), datetime('now', '+7 days'))
+    INSERT INTO sessions (machineId, apiKey, hostPublicKey, tunnelUrl, lastAccessAt, expiresAt)
+    VALUES (?, ?, ?, NULL, datetime('now'), datetime('now', '+7 days'))
     ON CONFLICT(apiKey)
     DO UPDATE SET
-      shortId = COALESCE(shortId, excluded.shortId),
       -- COALESCE keeps a registered key when this call carries none (an older
       -- agent, or one that failed to read hostKey.json).
       hostPublicKey = COALESCE(excluded.hostPublicKey, sessions.hostPublicKey),
       lastAccessAt = datetime('now'),
       expiresAt = datetime('now', '+7 days')
-  `).bind(machineId, apiKey, shortId || null, keyToWrite).run());
+  `).bind(machineId, apiKey, keyToWrite).run());
 
   // A restart reuses the apiKey but drops the old tunnelUrl — clear the cache so
   // clients do not keep resolving to the previous run's tunnel.

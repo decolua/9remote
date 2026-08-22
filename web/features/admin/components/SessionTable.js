@@ -5,7 +5,6 @@ import { SESSION_SORT_FIELDS, SESSION_ONLINE_THRESHOLD_MS, LOYALTY_TIERS } from 
 
 const COLUMNS = [
   { key: "machineId", label: "Machine ID", sortable: true },
-  { key: "shortId", label: "Short ID", sortable: false },
   { key: "publicIp", label: "Public IP", sortable: false },
   { key: "localIp", label: "Local IP", sortable: false },
   { key: "createdAt", label: "Created", sortable: true },
@@ -110,7 +109,6 @@ export default function SessionTable({ items, sortBy, order, onSortChange, onDel
             </div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
               <div className="text-text-muted">Loyalty</div><div><LoyaltyBadge session={s} /></div>
-              <div className="text-text-muted">Short ID</div><div>{s.shortId || "-"}</div>
               <div className="text-text-muted">Public IP</div><div>{s.publicIp || "-"}</div>
               <div className="text-text-muted">Local IP</div><div>{s.localIp || "-"}</div>
               <div className="text-text-muted">Last Access</div><div>{formatTime(s.lastAccessAt)}</div>
@@ -154,7 +152,6 @@ export default function SessionTable({ items, sortBy, order, onSortChange, onDel
                   </td>
                   <td className="px-3 py-2"><LoyaltyBadge session={s} /></td>
                   <td className="px-3 py-2 font-mono text-xs">{s.machineId}</td>
-                <td className="px-3 py-2">{s.shortId || "-"}</td>
                 <td className="px-3 py-2">{s.publicIp || "-"}</td>
                 <td className="px-3 py-2">{s.localIp || "-"}</td>
                 <td className="px-3 py-2">{formatTime(s.createdAt)}</td>
