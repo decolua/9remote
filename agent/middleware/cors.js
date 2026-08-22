@@ -22,6 +22,31 @@ export function isAllowedOrigin(origin) {
   return LOCAL_UI_ORIGINS.includes(origin);         // exact, including scheme and port
 }
 
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"]);
+
+/**
+ * Was this request addressed to us by a local name?
+ *
+ * The Origin check above has a gap the address check cannot see either: DNS
+ * rebinding. A page served from evil.com, whose A record then flips to
+ * 127.0.0.1, reaches this server with requests that are SAME-origin to itself —
+ * so no Origin header at all, and a peer address that is loopback. Both guards
+ * pass and it reads whatever it likes, including the permanent key.
+ *
+ * What it cannot change is the Host header: the page has to keep calling itself
+ * evil.com for the rebind to be same-origin. So a Host that is not a local name
+ * is the signature of that attack, and nothing legitimate produces it — the UI,
+ * the CLI's own polling and the Tauri shell all address localhost or 127.0.0.1.
+ * The tunnel sends its own hostname, which is why this only gates private routes.
+ */
+export function isLocalHost(hostHeader) {
+  if (!hostHeader) return true; // HTTP/1.0 or a raw socket — not a browser
+  const host = String(hostHeader).trim().toLowerCase();
+  // Strip the port, keeping bracketed IPv6 intact.
+  const name = host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.split(":")[0];
+  return LOCAL_HOSTNAMES.has(name);
+}
+
 /**
  * The value for Access-Control-Allow-Origin, or null to send none.
  *

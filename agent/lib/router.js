@@ -6,7 +6,7 @@
  */
 
 import { parse } from "url";
-import { setCorsHeaders, handlePreflight, isAllowedOrigin } from "../middleware/cors.js";
+import { setCorsHeaders, handlePreflight, isAllowedOrigin, isLocalHost } from "../middleware/cors.js";
 
 function readBody(req) {
   return new Promise((resolve) => {
@@ -111,6 +111,14 @@ export function createRouter(routes, { fallback } = {}) {
     // agent's UI from any other site the user happens to have open.
     if (!routeIsPublic && !isAllowedOrigin(origin)) {
       jsonErr(res, 403, "Forbidden origin");
+      return;
+    }
+
+    // And a rebound name defeats both of the above — same-origin to itself, so
+    // no Origin at all, arriving from loopback. The Host it must keep is what
+    // gives it away.
+    if (!routeIsPublic && !isLocalHost(req.headers.host)) {
+      jsonErr(res, 403, "Forbidden host");
       return;
     }
 

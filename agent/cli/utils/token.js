@@ -21,10 +21,10 @@ export async function createTempKey(apiKey, workerUrl) {
     const response = await browserFetch(`${workerUrl}/api/temp-key/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        apiKey: headOf(apiKey),
-        expiryMinutes: TEMP_KEY_EXPIRY_MINUTES
-      })
+      body: JSON.stringify((() => {
+        const fields = { apiKey: headOf(apiKey), expiryMinutes: TEMP_KEY_EXPIRY_MINUTES };
+        return { ...fields, ...sessionMutationAuth(fields) };
+      })())
     });
 
     if (!response.ok) {

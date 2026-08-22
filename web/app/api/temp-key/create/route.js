@@ -2,6 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { verifyApiKeyCrc, normalizeApiKey } from "@/shared/utils/apiKey";
 import { withD1Retry } from "@/shared/utils/db";
 import { jsonOk, jsonError, optionsResponse } from "@/shared/utils/apiResponse";
+import { checkMutationAuth } from "@/shared/utils/sessionMutationAuth";
 
 
 const TEMP_KEY_LENGTH = 6;
@@ -34,12 +35,21 @@ export function OPTIONS() { return optionsResponse(); }
 export async function POST(request) {
   try {
     const { env } = getCloudflareContext();
-    const { apiKey, expiryMinutes = TEMP_KEY_EXPIRY_MINUTES } = await request.json();
+    const body = await request.json();
+    const { apiKey, expiryMinutes = TEMP_KEY_EXPIRY_MINUTES } = body;
 
     if (!apiKey || !(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
-    // v2 keys pass the format check alone — a live session row is the real gate
-    const session = await withD1Retry(() => env.DB.prepare("SELECT 1 FROM sessions WHERE apiKey = ?").bind(normalizeApiKey(apiKey)).first());
+    const session = await withD1Retry(() => env.DB.prepare(
+      "SELECT hostPublicKey FROM sessions WHERE apiKey = ?"
+    ).bind(normalizeApiKey(apiKey)).first());
     if (!session) return jsonError("Invalid API key");
+
+    // A pairing code is what session/create accepts as proof that someone is at
+    // the machine, so minting one must itself be proof of the same thing. The
+    // HEAD is public: without this, anyone holding one could mint a code for
+    // someone else's agent and use it to replace their registered host key.
+    const auth = await checkMutationAuth({ storedPublicKey: session.hostPublicKey, body });
+    if (!auth.ok) return jsonError(`Unauthorized: ${auth.reason}`, 403);
 
     await withD1Retry(() => env.DB.prepare(`DELETE FROM temp_keys WHERE api_key = ?`).bind(apiKey).run());
 

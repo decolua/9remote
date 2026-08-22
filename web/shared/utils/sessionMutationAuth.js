@@ -28,12 +28,12 @@ export const MUTATION_MAX_SKEW_MS = 5 * 60 * 1000;
  * produce identical strings otherwise, so one signature would cover two
  * different requests.
  */
-export function mutationPayload({ apiKey, tunnelUrl, localIp, ts }) {
+export function mutationPayload({ apiKey, tunnelUrl, localIp, expiryMinutes, ts }) {
   const field = (v) => {
     const s = v == null ? "" : String(v);
     return `${s.length}:${s}`;
   };
-  return `9remote-session-v1|${field(apiKey)}${field(tunnelUrl)}${field(localIp)}${field(ts)}`;
+  return `9remote-session-v1|${field(apiKey)}${field(tunnelUrl)}${field(localIp)}${field(expiryMinutes)}${field(ts)}`;
 }
 
 const ED25519_SPKI_PREFIX = new Uint8Array([
