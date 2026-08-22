@@ -182,5 +182,6 @@ export const SENSITIVE_HOME_DIRS = [
   ".npmrc", ".netrc", ".pypirc", ".config/gh", ".config/gcloud"
 ];
 export const SENSITIVE_ABS_PATHS = [
-  "/etc/shadow", "/etc/sudoers", "/etc/ssh", "/root", "/private/etc/sudoers"
+  // /var/root is root's actual home on macOS; /root is the Linux one.
+  "/etc/shadow", "/etc/sudoers", "/etc/ssh", "/root", "/var/root", "/private/etc/sudoers"
 ];

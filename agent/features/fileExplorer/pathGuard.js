@@ -33,11 +33,20 @@ const CASE_INSENSITIVE_FS = process.platform === "darwin" || process.platform ==
 const fold = (p) => (CASE_INSENSITIVE_FS ? p.toLowerCase() : p);
 
 // Blocklist entries go through canonicalize too — on macOS /etc/ssh realpaths to
-// /private/etc/ssh, which a literal compare would never match.
-const CANONICAL_ABS_PATHS = SENSITIVE_ABS_PATHS.flatMap((p) => {
+// /private/etc/ssh, which a literal compare would never match. Both spellings are
+// kept: the input is canonicalized as well, but only where the path exists.
+function bothForms(p) {
   const real = canonicalize(p);
   return real && real !== p ? [p, real] : [p];
-});
+}
+
+const CANONICAL_ABS_PATHS = SENSITIVE_ABS_PATHS.flatMap(bothForms);
+
+// The same treatment for the home entries, which is easy to forget because the
+// symlink is in HOME rather than in the entry: with HOME=/tmp/x (a symlink),
+// canonicalize turns a request into /private/tmp/x/.ssh while a raw join yields
+// /tmp/x/.ssh — no match, and ~/.ssh reads straight through.
+const CANONICAL_HOME_DIRS = SENSITIVE_HOME_DIRS.flatMap((rel) => bothForms(path.join(HOME, rel)));
 
 function isUnder(abs, target) {
   const a = fold(abs), t = fold(target);
@@ -51,8 +60,8 @@ export function isSensitivePath(input) {
   for (const sys of CANONICAL_ABS_PATHS) {
     if (isUnder(abs, sys)) return true;
   }
-  for (const rel of SENSITIVE_HOME_DIRS) {
-    if (isUnder(abs, path.join(HOME, rel))) return true;
+  for (const home of CANONICAL_HOME_DIRS) {
+    if (isUnder(abs, home)) return true;
   }
   return false;
 }

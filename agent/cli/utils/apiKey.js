@@ -91,7 +91,12 @@ export function tailOf(apiKey) {
  * without putting the tail in an HTTP header.
  */
 export function matchesLocalKey(presented, storedKey) {
-  if (typeof presented !== "string" || !presented || !storedKey) return false;
+  // Both must be strings before headOf: it passes a non-v2 value straight
+  // through, and Buffer.from would then throw on a number or an object rather
+  // than refusing. Only ever reached with what loadKey() returns, but a guard
+  // that answers false costs nothing next to one that throws.
+  if (typeof presented !== "string" || !presented) return false;
+  if (typeof storedKey !== "string" || !storedKey) return false;
   const a = Buffer.from(headOf(presented) || "", "utf8");
   const b = Buffer.from(headOf(storedKey) || "", "utf8");
   // Length guard first — timingSafeEqual throws when the two differ.
