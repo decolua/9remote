@@ -5,6 +5,7 @@ import { readFileSync, existsSync, mkdirSync } from "fs";
 import { writeJsonAtomic } from "./atomicFile.js";
 import { join } from "path";
 import { PATHS } from "./constants.js";
+import { unsealTail, hostFp2Of } from "./tailSeal.js";
 
 const HOST_KEY_FILE = join(PATHS.CONFIG, "hostKey.json");
 
@@ -32,10 +33,22 @@ function load() {
     if (existsSync(HOST_KEY_FILE)) {
       const data = JSON.parse(readFileSync(HOST_KEY_FILE, "utf8"));
       const spki = Buffer.from(data.publicKey, "base64");
+      // A file written before sealing existed has no X25519 half; generate one
+      // and write it back rather than discarding the Ed25519 identity, which
+      // clients may already have pinned.
+      if (!data.x25519PrivateKey) {
+        const x = crypto.generateKeyPairSync("x25519");
+        data.x25519PrivateKey = x.privateKey.export({ type: "pkcs8", format: "der" }).toString("base64");
+        data.x25519PublicKey = x.publicKey.export({ type: "spki", format: "der" }).toString("base64");
+        writeJsonAtomic(HOST_KEY_FILE, data);
+      }
+      const xSpki = Buffer.from(data.x25519PublicKey, "base64");
       _cached = {
         privateKey: crypto.createPrivateKey({ key: Buffer.from(data.privateKey, "base64"), format: "der", type: "pkcs8" }),
         publicKey: crypto.createPublicKey({ key: spki, format: "der", type: "spki" }),
-        publicKeyB64: spki.subarray(-32).toString("base64")
+        publicKeyB64: spki.subarray(-32).toString("base64"),
+        x25519PrivateKey: crypto.createPrivateKey({ key: Buffer.from(data.x25519PrivateKey, "base64"), format: "der", type: "pkcs8" }),
+        x25519PublicKeyB64: xSpki.subarray(-32).toString("base64")
       };
       return _cached;
     }
@@ -46,8 +59,22 @@ function load() {
   const { privateKey, publicKey } = crypto.generateKeyPairSync("ed25519");
   const spkiB64 = publicKey.export({ type: "spki", format: "der" }).toString("base64");
   const privateKeyB64 = privateKey.export({ type: "pkcs8", format: "der" }).toString("base64");
-  writeJsonAtomic(HOST_KEY_FILE, { privateKey: privateKeyB64, publicKey: spkiB64 });
-  _cached = { privateKey, publicKey, publicKeyB64: Buffer.from(spkiB64, "base64").subarray(-32).toString("base64") };
+  // Ed25519 signs, X25519 receives — one algorithm cannot do both, and fp2
+  // covers the pair so the user still reads two characters for both.
+  const x = crypto.generateKeyPairSync("x25519");
+  const xSpkiB64 = x.publicKey.export({ type: "spki", format: "der" }).toString("base64");
+  writeJsonAtomic(HOST_KEY_FILE, {
+    privateKey: privateKeyB64,
+    publicKey: spkiB64,
+    x25519PrivateKey: x.privateKey.export({ type: "pkcs8", format: "der" }).toString("base64"),
+    x25519PublicKey: xSpkiB64
+  });
+  _cached = {
+    privateKey, publicKey,
+    publicKeyB64: Buffer.from(spkiB64, "base64").subarray(-32).toString("base64"),
+    x25519PrivateKey: x.privateKey,
+    x25519PublicKeyB64: Buffer.from(xSpkiB64, "base64").subarray(-32).toString("base64")
+  };
   return _cached;
 }
 
@@ -59,9 +86,21 @@ export function getHostPublicKeyB64() {
   return load().publicKeyB64;
 }
 
-// 2-char fingerprint of this agent's host key — rides the one-time pairing code.
+/** The key clients seal the TAIL to. Public half only. */
+export function getHostX25519PublicKeyB64() {
+  return load().x25519PublicKeyB64;
+}
+
+/** Open a tail sealed to this agent; null when it was not meant for us. */
+export function openSealedTail(sealed) {
+  return unsealTail(sealed, load().x25519PrivateKey);
+}
+
+// 2-char fingerprint over BOTH host keys — rides the one-time pairing code, so
+// reading two characters vouches for the signing key and the sealing key at once.
 export function getHostFp2() {
-  return fp2OfPublicKey(load().publicKeyB64);
+  const k = load();
+  return hostFp2Of(k.publicKeyB64, k.x25519PublicKeyB64);
 }
 
 export function signSdp(sdp) {
@@ -73,13 +112,13 @@ export function signSdp(sdp) {
 // from whoever knows the apiKey HEAD. Mirrors web/shared/utils/sessionMutationAuth.js.
 const MUTATION_PREFIX = "9remote-session-v1";
 
-export function signSessionMutation({ apiKey, tunnelUrl, localIp, ts }) {
+export function signSessionMutation({ apiKey, tunnelUrl, localIp, expiryMinutes, ts }) {
   // Length-prefixed so no two different field splits produce one string.
   const field = (v) => {
     const s = v == null ? "" : String(v);
     return `${s.length}:${s}`;
   };
-  const payload = `${MUTATION_PREFIX}|${field(apiKey)}${field(tunnelUrl)}${field(localIp)}${field(ts)}`;
+  const payload = `${MUTATION_PREFIX}|${field(apiKey)}${field(tunnelUrl)}${field(localIp)}${field(expiryMinutes)}${field(ts)}`;
   return crypto.sign(null, Buffer.from(payload, "utf8"), load().privateKey).toString("base64");
 }
 

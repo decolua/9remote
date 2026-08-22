@@ -81,7 +81,7 @@ export async function POST(request) {
       // invalidation, so a lagging replica would pin the previous tunnelUrl for a
       // full TTL — exactly the URL the invalidation existed to drop.
       const row = await withD1Retry(() => env.DB.prepare(`
-        SELECT tunnelUrl, machineId, publicIp, localIp,
+        SELECT tunnelUrl, machineId, publicIp, localIp, hostPublicKey, hostX25519Key,
                (lastAccessAt IS NULL OR lastAccessAt < datetime('now', '-${LAST_ACCESS_THROTTLE_SEC} seconds')) AS lastAccessStale
         FROM sessions
         WHERE apiKey = ?
@@ -96,7 +96,16 @@ export async function POST(request) {
         await withD1Retry(() => env.DB.prepare(`UPDATE sessions SET lastAccessAt = datetime('now') WHERE apiKey = ?`)
           .bind(apiKey).run());
       }
-      return { tunnelUrl: row.tunnelUrl, localIp: row.localIp || null };
+      // The host keys ride along so a client that never established RTC — and so
+      // never pinned anything — can still seal its tail. They arrive from the
+      // Worker, which is not a trusted source: the client compares fp2 over the
+      // pair against the two characters read off the agent's screen before
+      // believing them.
+      return {
+        tunnelUrl: row.tunnelUrl,
+        localIp: row.localIp || null,
+        hostKeys: row.hostPublicKey ? { ed: row.hostPublicKey, x: row.hostX25519Key || null } : null
+      };
     });
 
     if (sessionMissing) return jsonError("Session not found or expired", 404);
@@ -104,7 +113,7 @@ export async function POST(request) {
 
     console.log(`[connect] apiKey=${apiKey?.slice(0,8)} tunnelUrl=${cached.tunnelUrl} localIp=${cached.localIp || "none"}`);
 
-    return jsonOk({ tunnelUrl: cached.tunnelUrl, apiKey, tempKey, localIp: cached.localIp });
+    return jsonOk({ tunnelUrl: cached.tunnelUrl, apiKey, tempKey, localIp: cached.localIp, hostKeys: cached.hostKeys || null });
   } catch (e) {
     return jsonError(e?.message || String(e), 500);
   }

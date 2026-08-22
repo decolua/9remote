@@ -1,12 +1,19 @@
 import { getTrust } from "@/shared/transport/lib/deviceTrust";
+import { sealTail } from "@/shared/transport/lib/tailSeal";
 
 /**
  * Handshake auth for one connect attempt.
  *
- * Carries the key TAIL straight to the agent. The tunnel is a Cloudflare Tunnel
- * to the user's own machine — not this project's Worker — so the TAIL is not
- * handed to the signaling server by travelling here. It deliberately does NOT
- * ride the DO signaling relay, which IS ours.
+ * The key TAIL admits a device, and it goes to the agent here. Neither carrier
+ * is this project's server — the tunnel terminates on the user's own machine
+ * and RTC is peer to peer — and it deliberately never rides the DO signaling
+ * relay, which IS ours.
+ *
+ * But "not our server" is not the same as "nobody's": the tunnel is a path, and
+ * whoever holds a path reads what crosses it. So when the agent's sealing key
+ * has been pinned — anchored by the fp2 the user read off its screen — the tail
+ * is encrypted to it and only the agent can open it. Without a pinned key there
+ * is nothing to seal to and it travels as before; the agent accepts either.
  *
  * Built per attempt rather than once: socket.io reconnects on its own (phone
  * sleeps, network flaps) and the trust store can gain a TAIL in between (an
@@ -15,10 +22,24 @@ import { getTrust } from "@/shared/transport/lib/deviceTrust";
  * No TAIL held (v1 key, pre-split pairing) means the field is simply absent and
  * the agent applies its legacy path.
  */
-export function freshAuth(baseAuth = {}, connectionMode) {
+export async function freshAuth(baseAuth = {}, connectionMode) {
   const auth = { ...baseAuth, connectionMode };
-  const tail = getTrust(baseAuth.apiKey)?.tail;
-  if (tail) auth.keyTail = tail;
-  else delete auth.keyTail;
+  const trust = getTrust(baseAuth.apiKey);
+  const tail = trust?.tail;
+
+  delete auth.keyTail;
+  delete auth.keyTailSealed;
+  if (!tail) return auth;
+
+  if (trust?.hostSealKey) {
+    const sealed = await sealTail(tail, trust.hostSealKey);
+    if (sealed) {
+      auth.keyTailSealed = sealed;
+      return auth;
+    }
+    // Sealing failed — a browser without X25519, or a stored key that no longer
+    // imports. The tail still has to reach the agent for this device to connect.
+  }
+  auth.keyTail = tail;
   return auth;
 }

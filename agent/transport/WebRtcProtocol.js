@@ -5,7 +5,7 @@ import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER } from "../lib/transportConstant
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { resolveCandidate } from "../lib/mdnsResolver.js";
 import { createLogger } from "../lib/logger.js";
-import { getHostPublicKeyB64, signSdp } from "../lib/hostKey.js";
+import { getHostPublicKeyB64, getHostX25519PublicKeyB64, signSdp } from "../lib/hostKey.js";
 
 const logger = createLogger("webrtc");
 
@@ -296,6 +296,9 @@ export class WebRtcProtocol extends BaseProtocol {
           type: "answer",
           sdp: answerSdp,
           pub: getHostPublicKeyB64(),
+          // The sealing key rides along so a client pinning us here can seal its
+          // tail on the WS carrier too, without a second round trip.
+          xpub: getHostX25519PublicKeyB64(),
           sig: signSdp(answerSdp)
         });
         resolve();

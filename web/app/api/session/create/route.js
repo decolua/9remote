@@ -10,7 +10,7 @@ export function OPTIONS() { return optionsResponse(); }
 export async function POST(request) {
   try {
   const { env } = getCloudflareContext();
-  const { apiKey, hostPublicKey, tempKey } = await request.json();
+  const { apiKey, hostPublicKey, hostX25519Key, tempKey } = await request.json();
 
   if (!(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
   const { machineId } = parseApiKey(apiKey);
@@ -35,23 +35,29 @@ export async function POST(request) {
     pairedNow = !!paired;
   }
 
-  const keyToWrite = canReplaceHostKey({
+  // Both halves move together or neither does: fp2 is one fingerprint over the
+  // pair, so a row holding one agent's signing key and another's sealing key
+  // would match no fingerprint at all.
+  const accepted = canReplaceHostKey({
     stored: existing?.hostPublicKey || null,
     presented: hostPublicKey || null,
     pairedNow
-  }) ? (hostPublicKey || null) : existing.hostPublicKey;
+  });
+  const keyToWrite = accepted ? (hostPublicKey || null) : existing.hostPublicKey;
+  const sealKeyToWrite = accepted ? (hostX25519Key || null) : null;
 
   await withD1Retry(() => env.DB.prepare(`
-    INSERT INTO sessions (machineId, apiKey, hostPublicKey, tunnelUrl, lastAccessAt, expiresAt)
-    VALUES (?, ?, ?, NULL, datetime('now'), datetime('now', '+7 days'))
+    INSERT INTO sessions (machineId, apiKey, hostPublicKey, hostX25519Key, tunnelUrl, lastAccessAt, expiresAt)
+    VALUES (?, ?, ?, ?, NULL, datetime('now'), datetime('now', '+7 days'))
     ON CONFLICT(apiKey)
     DO UPDATE SET
       -- COALESCE keeps a registered key when this call carries none (an older
       -- agent, or one that failed to read hostKey.json).
       hostPublicKey = COALESCE(excluded.hostPublicKey, sessions.hostPublicKey),
+      hostX25519Key = COALESCE(excluded.hostX25519Key, sessions.hostX25519Key),
       lastAccessAt = datetime('now'),
       expiresAt = datetime('now', '+7 days')
-  `).bind(machineId, apiKey, keyToWrite).run());
+  `).bind(machineId, apiKey, keyToWrite, sealKeyToWrite).run());
 
   // A restart reuses the apiKey but drops the old tunnelUrl — clear the cache so
   // clients do not keep resolving to the previous run's tunnel.

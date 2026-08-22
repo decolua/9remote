@@ -13,6 +13,7 @@ import { validatePairingFp2, getActivePairing } from "./pairingCode.js";
 import { CHANNELS } from "./transportConstants.js";
 import { tailOf, headOf } from "../cli/utils/apiKey.js";
 import { loadKey } from "../cli/utils/state.js";
+import { openSealedTail } from "./hostKey.js";
 
 const logger = createLogger("deviceAuth");
 
@@ -40,6 +41,32 @@ export function verifyKeyTail(presentedTail) {
   const a = Buffer.from(String(presentedTail), "utf8");
   const b = Buffer.from(tail, "utf8");
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * The tail this handshake presents, whichever form it arrived in.
+ *
+ * `keyTailSealed` is encrypted to this agent's X25519 key: over the WS carrier
+ * — a Cloudflare tunnel — a plain tail is readable by whoever holds that path,
+ * and the tail is what admits a device. RTC is peer to peer, so a plain tail
+ * there is fine and older clients keep working.
+ *
+ * The three answers are distinct and the caller depends on it: a string is a
+ * tail to compare, `null` is "presented something that did not open" (an
+ * impostor — never admit), and `undefined` is "presented nothing", which has
+ * its own legitimate cases. A seal that fails must not collapse into either of
+ * the others, so the plain field is ignored once a sealed one is present.
+ *
+ * @param {object} auth socket.handshake.auth
+ * @param {(sealed: object) => string|null} open unseals with the agent's key
+ */
+export function presentedTailOf(auth, open) {
+  const sealed = auth?.keyTailSealed;
+  if (sealed !== undefined) {
+    if (!sealed || typeof sealed !== "object" || Array.isArray(sealed)) return null;
+    return open(sealed) ?? null;
+  }
+  return auth?.keyTail;
 }
 
 /**
@@ -82,13 +109,14 @@ export function decideAdmission(socket, deviceId) {
   // WS connect that follows. Demanding it here would drop a session the gate
   // already admitted and bounce the device back into the approval modal, even
   // with auto-approve on. The WS carrier still presents it when it attaches.
-  if (socket.isVirtual && !socket.handshake?.auth?.keyTail) {
+  if (socket.isVirtual && presentedTailOf(socket.handshake?.auth, openSealedTail) === undefined) {
     if (gate === "auto") approveDevice(deviceId);
     return "admit";
   }
 
   const keyHead = headOf(loadKey()?.key || "");
-  const presented = socket.handshake?.auth?.keyTail;
+  // Sealed when the client could reach our X25519 key, plain over RTC.
+  const presented = presentedTailOf(socket.handshake?.auth, openSealedTail);
 
   // An enrollment that already ran on this socket counts too — the TAIL reached
   // that device through the fp2-checked RTC channel.

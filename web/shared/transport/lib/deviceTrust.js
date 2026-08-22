@@ -5,6 +5,7 @@
 // TAIL travels only to the agent itself (see adapters/freshAuth).
 
 import { CHANNELS } from "@/shared/constants/transport";
+import { hostFp2Of } from "./tailSeal";
 
 const TRUST_KEY = "9remote_device_trust";
 const PENDING_FP2_KEY = "9remote_pending_fp2";
@@ -45,6 +46,28 @@ export function setTrust(apiKey, patch) {
   const map = readTrustMap();
   map[apiKey] = { ...(map[apiKey] || {}), ...patch };
   writeTrustMap(map);
+}
+
+/**
+ * Pin the agent's host keys when they arrive from somewhere untrusted.
+ *
+ * A client that never established RTC never reached _verifyHostAnswer, so it
+ * has nothing pinned and nothing to seal its tail to. /api/connect can hand the
+ * keys over — but the Worker is precisely the party this design does not trust,
+ * so they are only believed when fp2 over the pair matches the two characters
+ * the user read off the agent's own screen.
+ *
+ * Returns true when the keys were pinned.
+ */
+export async function pinHostKeysWithFp2(apiKey, hostKeys) {
+  if (!apiKey || !hostKeys?.ed || !hostKeys?.x) return false;
+  if (getTrust(apiKey)?.hostPubKey) return false; // already anchored; do not overwrite
+  const pending = getPendingFp2();
+  if (!pending) return false;                     // no out-of-band anchor to check against
+  const fp2 = await hostFp2Of(hostKeys.ed, hostKeys.x);
+  if (fp2 !== pending) return false;              // the server named a different agent
+  setTrust(apiKey, { hostPubKey: hostKeys.ed, hostSealKey: hostKeys.x, fp2 });
+  return true;
 }
 
 /** fp2 from the pairing code (URL fragment / typed suffix) — stays in the

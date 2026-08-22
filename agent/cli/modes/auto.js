@@ -1,5 +1,5 @@
 import { browserFetch, SERVER_PORT, STEP } from "../../lib/constants.js";
-import { getHostPublicKeyB64 } from "../../lib/hostKey.js";
+import { getHostPublicKeyB64, getHostX25519PublicKeyB64 } from "../../lib/hostKey.js";
 import { createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("mode");
@@ -31,7 +31,7 @@ async function startServerAndTunnel(selectedKey) {
     const res = await browserFetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: headOf(selectedKey), hostPublicKey: getHostPublicKeyB64() }),
+      body: JSON.stringify({ apiKey: headOf(selectedKey), hostPublicKey: getHostPublicKeyB64(), hostX25519Key: getHostX25519PublicKeyB64() }),
     });
     if (!res.ok) { logger.error(`Session create failed: ${res.status}`); return null; }
   } catch (e) {

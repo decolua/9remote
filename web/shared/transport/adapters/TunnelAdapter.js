@@ -27,7 +27,8 @@ export class TunnelAdapter {
       path: "/socket.io",
       // Function form: socket.io calls it per (re)connect, so a TAIL that
       // arrived mid-session (enrollment) is picked up without a fresh mount.
-      auth: (cb) => cb(freshAuth(this._socketOptions.auth, "tunnel"))
+      // socket.io waits on this callback, so the seal can be computed here.
+      auth: (cb) => { freshAuth(this._socketOptions.auth, "tunnel").then(cb); }
     });
 
     // socket.io keeps emitting connect_error after a successful connect, and a

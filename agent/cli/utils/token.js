@@ -1,6 +1,6 @@
 import { browserFetch } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
-import { getHostFp2, getHostPublicKeyB64, sessionMutationAuth } from "../../lib/hostKey.js";
+import { getHostFp2, getHostPublicKeyB64, getHostX25519PublicKeyB64, sessionMutationAuth } from "../../lib/hostKey.js";
 import { headOf } from "./apiKey.js";
 import { setActivePairing, getActivePairing } from "../../lib/pairingCode.js";
 
@@ -78,6 +78,7 @@ export async function registerSession(apiKey, workerUrl, tunnelUrl, previousKey)
       body: JSON.stringify({
         apiKey: headOf(apiKey),
         hostPublicKey: getHostPublicKeyB64(),
+        hostX25519Key: getHostX25519PublicKeyB64(),
         tempKey: getActivePairing()?.tempKey || undefined
       })
     });

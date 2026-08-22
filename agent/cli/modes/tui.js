@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { getHostPublicKeyB64 } from "../../lib/hostKey.js";
+import { getHostPublicKeyB64, getHostX25519PublicKeyB64 } from "../../lib/hostKey.js";
 import readline from "readline";
 import { browserFetch, SERVER_PORT, STEP, LOG_TAIL_LINES } from "../../lib/constants.js";
 import { LOG_FILE_PATH, readRecentLogs, createLogger } from "../../lib/logger.js";
@@ -64,7 +64,7 @@ export async function tuiMode() {
     const res = await browserFetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: headOf(keyData.key), hostPublicKey: getHostPublicKeyB64() }),
+      body: JSON.stringify({ apiKey: headOf(keyData.key), hostPublicKey: getHostPublicKeyB64(), hostX25519Key: getHostX25519PublicKeyB64() }),
     });
     if (!res.ok) throw new Error(`Session create failed: ${res.status}`);
   } catch (err) {

@@ -446,7 +446,7 @@ export class WebRtcProtocol extends BaseProtocol {
         // the new key is out-of-band consent to re-pin; otherwise reject.
         const pendingFp2 = getPendingFp2();
         if (pendingFp2 && (await fp2OfPublicKey(msg.pub)) === pendingFp2) {
-          setTrust(apiKey, { hostPubKey: msg.pub, fp2: pendingFp2 });
+          setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub || null, fp2: pendingFp2 });
           debugLog("transport", "[rtc] host key re-pinned via fresh pairing fp2");
           return true;
         }
@@ -470,7 +470,7 @@ export class WebRtcProtocol extends BaseProtocol {
         takePendingFp2();
         return false;
       }
-      setTrust(apiKey, { hostPubKey: msg.pub, fp2 });
+      setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub || null, fp2 });
       debugLog("transport", "[rtc] host key pinned via pairing fp2");
       return true;
     }

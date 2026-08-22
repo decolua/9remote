@@ -33,7 +33,7 @@ export class LocalFirstAdapter {
       path: "/socket.io",
       // Function form: socket.io calls it per (re)connect, so a TAIL that
       // arrived mid-session (enrollment) is picked up without a fresh mount.
-      auth: (cb) => cb(freshAuth(this._socketOptions.auth, mode))
+      auth: (cb) => { freshAuth(this._socketOptions.auth, mode).then(cb); }
     });
 
     const connectTunnel = () => {

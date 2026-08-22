@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS, TUNNEL_VERIFY_TIMEOUT_MS, CONNECT_TIMEOUT_MS } from "@/shared/constants/API";
 import { headOf } from "@/shared/utils/apiKey";
+import { pinHostKeysWithFp2 } from "@/shared/transport/lib/deviceTrust";
 import { useSessionStorage } from "./useSessionStorage";
 
 
@@ -57,6 +58,13 @@ export function useAuth() {
       // v2 keys travel as HEAD only — the TAIL never leaves the browser (it
       // is kept in the device-trust store and proven to the agent directly).
       const apiKey = headOf(credentials.apiKey || data.apiKey);
+
+      // Anchor the agent's host keys while the pairing fp2 is still in hand.
+      // They came from the Worker, which is not trusted for this — fp2 over the
+      // pair is checked against what the user read off the agent's screen. A
+      // client that pairs but never gets RTC up would otherwise have nothing to
+      // seal its tail to, and that is exactly the client on the tunnel.
+      if (data.hostKeys) await pinHostKeysWithFp2(apiKey, data.hostKeys);
 
       // /api/connect already validated the apiKey/session — agent is alive.
       // Tunnel liveness is no longer probed here: RTC is established via the DO
