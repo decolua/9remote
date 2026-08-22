@@ -6,6 +6,7 @@
  */
 
 import { parse } from "url";
+import { setCorsHeaders, handlePreflight, isAllowedOrigin } from "../middleware/cors.js";
 
 function readBody(req) {
   return new Promise((resolve) => {
@@ -86,6 +87,13 @@ export function createRouter(routes, { fallback } = {}) {
     try { parsedUrl = parse(req.url, true); }
     catch { jsonErr(res, 400, "Bad request"); return; }
     const { pathname, search } = parsedUrl;
+    const routeIsPublic = isPublic(pathname);
+    const origin = req.headers.origin;
+
+    // CORS before any early return, so a refusal is still readable by the UI
+    // rather than surfacing as an opaque network error.
+    setCorsHeaders(res, { origin, isPublic: routeIsPublic });
+    if (handlePreflight(req, res)) return;
 
     // Localhost guard — block non-public routes from remote/tunnel
     const isTunnel = !!req.headers["cf-connecting-ip"];
@@ -93,8 +101,16 @@ export function createRouter(routes, { fallback } = {}) {
     // Include ::ffff:127.0.0.1 (IPv4-mapped IPv6) — Node reports this for some
     // localhost connections and it would otherwise 403 the agent UI intermittently.
     const isLocal = ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1" || ra === "::ffff:0:0:0:1";
-    if (!isPublic(pathname) && (isTunnel || !isLocal)) {
+    if (!routeIsPublic && (isTunnel || !isLocal)) {
       jsonErr(res, 403, "Forbidden");
+      return;
+    }
+
+    // The address check above cannot see this case: a page in the user's own
+    // browser IS the loopback peer. Only the Origin header distinguishes the
+    // agent's UI from any other site the user happens to have open.
+    if (!routeIsPublic && !isAllowedOrigin(origin)) {
+      jsonErr(res, 403, "Forbidden origin");
       return;
     }
 

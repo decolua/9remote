@@ -17,7 +17,6 @@ hideDockIcon();
 initLogger();
 const logger = createLogger("server");
 import { startTransportServer, getIO } from "./transport/server.js";
-import { setCorsHeaders, handlePreflight } from "./middleware/cors.js";
 import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
 import { handlePreviewRequest } from "./features/fileExplorer/previewServer.js";
 import { initializeTerminal } from "./features/terminal/terminalSocket.js";
@@ -297,9 +296,9 @@ export async function startServer() {
 
   const router = createRouter(ROUTES, { fallback: staticFallback });
 
+  // CORS is decided inside the router, where the route's public flag is known —
+  // a private route must not grant a cross-origin page the right to read it.
   const server = createServer(async (req, res) => {
-    setCorsHeaders(res);
-    if (handlePreflight(req, res)) return;
     await router(req, res);
   });
 
