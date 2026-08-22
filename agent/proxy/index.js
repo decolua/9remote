@@ -5,6 +5,7 @@
 import { createGunzip, createInflate, createBrotliDecompress } from "zlib";
 import httpProxy from "http-proxy";
 import { randomUUID } from "crypto";
+import { SERVER_PORT } from "../lib/constants.js";
 import { rewriteUrl, rewriteHtmlLinks } from "./rewriter.js";
 import { getServiceWorkerScript, getSwRegistrationScript } from "./serviceWorker.js";
 
@@ -20,7 +21,13 @@ const idsByPort = new Map();     // port (number) → id
 
 function normalizePort(port) {
   const n = Number(port);
-  return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : null;
+  if (!Number.isInteger(n) || n < 1 || n > 65535) return null;
+  // Proxying to ourselves would launder a request through the agent: it arrives
+  // at the private routes from loopback, with a local Host, so neither the
+  // origin guard nor the host guard sees anything wrong — and /api/ui/state
+  // hands back the permanent key.
+  if (n === SERVER_PORT) return null;
+  return n;
 }
 
 /** @returns {string|null} the session id to put in the URL, null for a bad port */

@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import {
   startProxySession, endProxySession, resolveProxySession, isProxySessionActive
 } from "../proxy/index.js";
+import { SERVER_PORT } from "../lib/constants.js";
 
 test("starting a session returns an id that resolves to the port", () => {
   const id = startProxySession(3000);
@@ -85,6 +86,14 @@ test("the port check still answers for the bus handler", () => {
   assert.equal(isProxySessionActive(3000), true);
   assert.equal(isProxySessionActive(9999), false);
   endProxySession(3000);
+});
+
+test("the agent's own port is refused", () => {
+  // A proxy session to ourselves would launder requests through the agent:
+  // they reach the private routes from loopback with a local Host, so neither
+  // guard sees anything wrong, and /api/ui/state returns the permanent key.
+  assert.equal(startProxySession(SERVER_PORT), null);
+  assert.equal(isProxySessionActive(SERVER_PORT), false);
 });
 
 test("a bad port is refused rather than stored", () => {
