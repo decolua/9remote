@@ -507,6 +507,12 @@ export class ProtocolManager {
   _sendSignaling(msg) {
     // DO is the sole signaling carrier — the tunnel carries data only.
     if (isSignalingReady() && sendGlobalSignaling({ ...msg, to: this._deviceId })) return;
+    // A queued answer belongs to a peer that has since been replaced, and its
+    // ICE with it. Delivering the stale ones first only makes the client apply
+    // an answer for a peer it already dropped — keep the newest exchange only.
+    if (msg.type === "answer") {
+      this._sigBuffer = this._sigBuffer.filter((m) => m.type !== "answer" && m.type !== "ice");
+    }
     this._sigBuffer.push(msg);
     if (this._sigBuffer.length > 32) this._sigBuffer.shift();
   }

@@ -1,7 +1,7 @@
 import { BaseProtocol } from "./BaseProtocol";
 import { encode, decode } from "./codec";
 import { API_ENDPOINTS } from "@/shared/constants/API";
-import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { getTrust, setTrust, getPendingFp2, takePendingFp2, fp2OfPublicKey, verifySdpSignature } from "./lib/deviceTrust";
@@ -90,6 +90,8 @@ export class WebRtcProtocol extends BaseProtocol {
     // _connectTimer closes the peer long before the browser declares it.
     this._localCandidateTypes = new Set();
     this._answerApplied = false;
+    this._pendingCandidates = [];
+    this._iceReachedChecking = false;
     this._everOpened = false;
 
     this._pendingEmit = null;
@@ -112,6 +114,8 @@ export class WebRtcProtocol extends BaseProtocol {
     // Fresh NAT classification per peer — candidate types accumulate as ICE gathers.
     this._localCandidateTypes = new Set();
     this._answerApplied = false;
+    this._pendingCandidates = [];
+    this._iceReachedChecking = false;
     this._everOpened = false;
     this._setState(ADAPTER_STATE.connecting);
     this.connectingSince = Date.now(); // age guard for the restart loop's stale-kill
@@ -127,7 +131,11 @@ export class WebRtcProtocol extends BaseProtocol {
       this._setState(ADAPTER_STATE.closed);
     }, RTC_CONNECT_TIMEOUT_MS);
 
-    // STUN cluster — benchmarked from VN: Google ~150ms, Twilio ~144ms, Cloudflare ~813ms
+    // Full cluster (see the agent's DEFAULT_ICE note): each server is a separate
+    // socket and therefore a separate CGNAT mapping, and carriers admit inbound
+    // UDP per-port inconsistently — the extra mappings are what keep cellular
+    // networks connectable. Benchmarked from VN: Google ~150ms, Twilio ~144ms,
+    // Cloudflare ~813ms; the checking tail is absorbed by the ICE window.
     let iceServers = [
       { urls: [
         "stun:stun.l.google.com:19302",
@@ -247,6 +255,8 @@ export class WebRtcProtocol extends BaseProtocol {
     pc.oniceconnectionstatechange = () => {
       debugLog("transport", `[rtc] iceState=${pc.iceConnectionState}`);
       termLog("switch", `rtc ice=${pc.iceConnectionState} types=[${[...this._localCandidateTypes].join(",")}]`);
+      // Reaching "checking" means pairs were actually being probed — see natVerdict.
+      if (pc.iceConnectionState === "checking") this._iceReachedChecking = true;
       // disconnected: transient — peer may recover. Only failed = terminal.
       if (pc.iceConnectionState === "disconnected") {
         this._setState(ADAPTER_STATE.degraded);
@@ -362,7 +372,48 @@ export class WebRtcProtocol extends BaseProtocol {
         this._answerApplied = true; // signaling reached the agent — a later failure is connectivity, not routing
         debugLog("transport", "[rtc] answer set");
         termLog("switch", "rtc answer applied");
+        // Candidates that raced the answer were buffered (addIceCandidate throws
+        // before a remote description exists); apply them now, in order.
+        const queued = this._pendingCandidates;
+        this._pendingCandidates = [];
+        for (const m of queued) {
+          await this._pc.addIceCandidate(new RTCIceCandidate({ candidate: m.candidate, sdpMid: m.mid })).catch(() => {});
+        }
+        // The connect timer covers "did the agent answer at all", and it started
+        // when the offer went out. The agent gathers against seven STUN servers
+        // before it can answer (~2s observed), which used to eat most of the
+        // budget and leave ICE a fraction of a second — the peer then died on
+        // timeout and retried forever. An answer proves the agent is alive, so
+        // restart the clock and give ICE its own full window.
+        clearTimeout(this._connectTimer);
+        this._connectTimer = setTimeout(async () => {
+          if (this._state === ADAPTER_STATE.open) return;
+          // TEMP DIAGNOSTIC — same-LAN ICE sometimes fails with zero connecting
+          // pairs; dump every candidate pair's state so the dead path is visible.
+          // One SHORT line per pair: mobile consoles truncate long lines.
+          try {
+            const stats = await this._pc.getStats();
+            stats.forEach((r) => {
+              if (r.type !== "candidate-pair") return;
+              const l = stats.get(r.localCandidateId), rmt = stats.get(r.remoteCandidateId);
+              const la = (l?.address || l?.ip || "?").split(":")[0].slice(-12);
+              const ra = (rmt?.address || rmt?.ip || "?");
+              termLog("switch", `TDpair ${r.state} ${l?.candidateType}:${la}→${rmt?.candidateType}:${ra}`);
+            });
+          } catch {}
+          termLog("switch", `rtc→closed reason=ice-timeout (state=${this._state})`);
+          this._cleanupPeer();
+          this._setState(ADAPTER_STATE.closed);
+        }, RTC_ICE_TIMEOUT_MS);
       } else if (msg.type === "ice") {
+        // The agent sends its answer and candidates back-to-back, so candidates
+        // regularly land while setRemoteDescription is still in flight — the
+        // browser rejects them (InvalidStateError) and swallowing that here
+        // silently dropped the agent's host candidate. Losing the LAN pair left
+        // only srflx through a carrier NAT, which never connects — the
+        // "sometimes RTC works, sometimes not" coin flip. Buffer until the
+        // answer applies (mirrors the agent's _pendingCandidates).
+        if (!this._answerApplied) { this._pendingCandidates.push(msg); return; }
         await this._pc.addIceCandidate(new RTCIceCandidate({ candidate: msg.candidate, sdpMid: msg.mid })).catch(() => {});
       } else if (msg.type === "error") {
         debugLog("transport", `[rtc] server error: ${msg.message}`);
@@ -443,7 +494,13 @@ export class WebRtcProtocol extends BaseProtocol {
     if (this._everOpened || types.has("relay")) return "ok";
     if (types.size === 0) return "unknown";        // nothing gathered — no signal
     if (!types.has("srflx")) return "hard";        // host/prflx only → STUN/UDP blocked
-    return this._answerApplied ? "hard" : "unknown"; // answered but never opened → symmetric NAT
+    // srflx present and the agent answered, yet nothing opened. That reads as a
+    // symmetric NAT only if ICE actually got to try: a dual-stack client that
+    // reached "checking" was working through IPv6 pairs and may well succeed on
+    // the IPv4 ones (89ms once it got there), so calling that hard NAT gave up
+    // on a path that works and pinned the session to the tunnel.
+    if (this._answerApplied && !this._iceReachedChecking) return "hard";
+    return "unknown";
   }
 
   _cleanupPeer() {

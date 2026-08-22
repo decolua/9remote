@@ -12,6 +12,9 @@ const MAX_PRE_OPEN_FAILURES = 5;
 // visibilitychange to lean on, so callers (a client connecting over the
 // tunnel) drive it. Throttled so a burst of connections costs one attempt.
 const RETRY_NOW_THROTTLE_MS = 3000;
+// A WS upgrade that neither opens nor fails leaves no event to react to, so the
+// relay would sit dead forever. Observed after a reconnect storm.
+const HANDSHAKE_TIMEOUT_MS = 10000;
 
 function sigData(msg) {
   // Answers carry the host-key signature (pub/sig) for client-side verification —
@@ -77,9 +80,29 @@ export class SignalingClient {
   }
 
   _open() {
+    // A pending retry must not fire on top of this attempt, and the socket it
+    // would replace has to go: an abandoned-but-open socket keeps the room slot
+    // while nothing reads from it.
+    clearTimeout(this._reconnectTimer);
+    this._reconnectTimer = null;
+    const previous = this._ws;
+    this._ws = null;
+    if (previous) { try { previous.close(); } catch {} }
+
     const ws = new WebSocket(this._url);
     this._ws = ws;
+    // A socket that never opens, errors, or closes (silently dropped upgrade)
+    // leaves nothing to drive reconnect — the relay would stay dead until the
+    // process restarted. Bound the handshake instead.
+    const stallTimer = setTimeout(() => {
+      if (this._ws !== ws || this._closed) return;
+      logger.debug(`${this._role} handshake stalled — retrying`);
+      this._ws = null;
+      try { ws.close(); } catch {}
+      this._onClose();
+    }, HANDSHAKE_TIMEOUT_MS);
     ws.addEventListener("open", () => {
+      clearTimeout(stallTimer);
       this._ready = true;
       this._attempt = 0;
       this._preOpenFails = 0;
@@ -96,8 +119,8 @@ export class SignalingClient {
     });
     // Guard: failed connects fire error+close both — only one may drive reconnect,
     // else every failure doubles the retry timers (exponential storm).
-    ws.addEventListener("close", () => { if (this._ws === ws) this._onClose(); });
-    ws.addEventListener("error", () => { if (this._ws === ws) this._onClose(); });
+    ws.addEventListener("close", () => { clearTimeout(stallTimer); if (this._ws === ws) this._onClose(); });
+    ws.addEventListener("error", () => { clearTimeout(stallTimer); if (this._ws === ws) this._onClose(); });
   }
 
   /** Network may be back (e.g. a client just reached us over the tunnel) —

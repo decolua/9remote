@@ -62,9 +62,16 @@ export function onSignalingReady(pm) {
   termLog("switch", "signaling ready");
   flushSigBuffer(pm);
   if (pm._awaitingApproval) return; // policy answer pending — a re-offer changes nothing
-  // First connect already has RTC negotiating — only step in once it's dead.
   const rtc = pm._adapters.get("rtc");
-  if (rtc && rtc.state === ADAPTER_STATE.closed) {
+  // connect() defers RTC when the relay is not up yet (an offer sent then only
+  // reaches the outbound buffer). This is that deferred start.
+  if (!rtc) {
+    termLog("switch", "sig-ready → start rtc (was deferred)");
+    pm._startSecondaryAdapters();
+    return;
+  }
+  // Otherwise RTC is already negotiating — only step in once it's dead.
+  if (rtc.state === ADAPTER_STATE.closed) {
     termLog("switch", "sig-ready → restartRtc (rtc was closed)");
     pm._restartRtc();
   }
@@ -73,6 +80,14 @@ export function onSignalingReady(pm) {
 export function sendSignaling(pm, msg) {
   // DO is the sole signaling carrier — the tunnel carries data only.
   if (pm._sig?.ready && pm._sig.send(msg)) return;
+  // A queued offer describes a peer this client has already thrown away: each
+  // RTC retry builds a new one. Flushing the whole queue made the agent tear
+  // down and rebuild its peer once per stale offer, and the answers to those
+  // went nowhere — so only the newest offer, plus the ICE gathered for it,
+  // is worth keeping.
+  if (msg.type === "offer") {
+    pm._sigBuffer = pm._sigBuffer.filter((m) => m.type !== "offer" && m.type !== "ice");
+  }
   pm._sigBuffer.push(msg);
   if (pm._sigBuffer.length > 32) pm._sigBuffer.shift();
 }

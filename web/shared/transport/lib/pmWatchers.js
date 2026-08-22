@@ -1,4 +1,4 @@
-import { ADAPTER_STATE, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_SKIP_HIDDEN_MS } from "@/shared/constants/transport";
 import { isWsZombie } from "../wsZombie";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
@@ -154,6 +154,19 @@ export function attachWatchers(pm) {
 export function probeRtcOnResume(pm) {
   const rtc = pm._adapters.get("rtc");
   if (!rtc?.ready) { pm._restartRtc(); return; }
+  // Certain-death shortcut: on a touch device the OS suspends WebRTC soon after
+  // the app hides, so a peer hidden past the threshold is dead and probing it
+  // only spends the whole probe window before the same restart. Desktop keeps
+  // the probe — hiding a tab does not freeze the peer, and a live one there
+  // must not be torn down.
+  const hiddenFor = pm._hiddenAt ? Date.now() - pm._hiddenAt : 0;
+  const isTouch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  if (isTouch && hiddenFor > RESUME_PROBE_SKIP_HIDDEN_MS) {
+    termLog("switch", `resume: hidden ${Math.round(hiddenFor / 1000)}s on touch → skip probe, force restart`);
+    debugLog("transport", `[pm] resume: hidden ${Math.round(hiddenFor / 1000)}s → immediate restart`);
+    pm._forceRestartRtc();
+    return;
+  }
   const pc = rtc._pc;
   if (!pc || pc.connectionState === "failed") { pm._forceRestartRtc(); return; }
   // Browser-only probe (no agent cooperation): sample the selected ICE

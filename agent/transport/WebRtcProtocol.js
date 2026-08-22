@@ -21,6 +21,11 @@ function nodeDataChannel() {
 export const __setNodeDataChannelForTest = (m) => { _nodeDataChannel = m; };
 
 // STUN cluster — benchmarked from VN: Google ~150ms, Twilio ~144ms, Cloudflare ~813ms
+// Original cluster, restored after the trim turned out to buy nothing: libjuice
+// gathers from ONE socket (all candidates share a port), so server count does
+// not change the NAT mapping count — only gather redundancy across operators.
+// The ~2s answer latency the trim once addressed is absorbed by the client's
+// separate ICE window.
 const DEFAULT_ICE = [
   { hostname: "stun.l.google.com", port: 19302, type: "Stun" },
   { hostname: "stun1.l.google.com", port: 19302, type: "Stun" },
@@ -34,9 +39,16 @@ const DEFAULT_ICE = [
 // Suppress repeated TURN fetch errors — endpoint fails non-fatally (STUN-only fallback),
 // but each new connection retried the fetch, spamming identical errors.
 let _lastTurnError = "";
+// The first peer waits on this fetch, so an unreachable endpoint must not stall
+// the connection — a 502 was observed taking ~14s. STUN-only is the fallback.
+const TURN_FETCH_TIMEOUT_MS = 3000;
+
 async function fetchTurnIceServers(turnApiUrl, apiKey) {
   try {
-    const resp = await fetch(turnApiUrl, { headers: { "X-API-Key": apiKey } });
+    const resp = await fetch(turnApiUrl, {
+      headers: { "X-API-Key": apiKey },
+      signal: AbortSignal.timeout(TURN_FETCH_TIMEOUT_MS)
+    });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const { iceServers } = await resp.json();
     _lastTurnError = ""; // reset on success
@@ -105,10 +117,9 @@ export class WebRtcProtocol extends BaseProtocol {
     this._setState(ADAPTER_STATE.connecting);
 
     const rtcCfg = ctx.profile?.rtc || {};
-    // Register the signaling handler FIRST: the TURN fetch below is a network
-    // round-trip, and an offer arriving during it would find no handler and be
-    // dropped. STUN-only is a fine starting point — _refreshTurn swaps the ICE
-    // servers in for the next peer, and a live peer is not disturbed.
+    // Handler first: the client is usually already offering by the time we get
+    // here, and an offer that finds no handler is dropped. TURN is opt-in and
+    // off by default (STUN + tunnel only), so nothing is awaited on this path.
     this._signaling = ctx.signaling;
     this._signaling?.on?.((msg) => this._handleSignal(msg, rtcCfg));
 
@@ -188,6 +199,9 @@ export class WebRtcProtocol extends BaseProtocol {
   async _addRemoteCandidate(candidate, mid) {
     try {
       const resolved = await resolveCandidate(candidate);
+      // TEMP DIAGNOSTIC — see whether the phone's .local candidates resolve;
+      // a null here means the agent silently dropped a LAN pair.
+      if (!resolved) logger.warn(`TEMP DIAGNOSTIC remote cand DROPPED (mDNS?): ${candidate}`);
       if (!resolved || !this._pc) return;
       this._pc.addRemoteCandidate(resolved, mid);
     } catch (err) { logger.error(`addRemoteCandidate: ${err.message}`); }
@@ -287,6 +301,9 @@ export class WebRtcProtocol extends BaseProtocol {
         resolve();
       });
       this._pc.onLocalCandidate((candidate, mid) => {
+        // TEMP DIAGNOSTIC — ICE fails with zero connecting pairs on same-LAN;
+        // log every gathered candidate to see whether host IPs are present.
+        if (candidate) logger.debug(`TEMP DIAGNOSTIC local cand: ${candidate}`);
         if (candidate) this._signaling?.send?.({ type: "ice", candidate, mid });
       });
       try {

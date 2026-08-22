@@ -48,6 +48,21 @@ export const REJOIN_DEBOUNCE_MS = 500;
 // timeout, close → PM._scheduleRtcRestart fires → re-offer; by retry 2-3 the
 // agent has usually joined the signaling room and RTC opens.
 export const RTC_CONNECT_TIMEOUT_MS = 4000;
+// Armed once the answer lands, replacing the connect timer: that one measures
+// "did the agent reply", this one measures ICE itself. Keeping a single budget
+// meant a slow answer (the agent gathers against seven STUN servers) left ICE
+// almost no time and the peer died on timeout every round.
+// ICE normally completes in well under a second once both sides have candidates
+// (89ms measured on a working path). The long tail is a dual-stack client that
+// gathers IPv6 first and has to burn through those pairs before reaching a
+// usable IPv4 one, so the window is sized for that fallback rather than the
+// happy path.
+export const RTC_ICE_TIMEOUT_MS = 15000;
+// How long connect() waits for the signaling relay before starting RTC anyway.
+// Above the ~8.5s relay startup measured on a cold load, so the first offer is
+// normally delivered rather than buffered — but bounded, so a relay that never
+// reports ready cannot keep RTC from ever being attempted.
+export const RTC_DEFER_MAX_MS = 12000;
 
 // Resume-from-background probe window: after the OS suspends the tab,
 // iceConnectionState events are deferred, so RTC may still report "open" while
@@ -57,6 +72,11 @@ export const RTC_CONNECT_TIMEOUT_MS = 4000;
 // ~30s for ICE "failed". Browser-only — no agent cooperation needed. Keep
 // short: WS carries data during the probe.
 export const RESUME_PROBE_TIMEOUT_MS = 2000;
+// Hiding a phone app suspends WebRTC within seconds, so a peer that stayed
+// hidden longer than this is dead for certain — probing it only delays the
+// rebuild by the full probe window. Desktop tab-hides do not freeze WebRTC,
+// so those still probe (a live peer there must not be torn down).
+export const RESUME_PROBE_SKIP_HIDDEN_MS = 10000;
 
 // DO signaling relay — fallback carrier for RTC signaling when tunnel WS is
 // down/not ready. Same-origin endpoint (wss://<host>/signaling), apiKey-gated.

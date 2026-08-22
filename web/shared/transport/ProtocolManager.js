@@ -1,7 +1,7 @@
 import { WsProtocol } from "./WsProtocol";
 import { WebRtcProtocol } from "./WebRtcProtocol";
 import { registerProtocol, getProtocol } from "./registry";
-import { CHANNELS, ADAPTER_STATE, REJOIN_DEBOUNCE_MS, RTC_CONNECT_TIMEOUT_MS, STUN_PROBE } from "@/shared/constants/transport";
+import { CHANNELS, ADAPTER_STATE, REJOIN_DEBOUNCE_MS, RTC_CONNECT_TIMEOUT_MS, RTC_DEFER_MAX_MS, STUN_PROBE } from "@/shared/constants/transport";
 import { probePublicIp, shouldRearmOnIpChange, NO_PUBLIC_IP } from "./stunProbe";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
@@ -108,7 +108,25 @@ export class ProtocolManager {
     // ready, making a carrier switch 0ms (no spawn-on-failure delay → no flicker).
     this._sigDestroyed = false;
     this._initSignalingClient();
-    this._startSecondaryAdapters();
+    // RTC waits for the relay. Its connect timer starts the moment the offer is
+    // created, but an offer made before the relay is up only reaches _sigBuffer —
+    // the agent never sees it, and the whole 4s budget burns on a message that
+    // was never delivered (8.5s of relay startup was measured, so the first two
+    // attempts were guaranteed to fail). onSignalingReady starts it instead.
+    if (this._canSignal()) {
+      this._startSecondaryAdapters();
+    } else {
+      termLog("switch", "rtc deferred — waiting for signaling relay");
+      // Backstop: if the relay never reports ready, start anyway rather than
+      // sitting on WS forever. The offer may still be buffered, but the normal
+      // retry ladder takes over from there.
+      clearTimeout(this._rtcDeferTimer);
+      this._rtcDeferTimer = setTimeout(() => {
+        if (this._sigDestroyed || this._adapters.has("rtc")) return;
+        termLog("switch", "rtc defer expired → start anyway");
+        this._startSecondaryAdapters();
+      }, RTC_DEFER_MAX_MS);
+    }
     this._startWsFallback();
     debugLog("transport", "[pm] connect: RTC + WS parallel (RTC preferred, WS warm standby).");
     termLog("switch", "connect: RTC + WS parallel");
@@ -291,6 +309,8 @@ export class ProtocolManager {
     this._watchers = null;
     clearTimeout(this._resumeProbeTimer);
     this._resumeProbeTimer = null;
+    clearTimeout(this._rtcDeferTimer);
+    this._rtcDeferTimer = null;
     this._probeToken++; // invalidate any in-flight getStats probe
     try { this._sig?.disconnect(); } catch {}
     this._sig = null;
