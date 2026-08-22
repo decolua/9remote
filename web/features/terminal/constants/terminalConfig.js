@@ -119,7 +119,7 @@ export const TERMINAL_OPTIONS = {
 };
 
 // Mobile terminal background presets (image behind a semi-transparent terminal)
-export const TERMINAL_BG_ALPHA = 0.75;
+export const TERMINAL_BG_ALPHA = 0.8;
 // Veil + screen-lift layers painted on the PANE (canvas stays fully transparent),
 // so text padding can't create a bright un-veiled frame. RGBA triplets for CSS.
 export const TERMINAL_BG_VEIL_RGB = "16,16,20";

@@ -118,7 +118,7 @@ export const useTerminalStore = create(
 
       // Selected terminal background pool (ordered keys, e.g. ["art1", "custom:abc"]).
       // Pane i in display order renders keys[i % len] — round-robin by panel index.
-      terminalBackgrounds: [],
+      terminalBackgrounds: ["art8"],
       setTerminalBackgrounds: (keys) => set({ terminalBackgrounds: Array.isArray(keys) ? keys.filter(Boolean) : [] }),
 
       // Veil opacity over the background image (null = config default). Persisted.
