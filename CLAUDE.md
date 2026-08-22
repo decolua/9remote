@@ -49,7 +49,6 @@ Each feature owns a `*Socket.js` entry that registers handlers on the shared ser
 - `terminal/` — PTY via a persistent **daemon** (`ptyDaemon.js` + `ptyDaemonClient.js` over a unix socket) so sessions survive agent restarts. `handlers/` has keyboard/resize/etc. `pushManager.js` sends push notifications on events.
 - `remote/` — screen capture → encode → WebRTC. `TileManager.js`/`ResourceManager.js` do dirty-tile diffing; `adapters/` are per-OS capture backends. Tunables live in `REMOTE_CONFIG.js`.
 - `fileExplorer/` — browse/upload/download. `pathGuard.js` is the path-jail (security boundary — do not bypass).
-- `tts/` — edge-tts text-to-speech, `engines/` per backend.
 
 ### Agent CLI (`agent/cli/`)
 `index.js` dispatches by argv into `modes/` (tui, ui, tray, auto, headless, background). `core/` is lifecycle + local API; `session/key.js` handles the QR one-time-key; `tunnel/` manages the Cloudflare tunnel lifecycle. Headless commands (`key`, `devices`, …) drive an already-running server via its local API rather than spawning a TUI.
