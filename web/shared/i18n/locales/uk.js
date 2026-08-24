@@ -62,6 +62,7 @@ export default {
     connect: "Підключитися",
     connecting: "Підключення...",
     authenticating: "Автентифікація з токеном...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "Збережені ключі",
     login: "Увійти",
     lastLogin: "Останній вхід",

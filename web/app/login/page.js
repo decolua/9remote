@@ -15,29 +15,46 @@ import AnimatedBackground from "@/features/landing/components/AnimatedBackground
 import LanguageSwitcher from "@/shared/components/ui/LanguageSwitcher";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
 import { useI18n } from "@/shared/i18n";
-import { X, Eye, EyeOff, Terminal } from "@/shared/components/ui/Icon";
+import { X, Terminal } from "@/shared/components/ui/Icon";
 import CodespaceList from "@/features/codespace/components/CodespaceList";
 import { useGithub } from "@/features/codespace/hooks/useGithub";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { buildCodespaceUrl } from "@/shared/constants/github";
-import { setPendingFp2, setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
+import { setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
+import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY } from "@/shared/constants/transport";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 
-// One-time pairing input: "K7QP3M9X" (6-char tempKey + 2-char fp2, no
+// One-time pairing input: "K7QP3Max" (6-char tempKey + 2-char TAIL, no
 // separator), a bare "K7QP3M", or a full login URL carrying either in
-// query/fragment. A hyphenated "K7QP3M-9X" is still accepted — older agents
-// emit it, and users may re-type an old code. The fp2 stays in the browser
-// (device trust); only the 6-char tempKey is ever sent anywhere.
+// query/fragment. A hyphenated form is still accepted — older agents emit it,
+// and users re-type old codes. The TAIL stays in the browser (device trust);
+// only the 6-char tempKey is ever sent anywhere.
+/**
+ * A one-time code is two parts read as one token: 6 chars the Worker knows
+ * (routing) and a 2-char TAIL it never sees (the secret). The TAIL is the same
+ * kind of thing an API key carries — the difference is that this one dies with
+ * the code, and dies early if it is guessed at.
+ *
+ * The halves are told apart by POSITION, not by case: six characters of code
+ * then two of tail. Case used to carry that meaning, which made a code
+ * unreadable the moment either half was typed in the other case — the agent
+ * folds case when it compares, so the parser does too.
+ */
 function parsePairingInput(raw) {
   const str = String(raw || "").trim();
-  const split = (code) => ({ tempKey: code.slice(0, 6), fp2: code.slice(6, 8) });
+  const split = (code) => ({
+    tempKey: code.slice(0, 6).toUpperCase(),
+    tail: code.slice(6).toUpperCase()
+  });
 
-  const hashMatch = /#([A-NP-Z1-9]{6}-?[A-NP-Z1-9]{2})$/i.exec(str);
-  if (hashMatch) return split(hashMatch[1].toUpperCase().replace("-", ""));
+  const hashMatch = /#([A-NP-Z1-9]{6}-?[a-np-z1-9]{2})$/i.exec(str);
+  if (hashMatch) return split(hashMatch[1].replace("-", ""));
 
-  const codeMatch = /^([A-NP-Z1-9]{6}-?[A-NP-Z1-9]{2})$/i.exec(str);
-  if (codeMatch) return split(codeMatch[1].toUpperCase().replace("-", ""));
+  const codeMatch = /^([A-NP-Z1-9]{6}-?[a-np-z1-9]{2})$/i.exec(str);
+  if (codeMatch) return split(codeMatch[1].replace("-", ""));
 
+  // Bare 6-char code: a QR from an older agent, or a code typed without its
+  // tail. It still routes; the agent decides what an absent tail is worth.
   const kMatch = /[?&]k=([A-NP-Z1-9]{6})(?:[^A-NP-Z1-9]|$)/i.exec(str);
   if (kMatch) return { tempKey: kMatch[1].toUpperCase() };
   if (/^[A-NP-Z1-9]{6}$/i.test(str)) return { tempKey: str.toUpperCase() };
@@ -51,7 +68,6 @@ function LoginContent() {
   const [rememberKey, setRememberKey] = useState(true);
   const [savedKeys, setSavedKeys] = useState([]);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [authTab, setAuthTab] = useState("local");
   const [editingKeyId, setEditingKeyId] = useState(null);
@@ -66,6 +82,11 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { loading, error, authenticateWithToken, authenticateWithApiKey } = useAuth();
+  // A wrong TAIL only surfaces after login — the Worker clears the key by its
+  // HEAD, and the agent is what proves the rest. useSocket parks the reason in
+  // sessionStorage and sends the user back; the hydration effect below reads it
+  // (reading during the first render would disagree with the server's HTML).
+  const [tailRejected, setTailRejected] = useState(false);
   const { loadKeys, saveKey, removeKey, renameKey, hasStoredKeys, updateLastLogin } = useApiKeyStorage();
 
   // Check for token (old) or temp key (new) in URL (QR code auth).
@@ -81,10 +102,11 @@ function LoginContent() {
       if (stashed) return stashed;
       const parsed = parsePairingInput(window.location.hash) || parsePairingInput(window.location.search);
       if (parsed?.tempKey) {
-        if (parsed.fp2) setPendingFp2(parsed.fp2);
-        sessionStorage.setItem("9remote_url_pairing", parsed.tempKey);
+        // Stash the whole code, TAIL included: the URL is scrubbed on the next
+        // line, and the TAIL is the half that proves this device to the agent.
+        sessionStorage.setItem("9remote_url_pairing", parsed.tempKey + (parsed.tail || ""));
         window.history.replaceState(null, "", window.location.pathname);
-        return parsed.tempKey;
+        return parsed.tempKey + (parsed.tail || "");
       }
     } catch {}
     return null;
@@ -97,6 +119,11 @@ function LoginContent() {
     setRememberKey(savedPreference !== "false");
     setSavedKeys(loadKeys());
     setIsHydrated(true);
+    // Consumed once: useSocket parks it here when the agent refuses the TAIL.
+    if (sessionStorage.getItem(LOGIN_ERROR_KEY)) {
+      sessionStorage.removeItem(LOGIN_ERROR_KEY);
+      setTailRejected(true);
+    }
     if (githubToken) {
       setAuthTab("github");
     }
@@ -127,21 +154,27 @@ function LoginContent() {
     }
   };
 
-  // Handle temp key auth
-  const authenticateWithTempKey = useCallback(async (tk) => {
-    const result = await authenticateWithToken(tk, true);
+  // Handle temp key auth (scanned QR / pairing link). The stashed value is the
+  // whole code — six characters of routing plus two of TAIL — so it is split
+  // the same way a typed one is, and the TAIL is stored for the agent. Sending
+  // all eight to the Worker, and keeping none of them, left the device with
+  // nothing to prove itself with and the agent refusing a correct code.
+  const authenticateWithTempKey = useCallback(async (stashed) => {
+    const parsed = parsePairingInput(stashed);
+    const result = await authenticateWithToken(parsed?.tempKey || stashed, true);
     // The URL stash served its purpose — drop it so a later /login visit in
     // this tab doesn't replay a consumed key
     try { sessionStorage.removeItem("9remote_url_pairing"); } catch {}
     if (result.success) {
-      // Auto save API key if "Remember this key" is checked. withTail re-attaches
-      // a TAIL already held for this key — a one-time login only returns the HEAD.
-      if (rememberKey && result.apiKey) {
-        saveKey(withTail(result.apiKey));
-      }
+      // The code's TAIL belongs to the CODE, and is proven under it. Writing it
+      // against the API key's HEAD would leave that key holding a secret that
+      // expires in minutes and was never its own.
+      if (parsed?.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
+      // Nothing parked: a one-time login has no API key TAIL to remember, and
+      // saving the HEAD alone would store a key that can prove nothing.
       router.push("/workspace/");
     }
-  }, [authenticateWithToken, rememberKey, saveKey, router]);
+  }, [authenticateWithToken, router]);
 
   useEffect(() => {
     if (token) {
@@ -151,37 +184,55 @@ function LoginContent() {
     }
   }, [token, tempKey, authenticateWithToken, authenticateWithTempKey]);
 
-  // Handle API key submit (supports API key and one-time key, with or without fp2)
+  /**
+   * Submit — one flow for both kinds of key.
+   *
+   * They are the same shape: a routing half the Worker resolves, and a TAIL it
+   * never sees, which is proven to the agent directly. Only the lifetime
+   * differs — a one-time code's TAIL dies with the code, an API key's lasts as
+   * long as the key — and nothing here needs to care about that.
+   */
   const handleConnect = async () => {
     const trimmedKey = apiKey.trim();
     if (!trimmedKey) return;
 
-    // Detect one-time key (optionally with the fp2 suffix) vs API key
     const parsed = parsePairingInput(trimmedKey);
-    if (parsed?.tempKey) {
-      if (parsed.fp2) setPendingFp2(parsed.fp2);
-      const result = await authenticateWithToken(parsed.tempKey, true);
-      if (result.success) {
-        if (rememberKey && result.apiKey) {
-          saveKey(withTail(result.apiKey));
-        }
-        router.push("/workspace/");
-      }
-    } else {
-      // Typed full v2 key — the TAIL stays local (trust store) and is proven
-      // to the agent directly; only the HEAD ever goes to the Worker.
-      const tail = tailOf(trimmedKey);
-      if (tail) setTrust(headOf(trimmedKey), { tail });
-      const result = await authenticateWithApiKey(trimmedKey);
-      if (result.success) {
-        if (rememberKey) {
-          // Store the FULL key: useAuth returns the HEAD, and saving that
-          // would drop the TAIL, leaving later logins unable to prove it.
-          saveKey(trimmedKey);
-        }
-        router.push("/workspace/");
-      }
+    const isOneTime = !!parsed?.tempKey;
+
+    // The routing half goes to the Worker; the TAIL is kept for the agent.
+    const routingKey = isOneTime ? parsed.tempKey : headOf(trimmedKey);
+    const tail = isOneTime ? parsed.tail : tailOf(trimmedKey);
+
+    const result = isOneTime
+      ? await authenticateWithToken(parsed.tempKey, true)
+      : await authenticateWithApiKey(trimmedKey);
+    if (!result.success) return;
+
+    // Stored against the HEAD the agent will be reached by. A one-time login
+    // only learns that HEAD from the Worker's answer, so it is bound here
+    // rather than before the call.
+    const head = isOneTime ? result.apiKey : routingKey;
+    // The TAIL is kept under the key it belongs to. A one-time code's TAIL is
+    // the CODE's, not the API key's: it expires in minutes, and writing it into
+    // the API key's trust entry produced a saved key with a tail that was never
+    // valid for it — right until the code died, then permanently wrong.
+    //
+    // The owner is what has to exist here, not `head`: a code's TAIL is filed
+    // under the code, which is in hand before the Worker answers at all.
+    const tailOwner = isOneTime ? parsed.tempKey : head;
+    if (tail && tailOwner) setTrust(tailOwner, { tail });
+
+    // Not saved yet — parked until the agent accepts the TAIL. Login only
+    // proves the Worker knows the HEAD, and a key that cannot connect has no
+    // business in the saved list.
+    //
+    // A one-time login parks nothing: it has no API key TAIL to save, and the
+    // code's own TAIL is worthless once the code expires. The agent hands over
+    // the real key when it accepts this device, and THAT is what gets saved.
+    if (rememberKey && head && !isOneTime) {
+      sessionStorage.setItem(PENDING_SAVE_KEY, trimmedKey);
     }
+    router.push("/workspace/");
   };
 
   // Handle login with saved key
@@ -239,12 +290,10 @@ function LoginContent() {
   const handleQRScan = async (scanned) => {
     const parsed = parsePairingInput(scanned);
     if (!parsed?.tempKey) return;
-    if (parsed.fp2) setPendingFp2(parsed.fp2);
     const result = await authenticateWithToken(parsed.tempKey, true);
     if (result.success) {
-      if (rememberKey && result.apiKey) {
-        saveKey(withTail(result.apiKey));
-      }
+      // Same rule as a typed code: the TAIL is the code's, kept under the code.
+      if (parsed.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
       router.push("/workspace/");
     }
   };
@@ -398,9 +447,17 @@ function LoginContent() {
             <div className="relative">
               <input
                 id="accessKeyInput"
-                type={showPassword ? "text" : "password"}
+                type="text"
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
+                // Length tells the two kinds apart as they are typed: a one-time
+                // code is eight characters and shown upper case, matching the
+                // agent's screen; an API key is longer and lower case. The agent
+                // folds case when it compares, so this is presentation only and
+                // a paste in either case still works.
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setApiKey(raw.length <= ONE_TIME_CODE_LENGTH ? raw.toUpperCase() : raw.toLowerCase());
+                }}
                 onKeyDown={(e) => e.key === "Enter" && apiKey && handleConnect()}
                 placeholder={t("login.placeholder")}
                 className="w-full pl-3.5 pr-20 py-3 bg-surface-2 border border-border-subtle rounded-[10px] font-mono text-sm text-text placeholder-text-subtle focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all duration-150"
@@ -408,14 +465,6 @@ function LoginContent() {
               <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
                 {apiKey && (
                   <>
-                    <button
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="w-7 h-7 grid place-items-center rounded-[7px] text-text-subtle hover:bg-surface-3 hover:text-text transition-colors"
-                      type="button"
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
                     <button
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={handleClearInput}
@@ -428,7 +477,9 @@ function LoginContent() {
                 )}
               </div>
             </div>
-            {error && <p className="mt-2 text-xs font-mono text-danger">{error}</p>}
+            {(error || tailRejected) && (
+              <p className="mt-2 text-xs font-mono text-danger">{error || t("login.invalidKeyTail")}</p>
+            )}
 
             {/* Remember key */}
             <label className="flex items-center gap-2.5 cursor-pointer mt-4 select-none">

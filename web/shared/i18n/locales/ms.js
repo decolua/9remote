@@ -62,6 +62,7 @@ export default {
     connect: "Sambung",
     connecting: "Menyambung...",
     authenticating: "Mengesahkan dengan token...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "Kunci Tersimpan",
     login: "Log masuk",
     lastLogin: "Log masuk terakhir",

@@ -62,6 +62,7 @@ export default {
     connect: "התחבר",
     connecting: "מתחבר...",
     authenticating: "מאמת באמצעות טוקן...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "מפתחות שמורים",
     login: "התחברות",
     lastLogin: "התחברות אחרונה",

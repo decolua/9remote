@@ -62,6 +62,7 @@ export default {
     connect: "接続",
     connecting: "接続中...",
     authenticating: "トークンで認証中...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "保存されたキー",
     login: "ログイン",
     lastLogin: "最終ログイン",

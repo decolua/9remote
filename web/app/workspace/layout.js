@@ -100,7 +100,7 @@ export default function WorkspaceLayout({ children }) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, loadWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, loadWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useSocket();
   const [shells, setShells] = useState([]);
 
   const { updating, updateMode, resumeGrace, doUpdate, doRestart } = useAgentUpdate({
@@ -678,7 +678,10 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Connection Modal — overlay when retrying/failed (suppressed during self-update) */}
-        {!connected && <ReconnectScreen />}
+        {/* Not admitted yet = the agent has not accepted this device: the
+            carrier can be open while the key TAIL is still being proven, and
+            the workspace must not show through that window. */}
+        {(!connected || !admitted) && <ReconnectScreen />}
         {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Update Modal — progress overlay during agent self-update */}

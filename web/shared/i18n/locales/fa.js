@@ -62,6 +62,7 @@ export default {
     connect: "اتصال",
     connecting: "در حال اتصال...",
     authenticating: "در حال احراز هویت با توکن...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "کلیدهای ذخیره‌شده",
     login: "ورود",
     lastLogin: "آخرین ورود",

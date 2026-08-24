@@ -62,6 +62,7 @@ export default {
     connect: "Connecter",
     connecting: "Connexion...",
     authenticating: "Authentification avec le jeton...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "Clés enregistrées",
     login: "Connexion",
     lastLogin: "Dernière connexion",

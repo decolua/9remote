@@ -24,14 +24,20 @@ import { sealTail } from "@/shared/transport/lib/tailSeal";
  */
 export async function freshAuth(baseAuth = {}, connectionMode) {
   const auth = { ...baseAuth, connectionMode };
-  const trust = getTrust(baseAuth.apiKey);
+  // A one-time login holds the CODE's tail, filed under the code; an API key
+  // login holds the key's, filed under its HEAD. Looking only at the HEAD meant
+  // a device that paired by code had a tail it could never present.
+  const trust = getTrust(baseAuth.apiKey) || (baseAuth.tempKey ? getTrust(baseAuth.tempKey) : null);
   const tail = trust?.tail;
+  // TEMP DIAGNOSTIC — tail fingerprint only (len + ends); never the tail itself
+  const hint = (t) => (t ? `${t.length}ch ${t[0]}…${t[t.length - 1]}` : "none");
+  const keyHint = `${String(baseAuth.apiKey || "").slice(0, 14)}…`;
 
   delete auth.keyTail;
   delete auth.keyTailSealed;
   if (!tail) {
     // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
-    console.log("[seal] no tail held — nothing to send");
+    console.log("[seal] no tail held — nothing to send", keyHint);
     return auth;
   }
 
@@ -39,15 +45,15 @@ export async function freshAuth(baseAuth = {}, connectionMode) {
     const sealed = await sealTail(tail, trust.hostSealKey);
     if (sealed) {
       auth.keyTailSealed = sealed;
-      console.log("[seal] SEALED tail for", connectionMode, "— tail is not on the wire");
+      console.log("[seal] SEALED tail for", connectionMode, `tail=${hint(tail)}`, keyHint, "— tail is not on the wire");
       return auth;
     }
-    console.log("[seal] seal FAILED (no X25519 in this browser?) — falling back to plain");
+    console.log("[seal] seal FAILED (no X25519 in this browser?) — falling back to plain", `tail=${hint(tail)}`);
     // Sealing failed — a browser without X25519, or a stored key that no longer
     // imports. The tail still has to reach the agent for this device to connect.
   }
   if (!trust?.hostSealKey) {
-    console.log("[seal] PLAIN tail for", connectionMode, "— no sealing key pinned");
+    console.log("[seal] PLAIN tail for", connectionMode, `tail=${hint(tail)}`, keyHint, "— no sealing key pinned");
   }
   auth.keyTail = tail;
   return auth;

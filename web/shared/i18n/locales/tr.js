@@ -62,6 +62,7 @@ export default {
     connect: "Bağlan",
     connecting: "Bağlanıyor...",
     authenticating: "Token ile kimlik doğrulanıyor...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "Kayıtlı Anahtarlar",
     login: "Giriş Yap",
     lastLogin: "Son giriş",

@@ -7,6 +7,10 @@ import { writeJsonAtomic } from "./atomicFile.js";
 import { join } from "path";
 import { PATHS, LOCAL_UI_DEVICE_ID } from "./constants.js";
 import { readSettings, writeSettings } from "./settings.js";
+import { createLogger } from "./logger.js";
+
+const approvalLogger = createLogger("approval");
+import { DEVICE_GATE } from "./transportConstants.js";
 
 const STATE_DIR = PATHS.CONFIG;
 const DEVICES_FILE = join(PATHS.CONFIG, "approvedDevices.json");
@@ -66,11 +70,11 @@ export function isDeviceApproved(deviceId) {
 // A kicked device asks again even with auto-approve on — the host's explicit
 // Disconnect must not be instantly undone.
 export function gateDevice(deviceId) {
-  if (deviceId && kickedDevices.has(deviceId)) return "unknown";
-  if (deviceId && isDeviceApproved(deviceId)) return "approved";
-  if (deviceId && isDeviceRejected(deviceId)) return "rejected";
-  if (isAutoApprove()) return "auto";
-  return "unknown";
+  if (deviceId && kickedDevices.has(deviceId)) return DEVICE_GATE.unknown;
+  if (deviceId && isDeviceApproved(deviceId)) return DEVICE_GATE.approved;
+  if (deviceId && isDeviceRejected(deviceId)) return DEVICE_GATE.rejected;
+  if (isAutoApprove()) return DEVICE_GATE.auto;
+  return DEVICE_GATE.unknown;
 }
 
 export function kickDevice(deviceId) {
@@ -84,6 +88,7 @@ export function isDeviceKicked(deviceId) {
 
 export function approveDevice(deviceId) {
   if (!deviceId || deviceId === LOCAL_UI_DEVICE_ID) return;
+  approvalLogger.info(`approved: ${deviceId.slice(0, 8)}`);
   kickedDevices.delete(deviceId);
   // Preserve meta (secret, label) — re-approving a device must not silently
   // strip its enrollment back to the string-only check.

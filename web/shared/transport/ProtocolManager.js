@@ -13,7 +13,7 @@ import { handleWsStateChange, handleRtcStateChange } from "./lib/adapterStateHan
 import { buildConfig, initialState } from "./lib/pmConfig";
 import { initSignalingClient, handleApprovalSignal, onSignalingReady, sendSignaling, flushSigBuffer, refreshTunnelUrl } from "./lib/pmSignaling";
 import { sendControl, flushBuffer, dispatch, onBinary, scheduleAckTimeout } from "./lib/pmMessaging";
-import { handleDeviceAuthEvent, maybeSendEnroll, DEVICE_AUTH_EVENTS } from "./lib/deviceTrust";
+import { handleDeviceAuthEvent, maybeSendTailProof, DEVICE_AUTH_EVENTS } from "./lib/deviceTrust";
 
 // Auto-register built-in adapters
 registerProtocol(WsProtocol);
@@ -377,7 +377,12 @@ export class ProtocolManager {
     if (adapterId === "rtc") handleRtcStateChange(this, state);
 
     // Pairing enrollment rides the RTC control channel — try as soon as it opens
-    if (adapterId === "rtc" && state === ADAPTER_STATE.open) maybeSendEnroll(this);
+    if (adapterId === "rtc" && state === ADAPTER_STATE.open) {
+      // RTC-first has no handshake to carry the TAIL, so the agent admits the
+      // session on a deadline and waits for this instead.
+      console.log("[seal] rtc OPEN → sending proof"); // TEMP DIAGNOSTIC
+      maybeSendTailProof(this);
+    }
 
     this._recomputeType();
     this._connected = this._anyAdapterReady();

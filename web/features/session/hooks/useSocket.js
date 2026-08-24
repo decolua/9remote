@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useBaseSocket } from "@/shared/hooks/useBaseSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
+import { commitPendingKey, forgetRejectedTail } from "@/shared/transport/lib/deviceTrust";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { WORKER_API } from "@/shared/constants/API";
+import { TAIL_REJECT_REASON, LOGIN_ERROR_KEY, APPROVAL_STATUS } from "@/shared/constants/transport";
 
 // Resume on mobile triggers several list-refresh paths within a few ms; this
 // window collapses them into one round-trip.
@@ -19,7 +21,12 @@ export function useSocket() {
   const [agentVersion, setAgentVersion] = useState(null);
   const [updateAvailable, setUpdateAvailable] = useState(null);
   const [canSelfUpdate, setCanSelfUpdate] = useState(false);
-  const [approvalStatus, setApprovalStatus] = useState(null); // null | "pending" | "approved" | "rejected"
+  const [approvalStatus, setApprovalStatus] = useState(null); // null | APPROVAL_STATUS
+  // A carrier being open is not the same as the agent having let us in: the
+  // TAIL is proven after the socket connects, so there is a window where we are
+  // "connected" but not admitted. Sticky for the page's lifetime — a later
+  // carrier flap must not re-gate a session the agent already accepted.
+  const [admitted, setAdmitted] = useState(false);
   const { getAuth } = useSessionStorage();
 
   // Approval arrives on TWO independent carriers — socket.io device:* events
@@ -31,8 +38,8 @@ export function useSocket() {
   //   carrier-reconnect = NOT an answer, must never clear a standing verdict
   const applyApproval = useCallback((next) => {
     setApprovalStatus((prev) => {
-      if (next === "reconnect") return prev === "approved" ? null : prev;
-      if (prev === "approved" && next === "pending") return prev; // stale late signal
+      if (next === APPROVAL_STATUS.reconnect) return prev === APPROVAL_STATUS.approved ? null : prev;
+      if (prev === APPROVAL_STATUS.approved && next === APPROVAL_STATUS.pending) return prev; // stale late signal
       return next;
     });
   }, []);
@@ -129,7 +136,7 @@ export function useSocket() {
 
   const handleSocketReady = useCallback((socket, auth) => {
     // A carrier coming up is not a verdict — see applyApproval.
-    applyApproval("reconnect");
+    applyApproval(APPROVAL_STATUS.reconnect);
     // A reconnect may have missed create/delete done elsewhere while we were away,
     // so neither list is trustworthy until the agent answers again.
     loadedRef.current = { sessions: false, workspaces: false };
@@ -141,16 +148,29 @@ export function useSocket() {
     boundSocketRef.current = socket;
 
     // Listen for device approval flow
-    socket.on("device:pendingApproval", () => applyApproval("pending"));
+    socket.on("device:pendingApproval", () => {
+      console.log("[auth] agent says: waiting for host approval"); // TEMP DIAGNOSTIC
+      applyApproval(APPROVAL_STATUS.pending);
+    });
 
     socket.on("device:approved", () => {
-      applyApproval("approved");
+      applyApproval(APPROVAL_STATUS.approved);
+      setAdmitted(true);
+      // The agent accepted this key — the first moment anything checked the
+      // TAIL, and so the first moment it is worth remembering.
+      commitPendingKey();
       removeTempKey();
     });
 
     // Server emits "terminal:ready" AFTER getSessions/getWorkspaces handlers are registered
     // (async setupSocketFeatures). Fetching here avoids the F5 race that returned empty.
-    socket.on("terminal:ready", () => fetchLists(socket));
+    // NOT an admission signal: the agent wires features while the key TAIL is
+    // still inside its proof window, so this fires for a device that may yet be
+    // refused. Only device:approved says the agent accepted us.
+    socket.on("terminal:ready", () => {
+      console.log("[auth] terminal:ready (NOT an admission signal)"); // TEMP DIAGNOSTIC
+      fetchLists(socket);
+    });
 
     // Carrier rejoin (resume from background, RTC<->WS switch). The agent keeps the
     // same session, so it may not re-emit "terminal:ready" — refetch here or the
@@ -166,9 +186,35 @@ export function useSocket() {
     });
 
     socket.on("device:rejected", () => {
-      applyApproval("rejected");
+      applyApproval(APPROVAL_STATUS.rejected);
       // Stop auto-reconnect — user must re-submit key to try again
       disconnectRef.current?.();
+    });
+
+    socket.on("device:tailRejected", (data) => {
+      // seal-unreadable = stale pin (agent rotated its host key): deviceTrust
+      // drops the pin and the agent's disconnect triggers a plain-tail retry.
+      if (data?.reason === TAIL_REJECT_REASON.sealUnreadable) return;
+      // A wrong key is a failed LOGIN, not a device awaiting approval — there is
+      // nothing for the host to approve. Drop the session the way logout does
+      // (the stored key is the wrong one; keeping it would walk straight back
+      // in), then hand the login page a reason to show. Stamped AFTER the
+      // clear, which wipes everything in sessionStorage.
+      disconnectRef.current?.();
+      // Drop the TAIL that failed, under whichever key holds it: a one-time
+      // login keeps it under the CODE, an API key login under the key's HEAD.
+      // Clearing only the HEAD left a bad code's tail behind, so the next
+      // attempt presented the same wrong secret again.
+      //
+      // The saved-keys list is left alone: this key was never committed there
+      // (that only happens on acceptance), and any key that IS there was
+      // accepted at some point — a bad attempt must not take it away.
+      const auth = getAuth();
+      forgetRejectedTail(auth?.apiKey);
+      forgetRejectedTail(auth?.tempKey);
+      sessionStorage.clear();
+      sessionStorage.setItem(LOGIN_ERROR_KEY, data?.reason || TAIL_REJECT_REASON.mismatch);
+      window.location.replace("/login");
     });
 
     socket.on("serverInfo", (info) => {
@@ -194,7 +240,7 @@ export function useSocket() {
 
     // Signal server that client listeners are ready
     socket.emit("device:clientReady");
-  }, [removeTempKey, handleCodespaceStopping, fetchLists, applyApproval]);
+  }, [removeTempKey, handleCodespaceStopping, fetchLists, applyApproval, getAuth]);
 
   const { socket, socketRef, protocolRef, connected, connectionMode, transport, retryStatus, disconnect } = useBaseSocket({
     namespace: "",
@@ -372,6 +418,7 @@ export function useSocket() {
     transport,
     retryStatus,
     approvalStatus,
+    admitted,
     sessions,
     remoteAvailable,
     codespaceInfo,

@@ -62,6 +62,7 @@ export default {
     connect: "Hubungkan",
     connecting: "Menghubungkan...",
     authenticating: "Mengautentikasi dengan token...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "Kunci Tersimpan",
     login: "Masuk",
     lastLogin: "Terakhir masuk",

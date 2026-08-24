@@ -62,6 +62,7 @@ export default {
     connect: "Conectar",
     connecting: "Conectando...",
     authenticating: "Autenticando con token...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "Claves guardadas",
     login: "Iniciar sesión",
     lastLogin: "Último inicio de sesión",

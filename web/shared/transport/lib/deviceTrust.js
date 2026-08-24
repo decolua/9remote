@@ -4,7 +4,7 @@
 // fp2-checked RTC channel at enroll time. Neither ever reaches the Worker; the
 // TAIL travels only to the agent itself (see adapters/freshAuth).
 
-import { CHANNELS } from "@/shared/constants/transport";
+import { CHANNELS, TAIL_REJECT_REASON, PENDING_SAVE_KEY } from "@/shared/constants/transport";
 import { hostFp2Of } from "./tailSeal";
 
 const TRUST_KEY = "9remote_device_trust";
@@ -156,6 +156,52 @@ function upgradeSavedKey(headKey, fullKey) {
   }
 }
 
+/**
+ * Commit the key the user asked to remember, now that the agent has accepted
+ * it. Called on device:approved — the first moment anything has actually
+ * checked the TAIL.
+ *
+ * Nothing is deleted on refusal, deliberately: a key that was never saved needs
+ * no undo, and deleting on the way out once cost users a GOOD stored key when a
+ * mistyped tail happened to share its HEAD.
+ */
+export function commitPendingKey() {
+  if (typeof window === "undefined") return;
+  try {
+    const pending = sessionStorage.getItem(PENDING_SAVE_KEY);
+    if (!pending) return;
+    sessionStorage.removeItem(PENDING_SAVE_KEY);
+
+    const list = JSON.parse(localStorage.getItem(SAVED_KEYS_STORAGE) || "[]");
+    // Already stored (a re-login with the same key) — nothing to add.
+    if (list.some((item) => { try { return atob(item.key) === pending; } catch { return false; } })) return;
+    list.push({
+      id: String(Date.now()),
+      key: btoa(pending),
+      label: `Key ${list.length + 1}`,
+      createdAt: new Date().toISOString(),
+      lastLoginDate: new Date().toISOString()
+    });
+    localStorage.setItem(SAVED_KEYS_STORAGE, JSON.stringify(list));
+  } catch {
+    // Corrupt/unavailable storage — the user can re-enter the key; not fatal
+  }
+}
+
+/** Drop a TAIL the agent refused. The saved-keys list is untouched: a rejected
+ *  key was never committed there, and a key that WAS committed is one the agent
+ *  accepted before — not something a failed attempt should remove. */
+export function forgetRejectedTail(apiKey) {
+  if (typeof window === "undefined" || !apiKey) return;
+  try {
+    const map = readTrustMap();
+    delete map[apiKey];
+    writeTrustMap(map);
+  } catch {
+    // Storage unavailable — the next login overwrites the entry anyway
+  }
+}
+
 // ── Crypto helpers (WebCrypto) ────────────────────────────────────────────────
 
 function b64ToBytes(b64) {
@@ -186,7 +232,7 @@ export async function verifySdpSignature(publicKeyB64, sdp, sigB64) {
 // these natively on the raw socket, RTC dispatch reaches them via the proxy
 // listener map — both carriers land in handleDeviceAuthEvent with the unpacked
 // payload as the first arg.
-export const DEVICE_AUTH_EVENTS = ["device:enrolled", "device:enrollRejected", "device:enrollRetry"];
+export const DEVICE_AUTH_EVENTS = ["device:enrolled", "device:enrollRejected", "device:enrollRetry", "device:tailRejected"];
 
 /** Handle a device-auth control event. Returns true when consumed. */
 export function handleDeviceAuthEvent(pm, event, data) {
@@ -195,6 +241,9 @@ export function handleDeviceAuthEvent(pm, event, data) {
   if (event === "device:enrolled") {
     setTrust(apiKey, { tail: data?.tail || null });
     takePendingFp2(); // pairing complete
+    // The agent settled this device's proof when it delivered the tail, so none
+    // is owed for THIS peer; a later peer (agent restart) proves again.
+    pm._tailProofSent = pm._adapters.get("rtc")?._peerEpoch ?? 0;
     // The saved-keys entry was written at login time, before the TAIL existed
     // (a one-time login only ever receives the HEAD). Upgrade it now so the
     // next login from the saved list can still answer the agent's challenge.
@@ -211,7 +260,50 @@ export function handleDeviceAuthEvent(pm, event, data) {
     setTimeout(() => maybeSendEnroll(pm), ENROLL_RETRY_MS);
     return true;
   }
+  if (event === "device:tailRejected") {
+    // A stale seal pin (the agent rotated its host key) is recoverable: drop the
+    // pin and the reconnect proves with a plain tail. A plain mismatch is final,
+    // and useSocket takes it from there — back to login, key forgotten.
+    if (data?.reason === TAIL_REJECT_REASON.sealUnreadable) setTrust(apiKey, { hostSealKey: null });
+    return true;
+  }
   return false;
+}
+
+/**
+ * Prove the key TAIL over an open RTC channel.
+ *
+ * The tail normally rides the WS handshake, but an RTC-first session has no
+ * handshake at all — the agent holds such a session on a deadline and drops it
+ * unless this arrives. Sent DIRECTLY through the RTC adapter (peer to peer):
+ * pm.emit's control bus can fall back to WS, and the tunnel is exactly the path
+ * sealing exists to keep the tail off.
+ *
+ * Same {keyTail|keyTailSealed} shape as the handshake, so the agent has one
+ * parser for both. Once per PEER, not per PM: the agent keeps its verdict in
+ * RAM, so a restart (which produces a new peer) needs the proof again, while
+ * the RTC retry loop reopening the same peer's channel must not re-prove.
+ */
+export async function maybeSendTailProof(pm) {
+  const apiKey = pm._auth?.apiKey;
+  if (!apiKey) return;
+  const rtc = pm._adapters.get("rtc");
+  if (!rtc?.ready) return;
+  const peerMark = rtc._peerEpoch ?? 0;
+  if (pm._tailProofSent === peerMark) return;
+  const { freshAuth } = await import("../adapters/freshAuth");
+  // tempKey included so freshAuth can find a CODE's tail, which is filed under
+  // the code rather than the key's HEAD.
+  const auth = await freshAuth({ apiKey, tempKey: pm._auth?.tempKey || null }, "rtc");
+  if (!auth.keyTail && !auth.keyTailSealed) return; // v1 key, or no tail held
+  // The tempKey rides along because this carrier has no handshake to hold it:
+  // a pairing device proves against the CODE's tail, and without knowing that,
+  // the agent compares it to the API key's and refuses a code that was right.
+  const sent = rtc.send(CHANNELS.control, {
+    event: "device:tailProof",
+    args: [{ keyTail: auth.keyTail, keyTailSealed: auth.keyTailSealed, tempKey: pm._auth?.tempKey || null }]
+  });
+  if (sent) pm._tailProofSent = peerMark;
 }
 
 /** Send the enrollment request once the RTC carrier is open and a pairing

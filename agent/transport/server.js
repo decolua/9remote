@@ -19,7 +19,6 @@ import { setupBackgroundHandlers } from "../features/terminal/backgroundSocket.j
 import { trackConnection, untrackConnection, pushUiLog, pushUiLogDebug, clearOneTimeKey, pushUiEvent, setRemoteAvailable, pushTransportState } from "../api/ui.js";
 import {
   loadApprovedDevices,
-  isDeviceApproved,
   isDevicePending,
   gateDevice,
   approveDevice,
@@ -32,8 +31,18 @@ import {
   clearRejectedDevice,
   loadAutoApprove
 } from "../lib/deviceApproval.js";
-import { handleDeviceEnroll, decideAdmission } from "../lib/deviceAuth.js";
+import { handleDeviceEnroll, admissionGate, submitTailProof, noteTailFailure, presentedTailOf, finishTailRejection, handleTailProof, verdictStateOf, onTailProven, clearProofWaiters, PROOF_DEADLINE } from "../lib/deviceAuth.js";
+import { openSealedTail } from "../lib/hostKey.js";
+import { ADMISSION, DEVICE_GATE, TAIL_VERDICT, TAIL_REJECT_REASON } from "../lib/transportConstants.js";
 import { headOf, tailOf } from "../cli/utils/apiKey.js";
+import { createLogger } from "../lib/logger.js";
+import { ConnectionRegistry } from "./ConnectionRegistry.js";
+import { planAdmission } from "./admissionFlow.js";
+import { AUTH_EVENTS, CONNECTION_STATE } from "../lib/connectionConstants.js";
+
+// pushUiLog only feeds the UI over SSE — it never reaches agent.log, which is
+// where these decisions have to be readable after the fact.
+const logger = createLogger("transport");
 
 function loadApiKey() {
   try {
@@ -55,6 +64,89 @@ export function getIO() {
   return ioInstance;
 }
 
+/**
+ * How a socket describes itself as a carrier: which protocol it is, what to
+ * show as its address, and the id its pending-approval entry is filed under.
+ *
+ * A VirtualSocket answers this itself; a socket.io socket gets the tunnel's
+ * answer here. Asking the socket, rather than branching on isVirtual at every
+ * call site, is what lets a third protocol arrive without a hunt through the
+ * file for the places that assumed there were only two.
+ */
+function carrierOf(socket) {
+  return socket.carrier || {
+    id: "ws",
+    ip: socket.handshake?.headers?.["x-forwarded-for"] || socket.handshake?.address || "unknown",
+    pendingId: socket.id
+  };
+}
+
+/**
+ * Ask the one gate, for any carrier. A socket presents its tail in the
+ * handshake; signaling has no socket at all and presents nothing. Both end up
+ * in the same two-gate answer, so no carrier can decide anything on its own.
+ */
+function askGate(socket, deviceId) {
+  const presented = socket
+    ? presentedTailOf(socket.handshake?.auth, openSealedTail)
+    : undefined;
+  const verdict = admissionGate(deviceId, presented, {
+    provenSocket: socket?.data?.provenDevice === true,
+    // A QR pairing has no tail yet — enrollment is what delivers it — so the
+    // live one-time code is what carries this device through gate 1.
+    tempKey: socket?.handshake?.auth?.tempKey || null
+  });
+  logger.info(`gate: device=${deviceId?.slice(0, 8) ?? "none"} step=${verdict.step} ` +
+    `decision=${verdict.decision}${verdict.reason ? ` reason=${verdict.reason}` : ""} ` +
+    `carrier=${socket ? carrierOf(socket).id : "signaling"}`);
+  // Acting on the verdict is the caller's job; recording it is ours, so a key
+  // settled on one carrier stays settled for all of them.
+  //
+  // Only when the tail is what got it through, though. A pairing code carries a
+  // device past gate 1 precisely because it has no tail yet — recording the
+  // stale one its browser still holds turned an accepted pairing into a refused
+  // device seconds after the host had been asked about it.
+  const pairing = !!socket?.handshake?.auth?.tempKey;
+  const carriedByTail = verdict.step === "authz" && !pairing;
+  if (socket && presented !== undefined && (carriedByTail || verdict.step === "auth")) {
+    // The flag matters: a pairing device's secret is the CODE's tail, and
+    // checking it against the API key's would refuse a code that was right.
+    submitTailProof(deviceId, presented, { pairing }); // records proven or rejected, once
+  }
+  if (socket && verdict.decision === ADMISSION.reject && verdict.step === "auth") {
+    // penaltyMs comes from the shared counter, so a guess stays expensive.
+    socket.data.tailReject = socket.data.tailReject
+      || { reason: verdict.reason, penaltyMs: noteTailFailure(headOf(loadApiKey() || "")) };
+  }
+  return verdict;
+}
+
+/**
+ * The two events a device may send before it is admitted — proving the key, and
+ * pairing. Registered once per socket: the admission flow is re-entered on every
+ * proof and every approval, and a second copy of these would answer each proof
+ * twice and double-charge the guess counter.
+ */
+function registerAuthHandlers(socket) {
+  if (socket.data.authHandlersReady) return;
+  socket.data.authHandlersReady = true;
+  // Registered before any await: the client sends enrollment the moment its RTC
+  // opens, and the TAIL it delivers goes out on the RTC carrier only.
+  socket.on("device:enroll", (data) => handleDeviceEnroll(socket, data));
+  socket.on("device:tailProof", (data) => {
+    const deviceId = socket.handshake.auth?.deviceId;
+    // The RTC dispatcher does not guard handlers, so anything thrown here would
+    // be swallowed by the data-channel callback and look like silence.
+    try {
+      const ok = handleTailProof(socket, data);
+      logger.info(`tailProof: device=${deviceId?.slice(0, 8)} carrier=${carrierOf(socket).id} accepted=${ok}`);
+      if (!ok) rejectDeviceTail(socket, deviceId);
+    } catch (e) {
+      logger.warn(`tailProof handler failed: ${e.message}`);
+    }
+  });
+}
+
 /** Setup all per-socket features on an approved socket (single entry point).
  * Order matters: transport bus MUST be ready before terminal/remote handlers so the
  * first tile frame isn't dropped (black canvas). File + terminal + remote all live here.
@@ -67,21 +159,83 @@ async function setupSocketFeatures(socket) {
     clearOneTimeKey();
   }
   await attachTransportBus(socket);
-  // Pairing enrollment \u2014 registered before any await below: the client sends it
-  // the moment its RTC opens. Valid only while a pairing code is live, and the
-  // TAIL it delivers goes out on the RTC carrier only.
-  socket.on("device:enroll", (data) => handleDeviceEnroll(socket, data));
-  // RTC-only session \u2014 same admission rules as the WS path (decideAdmission),
-  // but there is no modal to fall back to here: an impostor session is dropped.
-  if (socket.isVirtual) {
+  // This runs again when a held session resumes (proof landed, host approved),
+  // so the auth handlers register once — a second copy would answer every proof
+  // twice and double-count the rate limit. The gate below still runs on every
+  // entry: re-entering must not be a way around it.
+  registerAuthHandlers(socket);
+  // One flow for every protocol. The gate answers, planAdmission turns that
+  // answer into consequences, and this applies them — so the tunnel, RTC and
+  // anything added later are admitted by the same code, in the same order.
+  if (!socket.data.localUi) {
     const deviceId = socket.handshake.auth?.deviceId || null;
-    const ok = decideAdmission(socket, deviceId) === "admit";
-    if (!ok) {
-      pushUiLog(`Device not admitted (RTC): ${socket.handshake.auth?.deviceId?.slice(0, 8)} \u2014 dropping session`);
-      socket.disconnect();
+    const conn = connectionFor(socket);
+    if (!conn) return;
+    // Attach the carrier this socket speaks, not the PM that multiplexes them:
+    // conn.connected asks each carrier whether it can actually move bytes.
+    const { id: carrierId } = carrierOf(socket);
+    conn.attach(carrierId, socket.data.protocol?._adapters?.get(carrierId) || null);
+
+    const verdict = askGate(socket, deviceId);
+    const { effects, reason } = planAdmission(conn, verdict);
+    logger.info(`flow: device=${deviceId?.slice(0, 8)} state=${conn.state} ` +
+      `effects=[${effects.join(",")}]${reason ? ` reason=${reason}` : ""}`);
+    pushUiLog(`[auth] ${deviceId?.slice(0, 8)}: ${conn.state} → ${effects.join(",") || "wait"}`);
+
+    if (effects.includes("refuse")) {
+      rejectDeviceTail(socket, deviceId, reason);
       return;
     }
+    // Waiting on the key: the auth handlers above are already live, and the
+    // proof rides the channel they listen on. Re-enter when it lands.
+    if (effects.includes("open-auth-channel")) {
+      if (!socket.data.awaitingProof) {
+        socket.data.awaitingProof = true;
+        onTailProven(deviceId, () => {
+          socket.data.awaitingProof = false;
+          if (socket.connected) setupSocketFeatures(socket).catch(() => {});
+        }, () => rejectDeviceTail(socket, deviceId, TAIL_REJECT_REASON.timeout));
+      }
+      return;
+    }
+    // Key proven, host has not answered. Ask once per device; approving calls
+    // releaseDevice, which re-enters here for every session the device holds.
+    if (effects.includes("ask-host")) {
+      const carrier = carrierOf(socket);
+      askHostToApprove(deviceId, {
+        socketId: carrier.pendingId,
+        ip: carrier.ip,
+        peerId: socket.peerId,
+        notify: () => socket.emit("device:pendingApproval")
+      });
+      return;
+    }
+    if (!effects.includes("start-session")) return;
+    // Auto-approve is a standing decision, and THIS is the one place it is
+    // recorded: the device lands in the approved list (what the Clients UI
+    // shows) and the UI is told to re-read it. The gate answers but never
+    // writes — it is pure — so without this an auto-approved client connects,
+    // works, and stays invisible on the agent.
+    if (gateDevice(deviceId) === DEVICE_GATE.auto) {
+      approveDevice(deviceId);
+      clearRejectedDevice(deviceId);
+      pushUiEvent("deviceApproval", { action: "refresh" });
+    }
   }
+  await setupSessionFeatures(socket);
+}
+
+/** The session itself — reached only once both gates said yes. Split out so a
+ *  held RTC session can resume here after its proof (or the host) settles,
+ *  without re-registering the auth handlers. */
+async function setupSessionFeatures(socket) {
+  if (socket.data.sessionReady) return;
+  socket.data.sessionReady = true;
+  // The session already recorded that both gates passed (planAdmission moved it
+  // to active); this flag only mirrors it for the socket.io code that predates
+  // sessions and still reads socket.data.approved.
+  socket.data.approved = true;
+  announceAdmitted(socket); // both gates passed — this is the only place that is true
   setupFileExplorerHandlers(socket);
   setupClipboardHandlers(socket);
   setupQuotaTrackerHandlers(socket);
@@ -138,9 +292,28 @@ async function attachTransportBus(socket) {
   }
 }
 
-// RTC-only sessions keyed by client peerId ("deviceId:tab") — created when an
-// offer arrives over DO signaling before the tunnel brought socket.io up.
+// RTC-only VirtualSockets keyed by peerId — the handler host for a session
+// whose carrier is RTC. The SESSION itself lives in `sessions` below; this map
+// is only the transport-side object that carries it.
 const rtcSessions = new Map();
+
+// Every device's session lifecycle, one book for every protocol. Admission,
+// event gating and teardown all read from here, so a rule written once applies
+// to the tunnel, to RTC, and to anything added later.
+const connections = new ConnectionRegistry();
+
+/** The CONNECTION a socket belongs to — created on first sight of the device.
+ *  Not a terminal session: this is the web↔agent link the carriers ride on. */
+function connectionFor(socket) {
+  const deviceId = socket?.handshake?.auth?.deviceId || null;
+  if (!deviceId) return null;
+  const peerId = socket.peerId || socket.handshake.auth?.peerId || deviceId;
+  const existing = socket.data.conn;
+  if (existing && !existing.closed) return existing;
+  const conn = connections.open({ deviceId, peerId, apiKey: loadApiKey() });
+  socket.data.conn = conn;
+  return conn;
+}
 
 // Debug toggle — when false, the agent refuses RTC offers so clients fall back
 // to the tunnel. Lets you test the fallback path without pulling the network.
@@ -158,13 +331,8 @@ export function setRtcTestDisabled(disabled) {
   // across every active PM. The client then falls back to the WS tunnel.
   disableAllRtc();
   // Also clear VirtualSocket RTC sessions (RTC-first offer-before-WS case).
-  for (const [peerId, vs] of rtcSessions) {
-    try {
-      const pm = vs.data?.protocol;
-      try { vs.disconnect(); } catch {}
-      if (pm) { try { pm.close(); } catch {} unregisterProtocol(pm); }
-    } catch {}
-    rtcSessions.delete(peerId);
+  for (const peerId of [...rtcSessions.keys()]) {
+    killRtcSession(peerId);
     pushUiLogDebug(`RTC test-disabled: killed session ${peerId?.slice(0, 8)}`);
   }
 }
@@ -202,20 +370,35 @@ function handleRtcOffer(peerId) {
     // already routed to its PM. Only a closed PM is stale and worth rebuilding.
     if (!existing.data.protocol?._closed) return;
     pushUiLogDebug(`Stale RTC session ${deviceId.slice(0, 8)} — rebuilding`);
-    try { existing.disconnect(); } catch {}
-    rtcSessions.delete(peerId);
+    killRtcSession(peerId);
   }
 
   // A live WS socket for this peer will register its signaling handler and
   // consume the buffered offer — spawning here would build a duplicate PM.
   const hasWsHost = hasLiveWsForPeer(peerId);
 
-  switch (gateDevice(deviceId)) {
-    case "approved":
+  // The SAME decision table as the socket.io path — asking gateDevice alone
+  // here is what raised the approval modal for a device that could never prove
+  // the key TAIL: it answers "do I know this device", never "can it prove the
+  // key". Signaling presents no handshake, so a stranger lands on reject.
+  const verdict = askGate(null, deviceId);
+
+  // "hold" on the KEY is not a refusal and not a question for the host: the
+  // proof travels on device:tailProof, over the very channel this offer opens.
+  // Building the session IS how the device gets to prove itself; refusing here
+  // left it retrying forever against a door that only opens from inside.
+  if (verdict.decision === ADMISSION.hold && verdict.step === "auth") {
+    if (hasWsHost) return;
+    logger.info(`rtc-offer: building session so the TAIL proof has a road device=${deviceId.slice(0, 8)}`);
+    return void startRtcSession(peerId, deviceId);
+  }
+
+  switch (verdict.decision) {
+    case ADMISSION.admit:
       if (hasWsHost) return;
       return void startRtcSession(peerId, deviceId);
 
-    case "rejected":
+    case ADMISSION.reject:
       updateRejectedSocket(deviceId, rtcSocketId(peerId), "rtc");
       sendSignalingTo(peerId, { type: "error", message: SIGNALING_ERRORS.rejected });
       dropPending(peerId); // nothing will consume it — don't hold the SDP in RAM
@@ -223,23 +406,49 @@ function handleRtcOffer(peerId) {
       pushUiEvent("deviceApproval", { action: "refresh" });
       return;
 
-    case "auto":
-      // Routing only — admission (TAIL proof, grandfathering) is decided by
-      // decideAdmission inside the session build, which drops an impostor.
-      return void autoApproveAndRelease(deviceId);
-
     default:
       // Unknown device — same pending flow as socket.io. The offer stays buffered
       // in signalingGlobal; releaseDevice builds the session and flushes it.
       // Tell the client so it shows the "waiting for approval" screen (the socket.io
       // path sends device:pendingApproval; over DO the only channel is signaling).
-      sendSignalingTo(peerId, { type: "error", message: SIGNALING_ERRORS.pending });
-      // Approval is per device — a second tab reuses the first tab's pending entry.
-      if (isDevicePending(deviceId)) return;
-      addPendingApproval(rtcSocketId(peerId), { deviceId, ip: "rtc", peerId });
-      pushUiLog(`Unknown device (RTC): ${deviceId.slice(0, 8)} — waiting for approval`);
-      pushUiEvent("deviceApproval", { socketId: rtcSocketId(peerId), deviceId, ip: "rtc", action: "pending" });
+      askHostToApprove(deviceId, {
+        socketId: rtcSocketId(peerId),
+        ip: "rtc",
+        peerId,
+        // No socket exists yet — the buffered offer waits in signalingGlobal
+        // and releaseDevice flushes it once the host answers.
+        notify: () => sendSignalingTo(peerId, { type: "error", message: SIGNALING_ERRORS.pending })
+      });
   }
+}
+
+/**
+ * Ask the host about a device — one implementation, whichever carrier brought
+ * it. WS and RTC differ in exactly one respect: how you reach the client to
+ * say "you are waiting" (a socket.io event vs a signaling error, because a
+ * buffered offer has no socket yet). Everything else — the pending entry, the
+ * per-device rule, the agent's own UI — is the same question and must not be
+ * answered twice.
+ *
+ * Reached only with the KEY already proven; the gate holds unproven devices on
+ * its own step, so no click here can stand in for the proof.
+ *
+ * @param {string} deviceId
+ * @param {{socketId: string, ip: string, peerId?: string, notify: () => void}} carrier
+ */
+function askHostToApprove(deviceId, { socketId, ip, peerId, notify }) {
+  notify(); // tell the client it is waiting, in whatever dialect it speaks
+  // Approval is per device: a second tab, or the other carrier of the same
+  // device, joins the entry that is already up rather than raising a second.
+  if (isDevicePending(deviceId)) {
+    pushUiLog(`[auth] already pending, not asking twice: ${deviceId?.slice(0, 8)}`);
+    return;
+  }
+  addPendingApproval(socketId, { deviceId, ip, ...(peerId ? { peerId } : {}) });
+  logger.info(`asking host: device=${deviceId?.slice(0, 8)} via=${peerId ? "rtc" : "ws"}`);
+  pushUiLog(`[auth] ASKING HOST: ${deviceId?.slice(0, 8)} via=${peerId ? "rtc" : "ws"} socketId=${socketId}`);
+  pushUiLog(`Device needs approval: ${deviceId?.slice(0, 8) || "no-id"}`);
+  pushUiEvent("deviceApproval", { socketId, deviceId, ip, action: "pending" });
 }
 
 /** True when a connected socket.io socket already carries this peerId — its PM
@@ -251,13 +460,49 @@ function hasLiveWsForPeer(peerId) {
   return false;
 }
 
+/**
+ * Tell a client it is in — the one place that says so, on any carrier.
+ *
+ * Gated on the proof, always: "approved" is the client's cue to show the
+ * workspace, and a session still inside its proof window has not been accepted
+ * yet. Three separate carriers used to announce this on their own, which is how
+ * a wrong key reached the workspace on whichever one happened to fire first.
+ */
+function announceAdmitted(socket) {
+  const say = () => {
+    if (!socket.connected) return;
+    onClientReady(socket, () => socket.emit("device:approved"));
+  };
+  // The local UI is trusted by token and has no device to gate.
+  if (socket.data.localUi) return say();
+
+  // "approved" is the client's cue to show the workspace, so it may only follow
+  // an ACTIVE session. Proving the key is half the answer, and announcing on
+  // that half is what let a device reach the workspace with the host never
+  // asked. Callers reach here before the session exists (unlockSocket runs
+  // ahead of the flow that creates it), so the session is looked up when the
+  // announcement is actually due rather than captured now.
+  const conn = socket.data.conn;
+  if (conn?.active) return say();
+  if (conn) return void conn.on("state", function onState(e) {
+    if (e.to !== CONNECTION_STATE.active) return;
+    conn.off("state", onState);
+    say();
+  });
+  // No session yet: setupSessionFeatures is the one place that makes a session
+  // active, and it announces from there.
+}
+
 /** Unlock one waiting WS socket. Idempotent — a second unlock (double-tap on
  * Approve, modal racing the Clients list) must not re-run feature setup. */
 function unlockSocket(socket) {
   if (socket.data.approved || socket.data.unlocking) return Promise.resolve();
-  socket.data.approved = true;
+  // NOT approved here. This used to declare the socket admitted and only then
+  // run the flow that decides whether it is — so a device whose key had not
+  // been proven was already past the event guard while the question was still
+  // being asked. setupSessionFeatures sets the flag, once both gates pass.
   socket.data.unlocking = true;
-  onClientReady(socket, () => socket.emit("device:approved"));
+  announceAdmitted(socket);
   const done = setupSocketFeatures(socket)
     .catch((e) => pushUiLog(`Feature setup failed: ${e.message}`))
     .finally(() => { socket.data.unlocking = false; });
@@ -277,19 +522,59 @@ async function releaseDevice(deviceId) {
     if (socket.handshake.auth?.deviceId !== deviceId || socket.data.approved) continue;
     setups.push(unlockSocket(socket));
   }
+  // Sessions already built and waiting on this very answer — RTC peers that
+  // proved their key and were held. They need no spawning, only the second gate
+  // re-asked, which is what re-entering the flow does.
+  for (const vs of rtcSessions.values()) {
+    if (vs.handshake?.auth?.deviceId !== deviceId || vs.data.approved) continue;
+    setups.push(setupSocketFeatures(vs).catch((e) => pushUiLog(`Connection resume failed: ${e.message}`)));
+  }
   await Promise.allSettled(setups);
   for (const peerId of pendingPeersOf(deviceId)) startRtcSession(peerId, deviceId);
 }
 
-/** Auto-approve intake path, shared by both carriers. For v2 keys the caller
- * has already verified the key-TAIL proof — the server only holds the HEAD and
- * can never pass it, which is what makes auto-approve safe again. */
-function autoApproveAndRelease(deviceId) {
-  approveDevice(deviceId);
-  clearRejectedDevice(deviceId);
-  pushUiLog(`Auto-approved device: ${deviceId.slice(0, 8)}...`);
-  pushUiEvent("deviceApproval", { action: "refresh" });
-  releaseDevice(deviceId);
+/**
+ * The one way a device is refused over the TAIL — every carrier, every reason.
+ *
+ * Order is the whole point: answer the client on the carrier it is listening
+ * on, and only once that answer is out close this carrier, the peer's RTC
+ * session, and anything else the device holds. Doing it in any other order
+ * cuts the channel before the client learns why.
+ */
+function rejectDeviceTail(socket, deviceId, reason) {
+  socket.data.tailReject = socket.data.tailReject || { reason, penaltyMs: 0 };
+  const why = socket.data.tailReject.reason;
+  logger.warn(`tail rejected (${why}): device=${deviceId?.slice(0, 8) ?? "none"} carrier=${carrierOf(socket).id}`);
+  pushUiLog(`Device refused (${why}): ${deviceId?.slice(0, 8)}`);
+  finishTailRejection(socket, () => {
+    if (socket.isVirtual) killRtcSession(socket.peerId);
+    revokeDevice(deviceId, why);
+  });
+}
+
+/** Reject is per device too — the mirror of releaseDevice. A TAIL verdict is
+ *  the device's, so a proof that fails on one carrier must close the other:
+ *  the tunnel and the data channel are two paths to one session, and leaving
+ *  either up would keep an unproven device connected. */
+function revokeDevice(deviceId, reason) {
+  if (!deviceId) return;
+  clearProofWaiters(deviceId); // nothing is waiting to ask the host any more
+  removePendingApproval(getPendingSocketId(deviceId) || "");
+  // One call reaches every tab and every protocol the device holds.
+  connections.closeDevice(deviceId, reason);
+  for (const socket of ioInstance?.sockets.sockets.values() || []) {
+    if (socket.handshake.auth?.deviceId !== deviceId) continue;
+    socket.data.tailReject = socket.data.tailReject || { reason, penaltyMs: 0 };
+    finishTailRejection(socket);
+  }
+  // The virtual session is the carrier the verdict may have arrived on, and
+  // finishTailRejection answers on a timer — killing it here would cut the
+  // channel before the client ever heard why. Let that path close it.
+  for (const [peerId, session] of rtcSessions) {
+    if (session.handshake?.auth?.deviceId !== deviceId) continue;
+    if (session.data?.tailReject) continue; // already answering, will close itself
+    killRtcSession(peerId);
+  }
 }
 
 /** Pending entry by socketId, falling back to the device's current entry.
@@ -306,16 +591,22 @@ function resolvePending(socketId) {
   return entry ? { key, ...entry } : null;
 }
 
+/** Tear down a device's RTC-only session — one path for every reason it can
+ *  lose the right to exist (wrong TAIL on the WS attach, proof deadline, a
+ *  failed build). Idempotent: a session already gone is a no-op. */
+function killRtcSession(peerId) {
+  const session = peerId ? rtcSessions.get(peerId) : null;
+  if (!session) return;
+  const pm = session.data?.protocol;
+  rtcSessions.delete(peerId);
+  try { session.disconnect(); } catch {}
+  if (pm) { try { pm.close(); } catch {} unregisterProtocol(pm); }
+}
+
 /** Fire-and-forget build — every caller is a sync signaling/approval path. */
 function startRtcSession(peerId, deviceId) {
   buildRtcSession(peerId, deviceId).catch((e) => {
-    const stale = rtcSessions.get(peerId);
-    if (stale) {
-      try { stale.data.protocol?.close(); } catch {}
-      unregisterProtocol(stale.data.protocol);
-      stale.disconnect();
-    }
-    rtcSessions.delete(peerId);
+    killRtcSession(peerId);
     pushUiLog(`RTC session failed: ${e.message}`);
   });
 }
@@ -324,8 +615,11 @@ function startRtcSession(peerId, deviceId) {
 async function buildRtcSession(peerId, deviceId) {
   if (rtcSessions.has(peerId)) return;
   const socket = new VirtualSocket({ deviceId, peerId, apiKey: loadApiKey() });
-  socket.data.approved = true;
+  // The carrier exists so the device has somewhere to prove its key; being
+  // admitted is a separate question, answered by the session below.
+  socket.data.approved = false;
   socket.data.rtcSession = true;
+  socket.data.conn = connections.open({ deviceId, peerId, apiKey: loadApiKey() });
   // Published to the map BEFORE its PM exists, so anyone who picks it up must
   // wait on this instead of reading .data.protocol (which is still undefined
   // and would silently no-op through an optional chain).
@@ -336,6 +630,10 @@ async function buildRtcSession(peerId, deviceId) {
   socket.on("disconnect", () => {
     if (rtcSessions.get(peerId) === socket) rtcSessions.delete(peerId);
     untrackConnection(socket.id);
+    // The connection dies with its last carrier. Leaving it open kept a closed
+    // browser looking online — and worse, kept a live verdict attached to a
+    // device that is no longer there.
+    socket.data.conn?.close("carrier-gone");
     markReady(); // never leave a waiter hanging on a dead session
   });
   pushUiLogDebug(`RTC session: ${deviceId.slice(0, 8)}...`);
@@ -344,9 +642,24 @@ async function buildRtcSession(peerId, deviceId) {
   } finally {
     markReady();
   }
+  // Every RTC-only session is on the clock: it presents no TAIL (there is no
+  // handshake to carry one), so it lives on the promise that device:tailProof
+  // follows over the channel. Armed unconditionally rather than on a stored
+  // "proving" state — the gate is pure and stores nothing, so keying the timer
+  // on such a state armed it never and left unproven sessions running forever.
+  // Already-proven devices make this a no-op when it fires.
+  setTimeout(() => {
+    if (rtcSessions.get(peerId) !== socket) return;      // session already gone
+    if (verdictStateOf(deviceId) === TAIL_VERDICT.proven) return;
+    pushUiLog(`Device never proved its TAIL: ${deviceId.slice(0, 8)} — dropping session`);
+    rejectDeviceTail(socket, deviceId, TAIL_REJECT_REASON.timeout);
+  }, PROOF_DEADLINE + 1000);
   // Client waits for this before loading sessions (mirrors the socket.io path).
-  socket.once("device:clientReady", () => socket.emit("device:approved"));
-  socket.emit("device:approved");
+  // Sent only once the TAIL is proven: it is the client's signal that the agent
+  // accepted this device, and a session inside its proof window has not been
+  // accepted yet — announcing it there is what let a wrong key reach the
+  // workspace UI. A device that never proves is closed by the deadline instead.
+  announceAdmitted(socket);
 }
 
 /** Approve a pending device (approval modal or Clients list) — one path for
@@ -356,6 +669,18 @@ export function approveSocketDevice(socketId) {
   if (!ioInstance) return false;
   const pending = resolvePending(socketId);
   if (!pending) return false;
+
+  // Approving cannot override the key. A device whose TAIL was refused is let
+  // in by nobody — releasing it here would admit it just long enough for the
+  // next check to throw it out, which reads as "approve, then instant kick".
+  if (verdictStateOf(pending.deviceId) === TAIL_VERDICT.rejected) {
+    logger.warn(`approve refused — TAIL was rejected: device=${pending.deviceId.slice(0, 8)}`);
+    pushUiLog(`Cannot approve ${pending.deviceId.slice(0, 8)} — wrong access key`);
+    removePendingApproval(pending.key);
+    revokeDevice(pending.deviceId, TAIL_REJECT_REASON.mismatch);
+    pushUiEvent("deviceApproval", { action: "refresh" });
+    return false;
+  }
 
   approveDevice(pending.deviceId);
   clearRejectedDevice(pending.deviceId);
@@ -473,8 +798,16 @@ export async function startTransportServer(server) {
     transports: ["websocket", "polling"],
     allowEIO3: true,
     allowUpgrades: true,
-    pingTimeout: 60000,
-    pingInterval: 25000,
+    // A client that vanishes without a clean close — a crashed tab, a pulled
+    // cable, a phone that lost the network — is only noticed when these expire,
+    // and until then it is still listed as online. The old 25s/60s pairing meant
+    // up to 85 seconds of a stale entry. Halved: still several missed pings
+    // before anyone is declared dead, so a brief mobile stall does not drop a
+    // live session, but the window a closed browser lingers in is much shorter.
+    // pagehide covers the ordinary case (see web WsProtocol); this is the net
+    // under the cases it cannot cover.
+    pingTimeout: 30000,
+    pingInterval: 12000,
     maxHttpBufferSize: 1e8,
     perMessageDeflate: { threshold: 1024 }
   });
@@ -497,10 +830,21 @@ export async function startTransportServer(server) {
 
     // Block all events from unapproved sockets (except device:clientReady)
     socket.data.approved = false;
+    // One rule, read from the session: an inactive session carries auth and
+    // nothing else. The RTC side asks the same question through
+    // VirtualSocket.listeners(), so neither protocol has a gate of its own.
     socket.use((packet, next) => {
-      if (socket.data.approved) return next();
-      const event = packet[0];
-      if (event === "device:clientReady" || event === "disconnect") return next();
+      // The local UI is trusted by token, not by session, and never has one.
+      if (socket.data.localUi) return next();
+      const conn = socket.data.conn;
+      // No session yet means admission has not run: closed by default. Only the
+      // auth events may pass, because they are what creates the session in the
+      // first place — anything laxer here would let a socket answer features in
+      // the window between connecting and being gated.
+      if (!conn) return AUTH_EVENTS.has(packet[0])
+        ? next()
+        : next(new Error("Device not approved"));
+      if (conn.allows(packet[0])) return next();
       return next(new Error("Device not approved"));
     });
 
@@ -533,6 +877,14 @@ export async function startTransportServer(server) {
     socket.on("disconnect", (reason) => {
       untrackConnection(socket.id);
       removePendingApproval(socket.id);
+      // This carrier is gone; the connection outlives it only if another one
+      // is still up. A tunnel dropping while RTC carries the session is a
+      // switch, not a departure — closing on it would tear down a live client.
+      const conn = socket.data?.conn;
+      if (conn) {
+        conn.detach("ws");
+        if (!conn.connected) conn.close("carrier-gone");
+      }
       const pm = socket.data?.protocol;
       pushUiLogDebug(`Client disconnected: ${ip} (${reason}) pm=${pm?._deviceId?.slice(0, 12) || "none"} remoteAttached=${!!socket.data?.remoteAttached}`);
       // PM cleanup deferred: remoteSocket grace timer handles it if remote was attached;
@@ -570,77 +922,114 @@ export async function startTransportServer(server) {
         const moved = !!prevId;
         if (prevId) removePendingApproval(prevId);
 
-        addPendingApproval(socket.id, { deviceId, ip });
-
-        // Wait for client to signal ready before emitting approval request
+        // Only ever reached with the KEY already proven — the gate answers
+        // "awaiting-proof" on its own step, above, so nothing unproven gets
+        // this far. The wait here is just for the client's listeners.
         onClientReady(socket, () => {
           // Approved while waiting (host used the rtc modal) — nothing to request
-          if (socket.data.approved) return;
-          socket.emit("device:pendingApproval");
-          if (!moved) {
-            pushUiEvent("deviceApproval", {
-              socketId: socket.id,
-              deviceId,
-              ip,
-              action: "pending"
-            });
+          if (socket.data.approved || !socket.connected) return;
+          // An entry that moved rtc→ws is the same request, already on screen:
+          // hand it to this socket without raising it a second time.
+          if (moved) {
+            addPendingApproval(socket.id, { deviceId, ip });
+            socket.emit("device:pendingApproval");
+            return;
           }
+          askHostToApprove(deviceId, {
+            socketId: socket.id,
+            ip,
+            notify: () => socket.emit("device:pendingApproval")
+          });
         });
       };
 
-      const rtcSession = peerId ? rtcSessions.get(peerId) : null;
-      if (rtcSession && isDeviceApproved(deviceId)) {
-        // The RTC-only session was admitted without a TAIL (a VirtualSocket has
-        // no socket.io handshake to carry one). This WS DOES carry it, so check
-        // here — otherwise connecting RTC-first would skip the TAIL entirely.
-        if (decideAdmission(socket, deviceId) !== "admit") {
-          pushUiLog(`Device TAIL check failed on RTC attach: ${deviceId.slice(0, 8)}`);
-          return void holdForApproval();
-        }
-        socket.data.approved = true;
+      // Attach this WS to the device's live RTC session instead of building a
+      // second PM. Only reached once admission said yes.
+      const attachToRtcSession = (rtcSession) => {
+        // Join the session the RTC peer already holds — do not mint a verdict.
+        // Setting approved directly here was the last way into a live session
+        // without passing the gate; the session itself is the authority, and it
+        // only says yes once both gates have.
+        const conn = rtcSession.data.conn;
+        socket.data.conn = conn;
+        socket.data.approved = !!conn?.active;
         socket.data.rtcHost = rtcSession;
         // The session may still be building (its PM is assigned inside
         // setupSocketFeatures). Waiting on data.ready is what keeps a WS that
         // arrives mid-build from attaching to nothing and hanging approved.
         Promise.resolve(rtcSession.data.ready)
           .then(() => rtcSession.data.protocol?.attachSocket(socket))
-          // The virtual session's terminal:ready rode RTC and could race the client's
-          // listener binding — re-emit on this socket so the session list always gets a
-          // fetch trigger (client handler is idempotent).
-          .then(() => socket.emit("terminal:ready"))
+          // Registered only once the adapter exists — attachSocket is what
+          // builds it, so attaching earlier would hand the session a null.
+          .then(() => conn?.attach("ws", rtcSession.data.protocol?._adapters?.get("ws") || null))
+          // The virtual session's terminal:ready rode RTC and could race the
+          // client's listener binding — re-emit so the session list always gets
+          // a fetch trigger (the client handler is idempotent). Only for a
+          // session that IS active: announcing readiness on one that is still
+          // waiting tells the client it is in when it is not, and this carrier
+          // joined that session rather than being admitted on its own.
+          .then(() => { if (conn?.active) socket.emit("terminal:ready"); })
           .catch((e) => pushUiLog(`RTC session attachSocket failed: ${e.message}`));
         pushUiLogDebug(`Tunnel attached to RTC session: ${deviceId.slice(0, 8)}...`);
-        onClientReady(socket, () => socket.emit("device:approved"));
-        return;
-      }
+        announceAdmitted(socket);
+      };
 
       // WS arrived first but an RTC offer is buffered in signalingGlobal and will
       // build a session momentarily. Wait one grace window instead of spawning a
       // second PM now (which would duplicate-broadcast to this client).
-      if (peerId && !socket.data._rtcWaited && hasPendingOffer(peerId)) {
+      const rtcSession = peerId ? rtcSessions.get(peerId) : null;
+      if (!rtcSession && peerId && !socket.data._rtcWaited && hasPendingOffer(peerId)) {
         socket.data._rtcWaited = true;
         pushUiLogDebug(`WS first, RTC offer pending → grace 500ms (device ${deviceId.slice(0, 8)})`);
         setTimeout(route, 500);
         return;
       }
 
+      // ONE decision, then one action per outcome. Attaching to a live RTC
+      // session used to ask separately and fall back to the modal on its own —
+      // which is how a wrong TAIL still reached "waiting for approval". Where
+      // the session ends up living is a routing question, decided after.
+      const verdict = askGate(socket, deviceId);
 
-      // One decision for every carrier — see lib/deviceAuth.decideAdmission.
-      switch (decideAdmission(socket, deviceId)) {
-        case "admit":
+      // Waiting on the KEY, not on the host. A WS handshake normally carries the
+      // tail, so this is the client that has not sent one yet: an RTC-first tab
+      // whose proof rides the data channel, or a pre-split client. Either way it
+      // is not a question for the host — hold the socket unapproved and let the
+      // proof (or the deadline) settle it, exactly as the RTC path does.
+      if (verdict.decision === ADMISSION.hold && verdict.step === "auth") {
+        logger.info(`route: awaiting TAIL proof device=${deviceId?.slice(0, 8) || "no-id"}`);
+        onTailProven(deviceId, () => route(), () => {
+          rejectDeviceTail(socket, deviceId, TAIL_REJECT_REASON.timeout);
+        });
+        return;
+      }
+
+      switch (verdict.decision) {
+        case ADMISSION.admit:
+          // A live session for this peer owns the PM — attach, never build a
+          // second one. The approval check that used to guard this is redundant
+          // now: admission already answered it, and reading it again could miss
+          // an entry decideAdmission had just created (auto-approve).
+          if (rtcSession) return void attachToRtcSession(rtcSession);
           pushUiLogDebug(`Device admitted: ${deviceId?.slice(0, 8)}...`);
           unlockSocket(socket);
           return;
 
-        case "reject":
+        case ADMISSION.reject: {
+          // A failed TAIL proof is not the host-kicked flow: answer the client
+          // (after its rate-limit penalty) and close every carrier the device
+          // holds — including the RTC session admitted before the proof landed.
+          if (socket.data?.tailReject) return void rejectDeviceTail(socket, deviceId);
           // Previously rejected — keep socket unapproved, no modal, update socketId for later approve
           updateRejectedSocket(deviceId, socket.id, ip);
           pushUiLog(`Rejected device reconnected: ${deviceId.slice(0, 8)} — waiting in Clients list`);
           socket.emit("device:rejected");
           pushUiEvent("deviceApproval", { action: "refresh" });
           return;
+        }
 
         default:
+          logger.info(`route: hold for approval device=${deviceId?.slice(0, 8) || "no-id"}`);
           pushUiLog(`Device needs approval: ${deviceId?.slice(0, 8) || "no-id"}`);
           holdForApproval();
       }

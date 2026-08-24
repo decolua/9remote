@@ -62,6 +62,7 @@ export default {
     connect: "कनेक्ट करें",
     connecting: "कनेक्ट हो रहा है...",
     authenticating: "टोकन से प्रमाणीकरण हो रहा है...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "सहेजी गई कुंजियाँ",
     login: "लॉगिन",
     lastLogin: "अंतिम लॉगिन",

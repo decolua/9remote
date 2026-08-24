@@ -3,11 +3,12 @@
 import Spinner from "./Spinner";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import { APPROVAL_STATUS } from "@/shared/constants/transport";
 
 /**
  * Connection overlay modal - shows when retrying, failed, or waiting for device approval
  * @param {Object} retryStatus - { isRetrying, attempt, maxAttempts, failed }
- * @param {string|null} approvalStatus - null | "pending" | "approved" | "rejected"
+ * @param {string|null} approvalStatus - null, or one of APPROVAL_STATUS
  * @param {boolean} connected - true when any transport (RTC or WS) is alive → suppress retry/failed modal
  * @param {Function} onLogout - Callback to clear session and redirect
  * @param {Function} onRetryNow - Force an immediate reconnect attempt
@@ -22,7 +23,7 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   // workspace while the agent was still waiting for them to click Approve —
   // and switching to the agent window to click it is exactly what triggers the
   // grace on the way back.
-  const isApproval = approvalStatus === "pending" || approvalStatus === "rejected";
+  const isApproval = approvalStatus === APPROVAL_STATUS.pending || approvalStatus === APPROVAL_STATUS.rejected;
   if (suppress && !isApproval) return null;
 
   const handleBackToLogin = () => {
@@ -36,7 +37,7 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   };
 
   // Device approval: pending
-  if (approvalStatus === "pending") {
+  if (approvalStatus === APPROVAL_STATUS.pending) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
         <div className="card-elev p-6 max-w-sm w-full mx-4">
@@ -64,7 +65,7 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   }
 
   // Device approval: rejected
-  if (approvalStatus === "rejected") {
+  if (approvalStatus === APPROVAL_STATUS.rejected) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
         <div className="card-elev p-6 max-w-sm w-full mx-4">

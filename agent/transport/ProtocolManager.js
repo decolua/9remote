@@ -3,7 +3,7 @@ import { WebRtcProtocol } from "./WebRtcProtocol.js";
 import { registerProtocol, getProtocol } from "./registry.js";
 import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_DEAD_GRACE_MS, SIGNALING_ERRORS } from "../lib/transportConstants.js";
 import { encodeTilesBatch } from "../features/remote/handlers/ScreenHandler.js";
-import { isDeviceApproved } from "../lib/deviceApproval.js";
+import { isDeviceRejected } from "../lib/deviceApproval.js";
 import { onSignalingMessage, onSignalingReady, sendSignaling as sendGlobalSignaling, isSignalingReady } from "../lib/signalingGlobal.js";
 import { pushTransportState } from "../api/ui.js";
 
@@ -147,8 +147,15 @@ export class ProtocolManager {
     // are flushed by onSignalingMessage. Device approval re-checked on offer.
     this._offGlobalSig = onSignalingMessage(this._deviceId, (msg) => {
       if (msg.type === "offer") {
-        if (this._approvalDeviceId && !isDeviceApproved(this._approvalDeviceId)) {
-          this._sendSignaling({ type: "error", message: SIGNALING_ERRORS.pending });
+        // Deliberately NOT gated on host approval. The key TAIL is proven over
+        // this very channel (device:tailProof), and the host is only asked once
+        // it is: refusing the offer until the device is approved closed the one
+        // road the proof can travel, so the device could never be proven, never
+        // be asked about, and never approved. Admission is decided in one place
+        // — lib/deviceAuth.admissionGate, via the server's askGate — and the
+        // session it guards carries nothing but auth until both gates pass.
+        if (this._approvalDeviceId && isDeviceRejected(this._approvalDeviceId)) {
+          this._sendSignaling({ type: "error", message: SIGNALING_ERRORS.rejected });
           return;
         }
         // No RTC handler (adapter killed by debug toggle or crash) — tell the

@@ -62,6 +62,7 @@ export default {
     connect: "연결",
     connecting: "연결 중...",
     authenticating: "토큰으로 인증 중...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "저장된 키",
     login: "로그인",
     lastLogin: "마지막 로그인",

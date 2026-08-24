@@ -62,6 +62,7 @@ export default {
     connect: "Anslut",
     connecting: "Ansluter...",
     authenticating: "Autentiserar med token...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "Sparade nycklar",
     login: "Logga in",
     lastLogin: "Senast inloggad",

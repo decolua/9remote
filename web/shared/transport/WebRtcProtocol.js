@@ -111,6 +111,9 @@ export class WebRtcProtocol extends BaseProtocol {
   async connect(ctx) {
     this._ctx = ctx;
     this._cleanupPeer();
+    // Bumped per peer so per-connection work (the TAIL proof) re-runs against a
+    // restarted agent but not on every reopen of the same peer's channel.
+    this._peerEpoch = (this._peerEpoch ?? 0) + 1;
     // Fresh NAT classification per peer — candidate types accumulate as ICE gathers.
     this._localCandidateTypes = new Set();
     this._answerApplied = false;
@@ -439,16 +442,20 @@ export class WebRtcProtocol extends BaseProtocol {
     const apiKey = this._ctx?.auth?.apiKey;
     if (!apiKey) return true;
     const trust = getTrust(apiKey);
-    // A pin from before sealing has no sealing key, and its fp2 was computed
-    // over the signing key alone — a fingerprint this build can no longer
-    // produce. Treating it as a pin would reject the agent forever with no way
-    // back; it is stale, so it anchors nothing and pairing starts over.
-    const pinned = trust?.hostPubKey && trust?.hostSealKey ? trust : null;
+    // A pin from before sealing carries a signing key but no sealing key, and
+    // its fp2 came from a scheme this build cannot reproduce. The KEY is still
+    // a real anchor — it was pinned out-of-band once — so it keeps deciding who
+    // may answer. Only the fingerprint is unusable, which matters in two
+    // places: re-pinning a rotated key, and the fp2 fallback for browsers
+    // without Ed25519. Both fall through to pairing instead of comparing
+    // against a value that can never match.
+    const pinned = trust?.hostPubKey ? trust : null;
+    const fp2Usable = !!trust?.hostSealKey;
     // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
     console.log("[seal] verify answer:", {
       agentSentXpub: !!msg.xpub,
       pinned: !!pinned,
-      stalePin: !!(trust?.hostPubKey && !trust?.hostSealKey),
+      stalePin: !!(trust?.hostPubKey && !fp2Usable),
       pendingFp2: getPendingFp2()
     });
     if (pinned) {
@@ -462,13 +469,27 @@ export class WebRtcProtocol extends BaseProtocol {
           debugLog("transport", "[rtc] host key re-pinned via fresh pairing fp2");
           return true;
         }
+        console.log("[seal] REJECT answer — pinned pub differs (host key rotated?) and no fresh fp2 to re-pin");
         return false;
       }
+      // Same key as pinned: the signature is the check, and it works whatever
+      // scheme the stored fingerprint used.
       const sig = await verifySdpSignature(msg.pub, msg.sdp, msg.sig);
-      if (sig === false) return false;
+      if (sig === false) {
+        console.log("[seal] REJECT answer — signature invalid (relay tampering?)");
+        return false;
+      }
       if (sig === null) {
-        // Browser without Ed25519 WebCrypto — fall back to the stored fp2
-        return (await hostFingerprint(msg.pub, msg.xpub)) === pinned.fp2;
+        // Browser without Ed25519 WebCrypto — the stored fp2 is all that is
+        // left, and a pre-sealing one cannot be recomputed. Refuse rather than
+        // accept unverified: the user re-pairs and gets a fingerprint that works.
+        if (!fp2Usable) {
+          console.log("[seal] REJECT answer — no Ed25519 in browser and pinned fp2 predates sealing");
+          return false;
+        }
+        const fp2ok = (await hostFingerprint(msg.pub, msg.xpub)) === pinned.fp2;
+        if (!fp2ok) console.log("[seal] REJECT answer — fp2 fallback mismatch vs pinned", pinned.fp2);
+        return fp2ok;
       }
       return true;
     }

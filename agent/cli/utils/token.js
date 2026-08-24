@@ -1,8 +1,8 @@
 import { browserFetch } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
-import { getHostFp2, getHostPublicKeyB64, getHostX25519PublicKeyB64, sessionMutationAuth } from "../../lib/hostKey.js";
+import { getHostPublicKeyB64, getHostX25519PublicKeyB64, sessionMutationAuth } from "../../lib/hostKey.js";
 import { headOf } from "./apiKey.js";
-import { setActivePairing, getActivePairing } from "../../lib/pairingCode.js";
+import { setActivePairing, getActivePairing, generatePairingTail } from "../../lib/pairingCode.js";
 
 const logger = createLogger("session");
 const TEMP_KEY_EXPIRY_MINUTES = 10;
@@ -33,10 +33,13 @@ export async function createTempKey(apiKey, workerUrl) {
     }
 
     const data = await response.json();
-    const fp2 = getHostFp2();
-    setActivePairing(data.tempKey, fp2, data.expiresAt);
-    // No separator: the code is read and typed as one 8-char token (6 tempKey + 2 fp2)
-    return { ...data, oneTimeKey: `${data.tempKey}${fp2}` };
+    // The TAIL is minted here, with the code, and never leaves this machine
+    // except on the user's screen — the Worker is handed the tempKey alone.
+    // Same secret an API key carries, with the code's own lifetime.
+    const tail = generatePairingTail();
+    setActivePairing(data.tempKey, tail, data.expiresAt, workerUrl);
+    // No separator: read and typed as one token (6 tempKey + 2 tail)
+    return { ...data, oneTimeKey: `${data.tempKey}${tail}` };
   } catch (error) {
     // logger, not console: the TUI clears the screen and the reason would be lost
     logger.error(`Temp key creation failed: ${error?.message || error}`);

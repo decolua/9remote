@@ -70,6 +70,7 @@ export default {
     connect: "Connect",
     connecting: "Connecting...",
     authenticating: "Authenticating with token...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "Saved Keys",
     login: "Login",
     lastLogin: "Last login",

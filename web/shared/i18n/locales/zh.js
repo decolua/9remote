@@ -62,6 +62,7 @@ export default {
     connect: "连接",
     connecting: "连接中...",
     authenticating: "正在使用令牌进行身份验证...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "已保存的密钥",
     login: "登录",
     lastLogin: "上次登录",

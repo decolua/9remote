@@ -292,6 +292,19 @@ export class WsProtocol extends BaseProtocol {
       this.retryNow();
     };
 
+    // Say goodbye on the way out. Without this the agent only learns the client
+    // is gone when socket.io's ping times out — up to 85 seconds of showing a
+    // closed browser as online, because a tab closing behind a tunnel produces
+    // no clean TCP close the server can see.
+    //
+    // pagehide, not beforeunload: it fires on mobile too, where a swiped-away
+    // app never sees beforeunload at all. Best-effort by nature — a crash or a
+    // pulled cable still falls back to the ping timeout, which is why that
+    // remains the real safety net.
+    this._pagehideHandler = () => {
+      try { this._socket?.disconnect(); } catch {}
+    };
+    window.addEventListener("pagehide", this._pagehideHandler);
     document.addEventListener("visibilitychange", this._visibilityHandler);
     window.addEventListener("offline", this._offlineHandler);
     window.addEventListener("online", this._onlineHandler);
@@ -304,6 +317,10 @@ export class WsProtocol extends BaseProtocol {
   }
 
   _removeNetworkListeners() {
+    if (this._pagehideHandler) {
+      window.removeEventListener("pagehide", this._pagehideHandler);
+      this._pagehideHandler = null;
+    }
     if (this._visibilityHandler) {
       document.removeEventListener("visibilitychange", this._visibilityHandler);
       this._visibilityHandler = null;

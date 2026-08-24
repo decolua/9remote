@@ -93,6 +93,43 @@ export const SIGNALING_ERRORS = {
   rejected: "device-rejected"
 };
 
+// Why the agent refused this device's key TAIL (device:tailRejected).
+// Wire format — mirrored in agent/lib/transportConstants.js.
+export const TAIL_REJECT_REASON = {
+  mismatch: "mismatch",              // wrong key — final, stop retrying
+  sealUnreadable: "seal-unreadable", // our pinned sealing key is stale — drop it and retry plain
+  timeout: "proof-timeout"           // we never proved in time
+};
+
+// Where this device stands with the host (useSocket → ConnectionModal). null
+// means "no verdict yet"; `reconnect` is not a state but the event a carrier
+// coming back fires, which clears a stale `approved` without inventing one.
+export const APPROVAL_STATUS = {
+  pending: "pending",
+  approved: "approved",
+  rejected: "rejected",
+  reconnect: "reconnect"
+};
+
+// A one-time pairing code: six characters of code plus two of tail, shown
+// together on the agent's screen and typed back as one string. Anything longer
+// is an API key — which is all the login field needs to tell them apart.
+export const ONE_TIME_CODE_LENGTH = 8;
+
+// A key the user asked to remember, held until the agent accepts it.
+//
+// The Worker clears a v2 key by its HEAD alone, so login succeeds before
+// anything has checked the TAIL. Saving at that point meant a wrong key landed
+// in the saved list and had to be deleted again on refusal — which is how a
+// mistyped tail could take a GOOD saved key with it. Nothing is written until
+// the agent says yes.
+export const PENDING_SAVE_KEY = "9remote_pending_save";
+
+// Handoff for a rejection that only becomes known after login: the Worker
+// clears a key by its HEAD, but the TAIL is proven later, to the agent. The
+// login page reads this on mount and shows it like any bad-key error.
+export const LOGIN_ERROR_KEY = "9remote_login_error";
+
 // Network-change recovery. `online`/`connection.change` are only hints (MDN:
 // onLine is "inherently unreliable"; Network Information API is absent on
 // Safari), so they merely trigger a probe — the srflx IP below is the truth.
@@ -102,8 +139,10 @@ export const NET_RECOVERY = {
 
 // WS zombie recovery — detect a socket.io socket that still reports connected
 // after OS background suspension froze its pings (data never flows again).
-// ~2 missed ping cycles (socket.io default pingInterval 25s) = certainly dead.
-export const WS_ZOMBIE_MS = 45000;
+// Sized at ~2 missed cycles of the agent's pingInterval (12s), with room for a
+// mobile stall: shorter than that and a phone waking up would be torn down for
+// a heartbeat it was always going to send late.
+export const WS_ZOMBIE_MS = 30000;
 
 // File-transfer tunables (DC "file", separate from tiles' dcBinary).
 // chunkSize + 8-byte frame header must fit dcMaxMessageSize (SCTP hard limit).

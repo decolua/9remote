@@ -62,6 +62,7 @@ export default {
     connect: "اتصال",
     connecting: "جارٍ الاتصال...",
     authenticating: "جارٍ المصادقة بالرمز...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "المفاتيح المحفوظة",
     login: "تسجيل الدخول",
     lastLogin: "آخر تسجيل دخول",

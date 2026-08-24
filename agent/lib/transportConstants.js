@@ -18,6 +18,39 @@ export const SIGNALING_ERRORS = {
   rejected: "device-rejected"
 };
 
+// What a connecting device is allowed to do — the only three answers
+// decideAdmission gives, for every carrier.
+export const ADMISSION = {
+  admit: "admit",   // let it in
+  hold: "hold",     // ask the host (modal / Clients list)
+  reject: "reject"  // no, and no modal to override it
+};
+
+// The host's standing decision about a device (deviceApproval.gateDevice) —
+// about WHO it is, independent of whether it can prove the key TAIL.
+export const DEVICE_GATE = {
+  approved: "approved",
+  rejected: "rejected",
+  auto: "auto",       // auto-approve is on
+  unknown: "unknown"
+};
+
+// Where a device stands on the key-TAIL proof. Held per device, not per socket:
+// WS and RTC are two carriers of one connection.
+export const TAIL_VERDICT = {
+  proving: "proving",   // inside the grace window, no proof yet
+  proven: "proven",     // presented the right TAIL
+  rejected: "rejected"  // presented a wrong one — see TAIL_REJECT_REASON
+};
+
+// Why a device was refused. Travels to the client in device:tailRejected, so
+// these strings are wire format — mirrored in web/shared/constants/transport.js.
+export const TAIL_REJECT_REASON = {
+  mismatch: "mismatch",              // wrong TAIL — final, the user re-enters the key
+  sealUnreadable: "seal-unreadable", // sealed to a key we don't hold (stale pin) — client drops the pin and retries plain
+  timeout: "proof-timeout"           // never proved inside the grace window
+};
+
 // How long an RTC-only session survives a dead peer before it's torn down.
 // The client renegotiates over DO after a resume/handover (backoff up to 4s),
 // so tearing down sooner would unregister the handler its re-offer needs.

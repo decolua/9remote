@@ -70,6 +70,7 @@ export default {
     connect: "Kết nối",
     connecting: "Đang kết nối...",
     authenticating: "Đang xác thực bằng token...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "Khóa đã lưu",
     login: "Đăng nhập",
     lastLogin: "Lần đăng nhập gần nhất",

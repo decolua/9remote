@@ -62,6 +62,7 @@ export default {
     connect: "เชื่อมต่อ",
     connecting: "กำลังเชื่อมต่อ...",
     authenticating: "กำลังตรวจสอบโทเคน...",
+    invalidKeyTail: "Wrong access key — check the last characters and try again.",
     savedKeys: "คีย์ที่บันทึกไว้",
     login: "เข้าสู่ระบบ",
     lastLogin: "เข้าสู่ระบบล่าสุด",
