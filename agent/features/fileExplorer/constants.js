@@ -63,6 +63,7 @@ export const MIME_BY_EXT = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
   webp: "image/webp", svg: "image/svg+xml", ico: "image/x-icon", bmp: "image/bmp",
   avif: "image/avif", apng: "image/apng", tif: "image/tiff", tiff: "image/tiff",
+  heic: "image/heic", heif: "image/heif",
   mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", ogv: "video/ogg",
   mov: "video/quicktime", mkv: "video/x-matroska", avi: "video/x-msvideo", "3gp": "video/3gpp",
   mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg",
@@ -88,7 +89,7 @@ export function getMimeType(filePath) {
 
 export const IMAGE_EXTENSIONS = [
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp",
-  ".svg", ".avif", ".apng", ".tif", ".tiff"
+  ".svg", ".avif", ".apng", ".tif", ".tiff", ".heic", ".heif"
 ];
 
 export const VIDEO_EXTENSIONS = [
@@ -110,8 +111,18 @@ export const isImageFile = (p) => hasExt(p, IMAGE_EXTENSIONS);
 // Static raster formats the stream path re-encodes server-side (client decodes a
 // bounded bitmap instead of a full-res one that can OOM-kill mobile WebKit).
 // Animated/vector/ico formats stream raw — small, or lossy to convert.
-export const STREAM_SCALE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".avif"];
+export const STREAM_SCALE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".avif", ".heic", ".heif"];
 export const isStreamScalableImage = (p) => hasExt(p, STREAM_SCALE_EXTENSIONS);
+// HEIC/HEIF: sharp's prebuilt binaries ship no HEVC decoder, and no browser renders
+// them — decode with a system tool first. Tried in order; first one present wins.
+export const HEIC_EXTENSIONS = [".heic", ".heif"];
+export const isHeicFile = (p) => hasExt(p, HEIC_EXTENSIONS);
+export const HEIC_DECODERS = [
+  { cmd: "sips", args: (src, out) => ["-s", "format", "jpeg", src, "--out", out] },
+  { cmd: "heif-convert", args: (src, out) => [src, out] },
+  { cmd: "magick", args: (src, out) => [src, out] }
+];
+export const HEIC_DECODE_TIMEOUT_MS = 30000;
 export const isVideoFile = (p) => hasExt(p, VIDEO_EXTENSIONS);
 export const isAudioFile = (p) => hasExt(p, AUDIO_EXTENSIONS);
 export const isPdfFile = (p) => hasExt(p, PDF_EXTENSIONS);

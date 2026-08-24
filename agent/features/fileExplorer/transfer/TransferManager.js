@@ -12,7 +12,7 @@ import { AckTracker } from "./ackTracker.js";
 import { planChunks } from "./chunkPlan.js";
 import { resolveSafePath } from "./sanitize.js";
 import { isSensitivePath } from "../pathGuard.js";
-import { getMimeType, isStreamScalableImage, MAX_IMAGE_RAW_SIZE } from "../constants.js";
+import { getMimeType, isStreamScalableImage, isHeicFile, MAX_IMAGE_RAW_SIZE } from "../constants.js";
 import { scaleImageBuffer } from "../handlers/FileHandler.js";
 
 let _idSeq = 1;
@@ -209,7 +209,9 @@ export class TransferManager {
       if (stat.size > MAX_IMAGE_RAW_SIZE) {
         return cb?.({ success: false, error: `Image too large (max ${MAX_IMAGE_RAW_SIZE} bytes)` });
       }
-      const scaled = await scaleImageBuffer(fs.readFileSync(filePath));
+      // HEIC is decoded from the path by a system tool — no point reading it here.
+      const raw = isHeicFile(filePath) ? null : fs.readFileSync(filePath);
+      const scaled = await scaleImageBuffer(raw, filePath);
       const streamId = _idSeq++;
       cb?.({
         success: true,

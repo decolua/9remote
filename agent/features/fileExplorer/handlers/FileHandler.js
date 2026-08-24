@@ -1,10 +1,10 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { execSync, spawn } from "child_process";
+import { execSync, spawn, spawnSync } from "child_process";
 import chokidar from "chokidar";
 import sharp from "sharp";
-import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES, MIME_BY_EXT } from "../constants.js";
+import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES, MIME_BY_EXT, HEIC_DECODERS, HEIC_DECODE_TIMEOUT_MS, isHeicFile } from "../constants.js";
 import { CONTROL_RTC_MAX_BYTES } from "../../../lib/transportConstants.js";
 import { isSensitivePath } from "../pathGuard.js";
 
@@ -23,13 +23,45 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+const _cmdCache = new Map();
+function hasCommand(cmd) {
+  if (!_cmdCache.has(cmd)) {
+    const probe = process.platform === "win32" ? "where" : "which";
+    _cmdCache.set(cmd, spawnSync(probe, [cmd], { stdio: "ignore" }).status === 0);
+  }
+  return _cmdCache.get(cmd);
+}
+
+// sharp's prebuilt binaries carry no HEVC decoder, so HEIC/HEIF must go through a
+// system converter first. Writes a temp JPEG, reads it back, cleans up.
+function decodeHeicToJpeg(filePath) {
+  const decoder = HEIC_DECODERS.find((d) => hasCommand(d.cmd));
+  if (!decoder) {
+    throw new Error("HEIC needs a system converter (macOS has sips; on Linux install libheif-examples or imagemagick)");
+  }
+  const out = path.join(os.tmpdir(), `9r-heic-${process.pid}-${Date.now()}.jpg`);
+  try {
+    const res = spawnSync(decoder.cmd, decoder.args(filePath, out), { timeout: HEIC_DECODE_TIMEOUT_MS });
+    if (res.status !== 0 || !fs.existsSync(out)) {
+      throw new Error(`HEIC decode failed (${decoder.cmd}): ${res.stderr?.toString().trim() || "unknown error"}`);
+    }
+    return fs.readFileSync(out);
+  } finally {
+    try { fs.unlinkSync(out); } catch {}
+  }
+}
+
 // Downscale + re-encode an image buffer so the output stays under
 // MAX_IMAGE_SCALED_SIZE. Tries quality steps, then width steps. Never enlarges.
+// filePath is only needed for formats sharp cannot decode itself (HEIC/HEIF).
 // Returns { buffer, width, height, originalWidth, originalHeight }.
-export async function scaleImageBuffer(buffer) {
+export async function scaleImageBuffer(input, filePath) {
+  const buffer = isHeicFile(filePath) ? decodeHeicToJpeg(filePath) : input;
   const meta = await sharp(buffer).metadata();
-  const originalWidth = meta.width || 0;
-  const originalHeight = meta.height || 0;
+  // Orientation 5-8 means the stored pixels are rotated 90° from how it displays.
+  const swapped = meta.orientation >= 5;
+  const originalWidth = (swapped ? meta.height : meta.width) || 0;
+  const originalHeight = (swapped ? meta.width : meta.height) || 0;
   const qualities = [80, 60, 40];
   const widths = [IMAGE_SCALE_MAX_DIM, 1200, 800];
   let out = buffer;
@@ -38,6 +70,7 @@ export async function scaleImageBuffer(buffer) {
   for (const w of widths) {
     for (const q of qualities) {
       out = await sharp(buffer)
+        .rotate() // apply EXIF orientation — re-encoding drops the tag itself
         .resize({ width: w, height: w, fit: "inside", withoutEnlargement: true })
         .jpeg({ quality: q, mozjpeg: true })
         .toBuffer();
@@ -240,7 +273,7 @@ export function setupFileHandlers(socket) {
       if (stat.size > cap) return callback({ success: false, error: `File too large (${formatSize(stat.size)}). Max ${formatSize(cap)}` });
       const buffer = fs.readFileSync(filePath);
       if (isImage) {
-        const scaled = await scaleImageBuffer(buffer);
+        const scaled = await scaleImageBuffer(buffer, filePath);
         const dataUrl = `data:image/jpeg;base64,${scaled.buffer.toString("base64")}`;
         callback({
           success: true,
@@ -271,7 +304,7 @@ export function setupFileHandlers(socket) {
       const stat = fs.statSync(filePath);
       if (stat.size > MAX_IMAGE_RAW_SIZE) return callback({ success: false, error: `Image too large (${formatSize(stat.size)}). Max ${formatSize(MAX_IMAGE_RAW_SIZE)}` });
       const buffer = fs.readFileSync(filePath);
-      const scaled = await scaleImageBuffer(buffer);
+      const scaled = await scaleImageBuffer(buffer, filePath);
       const dataUrl = `data:image/jpeg;base64,${scaled.buffer.toString("base64")}`;
       callback({
         success: true,

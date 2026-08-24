@@ -71,7 +71,7 @@ export const BINARY_EXTENSIONS = [
 
 export const IMAGE_EXTENSIONS = [
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp",
-  ".svg", ".avif", ".apng", ".tif", ".tiff"
+  ".svg", ".avif", ".apng", ".tif", ".tiff", ".heic", ".heif"
 ];
 
 export const VIDEO_EXTENSIONS = [
