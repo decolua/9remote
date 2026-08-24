@@ -109,9 +109,12 @@ await test("opencode writes JS plugin with chat.message→working, session.idle�
   m.enableToolHook("opencode");
   const plugin = fs.readFileSync(path.join(TMP, ".config", "opencode", "plugin", "nineRemoteNotify.js"), "utf8");
   assert.ok(plugin.includes('"chat.message"'));
-  assert.ok(plugin.includes('post("working")'));
-  assert.ok(plugin.includes('post("done")'));
-  assert.ok(plugin.includes('post("blocked")'), "permission.asked→blocked");
+  // Each post carries the conversation id alongside the state, so match the call
+  // by the state it reports rather than by an exact argument list.
+  assert.match(plugin, /post\("working"[,)]/);
+  assert.match(plugin, /post\("done"[,)]/);
+  assert.match(plugin, /post\("blocked"[,)]/, "permission.asked→blocked");
+  assert.ok(plugin.includes("&sessionID="), "reports opencode's own conversation id");
   m.disableToolHook("opencode");
   assert.ok(!fs.existsSync(path.join(TMP, ".config", "opencode", "plugin", "nineRemoteNotify.js")));
 });

@@ -239,6 +239,7 @@ export default function TerminalWorkspace({
               onSelectSession={nav.handleSelectSession}
               onSelectWorkspace={nav.handleSelectWorkspace}
               onCreateNamedSession={nav.handleCreateSession}
+              onResumeAgentSession={nav.handleResumeAgentSession}
               shells={shells}
               onRenameSession={nav.handleRenameSession}
               onDeleteSession={nav.handleDeleteSession}

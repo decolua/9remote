@@ -19,6 +19,7 @@ import { sessionWorkspaceId } from "../lib/paneLayout";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "../constants/shortcuts";
 import BranchBadge from "./BranchBadge";
+import AgentHistoryPanel from "./AgentHistoryPanel";
 
 // Guess agent tool from session name when no live status tool is set — drives the icon.
 const TOOL_KEYWORDS = ["claude", "codex", "gemini", "opencode", "grok", "cursor", "copilot", "amp", "pi", "kiro", "qoder", "factory", "codebuddy", "rovodev", "hermes", "antigravity"];
@@ -46,8 +47,9 @@ export function SessionMeta({ session, fileSocket, cwd, basePath, homeDir }) {
     : cwd && basePath && cwd.startsWith(`${basePath}/`) ? cwd.slice(basePath.length + 1)
     : atRoot ? session.shellId
     : shortenHomePath(cwd, homeDir);
+  if (!diverged && !meta) return null;
   return (
-    <span className="text-[11px] text-text-subtle truncate leading-tight flex items-center gap-1.5 min-h-[13px]">
+    <span className="text-[10px] text-text-subtle truncate leading-tight flex items-center gap-1.5">
       {diverged && <BranchBadge branch={branch} dirty={dirty} className="truncate italic" />}
       {meta && <span className="truncate opacity-70">{meta}</span>}
     </span>
@@ -71,7 +73,7 @@ function WorkspaceHeader({
   return (
     <div
       onClick={onSelect}
-      className={`pr-2 py-1 flex items-center gap-1 group/grp transition-colors ${
+      className={`pr-2 py-0.5 flex items-center gap-1 group/grp transition-colors ${
         onSelect ? "cursor-pointer hover:bg-text/[0.06]" : ""
       }`}
     >
@@ -149,11 +151,15 @@ export default function TerminalSidebar({
   width = SIDEBAR_WIDTH.default,
   onResize,
   onCollapse,
+  onResumeAgentSession,
 }) {
   const { t } = useI18n();
   const hasKeyboard = useInputMode() === "mouse";
   const collapseHint = hasKeyboard ? withHint(t("common.close"), "toggleSidebar") : t("common.close");
   const dragRef = useRef(null);
+  const activeCwd = activeSessionId
+    ? (cwdBySession[activeSessionId] ?? allSessions.find((s) => s.id === activeSessionId)?.workspacePath ?? null)
+    : null;
 
   // PWA install — desktop only, so the row shows solely when the browser can
   // actually install (Chromium beforeinstallprompt). Manual guides live in Settings.
@@ -417,7 +423,7 @@ export default function TerminalSidebar({
                       key={s.id}
                       data-item-row
                       data-sid={s.id}
-                      className={`group w-full flex items-center gap-1.5 pl-3.5 pr-2 py-0.5 text-left transition-colors border-l-2 relative cursor-pointer ${
+                      className={`group w-full flex items-center gap-1.5 pl-3.5 pr-2 py-px text-left transition-colors border-l-2 relative cursor-pointer ${
                         isActive
                           ? "bg-text/8 border-brand-500 text-text"
                           : "border-transparent text-text-muted hover:bg-text/5 hover:text-text"
@@ -446,11 +452,11 @@ export default function TerminalSidebar({
                       <span className="flex-1 min-w-0 flex flex-col">
                         <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
                           {AGENT_ICONS[tool] ? (
-                            <img src={AGENT_ICONS[tool]} alt={tool} className="w-3.5 h-3.5 flex-shrink-0" />
+                            <img src={AGENT_ICONS[tool]} alt={tool} className="w-3 h-3 flex-shrink-0" />
                           ) : (
-                            <Terminal size={13} className="flex-shrink-0" />
+                            <Terminal size={12} className="flex-shrink-0" />
                           )}
-                          <span className="text-[12px] truncate">{s.name || t("terminal.defaultName")}</span>
+                          <span className="text-[11px] truncate">{s.name || t("terminal.defaultName")}</span>
                         </span>
                         <SessionMeta
                           session={s}
@@ -492,6 +498,18 @@ export default function TerminalSidebar({
           </button>
         )}
       </div>
+
+      {/* Past agent-CLI conversations for wherever the active terminal is standing —
+          pinned above the footer so it keeps its place as the session list scrolls. */}
+      {onResumeAgentSession && (
+        <AgentHistoryPanel
+          socketRef={socketRef}
+          cwd={activeCwd}
+          onResume={onResumeAgentSession}
+          onSelectSession={onSelectSession}
+          connected={connected}
+        />
+      )}
 
       {(showInstall || onOpenSettings) && (
         <div className="p-1.5 border-t border-border-subtle flex-shrink-0">
@@ -564,7 +582,7 @@ export default function TerminalSidebar({
           >
             <Pencil size={14} /> {t("sessions.editName")}
           </button>
-          {sessionStatus[ctxMenu.sessionId]?.claudeSessionId && (
+          {sessionStatus[ctxMenu.sessionId]?.conversationId && (
             <button
               onClick={() => {
                 vibrate();

@@ -1,7 +1,8 @@
 import * as daemonClient from "../ptyDaemonClient.js";
 import { UPLOAD_DIR, saveSessionMetadata } from "../ptyHelper.js";
-import { getClaudeSessionId, isClaudeYolo, setClaudeYolo, setSessionAgent } from "../statusManager.js";
-import { CLAUDE_YOLO_FLAG, agentIdFromLaunchLine } from "../agentCatalog.js";
+import { getConversation, isClaudeYolo, setClaudeYolo, setSessionAgent, setConversationId, setLastPrompt } from "../statusManager.js";
+import { CLAUDE_YOLO_FLAG, agentIdFromLaunchLine, parseResumeLine } from "../agentCatalog.js";
+import { resumeCommand } from "../agentHistory.js";
 import { RESIZE_MIN_COLS, RESIZE_MIN_ROWS, RESIZE_MAX_COLS, RESIZE_MAX_ROWS, RESIZE_SHRINK_SETTLE_MS } from "../constants.js";
 import { setClipboardFromFile } from "../../../lib/clipboardSystem.js";
 import fs from "fs";
@@ -19,8 +20,20 @@ const inputLines = new Map(); // sessionId -> partial line since last Enter
 
 function evalLaunchLine(sessionId, line) {
   if (CLAUDE_YOLO_FLAG && /^\s*claude\b/.test(line)) setClaudeYolo(sessionId, line.includes(CLAUDE_YOLO_FLAG));
+  // A typed resume line carries the conversation id verbatim — recorded on the
+  // spot, before any hook fires (and for CLIs whose hooks report no id at all).
+  const resumed = parseResumeLine(line);
+  if (resumed) {
+    setConversationId(sessionId, resumed.agent, resumed.id, "resume");
+    setSessionAgent(sessionId, resumed.agent);
+    return;
+  }
   const agentId = agentIdFromLaunchLine(line);
-  if (agentId) setSessionAgent(sessionId, agentId);
+  if (agentId) return setSessionAgent(sessionId, agentId);
+  // Not a launch line: with a TUI agent running this is the user's prompt, the
+  // only prompt signal that exists without a hook. setLastPrompt drops it when
+  // no agent is running and when the text isn't clean.
+  setLastPrompt(sessionId, line);
 }
 
 function trackLaunchLine(sessionId, data) {
@@ -102,24 +115,24 @@ export function setupInputHandlers(socket, sessions) {
     }, RESIZE_SHRINK_SETTLE_MS));
   });
 
-  // Resume the exact claude conversation of this session: Claude Code hard-wraps output
-  // at launch width, so after a layout change the only true fix is exit + `--resume <id>`,
-  // which re-renders the whole transcript at the current PTY size.
+  // Resume the exact conversation this session is running: a TUI agent hard-wraps
+  // output at launch width, so after a layout change the only true fix is exit +
+  // the CLI's own resume line, which re-renders the transcript at the current size.
   socket.on("session-resume", ({ sessionId }) => {
     if (!sessionId) return;
     const session = sessions.get(sessionId);
     if (!session) return;
-    const csid = getClaudeSessionId(sessionId);
-    if (!csid) return;
+    const conv = getConversation(sessionId);
+    // Only claude's launch line is sniffed for its bypass flag today; other CLIs
+    // resume in their default mode until the same is known for them.
+    const line = conv && resumeCommand(conv.agent, conv.id, conv.agent === "claude" && isClaudeYolo(sessionId));
+    if (!line) return;
     const send = (data) => {
       if (session.daemon && daemonClient.isConnected()) return daemonClient.sendInput(sessionId, data);
       if (session.pty) session.pty.write(data);
     };
-    send("\x03\x03"); // Ctrl+C x2 — exit claude
-    // Re-apply the skip-permission flag when the conversation was launched with it —
-    // --resume alone resets to default (per-action approval) mode.
-    const yoloFlag = isClaudeYolo(sessionId) ? ` ${CLAUDE_YOLO_FLAG}` : "";
-    setTimeout(() => send(`claude --resume ${csid}${yoloFlag}\r`), RESUME_EXIT_MS);
+    send("\x03\x03"); // Ctrl+C x2 — exit the running TUI
+    setTimeout(() => send(`${line}\r`), RESUME_EXIT_MS);
   });
 
   socket.on("upload-file", ({ sessionId, filename, size, content }) => {

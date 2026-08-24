@@ -84,6 +84,14 @@ export const useTerminalStore = create(
       agentClisAt: 0,
       setAgentClis: (list) => set({ agentClis: Array.isArray(list) ? list : [], agentClisAt: Date.now() }),
 
+      // Past conversations of the agent CLIs, keyed by the cwd they ran in — a
+      // terminal that cd's elsewhere asks a different question, so the cwd is
+      // the cache key rather than the session. Not persisted.
+      agentHistory: {},
+      setAgentHistory: (cwd, sessions) => set((state) => ({
+        agentHistory: { ...state.agentHistory, [cwd]: { at: Date.now(), sessions: Array.isArray(sessions) ? sessions : [] } }
+      })),
+
       // Which agent CLI each session was launched with (sessionId -> agentId). The host
       // doesn't track it, so the client records it at create time. Persisted so the
       // mobile status strip can show that CLI's quota after a reload.

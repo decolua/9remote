@@ -3,6 +3,8 @@ import * as daemonClient from "../ptyDaemonClient.js";
 import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveWorkspaces, loadSessionNote, saveSessionNote, deleteSessionNote, UPLOAD_DIR } from "../ptyHelper.js";
 import { resolveShell, getShellList } from "../constants.js";
 import { detectAgentClis } from "../agentCatalog.js";
+import { listAgentSessions, matchLiveSessions } from "../agentHistory.js";
+import { getLiveConversations, forgetSession } from "../statusManager.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
@@ -85,6 +87,7 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
     sessions.delete(sessionId);
     deleteSessionBuffer(sessionId);
     clearSession(sessionId); // drop seq counter + gap ring
+    forgetSession(sessionId);
     broadcast(io, "sessionClosed", sessionId);
   });
 }
@@ -198,6 +201,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
           }
           sessions.delete(sid);
           clearSession(sid); // drop seq counter + gap ring
+          forgetSession(sid);
           broadcast(io, "sessionClosed", sid);
         }
         delete sessionWorkspaces[sid];
@@ -267,6 +271,20 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   socket.on("getAgentClis", (_payload, callback) => {
     if (typeof _payload === "function") callback = _payload; // bare-emit legacy shape
     callback?.({ success: true, agents: detectAgentClis() });
+  });
+
+  // Past conversations each agent CLI kept for one directory — the sidebar lists
+  // them under the terminal standing there so one can be resumed in place.
+  socket.on("getAgentSessions", async ({ cwd, limit } = {}, callback) => {
+    // Terminal start time and cwd ride along so the matcher can weigh the
+    // transcript clock — the conversation a terminal opened is the one that
+    // began writing after it started.
+    const live = getLiveConversations().map((l) => {
+      const session = sessions.get(l.sessionId);
+      return { ...l, startedAt: session?.createdAt || null, cwd: session?.cwd || session?.workspacePath || null };
+    });
+    const rows = await listAgentSessions({ cwd, limit });
+    callback?.({ success: true, sessions: matchLiveSessions(rows, live) });
   });
 
   socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd }, callback) => {
@@ -457,6 +475,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
         await daemonClient.deleteSession(sessionId);
         sessions.delete(sessionId);
         clearSession(sessionId); // drop seq counter + gap ring
+        forgetSession(sessionId);
         if (sessionWorkspaces[sessionId]) { delete sessionWorkspaces[sessionId]; persist(); }
         deleteSessionNote(sessionId);
         saveSessionMetadata(sessions);
@@ -470,6 +489,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     if (session.pty) session.pty.kill();
     sessions.delete(sessionId);
     clearSession(sessionId); // drop seq counter + gap ring
+    forgetSession(sessionId);
     if (sessionWorkspaces[sessionId]) { delete sessionWorkspaces[sessionId]; persist(); }
     deleteSessionBuffer(sessionId);
     deleteSessionNote(sessionId);

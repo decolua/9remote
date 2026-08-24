@@ -243,6 +243,16 @@ export const GAP_FETCH_TIMEOUT_MS = 3000;
 // cached detection before re-asking the agent to rescan PATH.
 export const AGENT_CLIS_TTL_MS = 60000;
 
+// Agent CLI conversation history, per cwd. Shorter than the CLI detection TTL:
+// a conversation started in the terminal above should show up soon after.
+export const AGENT_HISTORY_TTL_MS = 30000;
+// The history section scrolls inside its own box, so it lists plenty of rows and
+// lets the cap decide how many are on screen — a short "show more" list wastes
+// the scroll it already has. Height is a share of the sidebar, keeping the
+// session list above it the larger half.
+export const AGENT_HISTORY_ROWS = 30;
+export const AGENT_HISTORY_MAX_HEIGHT = "28%";
+
 // Delay before typing a queued agent-CLI startup command after the join ack —
 // lets the login shell reach its prompt so the TUI boots against a settled tty.
 export const STARTUP_CMD_DELAY_MS = 400;

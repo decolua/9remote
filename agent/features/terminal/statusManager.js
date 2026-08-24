@@ -1,6 +1,11 @@
 // AI agent status state machine (idle / working / blocked / done).
 // Replaces the old binary notificationManager. One session = one state.
-// In-memory only: state resets on agent restart; hooks re-fire working on next prompt.
+// State is in-memory and resets on agent restart; hooks re-fire working on the
+// next prompt. The conversation each terminal runs is the exception: the PTY
+// outlives the agent (it lives in the daemon), so the link to it is persisted
+// alongside the session metadata and replayed on boot.
+
+import { SESSION_ID_RE } from "./agentCatalog.js";
 
 export const STATES = Object.freeze({
   IDLE: "idle",
@@ -28,17 +33,73 @@ export const TYPE_TO_STATE = Object.freeze({
 const sessionStatus = new Map();
 const clearCallbacks = new Set();
 
-// Claude Code conversation id per 9Remote session (captured by the claude hook).
-// Kept apart from the state map so the reaper can't clear it — it powers exact resume.
-const claudeSessionIds = new Map();
+// The agent conversation each 9Remote terminal is running: sessionId ->
+// { agent, id, source }. Kept apart from the state map so the reaper can't clear
+// it — it powers exact resume and "this chat is already open in that terminal".
+//
+// Three sources, in descending trust. `hook` is the CLI telling us its own id.
+// `resume` is a conversation we relaunched ourselves, so we typed the id. `prompt`
+// is inference from a transcript's opening prompt. A weaker source never
+// overwrites a stronger one; a stronger one corrects a weaker one.
+const CONVERSATION_SOURCE_RANK = { hook: 3, resume: 2, prompt: 1 };
+const conversations = new Map();
+// Declared with the conversation it belongs to: both are cleared by the same
+// teardown paths above, which run before the prompt setters further down.
+const lastPrompts = new Map();
+// Set by the terminal layer: a conversation that only ever lived in memory is
+// lost on the next restart, and hooks fire far more often than sessions are
+// created, so the write has to hang off the change itself.
+let onConversationChange = null;
+// Replaying disk state is not news; writing during it would persist a session
+// map that boot is still rebuilding, one entry at a time.
+let replaying = false;
 
-export function setClaudeSessionId(sessionId, csid) {
-  if (!sessionId || !csid) return;
-  claudeSessionIds.set(sessionId, csid);
+export function setConversationPersister(fn) {
+  onConversationChange = fn;
 }
 
-export function getClaudeSessionId(sessionId) {
-  return claudeSessionIds.get(sessionId) || null;
+function persistConversation(sessionId) {
+  if (replaying) return;
+  try { onConversationChange?.(sessionId); } catch {}
+}
+
+export function setConversationId(sessionId, agent, id, source = "hook") {
+  if (!sessionId || !agent || !id) return;
+  const rank = CONVERSATION_SOURCE_RANK[source] || 0;
+  if (!rank) return;
+  const prev = conversations.get(sessionId);
+  // A weaker source may not overrule a stronger one about the same CLI — but a
+  // different CLI is not a disagreement, it means the terminal moved on.
+  if (prev && prev.agent === agent && rank < (CONVERSATION_SOURCE_RANK[prev.source] || 0)) return;
+  // Nothing learned: same CLI, same conversation, same confidence. A change of
+  // source alone still counts — a guess later confirmed by a hook must reach
+  // disk as confirmed, or the restart replays it as proof it never was.
+  if (prev && prev.agent === agent && prev.id === id && prev.source === source) return;
+  conversations.set(sessionId, { agent, id, source });
+  persistConversation(sessionId);
+}
+
+export function getConversation(sessionId) {
+  return conversations.get(sessionId) || null;
+}
+
+export function clearConversation(sessionId) {
+  if (sessionId) conversations.delete(sessionId);
+}
+
+/** Every terminal's live conversation, for matching history rows against them. */
+export function getLiveConversations() {
+  const out = [];
+  for (const [sessionId, conv] of conversations) {
+    out.push({ sessionId, agent: conv.agent, conversationId: conv.id });
+  }
+  // Terminals whose agent is known but whose conversation is not: still worth
+  // offering to the prompt matcher, which is the only signal they have.
+  for (const [sessionId, agent] of sessionAgents) {
+    if (conversations.has(sessionId)) continue;
+    out.push({ sessionId, agent, prompt: getLastPrompt(sessionId) });
+  }
+  return out;
 }
 
 // Whether the session's claude was launched with its skip-permission flag (sniffed
@@ -53,6 +114,13 @@ const agentChangeCallbacks = new Set();
 export function setSessionAgent(sessionId, agentId) {
   if (!sessionId || !agentId || sessionAgents.get(sessionId) === agentId) return;
   sessionAgents.set(sessionId, agentId);
+  // A different CLI is now running here, so whatever chat the last one held is
+  // not open in this terminal any more.
+  const prev = conversations.get(sessionId);
+  if (prev && prev.agent !== agentId) { conversations.delete(sessionId); lastPrompts.delete(sessionId); }
+  // Persisted alongside the conversation: a CLI whose hooks report no id is
+  // known only by this, and the fallbacks all key off knowing which agent runs.
+  persistConversation(sessionId);
   for (const cb of agentChangeCallbacks) { try { cb(sessionId, agentId); } catch {} }
 }
 
@@ -60,9 +128,85 @@ export function getSessionAgent(sessionId) {
   return sessionAgents.get(sessionId) || null;
 }
 
+// The agent stopped, but the terminal is still there — a TUI that exited leaves
+// a bare shell. Its conversation ends with it: nothing is running that chat.
 export function clearSessionAgent(sessionId) {
   if (!sessionId) return;
   sessionAgents.delete(sessionId);
+  conversations.delete(sessionId);
+  lastPrompts.delete(sessionId);
+}
+
+/**
+ * What this terminal's conversation looks like on disk. The PTY survives an
+ * agent restart (it lives in the daemon), so this must too — otherwise every
+ * restart silently unlinks running chats from the terminals running them.
+ */
+export function conversationMetadata(sessionId) {
+  const agent = sessionAgents.get(sessionId);
+  const conv = conversations.get(sessionId);
+  if (!agent && !conv) return null;
+  if (!conv) return { agent };
+  return { agent: conv.agent, conversationId: conv.id, conversationSource: conv.source };
+}
+
+/**
+ * Replay one terminal's persisted conversation on boot. The id is validated the
+ * same way one arriving over the wire is: it was written by us, but it still
+ * ends up typed into a PTY, and a file is not a trust boundary.
+ */
+export function restoreConversation(sessionId, metadata) {
+  const agent = metadata?.agent;
+  if (!sessionId || !agent) return;
+  replaying = true;
+  try {
+    replayConversation(sessionId, agent, metadata);
+  } finally {
+    replaying = false;
+  }
+}
+
+function replayConversation(sessionId, agent, metadata) {
+  setSessionAgent(sessionId, agent);
+  const id = metadata.conversationId;
+  if (!id || !SESSION_ID_RE.test(id)) return;
+  // An older agent persisted no source. Restoring it as a hook would launder a
+  // guess into proof and then lock out the live hook that could correct it, so
+  // an unlabelled id comes back at the weakest confidence.
+  setConversationId(sessionId, agent, id, metadata.conversationSource || "prompt");
+}
+
+/**
+ * The terminal itself is gone. Every teardown path calls this — session ids are
+ * minted from a timestamp, so anything left behind is not merely stale, it is
+ * inherited by whichever session id lands on the same value next.
+ */
+export function forgetSession(sessionId) {
+  if (!sessionId) return;
+  clearSessionAgent(sessionId);
+  sessionStatus.delete(sessionId);
+}
+
+// The last line the user typed into a running TUI agent — the closest thing to
+// "the prompt this conversation opened with" that exists without a hook. Only
+// clean printable text is kept: arrow keys, slash commands and shell lines are
+// not prompts, and a wrong prompt is worse than none (it feeds the matcher).
+const PROMPT_MAX = 200;
+// Built via new RegExp so PROMPT_MAX can size the quantifier — a regex literal
+// cannot interpolate, and a literal "{1,PROMPT_MAX - 1}" silently never matches.
+const PROMPT_OK_RE = new RegExp(`^[^\\u0000-\\u001f\\u007f/][^\\u0000-\\u001f\\u007f;&|<>$\`]{1,${PROMPT_MAX - 1}}$`);
+
+export function setLastPrompt(sessionId, line) {
+  // Only a terminal with a TUI agent running has prompts; in a plain shell the
+  // entered line is a command, and storing it would feed the matcher a lie.
+  if (!sessionId || !sessionAgents.has(sessionId)) return;
+  const text = String(line || "").trim();
+  if (!PROMPT_OK_RE.test(text)) return;
+  lastPrompts.set(sessionId, text);
+}
+
+export function getLastPrompt(sessionId) {
+  return lastPrompts.get(sessionId) || "";
 }
 
 export function onAgentChange(cb) {
@@ -140,9 +284,10 @@ export function getStatus(sessionId) {
 export function getStatuses() {
   const out = {};
   for (const [id, entry] of sessionStatus) out[id] = entry;
-  // Attach claude ids for sessions that have no live state entry too (idle tab)
-  for (const [id, csid] of claudeSessionIds) {
-    out[id] = out[id] ? { ...out[id], claudeSessionId: csid } : { claudeSessionId: csid };
+  // Attach conversation ids for sessions with no live state entry too (idle tab)
+  for (const [id, conv] of conversations) {
+    const extra = { conversationId: conv.id, tool: conv.agent };
+    out[id] = out[id] ? { ...extra, ...out[id], conversationId: conv.id } : extra;
   }
   // Hookless detection fills tool only where no hook entry provided one
   for (const [id, agentId] of sessionAgents) {

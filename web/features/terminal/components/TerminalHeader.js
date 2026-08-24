@@ -360,7 +360,7 @@ export default function TerminalHeader({
           >
             <Pencil size={14} /> {t("sessions.editName")}
           </button>
-          {sessionStatus[tabMenu.sessionId]?.claudeSessionId && (
+          {sessionStatus[tabMenu.sessionId]?.conversationId && (
             <button
               onClick={() => {
                 vibrate();

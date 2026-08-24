@@ -78,3 +78,22 @@ export const RESIZE_MAX_ROWS = 500;
 // transition or soft-keyboard shrink cancels itself within it). Growing applies
 // immediately — it costs nothing and keeps rotate-to-landscape responsive.
 export const RESIZE_SHRINK_SETTLE_MS = 300;
+
+// Agent CLI conversation history (agentHistory.js). The head budgets bound what
+// one transcript costs to identify: enough lines to pass a session's metadata
+// and its first user turn, never enough to read a long conversation.
+export const HISTORY = {
+  // Read in small chunks up to a generous ceiling: most transcripts answer in
+  // the first chunk, and only a preamble-heavy one pays for more.
+  CHUNK_BYTES: 32 * 1024,
+  HEAD_BYTES: 512 * 1024,
+  HEAD_LINES: 60,
+  TITLE_MAX: 120,
+  // Stores that bury the cwd in the file are walked newest-first under this cap,
+  // so a machine with thousands of transcripts still answers in one readdir pass.
+  SCAN_FILE_CAP: 200,
+  SCAN_DEPTH: 4,
+  PER_AGENT_LIMIT: 30,
+  DEFAULT_LIMIT: 60,
+  CACHE_TTL_MS: 30 * 1000
+};

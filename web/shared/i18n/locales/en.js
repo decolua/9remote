@@ -208,6 +208,14 @@ export default {
     newTerminal: "New terminal",
     options: "Options",
   },
+  agentHistory: {
+    title: "History",
+    untitled: "Untitled",
+    openNow: "Open in a terminal",
+    minutesAgo: "{n}m",
+    hoursAgo: "{n}h",
+    daysAgo: "{n}d",
+  },
   workspaces: {
     title: "Workspaces",
     newWorkspace: "Add workspace",

@@ -2,6 +2,7 @@
 import os from "os";
 import fs from "fs";
 import path from "path";
+import { conversationMetadata } from "./statusManager.js";
 import { PATHS } from "../../lib/constants.js";
 
 const BUFFER_DIR = PATHS.BUFFERS;
@@ -135,7 +136,7 @@ export function loadSessionMetadata() {
 // Serialize a single session to its metadata record. Exported for testing.
 // Persist cols/rows (from client's last resize) so a respawned PTY after an agent
 // restart inherits the real terminal size instead of falling back to 80×24.
-export function buildSessionMetadata(session) {
+export function buildSessionMetadata(session, sessionId) {
   return {
     name: session.name,
     createdAt: session.createdAt,
@@ -145,6 +146,9 @@ export function buildSessionMetadata(session) {
     workspacePath: session.workspacePath ?? null,
     cols: session.lastCols ?? session.cols ?? null,
     rows: session.lastRows ?? session.rows ?? null,
+    // The agent CLI and conversation this terminal is running: the PTY survives
+    // an agent restart, so the link to its chat has to survive with it.
+    ...(sessionId ? conversationMetadata(sessionId) || {} : {}),
   };
 }
 
@@ -164,7 +168,7 @@ export function saveSessionMetadata(sessions) {
   try {
     const metadata = {};
     for (const [id, session] of sessions) {
-      metadata[id] = buildSessionMetadata(session);
+      metadata[id] = buildSessionMetadata(session, id);
     }
     const dir = path.dirname(SESSION_METADATA_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

@@ -16,7 +16,7 @@ import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
-import { touchWorking, startReaper, getStatuses, setSessionAgent, clearSessionAgent, onAgentChange } from "./statusManager.js";
+import { touchWorking, startReaper, getStatuses, setSessionAgent, forgetSession, onAgentChange, restoreConversation, setConversationPersister } from "./statusManager.js";
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
@@ -110,6 +110,9 @@ async function _syncDaemonSessions() {
       lastRows: meta.rows ?? null,
       needsRespawn: !live
     });
+    // The PTY outlived this agent process; the chat running inside it did too,
+    // so replay the link rather than let a restart silently unlink them.
+    restoreConversation(id, meta);
   }
   saveSessionMetadata(sessions);
 }
@@ -181,6 +184,10 @@ export async function initializeTerminal() {
   Object.assign(sessionWorkspaces, saved.sessionWorkspaces);
   sessionOrder.push(...saved.sessionOrder);
 
+  // A newly learned conversation must reach disk without waiting for the next
+  // session create/rename — a restart in between would unlink it from its terminal.
+  setConversationPersister(() => saveSessionMetadata(sessions));
+
   // Backfill scrollback env for users who enabled Claude hook before the fix
   try { reconcileClaudeEnv(); } catch {}
   // Auto-enable notify hooks for every installed AI tool (claude/codex/gemini/opencode)
@@ -216,6 +223,7 @@ export async function initializeTerminal() {
       buffer: [],
       needsRestore: true
     });
+    restoreConversation(sessionId, meta);
     console.log(`🔄 Found saved session: ${sessionId}`);
   }
   if (savedSessions.length > 0) console.log(`✅ Found ${savedSessions.length} saved session(s)`);
@@ -250,7 +258,7 @@ export function setupTerminalSocket(io, apiKey) {
     daemonClient.on("sessionClosed", (sessionId) => {
       sessions.delete(sessionId);
       clearSeqSession(sessionId); // drop seq counter + gap ring
-      clearSessionAgent(sessionId);
+      forgetSession(sessionId);
       titleTails.delete(sessionId);
       // Drop any stale finished-badge so title count + UI stay in sync
       clearNotification(sessionId);

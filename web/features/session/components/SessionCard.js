@@ -110,7 +110,7 @@ export default function SessionCard({
             {session.name || t("terminal.defaultName")}
           </span>
           <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-            {onResume && status?.claudeSessionId && (
+            {onResume && status?.conversationId && (
               <button
                 type="button"
                 onClick={() => { vibrate(); onResume(session); }}

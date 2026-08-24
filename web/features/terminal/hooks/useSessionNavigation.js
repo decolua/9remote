@@ -100,6 +100,20 @@ export function useSessionNavigation({
     });
   }, [createSession, addOpenedSession, alertCreateFailed, currentView, replaceTopWithSession]);
 
+  // Re-enter one past agent-CLI conversation: a fresh terminal parked in the
+  // directory that conversation ran in, with the CLI's own resume line queued.
+  const handleResumeAgentSession = useCallback((row) => {
+    if (!row?.resume) return;
+    createSession(row.title || null, null, activeWorkspaceId, row.cwd || null, (result) => {
+      if (!result.success) return alertCreateFailed(result.error);
+      if (!result.sessionId) return;
+      useTerminalStore.getState().queueStartup(result.sessionId, row.resume);
+      if (row.agent) useTerminalStore.getState().setSessionAgent(result.sessionId, row.agent);
+      addOpenedSession(result.sessionId);
+      replaceTopWithSession(result.sessionId);
+    });
+  }, [createSession, activeWorkspaceId, addOpenedSession, alertCreateFailed, replaceTopWithSession]);
+
   // Quick create in the active workspace (header "+" button, Mod+Shift+Enter chord).
   // Always focuses the new pane, unlike handleCreateSession which only does so from
   // terminal view. `agent`/`yolo`/`name` let the chord replay the modal's last choice.
@@ -165,6 +179,7 @@ export function useSessionNavigation({
     handleSelectWorkspace,
     handleCreateSession,
     handleQuickCreateSession,
+    handleResumeAgentSession,
     handleCreateSessionInline,
     handleDeleteSession,
     handleRenameSession,

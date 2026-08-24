@@ -6,14 +6,20 @@ import { jsonOk, jsonErr } from "../lib/router.js";
 import { getIO } from "../transport/server.js";
 import { broadcast } from "../transport/broadcast.js";
 import { sendPushNotification } from "../features/terminal/pushManager.js";
-import { applyEvent, STATES, setClaudeSessionId, getClaudeSessionId } from "../features/terminal/statusManager.js";
+import { applyEvent, STATES, setConversationId, getConversation } from "../features/terminal/statusManager.js";
+import { sessionIdFromHookPayload, hookSessionIdKeys } from "../features/terminal/agentCatalog.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
 
 const pushLastTime = {};
 const PUSH_RATE_LIMIT_MS = 10000;
-// Claude session ids are uuid-like; this endpoint is localhost-public, so anything
-// else would later be typed into the user's PTY by the resume flow.
-const CLAUDE_SESSION_ID_RE = /^[0-9a-f-]{1,64}$/i;
+// Each CLI names its conversation id differently and the catalog owns the
+// spelling, so a new CLI's hook needs no change here. `csid` is the flat form
+// the shell hooks send; a plugin may post the CLI's own field name instead.
+function conversationIdFrom(tool, params) {
+  const fromOwnField = sessionIdFromHookPayload(tool, params);
+  if (fromOwnField) return fromOwnField;
+  return hookSessionIdKeys(tool).length ? sessionIdFromHookPayload(tool, { [hookSessionIdKeys(tool)[0]]: params.csid }) : null;
+}
 
 function parseNotifyParams(body, query) {
   if (query) {
@@ -22,6 +28,7 @@ function parseNotifyParams(body, query) {
       sessionId: query.sessionId || "",
       tool: query.tool || "claude",
       csid: query.csid || "",
+      ...query,
     };
   }
   const data = JSON.parse(body || "{}");
@@ -30,6 +37,7 @@ function parseNotifyParams(body, query) {
     sessionId: data.sessionId || "",
     tool: data.tool || "claude",
     csid: data.csid || "",
+    ...data,
   };
 }
 
@@ -47,13 +55,15 @@ export function handleNotifyGet(req, res, { query }) {
   jsonOk(res, { success: true });
 }
 
-function dispatchNotify({ type, sessionId, tool, csid }) {
+function dispatchNotify(params) {
+  const { type, sessionId, tool } = params;
   const now = Date.now();
   const io = getIO();
   if (!io || !sessionId) return;
 
-  // Claude conversation id from the hook — stored before the broadcast below carries it
-  if (csid && CLAUDE_SESSION_ID_RE.test(csid)) setClaudeSessionId(sessionId, csid);
+  // The CLI's own conversation id — stored before the broadcast below carries it
+  const conversationId = conversationIdFrom(tool, params);
+  if (conversationId) setConversationId(sessionId, tool, conversationId, "hook");
 
   const notification = { type, sessionId, tool, timestamp: now };
 
@@ -62,7 +72,8 @@ function dispatchNotify({ type, sessionId, tool, csid }) {
   const state = entry?.state || STATES.IDLE;
 
   // Type A — in-app badge + 4-state signal. chatNotification kept for legacy web clients.
-  broadcast(io, "statusChange", { sessionId, state, tool, since: now, ...(getClaudeSessionId(sessionId) ? { claudeSessionId: getClaudeSessionId(sessionId) } : {}) });
+  const conv = getConversation(sessionId);
+  broadcast(io, "statusChange", { sessionId, state, tool, since: now, ...(conv ? { conversationId: conv.id } : {}) });
   addNotification(sessionId, notification);
   broadcast(io, "chatNotification", notification);
 

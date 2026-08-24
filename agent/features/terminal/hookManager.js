@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 import { SERVER_PORT, PATHS as APP_PATHS, CLAUDE_SCROLLBACK_ENV, AI_TOOLS } from "../../lib/constants.js";
 import { writeJsonAtomic } from "../../lib/atomicFile.js";
+import { hookSessionIdKeys } from "./agentCatalog.js";
 
 const NOTIFY_URL = `http://localhost:${SERVER_PORT}/api/notify`;
 // JS identifier cannot start with a digit, so plugin export name differs from the file mark
@@ -50,11 +51,13 @@ const BINARIES = {
   rovodev: "acli", hermes: "hermes", amp: "amp", pi: "pi",
 };
 
-// claudeSessionId: claude hooks receive their session id on stdin JSON — capture it so
-// the agent can relaunch that exact conversation later via `claude --resume <id>`.
-const buildCurlCmd = (type, tool, { claudeSessionId = false } = {}) => {
-  const prefix = claudeSessionId ? `csid=$(cat 2>/dev/null | sed -n 's/.*"session_id" *: *"\\([^"]*\\)".*/\\1/p'); ` : "";
-  const extra = claudeSessionId ? "&csid=$csid" : "";
+// sessionId: hooks that receive JSON on stdin carry the CLI's own conversation id
+// under its own field name — capture it so the agent can relaunch that exact
+// conversation later. The catalog owns the spelling; a new CLI needs no change here.
+const buildCurlCmd = (type, tool, { sessionId = false } = {}) => {
+  const key = sessionId ? hookSessionIdKeys(tool)[0] : null;
+  const prefix = key ? `csid=$(cat 2>/dev/null | sed -n 's/.*"${key}" *: *"\\([^"]*\\)".*/\\1/p'); ` : "";
+  const extra = key ? "&csid=$csid" : "";
   return `${prefix}command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 "${NOTIFY_URL}?type=${type}&sessionId=$NINE_REMOTE_SESSION_ID${extra}&tool=${tool}" > /dev/null 2>&1 & true`;
 };
 
@@ -129,16 +132,16 @@ function restoreClaudeEnv(settings) {
 
 // ─── Kind: json-nested (Claude-style hooks object) ──────────────────────────
 // events: { <eventKey>: type }, matchers: { <eventKey>: matcher }, timeoutFn, extra(settings)
-function makeNestedJsonHook(tool, events, timeoutFn, { matchers = {}, extra, claudeSessionId = false } = {}) {
+function makeNestedJsonHook(tool, events, timeoutFn, { matchers = {}, extra, sessionId = false } = {}) {
   const buildEntry = (key, type) => ({
-    hooks: [{ type: "command", command: buildCurlCmd(type, tool, { claudeSessionId }), timeout: timeoutFn(STOP_MS) }],
+    hooks: [{ type: "command", command: buildCurlCmd(type, tool, { sessionId }), timeout: timeoutFn(STOP_MS) }],
     ...(matchers[key] != null ? { matcher: matchers[key] } : {}),
   });
   // Any of our entries, old shape included — enable() replaces stale ones instead of duplicating.
   const isOwn = (grp) => grp?.hooks?.some((h) => typeof h.command === "string" && h.command.includes(`&tool=${tool}`));
   // isEnabled demands the current shape, so a claude hook missing the csid capture reads as off.
   const isCurrent = (grp) => grp?.hooks?.some((h) =>
-    typeof h.command === "string" && h.command.includes(`&tool=${tool}`) && (!claudeSessionId || h.command.includes("&csid=")));
+    typeof h.command === "string" && h.command.includes(`&tool=${tool}`) && (!sessionId || h.command.includes("&csid=")));
   return {
     enable(filePath) {
       const settings = readJsonFile(filePath);
@@ -358,22 +361,24 @@ const codexHook = {
 function buildOpencodePlugin() {
   return `// 9Remote OpenCode status plugin (auto-generated)
 const base = ${JSON.stringify(NOTIFY_URL)};
-const post = (type) => {
+const post = (type, conv) => {
   const sid = process.env.NINE_REMOTE_SESSION_ID || "";
   if (!sid) return;
-  const url = base + "?type=" + type + "&sessionId=" + encodeURIComponent(sid) + "&tool=opencode";
+  let url = base + "?type=" + type + "&sessionId=" + encodeURIComponent(sid) + "&tool=opencode";
+  if (conv) url += "&sessionID=" + encodeURIComponent(conv);
   try { fetch(url, { signal: AbortSignal.timeout(2000) }).catch(() => {}); } catch {}
 };
 export const ${OPENCODE_PLUGIN_MARK} = async () => ({
-  "chat.message": async () => post("working"),
-  "tool.execute.before": async () => post("working"),
-  "tool.execute.after": async () => post("working"),
+  "chat.message": async (input) => post("working", input?.message?.sessionID),
+  "tool.execute.before": async (input) => post("working", input?.sessionID),
+  "tool.execute.after": async (input) => post("working", input?.sessionID),
   event: async ({ event }) => {
     const t = event?.type;
     if (!t) return;
-    if (t === "session.idle") return post("done");
-    if (t === "permission.asked" || t === "question.asked" || t === "session.error") return post("blocked");
-    if (t === "session.compacted" || t === "permission.replied" || t === "question.replied") return post("working");
+    const conv = event?.properties?.sessionID || event?.properties?.info?.sessionID;
+    if (t === "session.idle") return post("done", conv);
+    if (t === "permission.asked" || t === "question.asked" || t === "session.error") return post("blocked", conv);
+    if (t === "session.compacted" || t === "permission.replied" || t === "question.replied") return post("working", conv);
   },
 });
 `;
@@ -391,7 +396,12 @@ const opencodeHook = {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     return { success: true };
   },
-  isEnabled() { return fs.existsSync(PATHS.opencode()); },
+  // A plugin written before it reported conversation ids is stale, not enabled —
+  // otherwise the UI never re-runs enable() and the id never starts arriving.
+  isEnabled() {
+    const filePath = PATHS.opencode();
+    return fs.existsSync(filePath) && fs.readFileSync(filePath, "utf8").includes("&sessionID=");
+  },
 };
 
 // ─── Kind: ts-plugin (Amp / Pi) — TS plugin with start + end events ─────────
@@ -421,7 +431,7 @@ const TOOL_REGISTRY = {
   claude: makeNestedJsonHook("claude",
     { UserPromptSubmit: "working", PostToolUse: "working", Stop: "done", Notification: "blocked" },
     (ms) => ms,
-    { matchers: { Notification: "permission_prompt" }, extra: applyClaudeEnv, claudeSessionId: true }),
+    { matchers: { Notification: "permission_prompt" }, extra: applyClaudeEnv, sessionId: true }),
   codex: codexHook,
   gemini: makeNestedJsonHook("gemini",
     { BeforeAgent: "working", PreToolUse: "working", PostToolUse: "working", AfterAgent: "done", Notification: "blocked" },
