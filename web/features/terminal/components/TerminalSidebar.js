@@ -157,6 +157,9 @@ export default function TerminalSidebar({
   const hasKeyboard = useInputMode() === "mouse";
   const collapseHint = hasKeyboard ? withHint(t("common.close"), "toggleSidebar") : t("common.close");
   const dragRef = useRef(null);
+  // Which terminals actually exist right now — the history rows are a snapshot
+  // and can name one that has since closed.
+  const liveSessionIds = new Set(allSessions.map((s) => s.id));
   const activeCwd = activeSessionId
     ? (cwdBySession[activeSessionId] ?? allSessions.find((s) => s.id === activeSessionId)?.workspacePath ?? null)
     : null;
@@ -507,6 +510,8 @@ export default function TerminalSidebar({
           cwd={activeCwd}
           onResume={onResumeAgentSession}
           onSelectSession={onSelectSession}
+          liveSessionIds={liveSessionIds}
+          activeSessionId={activeSessionId}
           connected={connected}
         />
       )}

@@ -11,6 +11,18 @@ import { OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
 
 const clampWidth = (w, { min, max }) => Math.max(min, Math.min(max, Math.round(w)));
 
+// Mark every cwd's agent-history rows as due for a refetch, optionally rewriting
+// them on the way out. Only the agent knows which terminal runs which
+// conversation, so an answer that may have changed is backdated rather than
+// dropped: the panel keeps rendering while the next poll re-asks.
+const staleAgentHistory = (history, mapRow) => {
+  const next = {};
+  for (const [cwd, entry] of Object.entries(history)) {
+    next[cwd] = { at: 0, sessions: mapRow ? entry.sessions.map(mapRow) : entry.sessions };
+  }
+  return next;
+};
+
 // Terminal UI state store - persisted to sessionStorage
 export const useTerminalStore = create(
   persist(
@@ -263,6 +275,34 @@ export const useTerminalStore = create(
       }),
       
       clearOpenedSessions: () => set({ openedSessions: [], livePanes: [] }),
+
+      // Something changed which terminal runs which conversation, and only the
+      // agent knows the new answer. Backdate the rows so the next poll refetches
+      // while the panel keeps rendering what it has.
+      invalidateAgentHistory: () => set((state) => ({ agentHistory: staleAgentHistory(state.agentHistory) })),
+
+      // The terminal is gone for good — everything keyed by its id goes with it.
+      // Its history rows are kept and merely unlinked: the conversations still
+      // exist and are still worth offering, they just aren't open anywhere now.
+      // Discarding them instead would blank the panel until the next poll.
+      closeSession: (sessionId) => set((state) => {
+        const { [sessionId]: _draft, ...drafts } = state.drafts;
+        const { [sessionId]: _startup, ...pendingStartup } = state.pendingStartup;
+        const { [sessionId]: _agent, ...agentBySession } = state.agentBySession;
+        // Unlinked and backdated: the rows keep rendering, and the next poll
+        // re-asks the agent, which may now match one of them to another terminal.
+        const agentHistory = staleAgentHistory(state.agentHistory, (row) =>
+          row.openSessionId === sessionId ? { ...row, openSessionId: null } : row
+        );
+        return {
+          openedSessions: state.openedSessions.filter(id => id !== sessionId),
+          livePanes: state.livePanes.filter(id => id !== sessionId),
+          drafts,
+          pendingStartup,
+          agentBySession,
+          agentHistory
+        };
+      }),
       
       // Get current view
       getCurrentView: () => {

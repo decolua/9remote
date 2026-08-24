@@ -10,6 +10,9 @@ import { AGENT_HISTORY_TTL_MS } from "@/features/terminal/constants/terminalConf
 // written to its store right now, and should appear without a reload.
 export function useAgentSessions(socketRef, cwd) {
   const entry = useTerminalStore((s) => (cwd ? s.agentHistory[cwd] : null));
+  // Closing a terminal backdates every cwd's rows; refetching on that timestamp
+  // is what turns the invalidation into a refresh instead of a 30s wait.
+  const staleAt = entry?.at ?? 0;
 
   useEffect(() => {
     if (!cwd) return;
@@ -22,7 +25,7 @@ export function useAgentSessions(socketRef, cwd) {
     if (!cached || Date.now() - cached.at >= AGENT_HISTORY_TTL_MS) fetchNow();
     const timer = setInterval(fetchNow, AGENT_HISTORY_TTL_MS);
     return () => clearInterval(timer);
-  }, [socketRef, cwd]);
+  }, [socketRef, cwd, staleAt]);
 
   return entry?.sessions || null;
 }

@@ -231,6 +231,10 @@ export function useSocket() {
 
     socket.on("sessionClosed", (sessionId) => {
       setSessions(prev => prev.filter(s => s.id !== sessionId));
+      // Drop everything else keyed by this terminal in the same breath: a pane
+      // left open on a dead id renders nothing, and a history row still pointing
+      // at it would focus a terminal that isn't there.
+      useTerminalStore.getState().closeSession(sessionId);
     });
 
     // Workspaces changed elsewhere — refresh both lists

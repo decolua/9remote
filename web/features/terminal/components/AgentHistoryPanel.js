@@ -20,7 +20,7 @@ function relativeAge(ms, t) {
 // Conversations the agent CLIs already hold for the directory the active
 // terminal is standing in — resuming one opens a terminal there and types the
 // CLI's own resume command, so the transcript comes back rather than restarting.
-export default function AgentHistoryPanel({ socketRef, cwd, onResume, onSelectSession, connected = true }) {
+export default function AgentHistoryPanel({ socketRef, cwd, onResume, onSelectSession, liveSessionIds, activeSessionId, connected = true }) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
   const sessions = useAgentSessions(socketRef, cwd);
@@ -48,15 +48,23 @@ export default function AgentHistoryPanel({ socketRef, cwd, onResume, onSelectSe
       <div className="overflow-y-auto modal-scrollable min-h-0">
       {shown.map((row) => {
         // Already live in a terminal: jumping to it beats resuming a second copy.
-        const openId = row.openSessionId;
+        // The rows are a snapshot, so a terminal named here may have closed since
+        // — treat a vanished one as not open and resume instead of focusing air.
+        const openId = row.openSessionId && liveSessionIds?.has(row.openSessionId)
+          ? row.openSessionId
+          : null;
+        // Open in some terminal reads as brighter text; only the row whose
+        // terminal is the one on screen takes the selected background, matching
+        // how the session list above marks the active terminal.
+        const isActive = !!openId && openId === activeSessionId;
         return (
         <button
           key={`${row.agent}:${row.sessionId}`}
-          onClick={() => { vibrate(); openId ? onSelectSession?.(openId) : onResume?.(row); }}
+          onClick={() => { vibrate(); if (openId) onSelectSession?.(openId); else onResume?.(row); }}
           disabled={!connected}
           className={`group w-full flex items-center gap-1.5 pl-3.5 pr-2 py-px text-left transition-colors disabled:opacity-40 hover:bg-text/5 hover:text-text ${
-            openId ? "text-text font-medium bg-text/[0.04]" : "text-text-muted"
-          }`}
+            openId ? "text-text font-medium" : "text-text-muted"
+          } ${isActive ? "bg-text/8" : ""}`}
           title={`${row.title || t("agentHistory.untitled")} · ${row.agent}${openId ? ` · ${t("agentHistory.openNow")}` : ""}`}
         >
           <img
@@ -65,13 +73,9 @@ export default function AgentHistoryPanel({ socketRef, cwd, onResume, onSelectSe
             className={`w-2.5 h-2.5 rounded-[2px] flex-shrink-0 ${openId ? "" : "opacity-70"}`}
           />
           <span className="text-[11px] truncate flex-1 min-w-0">{row.title || t("agentHistory.untitled")}</span>
-          {openId ? (
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" title={t("agentHistory.openNow")} />
-          ) : (
-            <span className="text-[10px] text-text-subtle flex-shrink-0 opacity-0 group-hover:opacity-70 tabular-nums">
-              {relativeAge(row.updatedAt, t)}
-            </span>
-          )}
+          <span className="text-[10px] text-text-subtle flex-shrink-0 opacity-0 group-hover:opacity-70 tabular-nums">
+            {relativeAge(row.updatedAt, t)}
+          </span>
         </button>
         );
       })}
