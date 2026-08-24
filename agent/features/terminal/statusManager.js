@@ -138,6 +138,22 @@ export function clearSessionAgent(sessionId) {
 }
 
 /**
+ * Attach a conversation to a terminal we are resuming it into. The id came from
+ * the history row we just typed a resume line for, so it is known before the CLI
+ * has said anything — waiting for the first hook would leave the terminal
+ * unlinked from the very chat it is resuming until the user sends a message.
+ */
+export function claimResumedConversation(sessionId, row) {
+  const agent = row?.agent;
+  const id = row?.sessionId;
+  if (!sessionId || !agent || !id || !SESSION_ID_RE.test(id)) return;
+  // The agent first: setSessionAgent clears a conversation belonging to another
+  // CLI, which would drop the one being set here if it ran the other way round.
+  setSessionAgent(sessionId, agent);
+  setConversationId(sessionId, agent, id, "resume");
+}
+
+/**
  * What this terminal's conversation looks like on disk. The PTY survives an
  * agent restart (it lives in the daemon), so this must too — otherwise every
  * restart silently unlinks running chats from the terminals running them.

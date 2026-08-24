@@ -4,7 +4,7 @@ import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadS
 import { resolveShell, getShellList } from "../constants.js";
 import { detectAgentClis } from "../agentCatalog.js";
 import { listAgentSessions, matchLiveSessions } from "../agentHistory.js";
-import { getLiveConversations, forgetSession } from "../statusManager.js";
+import { getLiveConversations, forgetSession, claimResumedConversation } from "../statusManager.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
@@ -285,6 +285,14 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     });
     const rows = await listAgentSessions({ cwd, limit });
     callback?.({ success: true, sessions: matchLiveSessions(rows, live) });
+  });
+
+  // A terminal opened to resume a history row already knows which conversation
+  // it is running — say so now rather than wait for the CLI's first hook, which
+  // only fires once the user sends a message.
+  socket.on("claimAgentSession", ({ sessionId, agent, conversationId } = {}, callback) => {
+    claimResumedConversation(sessionId, { agent, sessionId: conversationId });
+    callback?.({ success: true });
   });
 
   socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd }, callback) => {

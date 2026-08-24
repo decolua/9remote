@@ -12,7 +12,7 @@ export function useSessionNavigation({
   sessions, currentView, viewStack, setViewStack, pushView, storePopView,
   activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
   addOpenedSession, removeOpenedSession, touchLivePane,
-  createSession, deleteSession, renameSession, clearNotification
+  createSession, deleteSession, renameSession, clearNotification, socketRef
 }) {
   const { t } = useI18n();
 
@@ -37,6 +37,10 @@ export function useSessionNavigation({
   // Entering terminal view: open sessions of the selected session's workspace, set it active
   const handleSelectSession = useCallback((sessionId) => {
     const selected = sessions.find(s => s.id === sessionId);
+    // A caller can hold an id that has since closed (a history row, a stale
+    // notification): pushing a view for it renders an empty terminal that no
+    // longer has anything behind it.
+    if (!selected) return;
     const workspaceId = sessionWorkspaceId(selected);
     setActiveWorkspaceId(workspaceId);
     const ids = workspaceSessionIds(workspaceId);
@@ -109,10 +113,15 @@ export function useSessionNavigation({
       if (!result.sessionId) return;
       useTerminalStore.getState().queueStartup(result.sessionId, row.resume);
       if (row.agent) useTerminalStore.getState().setSessionAgent(result.sessionId, row.agent);
+      // Tell the agent which conversation this terminal is resuming, so the
+      // history row points at it before the CLI reports anything of its own.
+      socketRef?.current?.emit("claimAgentSession", {
+        sessionId: result.sessionId, agent: row.agent, conversationId: row.sessionId
+      }, () => useTerminalStore.getState().invalidateAgentHistory());
       addOpenedSession(result.sessionId);
       replaceTopWithSession(result.sessionId);
     });
-  }, [createSession, activeWorkspaceId, addOpenedSession, alertCreateFailed, replaceTopWithSession]);
+  }, [createSession, activeWorkspaceId, addOpenedSession, alertCreateFailed, replaceTopWithSession, socketRef]);
 
   // Quick create in the active workspace (header "+" button, Mod+Shift+Enter chord).
   // Always focuses the new pane, unlike handleCreateSession which only does so from

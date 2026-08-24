@@ -17,7 +17,7 @@ process.env.USERPROFILE = home;
 mkdirSync(join(home, ".9remote"), { recursive: true });
 
 const { sessionIdFromHookPayload, hookSessionIdKeys } = await import("../features/terminal/agentCatalog.js");
-const { setConversationId, getConversation, clearConversation, getStatuses, setSessionAgent, getLiveConversations, clearSessionAgent, getSessionAgent, forgetSession, conversationMetadata, restoreConversation, setConversationPersister } =
+const { setConversationId, getConversation, clearConversation, getStatuses, setSessionAgent, getLiveConversations, clearSessionAgent, getSessionAgent, forgetSession, conversationMetadata, restoreConversation, setConversationPersister, claimResumedConversation } =
   await import("../features/terminal/statusManager.js");
 const { matchLiveSessions, resumeCommand } = await import("../features/terminal/agentHistory.js");
 
@@ -442,4 +442,37 @@ test("a terminal that switches CLI no longer reports the old conversation", () =
   setSessionAgent("switched", "codex");
   assert.equal(getConversation("switched"), null);
   assert.deepEqual(conversationMetadata("switched"), { agent: "codex" });
+});
+
+// --- a resume names its conversation up front ---
+
+test("a resume claims its conversation for the new terminal immediately", () => {
+  // We typed the resume line ourselves, so the id is known before the CLI has
+  // said anything. Waiting for a hook means the terminal is unlinked from the
+  // chat it is literally resuming until the user sends a message.
+  forgetSession("fresh");
+  claimResumedConversation("fresh", { agent: "codex", sessionId: "x-1" });
+  assert.deepEqual(getConversation("fresh"), { agent: "codex", id: "x-1", source: "resume" });
+  assert.equal(getSessionAgent("fresh"), "codex");
+});
+
+test("a live hook still corrects a claimed conversation", () => {
+  forgetSession("corrected");
+  claimResumedConversation("corrected", { agent: "claude", sessionId: "guessed" });
+  setConversationId("corrected", "claude", "actual", "hook");
+  assert.equal(getConversation("corrected").id, "actual");
+});
+
+test("a claim with nothing to claim is ignored", () => {
+  forgetSession("empty");
+  claimResumedConversation("empty", { agent: "claude" });
+  claimResumedConversation("empty", { sessionId: "x" });
+  claimResumedConversation("empty", null);
+  assert.equal(getConversation("empty"), null);
+});
+
+test("a claimed id is validated like any other", () => {
+  forgetSession("hostile");
+  claimResumedConversation("hostile", { agent: "claude", sessionId: "a; rm -rf /" });
+  assert.equal(getConversation("hostile"), null);
 });

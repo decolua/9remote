@@ -183,7 +183,7 @@ export default function WorkspaceLayout({ children }) {
     sessions, currentView, viewStack, setViewStack, pushView, storePopView,
     activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
     addOpenedSession, removeOpenedSession, touchLivePane,
-    createSession, deleteSession, renameSession, clearNotification
+    createSession, deleteSession, renameSession, clearNotification, socketRef
   });
 
   const {
