@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, Package, Plus, RefreshCw, Search, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
@@ -97,9 +97,18 @@ export default function TerminalRightPanel({
   // The tree publishes its own actions so they can live in the tab bar above it.
   const [treeActions, setTreeActions] = useState(null);
 
-  // Reset the open root when the workspace changes, without an effect round-trip.
-  const [rootState, setRootState] = useState({ forWorkspace: effectiveFilesRoot, path: effectiveFilesRoot });
-  const activeRoot = rootState.forWorkspace === effectiveFilesRoot ? rootState.path : effectiveFilesRoot;
+  // Which root opens by default: the worktree the terminal's cwd stands in (longest
+  // matching prefix — a cwd deep inside it still resolves to that worktree), else main.
+  const defaultRoot = useMemo(() => {
+    const inside = roots.filter((r) => effectiveFilesRoot === r.path || effectiveFilesRoot?.startsWith(`${r.path}/`));
+    if (inside.length) return inside.sort((a, b) => b.path.length - a.path.length)[0].path;
+    return (roots.find((r) => r.isMain) || roots[0])?.path || effectiveFilesRoot;
+  }, [roots, effectiveFilesRoot]);
+
+  // Reset the open root when the workspace changes, without an effect round-trip. Seeded
+  // unstamped so the first render falls through to defaultRoot rather than the raw cwd.
+  const [rootState, setRootState] = useState({ forWorkspace: null, path: null });
+  const activeRoot = rootState.forWorkspace === effectiveFilesRoot ? rootState.path : defaultRoot;
   const setActiveRoot = (path) => setRootState({ forWorkspace: effectiveFilesRoot, path });
 
   // File search over the effective root — same flow as the full-page FileExplorer.

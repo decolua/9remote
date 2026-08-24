@@ -198,7 +198,9 @@ export const useTerminalStore = create(
 
       // Per-workspace root override for the side panel: a pane's folder button reveals
       // the terminal's live cwd (OSC 7) as a snapshot — later `cd` must not move the tree.
-      // Dropping the key (root back at the workspace path) deletes the override.
+      // Dropping the key (root back at the workspace path) deletes the override. Not
+      // persisted: a stale reveal would survive a reload and pin the panel to an old
+      // worktree while the terminal stands elsewhere.
       rightPanelRoots: {},
       setRightPanelRoot: (workspacePath, rootPath) => set((state) => {
         if (workspacePath == null) return state;
@@ -308,7 +310,6 @@ export const useTerminalStore = create(
         paneWidths: state.paneWidths,
         rightPanelOpen: state.rightPanelOpen,
         rightPanelTabs: state.rightPanelTabs,
-        rightPanelRoots: state.rightPanelRoots,
         rightPanelWidth: state.rightPanelWidth,
         editorPanelWidth: state.editorPanelWidth
       }),
