@@ -29,7 +29,7 @@ const VISIBLE_TABS = TABS.filter((t) => t.key !== "trees");
 // Roots are the workspace itself plus each of its worktrees — separate directories on
 // disk, so they cannot share one tree.
 export default function TerminalRightPanel({
-  workspacePath, filesRoot = null, fileSocket, activeFile,
+  workspacePath, filesRoot = null, cwdHint = null, fileSocket, activeFile,
   tab, onTabChange, width, onResize, onClose,
   onOpenFile, onNewTerminal, onAddWorkspace, onOpenFiles, homeDir,
   changedPerRepo = {}, hiddenRepos = [], onHiddenReposChange, isDesktop = true
@@ -97,19 +97,21 @@ export default function TerminalRightPanel({
   // The tree publishes its own actions so they can live in the tab bar above it.
   const [treeActions, setTreeActions] = useState(null);
 
-  // Which root opens by default: the worktree the terminal's cwd stands in (longest
+  // Which root opens by default: the worktree the focused terminal stands in (longest
   // matching prefix — a cwd deep inside it still resolves to that worktree), else main.
+  const rootProbe = cwdHint || effectiveFilesRoot;
   const defaultRoot = useMemo(() => {
-    const inside = roots.filter((r) => effectiveFilesRoot === r.path || effectiveFilesRoot?.startsWith(`${r.path}/`));
+    const inside = roots.filter((r) => rootProbe === r.path || rootProbe?.startsWith(`${r.path}/`));
     if (inside.length) return inside.sort((a, b) => b.path.length - a.path.length)[0].path;
     return (roots.find((r) => r.isMain) || roots[0])?.path || effectiveFilesRoot;
-  }, [roots, effectiveFilesRoot]);
+  }, [roots, rootProbe, effectiveFilesRoot]);
 
-  // Reset the open root when the workspace changes, without an effect round-trip. Seeded
-  // unstamped so the first render falls through to defaultRoot rather than the raw cwd.
-  const [rootState, setRootState] = useState({ forWorkspace: null, path: null });
-  const activeRoot = rootState.forWorkspace === effectiveFilesRoot ? rootState.path : defaultRoot;
-  const setActiveRoot = (path) => setRootState({ forWorkspace: effectiveFilesRoot, path });
+  // Reset the open root when the workspace or the focused terminal's cwd changes, without
+  // an effect round-trip. Seeded unstamped so the first render falls through to
+  // defaultRoot rather than the raw path.
+  const [rootState, setRootState] = useState({ forProbe: null, path: null });
+  const activeRoot = rootState.forProbe === rootProbe ? rootState.path : defaultRoot;
+  const setActiveRoot = (path) => setRootState({ forProbe: rootProbe, path });
 
   // File search over the effective root — same flow as the full-page FileExplorer.
   const [searchState, setSearchState] = useState({ forRoot: null, show: false, query: "", results: [], loading: false });

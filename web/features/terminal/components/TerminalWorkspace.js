@@ -61,6 +61,13 @@ export default function TerminalWorkspace({
   const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
   const openRightPanel = useTerminalStore((s) => s.openRightPanel);
   const filesRoot = rightPanelRoots[baseRoot] || baseRoot;
+  // Where the focused terminal actually stands — the panel opens the worktree holding it.
+  const activeCwd = activeSessionId ? cwdBySession[activeSessionId] || null : null;
+  // Switching terminals drops a manual reveal: that pin belongs to the pane it was taken
+  // from, and keeping it would strand the tree on another terminal's worktree.
+  useEffect(() => {
+    setRightPanelRoot(baseRoot, null);
+  }, [activeSessionId, baseRoot, setRightPanelRoot]);
   const showEmptyState = !sessions.length;
 
   // The collapsed panel stays mounted so its width can animate, but only after a first
@@ -448,6 +455,7 @@ export default function TerminalWorkspace({
             <TerminalRightPanel
               workspacePath={baseRoot}
               filesRoot={filesRoot}
+              cwdHint={activeCwd}
               fileSocket={fileSocket}
               activeFile={editorPanel?.filePath}
               tab={rightPanel.tabs?.[baseRoot ?? ""] || "files"}
