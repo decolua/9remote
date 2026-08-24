@@ -21,7 +21,7 @@ import { useGithub } from "@/features/codespace/hooks/useGithub";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { buildCodespaceUrl } from "@/shared/constants/github";
 import { setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
-import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY } from "@/shared/constants/transport";
+import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY, WANTS_SAVE_KEY } from "@/shared/constants/transport";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 
 // One-time pairing input: "K7QP3Max" (6-char tempKey + 2-char TAIL, no
@@ -229,8 +229,12 @@ function LoginContent() {
     // A one-time login parks nothing: it has no API key TAIL to save, and the
     // code's own TAIL is worthless once the code expires. The agent hands over
     // the real key when it accepts this device, and THAT is what gets saved.
-    if (rememberKey && head && !isOneTime) {
-      sessionStorage.setItem(PENDING_SAVE_KEY, trimmedKey);
+    if (rememberKey && head) {
+      // A typed key can be parked as-is. A pairing has no lasting key yet —
+      // the agent issues one on acceptance — so only the intent is recorded,
+      // and deviceTrust parks the real key when it arrives.
+      if (isOneTime) sessionStorage.setItem(WANTS_SAVE_KEY, "1");
+      else sessionStorage.setItem(PENDING_SAVE_KEY, trimmedKey);
     }
     router.push("/workspace/");
   };

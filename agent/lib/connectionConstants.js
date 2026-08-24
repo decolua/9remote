@@ -21,7 +21,6 @@ export const CONNECTION_STATE = {
 // stops being unauthenticated, so blocking them would deadlock the handshake.
 export const AUTH_EVENTS = new Set([
   "device:tailProof",
-  "device:enroll",
   "device:clientReady",
   "disconnect"
 ]);

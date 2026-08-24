@@ -125,6 +125,11 @@ export const ONE_TIME_CODE_LENGTH = 8;
 // the agent says yes.
 export const PENDING_SAVE_KEY = "9remote_pending_save";
 
+// "Remember this key" was ticked for a login that has no key to park yet.
+// A one-time code only becomes a lasting key when the agent issues one, which
+// happens after acceptance — so the intent is recorded here and acted on then.
+export const WANTS_SAVE_KEY = "9remote_wants_save";
+
 // Handoff for a rejection that only becomes known after login: the Worker
 // clears a key by its HEAD, but the TAIL is proven later, to the agent. The
 // login page reads this on mount and shows it like any bad-key error.

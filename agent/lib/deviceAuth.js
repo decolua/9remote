@@ -194,6 +194,14 @@ export function admissionGate(deviceId, presented, { provenSocket = false, tempK
   // presented TAIL is compared against, and what a miss costs (a code dies, a
   // key does not).
   const pairingSession = !!tempKey && !isDeviceKicked(deviceId);
+  // TEMP DIAGNOSTIC — a pairing that cannot be recognised looks exactly like a
+  // client that never sent anything; the two need telling apart.
+  if (pairingSession) {
+    const live = getActivePairing();
+    logger.info(`[pair] device=${deviceId?.slice(0, 8)} presented=${presented === undefined ? "none" : String(presented).length + "ch"} ` +
+      `liveCode=${live ? "yes" : "no"} liveTail=${live?.tail ? String(live.tail).length + "ch" : "none"} ` +
+      `match=${presented === undefined ? "n/a" : matchesPairingTail(String(presented))}`);
+  }
   if (isTailProofEnabled() || pairingSession) {
     const verdict = verdictOf(deviceId, keyHead);
     // A standing refusal blocks a carrier that presents NOTHING — that is the
@@ -280,53 +288,6 @@ export function presentedTailOf(auth, open) {
     return open(sealed) ?? null;
   }
   return auth?.keyTail;
-}
-
-/**
- * Pairing enrollment — client presents the fp2 it read off the pairing code.
- * Valid only while a pairing code is live; wrong fp2 burns an attempt and 3
- * misses kill the code. Delivers the key TAIL DIRECTLY through the RTC
- * adapter — never socket.emit / the PM control bus, whose WS fallback would
- * leak it through the tunnel.
- */
-export function handleDeviceEnroll(socket, data) {
-  const deviceId = socket.handshake?.auth?.deviceId || socket.deviceId || null;
-  if (!deviceId) return;
-
-  if (!getActivePairing() || !consumePairingTail(String(data?.tail || ""))) {
-    // The code this device paired with is now dead (a wrong TAIL burns it), so
-    // the session it bought is no longer legitimate either — revoke the
-    // approval it just got and drop the socket.
-    socket.emit("device:enrollRejected");
-    if (!hasProvenTail(deviceId, headOf(loadKey()?.key || ""))) {
-      removeDevice(deviceId);
-      logger.warn(`enrollment rejected — revoking ${deviceId.slice(0, 8)}... and closing`);
-      try { socket.disconnect(); } catch {}
-    }
-    return;
-  }
-  const tail = agentTail();
-  if (!tail) {
-    socket.emit("device:enrollRejected"); // v1 key — nothing to deliver
-    return;
-  }
-  const rtc = socket.data?.protocol?._adapters.get("rtc");
-  if (rtc?.ready !== true) {
-    // WS-only carrier — the TAIL must not transit the tunnel. Nothing is
-    // marked proven; the client retries on a connection where RTC is up.
-    socket.emit("device:enrollRetry");
-    return;
-  }
-  approveDevice(deviceId);
-  logger.info(`device enrolled: ${deviceId.slice(0, 8)}...`);
-  const sent = rtc.send(CHANNELS.control, { event: "device:enrolled", args: [{ tail }] });
-  if (sent) {
-    socket.data.provenDevice = true; // settles an in-flight proof
-    // The device now holds THIS key's TAIL — from here it must prove with it.
-    submitTailProof(deviceId, tail);
-  } else {
-    socket.emit("device:enrollRetry"); // DC died mid-send — retry re-delivers
-  }
 }
 
 /**

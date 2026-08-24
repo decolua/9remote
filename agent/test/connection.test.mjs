@@ -38,7 +38,7 @@ test("a fresh connection is authenticating and carries only auth", () => {
   const s = newConnection();
   assert.equal(s.state, CONNECTION_STATE.authenticating);
   assert.equal(s.allows("device:tailProof"), true);
-  assert.equal(s.allows("device:enroll"), true);
+  assert.equal(s.allows("device:clientReady"), true);
   assert.equal(s.allows("getSessions"), false, "features must not answer yet");
   assert.equal(s.allows("terminal:input"), false);
 });

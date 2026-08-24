@@ -25,9 +25,15 @@ import { sealTail } from "@/shared/transport/lib/tailSeal";
 export async function freshAuth(baseAuth = {}, connectionMode) {
   const auth = { ...baseAuth, connectionMode };
   // A one-time login holds the CODE's tail, filed under the code; an API key
-  // login holds the key's, filed under its HEAD. Looking only at the HEAD meant
-  // a device that paired by code had a tail it could never present.
-  const trust = getTrust(baseAuth.apiKey) || (baseAuth.tempKey ? getTrust(baseAuth.tempKey) : null);
+  // login holds the key's, filed under its HEAD.
+  //
+  // Chosen by which entry actually HAS a tail, not by which exists: a browser
+  // that logged in before has a trust entry under the HEAD carrying a pinned
+  // host key and no tail, and preferring that one left a pairing device unable
+  // to present the code it was holding all along.
+  const byKey = getTrust(baseAuth.apiKey);
+  const byCode = baseAuth.tempKey ? getTrust(baseAuth.tempKey) : null;
+  const trust = byKey?.tail ? byKey : (byCode?.tail ? byCode : byKey || byCode);
   const tail = trust?.tail;
   // TEMP DIAGNOSTIC — tail fingerprint only (len + ends); never the tail itself
   const hint = (t) => (t ? `${t.length}ch ${t[0]}…${t[t.length - 1]}` : "none");

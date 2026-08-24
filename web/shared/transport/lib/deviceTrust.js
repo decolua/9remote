@@ -4,7 +4,7 @@
 // fp2-checked RTC channel at enroll time. Neither ever reaches the Worker; the
 // TAIL travels only to the agent itself (see adapters/freshAuth).
 
-import { CHANNELS, TAIL_REJECT_REASON, PENDING_SAVE_KEY } from "@/shared/constants/transport";
+import { CHANNELS, TAIL_REJECT_REASON, PENDING_SAVE_KEY, WANTS_SAVE_KEY } from "@/shared/constants/transport";
 import { hostFp2Of } from "./tailSeal";
 
 const TRUST_KEY = "9remote_device_trust";
@@ -232,32 +232,29 @@ export async function verifySdpSignature(publicKeyB64, sdp, sigB64) {
 // these natively on the raw socket, RTC dispatch reaches them via the proxy
 // listener map — both carriers land in handleDeviceAuthEvent with the unpacked
 // payload as the first arg.
-export const DEVICE_AUTH_EVENTS = ["device:enrolled", "device:enrollRejected", "device:enrollRetry", "device:tailRejected"];
+export const DEVICE_AUTH_EVENTS = ["device:keyIssued", "device:tailRejected"];
 
 /** Handle a device-auth control event. Returns true when consumed. */
 export function handleDeviceAuthEvent(pm, event, data) {
   const apiKey = pm._auth?.apiKey;
   if (!apiKey) return false;
-  if (event === "device:enrolled") {
-    setTrust(apiKey, { tail: data?.tail || null });
-    takePendingFp2(); // pairing complete
-    // The agent settled this device's proof when it delivered the tail, so none
-    // is owed for THIS peer; a later peer (agent restart) proves again.
+  if (event === "device:keyIssued") {
+    // A one-time code got this device in, but the code dies in minutes. The
+    // agent hands over the API key's own TAIL so the device can prove itself
+    // from now on — this is the moment a pairing turns into a lasting login,
+    // and the only moment the full key exists in the browser.
+    const tail = data?.tail;
+    if (!tail) return true;
+    setTrust(apiKey, { tail });
+    // Already proven for this peer: the agent settled it when it issued the key.
     pm._tailProofSent = pm._adapters.get("rtc")?._peerEpoch ?? 0;
-    // The saved-keys entry was written at login time, before the TAIL existed
-    // (a one-time login only ever receives the HEAD). Upgrade it now so the
-    // next login from the saved list can still answer the agent's challenge.
-    if (data?.tail) upgradeSavedKey(apiKey, `${apiKey}-${data.tail}`);
-    return true;
-  }
-  if (event === "device:enrollRejected") {
-    takePendingFp2(); // stop retrying — the user re-pairs with a fresh code
-    return true;
-  }
-  if (event === "device:enrollRetry") {
-    // RTC wasn't the agent's control carrier at that instant (its DC may open a
-    // beat after ours) — no new "open" event will fire, so retry on a timer.
-    setTimeout(() => maybeSendEnroll(pm), ENROLL_RETRY_MS);
+    // Saved only if the user asked to remember. commitPendingKey stores what
+    // was parked at login; a pairing parks nothing, so the full key is parked
+    // here instead — after acceptance, which is the rule for every key.
+    if (typeof window !== "undefined" && sessionStorage.getItem(WANTS_SAVE_KEY)) {
+      sessionStorage.setItem(PENDING_SAVE_KEY, `${apiKey}-${tail}`);
+      commitPendingKey();
+    }
     return true;
   }
   if (event === "device:tailRejected") {
