@@ -157,6 +157,33 @@ export function noteTailFailure(keyHead) {
 }
 
 /**
+ * Is this TAIL the right one? Asked before a client opens a session, so a wrong
+ * key can be refused at the login screen instead of after the user has been
+ * sent to a workspace that will throw them out.
+ *
+ * Deliberately answers the same question the gate asks, with the same two
+ * secrets — the live code's tail for a pairing, the key's otherwise — and the
+ * same rate limit. It settles nothing: no verdict is recorded, no device is
+ * involved, and a code is not spent. A client that skips this gets exactly as
+ * far, which is what makes answering it safe.
+ *
+ * @returns {{ok: boolean, reason?: string, penaltyMs?: number}}
+ */
+export function verifyPresentedTail({ tail, tempKey } = {}) {
+  const pairing = !!tempKey;
+  if (!pairing && !isTailProofEnabled()) return { ok: true }; // v1 key: nothing to prove
+  if (!tail) return { ok: false, reason: TAIL_REJECT_REASON.mismatch, penaltyMs: 0 };
+
+  const matches = pairing ? matchesPairingTail(tail) : verifyKeyTail(tail);
+  if (matches) return { ok: true };
+  return {
+    ok: false,
+    reason: TAIL_REJECT_REASON.mismatch,
+    penaltyMs: noteTailFailure(headOf(loadKey()?.key || ""))
+  };
+}
+
+/**
  * The whole admission question, answered in one place, in one order.
  *
  * Two gates, never interleaved: AUTHENTICATE (is this the right key?) then

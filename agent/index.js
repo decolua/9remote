@@ -115,6 +115,36 @@ function handleCodespaceStop(req, res) {
   setTimeout(() => execFile("gh", ["codespace", "stop", "-c", name], { windowsHide: true }), 500);
 }
 
+// ── Key verification (pre-login) ──────────────────────────────────────────
+
+/**
+ * Answer "is this the right TAIL?" before the client commits to a session.
+ *
+ * The Worker cannot answer it — it holds only the HEAD, deliberately — so the
+ * question has to reach the agent, and this is the cheapest road there: one
+ * request over the tunnel, no socket, no session, nothing to tear down if the
+ * answer is no. It exists so a wrong key is refused AT THE LOGIN SCREEN rather
+ * than after the user has been sent to a workspace they cannot use.
+ *
+ * It is a convenience, not the gate. The real check still happens on every
+ * connection (lib/deviceAuth.admissionGate): a client could skip this endpoint
+ * entirely and would get exactly as far. That is why answering it is safe —
+ * it reveals nothing a connection attempt would not, and it is rate-limited by
+ * the same counter, so it cannot be used to guess faster than connecting can.
+ */
+async function handleVerifyKey(req, res) {
+  const { parseJsonBody } = await import("./lib/router.js");
+  const data = await parseJsonBody(req, res);
+  if (!data) return;
+
+  const { verifyPresentedTail } = await import("./lib/deviceAuth.js");
+  const result = verifyPresentedTail({ tail: data.tail, tempKey: data.tempKey });
+  if (result.ok) { jsonOk(res, { ok: true }); return; }
+  // The delay is the rate limiter's, applied here as it is on a connection:
+  // guessing must not be cheaper through this door than through that one.
+  setTimeout(() => jsonOk(res, { ok: false, reason: result.reason }), result.penaltyMs || 0);
+}
+
 // ── Proxy handlers ────────────────────────────────────────────
 
 let proxyServer;
@@ -229,6 +259,10 @@ const ROUTES = [
   { path: "/api/codespace/stop",   method: "POST", handler: handleCodespaceStop },
 
   // Proxy session management (tunnel-accessible, requires API key)
+  // Pre-login key check — public because the client has no session yet; the
+  // TAIL it presents is the credential, and a wrong one is all it gets back.
+  { path: "/api/verify-key",       method: "POST", public: true, handler: handleVerifyKey },
+
   { path: "/api/proxy/start",      method: "POST", public: true, handler: handleProxyStartEnd },
   { path: "/api/proxy/end",        method: "POST", public: true, handler: handleProxyStartEnd },
 ];

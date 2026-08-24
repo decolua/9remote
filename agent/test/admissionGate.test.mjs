@@ -22,7 +22,7 @@ const KEY = "sk-abcd1234-qrstuvwx-mnpqrstu";
 const TAIL = "mnpqrstu";
 writeFileSync(join(home, ".9remote", "keys.json"), JSON.stringify({ key: KEY }));
 
-const { admissionGate, submitTailProof } = await import("../lib/deviceAuth.js");
+const { admissionGate, submitTailProof, verifyPresentedTail } = await import("../lib/deviceAuth.js");
 const { setActivePairing, clearActivePairing, generatePairingTail, matchesPairingTail } = await import("../lib/pairingCode.js");
 const { approveDevice, removeDevice, setAutoApprove, markDeviceRejected, clearRejectedDevice } = await import("../lib/deviceApproval.js");
 const { ADMISSION, TAIL_REJECT_REASON } = await import("../lib/transportConstants.js");
@@ -346,5 +346,37 @@ test("presenting nothing does not kill a live code", () => {
   submitTailProof("dev-empty", "", { pairing: true });
   submitTailProof("dev-empty", null, { pairing: true });
   assert.equal(matchesPairingTail(tail), true, "the code is still alive");
+  clearActivePairing();
+});
+
+test("pre-login verification answers the same question as the gate", () => {
+  // The login screen asks this before opening a session. It must agree with
+  // what the connection would decide — a key accepted here and refused there
+  // would send the user to a workspace that throws them out, which is the whole
+  // thing this exists to prevent.
+  assert.equal(verifyPresentedTail({ tail: TAIL }).ok, true);
+  assert.equal(verifyPresentedTail({ tail: "badtail1" }).ok, false);
+  assert.equal(verifyPresentedTail({ tail: "" }).ok, false);
+});
+
+test("pre-login verification settles nothing", () => {
+  // It is a convenience, not a gate: no verdict recorded, no code spent. A
+  // client that skips it gets exactly as far, which is what makes answering
+  // it safe — and a wrong answer here must not lock the device out later.
+  verifyPresentedTail({ tail: "badtail1" });
+  approveDevice("dev-preflight");
+  assert.equal(admissionGate("dev-preflight", TAIL).decision, ADMISSION.admit,
+    "a failed pre-check leaves no verdict behind");
+  removeDevice("dev-preflight");
+});
+
+test("pre-login verification does not burn a one-time code", () => {
+  // Checking a code must not consume it: the user is still on the login screen,
+  // and the code has to survive to open the session that follows.
+  const tail = generatePairingTail();
+  setActivePairing("ABC126", tail, Date.now() + 60000);
+  verifyPresentedTail({ tail: "ZZ", tempKey: "ABC126" });
+  assert.equal(matchesPairingTail(tail), true, "the code is still alive");
+  assert.equal(verifyPresentedTail({ tail, tempKey: "ABC126" }).ok, true);
   clearActivePairing();
 });
