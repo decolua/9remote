@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { STORAGE_KEYS, GIT_REFRESH_EVENT } from "../constants/fileExplorer.js";
+import { useDirWatch, usePageVisible } from "./useDirWatch";
 import { buildWorkspaceGitStatus } from "@/features/fileExplorer/lib/gitStatusMap";
 import { vibrate } from "@/shared/utils/vibration";
 
@@ -194,6 +195,33 @@ export function useFileTreeState({ workspace, fileSocket }) {
     vibrate();
     setExpanded(new Set());
   }, []);
+
+  // Live updates: the tree follows the disk instead of waiting for the refresh button.
+  // Only loaded directories are watched, and only while the tab is in front.
+  const visible = usePageVisible();
+  // Loaded but collapsed directories stay in the cache; watching them would spend the
+  // user's machine on rows that are not even on screen. Only what is open counts.
+  const watchedDirs = useMemo(
+    () => [...tree.keys()].filter((d) => d === workspace || expanded.has(d)),
+    [tree, expanded, workspace]
+  );
+  const reloadDirs = useCallback((dirs) => {
+    Promise.all(dirs.map((d) => loadDir(d))).catch(() => {});
+    loadGitStatus();
+  }, [loadDir, loadGitStatus]);
+
+  useDirWatch({ dirs: watchedDirs, fileSocket, onDirsChanged: reloadDirs, enabled: visible });
+
+  // Events that arrived while the tab was hidden are gone, so the tree is reloaded once
+  // on return. Skipped on the first render — the mount effect above already loaded it.
+  const wasVisibleRef = useRef(true);
+  useEffect(() => {
+    const came = visible && !wasVisibleRef.current;
+    wasVisibleRef.current = visible;
+    if (came && tree.size) reloadDirs([...tree.keys()]);
+    // tree is read on the transition only; depending on it would reload on every load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const refreshAll = useCallback(async () => {
     vibrate();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Save, X, ExternalLink, Eye, FileCode } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
@@ -8,10 +8,11 @@ import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { EDITOR_PANEL_WIDTH } from "../constants/terminalConfig";
 import { resolveFileIcon } from "@/features/fileExplorer/constants/fileIcons";
-import { isDiffPath, parseRepoDiffPath, makeDiffPath, GIT_STATUS_COLORS, isHtmlFile } from "@/features/fileExplorer/constants/fileExplorer";
+import { isDiffPath, parseRepoDiffPath, makeDiffPath, GIT_STATUS_COLORS, isHtmlFile, FILE_WATCH } from "@/features/fileExplorer/constants/fileExplorer";
 import { isPreviewable } from "@/features/fileExplorer/components/FilePreview";
 import { useFileDocument } from "@/features/fileExplorer/hooks/useFileDocument";
 import { useUnsavedGuard } from "@/features/fileExplorer/hooks/useUnsavedGuard";
+import { useDirWatch, usePageVisible } from "@/features/fileExplorer/hooks/useDirWatch";
 import UnsavedDialog from "@/features/fileExplorer/components/UnsavedDialog";
 
 const CodeEditor = dynamic(() => import("@/features/fileExplorer/components/CodeEditor"), { ssr: false });
@@ -37,6 +38,11 @@ export default function TerminalEditorPanel({
   const editable = !!filePath && !isDiff && !isPreviewable(filePath);
 
   const doc = useFileDocument({ filePath: editable ? filePath : "", fileSocket });
+  // The watch callback must not be rebuilt on every keystroke — doc is a new object each
+  // render, so it is read through a ref instead of captured. Synced in an effect, the
+  // same shape useDirWatch uses for its own callback ref.
+  const docRef = useRef(doc);
+  useEffect(() => { docRef.current = doc; }, [doc]);
   const guard = useUnsavedGuard({ dirty: editable && doc.dirty, onSave: doc.save });
 
   // HTML files can flip between source and rendered view; one file = one mode.
@@ -68,6 +74,25 @@ export default function TerminalEditorPanel({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [guard, onClose]);
+
+  // Follow the file on disk. A panel showing yesterday's render while the terminal
+  // reports a rewrite is worse than no panel at all. The watcher reports the whole
+  // directory, so the file is picked out here; a rendered preview reloads outright,
+  // while the code view defers to useFileDocument, which protects unsaved edits.
+  const fileDir = filePath && !isDiff ? filePath.slice(0, filePath.lastIndexOf("/")) : "";
+  const watchDirs = useMemo(() => (fileDir ? [fileDir] : []), [fileDir]);
+  const pageVisible = usePageVisible();
+  const onDiskChanged = useCallback(() => {
+    setSaveSeq((seq) => seq + 1);
+    docRef.current?.onChangedOnDisk();
+  }, []);
+  useDirWatch({
+    dirs: watchDirs,
+    fileSocket,
+    enabled: !!fileDir && pageVisible,
+    debounceMs: FILE_WATCH.PREVIEW_DEBOUNCE_MS,
+    onDirsChanged: onDiskChanged
+  });
 
   if (!filePath) return null;
 
@@ -155,6 +180,20 @@ export default function TerminalEditorPanel({
       {doc.error && editable && (
         <div className="px-3 py-1.5 text-[11px] text-red-500 bg-red-500/10 border-b border-border-subtle break-words">
           {doc.error}
+        </div>
+      )}
+
+      {/* Something else rewrote the file while edits were in progress. The choice is the
+          user's: taking the new text automatically would throw their work away. */}
+      {doc.staleOnDisk && (
+        <div className="px-3 py-1.5 flex items-center gap-2 text-[11px] text-amber-500 bg-amber-500/10 border-b border-border-subtle">
+          <span className="flex-1 min-w-0 truncate">{t("editor.changedOnDisk")}</span>
+          <button
+            onClick={() => { vibrate(); doc.reload(); }}
+            className="shrink-0 px-1.5 py-0.5 rounded-[3px] hover:bg-amber-500/20 font-medium transition-colors"
+          >
+            {t("editor.reloadFromDisk")}
+          </button>
         </div>
       )}
 

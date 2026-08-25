@@ -28,6 +28,19 @@ export const MAX_GIT_DIFF_SIZE = 4 * 1024 * 1024;
 // (e.g. node_modules). Beyond this, results are truncated with a flag.
 export const MAX_DIR_ENTRIES = 300;
 
+// Directory watching. A watcher is one inotify descriptor on Linux (depth 0, so never
+// recursive) and a shared fsevents stream on macOS — cheap individually, so the guards
+// that matter are the count and the event rate, not the watcher itself.
+// MAX_WATCHERS caps how many a single client can hold, so a deeply expanded tree cannot
+// turn into hundreds of them. WATCH_BURST_* muzzles a directory that floods (npm install,
+// a build writing into a folder the user happens to have open): past the burst limit the
+// path goes quiet for a cooldown and sends one "flooded" event instead of thousands, which
+// tells the client to reload that directory once.
+export const MAX_WATCHERS = 60;
+export const WATCH_BURST_WINDOW_MS = 1000;
+export const WATCH_BURST_LIMIT = 30;
+export const WATCH_BURST_COOLDOWN_MS = 3000;
+
 // Only used to prune search + watch (NOT the browser listing). Keeps slow
 // generated/dep dirs out of full-tree scans and event floods.
 export const IGNORED_DIRS = [

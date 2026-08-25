@@ -373,6 +373,8 @@ export default {
     reload: "Reload",
     previewFailed: "Preview failed",
     previewNoRoute: "No LAN or tunnel route to the agent",
+    changedOnDisk: "Changed on disk",
+    reloadFromDisk: "Reload",
     readOnly: "Read only",
     line: "Line",
     column: "Column",

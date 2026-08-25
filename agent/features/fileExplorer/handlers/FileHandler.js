@@ -4,7 +4,7 @@ import os from "os";
 import { execSync, spawn, spawnSync } from "child_process";
 import chokidar from "chokidar";
 import sharp from "sharp";
-import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES, MIME_BY_EXT, HEIC_DECODERS, HEIC_DECODE_TIMEOUT_MS, isHeicFile } from "../constants.js";
+import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES, MIME_BY_EXT, HEIC_DECODERS, HEIC_DECODE_TIMEOUT_MS, isHeicFile, MAX_WATCHERS, WATCH_BURST_WINDOW_MS, WATCH_BURST_LIMIT, WATCH_BURST_COOLDOWN_MS } from "../constants.js";
 import { CONTROL_RTC_MAX_BYTES } from "../../../lib/transportConstants.js";
 import { isSensitivePath } from "../pathGuard.js";
 
@@ -479,11 +479,27 @@ export function setupFileHandlers(socket) {
       if (!dirPath || !fs.existsSync(dirPath)) return callback({ success: false, error: "Directory not found" });
       const existing = watchers.get(dirPath);
       if (existing) { existing.count++; return callback({ success: true }); }
+      // The client drops its oldest watch when it hits its own cap; refusing here is the
+      // backstop for a client that does not, and it must not read as an error.
+      if (watchers.size >= MAX_WATCHERS) return callback({ success: true, watching: false });
       const w = chokidar.watch(dirPath, { depth: 0, ignoreInitial: true, persistent: true, ignored: (p) => IGNORED_DIRS.includes(path.basename(p)) });
-      const emit = (type) => (p) => socket.emit("fileChange", { type, path: p });
+      const entry = { w, count: 1, burstStart: 0, burstCount: 0, mutedUntil: 0 };
+      // A directory being written into by a build or an install produces thousands of
+      // events a second. Past the burst limit the path goes quiet and sends one "flooded"
+      // event: the client reloads that directory once instead of once per file.
+      const emit = (type) => (p) => {
+        const now = Date.now();
+        if (now < entry.mutedUntil) return;
+        if (now - entry.burstStart > WATCH_BURST_WINDOW_MS) { entry.burstStart = now; entry.burstCount = 0; }
+        if (++entry.burstCount > WATCH_BURST_LIMIT) {
+          entry.mutedUntil = now + WATCH_BURST_COOLDOWN_MS;
+          return socket.emit("fileChange", { type: "flooded", path: dirPath });
+        }
+        socket.emit("fileChange", { type, path: p });
+      };
       w.on("add", emit("add")).on("change", emit("change")).on("unlink", emit("unlink")).on("addDir", emit("addDir")).on("unlinkDir", emit("unlinkDir"));
-      watchers.set(dirPath, { w, count: 1 });
-      callback({ success: true });
+      watchers.set(dirPath, entry);
+      callback({ success: true, watching: true });
     } catch (error) {
       callback({ success: false, error: error.message });
     }

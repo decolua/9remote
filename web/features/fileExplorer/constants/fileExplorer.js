@@ -229,6 +229,21 @@ export const BOTTOM_PANEL_MAX_HEIGHT = 70;
 export const MAX_RECENT_WORKSPACES = 20;
 export const MAX_RECENT_FILES = 20;
 
+// Live tree updates. Only the directories the user actually has open are watched, newest
+// first: an expanded tree can hold hundreds of folders, and watching all of them would put
+// load on the user's machine for rows nobody is looking at. Changes are coalesced so a
+// burst of writes reloads each affected directory once, and watching stops entirely while
+// the tab is hidden — a backgrounded browser has no tree to keep fresh.
+export const FILE_WATCH = {
+  MAX_DIRS: 40,
+  DEBOUNCE_MS: 300,
+  // A file the AI is mid-write gets saved several times in a row; a preview that
+  // re-renders on each one flickers. The tree keeps the shorter wait — a row
+  // appearing late is more noticeable there than a render landing late here.
+  PREVIEW_DEBOUNCE_MS: 1000,
+  IDLE_UNWATCH_MS: 60000
+};
+
 // Broadcast when the repo state changed outside the panels (branch switch in a terminal),
 // so every git-backed view reloads without the user hitting refresh.
 export const GIT_REFRESH_EVENT = "fileExplorer:gitRefresh";

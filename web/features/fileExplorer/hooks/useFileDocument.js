@@ -25,9 +25,57 @@ export function useFileDocument({ filePath, fileSocket }) {
   const originalRef = useRef("");
   const readTextRef = useRef(null);
   const savedTimerRef = useRef(null);
+  // Set while something else is writing this file, so an editor holding unsaved edits
+  // can offer the reload instead of having it done under the user's hands.
+  const [staleOnDisk, setStaleOnDisk] = useState(false);
 
   // The editor calls this once it can read its own document.
   const register = useCallback((readText) => { readTextRef.current = readText; }, []);
+
+  // Read the file into the document. `isCancelled` lets the mount effect abandon a read
+  // whose file has already been switched away from; reload() passes nothing.
+  const load = useCallback(async (isCancelled = () => false) => {
+    setLoading(true);
+    setError("");
+    setDirty(false);
+    setStaleOnDisk(false);
+
+    const result = await fileSocket.readFile(filePath);
+    if (isCancelled()) return;
+    if (!result?.success) {
+      setError(result?.error || "");
+      setLoading(false);
+      return;
+    }
+
+    let text = result.content;
+    // Over ~64KB the agent cannot answer inline (SCTP message limit) and asks us to
+    // stream the file instead.
+    if (result.streamInstead) {
+      try {
+        const chunks = [];
+        await new Promise((resolve, reject) => {
+          fileSocket.streamMedia(filePath, {
+            onMeta: () => {},
+            onChunk: (payload) => chunks.push(payload),
+            onDone: resolve,
+            onError: reject
+          });
+        });
+        if (isCancelled()) return;
+        text = await new Blob(chunks).text();
+      } catch (e) {
+        if (isCancelled()) return;
+        setError(e?.message || "");
+        setLoading(false);
+        return;
+      }
+    }
+
+    originalRef.current = text;
+    setContent(text);
+    setLoading(false);
+  }, [filePath, fileSocket]);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,50 +86,20 @@ export function useFileDocument({ filePath, fileSocket }) {
       setContent(null);
       setDirty(false);
       setError("");
+      setStaleOnDisk(false);
       return;
     }
-    setLoading(true);
-    setError("");
-    setDirty(false);
-    (async () => {
-      const result = await fileSocket.readFile(filePath);
-      if (cancelled) return;
-      if (!result?.success) {
-        setError(result?.error || "");
-        setLoading(false);
-        return;
-      }
-
-      let text = result.content;
-      // Over ~64KB the agent cannot answer inline (SCTP message limit) and asks us to
-      // stream the file instead.
-      if (result.streamInstead) {
-        try {
-          const chunks = [];
-          await new Promise((resolve, reject) => {
-            fileSocket.streamMedia(filePath, {
-              onMeta: () => {},
-              onChunk: (payload) => chunks.push(payload),
-              onDone: resolve,
-              onError: reject
-            });
-          });
-          if (cancelled) return;
-          text = await new Blob(chunks).text();
-        } catch (e) {
-          if (cancelled) return;
-          setError(e?.message || "");
-          setLoading(false);
-          return;
-        }
-      }
-
-      originalRef.current = text;
-      setContent(text);
-      setLoading(false);
-    })();
+    load(() => cancelled);
     return () => { cancelled = true; };
-  }, [filePath, fileSocket]);
+  }, [filePath, load]);
+
+  // Someone else wrote the file. Clean documents take the new text straight away;
+  // a dirty one only raises the flag, because replacing text the user is halfway
+  // through typing loses work no undo can reach.
+  const onChangedOnDisk = useCallback(() => {
+    if (dirty) { setStaleOnDisk(true); return; }
+    load();
+  }, [dirty, load]);
 
   useEffect(() => () => clearTimeout(savedTimerRef.current), []);
 
@@ -122,7 +140,8 @@ export function useFileDocument({ filePath, fileSocket }) {
   }, []);
 
   return {
-    loading, content, error, dirty, saving, justSaved,
-    register, onTextChanged, save, discard, setError
+    loading, content, error, dirty, saving, justSaved, staleOnDisk,
+    register, onTextChanged, save, discard, setError,
+    reload: load, onChangedOnDisk
   };
 }

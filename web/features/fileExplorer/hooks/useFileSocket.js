@@ -242,6 +242,15 @@ export function useFileSocket(socketRef, protocolRef) {
     });
   }, [socketRef]);
 
+  // Subscribe to the agent's watcher stream. Returns an unsubscribe function; the socket
+  // instance is read at call time so a reconnect re-subscribes on the live socket.
+  const onFileChange = useCallback((handler) => {
+    const socket = socketRef?.current;
+    if (!socket) return () => {};
+    socket.on("fileChange", handler);
+    return () => socket.off("fileChange", handler);
+  }, [socketRef]);
+
   const revealInOS = useCallback((filePath) => {
     return new Promise((resolve) => {
       if (!socketRef?.current) {
@@ -432,6 +441,7 @@ export function useFileSocket(socketRef, protocolRef) {
     replaceInFiles,
     watchDir,
     unwatchDir,
+    onFileChange,
     revealInOS,
     openInTerminal,
     getFileTree,
@@ -457,7 +467,7 @@ export function useFileSocket(socketRef, protocolRef) {
     previewEnd
   }), [getSystemInfo, getFiles, readFile, readImage, readMedia, writeFile, createItem, deleteItem,
     renameItem, copyItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
-    searchInFiles, replaceInFiles, watchDir, unwatchDir, revealInOS, openInTerminal,
+    searchInFiles, replaceInFiles, watchDir, unwatchDir, onFileChange, revealInOS, openInTerminal,
     getFileTree, gitBranch, gitScanRepos, gitWorkspaceChangedCount, gitRefreshRepos, gitWorktreeList, gitWorktreeAdd,
     gitWorktreeRemove, gitBranchList, gitBranchCheckout, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog,
     uploadFiles, downloadFile, streamMedia, previewStart, previewEnd]);
