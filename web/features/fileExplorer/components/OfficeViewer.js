@@ -47,7 +47,8 @@ export default function OfficeViewer({ filePath, fileSocket }) {
       try {
         if (isDocx) {
           const { renderAsync } = await import("docx-preview");
-          if (cancelled || !docxRef.current) return;
+          // The host is mounted unconditionally, so a null ref here means unmount.
+          if (cancelled || !docxRef.current) { if (!cancelled) setLoading(false); return; }
           // altChunk embeds raw HTML from the file into an unsandboxed iframe srcdoc,
           // which would run on our origin — the library defaults it on.
           await renderAsync(new Blob([buf]), docxRef.current, undefined, {
@@ -102,14 +103,6 @@ export default function OfficeViewer({ filePath, fileSocket }) {
     if (name) setRows(XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }));
   }, [active]);
 
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center text-text-muted gap-2">
-        <Loader2 className="animate-spin" size={20} />
-        <span>Loading document...</span>
-      </div>
-    );
-  }
   if (error) {
     return <div className="h-full flex items-center justify-center text-red-400 text-sm">{error}</div>;
   }
@@ -117,7 +110,16 @@ export default function OfficeViewer({ filePath, fileSocket }) {
   const isDocx = isDocxFile(filePath);
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
+      {/* Overlaid, not swapped in: docx-preview renders INTO the host div below, so a
+          spinner that replaced the tree would leave it with nowhere to render — and the
+          load would never finish clearing this spinner. */}
+      {loading && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-surface text-text-muted">
+          <Loader2 className="animate-spin" size={20} />
+          <span>Loading document...</span>
+        </div>
+      )}
       {!isDocx && sheets.length > 1 && (
         <div className="flex gap-1 overflow-x-auto bg-surface border-b border-border px-2 py-1 flex-shrink-0">
           {sheets.map((s, i) => (
