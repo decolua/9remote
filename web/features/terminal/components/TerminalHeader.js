@@ -251,7 +251,7 @@ export default function TerminalHeader({
             return (
               <button
                 key={session.id}
-                title={chord ? `${tabName} · ${chord}` : tabName}
+                title={chord || undefined}
                 ref={isActiveTab ? activeTabRef : null}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
@@ -267,7 +267,7 @@ export default function TerminalHeader({
                 }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} title={t(v.label)} />
-                <span className="truncate max-w-[120px]">{tabName}</span>
+                <span className="truncate max-w-[120px]" data-tip={tabName}>{tabName}</span>
               </button>
             );
           })}

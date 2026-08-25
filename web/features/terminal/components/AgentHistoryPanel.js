@@ -72,8 +72,10 @@ export default function AgentHistoryPanel({ socketRef, cwd, onResume, onSelectSe
             alt={row.agent}
             className={`w-2.5 h-2.5 rounded-[2px] flex-shrink-0 ${openId ? "" : "opacity-70"}`}
           />
-          <span className="text-[11px] truncate flex-1 min-w-0">{row.title || t("agentHistory.untitled")}</span>
-          <span className="text-[10px] text-text-subtle flex-shrink-0 opacity-0 group-hover:opacity-70 tabular-nums">
+          <span className="text-[11px] truncate flex-1 min-w-0" data-tip={row.title || t("agentHistory.untitled")}>{row.title || t("agentHistory.untitled")}</span>
+          {/* Out of flow until hovered: reserving room for an age nobody is reading
+              cost the title characters on every row */}
+          <span className="hidden group-hover:inline text-[10px] text-text-subtle flex-shrink-0 opacity-70 tabular-nums whitespace-nowrap">
             {relativeAge(row.updatedAt, t)}
           </span>
         </button>

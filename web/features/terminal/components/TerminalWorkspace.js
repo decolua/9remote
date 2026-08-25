@@ -15,6 +15,7 @@ const TerminalStatusBar = dynamic(() => import("@/features/terminal/components/T
 const MobileStatusStrip = dynamic(() => import("@/features/terminal/components/TerminalStatusBar").then((m) => m.MobileStatusStrip), { ssr: false });
 const TerminalRightPanel = dynamic(() => import("@/features/terminal/components/TerminalRightPanel"), { ssr: false });
 const TerminalEditorPanel = dynamic(() => import("@/features/terminal/components/TerminalEditorPanel"), { ssr: false });
+const OverflowTip = dynamic(() => import("@/shared/components/ui/OverflowTip"), { ssr: false });
 const TerminalEmptyState = dynamic(() => import("@/features/terminal/components/TerminalEmptyState"), { ssr: false });
 
 const focusBorderClass = (isFocused, state) => {
@@ -477,6 +478,9 @@ export default function TerminalWorkspace({
           </div>
         )}
       </div>
+
+      {/* Reveals the full text of any clipped label carrying data-tip */}
+      <OverflowTip />
 
       {/* One status bar for the whole view, spanning sidebar + panes + side panels */}
       {isDesktop && !showEmptyState && (

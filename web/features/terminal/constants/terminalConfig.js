@@ -404,3 +404,13 @@ export const BUTTON_STYLES = {
 // since a terminal sitting on main is the norm, not information.
 export const DEFAULT_BRANCHES = ["main", "master"];
 export const isDefaultBranch = (branch) => DEFAULT_BRANCHES.includes(branch);
+
+// Hover/focus tooltip for clipped labels (see shared/components/ui/OverflowTip.js)
+export const OVERFLOW_TIP = {
+  DELAY_MS: 400,
+  GAP_PX: 6,
+  EDGE_PX: 8,
+  MAX_WIDTH_PX: 320,
+  EST_HEIGHT_PX: 48,
+  SLACK_PX: 0.5
+};

@@ -47,7 +47,7 @@ export function SessionMeta({ fileSocket, cwd, basePath, homeDir }) {
   return (
     <span className="text-[10px] text-text-subtle truncate leading-tight flex items-center gap-1.5">
       {showBranch && <BranchBadge branch={branch} dirty={dirty} className="truncate italic" />}
-      {meta && <span className="truncate opacity-70" title={meta}>{meta}</span>}
+      {meta && <span className="truncate opacity-70" data-tip={meta}>{meta}</span>}
     </span>
   );
 }
@@ -81,7 +81,7 @@ function WorkspaceHeader({
         <ChevronRight size={12} className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`} />
       </button>
       <span className="flex-1 min-w-0 flex flex-col">
-        <span className={`text-[12px] font-medium uppercase truncate ${isActive ? "text-text" : "text-text-muted"}`} title={workspace.name}>
+        <span className={`text-[12px] font-medium uppercase truncate ${isActive ? "text-text" : "text-text-muted"}`} data-tip={workspace.name}>
           {workspace.name}
         </span>
         {/* Path is dropped and a default branch stays hidden — only an off-default
@@ -429,7 +429,6 @@ export default function TerminalSidebar({
                       onTouchStart={handleTouchStart}
                       onTouchMove={clearLongPress}
                       onTouchEnd={clearLongPress}
-                      title={s.name}
                     >
                       {connected && (
                         <button
@@ -452,7 +451,7 @@ export default function TerminalSidebar({
                           ) : (
                             <Terminal size={12} className="flex-shrink-0" />
                           )}
-                          <span className="text-[11px] truncate" title={s.name || t("terminal.defaultName")}>{s.name || t("terminal.defaultName")}</span>
+                          <span className="text-[11px] truncate" data-tip={s.name || t("terminal.defaultName")}>{s.name || t("terminal.defaultName")}</span>
                         </span>
                         <SessionMeta
                           fileSocket={fileSocket}

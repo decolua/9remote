@@ -304,7 +304,12 @@ export default function MenuItems({
         >
           <Wallpaper className="text-brand-500 flex-shrink-0" size={16} />
           <span className="text-sm flex-1 min-w-0">{t("menu.terminalBackground")}</span>
-          <span className="text-xs text-text-muted truncate max-w-[90px]">
+          <span
+            className="text-xs text-text-muted truncate max-w-[90px]"
+            data-tip={terminalBackgrounds.length > 1
+              ? `${backgroundLabel(terminalBackgrounds[0])} +${terminalBackgrounds.length - 1}`
+              : backgroundLabel(terminalBackgrounds[0])}
+          >
             {terminalBackgrounds.length > 1
               ? `${backgroundLabel(terminalBackgrounds[0])} +${terminalBackgrounds.length - 1}`
               : backgroundLabel(terminalBackgrounds[0])}
