@@ -234,8 +234,8 @@ export default function SearchPanel({ workspace, fileSocket, onOpenFile }) {
                 className="w-full flex items-center gap-1 px-2 py-1 hover:bg-surface-2 text-left"
               >
                 {expanded ? <ChevronDown size={12} className="text-text-subtle" /> : <ChevronRight size={12} className="text-text-subtle" />}
-                <span className="truncate text-xs text-text">{base}</span>
-                <span className="truncate text-[11px] text-text-muted flex-1">{dir}</span>
+                <span className="truncate text-xs text-text" title={file.path}>{base}</span>
+                <span className="truncate text-[11px] text-text-muted flex-1" title={dir}>{dir}</span>
                 <span className="text-[10px] px-1.5 rounded-brand bg-surface-3 text-text-muted">{file.matches?.length || 0}</span>
               </button>
               {expanded && (

@@ -116,7 +116,7 @@ export default function CommandSuggestions({ value, store, commonCommands = [], 
             className={`flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 transition-colors touch-none ${idx === activeIndex ? "bg-brand-500/15" : ""}`}
           >
             <span className="flex-shrink-0">{iconOf(it.type)}</span>
-            <span className="min-w-0 text-sm text-text font-mono truncate">{it.cmd}</span>
+            <span className="min-w-0 text-sm text-text font-mono truncate" title={it.cmd}>{it.cmd}</span>
           </button>
         ))}
       </div>

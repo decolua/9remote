@@ -141,7 +141,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
                 <div key={grp.id ?? "unassigned"} className="flex flex-col">
                   <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted flex items-center gap-1.5">
                     <span className="w-1 h-1 rounded-full bg-text-muted" />
-                    <span className="truncate">{grp.name}</span>
+                    <span className="truncate" title={grp.name}>{grp.name}</span>
                   </div>
                   {grp.items.map((it) => {
                     const v = statusVisual(it.state);
@@ -171,7 +171,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
                           <Terminal size={18} className="text-text-muted flex-shrink-0" />
                         )}
                         <span className="flex-1 min-w-0 flex flex-col">
-                          <span className="text-sm font-medium truncate">{nameOf(it.id)}</span>
+                          <span className="text-sm font-medium truncate" title={nameOf(it.id)}>{nameOf(it.id)}</span>
                           <span className="text-xs text-text-muted truncate">
                             {AGENT_LABELS[it.tool] || t("notifications.agent")}
                             {" · "}

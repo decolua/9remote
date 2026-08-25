@@ -139,7 +139,7 @@ export function MobileStatusStrip({ sessionId, fileSocket, socketRef, onReveal }
       {branch && (
         <span className="flex items-center gap-1 flex-shrink-0">
           <GitBranch size={10} className="opacity-70" />
-          <span className="max-w-[90px] truncate text-text-muted">{branch}</span>
+          <span className="max-w-[90px] truncate text-text-muted" title={branch}>{branch}</span>
           {changedCount > 0 && (
             <span className="px-1 leading-tight bg-brand-500/15 text-brand-400 rounded-[2px] font-medium">
               {changedCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changedCount}
@@ -215,7 +215,7 @@ export default function TerminalStatusBar({
       {cwd && branch && (
         <span className="flex items-center gap-1.5 flex-shrink-0">
           <GitBranch size={12} className="opacity-60" />
-          <span className="truncate max-w-[160px]">{branch}</span>
+          <span className="truncate max-w-[160px]" title={branch}>{branch}</span>
           {changed > 0 && (
             <span className="px-1 leading-tight bg-brand-500/15 text-brand-400 rounded-[2px] font-medium">
               {changedLabel}

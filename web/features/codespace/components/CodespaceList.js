@@ -121,8 +121,8 @@ export default function CodespaceList({ onConnect, onLogout }) {
               <div key={cs.name} className="bg-surface-2 rounded-brand p-3 hover:bg-surface-3 transition-colors">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="text-text font-medium truncate">{cs.display_name || cs.name}</div>
-                    <div className="text-xs text-text-muted truncate">
+                    <div className="text-text font-medium truncate" title={cs.display_name || cs.name}>{cs.display_name || cs.name}</div>
+                    <div className="text-xs text-text-muted truncate" title={`${cs.repository?.full_name} · ${cs.state}`}>
                       {cs.repository?.full_name} · {cs.state}
                     </div>
                   </div>

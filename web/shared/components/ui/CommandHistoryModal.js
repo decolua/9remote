@@ -89,7 +89,7 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose, store =
                         {snip.alias && (
                           <span className="flex-shrink-0 px-1.5 py-0.5 text-xs font-mono font-semibold text-brand-500 bg-brand-500/10 rounded">{snip.alias}</span>
                         )}
-                        <span className="min-w-0 text-sm text-text font-mono truncate">{snip.cmd}</span>
+                        <span className="min-w-0 text-sm text-text font-mono truncate" title={snip.cmd}>{snip.cmd}</span>
                       </button>
                       <button
                         onClick={() => { vibrate(); setEditing(snip); }}
@@ -125,6 +125,7 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose, store =
                         <button
                           onClick={() => handleSelect(cmd)}
                           className="flex-1 min-w-0 px-3 py-1 text-left text-sm text-text font-mono truncate"
+                          title={cmd}
                         >
                           {cmd}
                         </button>

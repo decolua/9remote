@@ -112,7 +112,7 @@ export default function MediaViewer({ filePath, fileSocket }) {
   return (
     <div className="h-full flex flex-col bg-bg">
       <div className="bg-surface border-b border-border px-3 py-1.5 flex items-center gap-2 text-xs text-text-muted">
-        <span className="truncate flex-1">{name}</span>
+        <span className="truncate flex-1" title={filePath}>{name}</span>
         {size ? <span className="text-text-subtle">{formatSize(size)}</span> : null}
       </div>
       <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center bg-black/30">

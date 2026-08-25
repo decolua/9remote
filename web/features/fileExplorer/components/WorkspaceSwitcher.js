@@ -97,7 +97,7 @@ export default function WorkspaceSwitcher({ currentWorkspace, onSelect, onOpenBr
           <div className="text-text text-sm font-medium truncate">
             {w.name || getBasename(w.path)}
           </div>
-          <div className="text-text-muted text-xs truncate">{shortPath(w.path)}</div>
+          <div className="text-text-muted text-xs truncate" title={w.path}>{shortPath(w.path)}</div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <button

@@ -644,7 +644,7 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
                   }`}
                 >
                   <Folder size={16} className="text-orange-500/70 flex-shrink-0" />
-                  <span className="flex-1 min-w-0 truncate text-left">{f.name}</span>
+                  <span className="flex-1 min-w-0 truncate text-left" title={f.name}>{f.name}</span>
                   <ChevronRight size={14} className="text-text-subtle flex-shrink-0 opacity-0 group-hover:opacity-100" />
                 </button>
               ))}

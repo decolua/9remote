@@ -61,7 +61,7 @@ export default function EditorTabs({ openedFiles, activeFile, dirtyFiles, onActi
             }`}
           >
             {fileIcon ? <span className="flex-shrink-0 flex items-center">{fileIcon}</span> : <Icon name="File" size={14} className="text-text-muted" />}
-            <span className="truncate max-w-[160px]">{fileName}</span>
+            <span className="truncate max-w-[160px]" title={realPath}>{fileName}</span>
             {isDirty ? (
               <span className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0" />
             ) : null}

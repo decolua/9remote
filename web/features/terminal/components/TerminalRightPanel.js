@@ -444,8 +444,8 @@ function RepoSection({ repo, changedCount = 0, isOpen, onToggle, onHide, childre
         className="group/repo w-full sticky top-0 z-10 px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted hover:text-text bg-surface-3 border-b border-border-subtle transition-colors"
       >
         <ChevronRight size={11} className={`flex-shrink-0 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`} />
-        <span className="truncate flex-1 text-left">{repo.relPath || repo.name}</span>
-        {repo.branch && <span className="text-text-subtle normal-case tracking-normal truncate max-w-[45%]">{repo.branch}</span>}
+        <span className="truncate flex-1 text-left" title={repo.relPath || repo.name}>{repo.relPath || repo.name}</span>
+        {repo.branch && <span className="text-text-subtle normal-case tracking-normal truncate max-w-[45%]" title={repo.branch}>{repo.branch}</span>}
         {changedCount > 0 && (
           <span className="px-1 rounded-[2px] bg-brand-500/15 text-brand-500 normal-case tracking-normal flex-shrink-0">
             {changedCount}

@@ -206,8 +206,8 @@ export default function CommandPalette({
                   >
                     <Icon name="File" size={16} />
                     <div className="flex-1 min-w-0 flex items-center gap-2">
-                      <span className="text-sm font-semibold text-text truncate">{name}</span>
-                      <span className="text-xs text-text-muted truncate">{rel}</span>
+                      <span className="text-sm font-semibold text-text truncate" title={name}>{name}</span>
+                      <span className="text-xs text-text-muted truncate" title={rel}>{rel}</span>
                     </div>
                   </li>
                 );

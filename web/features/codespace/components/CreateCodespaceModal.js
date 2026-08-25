@@ -94,7 +94,7 @@ export default function CreateCodespaceModal({ isOpen, onClose, onCreated }) {
                 <div key={repo.id} className="p-2 bg-surface-2 hover:bg-surface-3 rounded-brand transition-colors">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-text font-medium truncate">{repo.full_name}</div>
+                      <div className="text-sm text-text font-medium truncate" title={repo.full_name}>{repo.full_name}</div>
                       {repo.private && <span className="text-xs text-text-muted">private</span>}
                     </div>
                     <Button

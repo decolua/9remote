@@ -103,7 +103,7 @@ export default function ExplorerRow({
             className={`flex-1 bg-surface-3 text-text ${m.text} px-1 py-0.5 rounded outline-none border border-brand-500`}
           />
         ) : (
-          <span className={`flex-1 truncate text-text ${nameColor(gitStatus)}`}>{file.name}</span>
+          <span className={`flex-1 truncate text-text ${nameColor(gitStatus)}`} title={file.name}>{file.name}</span>
         )}
 
         {!isRenaming && <GitBadge status={gitStatus} />}

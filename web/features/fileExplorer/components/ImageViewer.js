@@ -236,7 +236,7 @@ export default function ImageViewer({ filePath, fileSocket }) {
   if (oversized) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3 text-text-muted px-6 text-center">
-        <span className="text-sm font-medium text-text truncate max-w-full">{filePath.split("/").pop()}</span>
+        <span className="text-sm font-medium text-text truncate max-w-full" title={filePath}>{filePath.split("/").pop()}</span>
         <span className="text-xs">{formatSize(oversized)} — decoding an image this large can crash mobile Safari.</span>
         <button onClick={openOversized} className="px-3 py-1.5 rounded bg-surface-2 hover:bg-surface-3 text-text text-sm">
           Open anyway
@@ -251,7 +251,7 @@ export default function ImageViewer({ filePath, fileSocket }) {
   return (
     <div className="h-full flex flex-col bg-bg">
       <div className="bg-surface border-b border-border px-3 py-1.5 flex items-center gap-2 text-xs text-text-muted">
-        <span className="truncate flex-1">{filePath.split("/").pop()}</span>
+        <span className="truncate flex-1" title={filePath}>{filePath.split("/").pop()}</span>
         {meta?.size ? <span className="text-text-subtle">{formatSize(meta.size)}</span> : null}
         {dims ? <span className="text-text-subtle">{dims}{scaledDown ? " ↓" : ""}</span> : null}
         <button onClick={() => zoomBy(1 / 1.2)} className="px-2 hover:bg-surface-2 rounded">−</button>

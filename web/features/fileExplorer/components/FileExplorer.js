@@ -353,8 +353,8 @@ export default function FileExplorer({
                     {file.type === "binary" ? <Package size={20} className="text-red-500/70" /> : <File size={20} className="text-text-subtle" />}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-text truncate">{file.name}</div>
-                    <div className="text-text-muted text-xs truncate">
+                    <div className="text-text truncate" title={file.name}>{file.name}</div>
+                    <div className="text-text-muted text-xs truncate" title={file.path}>
                       {file.path.replace(workspace, "").replace(/^\//, "")}
                     </div>
                   </div>
@@ -402,7 +402,7 @@ export default function FileExplorer({
                         className="bg-surface hover:bg-surface-2 rounded-brand-lg p-2 flex flex-col items-center gap-1 transition-all duration-150 ease-out active:scale-[0.98] text-center"
                       >
                         <Folder size={48} className="text-yellow-500/80" />
-                        <span className="text-text text-xs font-medium truncate w-full">{file.name}</span>
+                        <span className="text-text text-xs font-medium truncate w-full" title={file.name}>{file.name}</span>
                       </button>
                     ))}
                   </div>

@@ -200,8 +200,8 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
         }}
       >
         <span className="flex-shrink-0 flex items-center">{resolveFileIcon({ name: basename(file.path), path: file.path, type: "file" }, 16)}</span>
-        <span className="truncate text-xs text-text">{basename(file.path)}</span>
-        <span className="truncate text-[11px] text-text-muted flex-1">{dirname(file.path)}</span>
+        <span className="truncate text-xs text-text" title={file.path}>{basename(file.path)}</span>
+        <span className="truncate text-[11px] text-text-muted flex-1" title={dirname(file.path)}>{dirname(file.path)}</span>
         {/* VS Code parity: hover shows only Discard + Stage, floating OVER the directory
             text (no reserved space — the full row width stays readable when not hovered).
             Opening the file itself is a context-menu action; the row click opens the diff. */}

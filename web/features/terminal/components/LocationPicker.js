@@ -68,7 +68,7 @@ export default function LocationPicker({ workspacePath, workspaceName, fileSocke
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-brand text-left bg-surface-2 hover:bg-surface-3 transition-colors"
       >
         <Folder size={14} className="text-text-muted shrink-0" />
-        <span className="flex-1 min-w-0 text-xs text-text truncate">{label}</span>
+        <span className="flex-1 min-w-0 text-xs text-text truncate" title={label}>{label}</span>
         <ChevronDown size={14} className={`text-text-muted shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
@@ -105,7 +105,7 @@ export default function LocationPicker({ workspacePath, workspaceName, fileSocke
                       : <Folder size={12} className="mt-[3px] shrink-0 text-text-subtle" />}
                     <span className="flex-1 min-w-0 flex flex-col">
                       <span className="flex items-center gap-1 min-w-0">
-                        <span className={`truncate text-xs ${selected ? "text-text font-medium" : "text-text"}`}>
+                        <span className={`truncate text-xs ${selected ? "text-text font-medium" : "text-text"}`} title={e.branch || g.name}>
                           {e.branch || (e.detached ? t("terminal.detachedHead") : g.name)}
                         </span>
                         {selected && <Check size={12} className="text-brand-400 shrink-0" />}

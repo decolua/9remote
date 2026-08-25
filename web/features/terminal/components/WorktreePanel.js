@@ -180,7 +180,7 @@ export default function WorktreePanel({ workspacePath, fileSocket, homeDir, onNe
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70" onClick={() => setAddTarget(null)}>
           <div className="bg-surface rounded-[3px] p-5 w-96 shadow-elev" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-text mb-1">{t("workspaces.addWorktree")}</h3>
-            <p className="text-[11px] text-text-muted mb-3 truncate">{addTarget.branch}</p>
+            <p className="text-[11px] text-text-muted mb-3 truncate" title={addTarget.branch}>{addTarget.branch}</p>
             <label className="block text-[11px] text-text-muted mb-1">{t("workspaces.worktreePath")}</label>
             <input
               autoFocus

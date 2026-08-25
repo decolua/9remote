@@ -77,7 +77,7 @@ export default function FileTree({
             >
               <span className="flex-shrink-0">{getFileIcon(file)}</span>
               <div className="flex-1 min-w-0">
-                <div className={`truncate text-sm ${statusColor || "text-text"}`}>
+                <div className={`truncate text-sm ${statusColor || "text-text"}`} title={file.name}>
                   {file.name}
                   {gitStatus && gitStatus !== "folder-changed" && (
                     <span className="ml-2 text-xs opacity-70">[{gitStatus}]</span>

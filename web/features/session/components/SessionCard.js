@@ -106,7 +106,7 @@ export default function SessionCard({
             <span className="w-[10px] h-[10px] rounded-full bg-[#febc2e]" />
             <span className="w-[10px] h-[10px] rounded-full bg-[#28c840]" />
           </div>
-          <span className="flex-1 min-w-0 text-center text-[11px] font-medium truncate" style={{ color: "var(--card-name-fg)" }}>
+          <span className="flex-1 min-w-0 text-center text-[11px] font-medium truncate" style={{ color: "var(--card-name-fg)" }} title={session.name || t("terminal.defaultName")}>
             {session.name || t("terminal.defaultName")}
           </span>
           <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>

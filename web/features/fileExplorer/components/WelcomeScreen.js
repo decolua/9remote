@@ -65,12 +65,12 @@ export default function WelcomeScreen({ recentWorkspaces = [], onSelectWorkspace
                   <Folder size={20} className="text-orange-500/70 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-text font-medium truncate">
+                      <span className="text-text font-medium truncate" title={w.name || getBasename(w.path)}>
                         {w.name || getBasename(w.path)}
                       </span>
                       {w.pinned && <Pin size={12} className="text-brand-500 flex-shrink-0" />}
                     </div>
-                    <div className="text-text-muted text-xs truncate">{shortPath(w.path)}</div>
+                    <div className="text-text-muted text-xs truncate" title={w.path}>{shortPath(w.path)}</div>
                   </div>
                   <div className="text-text-subtle text-xs flex-shrink-0">
                     {formatTime(w.lastOpened)}

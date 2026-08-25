@@ -182,9 +182,9 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
             onClick={() => { vibrate(); loadDiff(file.path, file.status); setActiveTab("diff"); }}
             className="flex-1 min-w-0 text-left"
           >
-            <div className="text-text font-medium truncate">{fileName}</div>
+            <div className="text-text font-medium truncate" title={file.path}>{fileName}</div>
             {dirPath && (
-              <div className="text-text-muted text-xs truncate">{dirPath}</div>
+              <div className="text-text-muted text-xs truncate" title={dirPath}>{dirPath}</div>
             )}
           </button>
 

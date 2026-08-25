@@ -424,7 +424,7 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
                                   className="w-full px-2 py-1 bg-surface ring-2 ring-brand-500/40 rounded-brand text-text text-sm focus:outline-none transition-all duration-150"
                                 />
                               ) : (
-                                <div className="text-text font-medium group-hover:text-brand-500 transition-colors truncate">
+                                <div className="text-text font-medium group-hover:text-brand-500 transition-colors truncate" title={displayName}>
                                   {displayName}
                                 </div>
                               )}
@@ -500,7 +500,7 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
                                 className="w-full px-2 py-1 bg-surface ring-2 ring-brand-500/40 rounded-brand text-text text-sm focus:outline-none transition-all duration-150"
                               />
                             ) : (
-                              <div className="text-text font-medium group-hover:text-brand-500 transition-colors truncate">
+                              <div className="text-text font-medium group-hover:text-brand-500 transition-colors truncate" title={displayName}>
                                 {displayName}
                               </div>
                             )}

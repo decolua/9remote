@@ -190,7 +190,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                     <div className="text-text font-medium truncate">
                       {getWorkspaceName(workspace.path)}
                     </div>
-                    <div className="text-text-muted text-sm truncate">
+                    <div className="text-text-muted text-sm truncate" title={workspace.path}>
                       {workspace.path.replace(/^\/Users\/[^/]+/, "~")}
                     </div>
                     <div className="text-text-muted text-xs mt-1">
