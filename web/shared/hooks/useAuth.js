@@ -1,8 +1,12 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS, TUNNEL_VERIFY_TIMEOUT_MS, CONNECT_TIMEOUT_MS } from "@/shared/constants/API";
-import { headOf } from "@/shared/utils/apiKey";
+import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
+
+// Plain text, not a translation key: this hook has no i18n context, and the
+// login page swaps it for the localised string it already owns.
+const WRONG_KEY_MESSAGE = "wrong-key-tail";
 import { useSessionStorage } from "./useSessionStorage";
 
 
@@ -16,6 +20,32 @@ export async function verifyServerConnection(tunnelUrl, apiKey, timeout = TUNNEL
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Ask the agent whether this TAIL is the right one, before a session is opened.
+ *
+ * The Worker cannot answer it — it holds only the HEAD — so the question goes
+ * straight down the tunnel. Returns true/false when the agent replies, and null
+ * when it could not be reached: unreachable is not "wrong", and login carries
+ * on to let the connection's own gate decide.
+ */
+export async function verifyKeyWithAgent(tunnelUrl, { tail, tempKey }, timeout = TUNNEL_VERIFY_TIMEOUT_MS) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    const res = await fetch(`${tunnelUrl}/api/verify-key`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tail: tail || null, tempKey: tempKey || null }),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return (await res.json())?.ok === true;
+  } catch {
+    return null; // unreachable — not a verdict
   }
 }
 
@@ -72,10 +102,27 @@ export function useAuth() {
         setTrust(apiKey, { hostSealKey: data.hostKeys.x, hostPubKey: data.hostKeys.ed || null });
       }
 
-      // /api/connect already validated the apiKey/session — agent is alive.
-      // Tunnel liveness is no longer probed here: RTC is established via the DO
-      // signaling relay (independent of the tunnel), and the tunnel is a fallback
-      // transport that ProtocolManager brings up in parallel.
+      // /api/connect proved the Worker knows this HEAD — and that is all it can
+      // prove, because the TAIL never reaches it. Ask the agent directly before
+      // going any further: a wrong TAIL belongs on the login screen, not in a
+      // workspace the user is thrown out of a moment later.
+      //
+      // Best-effort by design. If the tunnel is down or slow, login proceeds
+      // and the connection's own gate decides — that check is the real one, and
+      // this is only about telling the user sooner.
+      const tail = credentials.tail || tailOf(credentials.apiKey || "");
+      if (data.tunnelUrl && (tail || credentials.tempKey)) {
+        const verdict = await verifyKeyWithAgent(data.tunnelUrl, {
+          tail,
+          tempKey: credentials.tempKey || null
+        });
+        if (verdict === false) {
+          // Same message the post-login refusal shows, raised before the user
+          // has gone anywhere.
+          setError(WRONG_KEY_MESSAGE);
+          return { success: false, wrongTail: true };
+        }
+      }
 
       // Save auth data to session storage (include tempKey and localIp if provided)
       setAuth({
@@ -101,10 +148,12 @@ export function useAuth() {
   }, [router, setAuth]);
 
   // Token-based auth (QR code) - supports both old token and new temp key
-  const authenticateWithToken = useCallback(async (token, isTempKey = false) => {
+  const authenticateWithToken = useCallback(async (token, isTempKey = false, tail = null) => {
     if (isTempKey) {
-      // Temp key: verify first to get API key, then pass tempKey for removal
-      return authenticate({ token, tempKey: token });
+      // Temp key: verify first to get API key, then pass tempKey for removal.
+      // The tail rides along so the agent can be asked about it before the user
+      // is sent anywhere — the Worker never sees it either way.
+      return authenticate({ token, tempKey: token, tail });
     }
     return authenticate({ token });
   }, [authenticate]);

@@ -161,7 +161,7 @@ function LoginContent() {
   // nothing to prove itself with and the agent refusing a correct code.
   const authenticateWithTempKey = useCallback(async (stashed) => {
     const parsed = parsePairingInput(stashed);
-    const result = await authenticateWithToken(parsed?.tempKey || stashed, true);
+    const result = await authenticateWithToken(parsed?.tempKey || stashed, true, parsed?.tail);
     // The URL stash served its purpose — drop it so a later /login visit in
     // this tab doesn't replay a consumed key
     try { sessionStorage.removeItem("9remote_url_pairing"); } catch {}
@@ -204,7 +204,7 @@ function LoginContent() {
     const tail = isOneTime ? parsed.tail : tailOf(trimmedKey);
 
     const result = isOneTime
-      ? await authenticateWithToken(parsed.tempKey, true)
+      ? await authenticateWithToken(parsed.tempKey, true, parsed.tail)
       : await authenticateWithApiKey(trimmedKey);
     if (!result.success) return;
 
@@ -294,7 +294,7 @@ function LoginContent() {
   const handleQRScan = async (scanned) => {
     const parsed = parsePairingInput(scanned);
     if (!parsed?.tempKey) return;
-    const result = await authenticateWithToken(parsed.tempKey, true);
+    const result = await authenticateWithToken(parsed.tempKey, true, parsed.tail);
     if (result.success) {
       // Same rule as a typed code: the TAIL is the code's, kept under the code.
       if (parsed.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
@@ -482,7 +482,12 @@ function LoginContent() {
               </div>
             </div>
             {(error || tailRejected) && (
-              <p className="mt-2 text-xs font-mono text-danger">{error || t("login.invalidKeyTail")}</p>
+              <p className="mt-2 text-xs font-mono text-danger">
+                {/* useAuth has no i18n context, so a wrong TAIL comes back as a
+                    marker and is localised here — the same message whether the
+                    agent refused it at login or after connecting. */}
+                {error && error !== "wrong-key-tail" ? error : t("login.invalidKeyTail")}
+              </p>
             )}
 
             {/* Remember key */}
@@ -557,7 +562,7 @@ function LoginContent() {
                           </div>
                         ) : (
                           <>
-                            <div className="text-[13px] font-medium text-text truncate">{item.label || t("agentSwitcher.unnamed")}</div>
+                            <div className="text-[13px] font-medium text-text truncate" title={item.label || t("agentSwitcher.unnamed")}>{item.label || t("agentSwitcher.unnamed")}</div>
                             <div className="font-mono text-[11px] text-text-subtle mt-0.5 truncate">{maskApiKey(item.key)}</div>
                           </>
                         )}
