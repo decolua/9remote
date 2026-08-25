@@ -245,10 +245,10 @@ export default function WorkspaceLayout({ children }) {
     // At the bottom of the desktop stack the view is "list", where handleCreateSession
     // does not auto-focus — without this the pane would open behind the empty state.
     if (currentView.type !== "terminal") {
-      nav.handleQuickCreateSession(agent ? null : shellId, agent, yolo, name);
+      nav.handleQuickCreateSession(agent ? null : shellId, agent, yolo, name, true);
       return;
     }
-    nav.handleCreateSession(name, activeWorkspaceId, agent ? null : shellId, null, agent, yolo);
+    nav.handleCreateSession(name, activeWorkspaceId, agent ? null : shellId, null, agent, yolo, true);
   }, [agentClis, sessions, activeWorkspaceId, currentView, nav]);
 
   // Gated on the terminal view too: remote desktop forwards every keystroke to the host

@@ -169,8 +169,8 @@ export default function TerminalHeader({
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) || null;
 
-  const handleModalCreate = (name, shellId, agent, yolo, cwd) => {
-    if (onCreateNamedSession) onCreateNamedSession(name, activeWorkspaceId, shellId, cwd || null, agent, yolo);
+  const handleModalCreate = (name, shellId, agent, yolo, cwd, nameIsAuto) => {
+    if (onCreateNamedSession) onCreateNamedSession(name, activeWorkspaceId, shellId, cwd || null, agent, yolo, nameIsAuto);
     // No arg: onCreateSession is handleQuickCreateSession(shellId, …), which reads the
     // active workspace from the store itself — passing an id here would land as a shell.
     else onCreateSession?.();

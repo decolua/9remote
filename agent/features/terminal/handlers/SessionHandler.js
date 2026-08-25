@@ -1,10 +1,10 @@
 import pty from "node-pty";
 import * as daemonClient from "../ptyDaemonClient.js";
 import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveWorkspaces, loadSessionNote, saveSessionNote, deleteSessionNote, UPLOAD_DIR } from "../ptyHelper.js";
-import { resolveShell, getShellList } from "../constants.js";
+import { resolveShell, getShellList, SESSION_NAME_MAX, AUTO_NAME_RE } from "../constants.js";
 import { detectAgentClis } from "../agentCatalog.js";
-import { listAgentSessions, matchLiveSessions } from "../agentHistory.js";
-import { getLiveConversations, forgetSession, claimResumedConversation } from "../statusManager.js";
+import { listAgentSessions, matchLiveSessions, conversationTitle } from "../agentHistory.js";
+import { getLiveConversations, forgetSession, claimResumedConversation, getConversation } from "../statusManager.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
@@ -30,6 +30,60 @@ export function pickRespawnSize(session) {
     return { cols, rows };
   }
   return { cols: RESPAWN_DEFAULT_COLS, rows: RESPAWN_DEFAULT_ROWS };
+}
+
+// A terminal keeps its generated name only until its conversation has a title.
+// Sessions predating the flag are judged by their name: still in the generated
+// shape means it was never the user's.
+function isAutoNamed(session) {
+  if (session?.autoNamed === true) return true;
+  if (session?.autoNamed === false) return false;
+  return AUTO_NAME_RE.test(session?.name || "");
+}
+
+function fitName(title) {
+  const text = String(title || "").trim();
+  if (!text) return "";
+  return text.length > SESSION_NAME_MAX ? `${text.slice(0, SESSION_NAME_MAX - 1)}\u2026` : text;
+}
+
+// One terminal's turn at being named. Returns true when the name changed.
+async function nameOneSession(io, sessions, sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session || !isAutoNamed(session)) return false;
+  const conv = getConversation(sessionId);
+  const cwd = session.cwd || session.workspacePath;
+  if (!conv || !cwd) return false;
+  // Reads the same cache the sidebar fills. A conversation missing from it is
+  // one whose transcript was written after the last scan — the usual case right
+  // after a turn ends — so that miss, and only that miss, pays for a rescan.
+  await listAgentSessions({ cwd });
+  let title = conversationTitle(conv.agent, conv.id, cwd);
+  if (!title) {
+    await listAgentSessions({ cwd, fresh: true });
+    title = conversationTitle(conv.agent, conv.id, cwd);
+  }
+  const name = fitName(title);
+  if (!name || name === session.name) return false;
+  session.name = name;
+  session.autoNamed = true;
+  broadcast(io, "session-renamed", { sessionId, name });
+  return true;
+}
+
+/**
+ * Name auto-named terminals after the conversation each is running. Follows the
+ * title for as long as the name stays ours: a chat renamed in its own CLI
+ * renames the tab too, while a terminal the user named is left alone.
+ * With no `sessionId`, every terminal is considered.
+ */
+export async function syncAutoNames(io, sessions, sessionId = null) {
+  const ids = sessionId ? [sessionId] : [...sessions.keys()];
+  let changed = false;
+  for (const id of ids) {
+    if (await nameOneSession(io, sessions, id)) changed = true;
+  }
+  if (changed) saveSessionMetadata(sessions);
 }
 
 // Walk chunks from the end — avoid joining full ≤2MB buffer just to keep a tail
@@ -285,6 +339,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     });
     const rows = await listAgentSessions({ cwd, limit });
     callback?.({ success: true, sessions: matchLiveSessions(rows, live) });
+    // The rows just landed in cache — name whatever terminal they belong to.
+    syncAutoNames(io, sessions);
   });
 
   // A terminal opened to resume a history row already knows which conversation
@@ -292,10 +348,13 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   // only fires once the user sends a message.
   socket.on("claimAgentSession", ({ sessionId, agent, conversationId } = {}, callback) => {
     claimResumedConversation(sessionId, { agent, sessionId: conversationId });
+    // Its title exists already — this chat has been talked to before, so the
+    // terminal can carry its name from the moment it opens.
+    syncAutoNames(io, sessions, sessionId);
     callback?.({ success: true });
   });
 
-  socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd }, callback) => {
+  socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd, nameIsAuto }, callback) => {
     const sessionId = `session-${Date.now()}`;
     const wsId = workspaceId ?? groupId;
     const workspace = wsId ? workspaces.get(wsId) : null;
@@ -316,14 +375,19 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       // Fixed at creation — a later `cd` must not move this terminal to another workspace.
       const workspacePath = workspace?.path || null;
 
-      // Auto-name "Term N" if user didn't provide a custom name (cross-platform)
+      // Auto-name "Term N" if user didn't provide a custom name (cross-platform).
+      // An auto-named terminal follows its agent conversation's title; one the
+      // user typed a name for is theirs and is never renamed for them. The UI
+      // fills the box in for an unnamed agent tab and says so — that name is a
+      // placeholder, not the user having named anything.
+      const autoNamed = !name || nameIsAuto === true;
       const autoName = name || `Term ${sessions.size + 1}`;
 
       // Daemon mode
       if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
         const result = await daemonClient.createSession(autoName, 80, 24, shellId, sessionId, resolvedCwd);
         if (result.success) {
-          sessions.set(result.sessionId, { daemon: true, name: autoName, createdAt: Date.now(), cwd: result.cwd, workspacePath, shellId: result.shellId, shellLabel: result.shellLabel });
+          sessions.set(result.sessionId, { daemon: true, name: autoName, autoNamed, createdAt: Date.now(), cwd: result.cwd, workspacePath, shellId: result.shellId, shellLabel: result.shellLabel });
           if (workspace) { sessionWorkspaces[result.sessionId] = workspace.id; persist(); }
           saveSessionMetadata(sessions);
           callback({ success: true, sessionId: result.sessionId, shellLabel: result.shellLabel });
@@ -335,7 +399,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
 
       // Buffer mode PTY
       const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, { name: "xterm-256color", cols: 80, rows: 24, cwd: resolvedCwd, env: shellEnv, useConpty: false });
-      const sessionData = { pty: ptyProcess, name: autoName, createdAt: Date.now(), buffer: [], cwd: resolvedCwd, workspacePath, shellId: shellConfig.id, shellLabel: shellConfig.label };
+      const sessionData = { pty: ptyProcess, name: autoName, autoNamed, createdAt: Date.now(), buffer: [], cwd: resolvedCwd, workspacePath, shellId: shellConfig.id, shellLabel: shellConfig.label };
 
       attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions);
       sessions.set(sessionId, sessionData);
@@ -513,6 +577,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     try {
       // Name is agent-owned (single source of truth) for both daemon and buffer mode
       session.name = name;
+      // The user named this terminal: its conversation's title stops driving it.
+      session.autoNamed = false;
       broadcast(io, "session-renamed", { sessionId, name });
       saveSessionMetadata(sessions);
       callback({ success: true });

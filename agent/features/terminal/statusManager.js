@@ -153,6 +153,21 @@ export function claimResumedConversation(sessionId, row) {
   setConversationId(sessionId, agent, id, "resume");
 }
 
+// A terminal's name may now be knowable — the CLI just finished a turn, so its
+// transcript holds a title. Kept as a subscription because the naming itself
+// lives in the terminal layer, which this module must not import.
+const autoNameCallbacks = new Set();
+
+export function onAutoNameRequest(fn) {
+  autoNameCallbacks.add(fn);
+  return () => autoNameCallbacks.delete(fn);
+}
+
+export function requestAutoName(sessionId) {
+  if (!sessionId) return;
+  for (const cb of autoNameCallbacks) { try { cb(sessionId); } catch {} }
+}
+
 /**
  * What this terminal's conversation looks like on disk. The PTY survives an
  * agent restart (it lives in the daemon), so this must too — otherwise every

@@ -10,16 +10,17 @@ import { isRemoteReady, setRemoteReadyChangeHandler, getUpdateInfo } from "../..
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
 import { listSavedBufferSessions, loadSessionMetadata, loadGroups, loadWorkspaces, saveWorkspaces, saveSessionMetadata, saveSessionMetadataRaw } from "./ptyHelper.js";
 import { migrateGroupsToWorkspaces, assignOrphanSessions } from "./workspaceMigration.js";
-import { setupSessionHandlers } from "./handlers/SessionHandler.js";
+import { setupSessionHandlers, syncAutoNames } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
-import { touchWorking, startReaper, getStatuses, setSessionAgent, forgetSession, onAgentChange, restoreConversation, setConversationPersister } from "./statusManager.js";
+import { touchWorking, startReaper, getStatuses, setSessionAgent, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest } from "./statusManager.js";
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
+import { AUTO_NAME_DEBOUNCE_MS } from "./constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ORANGE = chalk.rgb(230, 138, 110);
@@ -117,6 +118,19 @@ async function _syncDaemonSessions() {
   saveSessionMetadata(sessions);
 }
 
+// Naming reads a transcript, so a burst of events for one terminal must collapse
+// into a single pass. Per session: two terminals finishing at once are two
+// different transcripts and must not cancel each other.
+const autoNameTimers = new Map();
+let autoNameIo = null;
+function scheduleAutoName(sessionId) {
+  if (!autoNameIo || !sessionId || autoNameTimers.has(sessionId)) return;
+  autoNameTimers.set(sessionId, setTimeout(() => {
+    autoNameTimers.delete(sessionId);
+    syncAutoNames(autoNameIo, sessions, sessionId).catch(() => {});
+  }, AUTO_NAME_DEBOUNCE_MS));
+}
+
 // Give every workspace-less terminal a home, by the directory it actually runs in. Runs
 // after each session sync, not once at install: terminals made against an older agent,
 // or left over from a deleted workspace, keep turning up.
@@ -186,7 +200,13 @@ export async function initializeTerminal() {
 
   // A newly learned conversation must reach disk without waiting for the next
   // session create/rename — a restart in between would unlink it from its terminal.
+  // It is also when an auto-named terminal can first take its chat's title, so the
+  // rename rides the same signal, coalesced: hooks fire far faster than names change.
   setConversationPersister(() => saveSessionMetadata(sessions));
+
+  // A CLI that just finished a turn has written its transcript, so this is when
+  // an auto-named terminal can first take its conversation's title.
+  onAutoNameRequest(scheduleAutoName);
 
   // Backfill scrollback env for users who enabled Claude hook before the fix
   try { reconcileClaudeEnv(); } catch {}
@@ -231,6 +251,7 @@ export async function initializeTerminal() {
 }
 
 export function setupTerminalSocket(io, apiKey) {
+  autoNameIo = io;
   // Forward daemon events to all socket clients
   if (PERSISTENCE_MODE === "daemon") {
     daemonClient.on("output", ({ sessionId, enc, data, replay }) => {
@@ -260,6 +281,8 @@ export function setupTerminalSocket(io, apiKey) {
       clearSeqSession(sessionId); // drop seq counter + gap ring
       forgetSession(sessionId);
       titleTails.delete(sessionId);
+      const timer = autoNameTimers.get(sessionId);
+      if (timer) { clearTimeout(timer); autoNameTimers.delete(sessionId); }
       // Drop any stale finished-badge so title count + UI stay in sync
       clearNotification(sessionId);
       broadcast(io, "sessionClosed", sessionId);

@@ -79,6 +79,17 @@ export const RESIZE_MAX_ROWS = 500;
 // immediately — it costs nothing and keeps rotate-to-landscape responsive.
 export const RESIZE_SHRINK_SETTLE_MS = 300;
 
+// Auto-named terminals follow their conversation's title, trimmed to what a tab
+// can show. Longer titles are cut with an ellipsis; the full text stays in the
+// history row.
+export const SESSION_NAME_MAX = 40;
+// Terminals created before autoNamed existed: a name still in the generated
+// shape was never the user's, so it may follow its conversation like a new one.
+export const AUTO_NAME_RE = /^(Term|Terminal) \d+$/;
+// A finished turn can arrive as several events at once — collapse them into one
+// naming pass rather than re-reading the same transcript per event.
+export const AUTO_NAME_DEBOUNCE_MS = 800;
+
 // Agent CLI conversation history (agentHistory.js). The head budgets bound what
 // one transcript costs to identify: enough lines to pass a session's metadata
 // and its first user turn, never enough to read a long conversation.

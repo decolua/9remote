@@ -139,6 +139,9 @@ export function loadSessionMetadata() {
 export function buildSessionMetadata(session, sessionId) {
   return {
     name: session.name,
+    // Whether the name is still ours to change: an auto-named terminal follows
+    // its conversation's title, a user-named one never does.
+    autoNamed: session.autoNamed !== false,
     createdAt: session.createdAt,
     shellId: session.shellId,
     cwd: session.cwd,

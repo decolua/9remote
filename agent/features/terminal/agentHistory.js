@@ -415,6 +415,19 @@ function byNewest(rows, source, cwd) {
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/**
+ * Title one conversation carries, from the rows already collected for its cwd.
+ * Cheap on purpose: it reads the same 30s cache the sidebar fills, so naming a
+ * terminal after its chat costs no extra transcript reads.
+ */
+export function conversationTitle(agent, conversationId, cwd) {
+  if (!agent || !conversationId || !cwd) return "";
+  const cached = cache.get(cwd);
+  if (!cached) return "";
+  const row = cached.rows.find((r) => r.agent === agent && r.sessionId === conversationId);
+  return row?.title || "";
+}
+
 // Keyed by cwd — a terminal that cd's elsewhere asks a different question.
 const cache = new Map();
 
@@ -426,10 +439,12 @@ export function clearHistoryCache() {
  * Past conversations of every detected agent CLI that ran in `cwd`, newest first.
  * Absent stores are skipped silently: not having an agent installed is normal.
  */
-export async function listAgentSessions({ cwd, limit = HISTORY.DEFAULT_LIMIT } = {}) {
+export async function listAgentSessions({ cwd, limit = HISTORY.DEFAULT_LIMIT, fresh = false } = {}) {
   if (!cwd) return [];
   const cached = cache.get(cwd);
-  if (cached && Date.now() - cached.at < HISTORY.CACHE_TTL_MS) return cached.rows.slice(0, limit);
+  // `fresh` is for a caller that knows the cache predates what it is looking for
+  // — a conversation whose transcript was written after the last scan.
+  if (!fresh && cached && Date.now() - cached.at < HISTORY.CACHE_TTL_MS) return cached.rows.slice(0, limit);
 
   const rows = [];
   for (const source of HISTORY_SOURCES) {

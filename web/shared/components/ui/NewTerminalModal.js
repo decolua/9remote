@@ -108,8 +108,11 @@ export default function NewTerminalModal({
     const yolo = skipPermissions && canSkipPermissions(picked);
     // An agent tab left unnamed takes the agent's name, not the host's generic "Term N"
     const suffix = suggestIndex ? ` ${suggestIndex}` : "";
-    const finalName = name.trim() || (picked ? `${picked.short || picked.label}${suffix}` : null);
-    onCreate?.(finalName, !picked ? (shellId || null) : null, picked, yolo, cwd);
+    const typed = name.trim();
+    const finalName = typed || (picked ? `${picked.short || picked.label}${suffix}` : null);
+    // A name we filled in ourselves is still the terminal's to lose: it keeps
+    // following its conversation's title, unlike one the user actually typed.
+    onCreate?.(finalName, !picked ? (shellId || null) : null, picked, yolo, cwd, !typed);
     onClose?.();
   };
 

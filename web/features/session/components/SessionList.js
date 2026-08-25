@@ -263,8 +263,8 @@ export default function SessionList({
       {terminalModal && (
         <NewTerminalModal
           onClose={() => setTerminalModal(null)}
-          onCreate={(name, shellId, agent, yolo, cwd) => {
-            onCreate?.(name, terminalModal.workspaceId, shellId, cwd || null, agent, yolo);
+          onCreate={(name, shellId, agent, yolo, cwd, nameIsAuto) => {
+            onCreate?.(name, terminalModal.workspaceId, shellId, cwd || null, agent, yolo, nameIsAuto);
             setTerminalModal(null);
           }}
           shells={shells}
@@ -309,9 +309,9 @@ function WorkspaceSection({
           />
           <Folder size={17} className="text-text flex-shrink-0" />
           <span className="flex-1 min-w-0">
-            <span className="block text-[13px] font-medium text-text truncate">{section.name}</span>
+            <span className="block text-[13px] font-medium text-text truncate" title={section.name}>{section.name}</span>
             {gitPath && (
-              <span className="block text-[11px] text-text-subtle truncate">
+              <span className="block text-[11px] text-text-subtle truncate" title={gitPath}>
                 {shortenHomePath(gitPath, homeDir)}
               </span>
             )}

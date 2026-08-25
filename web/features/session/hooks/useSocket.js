@@ -237,6 +237,13 @@ export function useSocket() {
       useTerminalStore.getState().closeSession(sessionId);
     });
 
+    // The agent renames a terminal on its own once its conversation has a title,
+    // so the name can change without this client having asked for it.
+    socket.on("session-renamed", ({ sessionId, name } = {}) => {
+      if (!sessionId) return;
+      setSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, name } : s)));
+    });
+
     // Workspaces changed elsewhere — refresh both lists
     socket.on("workspacesChanged", () => fetchLists(socket));
 
@@ -308,14 +315,16 @@ export function useSocket() {
 
   // Create new session (workspaceId optional). cwd = a folder picked in the tree, else
   // inherited from the last session in the workspace.
-  const createSession = useCallback((name, shellId, workspaceId, cwd, callback) => {
+  // `nameIsAuto` marks a name the UI filled in rather than the user typing it —
+  // the agent keeps renaming such a terminal after the conversation it runs.
+  const createSession = useCallback((name, shellId, workspaceId, cwd, callback, nameIsAuto = false) => {
     if (!socketRef.current) return;
     // Backward compat: createSession(name, callback) / createSession(name, shellId, callback)
     if (typeof shellId === "function") { callback = shellId; shellId = null; workspaceId = null; cwd = null; }
     else if (typeof workspaceId === "function") { callback = workspaceId; workspaceId = null; cwd = null; }
     else if (typeof cwd === "function") { callback = cwd; cwd = null; }
 
-    socketRef.current.emit("createSession", { name, shellId, workspaceId, cwd }, (result) => {
+    socketRef.current.emit("createSession", { name, shellId, workspaceId, cwd, nameIsAuto }, (result) => {
       if (result.success) {
         loadSessions();
       }

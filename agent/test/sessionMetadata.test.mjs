@@ -13,9 +13,18 @@ const test = (name, fn) => {
 test("serializes core fields (name/createdAt/shellId/cwd)", () => {
   const m = buildSessionMetadata({ name: "Term 1", createdAt: 123, shellId: "zsh", cwd: "/home" });
   assert.deepEqual(m, {
-    name: "Term 1", createdAt: 123, shellId: "zsh", cwd: "/home",
+    name: "Term 1", autoNamed: true, createdAt: 123, shellId: "zsh", cwd: "/home",
     workspacePath: null, cols: null, rows: null
   });
+});
+
+test("who owns the name survives a restart", () => {
+  // An auto-named terminal follows its conversation's title; one the user named
+  // must not, and a restart that forgot which was which would rename it for them.
+  assert.equal(buildSessionMetadata({ name: "T", autoNamed: false }).autoNamed, false);
+  assert.equal(buildSessionMetadata({ name: "T", autoNamed: true }).autoNamed, true);
+  // Written before the flag existed: absence is not the user having named it.
+  assert.equal(buildSessionMetadata({ name: "Term 3" }).autoNamed, true);
 });
 
 test("workspacePath survives a restart, and is not the live cwd", () => {

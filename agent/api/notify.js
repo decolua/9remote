@@ -6,7 +6,7 @@ import { jsonOk, jsonErr } from "../lib/router.js";
 import { getIO } from "../transport/server.js";
 import { broadcast } from "../transport/broadcast.js";
 import { sendPushNotification } from "../features/terminal/pushManager.js";
-import { applyEvent, STATES, setConversationId, getConversation } from "../features/terminal/statusManager.js";
+import { applyEvent, STATES, setConversationId, getConversation, requestAutoName } from "../features/terminal/statusManager.js";
 import { sessionIdFromHookPayload, hookSessionIdKeys } from "../features/terminal/agentCatalog.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
 
@@ -76,6 +76,11 @@ function dispatchNotify(params) {
   broadcast(io, "statusChange", { sessionId, state, tool, since: now, ...(conv ? { conversationId: conv.id } : {}) });
   addNotification(sessionId, notification);
   broadcast(io, "chatNotification", notification);
+
+  // A finished turn is the moment the transcript holds a title, so it is also
+  // when an auto-named terminal can take its conversation's name. `working`
+  // fires on every tool call and teaches nothing new, so it is left out.
+  if (state === STATES.DONE || state === STATES.BLOCKED) requestAutoName(sessionId);
 
   // Type B — push to mobile: only for done/blocked (working would spam every tool call).
   // The SW's visible-window backstop suppresses the banner when a client is focused.
