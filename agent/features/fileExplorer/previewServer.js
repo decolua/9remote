@@ -6,7 +6,7 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { MIME_BY_EXT, PREVIEW_SESSION_TTL_MS, MAX_PREVIEW_SESSIONS } from "./constants.js";
+import { MIME_BY_EXT, PREVIEW_SESSION_TTL_MS, MAX_PREVIEW_SESSIONS, PREVIEW_NAV_SOURCE } from "./constants.js";
 import { isSensitivePath } from "./pathGuard.js";
 
 // id → { root, realRoot, entry, expiresAt, timer }
@@ -91,6 +91,37 @@ function resolveInside(s, relPath) {
   return fs.statSync(real).isFile() ? real : null;
 }
 
+// The page runs in a sandboxed, opaque-origin iframe, so the viewer cannot read its
+// location to keep an address bar honest. This script is injected into served HTML to
+// report where the frame actually is — the only channel that survives the sandbox.
+// Kept tiny and self-contained: it must not disturb the page it rides along with.
+const NAV_SCRIPT = `<script>(function(){
+try{
+  var post=function(){try{parent.postMessage({source:${JSON.stringify(PREVIEW_NAV_SOURCE)},path:location.pathname+location.search+location.hash},"*")}catch(e){}};
+  post();
+  addEventListener("hashchange",post);
+  addEventListener("popstate",post);
+  // History is same-document navigation — no load event fires, so wrap the calls.
+  ["pushState","replaceState"].forEach(function(k){
+    var f=history[k];history[k]=function(){var r=f.apply(this,arguments);post();return r};
+  });
+}catch(e){}
+})();</script>`;
+
+// Serve HTML with the nav reporter appended. Buffered rather than streamed because the
+// injection changes the length; HTML previews are small, assets still stream.
+function sendHtml(res, filePath) {
+  const body = fs.readFileSync(filePath, "utf8") + NAV_SCRIPT;
+  const buf = Buffer.from(body, "utf8");
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": buf.length,
+    "Cache-Control": "no-store",
+    "Access-Control-Allow-Origin": "*"
+  });
+  res.end(buf);
+}
+
 // Route handler for /preview/:sessionId/* — registered public in agent/index.js.
 export function handlePreviewRequest(req, res, { pathname }) {
   const match = pathname.match(/^\/preview\/([0-9a-f-]+)(\/.*)?$/);
@@ -103,8 +134,11 @@ export function handlePreviewRequest(req, res, { pathname }) {
   // Every hit keeps the session alive; the timer is the only cleanup path.
   touch(s);
 
+  const type = contentTypeFor(filePath);
+  if (type.startsWith("text/html")) { sendHtml(res, filePath); return; }
+
   res.writeHead(200, {
-    "Content-Type": contentTypeFor(filePath),
+    "Content-Type": type,
     "Content-Length": fs.statSync(filePath).size,
     // Saved edits must show on reload — never let the browser cache a stale asset.
     "Cache-Control": "no-store",

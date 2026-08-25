@@ -15,6 +15,9 @@ export const MAX_MATCHES_PER_FILE = 10;
 // how many directories stay exposed through the public /preview route.
 export const PREVIEW_SESSION_TTL_MS = 10 * 60 * 1000;
 export const MAX_PREVIEW_SESSIONS = 16;
+// Tags the nav reports injected into previewed HTML. Mirrors PREVIEW_NAV_SOURCE in
+// web/features/fileExplorer/constants/fileExplorer.js — change both together.
+export const PREVIEW_NAV_SOURCE = "9remote-preview";
 export const DEFAULT_TREE_DEPTH = 3;
 export const DEFAULT_GIT_LOG_LIMIT = 20;
 // spawnSync defaults to a 1MB stdout buffer — a whole-repo `git diff` blows past that and
