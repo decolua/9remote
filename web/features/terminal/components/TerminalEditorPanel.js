@@ -8,7 +8,7 @@ import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { EDITOR_PANEL_WIDTH } from "../constants/terminalConfig";
 import { resolveFileIcon } from "@/features/fileExplorer/constants/fileIcons";
-import { isDiffPath, parseRepoDiffPath, makeDiffPath, GIT_STATUS_COLORS, isHtmlFile, FILE_WATCH } from "@/features/fileExplorer/constants/fileExplorer";
+import { isDiffPath, parseRepoDiffPath, makeDiffPath, GIT_STATUS_COLORS, isHtmlFile, isMermaidFile, FILE_WATCH } from "@/features/fileExplorer/constants/fileExplorer";
 import { isPreviewable } from "@/features/fileExplorer/components/FilePreview";
 import { useFileDocument } from "@/features/fileExplorer/hooks/useFileDocument";
 import { useUnsavedGuard } from "@/features/fileExplorer/hooks/useUnsavedGuard";
@@ -18,6 +18,7 @@ import UnsavedDialog from "@/features/fileExplorer/components/UnsavedDialog";
 const CodeEditor = dynamic(() => import("@/features/fileExplorer/components/CodeEditor"), { ssr: false });
 const FilePreview = dynamic(() => import("@/features/fileExplorer/components/FilePreview"), { ssr: false });
 const HtmlViewer = dynamic(() => import("@/features/fileExplorer/components/HtmlViewer"), { ssr: false });
+const MermaidViewer = dynamic(() => import("@/features/fileExplorer/components/MermaidViewer"), { ssr: false });
 const DiffView = dynamic(() => import("@/features/fileExplorer/components/DiffView"), { ssr: false });
 
 // A file opened from the tree, edited without leaving the terminal. Narrow on purpose —
@@ -45,9 +46,13 @@ export default function TerminalEditorPanel({
   useEffect(() => { docRef.current = doc; }, [doc]);
   const guard = useUnsavedGuard({ dirty: editable && doc.dirty, onSave: doc.save });
 
-  // HTML files can flip between source and rendered view; one file = one mode.
-  const canPreviewHtml = editable && isHtmlFile(filePath);
-  const [htmlPreview, setHtmlPreview] = useState(false);
+  // Some text files have a rendered form as well as their source; the eye button flips
+  // between the two. One entry per kind — adding a renderer is adding a line here.
+  const previewKind = !editable ? null
+    : isHtmlFile(filePath) ? "html"
+    : isMermaidFile(filePath) ? "mermaid"
+    : null;
+  const [showRendered, setShowRendered] = useState(false);
   const [saveSeq, setSaveSeq] = useState(0);
   const [lastPath, setLastPath] = useState(filePath);
   const [prevSaved, setPrevSaved] = useState(false);
@@ -55,12 +60,12 @@ export default function TerminalEditorPanel({
   // Adjust during render (not in an effect) — the sanctioned reset-on-prop pattern.
   if (lastPath !== filePath) {
     setLastPath(filePath);
-    setHtmlPreview(false);
+    setShowRendered(false);
   }
   // A Preview asked for from the tree opens rendered; runs after the path reset above.
   if (lastPreviewSeq !== previewSeq) {
     setLastPreviewSeq(previewSeq);
-    if (previewSeq && canPreviewHtml) setHtmlPreview(true);
+    if (previewSeq && previewKind) setShowRendered(true);
   }
   // Edge-trigger justSaved into a counter the preview can reload on.
   if (doc.justSaved !== prevSaved) {
@@ -135,13 +140,13 @@ export default function TerminalEditorPanel({
           </span>
         )}
 
-        {canPreviewHtml && (
+        {previewKind && (
           <button
-            onClick={() => { vibrate(); setHtmlPreview((v) => !v); }}
-            title={htmlPreview ? t("editor.editCode") : t("editor.preview")}
+            onClick={() => { vibrate(); setShowRendered((v) => !v); }}
+            title={showRendered ? t("editor.editCode") : t("editor.preview")}
             className="p-1 text-text-muted hover:text-text rounded-[3px] hover:bg-surface-2 transition-colors"
           >
-            {htmlPreview ? <FileCode size={13} /> : <Eye size={13} />}
+            {showRendered ? <FileCode size={13} /> : <Eye size={13} />}
           </button>
         )}
 
@@ -202,8 +207,10 @@ export default function TerminalEditorPanel({
           <DiffView diffPath={makeDiffPath(diff.status, diff.filePath)} workspace={diffRepo} fileSocket={fileSocket} compact />
         ) : isPreviewable(filePath) ? (
           <FilePreview filePath={filePath} fileSocket={fileSocket} />
-        ) : htmlPreview && canPreviewHtml ? (
+        ) : showRendered && previewKind === "html" ? (
           <HtmlViewer filePath={filePath} fileSocket={fileSocket} reloadKey={saveSeq} />
+        ) : showRendered && previewKind === "mermaid" ? (
+          <MermaidViewer content={doc.content} reloadKey={saveSeq} />
         ) : doc.loading ? (
           <div className="h-full flex items-center justify-center text-text-muted text-xs">{t("common.loading")}</div>
         ) : (

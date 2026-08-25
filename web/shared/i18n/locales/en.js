@@ -378,6 +378,7 @@ export default {
     previewOpenTab: "Open in a new tab",
     changedOnDisk: "Changed on disk",
     reloadFromDisk: "Reload",
+    mermaidEmpty: "Nothing to draw",
     readOnly: "Read only",
     line: "Line",
     column: "Column",

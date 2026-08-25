@@ -90,6 +90,8 @@ export const SHEET_EXTENSIONS = [".xlsx", ".xls", ".csv", ".tsv"];
 
 export const HTML_EXTENSIONS = [".html", ".htm", ".xhtml"];
 
+export const MERMAID_EXTENSIONS = [".mmd", ".mermaid"];
+
 export function hasExt(filePath, exts) {
   if (!filePath) return false;
   const lower = filePath.toLowerCase();
@@ -102,6 +104,7 @@ export const isPdfFile = (p) => hasExt(p, PDF_EXTENSIONS);
 export const isDocxFile = (p) => hasExt(p, DOCX_EXTENSIONS);
 export const isSheetFile = (p) => hasExt(p, SHEET_EXTENSIONS);
 export const isHtmlFile = (p) => hasExt(p, HTML_EXTENSIONS);
+export const isMermaidFile = (p) => hasExt(p, MERMAID_EXTENSIONS);
 
 // Marks the nav reports the agent's preview route injects into every HTML page it
 // serves. The frame is sandboxed onto an opaque origin, so postMessage is the only
