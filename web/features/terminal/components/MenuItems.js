@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, GitBranch, ListChecks, Wallpaper, Keyboard } from "@/shared/components/ui/Icon";
+import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, GitBranch, ListChecks, Wallpaper, Keyboard, PanelRight, Zap } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -17,6 +17,10 @@ import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { verifyServerConnection } from "@/shared/hooks/useAuth";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
+import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
+import { PREVIEW_KINDS, previewExtLabel } from "@/features/fileExplorer/constants/fileExplorer";
+import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
+import { agentIconUrl } from "@/features/terminal/constants/agentCli";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 
@@ -65,6 +69,7 @@ export default function MenuItems({
   const setShowNoteButton = useTerminalStore((s) => s.setShowNoteButton);
   const { theme: appMode } = useTheme();
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
+  const [mcpMenuOpen, setMcpMenuOpen] = useState(false);
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [switchingKey, setSwitchingKey] = useState(null);
@@ -155,6 +160,8 @@ export default function MenuItems({
   const isOutdated = isAgentOutdated(agentVersion, webVersion) || isWebOutdated(agentVersion, webVersion);
 
   const push = usePushToggle(subscribeToPush, unsubscribeFromPush);
+  const artifact = useArtifactToggle(socketRef, connected);
+  const mcpClients = useTerminalStore((s) => s.mcpClients);
   // Treat native WebView (Expo) the same as PWA for UI gating
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || push.isExpoWebView
@@ -290,6 +297,57 @@ export default function MenuItems({
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showNoteButton ? "translate-x-4" : "translate-x-0.5"}`} />
                 </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MCP — what the AI CLIs are allowed to drive in this app. Its own section rather
+          than a terminal setting: it changes what the AI can do, not how a terminal looks. */}
+      {artifact.supported && (
+        <div className="bg-surface rounded-brand-lg overflow-hidden">
+          <button
+            onClick={() => { vibrate(); setMcpMenuOpen((v) => !v); }}
+            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+          >
+            <Zap className="text-brand-500" size={16} />
+            <span className="text-sm flex-1">{t("menu.settingsMcp")}</span>
+            <ChevronDown className={`text-text-muted transition-transform duration-200 ${mcpMenuOpen ? "rotate-180" : ""}`} size={16} />
+          </button>
+          {mcpMenuOpen && (
+            <div className="pl-6 pr-3 pb-2 space-y-2">
+              <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpIntro")}</p>
+              {mcpClients.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {mcpClients.map((id) => (
+                    <span key={id} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-brand bg-surface-2 text-[11px] text-text">
+                      <img src={agentIconUrl(id)} alt="" className="w-3 h-3 rounded-[2px]" />
+                      {AGENT_LABELS[id] || id}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2.5">
+                <PanelRight className="text-text shrink-0" size={16} />
+                <span className="text-sm flex-1 min-w-0">{t("menu.artifactPanel")}</span>
+                <button
+                  onClick={artifact.toggle}
+                  disabled={artifact.loading || !connected}
+                  className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-60 ${artifact.enabled ? "bg-brand-500" : "bg-surface-2"}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${artifact.enabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+              <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.artifactHint")}</p>
+              {/* Same source as the desktop dialog's grid — one list, two surfaces */}
+              <div className="pt-1 space-y-0.5">
+                {PREVIEW_KINDS.map((kind) => (
+                  <div key={kind.labelKey} className="flex items-baseline gap-2 text-[11px]">
+                    <span className="text-text shrink-0">{t(kind.labelKey)}</span>
+                    <span className="text-text-muted truncate">{previewExtLabel(kind.exts)}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

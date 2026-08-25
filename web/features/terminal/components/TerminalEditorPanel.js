@@ -25,7 +25,7 @@ const DiffView = dynamic(() => import("@/features/fileExplorer/components/DiffVi
 // this is for a quick read or fix, not a replacement for the full editor view.
 export default function TerminalEditorPanel({
   filePath, workspace, fileSocket, width, onResize, onClose, onOpenFull, isDesktop = true,
-  previewSeq = 0
+  previewSeq = 0, artifactTitle = null
 }) {
   const { t } = useI18n();
 
@@ -52,20 +52,23 @@ export default function TerminalEditorPanel({
     : isHtmlFile(filePath) ? "html"
     : isMermaidFile(filePath) ? "mermaid"
     : null;
-  const [showRendered, setShowRendered] = useState(false);
+  // A non-zero previewSeq is the opener saying "show this rendered" — the tree's Preview
+  // action, and every artifact the AI opens. Read at mount too, not only on a later
+  // change: the panel is mounted BY that first open, so a seq compared against its own
+  // initial value never fires and the first artifact would land on its source.
+  const wantsRendered = previewSeq > 0;
+  const [showRendered, setShowRendered] = useState(wantsRendered);
   const [saveSeq, setSaveSeq] = useState(0);
   const [lastPath, setLastPath] = useState(filePath);
   const [prevSaved, setPrevSaved] = useState(false);
   const [lastPreviewSeq, setLastPreviewSeq] = useState(previewSeq);
   // Adjust during render (not in an effect) — the sanctioned reset-on-prop pattern.
-  if (lastPath !== filePath) {
+  // Either a new file or a fresh request re-reads the opener's intent, so manually
+  // flipping to the source lasts until the next open rather than forever.
+  if (lastPath !== filePath || lastPreviewSeq !== previewSeq) {
     setLastPath(filePath);
-    setShowRendered(false);
-  }
-  // A Preview asked for from the tree opens rendered; runs after the path reset above.
-  if (lastPreviewSeq !== previewSeq) {
     setLastPreviewSeq(previewSeq);
-    if (previewSeq && previewKind) setShowRendered(true);
+    setShowRendered(wantsRendered);
   }
   // Edge-trigger justSaved into a counter the preview can reload on.
   if (doc.justSaved !== prevSaved) {
@@ -80,10 +83,11 @@ export default function TerminalEditorPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [guard, onClose]);
 
-  // Follow the file on disk. A panel showing yesterday's render while the terminal
-  // reports a rewrite is worse than no panel at all. The watcher reports the whole
-  // directory, so the file is picked out here; a rendered preview reloads outright,
-  // while the code view defers to useFileDocument, which protects unsaved edits.
+  // Follow the file on disk. An artifact is usually a file the AI is still working on,
+  // and a panel showing yesterday's render while the terminal reports a rewrite is worse
+  // than no panel at all. The watcher reports the whole directory, so the file is picked
+  // out here; a rendered preview reloads outright, while the code view defers to
+  // useFileDocument, which protects unsaved edits.
   const fileDir = filePath && !isDiff ? filePath.slice(0, filePath.lastIndexOf("/")) : "";
   const watchDirs = useMemo(() => (fileDir ? [fileDir] : []), [fileDir]);
   const pageVisible = usePageVisible();
@@ -133,6 +137,13 @@ export default function TerminalEditorPanel({
         className="px-2 flex items-center gap-1.5 border-b border-border-subtle flex-shrink-0">
         <span className="flex-shrink-0">{resolveFileIcon({ name, type: "file" }, 14)}</span>
         <span className="flex-1 min-w-0 truncate text-[12px] text-text" title={relPath}>{name}</span>
+
+        {/* The AI opened this one — say so, otherwise a panel appearing on its own reads as a glitch */}
+        {artifactTitle && (
+          <span className="flex-shrink-0 px-1.5 py-px rounded-[3px] text-[9px] font-medium uppercase tracking-wide bg-brand-500/15 text-brand-500">
+            {t("editor.artifact")}
+          </span>
+        )}
 
         {isDiff && (
           <span className={`text-[10px] font-bold flex-shrink-0 ${GIT_STATUS_COLORS[diff.status] || "text-text-muted"}`}>

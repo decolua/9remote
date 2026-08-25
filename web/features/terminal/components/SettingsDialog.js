@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type, FolderOpen,
-  GitBranch, ListChecks, Sun, Moon, Keyboard
+  GitBranch, ListChecks, Sun, Moon, Keyboard, PanelRight, Zap
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -13,13 +13,17 @@ import { useTheme } from "@/shared/theme/ThemeProvider";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
 import { SETTINGS_CATEGORIES } from "@/features/terminal/constants/settingsCategories";
+import { PREVIEW_KINDS, previewExtLabel } from "@/features/fileExplorer/constants/fileExplorer";
+import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
+import { agentIconUrl } from "@/features/terminal/constants/agentCli";
 import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
+import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap };
 
 /**
  * SettingsDialog - desktop settings surface: centered modal, category nav on the
@@ -48,6 +52,9 @@ export default function SettingsDialog({
   const setShowNoteButton = useTerminalStore((s) => s.setShowNoteButton);
 
   const push = usePushToggle(context.subscribeToPush, context.unsubscribeFromPush);
+  const artifact = useArtifactToggle(context.socketRef, context.connected);
+  const mcpClients = useTerminalStore((s) => s.mcpClients);
+  const artifactSupported = artifact.supported;
 
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const agentVersion = context.agentVersion;
@@ -65,8 +72,10 @@ export default function SettingsDialog({
   const categories = useMemo(() => SETTINGS_CATEGORIES.filter((c) => {
     if (c.id === "codespace") return isCodespaces;
     if (c.id === "terminal") return !hideActions.includes("terminalSettings");
+    // An agent too old to serve MCP has nothing to put on this tab
+    if (c.id === "mcp") return artifactSupported;
     return true;
-  }), [isCodespaces, hideActions]);
+  }), [isCodespaces, hideActions, artifactSupported]);
   // "install" is a drill-in from the install row, not a nav entry — it has no category
   const activeCategory = categories.find((c) => c.id === section);
 
@@ -266,6 +275,56 @@ export default function SettingsDialog({
               </div>
             )}
 
+            {section === "mcp" && (
+              <div className="space-y-6">
+                {/* MCP is jargon to most people. Say what it buys them before the switch. */}
+                <p className="text-[13px] leading-relaxed text-text-muted">{t("menu.mcpIntro")}</p>
+
+                {/* Named by the agent, not hardcoded here: it is the side that owns each
+                    CLI's config file, so it is the side that knows which ones it reaches. */}
+                {mcpClients.length > 0 && (
+                  <Group title={t("menu.mcpClients")}>
+                    <div className="flex flex-wrap gap-1.5">
+                      {mcpClients.map((id) => (
+                        <span key={id} className="flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-brand bg-surface-2 text-[12px] text-text">
+                          <img src={agentIconUrl(id)} alt="" className="w-3.5 h-3.5 rounded-[2px]" />
+                          {AGENT_LABELS[id] || id}
+                        </span>
+                      ))}
+                    </div>
+                  </Group>
+                )}
+
+                <Group title={t("menu.mcpTools")}>
+                  <ToggleRow
+                    icon={PanelRight}
+                    label={t("menu.artifactPanel")}
+                    hint={t("menu.artifactHint")}
+                    value={artifact.enabled}
+                    loading={artifact.loading}
+                    disabled={!context.connected}
+                    onChange={artifact.toggle}
+                  />
+                </Group>
+
+                {/* Built from the same extension lists the viewers route on, so this
+                    cannot claim a format the app does not actually render. */}
+                <Group title={t("menu.artifactFormats")}>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    {PREVIEW_KINDS.map((kind) => (
+                      <div key={kind.labelKey} className="min-w-0">
+                        <div className="text-[12px] text-text truncate">{t(kind.labelKey)}</div>
+                        <div className="text-[11px] text-text-muted truncate" title={previewExtLabel(kind.exts)}>
+                          {previewExtLabel(kind.exts)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Group>
+
+                <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpRestartHint")}</p>
+              </div>
+            )}
             {section === "shortcuts" && (
               <ul className="flex flex-col">
                 {SHORTCUT_ROWS.map((entry) => (
@@ -329,11 +388,11 @@ function ActionRow({ icon: RowIcon, iconClass = "", label, badge, danger, disabl
   );
 }
 
-function ToggleRow({ icon: RowIcon, label, hint, value, loading, onChange }) {
+function ToggleRow({ icon: RowIcon, label, hint, value, loading, disabled, onChange }) {
   return (
     <button
       onClick={() => { vibrate(); onChange(!value); }}
-      disabled={loading}
+      disabled={loading || disabled}
       className="w-full px-3 py-2 rounded-brand text-left flex items-center gap-2.5 text-sm text-text hover:bg-surface-2 transition-colors disabled:opacity-60"
     >
       <RowIcon size={16} className="text-brand-500 flex-shrink-0" />

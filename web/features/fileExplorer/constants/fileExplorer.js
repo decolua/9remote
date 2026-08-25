@@ -106,6 +106,22 @@ export const isSheetFile = (p) => hasExt(p, SHEET_EXTENSIONS);
 export const isHtmlFile = (p) => hasExt(p, HTML_EXTENSIONS);
 export const isMermaidFile = (p) => hasExt(p, MERMAID_EXTENSIONS);
 
+// The kinds a settings screen can list, built from the same arrays the viewers route on
+// so the list cannot drift from what actually renders. Extensions without the dot, and
+// only the ones worth naming — a full dump of every alias reads as noise.
+export const PREVIEW_KINDS = [
+  { labelKey: "fileKind.web", exts: HTML_EXTENSIONS },
+  { labelKey: "fileKind.document", exts: [...DOCX_EXTENSIONS, ...PDF_EXTENSIONS] },
+  { labelKey: "fileKind.sheet", exts: SHEET_EXTENSIONS },
+  { labelKey: "fileKind.image", exts: [".png", ".jpg", ".svg", ".gif", ".webp"] },
+  { labelKey: "fileKind.media", exts: [".mp4", ".webm", ".mp3", ".wav"] },
+  { labelKey: "fileKind.diagram", exts: MERMAID_EXTENSIONS },
+  { labelKey: "fileKind.code", exts: [".md", ".js", ".py", ".json"] }
+];
+
+// "html · htm · xhtml" — what a kind's row shows under its name.
+export const previewExtLabel = (exts) => exts.map((e) => e.replace(/^\./, "")).join(" · ");
+
 // Marks the nav reports the agent's preview route injects into every HTML page it
 // serves. The frame is sandboxed onto an opaque origin, so postMessage is the only
 // way its address can reach the viewer — and this tag is how the viewer knows it is

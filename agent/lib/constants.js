@@ -125,6 +125,16 @@ export const CLAUDE_SCROLLBACK_ENV = {
 export const AI_TOOLS = ["claude", "codex", "gemini", "opencode", "grok", "cursor", "antigravity", "kiro", "copilot", "codebuddy", "factory", "qoder", "rovodev", "hermes", "amp", "pi"];
 export const TOOL_LABELS = { claude: "Claude", codex: "Codex", gemini: "Gemini", opencode: "OpenCode", grok: "Grok", cursor: "Cursor", antigravity: "Antigravity", kiro: "Kiro", copilot: "Copilot", codebuddy: "CodeBuddy", factory: "Factory", qoder: "Qoder", rovodev: "Rovo Dev", hermes: "Hermes", amp: "Amp", pi: "Pi" };
 
+// MCP endpoint served by the agent's own HTTP server — no extra process to spawn.
+// One tool: the AI names a file it just made, the app slides it in beside the terminal.
+export const MCP = {
+  SERVER_NAME: "9remote",
+  PROTOCOL_VERSION: "2024-11-05",
+  PATH: "/mcp",
+  // On by default: the AI can show a file the moment the app is installed
+  DEFAULT_ENABLED: true,
+};
+
 // Tunnel health watchdog — poll /api/health via the public tunnel URL
 export const TUNNEL_HEALTH = {
   checkIntervalMs: 30000,

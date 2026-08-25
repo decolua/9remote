@@ -91,7 +91,8 @@ export default function WorkspaceLayout({ children }) {
     setEditorPanelWidth,
     openEditorFile,
     closeEditorFile,
-    editorPreviewSeq
+    editorPreviewSeq,
+    artifactTitle
   } = useTerminalStore();
 
   useEffect(() => {
@@ -289,6 +290,21 @@ export default function WorkspaceLayout({ children }) {
     }
     setMobileEditor({ path, workspace: workspaces.find(w => w.id === activeWorkspaceId)?.path, preview: !!opts.preview });
   }, [workspaces, activeWorkspaceId, setMobileEditor]);
+
+  // The AI asked to show a file it just made (MCP openArtifact). This opens a side
+  // panel and nothing else — which terminal is selected is the user's business, so
+  // it is left exactly as it was even when another terminal made the request.
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+    const onArtifactOpen = ({ path, title } = {}) => {
+      if (!path) return;
+      if (isDesktop) openEditorFile(path, { preview: true, artifactTitle: title || path.split("/").pop() });
+      else openSheetFile(path, { preview: true });
+    };
+    socket.on("artifactOpen", onArtifactOpen);
+    return () => socket.off("artifactOpen", onArtifactOpen);
+  }, [socketRef, connected, isDesktop, openEditorFile, openSheetFile]);
 
   // Lazy per-workspace mount: the FIRST time a workspace becomes active, mark it mounted so its
   // panes' XTerms initialize. Others stay as placeholders until visited — avoids mounting every
@@ -521,6 +537,7 @@ export default function WorkspaceLayout({ children }) {
             editorPanel={{
               filePath: editorFilePath,
               previewSeq: editorPreviewSeq,
+              artifactTitle,
               width: editorPanelWidth,
               onResize: setEditorPanelWidth,
               onOpen: isDesktop ? openEditorFile : openSheetFile,

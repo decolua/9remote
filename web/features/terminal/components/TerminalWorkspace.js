@@ -85,6 +85,29 @@ export default function TerminalWorkspace({
     return () => cancelAnimationFrame(id);
   }, [rightPanel?.open]);
 
+  // Same two-step for the editor/artifact panel: stay mounted after a first open so its
+  // width animates shut, and hold at 0 for one frame on that first open so it animates in.
+  const editorOpen = !!editorPanel?.filePath;
+  const [everOpenedEditor, setEverOpenedEditor] = useState(false);
+  if (editorOpen && !everOpenedEditor) setEverOpenedEditor(true);
+  const [editorExpanded, setEditorExpanded] = useState(false);
+  if (!editorOpen && editorExpanded) setEditorExpanded(false);
+  // Keep the last file on screen while the panel shrinks — unmounting it on close would
+  // blank the panel first and then animate an empty box away.
+  const [lastEditor, setLastEditor] = useState(null);
+  if (editorOpen && lastEditor?.filePath !== editorPanel.filePath) {
+    setLastEditor({
+      filePath: editorPanel.filePath,
+      artifactTitle: editorPanel.artifactTitle,
+      previewSeq: editorPanel.previewSeq
+    });
+  }
+  useEffect(() => {
+    if (!editorOpen) return;
+    const id = requestAnimationFrame(() => setEditorExpanded(true));
+    return () => cancelAnimationFrame(id);
+  }, [editorOpen]);
+
   // Auto pane width: split the row evenly down to min. Measured so width is always an
   // explicit px value — that keeps add/remove/double-click animatable via transition.
   // Measured on the OUTER row (sidebar + panes + panels) with the sidebar's full width always
@@ -418,12 +441,21 @@ export default function TerminalWorkspace({
 
         </div>
 
-        {/* Inline editor, opened from the tree. Mobile takes the whole screen instead of a column. */}
-        {editorPanel?.filePath && (
-          <div className={isDesktop ? "" : "absolute inset-0 z-40 animate-in slide-in-from-bottom duration-200"}>
+        {/* Inline editor, opened from the tree or by the AI (artifact). Desktop animates by
+            width so the panes row reflows and the terminal is pushed aside, never covered;
+            mobile takes the whole screen instead of a column. */}
+        {(editorPanel?.filePath || (isDesktop && everOpenedEditor)) && (
+          <div
+            className={isDesktop
+              ? "overflow-hidden flex-shrink-0 transition-[width] duration-200 ease-out"
+              : "absolute inset-0 z-40 animate-in slide-in-from-bottom duration-200"}
+            style={isDesktop ? { width: editorOpen && editorExpanded ? editorPanel.width : 0 } : undefined}
+            aria-hidden={isDesktop && !editorOpen}
+          >
             <TerminalEditorPanel
-              filePath={editorPanel.filePath}
-              previewSeq={editorPanel.previewSeq}
+              filePath={editorOpen ? editorPanel.filePath : lastEditor?.filePath}
+              artifactTitle={editorOpen ? editorPanel.artifactTitle : lastEditor?.artifactTitle}
+              previewSeq={editorOpen ? editorPanel.previewSeq : lastEditor?.previewSeq}
               workspace={filesRoot}
               fileSocket={fileSocket}
               width={editorPanel.width}

@@ -10,7 +10,7 @@ import { fileURLToPath } from "url";
 import chalk from "chalk";
 
 import { createRouter, jsonOk, jsonErr } from "./lib/router.js";
-import { STEP, browserFetch, PERMISSION_POLL_MS, NPM_REGISTRY_URL, hideDockIcon } from "./lib/constants.js";
+import { STEP, browserFetch, PERMISSION_POLL_MS, NPM_REGISTRY_URL, hideDockIcon, MCP } from "./lib/constants.js";
 import { initLogger, createLogger } from "./lib/logger.js";
 
 hideDockIcon();
@@ -39,6 +39,7 @@ import { UPDATE } from "./cli/config.js";
 import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove, handleSetLabel } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
+import { handleMcpPost } from "./api/mcp.js";
 import { handleSleepInhibitGet, handleSleepInhibitPost } from "./api/sleepInhibit.js";
 import { handleDesktopUnlockGet, handleDesktopUnlockInstall, handleDesktopUnlockType, handleDesktopUnlockUninstall } from "./api/desktopUnlock.js";
 import { handleSessionsList, handleSessionDelete } from "./api/sessions.js";
@@ -210,6 +211,8 @@ const ROUTES = [
   // UI state & SSE (localhost-only)
   { path: "/api/ui/events",        method: "GET",  handler: handleSseEvents },
   { path: "/api/local-token",      method: "GET",  handler: handleLocalToken },
+  // MCP: the AI CLI runs on this host, so the endpoint stays localhost-only (+ bearer token)
+  { path: MCP.PATH,                method: "POST", handler: handleMcpPost },
   { path: "/api/ui/state",         method: "GET",  handler: handleStateGet },
   { path: "/api/ui/state",         method: "POST", handler: handleStatePost },
   { path: "/api/ui/stop",          method: "POST", handler: handleStop },

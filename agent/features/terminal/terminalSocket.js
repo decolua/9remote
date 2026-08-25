@@ -14,6 +14,7 @@ import { setupSessionHandlers, syncAutoNames } from "./handlers/SessionHandler.j
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
+import { isMcpEnabled, syncMcpConfig, MCP_CLIENTS } from "../../mcp/mcpConfig.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
 import { touchWorking, startReaper, getStatuses, setSessionAgent, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest } from "./statusManager.js";
@@ -212,6 +213,9 @@ export async function initializeTerminal() {
   try { reconcileClaudeEnv(); } catch {}
   // Auto-enable notify hooks for every installed AI tool (claude/codex/gemini/opencode)
   try { autoEnableInstalledHooks(); } catch {}
+  // The CLI configs mirror the artifact setting — reconcile them, since a token
+  // change or a fresh install leaves them stale (or missing) after a hook run.
+  try { syncMcpConfig(); } catch {}
 
   if (PERSISTENCE_MODE === "daemon") {
     const connected = await daemonClient.initDaemonClient();
@@ -300,7 +304,11 @@ export function setupTerminalSocket(io, apiKey) {
     canSelfUpdate: true, // this build ships the web-triggered self-update flow
     // Capability flags — web feature-detects against these so old agents don't break
     // when web starts sending a new payload shape (e.g. joinSession with cols/rows).
-    caps: { joinSessionSize: true },
+    caps: { joinSessionSize: true, artifact: true },
+    artifactEnabled: isMcpEnabled(),
+    // Which CLIs the switch writes to — the settings screen names them rather than
+    // hardcoding a list that would drift as clients are added.
+    mcpClients: MCP_CLIENTS,
     ...getCodespaceInfo()
   });
 

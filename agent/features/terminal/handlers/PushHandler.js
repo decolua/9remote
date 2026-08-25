@@ -5,6 +5,7 @@ import { getAutoStartStatus, setAutoStart, isCodespaces } from "../codespaceMana
 import { writeCmd } from "../../../cli/utils/state.js";
 import { scanLocalSites } from "../portScanner.js";
 import { startProxySession, endProxySession, setupSiteRequestHandler } from "../../../proxy/index.js";
+import { setMcpEnabled, MCP_CLIENTS } from "../../../mcp/mcpConfig.js";
 
 export function setupPushHandlers(socket, io) {
   // Full 4-state map (idle/working/blocked/done). New name; UI consumes this.
@@ -87,6 +88,17 @@ export function setupPushHandlers(socket, io) {
   // socket.on("enableHook", async ({ tool }, callback) => { try { callback(await enableToolHook(tool)); } catch (e) { callback({ success: false, error: e.message }); } });
   // socket.on("disableHook", async ({ tool }, callback) => { try { callback(await disableToolHook(tool)); } catch (e) { callback({ success: false, error: e.message }); } });
   // socket.on("getHookStatus", (callback) => callback(getHookStatus()));
+
+  // Artifact MCP: one switch that writes the endpoint into every AI CLI's own config.
+  // A running CLI reads its config at startup, so the change lands on its next launch.
+  socket.on("setArtifactEnabled", async ({ enabled } = {}, callback) => {
+    const value = setMcpEnabled(enabled);
+    callback?.({ success: true, enabled: value, clients: MCP_CLIENTS });
+    // Every other client mirrors this setting — imported lazily because terminalSocket
+    // is what mounts these handlers, so a static import would close the cycle.
+    const { broadcastServerInfo } = await import("../terminalSocket.js");
+    broadcastServerInfo();
+  });
 
   socket.on("getAutoStartStatus", (callback) => {
     if (!isCodespaces()) return callback({ success: false, error: "Not in Codespaces" });

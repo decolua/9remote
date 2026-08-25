@@ -89,6 +89,13 @@ export const useTerminalStore = create(
       // so web doesn't break against an older agent (e.g. joinSession with cols/rows).
       agentCaps: {},
       setAgentCaps: (caps) => set({ agentCaps: caps || {} }),
+      // Mirrors the agent's own setting (it owns the CLI config files); serverInfo
+      // re-sends it after every change, so this is a cache, not a second truth.
+      artifactEnabled: false,
+      setArtifactEnabled: (enabled) => set({ artifactEnabled: !!enabled }),
+      // AI CLI ids the agent writes the MCP entry into, named in the settings screen.
+      mcpClients: [],
+      setMcpClients: (ids) => set({ mcpClients: Array.isArray(ids) ? ids : [] }),
 
       // TUI agent CLIs detected by the agent (new-terminal modal). agentClisAt =
       // fetch timestamp for the TTL gate in useAgentClis. Not persisted.
@@ -199,11 +206,12 @@ export const useTerminalStore = create(
       // Per-workspace tab choice: switching workspace restores its own files/git tab.
       rightPanelTabs: {},
       rightPanelWidth: RIGHT_PANEL_WIDTH.default,
-      toggleRightPanel: () => set((state) => ({ rightPanelOpen: !state.rightPanelOpen })),
-      closeRightPanel: () => set({ rightPanelOpen: false }),
-      openRightPanel: () => set({ rightPanelOpen: true }),
+      toggleRightPanel: () => set((state) => ({ rightPanelOpen: !state.rightPanelOpen, rightPanelWasOpen: null })),
+      closeRightPanel: () => set({ rightPanelOpen: false, rightPanelWasOpen: null }),
+      openRightPanel: () => set({ rightPanelOpen: true, rightPanelWasOpen: null }),
       setRightPanelTab: (tab, workspacePath) => set((state) => ({
         rightPanelOpen: true,
+        rightPanelWasOpen: null,
         // "" is the shared slot for a workspace-less panel — the tab must still switch.
         ...(workspacePath != null ? { rightPanelTabs: { ...state.rightPanelTabs, [workspacePath]: tab } } : {})
       })),
@@ -230,11 +238,27 @@ export const useTerminalStore = create(
       setEditorPanelWidth: (w) => set({ editorPanelWidth: clampWidth(w, EDITOR_PANEL_WIDTH) }),
       // Bumped seq, not a boolean: reopening the same file must re-trigger preview.
       editorPreviewSeq: 0,
+      // An artifact is the same panel opened by the AI rather than by the tree. It takes
+      // the side panel's place while it is up: two panels at once leaves no room for the
+      // terminal. rightPanelWasOpen remembers what to give back on close — null once the
+      // user opens the side panel themselves, since that choice outranks the restore.
+      artifactTitle: null,
+      rightPanelWasOpen: null,
       openEditorFile: (filePath, opts = {}) => set((st) => ({
         editorFilePath: filePath,
-        editorPreviewSeq: opts.preview ? st.editorPreviewSeq + 1 : 0
+        editorPreviewSeq: opts.preview ? st.editorPreviewSeq + 1 : 0,
+        artifactTitle: opts.artifactTitle || null,
+        ...(opts.artifactTitle
+          ? { rightPanelWasOpen: st.rightPanelWasOpen ?? st.rightPanelOpen, rightPanelOpen: false }
+          : {})
       })),
-      closeEditorFile: () => set({ editorFilePath: null, editorPreviewSeq: 0 }),
+      closeEditorFile: () => set((st) => ({
+        editorFilePath: null,
+        editorPreviewSeq: 0,
+        artifactTitle: null,
+        rightPanelWasOpen: null,
+        ...(st.rightPanelWasOpen ? { rightPanelOpen: true } : {})
+      })),
 
 
       // Actions

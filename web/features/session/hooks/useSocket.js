@@ -224,6 +224,8 @@ export function useSocket() {
       setUpdateAvailable(info.updateAvailable || null);
       setCanSelfUpdate(!!info.canSelfUpdate);
       useTerminalStore.getState().setAgentCaps(info.caps || {});
+      useTerminalStore.getState().setArtifactEnabled(info.artifactEnabled);
+      useTerminalStore.getState().setMcpClients(info.mcpClients);
       if (info.isCodespaces) {
         setCodespaceInfo({ isCodespaces: info.isCodespaces, codespaceName: info.codespaceName });
       }
