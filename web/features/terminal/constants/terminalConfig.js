@@ -399,3 +399,8 @@ export const BUTTON_STYLES = {
   sizeLarge: { minWidth: "38px", height: "32px", paddingLeft: "8px", paddingRight: "8px" },
   sizeSmall: { width: "28px", height: "28px" }
 };
+
+// Branches treated as "the workspace default" — never worth showing in the sidebar,
+// since a terminal sitting on main is the norm, not information.
+export const DEFAULT_BRANCHES = ["main", "master"];
+export const isDefaultBranch = (branch) => DEFAULT_BRANCHES.includes(branch);

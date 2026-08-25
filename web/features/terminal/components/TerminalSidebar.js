@@ -11,7 +11,7 @@ import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
-import { SIDEBAR_WIDTH } from "../constants/terminalConfig";
+import { SIDEBAR_WIDTH, isDefaultBranch } from "../constants/terminalConfig";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { groupSessionsByWorkspace, shortenHomePath, workspaceGitPath } from "../lib/workspaceGrouping";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
@@ -29,36 +29,32 @@ function guessTool(name = "") {
   return null;
 }
 
-// Second line of a terminal item: the branch of its own workspacePath, plus the state
+// Second line of a terminal item: the branch of its live checkout, plus the state
 // when something is happening. The agent's name is not repeated — the icon in the row
 // already says which one it is, and "claude" next to a Claude logo says it twice.
-// Branch lives on the workspace header; a card repeats it only when the terminal's live
-// checkout (OSC 7 cwd) diverges from the workspace branch — e.g. cd into another worktree.
-export function SessionMeta({ session, fileSocket, cwd, basePath, homeDir }) {
+// A default branch (main/master) is the norm, not information, so it stays hidden.
+export function SessionMeta({ fileSocket, cwd, basePath, homeDir }) {
   const { branch, dirty } = useWorkspaceGit(cwd, fileSocket);
-  const { branch: baseBranch } = useWorkspaceGit(basePath, fileSocket);
-  // Divergence needs a workspace branch to diverge from — a non-git workspace root
-  // (folder of repos) has none, so cards stay quiet instead of each naming its own.
-  const diverged = !!branch && !!baseBranch && branch !== baseBranch;
-  // Second line, in priority order: diverged branch → live folder relative to the
-  // workspace root → shell id when parked at the root (the only non-duplicate info left).
-  const atRoot = cwd && basePath ? cwd === basePath : true;
-  const meta = diverged ? null
+  const showBranch = !!branch && !isDefaultBranch(branch);
+  // Second line, in priority order: off-default branch → live folder relative to the
+  // workspace root → path when the cwd left the workspace. Parked at the root on the
+  // default branch there is nothing to say, so the row stays one line.
+  const meta = showBranch ? null
     : cwd && basePath && cwd.startsWith(`${basePath}/`) ? cwd.slice(basePath.length + 1)
-    : atRoot ? session.shellId
-    : shortenHomePath(cwd, homeDir);
-  if (!diverged && !meta) return null;
+    : cwd && basePath && cwd !== basePath ? shortenHomePath(cwd, homeDir)
+    : null;
+  if (!showBranch && !meta) return null;
   return (
     <span className="text-[10px] text-text-subtle truncate leading-tight flex items-center gap-1.5">
-      {diverged && <BranchBadge branch={branch} dirty={dirty} className="truncate italic" />}
-      {meta && <span className="truncate opacity-70">{meta}</span>}
+      {showBranch && <BranchBadge branch={branch} dirty={dirty} className="truncate italic" />}
+      {meta && <span className="truncate opacity-70" title={meta}>{meta}</span>}
     </span>
   );
 }
 
-// One workspace row: collapse chevron, name, shortened path + branch, actions.
+// One workspace row: collapse chevron, name, off-default branch, actions.
 function WorkspaceHeader({
-  workspace, isActive, connected, homeDir, collapsed, fileSocket,
+  workspace, isActive, connected, collapsed, fileSocket,
   onToggleCollapse, onSelect, onNewTerminal, onDelete
 }) {
   const { t } = useI18n();
@@ -85,16 +81,14 @@ function WorkspaceHeader({
         <ChevronRight size={12} className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`} />
       </button>
       <span className="flex-1 min-w-0 flex flex-col">
-        <span className={`text-[12px] font-medium uppercase truncate ${isActive ? "text-text" : "text-text-muted"}`}>
+        <span className={`text-[12px] font-medium uppercase truncate ${isActive ? "text-text" : "text-text-muted"}`} title={workspace.name}>
           {workspace.name}
         </span>
-        {gitPath && (
+        {/* Path is dropped and a default branch stays hidden — only an off-default
+            worktree is worth a second line. Never repeats the workspace name. */}
+        {branch && !isDefaultBranch(branch) && branch !== workspace.name && (
           <span className="text-[10px] text-text-subtle leading-tight flex items-center gap-1 min-w-0">
-            <span className="truncate">{shortenHomePath(gitPath, homeDir)}</span>
-            {/* Hidden when the workspace name already is the branch — never repeat a label */}
-            {branch && branch !== workspace.name && (
-              <BranchBadge branch={branch} dirty={dirty} className="truncate flex-shrink-0 max-w-[7rem]" />
-            )}
+            <BranchBadge branch={branch} dirty={dirty} className="truncate flex-shrink-0 max-w-[7rem]" />
           </span>
         )}
       </span>
@@ -404,7 +398,6 @@ export default function TerminalSidebar({
                   workspace={grp}
                   isActive={isActiveWorkspace}
                   connected={connected}
-                  homeDir={homeDir}
                   fileSocket={fileSocket}
                   collapsed={!!collapsed[wsKey]}
                   onToggleCollapse={() => toggleCollapsed(wsKey)}
@@ -426,7 +419,7 @@ export default function TerminalSidebar({
                       key={s.id}
                       data-item-row
                       data-sid={s.id}
-                      className={`group w-full flex items-center gap-1.5 pl-3.5 pr-2 py-px text-left transition-colors border-l-2 relative cursor-pointer ${
+                      className={`group w-full flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 text-left transition-colors border-l-2 relative cursor-pointer ${
                         isActive
                           ? "bg-text/8 border-brand-500 text-text"
                           : "border-transparent text-text-muted hover:bg-text/5 hover:text-text"
@@ -459,10 +452,9 @@ export default function TerminalSidebar({
                           ) : (
                             <Terminal size={12} className="flex-shrink-0" />
                           )}
-                          <span className="text-[11px] truncate">{s.name || t("terminal.defaultName")}</span>
+                          <span className="text-[11px] truncate" title={s.name || t("terminal.defaultName")}>{s.name || t("terminal.defaultName")}</span>
                         </span>
                         <SessionMeta
-                          session={s}
                           fileSocket={fileSocket}
                           cwd={cwdBySession[s.id] ?? s.workspacePath}
                           basePath={workspaceGitPath(grp)}
@@ -554,9 +546,9 @@ export default function TerminalSidebar({
       {createModalWsId !== null && (
         <NewTerminalModal
           onClose={() => setCreateModalWsId(null)}
-          onCreate={(name, shellId, agent, yolo, cwd) => {
+          onCreate={(name, shellId, agent, yolo, cwd, nameIsAuto) => {
             const wsId = createModalWsId === "" ? null : createModalWsId;
-            onCreateNamedSession?.(name, wsId, shellId, cwd || null, agent, yolo);
+            onCreateNamedSession?.(name, wsId, shellId, cwd || null, agent, yolo, nameIsAuto);
           }}
           shells={shells}
           socketRef={socketRef}
