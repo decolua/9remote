@@ -174,27 +174,25 @@ export function RenameModal({ value, onChange, onSubmit, onClose }) {
   );
 }
 
-/** Copy conflict: Skip / Skip all / Replace / Replace all.
- *  NOTE: the four `files.*` keys below do not exist in the locale files (the real
- *  ones live under `menu.*`), so these buttons render the raw key. Pre-existing —
- *  kept as-is here so this refactor changes no behaviour. */
+/** Copy conflict: Skip / Skip all / Replace / Replace all. The keys live under
+ *  `menu.*` — the `files.*` ones this used to read do not exist. */
 export function ConflictModal({ name, onResolve }) {
   const { t } = useI18n();
   const choice = (key, cls) => (
     <button
       onClick={() => { vibrate(); onResolve(key); }}
       className={`py-2 rounded-brand text-sm ${cls}`}
-    >{t(`files.${key}`)}</button>
+    >{t(`menu.${key}`)}</button>
   );
   return (
     <div className={MODAL_WRAP}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
       <div className="relative card-elev w-full max-w-sm">
         <div className="px-4 py-3">
-          <h3 className="text-text font-semibold">{t("files.conflictTitle")}</h3>
+          <h3 className="text-text font-semibold">{t("menu.conflictTitle")}</h3>
         </div>
         <div className="px-4 pb-3 text-text-muted text-sm break-all">
-          {t("files.conflictMessage", { name })}
+          {t("menu.conflictMessage", { name })}
         </div>
         <div className="p-4 grid grid-cols-2 gap-2">
           {choice("skip", "bg-surface-2 text-text hover:bg-surface-3")}

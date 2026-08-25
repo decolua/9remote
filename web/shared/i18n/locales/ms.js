@@ -111,7 +111,7 @@ export default {
     downloading: "Downloading",
     copying: "Copying",
     conflictTitle: "File already exists",
-    conflictMessage: "{{name}} already exists. Replace or skip?",
+    conflictMessage: "{name} already exists. Replace or skip?",
     skip: "Skip",
     skipAll: "Skip all",
     replace: "Replace",
