@@ -177,6 +177,15 @@ export const EXPLORER_ROW = {
   compact: { indentBase: 8,  indentStep: 8,  icon: 14, chevron: 12, text: "text-[13px] sm:text-[12px]", padY: "py-0.5 sm:py-[1px]" }
 };
 
+// Where the hover actions sit, measured from the row's right edge. They float over the
+// name (no reserved space), so they must clear whatever git badge the row happens to
+// carry — and only that row: a fixed inset left an empty gap on every unmarked row.
+export const EXPLORER_ACTION_RIGHT = { none: 4, dot: 22, status: 32 };
+export const actionRightFor = (status) =>
+  !status ? EXPLORER_ACTION_RIGHT.none
+  : status === "folder-changed" ? EXPLORER_ACTION_RIGHT.dot
+  : EXPLORER_ACTION_RIGHT.status;
+
 // Auto-save is gone: an editor that writes behind the user's back cannot be trusted
 // with a file they are halfway through changing, and it hides write failures.
 

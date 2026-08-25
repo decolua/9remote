@@ -356,6 +356,20 @@ export function setupFileHandlers(socket) {
     }
   });
 
+  socket.on("copyItem", ({ srcPath, destPath }, callback) => {
+    try {
+      if (isSensitivePath(srcPath) || isSensitivePath(destPath)) return callback({ success: false, error: "Access denied" });
+      if (!fs.existsSync(srcPath)) return callback({ success: false, error: "Item not found" });
+      if (fs.existsSync(destPath)) return callback({ success: false, error: "Target already exists" });
+      // Copying a folder into itself would recurse forever.
+      if (destPath.startsWith(srcPath + "/")) return callback({ success: false, error: "Cannot copy into itself" });
+      fs.cpSync(srcPath, destPath, { recursive: true });
+      callback({ success: true });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
   socket.on("renameItem", ({ oldPath, newPath }, callback) => {
     try {
       if (isSensitivePath(oldPath) || isSensitivePath(newPath)) return callback({ success: false, error: "Access denied" });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import { joinPath, dirname } from "@/features/fileExplorer/lib/pathUtils";
+import { joinPath, dirname, basename } from "@/features/fileExplorer/lib/pathUtils";
 
 const CHANGE_EVENTS = {
   created: "fileExplorer:fileCreated",
@@ -46,20 +46,43 @@ export function useFileOperations({ fileSocket, loadDir, loadGitStatus, expandDi
     await loadDir(parent);
   }, [fileSocket, loadDir]);
 
+  const deleteMany = useCallback(async (files) => {
+    if (!files?.length) return;
+    const dirs = new Set();
+    for (const file of files) {
+      const res = await fileSocket.deleteItem(file.path);
+      if (res?.success) dirs.add(dirname(file.path));
+    }
+    if (!dirs.size) return;
+    notify("deleted");
+    for (const d of dirs) await loadDir(d);
+    loadGitStatus();
+    onMoved?.();
+  }, [fileSocket, loadDir, loadGitStatus, onMoved]);
+
+  // Copy `src` into `dir`, stepping the name aside when it is taken ("x copy", "x copy 2").
+  const copyInto = useCallback(async (src, dir) => {
+    const name = basename(src);
+    const existing = new Set(((await fileSocket.getFiles(dir, true))?.files || []).map((f) => f.name));
+    let candidate = name;
+    if (existing.has(candidate)) {
+      const dotIdx = name.lastIndexOf(".");
+      const stem = dotIdx > 0 ? name.slice(0, dotIdx) : name;
+      const ext = dotIdx > 0 ? name.slice(dotIdx) : "";
+      candidate = `${stem} copy${ext}`;
+      for (let n = 2; existing.has(candidate); n++) candidate = `${stem} copy ${n}${ext}`;
+    }
+    return fileSocket.copyItem(src, joinPath(dir, candidate));
+  }, [fileSocket]);
+
   const duplicateItem = useCallback(async (file) => {
-    if (file.type === "folder") return;
-    const read = await fileSocket.readFile(file.path);
-    if (!read?.success) return;
-    const dotIdx = file.name.lastIndexOf(".");
-    const base = dotIdx > 0 ? file.name.slice(0, dotIdx) : file.name;
-    const ext = dotIdx > 0 ? file.name.slice(dotIdx) : "";
-    const copyName = `${base} copy${ext}`;
     const parent = dirname(file.path);
-    const copyPath = joinPath(parent, copyName);
-    await fileSocket.createItem(copyPath, "file");
-    await fileSocket.writeFile(copyPath, read.content || "");
+    const res = await copyInto(file.path, parent);
+    if (!res?.success) return;
+    notify("created");
     await loadDir(parent);
-  }, [fileSocket, loadDir]);
+    loadGitStatus();
+  }, [copyInto, loadDir, loadGitStatus]);
 
   // Move files via drag-drop (uses renameItem as move)
   const moveTo = useCallback(async (paths, targetDir) => {
@@ -79,5 +102,22 @@ export function useFileOperations({ fileSocket, loadDir, loadGitStatus, expandDi
     onMoved?.();
   }, [fileSocket, loadDir, loadGitStatus, onMoved]);
 
-  return { createItem, renameItem, deleteItem, duplicateItem, moveTo };
+  // Paste an internal clipboard into a folder: "cut" is a move, "copy" duplicates.
+  const pasteInto = useCallback(async (paths, targetDir, mode) => {
+    if (!paths?.length || !targetDir) return;
+    if (mode === "cut") return moveTo(paths, targetDir);
+    let copied = 0;
+    for (const src of paths) {
+      if (targetDir === src || targetDir.startsWith(src + "/")) continue;
+      const res = await copyInto(src, targetDir);
+      if (res?.success) copied++;
+    }
+    if (!copied) return;
+    notify("created");
+    await loadDir(targetDir);
+    expandDir(targetDir);
+    loadGitStatus();
+  }, [copyInto, moveTo, loadDir, expandDir, loadGitStatus]);
+
+  return { createItem, renameItem, deleteItem, deleteMany, duplicateItem, moveTo, pasteInto };
 }

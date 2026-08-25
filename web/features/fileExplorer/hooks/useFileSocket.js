@@ -106,6 +106,16 @@ export function useFileSocket(socketRef, protocolRef) {
     });
   }, [socketRef]);
 
+  const copyItem = useCallback((srcPath, destPath) => {
+    return new Promise((resolve) => {
+      if (!socketRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      socketRef.current.emit("copyItem", { srcPath, destPath }, resolve);
+    });
+  }, [socketRef]);
+
   // Git status
   const gitStatus = useCallback((repoPath) => {
     return new Promise((resolve) => {
@@ -411,6 +421,7 @@ export function useFileSocket(socketRef, protocolRef) {
     createItem,
     deleteItem,
     renameItem,
+    copyItem,
     gitStatus,
     gitChangedCount,
     gitFileStatus,
@@ -445,7 +456,7 @@ export function useFileSocket(socketRef, protocolRef) {
     previewStart,
     previewEnd
   }), [getSystemInfo, getFiles, readFile, readImage, readMedia, writeFile, createItem, deleteItem,
-    renameItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
+    renameItem, copyItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
     searchInFiles, replaceInFiles, watchDir, unwatchDir, revealInOS, openInTerminal,
     getFileTree, gitBranch, gitScanRepos, gitWorkspaceChangedCount, gitRefreshRepos, gitWorktreeList, gitWorktreeAdd,
     gitWorktreeRemove, gitBranchList, gitBranchCheckout, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog,

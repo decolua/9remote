@@ -1,7 +1,7 @@
 "use client";
 
 import Icon from "@/shared/components/ui/Icon";
-import { GIT_STATUS_COLORS, EXPLORER_ROW } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, EXPLORER_ROW, actionRightFor } from "../constants/fileExplorer.js";
 import { resolveFileIcon, resolveFolderIcon } from "../constants/fileIcons.js";
 
 const TRUNCATED_NOTE = "Showing first 300 entries — use search for the rest.";
@@ -36,7 +36,7 @@ export function TruncatedNote({ depth, compact = false }) {
 // git badge and the overflow button. Recursion lives in the parent.
 // Extracted verbatim from ExplorerPanel.renderRow.
 export default function ExplorerRow({
-  file, depth, isFolder, isExpanded, isLoading, isActive, isSelected, isRenaming, isDragOver,
+  file, depth, isFolder, isExpanded, isLoading, isActive, isSelected, isRenaming, isDragOver, isCut,
   gitStatus, renameValue, renameInputRef,
   onRenameChange, onRenameSubmit, onRenameCancel,
   onToggleFolder, onClick, onContextMenu, onTouchStart, onTouchEnd,
@@ -54,10 +54,12 @@ export default function ExplorerRow({
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        className={`group relative flex items-center gap-1 rounded-[3px] mx-0.5 pr-2 cursor-pointer select-none ${m.text} ${m.padY} ${
+        className={`group relative flex items-center gap-1 rounded-[3px] mx-0.5 pr-2 cursor-pointer select-none ${m.text} ${m.padY} ${isCut ? "opacity-50" : ""} ${
           isDragOver ? "bg-brand-500/30 ring-1 ring-brand-500" :
-          isActive ? "bg-brand-500/15" :
-          isSelected ? "bg-surface-2" : "hover:bg-surface-2"
+          // Selection has to outrank hover: sharing bg-surface-2 with it made a
+          // ten-row selection look like the mouse simply passing through.
+          isSelected ? "bg-brand-500/25" :
+          isActive ? "bg-brand-500/15" : "hover:bg-surface-2"
         }`}
         style={{ paddingLeft: indentFor(depth, compact) }}
         onContextMenu={onContextMenu}
@@ -109,9 +111,13 @@ export default function ExplorerRow({
         {!isRenaming && <GitBadge status={gitStatus} />}
 
         {/* Overflow floats OVER the name (git-panel style, no reserved space) — the
-            terminal action moved into the context menu. */}
+            terminal action moved into the context menu. It steps aside only for the badge
+            this row actually has, so an unmarked row keeps it flush with the edge. */}
         {!isRenaming && (
-          <div className="absolute right-[26px] top-1/2 -translate-y-1/2 flex items-center pl-2 pr-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div
+            className="absolute top-1/2 -translate-y-1/2 flex items-center pl-2 pr-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ right: actionRightFor(gitStatus) }}
+          >
             <button
               onClick={onContextMenu}
               className="p-0.5 text-text-muted hover:text-text"
