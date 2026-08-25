@@ -4,7 +4,7 @@ import { useCallback, useEffect } from "react";
 import { useI18n } from "@/shared/i18n";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { agentLaunchCommand } from "@/features/terminal/constants/agentCli";
+import { agentLaunchCommand, applySkipPermissions } from "@/features/terminal/constants/agentCli";
 
 // Session/workspace navigation: select, create, delete, rename, and the workspace-aware
 // tab cycling used by the PC input bar.
@@ -91,7 +91,7 @@ export function useSessionNavigation({
   // handleSelectSession would reset it. `cwd` overrides the inherited one (tree "new terminal here").
   // `agent` = {id,label,cmd,...} from the modal — the CLI is typed into the session on
   // first join. `yolo` adds the agent's own skip-permission flag/env to that command.
-  const handleCreateSession = useCallback((name, workspaceId = null, shellId = null, cwd = null, agent = null, yolo = false) => {
+  const handleCreateSession = useCallback((name, workspaceId = null, shellId = null, cwd = null, agent = null, yolo = false, nameIsAuto = false) => {
     createSession(name, shellId, workspaceId, cwd || null, (result) => {
       if (!result.success) return alertCreateFailed(result.error);
       if (!result.sessionId) return;
@@ -101,17 +101,23 @@ export function useSessionNavigation({
       addOpenedSession(result.sessionId);
       // Auto-select the new terminal when created from within terminal view
       if (currentView.type === "terminal") replaceTopWithSession(result.sessionId);
-    });
+    }, nameIsAuto);
   }, [createSession, addOpenedSession, alertCreateFailed, currentView, replaceTopWithSession]);
 
   // Re-enter one past agent-CLI conversation: a fresh terminal parked in the
   // directory that conversation ran in, with the CLI's own resume line queued.
   const handleResumeAgentSession = useCallback((row) => {
     if (!row?.resume) return;
-    createSession(row.title || null, null, activeWorkspaceId, row.cwd || null, (result) => {
+    // Resuming keeps the CLI's skip-permission mode: dropping back to per-action
+    // approval is not where the conversation left off.
+    const agent = useTerminalStore.getState().agentClis?.find((a) => a.id === row.agent) || null;
+    const resumeLine = applySkipPermissions(agent, row.resume);
+    // Created unnamed on purpose: the agent names an auto-named terminal after
+    // the conversation it runs, so the tab keeps following that chat's title.
+    createSession(null, null, activeWorkspaceId, row.cwd || null, (result) => {
       if (!result.success) return alertCreateFailed(result.error);
       if (!result.sessionId) return;
-      useTerminalStore.getState().queueStartup(result.sessionId, row.resume);
+      useTerminalStore.getState().queueStartup(result.sessionId, resumeLine);
       if (row.agent) useTerminalStore.getState().setSessionAgent(result.sessionId, row.agent);
       // Tell the agent which conversation this terminal is resuming, so the
       // history row points at it before the CLI reports anything of its own.
@@ -126,7 +132,7 @@ export function useSessionNavigation({
   // Quick create in the active workspace (header "+" button, Mod+Shift+Enter chord).
   // Always focuses the new pane, unlike handleCreateSession which only does so from
   // terminal view. `agent`/`yolo`/`name` let the chord replay the modal's last choice.
-  const handleQuickCreateSession = useCallback((shellId, agent = null, yolo = false, name = null) => {
+  const handleQuickCreateSession = useCallback((shellId, agent = null, yolo = false, name = null, nameIsAuto = false) => {
     createSession(name, shellId, activeWorkspaceId, null, (result) => {
       if (!result.success) return alertCreateFailed(result.error);
       if (!result.sessionId) return;
@@ -134,7 +140,7 @@ export function useSessionNavigation({
       if (startupCmd) useTerminalStore.getState().queueStartup(result.sessionId, startupCmd);
       addOpenedSession(result.sessionId);
       replaceTopWithSession(result.sessionId);
-    });
+    }, nameIsAuto);
   }, [createSession, activeWorkspaceId, addOpenedSession, alertCreateFailed, replaceTopWithSession]);
 
   // Create from the FileExplorer bottom panel — stay in the current view

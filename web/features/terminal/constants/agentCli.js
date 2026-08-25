@@ -27,6 +27,18 @@ export function agentLaunchCommand(agent, skipPermissions = false) {
   return agent.cmd;
 }
 
+// Re-apply the agent's own skip-permission mode to an already-built command line
+// (a resume line). Same tokens as agentLaunchCommand: flag appended, env prefixed.
+export function applySkipPermissions(agent, line) {
+  if (!agent || !line) return line;
+  if (agent.yolo) return `${line} ${agent.yolo}`;
+  if (agent.yoloEnv) {
+    const prefix = Object.entries(agent.yoloEnv).map(([k, v]) => `${k}=${v}`).join(" ");
+    return `${prefix} ${line}`;
+  }
+  return line;
+}
+
 // Last-used new-terminal choices, shared by the modal (which writes them) and the
 // Mod+Shift+Enter chord (which replays them without opening the modal).
 const SHELL_PREF_KEY = "9remote.terminal.shellPref";
