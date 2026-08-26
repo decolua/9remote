@@ -7,7 +7,7 @@ import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { createProxySocket, fireProxyEvent } from "./lib/proxySocket";
 import { callerTrace, pickAdapter } from "./lib/controlRouting";
-import { nextRestartStep, restartTimerAction, restartRtcAction } from "./lib/rtcRecoveryPolicy";
+import { nextRestartStep, restartTimerAction, restartRtcAction, peerDeadline } from "./lib/rtcRecoveryPolicy";
 import { attachWatchers } from "./lib/pmWatchers";
 import { handleWsStateChange, handleRtcStateChange } from "./lib/adapterStateHandlers";
 import { buildConfig, initialState } from "./lib/pmConfig";
@@ -539,7 +539,7 @@ export class ProtocolManager {
     termLog("switch", `scheduleRtcRestart by=${callerTrace()} attempt=${this._rtcRestartAttempts} delay=${delay}ms probe=${isProbe}`);
     debugLog("transport", `[pm] schedule rtc ${isProbe ? "probe" : "restart"} #${this._rtcRestartAttempts} in ${delay}ms`);
     clearTimeout(this._rtcRestartTimer);
-    this._rtcRestartTimer = setTimeout(() => {
+    const retry = () => {
       this._rtcRestartTimer = null;
       if (this._awaitingApproval) return;
       if (!this._sig?.ready) return; // DO down — _onSignalingReady will restart
@@ -552,11 +552,28 @@ export class ProtocolManager {
         const action = restartTimerAction({
           state: rtc.state,
           connectingSince: rtc.connectingSince,
+          connectDeadline: rtc.connectDeadline,
           now: Date.now(),
           connectTimeoutMs: RTC_CONNECT_TIMEOUT_MS
         });
         if (action === "wait") {
-          this._scheduleRtcRestart(); // peer still young → try again later
+          // Re-arm at the SAME rung. Routing this back through _scheduleRtcRestart
+          // spent a rung to wait — three of them burned in the fast phase before
+          // the peer had said anything, so the ladder reached the minute-long
+          // rungs without a single real attempt behind it. Waiting on a peer that
+          // is still trying is not an attempt, and must not cost like one.
+          //
+          // Sleep to the peer's own deadline rather than re-using `delay`: a
+          // 500ms rung against a 15s ICE window would wake thirty times to learn
+          // the same thing. One wake, exactly when there is something to decide.
+          const until = Math.max(peerDeadline({
+            connectingSince: rtc.connectingSince,
+            connectDeadline: rtc.connectDeadline,
+            connectTimeoutMs: RTC_CONNECT_TIMEOUT_MS
+          }) - Date.now(), delay);
+          termLog("switch", `restart tick: peer still young (rung ${this._rtcRestartAttempts}) → re-arm in ${until}ms, no rung spent`);
+          clearTimeout(this._rtcRestartTimer);
+          this._rtcRestartTimer = setTimeout(retry, until);
           return;
         }
         if (action === "teardown") {
@@ -566,7 +583,8 @@ export class ProtocolManager {
         }
       }
       this._restartRtc();
-    }, delay);
+    };
+    this._rtcRestartTimer = setTimeout(retry, delay);
   }
 
   // ─── Signaling routing (cross-adapter for RTC) ────────────────────────────

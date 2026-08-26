@@ -122,6 +122,12 @@ export class WebRtcProtocol extends BaseProtocol {
     this._everOpened = false;
     this._setState(ADAPTER_STATE.connecting);
     this.connectingSince = Date.now(); // age guard for the restart loop's stale-kill
+    // The deadline this peer is actually being judged against. The restart loop
+    // used to assume RTC_CONNECT_TIMEOUT_MS and killed peers at ~5s — but an
+    // answered peer extends itself to RTC_ICE_TIMEOUT_MS below, so ICE lost two
+    // thirds of the window it was given. Publishing the deadline keeps the two
+    // clocks from drifting: whoever moves the timer moves this with it.
+    this.connectDeadline = this.connectingSince + RTC_CONNECT_TIMEOUT_MS;
     // Offer may be dropped by the DO relay if the agent hasn't joined its room yet
     // (forward-only, no store) → no answer → ICE never runs → stuck "connecting".
     // Timeout converts that into a closed → PM re-offer; later retries hit a ready agent.
@@ -389,6 +395,7 @@ export class WebRtcProtocol extends BaseProtocol {
         // timeout and retried forever. An answer proves the agent is alive, so
         // restart the clock and give ICE its own full window.
         clearTimeout(this._connectTimer);
+        this.connectDeadline = Date.now() + RTC_ICE_TIMEOUT_MS;
         this._connectTimer = setTimeout(async () => {
           if (this._state === ADAPTER_STATE.open) return;
           // TEMP DIAGNOSTIC — same-LAN ICE sometimes fails with zero connecting

@@ -3,7 +3,7 @@
 // and the scheduler shows up here.
 // Run: node --import ./test/loader-alias.mjs web/test/rtcRecoveryPolicy.test.mjs
 import assert from "node:assert/strict";
-import { RTC_RESTART, ADAPTER_STATE, RTC_CONNECT_TIMEOUT_MS } from "../shared/constants/transport.js";
+import { RTC_RESTART, ADAPTER_STATE, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS } from "../shared/constants/transport.js";
 import { nextRestartStep, restartTimerAction, restartRtcAction, sameNetwork } from "../shared/transport/lib/rtcRecoveryPolicy.js";
 
 let pass = 0, fail = 0;
@@ -85,6 +85,30 @@ test("restartTimerAction: young peer waits, aged peer is torn down, dead peer re
   // connectingSince missing → treated as age=now, i.e. past the timeout
   assert.equal(restartTimerAction({
     state: ADAPTER_STATE.connecting, connectingSince: undefined, now, connectTimeoutMs: RTC_CONNECT_TIMEOUT_MS
+  }), "teardown");
+});
+
+test("restartTimerAction: an answered peer is judged on ITS deadline, not the answer clock", () => {
+  const now = 100_000;
+  // Five seconds into the 15s ICE window an answered peer publishes. Deriving the
+  // deadline from connectingSince + the 4s answer timeout called this expired and
+  // tore it down two thirds of the way through — the ladder then climbed on a
+  // network that works. The peer's own deadline is the authority.
+  assert.equal(restartTimerAction({
+    state: ADAPTER_STATE.connecting,
+    connectingSince: now - 5000,
+    connectDeadline: now + RTC_ICE_TIMEOUT_MS - 5000,
+    now,
+    connectTimeoutMs: RTC_CONNECT_TIMEOUT_MS
+  }), "wait", "an answered peer mid-ICE must be left alone");
+
+  // Past its own deadline → replaceable, however it was clocked.
+  assert.equal(restartTimerAction({
+    state: ADAPTER_STATE.connecting,
+    connectingSince: now - 20_000,
+    connectDeadline: now - 1,
+    now,
+    connectTimeoutMs: RTC_CONNECT_TIMEOUT_MS
   }), "teardown");
 });
 

@@ -48,12 +48,26 @@ export function nextRestartStep({ attempts, probeAttempts, verdict }) {
 /**
  * A peer still inside its natural connect timeout is mid-ICE — killing it on the
  * first tick restarted the loop forever. "wait" reschedules, "teardown" replaces it.
+ *
+ * The deadline comes from the peer itself. Deriving it here from connectingSince
+ * + RTC_CONNECT_TIMEOUT_MS assumed every peer is judged on the 4s answer clock,
+ * but one that HAS been answered swaps in the 15s ICE clock — so a peer five
+ * seconds into a fifteen-second budget read as expired and was torn down two
+ * thirds of the way through the window ICE was deliberately given. That is why
+ * a network reporting natVerdict="ok" still climbed to attempt 14.
+ * connectingSince is the fallback for an adapter that publishes no deadline.
+ *
  * @returns {"wait" | "teardown" | "restart"}
  */
-export function restartTimerAction({ state, connectingSince, now, connectTimeoutMs }) {
+export function restartTimerAction({ state, connectingSince, connectDeadline, now, connectTimeoutMs }) {
   if (state !== ADAPTER_STATE.connecting) return "restart";
-  const age = now - (connectingSince ?? 0);
-  return age < connectTimeoutMs ? "wait" : "teardown";
+  return now < peerDeadline({ connectingSince, connectDeadline, connectTimeoutMs }) ? "wait" : "teardown";
+}
+
+/** When this peer's own clock runs out. The caller re-arms to exactly this
+ *  instant, so it must not be a second copy of the same formula. */
+export function peerDeadline({ connectingSince, connectDeadline, connectTimeoutMs }) {
+  return connectDeadline ?? ((connectingSince ?? 0) + connectTimeoutMs);
 }
 
 /**
