@@ -29,8 +29,6 @@ function TerminalPane({
   onRegisterApi,
   onPasteFallback,
   showFocusBorder = false,
-  notifications = {},
-  sessionStatus = {},
   clearNotification,
   fileSocket,
   bgIndex = 0,
@@ -391,8 +389,5 @@ export default memo(TerminalPane, (prev, next) => (
   prev.isFocused === next.isFocused &&
   prev.bgIndex === next.bgIndex &&
   prev.connected === next.connected &&
-  prev.theme === next.theme &&
-  prev.showFocusBorder === next.showFocusBorder &&
-  prev.notifications === next.notifications &&
-  prev.sessionStatus === next.sessionStatus
+  prev.showFocusBorder === next.showFocusBorder
 ));

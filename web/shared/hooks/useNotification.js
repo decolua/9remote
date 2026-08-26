@@ -2,22 +2,36 @@
 
 import { useEffect, useCallback, useRef, useState } from "react";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { sameEntry, sameMap } from "@/shared/utils/shallowEqual";
 
 /**
  * Hook to manage push notifications and chat notification events
  * Badge state is stored on server, synced to client via socket
- * On any chatNotification → re-fetch full state from server
+ * Live updates arrive as statusChange (one entry); full maps are refetched only on
+ * reconnect and when another client clears a badge.
  * NOTE: badge state shape here is `notifications` (object keyed by sessionId);
  * the agent preact UI uses a Set `finishedIds` (see agent/ui/src/lib/terminalSocket.js) — equivalent semantics.
  */
 // Persisted across reloads; survives SW updates so toggle-off sticks
 export const USER_DISABLED_KEY = "9remote:push:userDisabled";
 
+const omit = (obj, key) => {
+  const { [key]: _dropped, ...rest } = obj;
+  return rest;
+};
+
 export function useNotification(socketRef, connected) {
   const subscriptionRef = useRef(null);
   const [notifications, setNotifications] = useState({});
   // 4-state map: sessionId → { state, tool, since }
   const [sessionStatus, setSessionStatus] = useState({});
+  // Mirrors of the two maps, read by clearNotification so it can bail out without
+  // depending on them — it fires on every keystroke, and a changed identity there
+  // would re-render the whole workspace once per typed character.
+  const notificationsRef = useRef(notifications);
+  const sessionStatusRef = useRef(sessionStatus);
+  useEffect(() => { notificationsRef.current = notifications; }, [notifications]);
+  useEffect(() => { sessionStatusRef.current = sessionStatus; }, [sessionStatus]);
   const getSelectedSession = useTerminalStore((state) => state.getSelectedSession);
   const getCurrentView = useTerminalStore((state) => state.getCurrentView);
   const pushView = useTerminalStore((state) => state.pushView);
@@ -163,7 +177,7 @@ export function useNotification(socketRef, connected) {
             merged[id] = { ...merged[id], tool: s.tool };
           }
         }
-        return merged;
+        return sameMap(prev, merged) ? prev : merged;
       });
     };
 
@@ -178,6 +192,15 @@ export function useNotification(socketRef, connected) {
           ...(conversationId || prev[sessionId]?.conversationId ? { conversationId: conversationId || prev[sessionId]?.conversationId } : {}),
         },
       }));
+      // The badge map is the done/blocked subset of the same state — mirroring it here
+      // is what the chatNotification refetch used to cost two round-trips to learn.
+      // Shape matches the agent's getNotifications() entries.
+      const badge = state === "done" || state === "blocked";
+      setNotifications((prev) => {
+        if (!badge) return sessionId in prev ? omit(prev, sessionId) : prev;
+        const next = { sessionId, type: state, tool, timestamp: since };
+        return sameEntry(prev[sessionId], next) ? prev : { ...prev, [sessionId]: next };
+      });
     };
 
     // Another client cleared a session's status → mark idle, keep tool (icon persists)
@@ -193,12 +216,8 @@ export function useNotification(socketRef, connected) {
     // Receive full badge state from server, auto-clear active focused tab
     const handleNotificationState = (state) => {
       // Keep badges even for the focused session; cleared only on input (A) or switch (B)
-      setNotifications(state || {});
-    };
-
-    // On any new notification → re-fetch full state (server is source of truth)
-    const handleChatNotification = (n) => {
-      fetchState();
+      const incoming = state || {};
+      setNotifications((prev) => (sameMap(prev, incoming) ? prev : incoming));
     };
 
     // Another client cleared a badge → re-fetch to stay in sync
@@ -213,7 +232,6 @@ export function useNotification(socketRef, connected) {
     const handleReconnect = () => fetchState();
 
     currentSocket.on("notificationState", handleNotificationState);
-    currentSocket.on("chatNotification", handleChatNotification);
     currentSocket.on("notificationCleared", handleNotificationCleared);
     currentSocket.on("statusState", handleStatusState);
     currentSocket.on("statusChange", handleStatusChange);
@@ -226,7 +244,6 @@ export function useNotification(socketRef, connected) {
 
     return () => {
       currentSocket.off("notificationState", handleNotificationState);
-      currentSocket.off("chatNotification", handleChatNotification);
       currentSocket.off("notificationCleared", handleNotificationCleared);
       currentSocket.off("statusState", handleStatusState);
       currentSocket.off("statusChange", handleStatusChange);
@@ -249,7 +266,12 @@ export function useNotification(socketRef, connected) {
 
   const clearNotification = useCallback((sessionId) => {
     if (!sessionId) return;
+    const hasBadge = !!notificationsRef.current[sessionId];
+    const hasDone = sessionStatusRef.current[sessionId]?.state === "done";
+    // Nothing to clear — typing into an already-clean session must stay free.
+    if (!hasBadge && !hasDone) return;
     setNotifications((prev) => {
+      if (!(sessionId in prev)) return prev;
       const { [sessionId]: _, ...rest } = prev;
       return rest;
     });
@@ -260,6 +282,13 @@ export function useNotification(socketRef, connected) {
       if (!existing || existing.state !== "done") return prev;
       return { ...prev, [sessionId]: { state: "idle", tool: existing.tool, since: existing.since } };
     });
+    // Mark cleared right away: the refs only re-sync after commit, so a second call
+    // in the same tick (fast typing, paste) would otherwise pass the guard again.
+    if (hasBadge) { const { [sessionId]: _b, ...rest } = notificationsRef.current; notificationsRef.current = rest; }
+    if (hasDone) sessionStatusRef.current = {
+      ...sessionStatusRef.current,
+      [sessionId]: { ...sessionStatusRef.current[sessionId], state: "idle" },
+    };
     socketRef.current?.emit("clearNotification", sessionId);
     socketRef.current?.emit("clearStatus", sessionId);
   }, [socketRef]);

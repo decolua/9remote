@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
@@ -51,6 +51,13 @@ export default function TerminalWorkspace({
 
   const { workspaceSessionIds, workspaceOpenedSessions, renderedSessions, mountedSet, workspaceIndex } =
     derivePaneLayout({ sessions, openedSessions, livePanes, mountedWorkspaces, activeWorkspaceId, isDesktop });
+
+  // Stable identity: the header scrolls the active tab into view whenever this
+  // array changes, so a fresh one per render would re-scroll the tab strip.
+  const workspaceSessions = useMemo(
+    () => sessions.filter((s) => sessionWorkspaceId(s) === activeWorkspaceId),
+    [sessions, activeWorkspaceId]
+  );
 
   // Root the side panels track: the active workspace's own path, else the fixed
   // workspacePath of the focused terminal (a workspace migrated from a group has no path).
@@ -213,8 +220,6 @@ export default function TerminalWorkspace({
       onRegisterApi={registerPaneApi}
       onPasteFallback={handlePasteFallback}
       showFocusBorder={false}
-      notifications={notifications}
-      sessionStatus={sessionStatus}
       clearNotification={clearNotification}
       fileSocket={fileSocket}
       mountDelay={mountDelayFor(sessionId, isFocused, workspaceIndex)}
@@ -296,7 +301,7 @@ export default function TerminalWorkspace({
               since the sidebar (which holds it on desktop) does not exist. */}
           {(!showEmptyState || !isDesktop) && (
           <TerminalHeader
-            sessions={sessions.filter(s => sessionWorkspaceId(s) === activeWorkspaceId)}
+            sessions={workspaceSessions}
             allSessions={sessions}
             activeSessionId={activeSessionId}
             isActive={isTerminalView}
