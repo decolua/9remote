@@ -52,7 +52,7 @@ function makeCtx(over = {}) {
     setLastTouchDistance: spy(), setLastTouchCenter: spy(),
     // refs
     gestureLockRef: ref(null), gestureStartRef: ref({ time: Date.now(), distance: 0, centerX: 0, centerY: 0 }),
-    multiTouchLatchRef: ref(false), twoFingerMaxMovedRef: ref(0),
+    multiTouchLatchRef: ref(false), twoFingerMaxMovedRef: ref(0), touchOutsideRef: ref(false),
     longPressTimerRef: ref(null), longPressTriggeredRef: ref(false), touchStartPosRef: ref({ x: 0, y: 0 }),
     lastClickTimeRef: ref(0), lastClickPosRef: ref({ x: 0, y: 0 }),
     edgeScrollAccumRef: ref({ x: 0, y: 0 }), velocityRef: ref({ x: 0, y: 0 }),

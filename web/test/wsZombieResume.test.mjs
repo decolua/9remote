@@ -50,6 +50,7 @@ const WS_SRC = readFileSync(__dirname + "../shared/transport/WsProtocol.js", "ut
 // Layer 1 — pure helper. Import the real module (pure JS, dep is constants only).
 // ---------------------------------------------------------------------------
 const { isWsZombie } = await import("../shared/transport/wsZombie.js");
+const { WS_ZOMBIE_MS } = await import("../shared/constants/transport.js");
 
 await test("isWsZombie: no inbound for 60s → true (zombie)", () => {
   assert.equal(isWsZombie({ lastInboundAt: 1000, now: 1000 + 60_000 }), true);
@@ -59,12 +60,14 @@ await test("isWsZombie: recent inbound (2s) → false (healthy)", () => {
   assert.equal(isWsZombie({ lastInboundAt: 1000, now: 1000 + 2_000 }), false);
 });
 
-await test("isWsZombie: exactly at threshold (45s) → true", () => {
-  assert.equal(isWsZombie({ lastInboundAt: 1000, now: 1000 + 45_000 }), true);
+// Anchored to the constant, not to the number it happened to hold: the threshold
+// moved 45s → 30s and the hard-coded pair went red without anything being wrong.
+await test("isWsZombie: exactly at the threshold → true", () => {
+  assert.equal(isWsZombie({ lastInboundAt: 1000, now: 1000 + WS_ZOMBIE_MS }), true);
 });
 
-await test("isWsZombie: just under threshold (44s) → false", () => {
-  assert.equal(isWsZombie({ lastInboundAt: 1000, now: 1000 + 44_000 }), false);
+await test("isWsZombie: a second under the threshold → false", () => {
+  assert.equal(isWsZombie({ lastInboundAt: 1000, now: 1000 + WS_ZOMBIE_MS - 1000 }), false);
 });
 
 await test("isWsZombie: never received (lastInboundAt=0) → true", () => {
