@@ -14,6 +14,24 @@ import { selectedIceResponses } from "./controlRouting";
 // peer. Collapsing the burst into a single pass is what keeps them from fighting.
 const RESUME_COALESCE_MS = 150;
 
+// Reopening the app is a fresh circumstance, not a continuation of the failures
+// that came before it. The ladder is only reset by rtc-open, net-change and
+// teardown — and hiding an app changes no network, so `online` never fires. A
+// session that hid at the 120s rung woke at the 120s rung and sat on the tunnel
+// for minutes on a network that carries RTC fine. Resume resets it back to the
+// fast rungs; the guards above this call still decide whether to retry at all,
+// so no extra signaling is spent — it merely happens sooner.
+function resetLadderOnResume(pm, reason) {
+  termLog("switch", `RESET attempts (was ${pm._rtcRestartAttempts}) reason=${reason}`);
+  pm._rtcRestartAttempts = 0;
+  pm._probeAttempts = 0;
+  // The rung armed before we hid is deliberately left running. Cancelling it
+  // removed the only retry left on the paths that decline to restart here — a
+  // peer stuck "connecting" is skipped as in-flight by _restartRtc, so the net
+  // was load-bearing. It is harmless now: whenever it fires it reschedules off
+  // the counters this just zeroed, which is the fast rung.
+}
+
 export function attachWatchers(pm) {
   // Visibility-based RTC health check — restart frozen RTC when tab becomes visible.
   // WS may survive background suspension (socket.io keepalive) while the RTC
@@ -68,6 +86,12 @@ export function attachWatchers(pm) {
       pm._maybeRearmRtc();
       return;
     }
+    // Past the two guards that must keep standing down (host approval, hard-NAT
+    // give-up), so every path below leads to a retry. Reset here rather than in
+    // each branch: the dead-RTC branch and the zombie probe both need it, and
+    // one site cannot drift from the other. A healthy peer is already at rung 0,
+    // so this is a no-op for it.
+    resetLadderOnResume(pm, "resume");
     if (!pm._canSignal()) {
       // Both carriers down (background froze them too) — kick the relay and
       // let its onReady restart RTC once a path exists again.
