@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QUOTA_POLL_MS } from "../constants/quotaConfig";
+import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 
 // Polls the agent's aggregate quota:get (agent caches for 60s server-side).
 // Returns null until the first successful response.
@@ -18,8 +19,8 @@ export function useQuota(socketRef, { enabled = true } = {}) {
       });
     };
     fetchQuota();
-    const timer = setInterval(fetchQuota, QUOTA_POLL_MS);
-    return () => { cancelled = true; clearInterval(timer); };
+    const stop = pollWhileVisible(fetchQuota, QUOTA_POLL_MS);
+    return () => { cancelled = true; stop(); };
   }, [socketRef, enabled]);
 
   return quota;

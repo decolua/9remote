@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
+import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 
 // Shared, ref-counted git changed-count per cwd. One 10s poll per unique cwd
 // regardless of how many panes share it → all panes stay in sync.
 const POLL_MS = 10000;
-const entries = new Map(); // cwd → { count, timer, refs, subs, fileSocket }
+const entries = new Map(); // cwd → { count, stop, refs, subs, fileSocket }
 
 function notify(entry) {
   entry.subs.forEach((fn) => fn(entry.count));
@@ -20,10 +21,10 @@ function fetchOnce(entry, cwd) {
 function acquire(cwd, fileSocket) {
   let entry = entries.get(cwd);
   if (!entry) {
-    entry = { count: 0, timer: null, refs: 0, subs: new Set(), fileSocket };
+    entry = { count: 0, stop: null, refs: 0, subs: new Set(), fileSocket };
     entries.set(cwd, entry);
     fetchOnce(entry, cwd);
-    entry.timer = setInterval(() => fetchOnce(entry, cwd), POLL_MS);
+    entry.stop = pollWhileVisible(() => fetchOnce(entry, cwd), POLL_MS);
   }
   entry.refs++;
   return entry;
@@ -34,7 +35,7 @@ function release(cwd) {
   if (!entry) return;
   entry.refs--;
   if (entry.refs <= 0) {
-    if (entry.timer) clearInterval(entry.timer);
+    entry.stop?.();
     entries.delete(cwd);
   }
 }

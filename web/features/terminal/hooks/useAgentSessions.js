@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { AGENT_HISTORY_TTL_MS } from "@/features/terminal/constants/terminalConfig";
+import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 
 // Past conversations the agent CLIs (Claude Code, Codex, OpenCode, …) kept for
 // this directory. Refetches when the terminal moves to another cwd, and on a
@@ -23,8 +24,7 @@ export function useAgentSessions(socketRef, cwd) {
     };
     const cached = useTerminalStore.getState().agentHistory[cwd];
     if (!cached || Date.now() - cached.at >= AGENT_HISTORY_TTL_MS) fetchNow();
-    const timer = setInterval(fetchNow, AGENT_HISTORY_TTL_MS);
-    return () => clearInterval(timer);
+    return pollWhileVisible(fetchNow, AGENT_HISTORY_TTL_MS);
   }, [socketRef, cwd, staleAt]);
 
   return entry?.sessions || null;

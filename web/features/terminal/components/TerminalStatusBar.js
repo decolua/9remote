@@ -18,6 +18,7 @@ import {
 import StatusBar from "@/shared/components/ui/StatusBar";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
+import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 
 const POLL_BRANCH_MS = 10000;
 
@@ -65,8 +66,8 @@ function useRotatingPage(pageCount, { pinnedIndex = -1, paused = false } = {}) {
 
   useEffect(() => {
     if (pageCount < 2 || paused || pinnedIndex >= 0) return;
-    const timer = setInterval(() => setIndex((i) => i + 1), STRIP_ROTATE_MS);
-    return () => clearInterval(timer);
+    // Rotating a strip nobody can see only burns wake-ups; it resumes on return.
+    return pollWhileVisible(() => setIndex((i) => i + 1), STRIP_ROTATE_MS, { fireOnReturn: false });
   }, [pageCount, paused, pinnedIndex]);
 
   if (!pageCount) return [0, setIndex];
@@ -181,8 +182,8 @@ export default function TerminalStatusBar({
       }).catch(() => {});
     };
     fetchBranch();
-    const timer = setInterval(fetchBranch, POLL_BRANCH_MS);
-    return () => { cancelled = true; clearInterval(timer); };
+    const stop = pollWhileVisible(fetchBranch, POLL_BRANCH_MS);
+    return () => { cancelled = true; stop(); };
   }, [cwd, fileSocket]);
 
   const v = statusVisual(sessionState);

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { WORKSPACE_GIT_POLL_MS } from "../constants/terminalConfig";
+import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 
 // One changed-file count per workspace root, covering the root repo and every repo under
 // it. Ref-counted and shared, so the terminal badge and the git panel read the same
 // number from a single poll instead of counting separately and disagreeing.
-const entries = new Map(); // rootPath → { state, timer, refs, subs, fileSocket }
+const entries = new Map(); // rootPath → { state, stop, refs, subs, fileSocket }
 
 const EMPTY = { count: 0, perRepo: {} };
 
@@ -18,31 +19,13 @@ function fetchOnce(entry, rootPath) {
   });
 }
 
-// Polling a repo nobody is looking at is pure cost, so a hidden tab stops and catches up
-// on return rather than counting into the void.
-function startTimer(entry, rootPath) {
-  if (entry.timer || (typeof document !== "undefined" && document.hidden)) return;
-  entry.timer = setInterval(() => fetchOnce(entry, rootPath), WORKSPACE_GIT_POLL_MS);
-}
-
-function stopTimer(entry) {
-  if (entry.timer) clearInterval(entry.timer);
-  entry.timer = null;
-}
-
 function acquire(rootPath, fileSocket) {
   let entry = entries.get(rootPath);
   if (!entry) {
-    entry = { state: EMPTY, timer: null, refs: 0, subs: new Set(), fileSocket, onVisibility: null };
+    entry = { state: EMPTY, stop: null, refs: 0, subs: new Set(), fileSocket };
     entries.set(rootPath, entry);
-    entry.onVisibility = () => {
-      if (document.hidden) { stopTimer(entry); return; }
-      fetchOnce(entry, rootPath);
-      startTimer(entry, rootPath);
-    };
-    document.addEventListener("visibilitychange", entry.onVisibility);
     fetchOnce(entry, rootPath);
-    startTimer(entry, rootPath);
+    entry.stop = pollWhileVisible(() => fetchOnce(entry, rootPath), WORKSPACE_GIT_POLL_MS);
   }
   entry.refs++;
   return entry;
@@ -53,8 +36,7 @@ function release(rootPath) {
   if (!entry) return;
   entry.refs--;
   if (entry.refs > 0) return;
-  stopTimer(entry);
-  document.removeEventListener("visibilitychange", entry.onVisibility);
+  entry.stop?.();
   entries.delete(rootPath);
 }
 

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { WORKSPACE_GIT_POLL_MS } from "../constants/terminalConfig";
+import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 
 // Shared, ref-counted git branch + dirty flag per workspace path. One poll per unique
 // path no matter how many terminals sit in that workspace — otherwise 10 terminals in
 // one repo mean 10 identical `git` calls every tick.
-const entries = new Map(); // path → { state, timer, refs, subs, fileSocket }
+const entries = new Map(); // path → { state, stop, refs, subs, fileSocket }
 
 const EMPTY = { branch: null, dirty: false, changedCount: 0 };
 
@@ -29,10 +30,10 @@ async function fetchOnce(entry, wsPath) {
 function acquire(wsPath, fileSocket) {
   let entry = entries.get(wsPath);
   if (!entry) {
-    entry = { state: EMPTY, timer: null, refs: 0, subs: new Set(), fileSocket };
+    entry = { state: EMPTY, stop: null, refs: 0, subs: new Set(), fileSocket };
     entries.set(wsPath, entry);
     fetchOnce(entry, wsPath);
-    entry.timer = setInterval(() => fetchOnce(entry, wsPath), WORKSPACE_GIT_POLL_MS);
+    entry.stop = pollWhileVisible(() => fetchOnce(entry, wsPath), WORKSPACE_GIT_POLL_MS);
   }
   entry.refs++;
   return entry;
@@ -43,7 +44,7 @@ function release(wsPath) {
   if (!entry) return;
   entry.refs--;
   if (entry.refs > 0) return;
-  if (entry.timer) clearInterval(entry.timer);
+  entry.stop?.();
   entries.delete(wsPath);
 }
 
