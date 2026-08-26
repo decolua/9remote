@@ -10,7 +10,7 @@ import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { termLog } from "@/shared/utils/termLog";
 import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS, HISTORY_FETCH, applyTerminalBackground, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
-import { resetReconnectState } from "@/features/terminal/lib/reconnectState";
+import { resetReconnectState, recoveryBusy } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { createGapFetch } from "@/features/terminal/lib/gapFetch";
 import { createJoinSession } from "@/features/terminal/lib/termJoin";
@@ -67,6 +67,13 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   // output is QUEUED (not written) so it never lands between term.reset() and the mode-restore
   // replay packet. Queue + flush on ack: replay paints first, queued live follows in order.
   const joiningRef = useRef(false);
+  // A join is coming, from the moment something asks for one. joiningRef only
+  // rises when the join is EMITTED, and doJoinSession defers through the settle
+  // debounce first — so between the two lies a window where the pane is about to
+  // be wiped and lastSeq is still null. That window is where a second recovery
+  // trigger slipped through and started the whole blind rejoin again.
+  const joinClaimedRef = useRef(false);
+  const hardRejoinRef = useRef(null);
   const [joining, setJoining] = useState(false); // reactive for the loading spinner during join
   const joinQueueRef = useRef([]);
   const joinGenRef = useRef(0); // stale-ack guard: only the current join's ack clears the spinner
@@ -119,10 +126,26 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       const wantJoin = joinNextRef.current;
       forceNextRef.current = false;
       joinNextRef.current = false;
-      if (!force && prev && prev.cols === cols && prev.rows === rows && !wantJoin) return;
+      // Nothing to do and no join pending — if a rejoin claimed the lane it will
+      // never be released here, so hand it back. (The early returns above keep
+      // joinNextRef set and are re-kicked by the ResizeObserver, so the join is
+      // still coming and the claim must stand.)
+      if (!force && prev && prev.cols === cols && prev.rows === rows && !wantJoin) {
+        joinClaimedRef.current = false;
+        return;
+      }
       lastPtySizeRef.current = { cols, rows };
       socket.emit("resize", { sessionId, cols, rows });
+      // A join was wanted but the closure is not wired yet (mount race) — nothing
+      // will fire, so a claimed lane would stay claimed forever.
+      if (wantJoin && !fireJoinRef.current) joinClaimedRef.current = false;
       if (wantJoin && fireJoinRef.current) {
+        // Every join lands here: doJoinSession defers through this debounce so the
+        // PTY snapshot is taken at a settled cols. That makes this the wipe that
+        // matters, and it must hold the recovery lane for the same reason a rejoin
+        // does — a trigger arriving between here and the ack finds lastSeq still
+        // null (the baseline only rides in on the replay) and wipes again.
+        joinClaimedRef.current = true;
         term.reset();
         fireJoinRef.current(cols, rows);
       }
@@ -294,10 +317,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       },
       flush: () => writeBatcherRef.current?.flush(),
       onGapChunk: (seq) => { lastSeqRef.current = seq; },
-      onFallback: () => {
-        if (termRef.current) termRef.current.reset();
-        doJoinSessionRef.current?.(true);
-      },
+      onFallback: () => hardRejoinRef.current?.("gap fallback"),
       log: (msg) => termLog("reconnect", msg),
       getFromSeq: () => (lastSeqRef.current ?? 0) + 1
     });
@@ -308,9 +328,15 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       if (!termRef.current) return;
       pendingRecoverRef.current = null; // the rejoin refetches everything — nothing left to recover
       termLog("reconnect", `reset+rejoin (${why})`);
-      termRef.current.reset();
+      // Claim the lane now — the wipe is a settle-debounce away and a trigger in
+      // between must not start a second recovery — but leave the wiping itself to
+      // doResize. Resetting here as well blanked the pane for the whole debounce
+      // and then wiped the blank again: two resets per join, the first one visible
+      // and pointless. ~170KB came down twice, and the spinner flashed for it.
+      joinClaimedRef.current = true;
       doJoinSessionRef.current?.(true);
     };
+    hardRejoinRef.current = hardRejoin; // gapFetch is built above it — the ref bridges the order
 
     /** Single entry point for seq-based recovery: ASK the agent for its newest seq instead of
      *  waiting for the next chunk — output produced while backgrounded otherwise stays missing
@@ -321,7 +347,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       // Visibility can flip during the debounce (group switch right after a resume) — re-check
       // at fire time, else the peek recovers into a zero-size buffer and wraps wrong.
       if (!isVisibleRef.current) { pendingRecoverRef.current = reason; return; }
-      if (joiningRef.current || gapFetch.isBusy()) return; // recovery already running — it covers this
+      if (recoveryBusy({ joinClaimed: joinClaimedRef, joining: joiningRef, gapBusy: gapFetch.isBusy() })) return; // recovery already running — it covers this
       if (lastSeqRef.current == null) return hardRejoin(`${reason}: no seq baseline`);
       const gen = ++peekGen;
       peekInFlight = true;
@@ -348,7 +374,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
           termLog("reconnect", `${reason}: nothing missed (seq ${lastSeq})`);
           return drainPending();
         }
-        if (joiningRef.current || gapFetch.isBusy()) return drainPending(); // a rejoin started meanwhile
+        if (recoveryBusy({ joinClaimed: joinClaimedRef, joining: joiningRef, gapBusy: gapFetch.isBusy() })) return drainPending(); // a rejoin started meanwhile
         termLog("reconnect", `${reason}: peekSeq ${lastSeq} → ${agentSeq} → gapFetch`);
         gapFetch.start(agentSeq);
       });
@@ -397,7 +423,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       socket, sessionId, term, fitAddon, writeBatcherRef, doResizeRef, fireJoinRef,
       refs: {
         historyMirrorRef, historyBytesRef, historyTotalRef, historyFetchingRef,
-        userAtTopRef, joiningRef, joinQueueRef, joinGenRef, lastSeqRef, cwdRef, setJoining
+        userAtTopRef, joiningRef, joinClaimedRef, joinQueueRef, joinGenRef, lastSeqRef, cwdRef, setJoining
       },
       setCwd
     });
@@ -421,6 +447,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         historyHaveAtEmit: historyHaveAtEmitRef,
         awaitingTuiOutput: awaitingTuiOutputRef,
         joining: joiningRef,
+        joinClaimed: joinClaimedRef,
         joinQueue: joinQueueRef,
       });
       gapFetch.cancel();
@@ -596,8 +623,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     const term = termRef.current;
     if (!term || !socket) return;
     termLog("join", "manual reload (user refetch)");
-    term.reset();
-    doJoinSessionRef.current?.(true);
+    doJoinSessionRef.current?.(true); // doResize wipes at the settled size
     if (webglEnabled) {
       disposeWebGLRef.current?.();
       loadWebGLRef.current?.();

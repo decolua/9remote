@@ -41,6 +41,15 @@ test("clears all three together", () => {
   assert.equal(refs.awaitingTuiOutput.current, false);
 });
 
+test("R5b: clears joinClaimedRef — a carrier dying mid-join must not strand the lane", () => {
+  // joinClaimedRef is claimed BEFORE the join is emitted. A carrier that dies in
+  // that window means no ack ever lowers it, and every later recovery would
+  // stand down for a join that will never finish.
+  const ref = mkRef(true);
+  resetReconnectState({ joinClaimed: ref });
+  assert.equal(ref.current, false);
+});
+
 test("no-op on null/undefined refs", () => {
   resetReconnectState(null);
   resetReconnectState(undefined);

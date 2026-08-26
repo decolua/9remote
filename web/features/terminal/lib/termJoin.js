@@ -13,8 +13,8 @@ import { STARTUP_CMD_DELAY_MS } from "@/features/terminal/constants/terminalConf
 //   doResizeRef     — settle-debounce resize; join delegates size negotiation to it
 //   fireJoinRef     — receives the fireJoin(cols, rows) closure (called by doResize settle)
 //   refs            — { historyMirrorRef, historyBytesRef, historyTotalRef, historyFetchingRef,
-//                       userAtTopRef, joiningRef, joinQueueRef, joinGenRef, lastSeqRef, cwdRef,
-//                       setJoining }
+//                       userAtTopRef, joiningRef, joinClaimedRef, joinQueueRef, joinGenRef,
+//                       lastSeqRef, cwdRef, setJoining }
 //   setCwd          — local reactive cwd setter
 export function createJoinSession({ socket, sessionId, term, fitAddon, writeBatcherRef, doResizeRef, fireJoinRef, refs, setCwd }) {
   const doJoinSession = (isRejoin = false) => {
@@ -46,6 +46,7 @@ export function createJoinSession({ socket, sessionId, term, fitAddon, writeBatc
         // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
         setTimeout(() => {
           refs.joiningRef.current = false;
+          refs.joinClaimedRef.current = false; // the join is done — the recovery lane is free
           refs.setJoining(false);
           const queue = refs.joinQueueRef.current;
           refs.joinQueueRef.current = [];
