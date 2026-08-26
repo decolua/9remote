@@ -92,7 +92,12 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
   const checkIntervalsRef = useRef({});
 
   // Get sites state from store (shared across all instances)
-  const { cachedSites, currentSites, loadingSites, setCachedSites, setCurrentSites, setLoadingSites } = useSlideMenuStore();
+  const cachedSites = useSlideMenuStore((s) => s.cachedSites);
+  const currentSites = useSlideMenuStore((s) => s.currentSites);
+  const loadingSites = useSlideMenuStore((s) => s.loadingSites);
+  const setCachedSites = useSlideMenuStore((s) => s.setCachedSites);
+  const setCurrentSites = useSlideMenuStore((s) => s.setCurrentSites);
+  const setLoadingSites = useSlideMenuStore((s) => s.setLoadingSites);
 
   // Use external control if provided, otherwise use internal state
   const isModalOpen = externalIsOpen !== undefined ? externalIsOpen : showModal;

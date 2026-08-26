@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useSocket } from "@/features/session/hooks/useSocket";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useShallow } from "zustand/react/shallow";
 import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
 import { useClipboardSocket } from "@/features/clipboard/hooks/useClipboardSocket";
@@ -93,7 +94,42 @@ export default function WorkspaceLayout({ children }) {
     closeEditorFile,
     editorPreviewSeq,
     artifactTitle
-  } = useTerminalStore();
+  } = useTerminalStore(useShallow((s) => ({
+    viewStack: s.viewStack,
+    openedSessions: s.openedSessions,
+    pushView: s.pushView,
+    popView: s.popView,
+    setViewStack: s.setViewStack,
+    addOpenedSession: s.addOpenedSession,
+    removeOpenedSession: s.removeOpenedSession,
+    activeWorkspaceId: s.activeWorkspaceId,
+    setActiveWorkspaceId: s.setActiveWorkspaceId,
+    livePanes: s.livePanes,
+    touchLivePane: s.touchLivePane,
+    mountedWorkspaces: s.mountedWorkspaces,
+    markWorkspaceMounted: s.markWorkspaceMounted,
+    reset: s.reset,
+    cwdBySession: s.cwdBySession,
+    sidebarCollapsed: s.sidebarCollapsed,
+    toggleSidebar: s.toggleSidebar,
+    sidebarWidth: s.sidebarWidth,
+    setSidebarWidth: s.setSidebarWidth,
+    paneWidths: s.paneWidths,
+    setPaneWidth: s.setPaneWidth,
+    rightPanelOpen: s.rightPanelOpen,
+    rightPanelTabs: s.rightPanelTabs,
+    rightPanelWidth: s.rightPanelWidth,
+    toggleRightPanel: s.toggleRightPanel,
+    setRightPanelTab: s.setRightPanelTab,
+    setRightPanelWidth: s.setRightPanelWidth,
+    editorFilePath: s.editorFilePath,
+    editorPanelWidth: s.editorPanelWidth,
+    setEditorPanelWidth: s.setEditorPanelWidth,
+    openEditorFile: s.openEditorFile,
+    closeEditorFile: s.closeEditorFile,
+    editorPreviewSeq: s.editorPreviewSeq,
+    artifactTitle: s.artifactTitle,
+  })));
 
   useEffect(() => {
     setHydrated(true);

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useShallow } from "zustand/react/shallow";
 import { pathToView, viewToPath, OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
 
 // URL is the single source of truth for navigation. Browser history drives the
@@ -14,7 +15,9 @@ export function useRouteSync(hydrated) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { viewStack, pushView, setViewStack } = useTerminalStore();
+  const { viewStack, pushView, setViewStack } = useTerminalStore(
+    useShallow((s) => ({ viewStack: s.viewStack, pushView: s.pushView, setViewStack: s.setViewStack }))
+  );
   const currentView = viewStack[viewStack.length - 1];
   // Overlay views have no URL of their own — compare against the view below them
   const routedView = OVERLAY_VIEWS.includes(currentView?.type)

@@ -100,7 +100,11 @@ export default function TerminalHeader({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isActive, sessions, activeSessionId, onSwitchSession]);
-  const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
+  // Actions only (stable identities): this component WRITES context/callbacks, so
+  // subscribing to the whole store would re-render it on its own every write.
+  const openMenu = useSlideMenuStore((s) => s.open);
+  const setContext = useSlideMenuStore((s) => s.setContext);
+  const setCallbacks = useSlideMenuStore((s) => s.setCallbacks);
 
   // Mod+Alt+T opens the new-terminal modal (browser reserves bare Mod+T)
   useEffect(() => {

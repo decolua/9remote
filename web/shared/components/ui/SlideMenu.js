@@ -26,15 +26,13 @@ import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig
 export default function SlideMenu() {
   const { t, locale } = useI18n();
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale) || SUPPORTED_LOCALES[0];
-  const {
-    isOpen,
-    activePanel,
-    context,
-    callbacks,
-    close,
-    setActivePanel,
-    openMenu,
-  } = useSlideMenuStore();
+  const isOpen = useSlideMenuStore((s) => s.isOpen);
+  const activePanel = useSlideMenuStore((s) => s.activePanel);
+  const context = useSlideMenuStore((s) => s.context);
+  const callbacks = useSlideMenuStore((s) => s.callbacks);
+  const close = useSlideMenuStore((s) => s.close);
+  const setActivePanel = useSlideMenuStore((s) => s.setActivePanel);
+  const openMenu = useSlideMenuStore((s) => s.openMenu);
 
   // Chromium sets canInstall via beforeinstallprompt; iOS Safari/Firefox stay false.
   const install = usePwaInstallStore((s) => s.install);

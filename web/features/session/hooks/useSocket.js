@@ -5,6 +5,7 @@ import { commitPendingKey, forgetRejectedTail } from "@/shared/transport/lib/dev
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { WORKER_API } from "@/shared/constants/API";
 import { TAIL_REJECT_REASON, LOGIN_ERROR_KEY, APPROVAL_STATUS } from "@/shared/constants/transport";
+import { sameList } from "@/shared/utils/shallowEqual";
 
 // Resume on mobile triggers several list-refresh paths within a few ms; this
 // window collapses them into one round-trip.
@@ -88,13 +89,16 @@ export function useSocket() {
   const applySessions = useCallback((list) => {
     if (!Array.isArray(list)) return;
     loadedRef.current.sessions = true;
-    setSessions(list);
+    // Four sources refetch this list, one of them on every return to the tab, and the
+    // answer is nearly always what we already have. Keeping the old array keeps every
+    // consumer's identity check true instead of re-rendering the whole workspace.
+    setSessions((prev) => (sameList(prev, list) ? prev : list));
   }, []);
 
   const applyWorkspaces = useCallback((list) => {
     if (!Array.isArray(list)) return;
     loadedRef.current.workspaces = true;
-    setWorkspaces(list);
+    setWorkspaces((prev) => (sameList(prev, list) ? prev : list));
   }, []);
 
   // Four independent sources ask for these lists (terminal:ready, the socket

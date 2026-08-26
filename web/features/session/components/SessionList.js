@@ -32,7 +32,10 @@ export default function SessionList({
   fileSocket, homeDir, recentWorkspaces = [], shells = []
 }) {
   const { t } = useI18n();
-  const { open: openMenu, setContext, setCallbacks } = useSlideMenuStore();
+  // Actions only — same reason as TerminalHeader: this writes context/callbacks.
+  const openMenu = useSlideMenuStore((s) => s.open);
+  const setContext = useSlideMenuStore((s) => s.setContext);
+  const setCallbacks = useSlideMenuStore((s) => s.setCallbacks);
 
   const [sheet, setSheet] = useState(null);                 // { target } — a long-pressed terminal
   const [renaming, setRenaming] = useState(null);           // { kind, id, value }
