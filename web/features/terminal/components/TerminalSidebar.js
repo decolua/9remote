@@ -18,6 +18,7 @@ import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { sessionWorkspaceId } from "../lib/paneLayout";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "../constants/shortcuts";
+import { useDragReorder } from "../hooks/useDragReorder";
 import BranchBadge from "./BranchBadge";
 import AgentHistoryPanel from "./AgentHistoryPanel";
 
@@ -150,7 +151,6 @@ export default function TerminalSidebar({
   const { t } = useI18n();
   const hasKeyboard = useInputMode() === "mouse";
   const collapseHint = hasKeyboard ? withHint(t("common.close"), "toggleSidebar") : t("common.close");
-  const dragRef = useRef(null);
   // Which terminals actually exist right now — the history rows are a snapshot
   // and can name one that has since closed.
   const liveSessionIds = new Set(allSessions.map((s) => s.id));
@@ -213,8 +213,10 @@ export default function TerminalSidebar({
   };
 
   // Drag reorder (within workspace)
-  const [drag, setDrag] = useState(null); // { workspaceId, ids, fromIdx, overIdx, el }
-  const suppressClickRef = useRef(false);
+  const { dragId, registerEl, startDrag, consumeClick } = useDragReorder({
+    axis: "y",
+    onCommit: onReorderSession
+  });
 
   // Close context menu on outside click / Escape
   useEffect(() => {
@@ -282,73 +284,14 @@ export default function TerminalSidebar({
   const startReorder = (e) => {
     const btn = e.currentTarget;
     const workspaceId = btn.dataset.gid === "" ? null : btn.dataset.gid;
-    const fromIdx = Number(btn.dataset.idx);
     const grp = grouped.find((g) => (g.id ?? null) === (workspaceId ?? null));
-    if (!grp) return;
-    const ids = grp.items.map((i) => i.id);
-    if (!connected || ids.length < 2) return;
-    e.preventDefault();
-    e.stopPropagation();
+    if (!grp || !connected) return;
     clearLongPress();
-    const el = btn.closest("[data-item-row]");
-    dragRef.current = { workspaceId, ids, fromIdx, overIdx: fromIdx, el, moved: false, startX: e.clientX, startY: e.clientY };
-    setDrag({ fromIdx, overIdx: fromIdx, sessionId: ids[fromIdx] });
-    try { el.setPointerCapture(e.pointerId); } catch {}
+    startDrag(e, btn.dataset.sid, grp.items.map((i) => i.id));
   };
 
-  useEffect(() => {
-    if (!drag) return;
-    const findOver = (x, y) => {
-      const rowEl = document.elementFromPoint(x, y)?.closest("[data-item-row]");
-      if (!rowEl) return null;
-      const id = rowEl.getAttribute("data-sid");
-      return id || null;
-    };
-    const onMove = (e) => {
-      const d = dragRef.current;
-      if (!d) return;
-      const dx = e.clientX - d.startX;
-      const dy = e.clientY - d.startY;
-      if (!d.moved && Math.hypot(dx, dy) > 3) d.moved = true;
-      if (d.moved) {
-        d.el.style.zIndex = "50";
-        d.el.style.transform = `translate(${dx}px, ${dy}px)`;
-      }
-      const overId = findOver(e.clientX, e.clientY);
-      if (overId && overId !== d.ids[d.overIdx]) {
-        const newIdx = d.ids.indexOf(overId);
-        if (newIdx !== -1) { d.overIdx = newIdx; setDrag({ ...drag, overIdx: newIdx }); }
-      }
-    };
-    const onUp = () => {
-      const d = dragRef.current;
-      if (d) {
-        suppressClickRef.current = d.moved;
-        d.el.style.transform = "";
-        d.el.style.zIndex = "";
-        if (d.fromIdx !== d.overIdx) {
-          const ids = [...d.ids];
-          const [moved] = ids.splice(d.fromIdx, 1);
-          ids.splice(d.overIdx, 0, moved);
-          onReorderSession?.(ids);
-          vibrate();
-        }
-      }
-      dragRef.current = null;
-      setDrag(null);
-    };
-    window.addEventListener("pointermove", onMove, { passive: false });
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-    };
-  }, [drag, onReorderSession]);
-
   const handleItemClick = (e) => {
-    if (suppressClickRef.current) { suppressClickRef.current = false; return; }
+    if (consumeClick()) return;
     vibrate();
     onSelectSession?.(e.currentTarget.dataset.sid);
   };
@@ -407,23 +350,23 @@ export default function TerminalSidebar({
                     ? () => setWsDelConfirm({ isOpen: true, workspaceId: grp.id, workspaceName: grp.name })
                     : null}
                 />
-                {!collapsed[wsKey] && grp.items.map((s, idx) => {
+                {!collapsed[wsKey] && grp.items.map((s) => {
                   const st = sessionStatus[s.id]?.state || "idle";
                   const v = statusVisual(st);
                   const isActive = s.id === activeSessionId;
                   const hasNotif = !!notifications[s.id];
                   const tool = sessionStatus[s.id]?.tool || guessTool(s.name);
-                  const isDragOver = drag?.sessionId && drag.overIdx === idx && s.id !== drag.sessionId && drag;
+                  const isDragging = dragId === s.id;
                   return (
                     <div
                       key={s.id}
-                      data-item-row
+                      ref={registerEl(s.id)}
                       data-sid={s.id}
-                      className={`group w-full flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 text-left transition-colors border-l-2 relative cursor-pointer ${
+                      className={`group w-full flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 text-left border-l-2 relative cursor-pointer ${
                         isActive
                           ? "bg-text/8 border-brand-500 text-text"
                           : "border-transparent text-text-muted hover:bg-text/5 hover:text-text"
-                      } ${isDragOver ? "ring-1 ring-brand-500" : ""}`}
+                      } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"}`}
                       onClick={handleItemClick}
                       onContextMenu={openContext}
                       onTouchStart={handleTouchStart}
@@ -433,7 +376,7 @@ export default function TerminalSidebar({
                       {connected && (
                         <button
                           data-gid={grp.id ?? ""}
-                          data-idx={idx}
+                          data-sid={s.id}
                           onPointerDown={startReorder}
                           disabled={grp.items.length < 2}
                           className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-0.5 text-text-subtle opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none disabled:opacity-0 disabled:cursor-default bg-surface-3"
