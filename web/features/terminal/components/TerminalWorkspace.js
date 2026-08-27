@@ -213,11 +213,15 @@ export default function TerminalWorkspace({
     setPaneWidth?.(Math.max(PANE_WIDTH.min, Math.floor((base - (paneCount - 1) * PANE_GAP_PX) / paneCount)));
   };
 
-  const renderPane = (sessionId, isVisible, isFocused, bgIndex = 0) => (
+  const renderPane = (sessionId, isVisible, isFocused, bgIndex = 0) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    return (
     <TerminalPane
       // Session's own workspace — the folder button opens the right panel's files tab
       // keyed to it, not to whichever workspace currently owns the panel.
-      workspacePath={sessions.find((s) => s.id === sessionId)?.workspacePath}
+      workspacePath={session?.workspacePath}
+      sessionName={session?.name}
+      sessionState={sessionStatus[sessionId]?.state || "idle"}
       socket={socket}
       connected={connected}
       sessionId={sessionId}
@@ -232,7 +236,8 @@ export default function TerminalWorkspace({
       mountDelay={mountDelayFor(sessionId, isFocused, workspaceIndex)}
       bgIndex={bgIndex}
     />
-  );
+    );
+  };
 
   const renderKeyboard = (sessionId) => (
     <MobileKeyboard
@@ -320,6 +325,7 @@ export default function TerminalWorkspace({
             onRenameSession={nav.handleRenameSession}
             onDeleteSession={nav.handleDeleteSession}
             onCreateNamedSession={nav.handleCreateSession}
+            onResumeAgentSession={nav.handleResumeAgentSession}
             onBack={!isDesktop && !atStackBottom ? onBack : null}
             workspaces={workspaces}
             activeWorkspaceId={activeWorkspaceId}

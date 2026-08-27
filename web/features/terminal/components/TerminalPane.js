@@ -12,6 +12,8 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
+import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
 import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, paneBackgroundKey, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
 
 // Single terminal pane - XTerm instance only, no header
@@ -22,6 +24,8 @@ function TerminalPane({
   workspacePath,
   connected,
   sessionId,
+  sessionName,
+  sessionState = "idle",
   isVisible,
   isFocused,
   mountDelay = 0,
@@ -58,6 +62,9 @@ function TerminalPane({
   const showNoteButton = useTerminalStore((s) => s.showNoteButton);
   const notePinned = useTerminalStore((s) => !!s.pinnedNotes?.[sessionId]);
   const setNotePinned = useTerminalStore((s) => s.setNotePinned);
+
+  const showPinnedNote = notePinned && showNoteButton;
+  const showTitleStrip = !showPinnedNote;
 
   // The modal is transient local state; the pinned strip is persisted per session so a
   // remounted pane (LRU eviction, reload) comes back with it.
@@ -244,8 +251,20 @@ function TerminalPane({
       onMouseDown={handlePaneClick}
       onTouchStart={() => handlePaneClick()}
     >
+      {/* Mobile has no tab strip in view once a pane is open, so the terminal names itself
+          here. A pinned checklist says more than a name, so it takes the slot instead. */}
+      {showTitleStrip && (
+        <div
+          style={{ height: STATUS_BAR_HEIGHT }}
+          className="sm:hidden flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface border-b border-border-subtle text-[11px] select-none"
+        >
+          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClassName(sessionState)}`} style={{ background: statusVisual(sessionState).dot }} />
+          <span className="flex-1 min-w-0 truncate text-text">{sessionName || t("terminal.defaultName")}</span>
+        </div>
+      )}
+
       {/* Pinned checklist sits in flow above the terminal, like the bottom status bar */}
-      {notePinned && showNoteButton && (
+      {showPinnedNote && (
         <NotePanel
           socket={socket}
           sessionId={sessionId}
@@ -313,7 +332,7 @@ function TerminalPane({
         </button>
       )}
       {cwd && isFocused && (
-        <div className={`absolute right-2 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none ${notePinned && showNoteButton ? "top-9" : "top-2"}`}>
+        <div className={`absolute right-2 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none ${showPinnedNote ? "top-9" : "top-9 sm:top-2"}`}>
           <div className="flex flex-row gap-2">
             {showNoteButton && (
               <button
@@ -389,5 +408,8 @@ export default memo(TerminalPane, (prev, next) => (
   prev.isFocused === next.isFocused &&
   prev.bgIndex === next.bgIndex &&
   prev.connected === next.connected &&
-  prev.showFocusBorder === next.showFocusBorder
+  prev.showFocusBorder === next.showFocusBorder &&
+  // The mobile title strip reads both, so a rename or a status change must repaint.
+  prev.sessionName === next.sessionName &&
+  prev.sessionState === next.sessionState
 ));
