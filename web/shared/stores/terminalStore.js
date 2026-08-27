@@ -3,13 +3,24 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY
+  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, ARTIFACT_STACK_MAX
 } from "@/features/terminal/constants/terminalConfig";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
 import { OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
 
 const clampWidth = (w, { min, max }) => Math.max(min, Math.min(max, Math.round(w)));
+
+// Drop one artifact, and the session's entry with it once empty — a map that only ever
+// grows would keep every closed terminal alive in storage.
+const dropArtifact = (bySession, sessionId, filePath) => {
+  const list = bySession[sessionId];
+  if (!list) return bySession;
+  const next = list.filter((a) => a.path !== filePath);
+  if (next.length === list.length) return bySession;
+  const { [sessionId]: _, ...rest } = bySession;
+  return next.length ? { ...rest, [sessionId]: next } : rest;
+};
 
 // Mark every cwd's agent-history rows as due for a refetch, optionally rewriting
 // them on the way out. Only the agent knows which terminal runs which
@@ -244,10 +255,14 @@ export const useTerminalStore = create(
       // user opens the side panel themselves, since that choice outranks the restore.
       artifactTitle: null,
       rightPanelWasOpen: null,
+      // The terminal an open artifact belongs to, so closing the panel pops the right
+      // stack — the user may well have switched terminals while it was up.
+      artifactSessionId: null,
       openEditorFile: (filePath, opts = {}) => set((st) => ({
         editorFilePath: filePath,
         editorPreviewSeq: opts.preview ? st.editorPreviewSeq + 1 : 0,
         artifactTitle: opts.artifactTitle || null,
+        artifactSessionId: opts.artifactSessionId || null,
         ...(opts.artifactTitle
           ? { rightPanelWasOpen: st.rightPanelWasOpen ?? st.rightPanelOpen, rightPanelOpen: false }
           : {})
@@ -256,8 +271,29 @@ export const useTerminalStore = create(
         editorFilePath: null,
         editorPreviewSeq: 0,
         artifactTitle: null,
+        artifactSessionId: null,
         rightPanelWasOpen: null,
-        ...(st.rightPanelWasOpen ? { rightPanelOpen: true } : {})
+        ...(st.rightPanelWasOpen ? { rightPanelOpen: true } : {}),
+        ...(st.artifactSessionId && st.editorFilePath
+          ? { artifactsBySession: dropArtifact(st.artifactsBySession, st.artifactSessionId, st.editorFilePath) }
+          : {})
+      })),
+
+      // Artifacts the AI has shown, newest first, per terminal. Persisted: the phone
+      // backgrounds the app mid-run, and coming back to an empty panel loses them.
+      artifactsBySession: {},
+      pushArtifact: (sessionId, item) => set((st) => {
+        if (!sessionId || !item?.path) return {};
+        const rest = (st.artifactsBySession[sessionId] || []).filter((a) => a.path !== item.path);
+        return {
+          artifactsBySession: {
+            ...st.artifactsBySession,
+            [sessionId]: [item, ...rest].slice(0, ARTIFACT_STACK_MAX)
+          }
+        };
+      }),
+      removeArtifact: (sessionId, filePath) => set((st) => ({
+        artifactsBySession: dropArtifact(st.artifactsBySession, sessionId, filePath)
       })),
 
 
@@ -290,7 +326,9 @@ export const useTerminalStore = create(
       removeOpenedSession: (sessionId) => set((state) => {
         const { [sessionId]: _, ...drafts } = state.drafts;
         const { [sessionId]: __, ...startups } = state.pendingStartup;
+        const { [sessionId]: ___, ...artifacts } = state.artifactsBySession;
         return {
+          artifactsBySession: artifacts,
           openedSessions: state.openedSessions.filter(id => id !== sessionId),
           livePanes: state.livePanes.filter(id => id !== sessionId),
           drafts,
@@ -387,7 +425,8 @@ export const useTerminalStore = create(
         rightPanelOpen: state.rightPanelOpen,
         rightPanelTabs: state.rightPanelTabs,
         rightPanelWidth: state.rightPanelWidth,
-        editorPanelWidth: state.editorPanelWidth
+        editorPanelWidth: state.editorPanelWidth,
+        artifactsBySession: state.artifactsBySession
       }),
       storage: {
         getItem: (name) => {

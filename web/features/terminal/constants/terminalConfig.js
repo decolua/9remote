@@ -48,6 +48,9 @@ export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: Infinity };
 // Inline editor opened from the file tree.
 export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: Infinity };
 
+// Artifacts the AI has shown, kept per terminal so hiding the app does not lose them.
+export const ARTIFACT_STACK_MAX = 20;
+
 // Branch + dirty poll for a workspace root. Shared per path, not per terminal.
 export const WORKSPACE_GIT_POLL_MS = 10000;
 

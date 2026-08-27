@@ -39,7 +39,7 @@ export default function TerminalWorkspace({
   onBack, onOpenRemote, onOpenFiles, onLogout, onStopCodespace, onUpdate, onRestart,
   onDeleteWorkspace, onReorderSession, onSetHiddenRepos, atStackBottom = false,
   onAddWorkspace, onOpenSettings, homeDir, recentWorkspaces,
-  rightPanel, editorPanel,
+  rightPanel, editorPanel, onOpenArtifact,
   codespaceInfo, tunnelUrl, apiKey, connectionMode,
   subscribeToPush, unsubscribeFromPush, updateAvailable, canSelfUpdate
 }) {
@@ -235,6 +235,7 @@ export default function TerminalWorkspace({
       fileSocket={fileSocket}
       mountDelay={mountDelayFor(sessionId, isFocused, workspaceIndex)}
       bgIndex={bgIndex}
+      onOpenArtifact={onOpenArtifact}
     />
     );
   };

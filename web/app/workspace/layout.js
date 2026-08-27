@@ -93,7 +93,9 @@ export default function WorkspaceLayout({ children }) {
     openEditorFile,
     closeEditorFile,
     editorPreviewSeq,
-    artifactTitle
+    artifactTitle,
+    pushArtifact,
+    removeArtifact
   } = useTerminalStore(useShallow((s) => ({
     viewStack: s.viewStack,
     openedSessions: s.openedSessions,
@@ -129,6 +131,8 @@ export default function WorkspaceLayout({ children }) {
     closeEditorFile: s.closeEditorFile,
     editorPreviewSeq: s.editorPreviewSeq,
     artifactTitle: s.artifactTitle,
+    pushArtifact: s.pushArtifact,
+    removeArtifact: s.removeArtifact,
   })));
 
   useEffect(() => {
@@ -324,23 +328,33 @@ export default function WorkspaceLayout({ children }) {
       });
       return;
     }
-    setMobileEditor({ path, workspace: workspaces.find(w => w.id === activeWorkspaceId)?.path, preview: !!opts.preview });
+    setMobileEditor({ path, workspace: workspaces.find(w => w.id === activeWorkspaceId)?.path, preview: !!opts.preview, artifactSessionId: opts.artifactSessionId || null });
   }, [workspaces, activeWorkspaceId, setMobileEditor]);
 
-  // The AI asked to show a file it just made (MCP openArtifact). This opens a side
-  // panel and nothing else — which terminal is selected is the user's business, so
-  // it is left exactly as it was even when another terminal made the request.
+  // Open one artifact from a terminal's stack — the pane's button and an incoming
+  // request both land here, so both leave the same trail behind on close.
+  const openArtifact = useCallback((sessionId, item) => {
+    if (!item?.path) return;
+    const title = item.title || item.path.split("/").pop();
+    if (isDesktop) openEditorFile(item.path, { preview: true, artifactTitle: title, artifactSessionId: sessionId });
+    else openSheetFile(item.path, { preview: true, artifactSessionId: sessionId });
+  }, [isDesktop, openEditorFile, openSheetFile]);
+
+  // The AI asked to show a file it just made (MCP openArtifact). It always joins the
+  // stack of the terminal that asked; it only takes over the screen when that terminal
+  // is the one on screen — another terminal's file must not shove this one aside.
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket) return;
-    const onArtifactOpen = ({ path, title } = {}) => {
+    const onArtifactOpen = ({ path, title, sessionId } = {}) => {
       if (!path) return;
-      if (isDesktop) openEditorFile(path, { preview: true, artifactTitle: title || path.split("/").pop() });
-      else openSheetFile(path, { preview: true });
+      const item = { path, title: title || path.split("/").pop(), at: Date.now() };
+      if (sessionId) pushArtifact(sessionId, item);
+      if (!sessionId || sessionId === activeSessionId) openArtifact(sessionId, item);
     };
     socket.on("artifactOpen", onArtifactOpen);
     return () => socket.off("artifactOpen", onArtifactOpen);
-  }, [socketRef, connected, isDesktop, openEditorFile, openSheetFile]);
+  }, [socketRef, connected, activeSessionId, pushArtifact, openArtifact]);
 
   // Lazy per-workspace mount: the FIRST time a workspace becomes active, mark it mounted so its
   // panes' XTerms initialize. Others stay as placeholders until visited — avoids mounting every
@@ -382,10 +396,14 @@ export default function WorkspaceLayout({ children }) {
   // from the URL via useRouteSync. Fall back to storePopView for deep-links with no prior entry.
   const popView = useCallback(() => {
     // Mobile: close the editor overlay first (it's not in the viewStack) before navigating back
-    if (!isDesktop && mobileEditor) { setMobileEditor(null); return; }
+    if (!isDesktop && mobileEditor) {
+      if (mobileEditor.artifactSessionId) removeArtifact(mobileEditor.artifactSessionId, mobileEditor.path);
+      setMobileEditor(null);
+      return;
+    }
     if (typeof history !== "undefined" && history.length > 1) router.back();
     else storePopView();
-  }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor]);
+  }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor, removeArtifact]);
 
   // Load sessions + workspaces when the socket connects.
   // Lost-packet retry lives in useSocket (loadedRef-gated, every view).
@@ -562,6 +580,7 @@ export default function WorkspaceLayout({ children }) {
             onOpenSettings={openSlideMenu}
             homeDir={systemInfo?.homedir}
             recentWorkspaces={recentWorkspaces}
+            onOpenArtifact={openArtifact}
             rightPanel={{
               open: rightPanelOpen,
               tabs: rightPanelTabs,
@@ -725,7 +744,10 @@ export default function WorkspaceLayout({ children }) {
               diffStatus={mobileEditor.diffStatus}
               preview={mobileEditor.preview}
               fileSocket={fileSocket}
-              onBack={() => setMobileEditor(null)}
+              onBack={() => {
+                if (mobileEditor.artifactSessionId) removeArtifact(mobileEditor.artifactSessionId, mobileEditor.path);
+                setMobileEditor(null);
+              }}
               workspace={mobileEditor.workspace || currentView.workspace}
             />
           </div>

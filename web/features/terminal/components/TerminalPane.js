@@ -6,7 +6,7 @@ import SelectionActionButton from "@/features/terminal/components/SelectionActio
 import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
-import { ChevronDown, Folder, RefreshCw, ListChecks } from "@/shared/components/ui/Icon";
+import { ChevronDown, Folder, RefreshCw, ListChecks, Sparkles } from "@/shared/components/ui/Icon";
 import NotePanel from "@/features/terminal/components/NotePanel";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -36,6 +36,7 @@ function TerminalPane({
   clearNotification,
   fileSocket,
   bgIndex = 0,
+  onOpenArtifact,
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
@@ -60,6 +61,9 @@ function TerminalPane({
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
   const showGitButton = useTerminalStore((s) => s.showGitButton);
   const showNoteButton = useTerminalStore((s) => s.showNoteButton);
+  // What the AI has shown from this terminal, newest first. Only this pane's stack —
+  // another terminal's artifacts are its own to reopen.
+  const artifacts = useTerminalStore((s) => s.artifactsBySession[sessionId]);
   const notePinned = useTerminalStore((s) => !!s.pinnedNotes?.[sessionId]);
   const setNotePinned = useTerminalStore((s) => s.setNotePinned);
 
@@ -385,6 +389,22 @@ function TerminalPane({
               )}
             </button>
           )}
+          {/* Reopen what the AI showed here. Hiding the app closes the panel but not the
+              stack, so this is the way back to it. */}
+          {onOpenArtifact && artifacts?.length > 0 && (
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); vibrate(); onOpenArtifact(sessionId, artifacts[0]); }}
+              className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+              title={t("terminalPane.artifacts")}
+            >
+              <Sparkles size={16} />
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
+                {artifacts.length}
+              </span>
+            </button>
+          )}
         </div>
       )}
 
@@ -411,5 +431,8 @@ export default memo(TerminalPane, (prev, next) => (
   prev.showFocusBorder === next.showFocusBorder &&
   // The mobile title strip reads both, so a rename or a status change must repaint.
   prev.sessionName === next.sessionName &&
-  prev.sessionState === next.sessionState
+  prev.sessionState === next.sessionState &&
+  // Not decoration: it closes over the workspace an artifact opens against, so a stale
+  // one would open the file under the wrong root.
+  prev.onOpenArtifact === next.onOpenArtifact
 ));
