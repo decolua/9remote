@@ -68,6 +68,13 @@ export default function TerminalWorkspace({
   const rightPanelRoots = useTerminalStore((s) => s.rightPanelRoots);
   const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
   const openRightPanel = useTerminalStore((s) => s.openRightPanel);
+  const reorderOpenedSessions = useTerminalStore((s) => s.reorderOpenedSessions);
+  // One drag moves all three views of the same list: sidebar/tabs (server order) and the
+  // panes on screen (local open order).
+  const handleReorderSession = useCallback((orderedIds) => {
+    reorderOpenedSessions(orderedIds);
+    onReorderSession?.(orderedIds);
+  }, [reorderOpenedSessions, onReorderSession]);
   const filesRoot = rightPanelRoots[baseRoot] || baseRoot;
   // Where the focused terminal actually stands — the panel opens the worktree holding it.
   const activeCwd = activeSessionId ? cwdBySession[activeSessionId] || null : null;
@@ -279,7 +286,7 @@ export default function TerminalWorkspace({
               shells={shells}
               onRenameSession={nav.handleRenameSession}
               onDeleteSession={nav.handleDeleteSession}
-              onReorderSession={onReorderSession}
+              onReorderSession={handleReorderSession}
               onDeleteWorkspace={onDeleteWorkspace}
               onAddWorkspace={onAddWorkspace}
               onOpenSettings={onOpenSettings}
@@ -338,6 +345,7 @@ export default function TerminalWorkspace({
             shells={shells}
             onToggleSidebar={isDesktop ? toggleSidebar : null}
             sidebarCollapsed={sidebarCollapsed}
+            onReorderSession={handleReorderSession}
             onToggleRightPanel={rightPanel?.onToggle}
             rightPanelOpen={rightPanel?.open}
             fileSocket={fileSocket}

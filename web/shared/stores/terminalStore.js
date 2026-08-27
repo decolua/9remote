@@ -300,6 +300,18 @@ export const useTerminalStore = create(
       
       clearOpenedSessions: () => set({ openedSessions: [], livePanes: [] }),
 
+      // Reordering tabs must move the panes too. Only the ids being reordered are
+      // rearranged — sessions of other workspaces keep the slots they already hold.
+      reorderOpenedSessions: (orderedIds) => set((state) => {
+        const moving = new Set(orderedIds);
+        const queue = orderedIds.filter((id) => state.openedSessions.includes(id));
+        if (queue.length < 2) return {};
+        let i = 0;
+        return {
+          openedSessions: state.openedSessions.map((id) => (moving.has(id) ? queue[i++] : id))
+        };
+      }),
+
       // Something changed which terminal runs which conversation, and only the
       // agent knows the new answer. Backdate the rows so the next poll refetches
       // while the panel keeps rendering what it has.

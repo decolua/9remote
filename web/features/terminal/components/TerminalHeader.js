@@ -15,6 +15,7 @@ import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
+import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 
 export default function TerminalHeader({
   sessions = [],
@@ -51,6 +52,7 @@ export default function TerminalHeader({
   onToggleSidebar = null,
   sidebarCollapsed = false,
   onToggleRightPanel,
+  onReorderSession,
   rightPanelOpen = false,
   updateAvailable = null,
   canSelfUpdate = false,
@@ -73,6 +75,15 @@ export default function TerminalHeader({
   const [renameDialog, setRenameDialog] = useState({ sessionId: null, name: "", value: "" });
   // New terminal modal (named create)
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  // Drag-reorder the tab strip. No grip here — the strip is too tight for one — so a
+  // press only becomes a drag past the threshold; below it the tab still switches.
+  const { dragId, registerEl, startDrag, consumeClick } = useDragReorder({
+    axis: "x",
+    // Higher than the sidebar's: that has a grip to grab, a tab is its own handle, so a
+    // twitch while clicking must still read as "switch to this tab".
+    threshold: 6,
+    onCommit: onReorderSession
+  });
 
   // Suggested default name based on terminal count in active group
   const suggestTerminalName = (workspaceId) => `${t("terminal.defaultName")} ${sessions.filter((s) => sessionWorkspaceId(s) === (workspaceId ?? null)).length + 1}`;
@@ -256,9 +267,20 @@ export default function TerminalHeader({
               <button
                 key={session.id}
                 title={chord || undefined}
-                ref={isActiveTab ? activeTabRef : null}
+                ref={(el) => {
+                  registerEl(session.id)(el);
+                  if (isActiveTab) activeTabRef.current = el;
+                }}
                 onMouseDown={(e) => e.preventDefault()}
+                onPointerDown={(e) => {
+                  // Mouse only: on touch this strip is a horizontal scroller, and
+                  // swallowing the gesture would trap it. Touch reorders in the sidebar.
+                  if (e.pointerType !== "mouse" || !onReorderSession || !connected) return;
+                  clearTabLongPress();
+                  startDrag(e, session.id, sessions.map((s) => s.id));
+                }}
                 onClick={() => {
+                  if (consumeClick()) return;
                   vibrate();
                   onSwitchSession?.(session.id);
                 }}
@@ -266,12 +288,12 @@ export default function TerminalHeader({
                 onTouchStart={(e) => handleTabTouchStart(e, session)}
                 onTouchMove={clearTabLongPress}
                 onTouchEnd={clearTabLongPress}
-                className={`term-tab px-2 sm:px-2.5 py-1 text-xs font-medium transition-all duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
+                className={`term-tab px-2 sm:px-2.5 py-1 text-xs font-medium duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   isActiveTab ? "term-tab-active" : ""
-                }`}
+                } ${dragId === session.id ? "relative z-20 opacity-90 shadow-lg" : "transition-all"}`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} title={t(v.label)} />
-                <span className="truncate max-w-[120px]" data-tip={tabName}>{tabName}</span>
+                <span className="truncate max-w-[80px] sm:max-w-[120px]" data-tip={tabName}>{tabName}</span>
               </button>
             );
           })}
