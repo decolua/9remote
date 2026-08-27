@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X, ExternalLink } from "@/shared/components/ui/Icon";
+import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import FileContextMenu from "@/shared/components/ui/FileContextMenu";
@@ -44,6 +44,11 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
   const [confirmAutoStageOpen, setConfirmAutoStageOpen] = useState(false);
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   const [discardTarget, setDiscardTarget] = useState(null);
+  // Split-button menu (VS Code parity): the primary action commits, the arrow
+  // offers the variants. `pendingPush` defers the push until the stage confirm returns.
+  const [pendingPush, setPendingPush] = useState(false);
+  const [commitMenu, setCommitMenu] = useState(null);
+  const [moreMenu, setMoreMenu] = useState(null);
 
   const reload = useCallback(async () => {
     if (!workspace || !fileSocket) return;
@@ -114,9 +119,10 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
     setConfirmDiscardOpen(true);
   }, []);
 
-  const handleCommitClick = useCallback(() => {
+  const handleCommitClick = useCallback((withPush = false) => {
     if (!commitMsg.trim()) return;
     if (!files.length) return;
+    setPendingPush(withPush);
     setConfirmAutoStageOpen(true);
   }, [commitMsg, files]);
 
@@ -129,12 +135,23 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
       return;
     }
     const res = await fileSocket.gitCommit?.(workspace, commitMsg.trim());
-    setResult(res?.success
-      ? { ok: true, text: commitSummary(t, res.output) }
-      : { ok: false, text: res?.output || res?.error || t("git.commitFailed") });
+    if (!res?.success) {
+      setResult({ ok: false, text: res?.output || res?.error || t("git.commitFailed") });
+      reload();
+      return;
+    }
     setCommitMsg("");
+    if (!pendingPush) {
+      setResult({ ok: true, text: commitSummary(t, res.output) });
+      reload();
+      return;
+    }
+    const pushed = await fileSocket.gitPush?.(workspace);
+    setResult(pushed?.success
+      ? { ok: true, text: `${commitSummary(t, res.output)} · ${pushSummary(t, pushed.output)}` }
+      : { ok: false, text: pushed?.output || pushed?.error || t("git.pushFailed") });
     reload();
-  }, [workspace, fileSocket, commitMsg, reload, t]);
+  }, [workspace, fileSocket, commitMsg, pendingPush, reload, t]);
 
   const handlePush = useCallback(async () => {
     if (!workspace) return;
@@ -159,6 +176,14 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
       : { ok: false, text: res?.output || res?.error || t("git.pullFailed") });
     reload();
   }, [workspace, fileSocket, reload, t]);
+
+
+  const anchorMenu = useCallback((e, set) => {
+    e.stopPropagation();
+    vibrate();
+    const r = e.currentTarget.getBoundingClientRect();
+    set({ x: r.right, y: r.bottom + 4 });
+  }, []);
 
   // Right-click context menu (vscode-style)
   const [ctxMenu, setCtxMenu] = useState(null);
@@ -262,6 +287,14 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
           </button>
+          <button
+            type="button"
+            title={t("git.gitActions")}
+            onClick={(e) => anchorMenu(e, setMoreMenu)}
+            className="p-1 text-text-muted hover:text-text"
+          >
+            <MoreHorizontal size={12} />
+          </button>
         </div>
 
         <textarea
@@ -272,40 +305,28 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
           className="w-full bg-surface-2 border border-border rounded-brand px-2 py-1 text-xs text-text placeholder-text-subtle focus:outline-none focus:border-brand-500 resize-none"
         />
 
-        <div className="flex items-center gap-1">
+        {/* VS Code parity: one primary Commit split-button; every other git action
+            lives behind the arrow or the "…" in the branch row. */}
+        <div className={`flex items-stretch h-7 rounded-brand overflow-hidden bg-brand-500 text-white transition-opacity ${
+          !commitMsg.trim() || !files.length ? "opacity-40" : ""
+        }`}>
           <button
             type="button"
             disabled={!commitMsg.trim() || !files.length}
-            onClick={handleCommitClick}
-            className="flex-1 h-7 text-xs rounded-brand bg-brand-500 text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => { vibrate(); handleCommitClick(false); }}
+            className="flex-1 text-xs hover:bg-black/10 disabled:cursor-not-allowed transition-colors"
           >
             {t("git.commit")}
           </button>
+          <span className="w-px my-1.5 bg-white/25" />
           <button
             type="button"
-            onClick={() => { vibrate(); stageAll(); }}
-            disabled={!files.length}
-            className="px-2 h-7 text-xs rounded-brand bg-surface-2 text-text hover:bg-surface-3 disabled:opacity-40"
-            title={t("git.stageAll")}
+            title={t("git.gitActions")}
+            disabled={!commitMsg.trim() || !files.length}
+            onClick={(e) => anchorMenu(e, setCommitMenu)}
+            className="px-1.5 flex items-center hover:bg-black/10 disabled:cursor-not-allowed transition-colors"
           >
-            {t("git.stageAll")}
-          </button>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => { vibrate(); handlePush(); }}
-            className="flex-1 h-6 text-[11px] rounded-brand bg-surface-2 text-text hover:bg-surface-3"
-          >
-            {t("git.push")}
-          </button>
-          <button
-            type="button"
-            onClick={() => { vibrate(); handlePull(); }}
-            className="flex-1 h-6 text-[11px] rounded-brand bg-surface-2 text-text hover:bg-surface-3"
-          >
-            {t("git.pull")}
+            <ChevronDown size={12} />
           </button>
         </div>
 
@@ -355,6 +376,32 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
           y={ctxMenu.y}
           items={buildMenuItems(ctxMenu.file)}
           onClose={() => setCtxMenu(null)}
+        />
+      )}
+
+      {commitMenu && (
+        <FileContextMenu
+          x={commitMenu.x}
+          y={commitMenu.y}
+          items={[
+            { key: "commitPush", label: t("git.commitAndPush"), icon: ArrowUp,
+              disabled: !commitMsg.trim() || !files.length,
+              onClick: () => handleCommitClick(true) }
+          ]}
+          onClose={() => setCommitMenu(null)}
+        />
+      )}
+
+      {moreMenu && (
+        <FileContextMenu
+          x={moreMenu.x}
+          y={moreMenu.y}
+          items={[
+            { key: "push", label: t("git.push"), icon: ArrowUp, onClick: handlePush },
+            { key: "pull", label: t("git.pull"), icon: ArrowDown, onClick: handlePull },
+            { key: "stageAll", label: t("git.stageAll"), icon: Plus, disabled: !files.length, onClick: stageAll }
+          ]}
+          onClose={() => setMoreMenu(null)}
         />
       )}
     </div>

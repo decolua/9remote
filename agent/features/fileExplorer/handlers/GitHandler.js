@@ -22,7 +22,7 @@ async function changedCountCached(repoPath) {
   if (cached?.pending) {
     try { return await cached.pending; } catch { return { success: false }; }
   }
-  const pending = runGit(["status", "--porcelain", "--no-renames"], repoPath).then((r) => {
+  const pending = runGit(["status", "--porcelain", "--no-renames", "-uall"], repoPath).then((r) => {
     const value = r.code === 0
       ? { success: true, count: r.stdout.trim() ? r.stdout.trim().split("\n").length : 0 }
       : { success: false, error: "Not a git repository or git not available" };
@@ -80,7 +80,9 @@ function capDiff(diff) {
 export function setupGitHandlers(socket) {
   socket.on("gitStatus", ({ repoPath }, callback) => {
     try {
-      const result = execSync("git status --porcelain --no-renames", {
+      // -uall: without it git collapses an untracked directory into one entry, which the
+      // UI then opens as a file (EISDIR) and counts as zero added lines.
+      const result = execSync("git status --porcelain --no-renames -uall", {
         cwd: repoPath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true
       });
 
@@ -216,7 +218,7 @@ export function setupGitHandlers(socket) {
       } else {
         diff = runGitSync(["diff", "HEAD"], repoPath);
 
-        const statusResult = runGitSync(["status", "--porcelain", "--no-renames"], repoPath);
+        const statusResult = runGitSync(["status", "--porcelain", "--no-renames", "-uall"], repoPath);
         const untrackedFiles = statusResult.trim().split("\n")
           .filter(line => line.startsWith("??"))
           .map(line => line.substring(3));
