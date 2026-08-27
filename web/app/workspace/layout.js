@@ -475,6 +475,7 @@ export default function WorkspaceLayout({ children }) {
             onCreate={nav.handleCreateSession}
             onDelete={nav.handleDeleteSession}
             onRename={nav.handleRenameSession}
+            onResumeAgentSession={nav.handleResumeAgentSession}
             onLogout={handleLogoutWithConfirm}
             onOpenRemote={remoteEntry}
             tunnelUrl={auth?.tunnelUrl}

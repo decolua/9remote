@@ -494,6 +494,11 @@ export default function TerminalSidebar({
           }}
           shells={shells}
           socketRef={socketRef}
+          onResumeAgentSession={onResumeAgentSession}
+          onSelectSession={onSelectSession}
+          liveSessionIds={liveSessionIds}
+          activeSessionId={activeSessionId}
+          connected={connected}
           workspacePath={workspaces.find((w) => w.id === createModalWsId)?.path || null}
           workspaceName={workspaces.find((w) => w.id === createModalWsId)?.name || ""}
           fileSocket={fileSocket}

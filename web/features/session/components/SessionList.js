@@ -26,6 +26,7 @@ export default function SessionList({
   sessions, cwdBySession = {}, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote,
   tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected,
   onStopCodespace, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush,
+  onResumeAgentSession = null,
   notifications = {}, sessionStatus = {}, clearNotification, agentVersion,
   updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, transport = "ws",
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
@@ -104,6 +105,9 @@ export default function SessionList({
     { key: UNGROUPED_KEY, id: null, name: t("workspaces.ungrouped"), path: null, isUnassigned: true }
   ];
   const sessionsIn = (workspaceId) => sessions.filter((s) => sessionWorkspaceId(s) === workspaceId);
+  // A history row naming a terminal that still exists focuses it instead of resuming a
+  // second copy of the same conversation.
+  const liveSessionIds = new Set(sessions.map((s) => s.id));
 
   const submitRename = () => {
     const value = renaming?.value?.trim();
@@ -272,6 +276,10 @@ export default function SessionList({
           }}
           shells={shells}
           socketRef={socketRef}
+          onResumeAgentSession={onResumeAgentSession}
+          onSelectSession={onSelect}
+          liveSessionIds={liveSessionIds}
+          connected={connected}
           workspacePath={workspaces.find((w) => w.id === terminalModal.workspaceId)?.path || null}
           workspaceName={workspaces.find((w) => w.id === terminalModal.workspaceId)?.name || ""}
           fileSocket={fileSocket}

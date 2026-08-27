@@ -221,6 +221,7 @@ export default {
   },
   agentHistory: {
     title: "History",
+    empty: "No past conversations here yet",
     untitled: "Untitled",
     openNow: "Open in a terminal",
     minutesAgo: "{n}m",

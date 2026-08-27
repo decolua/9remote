@@ -49,6 +49,7 @@ export default function TerminalHeader({
   onRenameSession,
   onDeleteSession,
   onCreateNamedSession,
+  onResumeAgentSession = null,
   onToggleSidebar = null,
   sidebarCollapsed = false,
   onToggleRightPanel,
@@ -84,6 +85,10 @@ export default function TerminalHeader({
     threshold: 6,
     onCommit: onReorderSession
   });
+
+  // Every terminal that actually exists right now — a history row naming one of them
+  // focuses it instead of resuming a second copy of the same conversation.
+  const liveSessionIds = new Set(allSessions.map((s) => s.id));
 
   // Suggested default name based on terminal count in active group
   const suggestTerminalName = (workspaceId) => `${t("terminal.defaultName")} ${sessions.filter((s) => sessionWorkspaceId(s) === (workspaceId ?? null)).length + 1}`;
@@ -431,6 +436,11 @@ export default function TerminalHeader({
           workspaceName={activeWorkspace?.name || ""}
           fileSocket={fileSocket}
           homeDir={homeDir}
+          onResumeAgentSession={onResumeAgentSession}
+          onSelectSession={onSwitchSession}
+          liveSessionIds={liveSessionIds}
+          activeSessionId={activeSessionId}
+          connected={connected}
         />
       )}
 

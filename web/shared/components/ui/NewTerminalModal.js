@@ -1,17 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Terminal, Bot, Check } from "@/shared/components/ui/Icon";
+import { X, Terminal, Bot, Check, History } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { agentIconUrl, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
 import { SHORTCUTS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import LocationPicker from "@/features/terminal/components/LocationPicker";
+import AgentHistoryPanel from "@/features/terminal/components/AgentHistoryPanel";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
 
 // The quick-create chord (create from last prefs, no modal) hinted at in the title bar
 const NEW_TERMINAL_SHORTCUT = SHORTCUTS.find((s) => s.id === "newTerminal");
+
+const TAB_DEFS = [
+  { id: "new", icon: Terminal, labelKey: "terminal.newTerminal" },
+  { id: "history", icon: History, labelKey: "agentHistory.title" }
+];
 
 // Shared "New terminal" modal: where it starts (workspace root / a repo's worktree),
 // what to launch (plain shell or a TUI agent CLI detected on the host's PATH), how it
@@ -36,7 +42,9 @@ function AgentAvatar({ agent }) {
 
 export default function NewTerminalModal({
   onClose, onCreate, shells = [], suggestName = "", socketRef = null,
-  workspacePath = null, workspaceName = "", fileSocket = null, homeDir = null
+  workspacePath = null, workspaceName = "", fileSocket = null, homeDir = null,
+  onResumeAgentSession = null, liveSessionIds = null, activeSessionId = null,
+  onSelectSession = null, connected = true
 }) {
   const { t } = useI18n();
   const agentClis = useAgentClis(socketRef);
@@ -54,6 +62,10 @@ export default function NewTerminalModal({
     if (saved && shells.some((s) => s.id === saved)) return saved;
     return shells[0]?.id || "";
   });
+  // Past conversations live behind a second tab rather than a separate surface: both
+  // answer "which terminal am I opening", so they belong in one place. Only offered
+  // when the caller can actually resume one and there is a directory to look in.
+  const [tab, setTab] = useState("new");
   const nameRef = useRef(null);
   const listRef = useRef(null);
   const didScrollToPickRef = useRef(false);
@@ -100,6 +112,12 @@ export default function NewTerminalModal({
     ? `${agent.short || agent.label}${suggestIndex ? ` ${suggestIndex}` : ""}`
     : (suggestName || t("terminal.defaultName"));
 
+  // Where to look for past conversations: whatever the location picker points at,
+  // falling back to the workspace root it defaults to.
+  const historyCwd = cwd || workspacePath;
+  const canShowHistory = !!onResumeAgentSession && !!historyCwd;
+  const showHistory = canShowHistory && tab === "history";
+
   const submit = (picked = agent) => {
     vibrate();
     if (!picked && shellId) savePref(TERMINAL_PREF_KEYS.shell, shellId);
@@ -132,21 +150,43 @@ export default function NewTerminalModal({
         onKeyDown={(e) => { if (e.key === "Escape") onClose?.(); }}
       >
         {/* Title, then where the terminal will start — context before choices */}
-        <div className="px-4 pt-4 pb-3 space-y-2.5">
-          <div className="flex items-center gap-2">
-            <h2 id="newTerminalTitle" className="flex-1 text-sm font-semibold text-text">{t("terminal.newTerminal")}</h2>
-            {NEW_TERMINAL_SHORTCUT && (
-              <span className="inline-flex items-center gap-1 shrink-0" aria-hidden="true">
+        <div className={`px-4 pt-4 space-y-2.5 ${showHistory ? "pb-0" : "pb-3"}`}>
+          <div className={`flex gap-2 ${canShowHistory ? "items-stretch -mx-4 px-4 border-b border-border-subtle" : "items-center"}`}>
+            {canShowHistory ? (
+              // Underline tabs, same shape as the right panel's — the app already has
+              // one tab idiom, and a second one made of pills would read as a toolbar.
+              <div role="tablist" className="flex-1 min-w-0 flex items-stretch gap-3">
+                {TAB_DEFS.map(({ id, icon: TabIcon, labelKey }) => (
+                  <button
+                    key={id}
+                    role="tab"
+                    aria-selected={tab === id}
+                    onClick={() => { vibrate(); setTab(id); }}
+                    className={`pb-2 -mb-px flex items-center gap-1.5 text-sm font-semibold border-b-2 transition-colors ${
+                      tab === id ? "text-text border-brand-500" : "text-text-muted border-transparent hover:text-text"
+                    }`}
+                  >
+                    <TabIcon size={14} className="shrink-0" />
+                    <span className="truncate">{t(labelKey)}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <h2 id="newTerminalTitle" className="flex-1 text-sm font-semibold text-text">{t("terminal.newTerminal")}</h2>
+            )}
+            {/* The chord is a pointer-device affordance; a phone has no way to press it */}
+            {NEW_TERMINAL_SHORTCUT && !showHistory && (
+              <span className="hidden sm:inline-flex items-center gap-1 shrink-0 self-center" aria-hidden="true">
                 {shortcutKeys(NEW_TERMINAL_SHORTCUT).map((key) => (
                   <kbd key={key} className={SHORTCUT_KEY_CLS}>{key}</kbd>
                 ))}
               </span>
             )}
-            <button onClick={onClose} aria-label={t("common.cancel")} className="text-text-muted hover:text-text shrink-0">
+            <button onClick={onClose} aria-label={t("common.cancel")} className="text-text-muted hover:text-text shrink-0 self-center">
               <X size={18} />
             </button>
           </div>
-          {workspacePath && (
+          {workspacePath && !showHistory && (
             <LocationPicker
               workspacePath={workspacePath}
               workspaceName={workspaceName}
@@ -159,6 +199,19 @@ export default function NewTerminalModal({
           )}
         </div>
 
+        {showHistory ? (
+          <AgentHistoryPanel
+            variant="list"
+            socketRef={socketRef}
+            cwd={historyCwd}
+            onResume={(row) => { onResumeAgentSession?.(row); onClose?.(); }}
+            onSelectSession={(id) => { onSelectSession?.(id); onClose?.(); }}
+            liveSessionIds={liveSessionIds}
+            activeSessionId={activeSessionId}
+            connected={connected}
+          />
+        ) : (
+        <>
         {/* What to launch — the decision the fields below depend on */}
         <div
           ref={listRef}
@@ -251,6 +304,8 @@ export default function NewTerminalModal({
             </button>
           </div>
         </div>
+        </>
+        )}
       </div>
 
       </div>
