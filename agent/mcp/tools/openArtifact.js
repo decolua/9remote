@@ -16,8 +16,8 @@ const openArtifactTool = {
     required: ["path"],
   },
   // Returns a string on success, or { error } — the server turns both into MCP content.
-  run({ path, title }) {
-    const result = openArtifact({ path, title });
+  run({ path, title }, ctx) {
+    const result = openArtifact({ path, title }, ctx?.sessionId);
     return result.error ? result : `Opened ${result.path}`;
   },
 };

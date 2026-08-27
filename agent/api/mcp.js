@@ -8,6 +8,7 @@ import { jsonErr, parseJsonBody } from "../lib/router.js";
 import { verifyMcpToken } from "../lib/mcpToken.js";
 import { isMcpEnabled } from "../mcp/mcpConfig.js";
 import { handleRpc } from "../mcp/mcpServer.js";
+import { resolveCallerSession } from "../features/artifact/callerSession.js";
 
 export async function handleMcpPost(req, res) {
   if (!verifyMcpToken(req.headers.authorization)) return jsonErr(res, 401, "Unauthorized");
@@ -23,7 +24,7 @@ export async function handleMcpPost(req, res) {
 
   let response;
   try {
-    response = handleRpc(msg);
+    response = handleRpc(msg, { sessionId: resolveCallerSession(req) });
   } catch (e) {
     // An MCP client reads a JSON-RPC error; a bare 500 just reads as the server dying
     response = { jsonrpc: "2.0", id: msg?.id ?? null, error: { code: -32603, message: e.message } };

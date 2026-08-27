@@ -7,11 +7,11 @@ import { TOOL_BY_NAME, toolManifest } from "./tools/index.js";
 
 const text = (message, isError = false) => ({ content: [{ type: "text", text: message }], isError });
 
-function callTool(name, args) {
+function callTool(name, args, ctx) {
   const tool = TOOL_BY_NAME.get(name);
   if (!tool) return text(`Unknown tool: ${name}`, true);
   try {
-    const result = tool.run(args || {});
+    const result = tool.run(args || {}, ctx || {});
     return result?.error ? text(result.error, true) : text(String(result));
   } catch (e) {
     return text(e.message, true);
@@ -19,7 +19,8 @@ function callTool(name, args) {
 }
 
 // Returns the JSON-RPC response object, or null for a notification (no id → no reply).
-export function handleRpc(msg) {
+// ctx carries who is calling (see callerSession.js) — tools that act on a terminal need it.
+export function handleRpc(msg, ctx) {
   const { id, method, params } = msg || {};
   const reply = (result) => ({ jsonrpc: "2.0", id, result });
 
@@ -31,7 +32,7 @@ export function handleRpc(msg) {
     });
   }
   if (method === "tools/list") return reply({ tools: toolManifest() });
-  if (method === "tools/call") return reply(callTool(params?.name, params?.arguments));
+  if (method === "tools/call") return reply(callTool(params?.name, params?.arguments, ctx));
   if (method === "ping") return reply({});
   if (id == null) return null;
   return { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };

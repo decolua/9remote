@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { SERVER_PORT, MCP } from "../lib/constants.js";
+import { CALLER_SESSION } from "../features/artifact/constants.js";
 import { getMcpToken } from "../lib/mcpToken.js";
 import { readSettings, writeSettings } from "../lib/settings.js";
 import { writeJsonAtomic } from "../lib/atomicFile.js";
@@ -13,6 +14,11 @@ const logger = createLogger("mcp");
 const URL = `http://127.0.0.1:${SERVER_PORT}${MCP.PATH}`;
 const NAME = MCP.SERVER_NAME;
 const AUTH = () => `Bearer ${getMcpToken()}`;
+// Which terminal a call came from. The daemon puts NINE_REMOTE_SESSION_ID in every PTY's
+// env, so a CLI that expands env vars in its config answers this for free; the agent's own
+// process probe covers the ones that do not (see features/artifact/callerSession.js).
+const SESSION_HEADER = CALLER_SESSION.HEADER;
+const SESSION_ENV = "NINE_REMOTE_SESSION_ID";
 const homeSub = (...p) => path.join(os.homedir(), ...p);
 
 function readJson(filePath) {
@@ -113,14 +119,14 @@ function blockClient({ file, lines }) {
 const CLIENTS = {
   claude: jsonClient({
     file: () => homeSub(".claude.json"),
-    entry: () => ({ type: "http", url: URL, headers: { Authorization: AUTH() } }),
+    entry: () => ({ type: "http", url: URL, headers: { Authorization: AUTH(), [SESSION_HEADER]: `\${${SESSION_ENV}}` } }),
   }),
   // opencode v1 keys servers straight off `mcp`; v2 nests them under `mcp.servers`.
   // The existing file says which, so an upgrade is followed rather than fought.
   opencode: jsonClient({
     file: () => homeSub(".config", "opencode", "opencode.json"),
     keyPath: (config) => (config?.mcp?.servers ? ["mcp", "servers"] : ["mcp"]),
-    entry: () => ({ type: "remote", url: URL, enabled: true, headers: { Authorization: AUTH() } }),
+    entry: () => ({ type: "remote", url: URL, enabled: true, headers: { Authorization: AUTH(), [SESSION_HEADER]: `{env:${SESSION_ENV}}` } }),
     // Not a secrets-only file: it is the user's own opencode config
     mode: 0o644,
   }),
@@ -131,6 +137,8 @@ const CLIENTS = {
       `url = ${JSON.stringify(URL)}`,
       `[mcp_servers."${NAME}".http_headers]`,
       `Authorization = ${JSON.stringify(AUTH())}`,
+      `[mcp_servers."${NAME}".env_http_headers]`,
+      `${JSON.stringify(SESSION_HEADER)} = ${JSON.stringify(SESSION_ENV)}`,
     ],
   }),
 };
