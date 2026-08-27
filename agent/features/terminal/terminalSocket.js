@@ -102,6 +102,9 @@ async function _syncDaemonSessions() {
     sessions.set(id, {
       daemon: true,
       name: meta.name,
+      // Whose the name is survives the restart too — dropping it made every
+      // already-titled terminal look user-named, so it stopped following its chat.
+      autoNamed: meta.autoNamed !== false,
       createdAt: meta.createdAt,
       shellId: meta.shellId,
       cwd: live?.cwd || meta.cwd,
@@ -240,6 +243,7 @@ export async function initializeTerminal() {
     sessions.set(sessionId, {
       pty: null,
       name: meta.name || `Terminal ${sessions.size + 1}`,
+      autoNamed: meta.autoNamed !== false,
       createdAt: meta.createdAt || Date.now(),
       cwd: meta.cwd,
       workspacePath: meta.workspacePath ?? migratedSessionPaths[sessionId] ?? null,
