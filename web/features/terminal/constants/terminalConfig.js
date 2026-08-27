@@ -73,7 +73,7 @@ export const MAX_ATTACHMENTS = 5; // cap concurrent attachments per send
 export const CLIPBOARD_ATTACH_TIMEOUT = 3000; // ms; fallback if host ack never arrives
 export const CLIPBOARD_ATTACH_GAP = 150; // ms; let CLI read clipboard before next overwrite
 export const INPUT_ENTER_DELAY = 100; // ms; gap between text and Enter so PTY reliably receives both
-export const INPUT_MAX_HEIGHT_MOBILE = 72; // px; mobile textarea auto-grow cap (~3 rows)
+export const INPUT_MAX_HEIGHT_MOBILE = 101; // px; mobile textarea auto-grow cap (~4.2 rows)
 export const INPUT_MAX_HEIGHT_DESKTOP = 200; // px; desktop textarea auto-grow cap
 
 // Control keys sent straight to the terminal from the text input (ANSI codes, OS-agnostic).
