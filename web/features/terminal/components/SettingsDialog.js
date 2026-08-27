@@ -13,7 +13,6 @@ import { useTheme } from "@/shared/theme/ThemeProvider";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
 import { SETTINGS_CATEGORIES } from "@/features/terminal/constants/settingsCategories";
-import { PREVIEW_KINDS, previewExtLabel } from "@/features/fileExplorer/constants/fileExplorer";
 import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
 import { agentIconUrl } from "@/features/terminal/constants/agentCli";
 import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
@@ -277,9 +276,6 @@ export default function SettingsDialog({
 
             {section === "mcp" && (
               <div className="space-y-6">
-                {/* MCP is jargon to most people. Say what it buys them before the switch. */}
-                <p className="text-[13px] leading-relaxed text-text-muted">{t("menu.mcpIntro")}</p>
-
                 {/* Named by the agent, not hardcoded here: it is the side that owns each
                     CLI's config file, so it is the side that knows which ones it reaches. */}
                 {mcpClients.length > 0 && (
@@ -295,32 +291,17 @@ export default function SettingsDialog({
                   </Group>
                 )}
 
-                <Group title={t("menu.mcpTools")}>
-                  <ToggleRow
-                    icon={PanelRight}
-                    label={t("menu.artifactPanel")}
-                    hint={t("menu.artifactHint")}
-                    value={artifact.enabled}
-                    loading={artifact.loading}
-                    disabled={!context.connected}
-                    onChange={artifact.toggle}
-                  />
-                </Group>
-
-                {/* Built from the same extension lists the viewers route on, so this
-                    cannot claim a format the app does not actually render. */}
-                <Group title={t("menu.artifactFormats")}>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    {PREVIEW_KINDS.map((kind) => (
-                      <div key={kind.labelKey} className="min-w-0">
-                        <div className="text-[12px] text-text truncate">{t(kind.labelKey)}</div>
-                        <div className="text-[11px] text-text-muted truncate" title={previewExtLabel(kind.exts)}>
-                          {previewExtLabel(kind.exts)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Group>
+                {/* One switch, and the hint under it says what it buys them — MCP is
+                    jargon, so the row has to explain itself. */}
+                <ToggleRow
+                  icon={PanelRight}
+                  label={t("menu.artifactPanel")}
+                  hint={t("menu.artifactHint")}
+                  value={artifact.enabled}
+                  loading={artifact.loading}
+                  disabled={!context.connected}
+                  onChange={artifact.toggle}
+                />
 
                 <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpRestartHint")}</p>
               </div>

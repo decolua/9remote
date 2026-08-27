@@ -18,7 +18,6 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { verifyServerConnection } from "@/shared/hooks/useAuth";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
-import { PREVIEW_KINDS, previewExtLabel } from "@/features/fileExplorer/constants/fileExplorer";
 import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
 import { agentIconUrl } from "@/features/terminal/constants/agentCli";
 import { useInputMode } from "@/shared/hooks/useInputMode";
@@ -317,7 +316,6 @@ export default function MenuItems({
           </button>
           {mcpMenuOpen && (
             <div className="pl-6 pr-3 pb-2 space-y-2">
-              <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpIntro")}</p>
               {mcpClients.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {mcpClients.map((id) => (
@@ -340,15 +338,6 @@ export default function MenuItems({
                 </button>
               </div>
               <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.artifactHint")}</p>
-              {/* Same source as the desktop dialog's grid — one list, two surfaces */}
-              <div className="pt-1 space-y-0.5">
-                {PREVIEW_KINDS.map((kind) => (
-                  <div key={kind.labelKey} className="flex items-baseline gap-2 text-[11px]">
-                    <span className="text-text shrink-0">{t(kind.labelKey)}</span>
-                    <span className="text-text-muted truncate">{previewExtLabel(kind.exts)}</span>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
         </div>
