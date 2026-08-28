@@ -91,9 +91,15 @@ function blockClient({ file, lines }) {
   const end = "# /9Remote MCP";
   // begin carries parentheses — unescaped they read as a regex group and match nothing
   const blockRe = new RegExp(`${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}\\n?`, "g");
+  // An entry written before the markers existed would collide with ours as a duplicate
+  // TOML key. Drop any table whose header names this server, up to the next header.
+  const legacyRe = new RegExp(
+    `^\\[mcp_servers\\."?${escapeRe(NAME)}"?(?:\\.[^\\]]*)?\\][^\\n]*\\n(?:(?!\\[)[^\\n]*\\n?)*`,
+    "gm"
+  );
   const strip = (filePath) => {
     if (!fs.existsSync(filePath)) return "";
-    return fs.readFileSync(filePath, "utf8").replace(blockRe, "");
+    return fs.readFileSync(filePath, "utf8").replace(blockRe, "").replace(legacyRe, "");
   };
   return {
     enable() {
