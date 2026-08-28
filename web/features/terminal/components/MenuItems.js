@@ -4,6 +4,9 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, GitBranch, ListChecks, Wallpaper, Keyboard, PanelRight, Zap } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { HEADER_BUTTONS } from "@/features/terminal/constants/terminalConfig";
+import { HEADER_BUTTON_ICONS } from "@/features/terminal/constants/headerButtonIcons";
+
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
@@ -53,6 +56,8 @@ export default function MenuItems({
   const openShortcuts = useShortcutsModalStore((s) => s.open);
   const closeMenu = useSlideMenuStore((s) => s.close);
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
+  const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
+  const toggleHeaderButton = useTerminalStore((s) => s.toggleHeaderButton);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
   const fontSize = useTerminalStore((s) => s.fontSize);
@@ -68,6 +73,7 @@ export default function MenuItems({
   const setShowNoteButton = useTerminalStore((s) => s.setShowNoteButton);
   const { theme: appMode } = useTheme();
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [mcpMenuOpen, setMcpMenuOpen] = useState(false);
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
@@ -210,6 +216,42 @@ export default function MenuItems({
       )}
 
       {/* Terminal settings — collapsible dropdown (font + theme + GPU render) */}
+      {/* Header buttons — the same list the desktop settings screen offers, so a
+          button hidden on one is hidden on the other. */}
+      {!hideActions.includes('headerButtons') && (
+        <div className="bg-surface rounded-brand-lg overflow-hidden">
+          <button
+            onClick={() => { vibrate(); setHeaderMenuOpen((v) => !v); }}
+            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+          >
+            <PanelRight className="text-brand-500" size={16} />
+            <span className="text-sm flex-1">{t("menu.headerButtons")}</span>
+            <ChevronDown className={`text-text-muted transition-transform duration-200 ${headerMenuOpen ? "rotate-180" : ""}`} size={16} />
+          </button>
+          {headerMenuOpen && (
+            <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
+              {HEADER_BUTTONS.map(({ id, labelKey }) => {
+                const RowIcon = HEADER_BUTTON_ICONS[id];
+                const on = !hiddenHeaderButtons.includes(id);
+                return (
+                  <button
+                    key={id}
+                    onClick={() => { vibrate(); toggleHeaderButton(id); }}
+                    className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+                  >
+                    <RowIcon className="text-text" size={16} />
+                    <span className="text-sm flex-1">{t(labelKey)}</span>
+                    <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${on ? "bg-brand-500" : "bg-surface-2"}`}>
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {!hideActions.includes('terminalSettings') && (
         <div ref={terminalMenuRef} className="bg-surface rounded-brand-lg overflow-hidden">
           <button

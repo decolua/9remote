@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type, FolderOpen,
-  GitBranch, ListChecks, Sun, Moon, Keyboard, PanelRight, Zap
+  GitBranch, ListChecks, Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -12,6 +12,9 @@ import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
+import { HEADER_BUTTONS } from "@/features/terminal/constants/terminalConfig";
+import { HEADER_BUTTON_ICONS } from "@/features/terminal/constants/headerButtonIcons";
+import LanguageModal from "@/shared/components/ui/LanguageModal";
 import { SETTINGS_CATEGORIES } from "@/features/terminal/constants/settingsCategories";
 import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
 import { agentIconUrl } from "@/features/terminal/constants/agentCli";
@@ -24,6 +27,7 @@ import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 
 const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap };
 
+
 /**
  * SettingsDialog - desktop settings surface: centered modal, category nav on the
  * left, one scrollable pane on the right. Mobile keeps the SlideMenu drawer.
@@ -32,11 +36,15 @@ export default function SettingsDialog({
   context, callbacks, canInstall, isInstalled, install,
   onSites, onClose
 }) {
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale } = useI18n();
   const { theme: appTheme, setTheme } = useTheme();
   const [section, setSection] = useState("general");
   const [reloading, setReloading] = useState(false);
 
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
+  const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
+  const toggleHeaderButton = useTerminalStore((s) => s.toggleHeaderButton);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
   const fontSize = useTerminalStore((s) => s.fontSize);
@@ -79,14 +87,17 @@ export default function SettingsDialog({
   const activeCategory = categories.find((c) => c.id === section);
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    // The language modal listens on window and this listens on document, so a
+    // single Escape would reach both and close the dialog underneath it. The
+    // innermost layer wins: skip while a child modal is up.
+    const onKey = (e) => { if (e.key === "Escape" && !languageOpen) onClose(); };
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [onClose]);
+  }, [onClose, languageOpen]);
 
   // Actions that navigate away close the dialog first
   const run = useCallback((fn) => { vibrate(); onClose(); setTimeout(() => fn?.(), 50); }, [onClose]);
@@ -218,23 +229,44 @@ export default function SettingsDialog({
                   </div>
                 </Group>
 
+                {/* One row rather than a 24-cell grid: the list is long, and
+                    picking a language is rare enough that it does not deserve
+                    to dominate this screen. */}
                 <Group title={t("menu.language")}>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {SUPPORTED_LOCALES.map((l) => (
-                      <button
-                        key={l.code}
-                        onClick={() => { vibrate(); setLocale(l.code); }}
-                        className={`flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-brand transition-colors ${
-                          l.code === locale ? "bg-brand-500/15 text-brand-500" : "text-text hover:bg-surface-2"
-                        }`}
-                      >
-                        <img src={`https://flagcdn.com/w40/${l.country}.png`} alt={l.label} className="w-[17px] h-[12px] object-cover rounded-[2px] flex-shrink-0" loading="lazy" />
-                        <span className="truncate">{l.label}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <button
+                    onClick={() => { vibrate(); setLanguageOpen(true); }}
+                    className="w-full px-3 py-2 rounded-brand text-left flex items-center gap-2.5 text-sm text-text hover:bg-surface-2 transition-colors"
+                  >
+                    <Globe size={16} className="text-brand-500 flex-shrink-0" />
+                    <span className="flex-1 min-w-0 truncate">{t("menu.language")}</span>
+                    {currentLocale && (
+                      <span className="flex items-center gap-1.5 flex-shrink-0 text-text-muted">
+                        <img
+                          src={`https://flagcdn.com/w40/${currentLocale.country}.png`}
+                          alt=""
+                          className="w-[17px] h-[12px] object-cover rounded-[2px]"
+                          loading="lazy"
+                        />
+                        <span className="text-xs">{currentLocale.label}</span>
+                      </span>
+                    )}
+                    <ChevronRight size={15} className="text-text-muted flex-shrink-0" />
+                  </button>
                 </Group>
-              </div>
+
+                <Group title={t("menu.headerButtons")}>
+                  {HEADER_BUTTONS.map(({ id, labelKey }) => (
+                    <ToggleRow
+                      key={id}
+                      icon={HEADER_BUTTON_ICONS[id]}
+                      label={t(labelKey)}
+                      value={!hiddenHeaderButtons.includes(id)}
+                      onChange={() => toggleHeaderButton(id)}
+                    />
+                  ))}
+                </Group>
+
+             </div>
             )}
 
             {section === "terminal" && (
@@ -336,6 +368,8 @@ export default function SettingsDialog({
           </div>
         </div>
       </div>
+
+      <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
     </div>
   );
 }

@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Plus, Pencil, Trash2, X, Download, Globe, RotateCw } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SitesList from "./SitesList";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint, tabIndexHint } from "@/features/terminal/constants/shortcuts";
@@ -28,6 +29,7 @@ export default function TerminalHeader({
   onCreateSession,
   onBack,
   onOpenRemote,
+  onOpenMobile,
   onOpenFiles,
   onLogout,
   onStopCodespace,
@@ -119,6 +121,13 @@ export default function TerminalHeader({
   // Actions only (stable identities): this component WRITES context/callbacks, so
   // subscribing to the whole store would re-render it on its own every write.
   const openMenu = useSlideMenuStore((s) => s.open);
+  // Hidden by id rather than listed by id, so a button added later shows up
+  // instead of being invisible until the user finds the setting.
+  const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
+  // A windowless emulator shows nothing on the host, so the button itself is
+  // the only indication that one is running.
+  const mobileDeviceCount = useTerminalStore((s) => s.mobileDeviceCount);
+  const showButton = (id) => !hiddenHeaderButtons.includes(id);
   const setContext = useSlideMenuStore((s) => s.setContext);
   const setCallbacks = useSlideMenuStore((s) => s.setCallbacks);
 
@@ -307,10 +316,10 @@ export default function TerminalHeader({
               <button
                 onClick={() => { vibrate(); setCreateModalOpen(true); }}
                 disabled={!connected}
-                className="p-1.5 text-text-muted hover:bg-surface-2 hover:text-text transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
+                className="p-1.5 text-text hover:bg-surface-2 hover:text-brand-500 transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
                 title={hint(t("terminal.newTerminal"), "newTerminal")}
               >
-                <Plus size={16} />
+                <Plus size={17} strokeWidth={2.4} />
               </button>
             </div>
           )}
@@ -328,7 +337,7 @@ export default function TerminalHeader({
           <span>Update 9Remote</span>
         </button>
       )}
-      {onOpenRemote && (
+      {showButton("remote") && onOpenRemote && (
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
           className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
@@ -337,7 +346,21 @@ export default function TerminalHeader({
           <Monitor size={16} />
         </button>
       )}
+      {showButton("mobile") && onOpenMobile && (
+        <button
+          onClick={() => { vibrate(); onOpenMobile(); }}
+          className={`p-1.5 hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] ${
+            mobileDeviceCount > 0 ? "text-green-400" : "text-text hover:text-text"
+          }`}
+          title={mobileDeviceCount > 0
+            ? t("mobile.deviceRunning", { count: mobileDeviceCount })
+            : t("mobile.androidDevice")}
+        >
+          <Smartphone size={16} />
+        </button>
+      )}
 
+      {showButton("sites") && (
       <button
         onClick={() => { vibrate(); setSitesOpen(true); }}
         disabled={!connected}
@@ -346,14 +369,17 @@ export default function TerminalHeader({
       >
         <Globe size={16} />
       </button>
+      )}
 
-      <NotificationsBell
-        sessions={sessions}
-        allSessions={allSessions}
-        sessionStatus={sessionStatus}
-        onSwitchSession={onSwitchSession}
-        workspaces={workspaces}
-      />
+      {showButton("notifications") && (
+        <NotificationsBell
+          sessions={sessions}
+          allSessions={allSessions}
+          sessionStatus={sessionStatus}
+          onSwitchSession={onSwitchSession}
+          workspaces={workspaces}
+        />
+      )}
 
       {/* Files / git / worktrees panel */}
       {onToggleRightPanel && (
