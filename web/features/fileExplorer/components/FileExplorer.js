@@ -428,7 +428,7 @@ export default function FileExplorer({
       {!isBrowsing && (
         <button
           onClick={() => { vibrate(); setShowNewItemModal(true); }}
-          className="absolute bottom-6 right-6 w-14 h-14 bg-brand-500 hover:bg-brand-600 text-white rounded-full shadow-lg shadow-brand-500/30 flex items-center justify-center transition-all duration-200"
+          className="absolute bottom-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.5rem))] right-6 w-14 h-14 bg-brand-500 hover:bg-brand-600 text-white rounded-full shadow-lg shadow-brand-500/30 flex items-center justify-center transition-all duration-200"
         >
           <Plus size={24} />
         </button>

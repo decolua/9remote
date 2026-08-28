@@ -20,7 +20,6 @@ import {
   REMOTE_PINNED_KEY_ID
 } from "@/features/remote/constants/REMOTE_CONFIG";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
-import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
 
@@ -88,7 +87,6 @@ export default function RemoteControls({
   tallLandscape
 }) {
   const { t, locale } = useI18n();
-  const { isIosPwa } = useDeviceInfo();
   const panelInputRef = useRef(null);
   // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
   const [voiceLang, setVoiceLang] = useVoiceLang(locale);
@@ -462,7 +460,7 @@ export default function RemoteControls({
         );
         const enterBtn = pinned ? renderPoolKey(pinned, "pinned", true) : null;
         return (
-          <div className={`px-2 py-1 ${tallLandscape ? "landscape:px-0" : "landscape:py-2"} ${isIosPwa ? "safe-area-bottom" : ""}`}>
+          <div className={`px-2 py-1 safe-area-bottom ${tallLandscape ? "landscape:px-0" : "landscape:py-2"}`}>
             {/* Portrait: modifier scroll + pinned Enter */}
             <div className="flex items-center gap-1.5 landscape:hidden">
               <div className={`${rowClass} flex-1 min-w-0`}>

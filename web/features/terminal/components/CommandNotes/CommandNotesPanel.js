@@ -4,7 +4,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { X, Pencil, Trash2, Copy, Check, FileText, Send } from "@/shared/components/ui/Icon";
 import { useCommandNotes } from "@/features/terminal/hooks/useCommandNotes";
 import { vibrate } from "@/shared/utils/vibration";
-import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 import { useI18n } from "@/shared/i18n";
 
 /**
@@ -17,7 +16,6 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
   const [editingId, setEditingId] = useState(null);
   const [command, setCommand] = useState("");
   const textareaRef = useRef(null);
-  const { isIosPwa } = useDeviceInfo();
   const [viewportHeight, setViewportHeight] = useState(null);
 
   // Focus textarea when panel opens or edit starts
@@ -109,7 +107,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className={`flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0 ${isIosPwa ? "safe-area-top" : ""}`}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0 safe-area-top">
           <div className="flex items-center gap-2">
             <FileText size={20} className="text-brand-500" />
             <h2 className="text-lg font-semibold text-text">{t("commandNotes.title")}</h2>
@@ -181,7 +179,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
         </div>
 
         {/* Bottom Input */}
-        <div className={`px-3 py-3 border-t border-border flex-shrink-0 ${isIosPwa ? "safe-area-bottom" : ""}`}>
+        <div className="px-3 py-3 border-t border-border flex-shrink-0 safe-area-bottom">
           <div className="flex gap-2 items-end">
             <textarea
               ref={textareaRef}

@@ -101,7 +101,7 @@ export default function DevTermLog() {
       </button>
 
       {open && (
-        <div className="fixed inset-x-0 bottom-0 z-[79] flex flex-col" style={{ height: "55vh" }}>
+        <div className="fixed inset-x-0 bottom-0 z-[79] flex flex-col pb-safe" style={{ height: "55vh" }}>
           <div className="bg-surface-2/95 backdrop-blur-sm border-t border-border-subtle rounded-t-xl shadow-2xl flex flex-col h-full overflow-hidden">
             {/* Header */}
             <div className="flex items-center gap-2 px-3 py-2 border-b border-border-subtle flex-shrink-0">

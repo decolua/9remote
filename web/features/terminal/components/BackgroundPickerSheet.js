@@ -222,7 +222,7 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
 
         {/* Dim control pinned below the grid — stays reachable while the tiles scroll */}
         {activeKeys.length > 0 && (
-          <div className="flex-shrink-0 border-t border-border px-5 pt-3 pb-5">
+          <div className="flex-shrink-0 border-t border-border px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-sm text-text">{t("menu.bgDim")}</span>
               <span className="text-xs text-text-muted tabular-nums">{Math.round(opacity * 100)}%</span>

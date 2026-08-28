@@ -169,7 +169,7 @@ export default function TerminalRightPanel({
 
   return (
     <div
-      className="h-full flex flex-col bg-surface-2 border-l border-border-subtle relative shrink"
+      className={`h-full flex flex-col bg-surface-2 border-l border-border-subtle relative shrink ${isDesktop ? "" : "pb-safe"}`}
       style={isDesktop ? { width, flexBasis: width, minWidth: RIGHT_PANEL_WIDTH.min } : undefined}
     >
       {/* Tabs — underline style, matching the terminal tab bar rather than inventing pills */}

@@ -745,7 +745,7 @@ export default function ExplorerPanel({
 
       {/* Drop-upload progress + the Skip/Replace prompt it may raise */}
       {upload && (
-        <div className="absolute bottom-0 inset-x-0 bg-surface-2 border-t border-border px-3 py-1.5 text-[11px] text-text-muted">
+        <div className="absolute bottom-0 inset-x-0 bg-surface-2 border-t border-border px-3 py-1.5 pb-safe text-[11px] text-text-muted">
           Uploading {Math.min(upload.done + 1, upload.total)}/{upload.total}…
         </div>
       )}

@@ -671,6 +671,11 @@ label[for] {
   padding-bottom: 30px;
 }
 
+/* Same inset as .safe-area-bottom, for bottom bars that set their own padding-x */
+.pb-safe {
+  padding-bottom: 30px;
+}
+
 body.keyboard-open .safe-area-bottom {
   /* padding-bottom: 10px; */
   padding-bottom: 6px;
