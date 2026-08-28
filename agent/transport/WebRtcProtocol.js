@@ -198,10 +198,11 @@ export class WebRtcProtocol extends BaseProtocol {
   // Resolve .local mDNS hostnames to IP before adding (browser hides LAN IP)
   async _addRemoteCandidate(candidate, mid) {
     try {
+      // Empty candidate = end-of-candidates. libjuice only records it (it will
+      // not shorten failure detection), but the marker keeps the remote
+      // description honest and mirrors what the client sends us.
+      if (!candidate) { this._pc?.addRemoteCandidate("", mid); return; }
       const resolved = await resolveCandidate(candidate);
-      // TEMP DIAGNOSTIC — see whether the phone's .local candidates resolve;
-      // a null here means the agent silently dropped a LAN pair.
-      if (!resolved) logger.warn(`TEMP DIAGNOSTIC remote cand DROPPED (mDNS?): ${candidate}`);
       if (!resolved || !this._pc) return;
       this._pc.addRemoteCandidate(resolved, mid);
     } catch (err) { logger.error(`addRemoteCandidate: ${err.message}`); }
@@ -215,6 +216,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcBinary = null;
     this._dcFile = null;
     this._remoteSet = false;
+    this._lastMid = null;
     // NOTE: do NOT clear _pendingCandidates here — _processOffer flushes them
     // after setRemoteDescription. Wiping them drops early ICE (pre-offer) silently,
     // which stalls ICE during a network-flap storm → Answer timeout pile-up.
@@ -304,10 +306,16 @@ export class WebRtcProtocol extends BaseProtocol {
         resolve();
       });
       this._pc.onLocalCandidate((candidate, mid) => {
-        // TEMP DIAGNOSTIC — ICE fails with zero connecting pairs on same-LAN;
-        // log every gathered candidate to see whether host IPs are present.
-        if (candidate) logger.debug(`TEMP DIAGNOSTIC local cand: ${candidate}`);
+        this._lastMid = mid;
         if (candidate) this._signaling?.send?.({ type: "ice", candidate, mid });
+      });
+      // libdatachannel never emits a null candidate, so gathering-complete is the
+      // only end-of-candidates signal available. The client needs it: its
+      // dead-path watch will not close a peer until both sides are done
+      // gathering, so without this the fast exit never arms.
+      this._pc.onGatheringStateChange?.((state) => {
+        if (state !== "complete") return;
+        this._signaling?.send?.({ type: "ice", candidate: "", mid: this._lastMid || "0" });
       });
       try {
         this._pc.setRemoteDescription(sdp, "offer");

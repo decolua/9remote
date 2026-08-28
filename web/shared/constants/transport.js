@@ -58,10 +58,15 @@ export const RTC_CONNECT_TIMEOUT_MS = 4000;
 // usable IPv4 one, so the window is sized for that fallback rather than the
 // happy path.
 export const RTC_ICE_TIMEOUT_MS = 15000;
+// How often the dead-path watch samples getStats() while ICE is in flight. It
+// only ever closes a peer whose pairs have ALL failed, so this is a fast-exit
+// probe, not a second timeout — RTC_ICE_TIMEOUT_MS remains the backstop.
+export const DEAD_PATH_POLL_MS = 1000;
+
 // How long connect() waits for the signaling relay before starting RTC anyway.
-// Above the ~8.5s relay startup measured on a cold load, so the first offer is
-// normally delivered rather than buffered — but bounded, so a relay that never
-// reports ready cannot keep RTC from ever being attempted.
+// The relay is normally ready in well under a second; this covers a cold-start
+// outlier so the first offer is delivered rather than buffered — and is bounded,
+// so a relay that never reports ready cannot keep RTC from being attempted.
 export const RTC_DEFER_MAX_MS = 12000;
 
 // Resume-from-background probe window: after the OS suspends the tab,

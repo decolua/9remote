@@ -1,7 +1,7 @@
 import { BaseProtocol } from "./BaseProtocol";
 import { encode, decode } from "./codec";
 import { API_ENDPOINTS } from "@/shared/constants/API";
-import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, DEAD_PATH_POLL_MS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { getTrust, setTrust, getPendingFp2, takePendingFp2, hostFingerprint, verifySdpSignature } from "./lib/deviceTrust";
@@ -120,6 +120,8 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pendingCandidates = [];
     this._iceReachedChecking = false;
     this._everOpened = false;
+    this._lastMid = null;
+    this._remoteGatheringDone = false;
     this._setState(ADAPTER_STATE.connecting);
     this.connectingSince = Date.now(); // age guard for the restart loop's stale-kill
     // The deadline this peer is actually being judged against. The restart loop
@@ -135,9 +137,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._connectTimer = setTimeout(() => {
       if (this._state === ADAPTER_STATE.open) return;
       debugLog("transport", `[rtc] connect timeout (${RTC_CONNECT_TIMEOUT_MS}ms, state=${this._state}) → close + retry`);
-      termLog("switch", `rtc→closed reason=connect-timeout (state=${this._state})`);
-      this._cleanupPeer();
-      this._setState(ADAPTER_STATE.closed);
+      this._closePeer(`connect-timeout (state=${this._state})`);
     }, RTC_CONNECT_TIMEOUT_MS);
 
     // Full cluster (see the agent's DEFAULT_ICE note): each server is a separate
@@ -252,7 +252,13 @@ export class WebRtcProtocol extends BaseProtocol {
     };
 
     pc.onicecandidate = ({ candidate }) => {
-      if (!candidate) return;
+      // null candidate = gathering complete. libjuice will not fail faster for it,
+      // but the agent mirrors the marker back and our dead-path watch needs it.
+      if (!candidate) {
+        this._sendSignaling({ type: "ice", candidate: "", mid: this._lastMid || "0" });
+        return;
+      }
+      this._lastMid = candidate.sdpMid;
       // Record the local candidate type for NAT classification ("typ host|srflx|relay|prflx").
       const m = /typ (host|srflx|relay|prflx)/.exec(candidate.candidate || "");
       if (m) this._localCandidateTypes.add(m[1]);
@@ -270,9 +276,7 @@ export class WebRtcProtocol extends BaseProtocol {
       if (pc.iceConnectionState === "disconnected") {
         this._setState(ADAPTER_STATE.degraded);
       } else if (pc.iceConnectionState === "failed") {
-        termLog("switch", "rtc→closed reason=ice-failed");
-        this._cleanupPeer();
-        this._setState(ADAPTER_STATE.closed);
+        this._closePeer("ice-failed");
       } else if (pc.iceConnectionState === "connected" && this._dcControl?.readyState === "open" && this._dcBinary?.readyState === "open") {
         this._setState(ADAPTER_STATE.open);
       }
@@ -290,21 +294,16 @@ export class WebRtcProtocol extends BaseProtocol {
       this._sendSignaling({ type: "offer", sdp: offer.sdp });
     } catch (err) {
       console.error("[rtc] createOffer error:", err.message);
-      this._cleanupPeer();
-      this._setState(ADAPTER_STATE.closed);
+      this._closePeer(`create-offer:${err.message}`);
     }
   }
 
-  disconnect() {
-    // TEMP DIAGNOSTIC — who tears down the peer (state tells if it was mid-handshake)
-    const by = (new Error().stack || "").split("\n").slice(2, 5)
-      .map((l) => (l.match(/at\s+([\w.<>_$]+)/) || [])[1] || "?")
-      .filter((n) => n && n !== "?").join("<");
-    termLog("switch", `rtc→closed reason=manual-disconnect state=${this._state} by=${by}`);
-    this._cleanupPeer();
+  /** Deliberate teardown — unlike _closePeer it also drops signaling, so the
+   *  adapter cannot be revived without a fresh connect(). */
+  disconnect(reason = "?") {
+    this._closePeer(`manual-disconnect by=${reason} state=${this._state}`);
     this._signaling?.off?.();
     this._signaling = null;
-    this._setState(ADAPTER_STATE.closed);
   }
 
   send(channel, payload) {
@@ -347,6 +346,58 @@ export class WebRtcProtocol extends BaseProtocol {
 
   // ─── Signaling ─────────────────────────────────────────────────────────────
 
+  /** The only way this adapter dies: log the reason, drop the peer, publish closed.
+   *  Seven sites did these three steps by hand — one that skipped cleanup would
+   *  leak a peer while PM saw a closed adapter. */
+  _closePeer(reason) {
+    termLog("switch", `rtc→closed reason=${reason}`);
+    this._cleanupPeer();
+    this._setState(ADAPTER_STATE.closed);
+  }
+
+  /** Empty candidate = end-of-candidates; the spec spells it as a bare "" line. */
+  async _addRemoteCandidate({ candidate, mid }) {
+    if (!candidate) this._remoteGatheringDone = true;
+    const init = candidate ? { candidate, sdpMid: mid } : { candidate: "", sdpMid: mid || "0" };
+    await this._pc.addIceCandidate(new RTCIceCandidate(init)).catch(() => {});
+  }
+
+  /**
+   * Close a provably dead peer instead of waiting out RTC_ICE_TIMEOUT_MS.
+   *
+   * No engine reports this for us: libjuice ignores end-of-candidates for
+   * failure detection, and no browser implements the spec's "all pairs failed →
+   * failed" transition (w3c/webrtc-pc#2698), so ICE just stalls in "checking"
+   * for ~40s. We decide ourselves, but only on complete evidence — both sides
+   * done gathering AND every pair terminal. Anything less keeps waiting: a slow
+   * dual-stack gather legitimately takes seconds before its first usable pair.
+   */
+  _startDeadPathWatch() {
+    clearInterval(this._deadPathTimer);
+    this._deadPathTimer = setInterval(async () => {
+      if (this._state === ADAPTER_STATE.open || !this._pc) return this._stopDeadPathWatch();
+      if (!this._remoteGatheringDone || this._pc.iceGatheringState !== "complete") return;
+      let pairs = 0, dead = 0;
+      try {
+        (await this._pc.getStats()).forEach((r) => {
+          if (r.type !== "candidate-pair") return;
+          pairs++;
+          if (r.state === "failed") dead++;
+        });
+      } catch { return; }
+      // Zero pairs is not evidence of failure — gathering can complete before
+      // the first pair is even formed.
+      if (!pairs || dead < pairs) return;
+      this._stopDeadPathWatch();
+      this._closePeer(`dead-path (${dead} pair(s) failed)`);
+    }, DEAD_PATH_POLL_MS);
+  }
+
+  _stopDeadPathWatch() {
+    clearInterval(this._deadPathTimer);
+    this._deadPathTimer = null;
+  }
+
   _sendSignaling(msg) {
     this._signaling?.send?.(msg);
   }
@@ -371,9 +422,7 @@ export class WebRtcProtocol extends BaseProtocol {
           const ok = await this._verifyHostAnswer(msg);
           if (!ok) {
             console.error("[rtc] host key verification FAILED — relayed answer rejected");
-            termLog("switch", "rtc→closed reason=host-key-rejected");
-            this._cleanupPeer();
-            this._setState(ADAPTER_STATE.closed);
+            this._closePeer("host-key-rejected");
             return;
           }
         }
@@ -385,9 +434,7 @@ export class WebRtcProtocol extends BaseProtocol {
         // before a remote description exists); apply them now, in order.
         const queued = this._pendingCandidates;
         this._pendingCandidates = [];
-        for (const m of queued) {
-          await this._pc.addIceCandidate(new RTCIceCandidate({ candidate: m.candidate, sdpMid: m.mid })).catch(() => {});
-        }
+        for (const m of queued) await this._addRemoteCandidate(m);
         // The connect timer covers "did the agent answer at all", and it started
         // when the offer went out. The agent gathers against seven STUN servers
         // before it can answer (~2s observed), which used to eat most of the
@@ -396,11 +443,11 @@ export class WebRtcProtocol extends BaseProtocol {
         // restart the clock and give ICE its own full window.
         clearTimeout(this._connectTimer);
         this.connectDeadline = Date.now() + RTC_ICE_TIMEOUT_MS;
+        this._startDeadPathWatch();
         this._connectTimer = setTimeout(async () => {
           if (this._state === ADAPTER_STATE.open) return;
-          // TEMP DIAGNOSTIC — same-LAN ICE sometimes fails with zero connecting
-          // pairs; dump every candidate pair's state so the dead path is visible.
-          // One SHORT line per pair: mobile consoles truncate long lines.
+          // Pair states explain WHY the backstop fired rather than the fast path
+          // — the dead-path watch only closes when every pair is "failed".
           try {
             const stats = await this._pc.getStats();
             stats.forEach((r) => {
@@ -408,12 +455,10 @@ export class WebRtcProtocol extends BaseProtocol {
               const l = stats.get(r.localCandidateId), rmt = stats.get(r.remoteCandidateId);
               const la = (l?.address || l?.ip || "?").split(":")[0].slice(-12);
               const ra = (rmt?.address || rmt?.ip || "?");
-              termLog("switch", `TDpair ${r.state} ${l?.candidateType}:${la}→${rmt?.candidateType}:${ra}`);
+              termLog("switch", `pair ${r.state} ${l?.candidateType}:${la}→${rmt?.candidateType}:${ra}`);
             });
           } catch {}
-          termLog("switch", `rtc→closed reason=ice-timeout (state=${this._state})`);
-          this._cleanupPeer();
-          this._setState(ADAPTER_STATE.closed);
+          this._closePeer(`ice-timeout (state=${this._state})`);
         }, RTC_ICE_TIMEOUT_MS);
       } else if (msg.type === "ice") {
         // The agent sends its answer and candidates back-to-back, so candidates
@@ -424,12 +469,10 @@ export class WebRtcProtocol extends BaseProtocol {
         // "sometimes RTC works, sometimes not" coin flip. Buffer until the
         // answer applies (mirrors the agent's _pendingCandidates).
         if (!this._answerApplied) { this._pendingCandidates.push(msg); return; }
-        await this._pc.addIceCandidate(new RTCIceCandidate({ candidate: msg.candidate, sdpMid: msg.mid })).catch(() => {});
+        await this._addRemoteCandidate(msg);
       } else if (msg.type === "error") {
         debugLog("transport", `[rtc] server error: ${msg.message}`);
-        termLog("switch", `rtc→closed reason=server-error:${msg.message}`);
-        this._cleanupPeer();
-        this._setState(ADAPTER_STATE.closed);
+        this._closePeer(`server-error:${msg.message}`);
       }
     } catch (err) {
       console.error("[rtc] signal handle error:", err.message);
@@ -549,6 +592,7 @@ export class WebRtcProtocol extends BaseProtocol {
   _cleanupPeer() {
     clearTimeout(this._connectTimer);
     this._connectTimer = null;
+    this._stopDeadPathWatch();
     for (const dc of [this._dcControl, this._dcBinary, this._dcFile]) {
       if (!dc) continue;
       dc.onopen = null; dc.onclose = null; dc.onerror = null; dc.onmessage = null;
