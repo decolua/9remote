@@ -22,13 +22,20 @@ const skipTest = (why) => { const e = new Error(why); e.skip = true; throw e; };
 
 const cand = (host) => `candidate:2759419408 1 udp 2113939711 ${host} 64746 typ host generation 0 ufrag TPXt network-cost 999`;
 const UUID_HOST = "3880416e-d0a4-4dba-8f2b-60b94c1cd67f.local";
-// RFC 4122 says a v4 UUID is never all-zero, so nothing on the LAN answers this.
-const DEAD_HOST = "00000000-0000-4000-8000-000000000000.local";
+// A real-looking name nothing on the LAN owns — used to exercise a genuine
+// query + negative cache (a UUID name is now short-circuited, never queried).
+const DEAD_HOST = "no-such-host-9remote-test.local";
 
 console.log(`\nSuite 1: parseLocalHost`);
 
 await test("extracts the .local hostname from a candidate line", () => {
-  assert.equal(parseLocalHost(cand(UUID_HOST)), UUID_HOST);
+  assert.equal(parseLocalHost(cand(DEAD_HOST)), DEAD_HOST);
+});
+
+// A browser answers its per-session UUID name only inside its own WebRTC stack,
+// so dns-sd/multicast never get a reply — querying only burns MDNS_TIMEOUT_MS.
+await test("skips a browser's ephemeral UUID hostname without querying", () => {
+  assert.equal(parseLocalHost(cand(UUID_HOST)), null);
 });
 
 await test("returns null for a plain IPv4 candidate", () => {
@@ -117,8 +124,7 @@ await test("the cache is bounded — unique hostnames cannot grow it forever", a
   _resetCache();
   // 300 distinct names > CACHE_MAX (256). Each is unresolvable but must be
   // answered from the negative cache on the second pass, i.e. no re-query.
-  const names = Array.from({ length: 300 }, (_, i) =>
-    `ffffffff-0000-4000-8000-${String(i).padStart(12, "0")}.local`);
+  const names = Array.from({ length: 300 }, (_, i) => `no-such-9remote-${i}.local`);
   await Promise.all(names.map((n) => resolveCandidate(cand(n))));
 
   // The newest entries survive eviction, so re-asking for them is instant.

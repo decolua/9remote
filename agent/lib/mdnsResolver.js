@@ -16,6 +16,11 @@ const LOCAL_RE = /\s([^\s]+\.local)\s/i;
 // A hostname is passed to dns-sd as an argv element, never through a shell, but
 // it still arrives from a remote peer — keep it to what a real .local name is.
 const SAFE_HOST_RE = /^[a-z0-9][a-z0-9._-]{0,252}\.local$/i;
+// Browsers mint a per-session UUID hostname and answer it ONLY inside their own
+// WebRTC stack — an outside resolver (dns-sd, multicast) never gets a reply. So
+// skip the query entirely instead of burning MDNS_TIMEOUT_MS per candidate. The
+// LAN path still works: the browser hole-punches to us and arrives as prflx.
+const EPHEMERAL_HOST_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.local$/i;
 const IPV4_RE = /\b(\d{1,3}(?:\.\d{1,3}){3})\b/;
 
 const cache = new Map();
@@ -163,7 +168,8 @@ async function resolveLocal(hostname) {
 // or the name isn't one we're willing to hand to a resolver.
 export function parseLocalHost(candidateStr) {
   const host = candidateStr.match(LOCAL_RE)?.[1];
-  return host && SAFE_HOST_RE.test(host) ? host : null;
+  if (!host || !SAFE_HOST_RE.test(host)) return null;
+  return EPHEMERAL_HOST_RE.test(host) ? null : host;
 }
 
 // Replace .local hostname in ICE candidate with resolved IP. Returns null if
