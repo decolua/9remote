@@ -73,7 +73,7 @@ export function onSignalingReady(pm) {
   // Otherwise RTC is already negotiating — only step in once it's dead.
   if (rtc.state === ADAPTER_STATE.closed) {
     termLog("switch", "sig-ready → restartRtc (rtc was closed)");
-    pm._restartRtc();
+    pm._restartRtc("sig-ready");
   }
 }
 

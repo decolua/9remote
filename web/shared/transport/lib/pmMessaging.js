@@ -90,7 +90,7 @@ export function dispatch(pm, event, payload, source) {
     pm._awaitingApproval = false;
     const rtc = pm._adapters.get("rtc");
     if (pm._canSignal() && (!rtc || rtc.state === ADAPTER_STATE.closed)) {
-      pm._restartRtc();
+      pm._restartRtc("device-approved");
     }
   }
   // Agent test-toggle re-enabled RTC → clear the stop-retry flag and renegotiate.
@@ -98,7 +98,7 @@ export function dispatch(pm, event, payload, source) {
     if (pm._rtcTestDisabled) {
       pm._rtcTestDisabled = false;
       termLog("switch", "rtc:enabled by agent → clear flag + restart RTC");
-      pm._restartRtc();
+      pm._restartRtc("rtc-enabled");
     }
     return;
   }
@@ -136,7 +136,7 @@ export function scheduleAckTimeout(pm, ackId) {
   const timer = setTimeout(() => {
     pm._ackTimers.delete(ackId);
     debugLog("transport", `[pm] ack timeout ackId=${ackId} → suspect zombie RTC`);
-    pm._scheduleRtcRestart();
+    pm._scheduleRtcRestart("ack-timeout");
   }, pm._ackTimeoutMs);
   pm._ackTimers.set(ackId, timer);
 }

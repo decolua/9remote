@@ -57,6 +57,7 @@ export function initialState() {
     // RTC zombie recovery — restart with backoff when acks time out (dead-but-open DC)
     _rtcRestartAttempts: 0,
     _rtcRestartTimer: null,
+    _rtcRestartDueAt: 0,   // when the pending rung fires — diagnostics for the SKIP guard
     _probeAttempts: 0,     // escalating-probe index (probeBackoffMs)
     _rtcGivenUp: false,    // hard NAT detected → WS-only until network changes
     _giveUpIp: null,       // public IP at give-up — re-arm only when it changes

@@ -17,16 +17,6 @@ export function randomTag() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-// TEMP DIAGNOSTIC — remove once the RTC restart loop is fixed.
-// Names the call site that triggered a restart/disconnect so the loop's driver
-// is identifiable from the log instead of guessed.
-export function callerTrace(depth = 3) {
-  const lines = (new Error().stack || "").split("\n").slice(2, 2 + depth);
-  return lines
-    .map((l) => (l.match(/at\s+([\w.<>_$]+)/) || [])[1] || "?")
-    .filter((n) => n && n !== "?")
-    .join("<");
-}
 
 // Sum responsesReceived over the nominated/selected ICE candidate-pairs of a
 // RTCStatsReport. Returns null if no selected pair exists yet (still gathering).

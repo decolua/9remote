@@ -6,7 +6,7 @@ import { probePublicIp, shouldRearmOnIpChange, NO_PUBLIC_IP } from "./stunProbe"
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { createProxySocket, fireProxyEvent } from "./lib/proxySocket";
-import { callerTrace, pickAdapter } from "./lib/controlRouting";
+import { pickAdapter } from "./lib/controlRouting";
 import { nextRestartStep, restartTimerAction, restartRtcAction, peerDeadline } from "./lib/rtcRecoveryPolicy";
 import { attachWatchers } from "./lib/pmWatchers";
 import { handleWsStateChange, handleRtcStateChange } from "./lib/adapterStateHandlers";
@@ -216,7 +216,7 @@ export class ProtocolManager {
       // Relay may be down (we skipped its retry while WS-only) — kick it and let
       // _onSignalingReady fire the restart once a signaling path exists again.
       if (!this._canSignal()) { this._sig?.retryNow(); return; }
-      if (this._shouldRenegotiate()) this._restartRtc();
+      if (this._shouldRenegotiate()) this._restartRtc("stun-rearm");
     }).catch(() => {});
   }
 
@@ -260,9 +260,10 @@ export class ProtocolManager {
   }
 
   /** Tear down RTC + renegotiate via new WS socket (called on WS reconnect). */
-  _restartRtc() {
-    // TEMP DIAGNOSTIC
-    termLog("switch", `restartRtc CALLED by=${callerTrace()} attempts=${this._rtcRestartAttempts}`);
+  _restartRtc(reason = "?") {
+    // Callers name themselves: reading the stack for a function name gave `by=`
+    // on every minified build, which is where this log was actually needed.
+    termLog("switch", `restartRtc CALLED by=${reason} attempts=${this._rtcRestartAttempts}`);
     const rtc = this._adapters.get("rtc");
     // Guards: agent test-toggle, hard-NAT give-up (every recovery path must stand
     // down or the give-up only stops the probe timer), and a peer another path
@@ -279,7 +280,7 @@ export class ProtocolManager {
     if (action === "start-fresh") { termLog("switch", "restartRtc: no rtc → startSecondary"); this._startSecondaryAdapters(); return; }
     termLog("switch", "restartRtc: tear down + renegotiate");
     debugLog("transport", "[pm] ws reconnected → restart rtc");
-    try { rtc.disconnect(); } catch {}
+    try { rtc.disconnect(`restart:${reason}`); } catch {}
     this._adapters.delete("rtc");
     this._rtcSignalingHandler = null;
     this._startSecondaryAdapters();
@@ -287,11 +288,11 @@ export class ProtocolManager {
 
   /** Force restart bypassing the open/connecting guard — used when the resume
    * probe confirms the DC is dead despite rtc.state reporting "open". */
-  _forceRestartRtc() {
-    termLog("switch", `forceRestartRtc CALLED by=${callerTrace()}`);
+  _forceRestartRtc(reason = "?") {
+    termLog("switch", `forceRestartRtc CALLED by=${reason}`);
     const rtc = this._adapters.get("rtc");
     if (rtc) {
-      try { rtc.disconnect(); } catch {}
+      try { rtc.disconnect(`force:${reason}`); } catch {}
       this._adapters.delete("rtc");
       this._rtcSignalingHandler = null;
     }
@@ -320,7 +321,7 @@ export class ProtocolManager {
     clearTimeout(this._rejoinDebounceTimer);
     this._rejoinDebounceTimer = null;
     for (const inst of this._adapters.values()) {
-      try { inst.disconnect(); } catch {}
+      try { inst.disconnect("pm-disconnect"); } catch {}
     }
     this._adapters.clear();
     this._listeners.clear();
@@ -328,9 +329,8 @@ export class ProtocolManager {
     this._connected = false;
     this._rawSocket = null;
     // Clear RTC zombie recovery state
-    clearTimeout(this._rtcRestartTimer);
-    this._rtcRestartTimer = null;
-    termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=pm-disconnect`); // TEMP DIAGNOSTIC
+    this._disarmRestart();
+    termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=pm-disconnect`);
     this._rtcRestartAttempts = 0;
     this._probeAttempts = 0;
     this._rtcGivenUp = false;
@@ -385,7 +385,21 @@ export class ProtocolManager {
     }
 
     this._recomputeType();
-    this._connected = this._anyAdapterReady();
+    // The one place the app learns a carrier came or went. Per-carrier handlers
+    // only run on THEIR adapter's transitions, so an outage where ws sits in
+    // "degraded" (it retries for ~30s before ever reaching "closed") while rtc
+    // dies separately left nobody to report it — `connected` stayed true, the
+    // app showed no gate and never retried. Deciding here means any transition
+    // that empties the set is caught, whatever order the carriers failed in.
+    const ready = this._anyAdapterReady();
+    if (ready !== this._connected) {
+      this._connected = ready;
+      if (!ready) {
+        this._onConnectFired = false;
+        termLog("switch", `onDisconnect FIRE (last carrier gone: ${adapterId}→${state})`);
+        this._wsCallbacks.onDisconnect?.(`${adapterId}-${state}`);
+      }
+    }
     this._flushBuffer();
   }
 
@@ -489,9 +503,35 @@ export class ProtocolManager {
   // gives up — network conditions improve, and a cheap STUN probe every 30s is
   // negligible next to tunnel bandwidth. Reset-on-open and net-change restore the
   // fast phase. DO-down skips the probe (_onSignalingReady restarts when it's back).
-  _scheduleRtcRestart() {
-    // TEMP DIAGNOSTIC — value before ++ reveals if a reset happened between cycles
-    termLog("switch", `scheduleRtcRestart ENTER attempts=${this._rtcRestartAttempts} probeAttempts=${this._probeAttempts} givenUp=${this._rtcGivenUp}`);
+  /** The restart timer and its due-time are one fact — always moved together, so
+   *  the pending-guard can never read a handle without knowing when it fires. */
+  _armRestart(fn, delay) {
+    clearTimeout(this._rtcRestartTimer);
+    this._rtcRestartDueAt = Date.now() + delay;
+    this._rtcRestartTimer = setTimeout(fn, delay);
+  }
+
+  /** @returns {number} ms until the pending rung fires, or -1 when none is armed. */
+  _disarmRestart() {
+    const left = this._rtcRestartTimer ? Math.max(this._rtcRestartDueAt - Date.now(), 0) : -1;
+    clearTimeout(this._rtcRestartTimer);
+    this._rtcRestartTimer = null;
+    this._rtcRestartDueAt = 0;
+    return left;
+  }
+
+  _scheduleRtcRestart(reason = "?") {
+    termLog("switch", `rtcRestart REQ by=${reason} attempts=${this._rtcRestartAttempts} probe=${this._probeAttempts} givenUp=${this._rtcGivenUp} pending=${!!this._rtcRestartTimer}`);
+    // A rung is the cost of ONE attempt, not of one caller asking for one. Three
+    // paths (rtc-closed, ack-timeout, resume) fire together on a network blip and
+    // used to burn nine rungs in ten seconds — reaching the 2-minute rungs with
+    // no attempt behind them, which is why RTC went quiet for minutes after a
+    // resume. A restart is already pending here: it will do the work.
+    if (this._rtcRestartTimer) {
+      const inMs = Math.max(this._rtcRestartDueAt - Date.now(), 0);
+      termLog("switch", `rtcRestart SKIP by=${reason} (pending rung ${this._rtcRestartAttempts} fires in ${inMs}ms)`);
+      return;
+    }
     // Hard NAT (symmetric / STUN-blocked, no TURN) → P2P can't succeed, stop
     // spending DO signaling calls. Re-armed by network change / visibility resume.
     if (this._rtcGivenUp) {
@@ -535,12 +575,10 @@ export class ProtocolManager {
     const { delay, isProbe } = step;
     this._probeAttempts = step.probeAttempts;
     this._rtcRestartAttempts = step.attempts;
-    // TEMP DIAGNOSTIC
-    termLog("switch", `scheduleRtcRestart by=${callerTrace()} attempt=${this._rtcRestartAttempts} delay=${delay}ms probe=${isProbe}`);
+    termLog("switch", `rtcRestart ARM by=${reason} rung=${this._rtcRestartAttempts} delay=${delay}ms probe=${isProbe}`);
     debugLog("transport", `[pm] schedule rtc ${isProbe ? "probe" : "restart"} #${this._rtcRestartAttempts} in ${delay}ms`);
-    clearTimeout(this._rtcRestartTimer);
     const retry = () => {
-      this._rtcRestartTimer = null;
+      this._disarmRestart();
       if (this._awaitingApproval) return;
       if (!this._sig?.ready) return; // DO down — _onSignalingReady will restart
       // Only tear down a peer past its natural connect timeout. A younger peer
@@ -572,19 +610,18 @@ export class ProtocolManager {
             connectTimeoutMs: RTC_CONNECT_TIMEOUT_MS
           }) - Date.now(), delay);
           termLog("switch", `restart tick: peer still young (rung ${this._rtcRestartAttempts}) → re-arm in ${until}ms, no rung spent`);
-          clearTimeout(this._rtcRestartTimer);
-          this._rtcRestartTimer = setTimeout(retry, until);
+          this._armRestart(retry, until);
           return;
         }
         if (action === "teardown") {
-          try { rtc.disconnect(); } catch {}
+          try { rtc.disconnect(`rung-${this._rtcRestartAttempts}-teardown`); } catch {}
           this._adapters.delete("rtc");
           this._rtcSignalingHandler = null;
         }
       }
-      this._restartRtc();
+      this._restartRtc(`rung-${this._rtcRestartAttempts}`);
     };
-    this._rtcRestartTimer = setTimeout(retry, delay);
+    this._armRestart(retry, delay);
   }
 
   // ─── Signaling routing (cross-adapter for RTC) ────────────────────────────
