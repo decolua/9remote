@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import * as daemonClient from "./ptyDaemonClient.js";
 
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
+import { isMobileAvailable, setupMobileHandlers } from "../mobile/mobileSocket.js";
 import { isRemoteReady, setRemoteReadyChangeHandler, getUpdateInfo } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
 import { listSavedBufferSessions, loadSessionMetadata, loadGroups, loadWorkspaces, saveWorkspaces, saveSessionMetadata, saveSessionMetadataRaw } from "./ptyHelper.js";
@@ -302,6 +303,7 @@ export function setupTerminalSocket(io, apiKey) {
   const buildServerInfo = () => ({
     version: PKG_VERSION,
     remoteAvailable: isRemoteReady(),
+    mobileAvailable: isMobileAvailable(),
     daemonMode: PERSISTENCE_MODE === "daemon" && daemonClient.isConnected(),
     platform: process.platform,
     updateAvailable: getUpdateInfo(),
@@ -359,6 +361,10 @@ export async function setupTerminalHandlers(socket, io, apiKey) {
       console.error("❌ Failed to setup remote handlers:", err.message);
     });
   }
+
+  // Android mirroring — attached whenever adb is on the host (permissions and
+  // device pick happen at invoke time).
+  if (isMobileAvailable()) setupMobileHandlers(socket);
 
   socket.on("disconnect", () => {
     markSubscriptionDisconnected(socket.id);

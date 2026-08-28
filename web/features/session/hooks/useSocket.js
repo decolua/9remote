@@ -6,16 +6,23 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { WORKER_API } from "@/shared/constants/API";
 import { TAIL_REJECT_REASON, LOGIN_ERROR_KEY, APPROVAL_STATUS } from "@/shared/constants/transport";
 import { sameList } from "@/shared/utils/shallowEqual";
+import { termLog } from "@/shared/utils/termLog";
 
 // Resume on mobile triggers several list-refresh paths within a few ms; this
 // window collapses them into one round-trip.
 const FETCH_COALESCE_MS = 120;
+// The two carriers (RTC, then WS ~200ms later) each announce terminal:ready, and the
+// resume/retry effects fire alongside them. Past the coalesce window they still describe
+// the SAME load, so a fetch this soon after the last one is dropped rather than repeated.
+// CRUD refreshes pass force and ignore this.
+const FETCH_FRESH_MS = 1000;
 
 // Socket.io connection management hook for Terminal
 export function useSocket() {
   const [sessions, setSessions] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
   const [remoteAvailable, setRemoteAvailable] = useState(false);
+  const [mobileAvailable, setMobileAvailable] = useState(false);
   const [codespaceInfo, setCodespaceInfo] = useState(null);
   const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
   const [platform, setPlatform] = useState(null);
@@ -82,13 +89,23 @@ export function useSocket() {
   // Whether each list has ever received a response — gates the retry below.
   // An empty [] response counts; only lost packets keep retrying.
   const loadedRef = useRef({ sessions: false, workspaces: false });
+  // "Both lists answered" is asked from three places (the two reset sites, the
+  // freshness guard, the retry loop) — one definition so they cannot disagree.
+  const bothLoaded = () => loadedRef.current.sessions && loadedRef.current.workspaces;
+
+  const markLoaded = (key) => { loadedRef.current[key] = true; };
+
+  const resetLoaded = useCallback((why) => {
+    termLog("switch", `lists untrusted (${why}) → refetch`);
+    loadedRef.current = { sessions: false, workspaces: false };
+  }, []);
 
   // A non-array ack is a carrier failure, not an answer: PM rejects every pending ack
   // with { error: "rtc-closed" } when RTC dies. Marking it loaded would stop the retry
   // below forever and leave the lists empty until a full reload.
   const applySessions = useCallback((list) => {
     if (!Array.isArray(list)) return;
-    loadedRef.current.sessions = true;
+    markLoaded("sessions");
     // Four sources refetch this list, one of them on every return to the tab, and the
     // answer is nearly always what we already have. Keeping the old array keeps every
     // consumer's identity check true instead of re-rendering the whole workspace.
@@ -97,7 +114,7 @@ export function useSocket() {
 
   const applyWorkspaces = useCallback((list) => {
     if (!Array.isArray(list)) return;
-    loadedRef.current.workspaces = true;
+    markLoaded("workspaces");
     setWorkspaces((prev) => (sameList(prev, list) ? prev : list));
   }, []);
 
@@ -112,6 +129,7 @@ export function useSocket() {
   const sessionSeqRef = useRef(0);
   const workspaceSeqRef = useRef(0);
   const fetchTimerRef = useRef(null);
+  const lastFetchAtRef = useRef(0);
 
   const emitSessions = useCallback((socket) => {
     const seq = ++sessionSeqRef.current;
@@ -123,11 +141,17 @@ export function useSocket() {
     socket.emit("getWorkspaces", (list) => { if (seq === workspaceSeqRef.current) applyWorkspaces(list); });
   }, [applyWorkspaces]);
 
-  const fetchLists = useCallback((socket) => {
+  // THE one door to both lists: every trigger (terminal:ready per carrier, socket connect,
+  // visibility, retry, CRUD) funnels here so a load is one round-trip per list, not one per
+  // trigger. force = a local mutation whose result we must see now.
+  const fetchLists = useCallback((socket, force = false) => {
     if (!socket) return;
-    if (fetchTimerRef.current) return; // burst already pending
+    if (force) clearTimeout(fetchTimerRef.current); // restart so the emit lands after THIS write
+    else if (fetchTimerRef.current) return; // burst already pending
+    else if (bothLoaded() && Date.now() - lastFetchAtRef.current < FETCH_FRESH_MS) return;
     fetchTimerRef.current = setTimeout(() => {
       fetchTimerRef.current = null;
+      lastFetchAtRef.current = Date.now();
       emitWorkspaces(socket);
       emitSessions(socket);
     }, FETCH_COALESCE_MS);
@@ -143,7 +167,7 @@ export function useSocket() {
     applyApproval(APPROVAL_STATUS.reconnect);
     // A reconnect may have missed create/delete done elsewhere while we were away,
     // so neither list is trustworthy until the agent answers again.
-    loadedRef.current = { sessions: false, workspaces: false };
+    resetLoaded("pm-connect");
 
     if (boundSocketRef.current === socket) {
       fetchLists(socket);
@@ -184,7 +208,7 @@ export function useSocket() {
     // a reconnect that skips it (e.g. zombie RTC kept "connected") would never
     // get its pending/approved notification.
     socket.on("connect", () => {
-      loadedRef.current = { sessions: false, workspaces: false };
+      resetLoaded("carrier-connect");
       socket.emit("device:clientReady");
       fetchLists(socket);
     });
@@ -223,6 +247,7 @@ export function useSocket() {
 
     socket.on("serverInfo", (info) => {
       setRemoteAvailable(info.remoteAvailable);
+      setMobileAvailable(!!info.mobileAvailable);
       setPlatform(info.platform);
       setAgentVersion(info.version || null);
       setUpdateAvailable(info.updateAvailable || null);
@@ -257,7 +282,7 @@ export function useSocket() {
 
     // Signal server that client listeners are ready
     socket.emit("device:clientReady");
-  }, [removeTempKey, handleCodespaceStopping, fetchLists, applyApproval, getAuth]);
+  }, [removeTempKey, handleCodespaceStopping, fetchLists, applyApproval, getAuth, resetLoaded]);
 
   const { socket, socketRef, protocolRef, connected, connectionMode, transport, retryStatus, disconnect } = useBaseSocket({
     namespace: "",
@@ -271,15 +296,14 @@ export function useSocket() {
   // Keep ref in sync so event handlers registered above can call disconnect
   disconnectRef.current = disconnect;
 
-  // Load sessions list
-  const loadSessions = useCallback(() => {
-    if (socketRef.current) emitSessions(socketRef.current);
-  }, [socketRef, emitSessions]);
+  // The one public refresh (mount, visibility, retry). Both lists always travel together —
+  // every caller wanted both, and asking separately cost two round-trips for one answer.
+  const loadSessions = useCallback(() => fetchLists(socketRef.current), [socketRef, fetchLists]);
 
-  // Load workspaces list
-  const loadWorkspaces = useCallback(() => {
-    if (socketRef.current) emitWorkspaces(socketRef.current);
-  }, [socketRef, emitWorkspaces]);
+  // Skips the freshness guard. Two callers need that: a local create/rename/delete
+  // whose own write must not be hidden, and a resume, where the lists were just
+  // declared untrustworthy and a pending burst would land stale.
+  const refreshLists = useCallback(() => fetchLists(socketRef.current, true), [socketRef, fetchLists]);
 
   // Pending coalesce timer must not outlive the hook — it captures the socket
   // and would fire after unmount.
@@ -293,17 +317,18 @@ export function useSocket() {
   useEffect(() => {
     if (!connected) return;
     const timer = setInterval(() => {
-      if (loadedRef.current.sessions && loadedRef.current.workspaces) return;
+      if (bothLoaded()) return;
       loadSessions();
-      loadWorkspaces();
     }, 2000);
     return () => clearInterval(timer);
-  }, [connected, loadSessions, loadWorkspaces]);
+  }, [connected, loadSessions]);
 
   // Coming back from background. Carrier events can't be relied on here: if WS stayed
   // up while only RTC died and recovered, the agent keeps the same session (no
   // "terminal:ready") and PM skips the rejoin because the other carrier is ready — so
   // nothing else would refetch, and the lists would still show pre-sleep state.
+  // A silent refetch, NOT a reset: becoming visible is not evidence the session
+  // broke, and gating on it flashed the overlay every time the user glanced away.
   // Gated on `connected`: with no carrier ready PM buffers control sends in an
   // unbounded array, and a phone toggled on/off while offline would pile them up.
   // Re-running on `connected` also covers becoming visible while still offline.
@@ -312,12 +337,11 @@ export function useSocket() {
     const refetch = () => {
       if (document.visibilityState !== "visible") return;
       loadSessions();
-      loadWorkspaces();
     };
     refetch();
     document.addEventListener("visibilitychange", refetch);
     return () => document.removeEventListener("visibilitychange", refetch);
-  }, [connected, loadSessions, loadWorkspaces]);
+  }, [connected, loadSessions]);
 
   // Create new session (workspaceId optional). cwd = a folder picked in the tree, else
   // inherited from the last session in the workspace.
@@ -331,39 +355,37 @@ export function useSocket() {
     else if (typeof cwd === "function") { callback = cwd; cwd = null; }
 
     socketRef.current.emit("createSession", { name, shellId, workspaceId, cwd, nameIsAuto }, (result) => {
-      if (result.success) {
-        loadSessions();
-      }
+      if (result.success) refreshLists();
       callback?.(result);
     });
-  }, [socketRef, loadSessions]);
+  }, [socketRef, refreshLists]);
 
   // Workspace CRUD + move
   const createWorkspace = useCallback((name, wsPath, callback) => {
     if (typeof wsPath === "function") { callback = wsPath; wsPath = null; }
-    socketRef.current?.emit("createWorkspace", { name, path: wsPath }, (result) => { if (result?.success) loadWorkspaces(); callback?.(result); });
-  }, [socketRef, loadWorkspaces]);
+    socketRef.current?.emit("createWorkspace", { name, path: wsPath }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
+  }, [socketRef, refreshLists]);
 
   const renameWorkspace = useCallback((workspaceId, name, callback) => {
-    socketRef.current?.emit("renameWorkspace", { workspaceId, name }, (result) => { if (result?.success) loadWorkspaces(); callback?.(result); });
-  }, [socketRef, loadWorkspaces]);
+    socketRef.current?.emit("renameWorkspace", { workspaceId, name }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
+  }, [socketRef, refreshLists]);
 
   const deleteWorkspace = useCallback((workspaceId, callback) => {
-    socketRef.current?.emit("deleteWorkspace", { workspaceId }, (result) => { if (result?.success) { loadWorkspaces(); loadSessions(); } callback?.(result); });
-  }, [socketRef, loadWorkspaces, loadSessions]);
+    socketRef.current?.emit("deleteWorkspace", { workspaceId }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
+  }, [socketRef, refreshLists]);
 
   const setWorkspaceHiddenRepos = useCallback((workspaceId, paths, callback) => {
-    socketRef.current?.emit("setWorkspaceHiddenRepos", { workspaceId, paths }, (result) => { if (result?.success) loadWorkspaces(); callback?.(result); });
-  }, [socketRef, loadWorkspaces]);
+    socketRef.current?.emit("setWorkspaceHiddenRepos", { workspaceId, paths }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
+  }, [socketRef, refreshLists]);
 
   const moveSession = useCallback((sessionId, workspaceId, callback) => {
-    socketRef.current?.emit("moveSession", { sessionId, workspaceId }, (result) => { if (result?.success) loadSessions(); callback?.(result); });
-  }, [socketRef, loadSessions]);
+    socketRef.current?.emit("moveSession", { sessionId, workspaceId }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
+  }, [socketRef, refreshLists]);
 
   // Reorder sessions within a workspace; orderedIds = desired order of its sessions
   const reorderSession = useCallback((orderedIds, callback) => {
-    socketRef.current?.emit("reorderSession", { orderedIds }, (result) => { if (result?.success) loadSessions(); callback?.(result); });
-  }, [socketRef, loadSessions]);
+    socketRef.current?.emit("reorderSession", { orderedIds }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
+  }, [socketRef, refreshLists]);
 
   // Fetch available shells from agent
   const getShells = useCallback((callback) => {
@@ -376,24 +398,20 @@ export function useSocket() {
     if (!socketRef.current) return;
 
     socketRef.current.emit("deleteSession", sessionId, (result) => {
-      if (result.success) {
-        loadSessions();
-      }
+      if (result.success) refreshLists();
       callback?.(result);
     });
-  }, [socketRef, loadSessions]);
+  }, [socketRef, refreshLists]);
 
   // Rename session
   const renameSession = useCallback((sessionId, newName, callback) => {
     if (!socketRef.current) return;
 
     socketRef.current.emit("renameSession", { sessionId, name: newName }, (result) => {
-      if (result.success) {
-        loadSessions();
-      }
+      if (result.success) refreshLists();
       callback?.(result);
     });
-  }, [socketRef, loadSessions]);
+  }, [socketRef, refreshLists]);
 
   // Stop codespace
   const stopCodespace = useCallback(async () => {
@@ -440,6 +458,7 @@ export function useSocket() {
     admitted,
     sessions,
     remoteAvailable,
+    mobileAvailable,
     codespaceInfo,
     codespaceDisconnected,
     codespaceStopping,
@@ -451,7 +470,6 @@ export function useSocket() {
     triggerRestart,
     workspaces,
     loadSessions,
-    loadWorkspaces,
     createSession,
     getShells,
     deleteSession,
