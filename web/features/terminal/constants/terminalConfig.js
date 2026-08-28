@@ -32,7 +32,7 @@ export const COMMON_COMMANDS = [
 export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
 // Desktop pane width: null = auto (panes split the row evenly down to min, then the row
 // scrolls); a dragged number pins every pane to that fixed width. Double-click returns to auto.
-export const PANE_WIDTH = { min: 400, max: Infinity };
+export const PANE_WIDTH = { min: 370, max: Infinity };
 // Gap between desktop panes (px) — matches the gap-1 class on the panes row.
 export const PANE_GAP_PX = 4;
 // Horizontal padding of the panes row (px) — matches the px-1 class on that row.
@@ -47,6 +47,29 @@ export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: Infinity };
 
 // Inline editor opened from the file tree.
 export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: Infinity };
+
+// Header buttons the user can hide. Update and Settings are deliberately not
+// here: one is a warning that must not be silenced, the other is the way back
+// into this screen. Order matches the header itself.
+export const HEADER_BUTTONS = [
+  { id: "remote", labelKey: "menu.remoteDesktop" },
+  { id: "mobile", labelKey: "mobile.androidDevice" },
+  { id: "sites", labelKey: "menu.sites" },
+  { id: "notifications", labelKey: "menu.notificationsButton" }
+];
+
+// Android mirror docked right. Narrower than the editor: a phone screen is tall
+// and thin, and below ~260px the UI stops being usable.
+export const MOBILE_PANEL_WIDTH = { default: 300, min: 240, max: Infinity };
+
+// Floating mirror window — the default on desktop, so the terminal keeps its
+// full width. Size is the box; position is where it sits in the viewport.
+export const MOBILE_FLOAT = {
+  width: { default: 300, min: 240, max: 900 },
+  height: { default: 620, min: 320 },
+  margin: 12,           // keep this much of the window on screen when dragging
+  defaultOffset: 24     // initial inset from the bottom-right corner
+};
 
 // Artifacts the AI has shown, kept per terminal so hiding the app does not lose them.
 export const ARTIFACT_STACK_MAX = 20;
@@ -107,8 +130,8 @@ export const STRIP_QUOTA_PIN_PCT = 90; // At/above this the quota page stops rot
 // XTerm.js default options
 export const TERMINAL_OPTIONS = {
   cursorBlink: true,
-  fontSize: 13,
-  fontSizeMobile: 13,
+  fontSize: 12,
+  fontSizeMobile: 12,
   fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", "Noto Sans Mono", Menlo, Monaco, "Courier New", monospace',
   scrollback: 15000,
   convertEol: true,

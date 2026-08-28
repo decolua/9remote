@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, ARTIFACT_STACK_MAX
+  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, MOBILE_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, ARTIFACT_STACK_MAX
 } from "@/features/terminal/constants/terminalConfig";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
@@ -247,6 +247,49 @@ export const useTerminalStore = create(
       editorFilePath: null,
       editorPanelWidth: EDITOR_PANEL_WIDTH.default,
       setEditorPanelWidth: (w) => set({ editorPanelWidth: clampWidth(w, EDITOR_PANEL_WIDTH) }),
+
+      // Header buttons the user has hidden, by id. Absent = shown, so a new
+      // button is visible by default rather than silently missing.
+      hiddenHeaderButtons: [],
+      toggleHeaderButton: (id) => set((state) => ({
+        hiddenHeaderButtons: state.hiddenHeaderButtons.includes(id)
+          ? state.hiddenHeaderButtons.filter((b) => b !== id)
+          : [...state.hiddenHeaderButtons, id]
+      })),
+
+      // Boot AVDs without a window: about six times less host CPU, at a much
+      // lower frame rate. Persisted, because it is a property of the machine
+      // (thermally limited, on battery) rather than of one session.
+      mobileLowPower: false,
+      setMobileLowPower: (on) => set({ mobileLowPower: !!on }),
+
+      // Devices currently up, as reported by the agent. Drives the header
+      // button's active state: a windowless emulator gives no other sign that
+      // it is running. Not persisted — it describes the host right now.
+      mobileDeviceCount: 0,
+      setMobileDeviceCount: (n) => set({ mobileDeviceCount: Number(n) || 0 }),
+
+      // Android mirror on desktop. "float" keeps the terminal full width; "pin"
+      // docks it as a right-hand column. Not tied to a workspace: the device
+      // outlives whatever is being edited.
+      mobileOpen: false,
+      mobileMode: "float",            // "float" | "pin"
+      mobilePanelWidth: MOBILE_PANEL_WIDTH.default,
+      mobileFloatRect: null,          // {x, y, w, h} — null until first placed
+      setMobileOpen: (open) => set({ mobileOpen: !!open }),
+      setMobileMode: (mode) => set({ mobileMode: mode, mobileOpen: true }),
+      setMobilePanelWidth: (w) => set({ mobilePanelWidth: clampWidth(w, MOBILE_PANEL_WIDTH) }),
+      setMobileFloatRect: (rect) => set({ mobileFloatRect: rect }),
+      // The agent keeps mirroring regardless of where the UI shows it, so the
+      // live session is remembered here: switching float/pin/pip remounts the
+      // view, and re-running mobile:start would cost a needless restart.
+      // Not persisted — a reload has no agent-side session to rejoin.
+      mobileSession: null,          // { serial, meta } | null
+      // Accepts an updater so a caller can patch one field (the agent resizing the
+      // stream) without racing whatever else has changed since it read the value.
+      setMobileSession: (session) => set((state) => ({
+        mobileSession: typeof session === "function" ? session(state.mobileSession) : session
+      })),
       // Bumped seq, not a boolean: reopening the same file must re-trigger preview.
       editorPreviewSeq: 0,
       // An artifact is the same panel opened by the AI rather than by the tree. It takes
@@ -426,6 +469,11 @@ export const useTerminalStore = create(
         rightPanelTabs: state.rightPanelTabs,
         rightPanelWidth: state.rightPanelWidth,
         editorPanelWidth: state.editorPanelWidth,
+        hiddenHeaderButtons: state.hiddenHeaderButtons,
+        mobileLowPower: state.mobileLowPower,
+        mobileMode: state.mobileMode,
+        mobilePanelWidth: state.mobilePanelWidth,
+        mobileFloatRect: state.mobileFloatRect,
         artifactsBySession: state.artifactsBySession
       }),
       storage: {
