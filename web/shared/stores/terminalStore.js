@@ -3,13 +3,37 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, MOBILE_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, ARTIFACT_STACK_MAX
+  MAX_LIVE_PANES, SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, MOBILE_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, ARTIFACT_STACK_MAX, PERSIST_DEBOUNCE_MS
 } from "@/features/terminal/constants/terminalConfig";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
 import { OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
 
 const clampWidth = (w, { min, max }) => Math.max(min, Math.min(max, Math.round(w)));
+
+// Coalesced localStorage writer. persist re-serializes the whole partialized state on every
+// set(), so a splitter drag or a typed draft would stringify + write synchronously per event.
+// The value in memory is always current; only the write to disk trails it.
+const pendingWrite = { name: null, value: null };
+let writeTimer = null;
+
+const flushWrite = () => {
+  if (writeTimer) { clearTimeout(writeTimer); writeTimer = null; }
+  if (pendingWrite.name === null) return;
+  const { name, value } = pendingWrite;
+  pendingWrite.name = null;
+  pendingWrite.value = null;
+  // Quota exceeded / private mode throws — persistence is best-effort
+  try { localStorage.setItem(name, JSON.stringify(value)); } catch {}
+};
+
+// A backgrounded tab may never run another timer, so the pending write lands here instead.
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", flushWrite);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushWrite();
+  });
+}
 
 // Drop one artifact, and the session's entry with it once empty — a map that only ever
 // grows would keep every closed terminal alive in storage.
@@ -493,11 +517,15 @@ export const useTerminalStore = create(
         },
         setItem: (name, value) => {
           if (typeof window === "undefined") return;
-          // Quota exceeded / private mode throws — persistence is best-effort
-          try { localStorage.setItem(name, JSON.stringify(value)); } catch {}
+          pendingWrite.name = name;
+          pendingWrite.value = value;
+          if (writeTimer) return; // trailing edge already scheduled — it picks up the latest value
+          writeTimer = setTimeout(flushWrite, PERSIST_DEBOUNCE_MS);
         },
         removeItem: (name) => {
           if (typeof window === "undefined") return;
+          // A queued write for this key would resurrect what was just removed
+          if (pendingWrite.name === name) { pendingWrite.name = null; pendingWrite.value = null; }
           localStorage.removeItem(name);
         }
       },

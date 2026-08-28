@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import * as LucideIcons from "lucide-react";
-import { X, ExternalLink } from "@/shared/components/ui/Icon";
+import Icon, { X, ExternalLink } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { COMMUNITY_LINKS } from "@/features/terminal/constants/communityLinks";
 import { useI18n } from "@/shared/i18n";
@@ -56,7 +55,6 @@ export default function CommunityModal({ isOpen, onClose }) {
             {t("community.description")}
           </p>
           {COMMUNITY_LINKS.map((link) => {
-            const IconCmp = LucideIcons[link.icon];
             return (
               <button
                 key={link.id}
@@ -67,7 +65,7 @@ export default function CommunityModal({ isOpen, onClose }) {
                   className="flex items-center justify-center w-10 h-10 rounded-brand flex-shrink-0"
                   style={{ backgroundColor: `${link.color}1a`, color: link.color }}
                 >
-                  {IconCmp ? <IconCmp size={22} strokeWidth={2} /> : null}
+                  <Icon name={link.icon} size={22} />
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{link.label}</div>

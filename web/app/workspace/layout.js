@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSocket } from "@/features/session/hooks/useSocket";
@@ -16,6 +16,7 @@ import { isDiffPath, parseRepoDiffPath } from "@/features/fileExplorer/constants
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useNotification } from "@/shared/hooks/useNotification";
 import { updateTitle } from "@/shared/utils/titleMarquee";
+import { startWidthDrag } from "@/shared/utils/dragResize";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { usePwaInstallInit } from "@/features/terminal/hooks/usePwaInstallInit";
 import { useSwipeTab } from "@/features/terminal/hooks/useSwipeTab";
@@ -463,20 +464,7 @@ export default function WorkspaceLayout({ children }) {
   // Drag the pinned mirror's left edge. Mirrors the editor panel's handle: the
   // panel grows as the pointer moves left, so the delta is inverted.
   const handleMobileResizeStart = useCallback((e) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = mobilePanelWidth;
-    const onMove = (ev) => setMobilePanelWidth(startW - (ev.clientX - startX));
-    const onUp = () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
+    startWidthDrag(e, { startWidth: mobilePanelWidth, axis: -1, onWidth: setMobilePanelWidth });
   }, [mobilePanelWidth, setMobilePanelWidth]);
 
   const handleRetryNow = useCallback(() => {
@@ -507,6 +495,43 @@ export default function WorkspaceLayout({ children }) {
   const closeConfirmDialog = useCallback(() => {
     setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: null });
   }, []);
+
+  // The three panel descriptors and the pane-width setter are props on the terminal view.
+  // A fresh object/closure per render defeats every memo below them, and this component
+  // re-renders on each status change, cwd update and notification.
+  const handleSetPaneWidth = useCallback((w) => {
+    if (activeWorkspaceId) setPaneWidth(activeWorkspaceId, w);
+  }, [activeWorkspaceId, setPaneWidth]);
+
+  const rightPanelProps = useMemo(() => ({
+    open: rightPanelOpen,
+    tabs: rightPanelTabs,
+    width: rightPanelWidth,
+    onTabChange: setRightPanelTab,
+    onResize: setRightPanelWidth,
+    onToggle: toggleRightPanel,
+    onNewTerminal: createTerminalAt
+  }), [rightPanelOpen, rightPanelTabs, rightPanelWidth, setRightPanelTab, setRightPanelWidth, toggleRightPanel, createTerminalAt]);
+
+  const editorPanelProps = useMemo(() => ({
+    filePath: editorFilePath,
+    previewSeq: editorPreviewSeq,
+    artifactTitle,
+    width: editorPanelWidth,
+    onResize: setEditorPanelWidth,
+    onOpen: isDesktop ? openEditorFile : openSheetFile,
+    onClose: closeEditorFile,
+    // Side panel → full editor route at the file's own workspace root
+    onOpenFull: openEditorFull
+  }), [editorFilePath, editorPreviewSeq, artifactTitle, editorPanelWidth, setEditorPanelWidth, isDesktop, openEditorFile, openSheetFile, closeEditorFile, openEditorFull]);
+
+  const mobilePanelProps = useMemo(() => ({
+    open: mobileOpen,
+    mode: mobileMode,
+    width: mobilePanelWidth,
+    protocolRef,
+    onResizeStart: handleMobileResizeStart
+  }), [mobileOpen, mobileMode, mobilePanelWidth, protocolRef, handleMobileResizeStart]);
 
   const auth = getAuth();
   // Persist the current URL per-agent so switching agents restores the last view
@@ -610,7 +635,7 @@ export default function WorkspaceLayout({ children }) {
             sidebarWidth={sidebarWidth}
             setSidebarWidth={setSidebarWidth}
             paneWidth={activeWorkspaceId ? paneWidths[activeWorkspaceId] ?? null : null}
-            setPaneWidth={activeWorkspaceId ? (w) => setPaneWidth(activeWorkspaceId, w) : undefined}
+            setPaneWidth={activeWorkspaceId ? handleSetPaneWidth : undefined}
             toggleSidebar={toggleSidebar}
             paneRegistry={paneRegistry}
             bindSwipeTab={bindSwipeTab}
@@ -632,33 +657,9 @@ export default function WorkspaceLayout({ children }) {
             homeDir={systemInfo?.homedir}
             recentWorkspaces={recentWorkspaces}
             onOpenArtifact={openArtifact}
-            rightPanel={{
-              open: rightPanelOpen,
-              tabs: rightPanelTabs,
-              width: rightPanelWidth,
-              onTabChange: setRightPanelTab,
-              onResize: setRightPanelWidth,
-              onToggle: toggleRightPanel,
-              onNewTerminal: createTerminalAt
-            }}
-            editorPanel={{
-              filePath: editorFilePath,
-              previewSeq: editorPreviewSeq,
-              artifactTitle,
-              width: editorPanelWidth,
-              onResize: setEditorPanelWidth,
-              onOpen: isDesktop ? openEditorFile : openSheetFile,
-              onClose: closeEditorFile,
-              // Side panel → full editor route at the file's own workspace root
-              onOpenFull: openEditorFull
-            }}
-            mobilePanel={{
-              open: mobileOpen,
-              mode: mobileMode,
-              width: mobilePanelWidth,
-              protocolRef,
-              onResizeStart: handleMobileResizeStart
-            }}
+            rightPanel={rightPanelProps}
+            editorPanel={editorPanelProps}
+            mobilePanel={mobilePanelProps}
             codespaceInfo={codespaceInfo}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}

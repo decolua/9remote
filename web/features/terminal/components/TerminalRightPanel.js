@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startWidthDrag } from "@/shared/utils/dragResize";
 import dynamic from "next/dynamic";
 import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, Package, Plus, RefreshCw, Search, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
@@ -28,7 +29,7 @@ const VISIBLE_TABS = TABS.filter((t) => t.key !== "trees");
 // Secondary sidebar docked right of the terminal panes: file tree, git, worktrees.
 // Roots are the workspace itself plus each of its worktrees — separate directories on
 // disk, so they cannot share one tree.
-export default function TerminalRightPanel({
+function TerminalRightPanel({
   workspacePath, filesRoot = null, cwdHint = null, fileSocket, activeFile,
   tab, onTabChange, width, onResize, onClose,
   onOpenFile, onNewTerminal, onAddWorkspace, onOpenFiles, homeDir,
@@ -150,22 +151,8 @@ export default function TerminalRightPanel({
   // Clear the debounce timer on unmount.
   useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); }, []);
 
-  const startResize = (e) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = width;
-    const onMove = (ev) => onResize?.(startW - (ev.clientX - startX));
-    const onUp = () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  };
+  const startResize = (e) =>
+    startWidthDrag(e, { startWidth: width, axis: -1, onWidth: (w) => onResize?.(w) });
 
   return (
     <div
@@ -467,3 +454,7 @@ function RepoSection({ repo, changedCount = 0, isOpen, onToggle, onHide, childre
     </div>
   );
 }
+
+// Props are stabilized upstream (memoized panel descriptors, `nav`, store actions), so
+// this only re-renders when something it actually shows changed.
+export default memo(TerminalRightPanel);

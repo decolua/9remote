@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SitesList from "./SitesList";
@@ -18,7 +18,7 @@ import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 
-export default function TerminalHeader({
+function TerminalHeader({
   sessions = [],
   allSessions = [],
   activeSessionId,
@@ -90,7 +90,7 @@ export default function TerminalHeader({
 
   // Every terminal that actually exists right now — a history row naming one of them
   // focuses it instead of resuming a second copy of the same conversation.
-  const liveSessionIds = new Set(allSessions.map((s) => s.id));
+  const liveSessionIds = useMemo(() => new Set(allSessions.map((s) => s.id)), [allSessions]);
 
   // Suggested default name based on terminal count in active group
   const suggestTerminalName = (workspaceId) => `${t("terminal.defaultName")} ${sessions.filter((s) => sessionWorkspaceId(s) === (workspaceId ?? null)).length + 1}`;
@@ -505,3 +505,7 @@ export default function TerminalHeader({
     </div>
   );
 }
+
+// Props are stabilized upstream (memoized panel descriptors, `nav`, store actions), so
+// this only re-renders when something it actually shows changed.
+export default memo(TerminalHeader);

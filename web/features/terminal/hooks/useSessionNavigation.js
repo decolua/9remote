@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useI18n } from "@/shared/i18n";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -189,7 +189,9 @@ export function useSessionNavigation({
     });
   }, [renameSession, t]);
 
-  return {
+  // Passed down as a single `nav` prop — a fresh object per render would re-render every
+  // memoized consumer even though all ten handlers are stable.
+  return useMemo(() => ({
     handleSelectSession,
     handleSelectWorkspace,
     handleCreateSession,
@@ -200,5 +202,7 @@ export function useSessionNavigation({
     handleRenameSession,
     switchSession,
     switchToIndex
-  };
+  }), [handleSelectSession, handleSelectWorkspace, handleCreateSession, handleQuickCreateSession,
+    handleResumeAgentSession, handleCreateSessionInline, handleDeleteSession, handleRenameSession,
+    switchSession, switchToIndex]);
 }

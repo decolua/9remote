@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startWidthDrag } from "@/shared/utils/dragResize";
 import dynamic from "next/dynamic";
 import { Save, X, ExternalLink, Eye, FileCode } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
@@ -111,22 +112,8 @@ export default function TerminalEditorPanel({
     ? displayPath.slice(workspace.length).replace(/^\//, "")
     : displayPath;
 
-  const startResize = (e) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = width;
-    const onMove = (ev) => onResize?.(startW - (ev.clientX - startX));
-    const onUp = () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  };
+  const startResize = (e) =>
+    startWidthDrag(e, { startWidth: width, axis: -1, onWidth: (w) => onResize?.(w) });
 
   return (
     <div

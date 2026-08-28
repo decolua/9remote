@@ -1,11 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
+import { startWidthDrag } from "@/shared/utils/dragResize";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 
 const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
@@ -28,7 +29,7 @@ const focusBorderClass = (isFocused, state) => {
 };
 
 // Terminal view shell: sidebar + header + multi-pane row + editor/tree panels + status bar.
-export default function TerminalWorkspace({
+function TerminalWorkspace({
   socket, socketRef, connected, transport, platform, agentVersion,
   sessions, workspaces, activeSessionId, activeSession, activeWorkspaceId,
   openedSessions, livePanes, mountedWorkspaces, cwdBySession,
@@ -54,8 +55,12 @@ export default function TerminalWorkspace({
   // published to MobileDock rather than looked up by id.
   const [mobilePinSlot, setMobilePinSlot] = useState(null);
 
-  const { workspaceSessionIds, workspaceOpenedSessions, renderedSessions, mountedSet, workspaceIndex } =
-    derivePaneLayout({ sessions, openedSessions, livePanes, mountedWorkspaces, activeWorkspaceId, isDesktop });
+  // Builds three Sets and two Maps — recomputing it on every unrelated render (status tick,
+  // cwd update) also hands every consumer fresh collection identities.
+  const { workspaceSessionIds, workspaceOpenedSessions, renderedSessions, mountedSet, workspaceIndex } = useMemo(
+    () => derivePaneLayout({ sessions, openedSessions, livePanes, mountedWorkspaces, activeWorkspaceId, isDesktop }),
+    [sessions, openedSessions, livePanes, mountedWorkspaces, activeWorkspaceId, isDesktop]
+  );
 
   // Stable identity: the header scrolls the active tab into view whenever this
   // array changes, so a fresh one per render would re-scroll the tab strip.
@@ -81,6 +86,20 @@ export default function TerminalWorkspace({
     onReorderSession?.(orderedIds);
   }, [reorderOpenedSessions, onReorderSession]);
   const filesRoot = rightPanelRoots[baseRoot] || baseRoot;
+  // The right panel is memoized — these four would hand it a fresh closure per render.
+  const handleRightPanelTabChange = useCallback(
+    (tab) => rightPanel?.onTabChange(tab, baseRoot ?? ""),
+    [rightPanel, baseRoot]
+  );
+  const handleOpenFilesRoot = useCallback(() => onOpenFiles?.(filesRoot), [onOpenFiles, filesRoot]);
+  const workspaceHiddenRepos = useMemo(
+    () => activeWorkspace?.hiddenRepos || [],
+    [activeWorkspace?.hiddenRepos]
+  );
+  const handleHiddenReposChange = useCallback(
+    (paths) => { if (activeWorkspace) onSetHiddenRepos?.(activeWorkspace.id, paths); },
+    [activeWorkspace, onSetHiddenRepos]
+  );
   // Where the focused terminal actually stands — the panel opens the worktree holding it.
   const activeCwd = activeSessionId ? cwdBySession[activeSessionId] || null : null;
   // Switching terminals drops a manual reveal: that pin belongs to the pane it was taken
@@ -188,23 +207,14 @@ export default function TerminalWorkspace({
   // One width shared by every pane: dragging any splitter resizes the whole row at once,
   // so the panes stay a uniform grid instead of drifting into ragged columns.
   const startPaneResize = (e) => {
-    e.preventDefault();
-    const startX = e.clientX;
     // Dragging out of auto mode pins the row at the pane's current rendered width first.
-    const startW = effectivePaneWidth ?? e.currentTarget.parentElement?.offsetWidth ?? PANE_WIDTH.min;
-    const onMove = (ev) => setPaneWidth?.(startW + (ev.clientX - startX));
-    const onUp = () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      setIsPaneResizing(false);
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+    const startWidth = effectivePaneWidth ?? e.currentTarget.parentElement?.offsetWidth ?? PANE_WIDTH.min;
     setIsPaneResizing(true);
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
+    startWidthDrag(e, {
+      startWidth,
+      onWidth: (w) => setPaneWidth?.(w),
+      onEnd: () => setIsPaneResizing(false)
+    });
   };
 
   // Deliberate re-fit (double-click): unlike a panel toggle, this one measures the space
@@ -543,19 +553,17 @@ export default function TerminalWorkspace({
               fileSocket={fileSocket}
               activeFile={editorPanel?.filePath}
               tab={rightPanel.tabs?.[baseRoot ?? ""] || "files"}
-              onTabChange={(tab) => rightPanel.onTabChange(tab, baseRoot ?? "")}
+              onTabChange={handleRightPanelTabChange}
               width={rightPanel.width}
               onResize={rightPanel.onResize}
               onClose={rightPanel.onToggle}
-              onOpenFiles={onOpenFiles ? () => onOpenFiles(filesRoot) : null}
+              onOpenFiles={onOpenFiles ? handleOpenFilesRoot : null}
               onOpenFile={editorPanel?.onOpen}
               onNewTerminal={rightPanel.onNewTerminal}
               onAddWorkspace={onAddWorkspace}
               homeDir={homeDir}
-              hiddenRepos={activeWorkspace?.hiddenRepos || []}
-              onHiddenReposChange={activeWorkspace && onSetHiddenRepos
-                ? (paths) => onSetHiddenRepos(activeWorkspace.id, paths)
-                : null}
+              hiddenRepos={workspaceHiddenRepos}
+              onHiddenReposChange={activeWorkspace && onSetHiddenRepos ? handleHiddenReposChange : null}
               isDesktop={isDesktop}
             />
           </div>
@@ -582,3 +590,7 @@ export default function TerminalWorkspace({
     </div>
   );
 }
+
+// Props are stabilized upstream (memoized panel descriptors, `nav`, store actions), so
+// this only re-renders when something it actually shows changed.
+export default memo(TerminalWorkspace);

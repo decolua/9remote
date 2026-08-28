@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { startWidthDrag } from "@/shared/utils/dragResize";
 import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, PanelLeft, Settings, Download, RotateCw } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
@@ -121,7 +122,7 @@ function WorkspaceHeader({
 
 // Desktop-only persistent sidebar: sessions grouped by workspace, full item ops
 // (rename / delete / drag-reorder within workspace).
-export default function TerminalSidebar({
+function TerminalSidebar({
   allSessions = [],
   workspaces = [],
   activeSessionId,
@@ -153,7 +154,7 @@ export default function TerminalSidebar({
   const collapseHint = hasKeyboard ? withHint(t("common.close"), "toggleSidebar") : t("common.close");
   // Which terminals actually exist right now — the history rows are a snapshot
   // and can name one that has since closed.
-  const liveSessionIds = new Set(allSessions.map((s) => s.id));
+  const liveSessionIds = useMemo(() => new Set(allSessions.map((s) => s.id)), [allSessions]);
   const activeCwd = activeSessionId
     ? (cwdBySession[activeSessionId] ?? allSessions.find((s) => s.id === activeSessionId)?.workspacePath ?? null)
     : null;
@@ -170,21 +171,8 @@ export default function TerminalSidebar({
 
   // Resize handle
   const startResize = (e) => {
-    e.preventDefault();
     e.stopPropagation();
-    const startX = e.clientX;
-    const startW = width;
-    const onMove = (ev) => onResize?.(startW + ev.clientX - startX);
-    const onUp = () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
+    startWidthDrag(e, { startWidth: width, onWidth: (w) => onResize?.(w) });
   };
 
   // Context menu (right-click / long-press)
@@ -589,3 +577,7 @@ export default function TerminalSidebar({
     </div>
   );
 }
+
+// Props are stabilized upstream (memoized panel descriptors, `nav`, store actions), so
+// this only re-renders when something it actually shows changed.
+export default memo(TerminalSidebar);

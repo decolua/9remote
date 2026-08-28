@@ -5,6 +5,15 @@ import { useEffect } from "react";
 // Terminal-page DOM viewport plumbing: --app-height follows visualViewport (soft-KB),
 // keyboard-open detection, the iOS 26 offsetTop workaround, body scroll locking, and
 // iOS focus auto-scroll suppression. Verbatim moves from the workspace layout.
+
+// Containers that own their own scrolling — a touchmove inside one is not a body scroll.
+const SCROLLABLE_SELECTOR = [
+  ".xterm-viewport", ".xterm-screen", ".terminal-scroll",
+  ".cm-scroller", ".cm-content",
+  ".overflow-auto", ".overflow-x-auto", ".overflow-y-auto",
+  ".modal-scrollable", ".brand-range"
+].join(",");
+
 export function useTerminalPageViewport({ setKeyboardOpen }) {
   // VisualViewport height - handle mobile keyboard
   useEffect(() => {
@@ -63,18 +72,8 @@ export function useTerminalPageViewport({ setKeyboardOpen }) {
   // Prevent body scroll on touchmove (allow scroll in specific containers)
   useEffect(() => {
     const preventScroll = (e) => {
-      if (
-        e.target.closest(".xterm-viewport") ||
-        e.target.closest(".xterm-screen") ||
-        e.target.closest(".terminal-scroll") ||
-        e.target.closest(".cm-scroller") ||
-        e.target.closest(".cm-content") ||
-        e.target.closest(".overflow-auto") ||
-        e.target.closest(".overflow-x-auto") ||
-        e.target.closest(".overflow-y-auto") ||
-        e.target.closest(".modal-scrollable") ||
-        e.target.closest(".brand-range")
-      ) return;
+      // One selector, one DOM walk — this fires on every touchmove frame
+      if (e.target.closest(SCROLLABLE_SELECTOR)) return;
       e.preventDefault();
     };
     document.addEventListener("touchmove", preventScroll, { passive: false });
