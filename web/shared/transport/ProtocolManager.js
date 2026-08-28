@@ -67,9 +67,10 @@ export class ProtocolManager {
   }
 
   /** User-triggered immediate reconnect — skips backoff and revives a failed adapter. */
-  retryNow() {
+  retryNow(reason = "user") {
     const ws = this._adapters.get("ws");
-    if (ws) { ws.retryNow?.(); return; }
+    if (ws) { ws.retryNow?.(reason); return; }
+    termLog("switch", `retryNow by=${reason}: no ws adapter → full connect()`);
     // Adapter was torn down (PM.disconnect) — rebuild from scratch
     this.connect();
   }
@@ -215,7 +216,7 @@ export class ProtocolManager {
       this._netFingerprint = raw;
       // Relay may be down (we skipped its retry while WS-only) — kick it and let
       // _onSignalingReady fire the restart once a signaling path exists again.
-      if (!this._canSignal()) { this._sig?.retryNow(); return; }
+      if (!this._canSignal()) { this._sig?.retryNow("stun-rearm"); return; }
       if (this._shouldRenegotiate()) this._restartRtc("stun-rearm");
     }).catch(() => {});
   }

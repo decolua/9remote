@@ -8,14 +8,14 @@ import { createLogger } from "../../lib/logger.js";
 import { isAvailable } from "./adb.js";
 import { ScrcpySession } from "./scrcpySession.js";
 import { encodeMobileFrame, MOBILE_FLAG_KEY, MOBILE_FLAG_CONFIG } from "./mobileFrame.js";
-import { VIDEO_CHUNK_PAYLOAD, FLOW, ADAPT, DEVICE_WATCH_MS } from "./constants.js";
-import { listAll, listAvdsAsync, startAvd, stopAvd, canManageEmulators } from "./emulator.js";
+import { VIDEO_CHUNK_PAYLOAD, FLOW, ADAPT, DEVICE_WATCH_MS, SLEEP_ON_HIDE_MS } from "./constants.js";
+import { listAll, listAvdsAsync, startAvd, stopAvd, canManageEmulators, isAgentStarted } from "./emulator.js";
 import { listSerialsAsync } from "./adb.js";
 import { LogcatStream } from "./logcat.js";
 import {
   listApps, foregroundApp, installApk, uninstallApp, launchApp, stopApp, clearAppData,
   openDeepLink, setRotation, getRotation, screenshot,
-  stagePathFor, assertApkSize, cleanupStaged, stageDir
+  stagePathFor, assertApkSize, cleanupStaged, stageDir, sleepDevice, wakeDevice
 } from "./appManager.js";
 
 const logger = createLogger("mobile");
@@ -59,6 +59,11 @@ export function setupMobileHandlers(socket) {
   let deadAcks = 0;
   // Viewer hid the tab: hold the pump instead of encoding for a hidden canvas.
   let paused = false;
+  // Only AVDs this agent started may be put to sleep — blanking the screen of
+  // someone's physical phone would be an unpleasant surprise.
+  let maySleep = false;
+  let sleepTimer = null;
+  const cancelSleepTimer = () => { clearTimeout(sleepTimer); sleepTimer = null; };
 
   const clearFlow = () => {
     for (const timer of ackTimers.values()) clearTimeout(timer);
@@ -79,6 +84,12 @@ export function setupMobileHandlers(socket) {
 
   const stop = () => {
     stopStream();
+    cancelSleepTimer();
+    // Nobody is watching any more, so blank the screen straight away: an awake
+    // emulator idles around four times the host CPU of a sleeping one, and
+    // waking it again costs well under a second.
+    if (maySleep && activeSerial) sleepDevice(activeSerial);
+    maySleep = false;
     // Also forget the device: an app command arriving after this must not
     // silently act on the one the user just left.
     activeSerial = null;
@@ -161,12 +172,14 @@ export function setupMobileHandlers(socket) {
   let lastDeviceCount = -1;
   // Async: this fires every few seconds forever, and the sync form froze the
   // whole agent for ~80ms each time — long enough to stall video and input.
+  // `available` rides along so the client can hide the button entirely on a host
+  // with no Android tooling, rather than offering one that can never work.
   const watchDevices = async () => {
     let count = 0;
     try { count = (await listSerialsAsync()).length; } catch { count = 0; }
     if (count === lastDeviceCount) return;
     lastDeviceCount = count;
-    protocol.emit("mobile:devicesChanged", { count });
+    protocol.emit("mobile:devicesChanged", { count, available: isAvailable() });
   };
   watchDevices();
   const deviceWatch = setInterval(watchDevices, DEVICE_WATCH_MS);
@@ -248,7 +261,7 @@ export function setupMobileHandlers(socket) {
     const respond = typeof data === "function" ? data : cb;
     let count = 0;
     try { count = (await listSerialsAsync()).length; } catch { count = 0; }
-    respond?.({ count });
+    respond?.({ count, available: isAvailable() });
   });
 
   socket.on("mobile:list", handle(async () => ({
@@ -387,6 +400,9 @@ export function setupMobileHandlers(socket) {
     const serial = data?.serial;
     if (!serial) return cb?.({ success: false, error: "serial required" });
     try {
+      // Wake first: the device may have been put to sleep when the last viewer
+      // left, and the first frames would otherwise show a black screen.
+      await wakeDevice(serial);
       const mySession = new ScrcpySession(serial);
       const myGen = streamGen;
       const meta = await mySession.start(data?.options || {});
@@ -398,6 +414,9 @@ export function setupMobileHandlers(socket) {
       }
       session = mySession;
       activeSerial = serial;
+      // Resolved once per session rather than per teardown: stop() must not wait
+      // on adb to decide whether it is allowed to blank the screen.
+      maySleep = await isAgentStarted(serial);
       frameSeq = 0;
       requested = data?.options || {};
       paused = false;
@@ -442,7 +461,23 @@ export function setupMobileHandlers(socket) {
     const visible = data?.visible !== false;
     if (visible === !paused) return;
     paused = !visible;
-    if (paused) logger.info("📱 Viewer hidden — pausing stream");
+    if (!paused) {
+      // Back already — cancel a pending sleep, and wake if it beat us to it.
+      cancelSleepTimer();
+      if (maySleep && activeSerial) wakeDevice(activeSerial);
+      return;
+    }
+    logger.info("📱 Viewer hidden — pausing stream");
+    // Grace period, unlike a closed stream: flicking to another tab and back is
+    // a few seconds, and blanking the screen for that is worse than the CPU it
+    // would save.
+    cancelSleepTimer();
+    if (!maySleep) return;
+    const serial = activeSerial;
+    sleepTimer = setTimeout(() => {
+      sleepTimer = null;
+      if (paused && serial === activeSerial) sleepDevice(serial);
+    }, SLEEP_ON_HIDE_MS);
   });
 
   socket.on("mobile:keyframe", () => {

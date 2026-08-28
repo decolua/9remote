@@ -165,7 +165,10 @@ export default function MobileMirror({ onClose, socketRef, protocolRef, connecte
             no visible way back to the device. The strip of screen left showing,
             plus the titled header, keep it legible as a layer over the mirror. */}
         {overlay && (
-          <div className="absolute inset-x-0 bottom-0 top-16 bg-bg border-t border-border flex flex-col shadow-[0_-8px_24px_rgba(0,0,0,0.35)] animate-in slide-in-from-bottom duration-200">
+          <div
+            key={overlay}
+            className="absolute inset-x-0 bottom-0 top-16 bg-bg border-t border-border flex flex-col shadow-[0_-8px_24px_rgba(0,0,0,0.35)] sheet-rise"
+          >
             <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border flex-shrink-0">
               {overlay === "apps"
                 ? <Package size={14} className="text-brand-500 flex-shrink-0" />

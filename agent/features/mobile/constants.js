@@ -26,14 +26,19 @@ export const ADB_TIMEOUTS = {
 // A cold AVD takes ~30s to reach sys.boot_completed; give it room but don't
 // hang the UI forever on a wedged image.
 // Launch flags for AVDs we start ourselves.
-//   -gpu host: the single biggest lever, for both smoothness AND host load. The
-//     default "auto" falls back to a software Vulkan compositor (SwiftShader) on
-//     Apple Silicon; forcing host selects MoltenVK. Measured on one AVD:
-//     13fps/377% CPU with auto, 18fps/382% with host, and — crucially — host is
-//     what lets the windowless mode below stay on the real GPU.
 //   -no-boot-anim: shaves a couple of seconds off a cold boot.
 //   -no-audio: nothing here plays the device's audio.
-const BASE_ARGS = ["-gpu", "host", "-no-boot-anim", "-no-audio"];
+const BASE_ARGS = ["-no-boot-anim", "-no-audio"];
+
+// -gpu host is the single biggest lever for smoothness on a machine whose
+// "auto" picks software rendering — on Apple Silicon auto selects SwiftShader,
+// and forcing host selects MoltenVK (measured: 13fps → 18fps, and it is what
+// keeps the windowless mode on the real GPU).
+//
+// It is NOT safe everywhere: a machine with no usable GPU (a headless server,
+// some Windows driver setups) can fail to boot with it. So it is attempted
+// first and dropped on failure rather than assumed — see startAvd.
+export const GPU_HOST_ARGS = ["-gpu", "host"];
 
 // Windowless mode. Measured against the same AVD and workload:
 //     windowed:  18.0 fps, 382% CPU
@@ -44,10 +49,32 @@ const BASE_ARGS = ["-gpu", "host", "-no-boot-anim", "-no-audio"];
 export const EMULATOR_ARGS = BASE_ARGS;
 export const EMULATOR_ARGS_LOW_POWER = [...BASE_ARGS, "-no-window"];
 
+// The emulator hands the guest roughly 45% more RAM than the AVD asks for
+// (a 2048MB AVD boots with 2976MB), and that padding is real host memory.
+// Passing the configured size through QEMU removes it: same RAM the user chose,
+// ~30% less taken from the host. Never a fixed number — an AVD may be
+// configured with anything, and forcing one would grow a small device.
+//
+// -memory is documented for this but is ignored by current emulator builds;
+// only the QEMU passthrough takes effect. Measured, on one AVD:
+//     default:        guest 2976MB, host 5.9GB
+//     -qemu -m 2048:  guest 1975MB, host 4.2GB
+export const QEMU_MEMORY_ARGS = (ramSizeMb) =>
+  Number.isFinite(ramSizeMb) && ramSizeMb >= MIN_GUEST_RAM_MB
+    ? ["-qemu", "-m", String(Math.round(ramSizeMb))]
+    : [];
+
+// Below this Android starts killing apps as fast as they launch, so an AVD
+// configured smaller is left exactly as its owner set it.
+export const MIN_GUEST_RAM_MB = 1536;
+
 export const EMULATOR = {
   bootTimeoutMs: 180_000,
   bootPollMs: 1_500,
   shutdownTimeoutMs: 20_000,
+  // An emulator that rejects a command-line flag exits within a second or two;
+  // a slower failure is about the AVD, not the flag.
+  flagRejectMs: 8_000,
   // Emulator console ports are even, 5554..5682 — the serial encodes the port.
   serialPattern: /^emulator-(\d+)$/
 };
@@ -171,6 +198,22 @@ export const ANDROID_KEY = {
   volumeUp: 24,
   volumeDown: 25
 };
+
+// Put the device to sleep the moment nobody is watching: a woken emulator idles
+// at ~17% host CPU, asleep at ~4%, and waking plus the first frame costs 625ms.
+// Cheap enough that there is no reason to wait.
+//
+// A hidden tab gets a grace period instead — flicking to another tab to copy a
+// link and back is seconds, and blanking the screen for that would be worse than
+// the CPU it saves.
+export const SLEEP_ON_HIDE_MS = 30_000;
+
+// Shut an AVD down after this long with no client connected at all. Sleeping
+// saves CPU but not memory — the VM keeps its RAM either way — so a machine
+// that has been left alone still needs the emulator gone. Only ever applies to
+// AVDs this agent started.
+export const IDLE_SHUTDOWN_MS = 30 * 60 * 1000;
+export const IDLE_CHECK_MS = 60_000;
 
 export const TEXT_MAX_BYTES = 300;
 export const TAP_HOLD_MS = 20;

@@ -1,5 +1,6 @@
 import { ADAPTER_STATE } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
+import { termLog } from "@/shared/utils/termLog";
 
 const OTHER_ROLE = { agent: "client", client: "agent" };
 
@@ -83,7 +84,7 @@ export class SignalingClient {
 
   /** Network changed — retry now instead of waiting out the backoff, and clear
    * the pre-open cap so a relay abandoned on the old network gets a fresh start. */
-  retryNow() {
+  retryNow(reason = "?") {
     if (this._closed || this.ready) return;
 
     const now = Date.now();
@@ -96,7 +97,8 @@ export class SignalingClient {
     // fire — so the burst collapses into one attempt at the end of the window.
     const sinceLast = now - this._lastRetryNowAt;
     if (sinceLast < RETRY_NOW_THROTTLE_MS) {
-      this._scheduleRetryNow(RETRY_NOW_THROTTLE_MS - sinceLast);
+      termLog("switch", `sig retryNow DEFER by=${reason} (throttled)`);
+      this._scheduleRetryNow(RETRY_NOW_THROTTLE_MS - sinceLast, reason);
       return;
     }
 
@@ -105,10 +107,12 @@ export class SignalingClient {
     // stalled one is worth replacing.
     if (this._state === ADAPTER_STATE.connecting
         && now - this._connectingSince < HANDSHAKE_STALL_MS) {
-      this._scheduleRetryNow(HANDSHAKE_STALL_MS - (now - this._connectingSince));
+      termLog("switch", `sig retryNow DEFER by=${reason} (handshake ${now - this._connectingSince}ms old)`);
+      this._scheduleRetryNow(HANDSHAKE_STALL_MS - (now - this._connectingSince), reason);
       return;
     }
 
+    termLog("switch", `sig retryNow GO by=${reason}`);
     this._lastRetryNowAt = now;
     this._attempt = 0;
     this._preOpenFails = 0;
@@ -124,11 +128,11 @@ export class SignalingClient {
 
   /** One pending re-check per client — repeated calls inside the window collapse
    * onto the timer already armed instead of stacking up. */
-  _scheduleRetryNow(delay) {
+  _scheduleRetryNow(delay, reason = "?") {
     if (this._retryNowTimer) return;
     this._retryNowTimer = setTimeout(() => {
       this._retryNowTimer = null;
-      this.retryNow();
+      this.retryNow(`${reason}-deferred`);
     }, delay);
   }
 
@@ -155,6 +159,7 @@ export class SignalingClient {
       this._setState(ADAPTER_STATE.open);
       this._startPing();
       debugLog("transport", `[sig] ${this._role} connected room=${this._roomId}`);
+      termLog("switch", `sig open (after ${this._attempt} retries)`);
       this._onReady?.();
     });
     ws.addEventListener("message", (e) => {
@@ -181,6 +186,7 @@ export class SignalingClient {
       this._preOpenFails++;
       if (this._preOpenFails > MAX_PRE_OPEN_FAILURES) {
         debugLog("transport", `[sig] ${this._role} giving up — ${this._preOpenFails - 1} pre-open failures`);
+        termLog("switch", `sig GAVE UP (${this._preOpenFails - 1} pre-open failures) — retryNow is the only way back`);
         return;
       }
     }
@@ -193,6 +199,7 @@ export class SignalingClient {
     // Jitter de-syncs a fleet of clients retrying after the same outage (thundering herd)
     const delay = Math.min(RECONNECT_BASE_MS * 2 ** (this._attempt - 1), RECONNECT_MAX_MS) + Math.random() * RECONNECT_BASE_MS;
     debugLog("transport", `[sig] ${this._role} reconnect in ${delay}ms (attempt ${this._attempt})`);
+    termLog("switch", `sig reconnect in ${Math.round(delay)}ms (attempt ${this._attempt})`);
     this._reconnectTimer = setTimeout(() => { if (!this._closed) this._open(); }, delay);
   }
 

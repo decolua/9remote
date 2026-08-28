@@ -101,7 +101,7 @@ export function attachWatchers(pm) {
     if (!pm._canSignal()) {
       // Both carriers down (background froze them too) — kick the relay and
       // let its onReady restart RTC once a path exists again.
-      pm._sig?.retryNow();
+      pm._sig?.retryNow("resume-no-carrier");
       return;
     }
     const rtcState = rtc?.state;
@@ -141,13 +141,14 @@ export function attachWatchers(pm) {
   const netHandler = () => {
     clearTimeout(pm._netDebounceTimer);
     pm._netDebounceTimer = setTimeout(() => {
-      if (navigator.onLine === false) return; // still down — wait for "online"
+      if (navigator.onLine === false) { termLog("switch", "net-change: still offline → wait"); return; }
       debugLog("transport", "[pm] network change → probe rtc");
-      pm._sig?.retryNow();
+      termLog("switch", `net-change: online=${navigator.onLine} → kick sig + ws + rtc`);
+      pm._sig?.retryNow("net-change");
       // WS too: a full outage closes it and leaves it inside its own backoff, so
       // the tunnel could sit idle long after the network came back. retryNow is
       // throttled internally, and revives an adapter PM tore down entirely.
-      pm.retryNow();
+      pm.retryNow("net-change");
       // Fresh network deserves a fresh budget, else a session that burned its
       // 3 restarts on a bad network is locked to the tunnel forever. A network
       // change also means the NAT may differ → clear any give-up and try again.

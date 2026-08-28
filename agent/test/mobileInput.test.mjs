@@ -259,6 +259,67 @@ test("noise filtering does not swallow a similarly named tag", () => {
   assert.equal(s._matches(similar), true, "only the exact tag is noise");
 });
 
+console.log("\nsleep-on-idle guards");
+
+test("sleep and wake use the keyevents that survive a closed session", async () => {
+  // Not scrcpy's SET_DISPLAY_POWER: that one is undone on disconnect, which is
+  // precisely when the device should stay asleep.
+  const src = await import("node:fs").then((fs) =>
+    fs.readFileSync(new URL("../features/mobile/appManager.js", import.meta.url), "utf8"));
+  assert.match(src, /KEYCODE_SLEEP = 223/);
+  assert.match(src, /KEYCODE_WAKEUP = 224/);
+  assert.ok(!/SET_DISPLAY_POWER/.test(src), "must not rely on the restored-on-exit path");
+});
+
+test("a device the agent did not start is never slept", async () => {
+  const { isAgentStarted } = await import("../features/mobile/emulator.js");
+  // Nothing has been started in this process, so every serial is someone else's.
+  assert.equal(await isAgentStarted("emulator-5554"), false);
+  assert.equal(await isAgentStarted("R3CT601BWKV"), false, "a USB phone is never ours");
+  assert.equal(await isAgentStarted(null), false);
+});
+
+console.log("\nper-machine safety");
+
+test("guest memory follows the AVD, never a fixed number", async () => {
+  const { QEMU_MEMORY_ARGS, MIN_GUEST_RAM_MB } = await import("../features/mobile/constants.js");
+  // A tablet AVD is shrunk, a watch AVD is left alone: hardcoding one value
+  // would have grown the small one.
+  assert.deepEqual(QEMU_MEMORY_ARGS(4096), ["-qemu", "-m", "4096"]);
+  assert.deepEqual(QEMU_MEMORY_ARGS(2048), ["-qemu", "-m", "2048"]);
+  assert.deepEqual(QEMU_MEMORY_ARGS(512), [], "below the floor, leave it as configured");
+  assert.deepEqual(QEMU_MEMORY_ARGS(MIN_GUEST_RAM_MB - 1), []);
+  assert.deepEqual(QEMU_MEMORY_ARGS(null), [], "unknown config means no override");
+  assert.deepEqual(QEMU_MEMORY_ARGS(NaN), []);
+});
+
+test("-gpu host is separable, so a GPU-less host can drop it", async () => {
+  const { GPU_HOST_ARGS, EMULATOR_ARGS } = await import("../features/mobile/constants.js");
+  assert.deepEqual(GPU_HOST_ARGS, ["-gpu", "host"]);
+  assert.ok(!EMULATOR_ARGS.includes("-gpu"), "the base flags must boot anywhere");
+});
+
+console.log("\nownership + fallback guards");
+
+test("ownership survives a restart, and never adopts someone else's device", async () => {
+  const { isAgentStarted } = await import("../features/mobile/emulator.js");
+  // Nothing owned in this process: a USB phone and an emulator the user opened
+  // must both come back false, or the agent would sleep or stop their device.
+  assert.equal(await isAgentStarted("R3CT601BWKV"), false, "USB serials are never ours");
+  assert.equal(await isAgentStarted(null), false);
+  assert.equal(await isAgentStarted("not-an-emulator"), false);
+});
+
+test("only a fast flag rejection triggers the GPU fallback", async () => {
+  const { EMULATOR } = await import("../features/mobile/constants.js");
+  const rejected = (gpuArgs, sawSerial, elapsed) =>
+    gpuArgs.length > 0 && !sawSerial && elapsed < EMULATOR.flagRejectMs;
+  assert.equal(rejected(["-gpu", "host"], null, 1000), true, "quick exit = the flag");
+  assert.equal(rejected(["-gpu", "host"], null, 180000), false, "a timeout is not the flag");
+  assert.equal(rejected(["-gpu", "host"], "emulator-5554", 2000), false, "it booted, then failed");
+  assert.equal(rejected([], null, 1000), false, "already the fallback attempt");
+});
+
 console.log("\napp management guards");
 
 const appMgr = await import("../features/mobile/appManager.js");

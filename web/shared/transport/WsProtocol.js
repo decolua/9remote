@@ -79,8 +79,8 @@ export class WsProtocol extends BaseProtocol {
    * attempt window. Unlike forceReconnect() this also revives the "failed"
    * terminal state (attempt counter exhausted, adapter closed).
    */
-  retryNow() {
-    if (this._blocked) return;
+  retryNow(reason = "?") {
+    if (this._blocked) { termLog("switch", `ws retryNow SKIP by=${reason} (blocked)`); return; }
     // Mobile fires visibilitychange and online within milliseconds of one
     // another, and both handlers land here. Since retryNow clears _connecting
     // itself, the second call would tear down the socket the first one had just
@@ -95,12 +95,14 @@ export class WsProtocol extends BaseProtocol {
       if (!this._retryNowTimer) {
         this._retryNowTimer = setTimeout(() => {
           this._retryNowTimer = null;
-          this.retryNow();
+          this.retryNow(`${reason}-deferred`);
         }, RETRY_NOW_THROTTLE_MS - sinceLast);
       }
       debugLog("transport", "[ws] retryNow throttled → deferred");
+      termLog("switch", `ws retryNow DEFER by=${reason} (${RETRY_NOW_THROTTLE_MS - sinceLast}ms left)`);
       return;
     }
+    termLog("switch", `ws retryNow GO by=${reason} (drops attempt ${this._retryAttempt})`);
     this._lastRetryNowAt = now;
     clearTimeout(this._retryNowTimer);
     this._retryNowTimer = null;
@@ -250,7 +252,6 @@ export class WsProtocol extends BaseProtocol {
     // socket from one frozen by OS background suspension.
     socket.io?.on?.("pong", () => {
       this._lastInboundAt = Date.now();
-      termLog("switch", `ws pong → stamp lastInbound (${this._lastInboundAt})`); // TEMP DIAGNOSTIC
     });
     // Also stamp on connect — a freshly opened socket is by definition alive.
     socket.on("connect", () => { this._lastInboundAt = Date.now(); });
@@ -278,9 +279,10 @@ export class WsProtocol extends BaseProtocol {
     this._visibilityHandler = () => {
       if (document.visibilityState !== "visible") return;
       if (this._socket?.connected || this._connecting) return;
-      this.retryNow();
+      this.retryNow("visible");
     };
     this._offlineHandler = () => {
+      termLog("switch", "ws offline event → drop socket, degraded");
       this._socket?.disconnect();
       this._socket = null;
       this._setState(ADAPTER_STATE.degraded);
@@ -288,8 +290,11 @@ export class WsProtocol extends BaseProtocol {
     // Same reasoning as the visibility handler: a network handover is a fresh
     // start, and _forceReconnect would be swallowed by a pending retry timer.
     this._onlineHandler = () => {
-      if (this._socket?.connected || this._connecting) return;
-      this.retryNow();
+      if (this._socket?.connected || this._connecting) {
+        termLog("switch", `ws online event → skip (${this._connecting ? "handshaking" : "already up"})`);
+        return;
+      }
+      this.retryNow("online");
     };
 
     // Say goodbye on the way out. Without this the agent only learns the client
@@ -361,6 +366,7 @@ export class WsProtocol extends BaseProtocol {
     // returns to "14/15" or a dead "failed" state. Hold the counter instead;
     // the visibility handler starts a real window on resume.
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      termLog("switch", `ws retry HOLD (hidden, still at ${this._retryAttempt}/${this._maxAttempts})`);
       this._retryScheduled = false;
       this._scheduleRetry();
       return;
@@ -370,12 +376,14 @@ export class WsProtocol extends BaseProtocol {
 
     if (attempt > this._maxAttempts) {
       this._retryScheduled = false;
+      termLog("switch", `ws GAVE UP after ${this._maxAttempts} attempts → closed`);
       this._ctx?.onRetryStatus?.({ isRetrying: false, attempt, maxAttempts: this._maxAttempts, failed: true });
       this._setState(ADAPTER_STATE.closed);
       return;
     }
 
     debugLog("transport", `[ws] retry attempt=${attempt}/${this._maxAttempts}`);
+    termLog("switch", `ws retry ${attempt}/${this._maxAttempts}`);
     this._ctx?.onRetryStatus?.({ isRetrying: true, attempt, maxAttempts: this._maxAttempts, failed: false });
 
     try {

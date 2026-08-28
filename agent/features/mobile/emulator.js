@@ -5,7 +5,9 @@ import { spawn, spawnSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
-import { EMULATOR, EMULATOR_ARGS, EMULATOR_ARGS_LOW_POWER, ADB_TIMEOUTS } from "./constants.js";
+import { EMULATOR, EMULATOR_ARGS, EMULATOR_ARGS_LOW_POWER, GPU_HOST_ARGS, QEMU_MEMORY_ARGS, ADB_TIMEOUTS, IDLE_SHUTDOWN_MS, IDLE_CHECK_MS } from "./constants.js";
+import { connectionCount } from "../../api/ui.js";
+import { PATHS } from "../../lib/constants.js";
 import { findAdb, listDevices, listDevicesAsync, listSerials, listSerialsAsync } from "./adb.js";
 import { promisify } from "util";
 import { execFile } from "child_process";
@@ -41,6 +43,21 @@ export function findEmulator() {
   }
   cachedEmulator = sdkRoots().map((r) => path.join(r, "emulator", exe)).find((p) => fs.existsSync(p)) || null;
   return cachedEmulator;
+}
+
+/**
+ * RAM an AVD is configured with, in MB, or null when it cannot be read. Read
+ * from the AVD's own config so the value follows whatever the user chose —
+ * hardcoding one would shrink a tablet and inflate a watch.
+ */
+function avdRamSizeMb(avdName) {
+  for (const root of [process.env.ANDROID_AVD_HOME, path.join(os.homedir(), ".android", "avd")].filter(Boolean)) {
+    const ini = path.join(root, `${avdName}.avd`, "config.ini");
+    if (!fs.existsSync(ini)) continue;
+    const m = fs.readFileSync(ini, "utf8").match(/^hw\.ramSize\s*=\s*(\d+)/m);
+    if (m) return Number(m[1]);
+  }
+  return null;
 }
 
 export function canManageEmulators() {
@@ -147,6 +164,19 @@ export function isStarting(avdName) {
   return starting.has(avdName);
 }
 
+/**
+ * True when this agent launched the AVD behind `serial`. Actions that change
+ * the device's own state — blanking its screen, stopping it — are limited to
+ * these: a phone on USB, or an emulator the user opened themselves, is theirs.
+ */
+export async function isAgentStarted(serial) {
+  if (!serial?.startsWith("emulator-")) return false;
+  const owned = readOwned();
+  if (owned.size === 0) return false;
+  const avdName = await avdNameOfAsync(serial);
+  return Boolean(avdName && owned.has(avdName));
+}
+
 async function bootedSerialFor(avdName) {
   for (const d of await listSerialsAsync()) {
     if (d.serial.startsWith("emulator-") && await avdNameOfAsync(d.serial) === avdName) return d.serial;
@@ -182,9 +212,116 @@ export async function startAvd(avdName, onProgress, opts = {}) {
   if (starting.has(avdName)) throw new Error("Already starting");
 
   starting.add(avdName);
+  try {
+    // -gpu host is a large win where "auto" picks software rendering, but a
+    // machine without a usable GPU can fail to boot with it. Try it, and fall
+    // back to the emulator's own choice rather than assuming either way.
+    try {
+      return await bootOnce(bin, avdName, onProgress, opts, GPU_HOST_ARGS);
+    } catch (err) {
+      // Only retry when the flag itself looks like the problem. A boot that
+      // timed out, or an AVD with a broken image, fails the same way without
+      // -gpu host — retrying would double an already long wait and would
+      // wrongly blacklist the flag on a machine that supports it.
+      if (!err.gpuRejected || gpuHostUnsupported.has(bin)) throw err;
+      gpuHostUnsupported.add(bin);
+      logger.warn(`📱 -gpu host rejected (${err.message}); retrying with the emulator's default`);
+      return await bootOnce(bin, avdName, onProgress, opts, []);
+    }
+  } finally {
+    starting.delete(avdName);
+  }
+}
+
+// Hosts where -gpu host has already failed once: retrying it on every launch
+// would cost a full boot timeout each time.
+const gpuHostUnsupported = new Set();
+
+// ─── Idle shutdown ──────────────────────────────────────────────────────────
+// Sleeping an emulator saves CPU but not its RAM, so an AVD left running with
+// nobody connected still costs gigabytes. One watchdog for the whole agent, not
+// per socket: the question is whether ANY client is connected.
+
+// AVDs this agent started, recorded on disk. The emulator is spawned detached
+// so it outlives an agent restart — without this the watchdog would forget it
+// existed, and a forgotten AVD holds its gigabytes forever. Equally, it must
+// not adopt an emulator the user opened themselves.
+const OWNED_FILE = path.join(PATHS.STATE, "mobileOwnedAvds.json");
+
+function readOwned() {
+  try { return new Set(JSON.parse(fs.readFileSync(OWNED_FILE, "utf8"))); }
+  catch { return new Set(); }
+}
+
+function writeOwned(names) {
+  try {
+    fs.mkdirSync(PATHS.STATE, { recursive: true });
+    fs.writeFileSync(OWNED_FILE, JSON.stringify([...names]));
+  } catch { /* losing the record only means an orphan survives */ }
+}
+
+function markOwned(avdName) {
+  const owned = readOwned();
+  if (owned.has(avdName)) return;
+  owned.add(avdName);
+  writeOwned(owned);
+}
+
+function unmarkOwned(avdName) {
+  const owned = readOwned();
+  if (!owned.delete(avdName)) return;
+  writeOwned(owned);
+}
+
+let idleSince = null;
+let idleTimer = null;
+
+function stopIdleWatch() {
+  clearInterval(idleTimer);
+  idleTimer = null;
+  idleSince = null;
+}
+
+async function checkIdle() {
+  // Read from disk, not the in-memory map: an agent restart empties the map
+  // while the detached emulator keeps running.
+  const owned = readOwned();
+  if (owned.size === 0) { stopIdleWatch(); return; }
+  if (connectionCount() > 0) { idleSince = null; return; }
+  if (idleSince === null) { idleSince = Date.now(); return; }
+  if (Date.now() - idleSince < IDLE_SHUTDOWN_MS) return;
+
+  const minutes = Math.round(IDLE_SHUTDOWN_MS / 60000);
+  for (const avdName of owned) {
+    const serial = await bootedSerialFor(avdName);
+    if (!serial) { unmarkOwned(avdName); running.delete(avdName); continue; }
+    logger.info(`📱 No client for ${minutes} min — stopping ${avdName}`);
+    try { await stopAvd(serial); } catch (e) { logger.warn(`idle stop failed: ${e.message}`); }
+  }
+  stopIdleWatch();
+}
+
+/** Armed whenever this agent starts an AVD; stands down once none are left. */
+function startIdleWatch() {
+  if (idleTimer) return;
+  idleSince = null;
+  idleTimer = setInterval(() => { checkIdle(); }, IDLE_CHECK_MS);
+  // Never hold the process open just to watch for idleness.
+  idleTimer.unref?.();
+}
+
+// An agent restart leaves the previous run's emulators running (they are
+// detached). Pick the watch back up so they are still reclaimed, rather than
+// living on until someone notices the memory.
+if (readOwned().size > 0) startIdleWatch();
+
+async function bootOnce(bin, avdName, onProgress, opts, gpuArgs) {
   onProgress?.("launching");
   const args = opts.lowPower ? EMULATOR_ARGS_LOW_POWER : EMULATOR_ARGS;
-  const child = spawn(bin, ["-avd", avdName, ...args], {
+  const gpu = gpuHostUnsupported.has(bin) ? [] : gpuArgs;
+  // -qemu must come last: everything after it is passed to QEMU verbatim.
+  const memArgs = QEMU_MEMORY_ARGS(avdRamSizeMb(avdName));
+  const child = spawn(bin, ["-avd", avdName, ...args, ...gpu, ...memArgs], {
     detached: true,
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -204,26 +341,32 @@ export async function startAvd(avdName, onProgress, opts = {}) {
     }
   });
 
-  try {
-    const deadline = Date.now() + EMULATOR.bootTimeoutMs;
-    let sawSerial = null;
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, EMULATOR.bootPollMs));
-      if (exitError) throw new Error(exitError);
-      const serial = sawSerial || await bootedSerialFor(avdName);
-      if (serial) {
-        if (!sawSerial) { sawSerial = serial; onProgress?.("booting"); }
-        if (await isBootCompleted(serial)) {
-          onProgress?.("ready");
-          logger.info(`📱 AVD ${avdName} booted → ${serial}${opts.lowPower ? " (low power)" : ""}`);
-          return serial;
-        }
+  const deadline = Date.now() + EMULATOR.bootTimeoutMs;
+  const launchedAt = Date.now();
+  let sawSerial = null;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, EMULATOR.bootPollMs));
+    if (exitError) {
+      const failed = new Error(exitError);
+      // An unsupported flag makes the emulator quit almost immediately, before
+      // a device ever appears. Anything slower is a different problem.
+      failed.gpuRejected = gpuArgs.length > 0 && !sawSerial
+        && Date.now() - launchedAt < EMULATOR.flagRejectMs;
+      throw failed;
+    }
+    const serial = sawSerial || await bootedSerialFor(avdName);
+    if (serial) {
+      if (!sawSerial) { sawSerial = serial; onProgress?.("booting"); }
+      if (await isBootCompleted(serial)) {
+        onProgress?.("ready");
+        markOwned(avdName);
+        startIdleWatch();
+        logger.info(`📱 AVD ${avdName} booted → ${serial}${opts.lowPower ? " (low power)" : ""}`);
+        return serial;
       }
     }
-    throw new Error(`${avdName} did not finish booting in ${Math.round(EMULATOR.bootTimeoutMs / 1000)}s`);
-  } finally {
-    starting.delete(avdName);
   }
+  throw new Error(`${avdName} did not finish booting in ${Math.round(EMULATOR.bootTimeoutMs / 1000)}s`);
 }
 
 /** Graceful shutdown via the emulator console; SIGKILL only if it refuses. */
@@ -239,7 +382,7 @@ export async function stopAvd(serial) {
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 500));
     if (!(await listSerialsAsync()).some((d) => d.serial === serial)) {
-      if (avdName) running.delete(avdName);
+      if (avdName) { running.delete(avdName); unmarkOwned(avdName); }
       logger.info(`📱 AVD ${avdName || serial} stopped`);
       return true;
     }

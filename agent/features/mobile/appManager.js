@@ -156,6 +156,28 @@ export function openDeepLink(serial, url) {
   if (/Error:/i.test(out)) throw new Error(out.match(/Error:[^\n]+/)?.[0] || "Could not open link");
 }
 
+// KEYCODE_SLEEP / KEYCODE_WAKEUP. Not scrcpy's SET_DISPLAY_POWER: that one is
+// undone when the session closes (Controller.setRestoreDisplayPower), which is
+// exactly when we want the device to stay asleep.
+const KEYCODE_SLEEP = 223;
+const KEYCODE_WAKEUP = 224;
+
+/** Blank the screen. Fire-and-forget: a failure here must not fail a teardown. */
+export function sleepDevice(serial) {
+  const bin = findAdb();
+  if (!bin) return;
+  execFile(bin, ["-s", serial, "shell", "input", "keyevent", String(KEYCODE_SLEEP)], () => {});
+}
+
+/** Wake before streaming, so the first frame is not of a black screen. */
+export async function wakeDevice(serial) {
+  const bin = findAdb();
+  if (!bin) return;
+  try {
+    await execFileAsync(bin, ["-s", serial, "shell", "input", "keyevent", String(KEYCODE_WAKEUP)], { timeout: 5000 });
+  } catch { /* the stream still works on a device that refused to wake */ }
+}
+
 /** 0=portrait, 1=landscape, 2=portrait-flipped, 3=landscape-flipped. */
 export function setRotation(serial, rotation) {
   if (![0, 1, 2, 3].includes(rotation)) throw new Error("Invalid rotation");
