@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
-  Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type, FolderOpen,
-  GitBranch, ListChecks, Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap
+  Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type,
+  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -12,8 +12,9 @@ import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
-import { HEADER_BUTTONS } from "@/features/terminal/constants/terminalConfig";
-import { HEADER_BUTTON_ICONS } from "@/features/terminal/constants/headerButtonIcons";
+import { BUTTON_GROUPS } from "@/features/terminal/constants/terminalConfig";
+import { BUTTON_TOGGLE_ICONS } from "@/features/terminal/constants/headerButtonIcons";
+import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
 import LanguageModal from "@/shared/components/ui/LanguageModal";
 import { SETTINGS_CATEGORIES } from "@/features/terminal/constants/settingsCategories";
 import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
@@ -25,7 +26,7 @@ import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/
 import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight };
 
 
 /**
@@ -43,20 +44,13 @@ export default function SettingsDialog({
 
   const [languageOpen, setLanguageOpen] = useState(false);
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
-  const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
-  const toggleHeaderButton = useTerminalStore((s) => s.toggleHeaderButton);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
   const fontSize = useTerminalStore((s) => s.fontSize);
   const setFontSize = useTerminalStore((s) => s.setFontSize);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const setTerminalTheme = useTerminalStore((s) => s.setTerminalTheme);
-  const showFolderButton = useTerminalStore((s) => s.showFolderButton);
-  const setShowFolderButton = useTerminalStore((s) => s.setShowFolderButton);
-  const showGitButton = useTerminalStore((s) => s.showGitButton);
-  const setShowGitButton = useTerminalStore((s) => s.setShowGitButton);
-  const showNoteButton = useTerminalStore((s) => s.showNoteButton);
-  const setShowNoteButton = useTerminalStore((s) => s.setShowNoteButton);
+  const buttonToggles = useButtonToggles();
 
   const push = usePushToggle(context.subscribeToPush, context.unsubscribeFromPush);
   const artifact = useArtifactToggle(context.socketRef, context.connected);
@@ -254,18 +248,6 @@ export default function SettingsDialog({
                   </button>
                 </Group>
 
-                <Group title={t("menu.headerButtons")}>
-                  {HEADER_BUTTONS.map(({ id, labelKey }) => (
-                    <ToggleRow
-                      key={id}
-                      icon={HEADER_BUTTON_ICONS[id]}
-                      label={t(labelKey)}
-                      value={!hiddenHeaderButtons.includes(id)}
-                      onChange={() => toggleHeaderButton(id)}
-                    />
-                  ))}
-                </Group>
-
              </div>
             )}
 
@@ -297,12 +279,24 @@ export default function SettingsDialog({
                   </SelectRow>
                   <ToggleRow icon={Monitor} label={t("menu.webgl")} hint={t("menu.webglHint")} value={webglEnabled} onChange={setWebglEnabled} />
                 </Group>
+              </div>
+            )}
 
-                <Group title={t("menu.showButtons")}>
-                  <ToggleRow icon={FolderOpen} label={t("menu.showFolder")} value={showFolderButton} onChange={setShowFolderButton} />
-                  <ToggleRow icon={GitBranch} label={t("menu.showGit")} value={showGitButton} onChange={setShowGitButton} />
-                  <ToggleRow icon={ListChecks} label={t("menu.showNote")} value={showNoteButton} onChange={setShowNoteButton} />
-                </Group>
+            {section === "buttons" && (
+              <div className="space-y-6">
+                {BUTTON_GROUPS.map(({ group, titleKey }) => (
+                  <Group key={group} title={t(titleKey)}>
+                    {buttonToggles.buttons.filter((b) => b.group === group).map((btn) => (
+                      <ToggleRow
+                        key={btn.id}
+                        icon={BUTTON_TOGGLE_ICONS[btn.id]}
+                        label={t(btn.labelKey)}
+                        value={buttonToggles.isOn(btn)}
+                        onChange={() => buttonToggles.toggle(btn)}
+                      />
+                    ))}
+                  </Group>
+                ))}
               </div>
             )}
 

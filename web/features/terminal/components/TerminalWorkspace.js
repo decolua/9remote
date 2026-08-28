@@ -251,6 +251,8 @@ function TerminalWorkspace({
       mountDelay={mountDelayFor(sessionId, isFocused, workspaceIndex)}
       bgIndex={bgIndex}
       onOpenArtifact={onOpenArtifact}
+      onOpenRemote={onOpenRemote}
+      onOpenMobile={onOpenMobile}
     />
     );
   };

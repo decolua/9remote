@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Copy, X, Check, Trash2, Plus, GripVertical, Pin, PinOff, Maximize2 } from "@/shared/components/ui/Icon";
+import { Copy, X, Check, Trash2, Plus, GripVertical, Pin, PinOff } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -34,7 +34,7 @@ const writeClipboard = (text) => {
   try { navigator.clipboard?.writeText(text).catch(() => {}); } catch {}
 };
 
-export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, variant = "modal", pinned = false, onPin, onExpand }) {
+export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, variant = "modal", pinned = false, onPin, rightSlot = null }) {
   const { t } = useI18n();
   const noteChips = useTerminalStore((s) => s.noteChips);
   const addNoteChip = useTerminalStore((s) => s.addNoteChip);
@@ -336,7 +336,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
     return (
       <div
         style={{ height: STATUS_BAR_HEIGHT }}
-        className="flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface border-b border-border-subtle text-[11px] text-text-muted select-none"
+        className="flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface border-b border-border-subtle text-[11px] text-text-muted select-none relative z-10"
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
       >
@@ -353,18 +353,9 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
           <span className="flex-1 min-w-0 truncate">{t("note.allDone")}</span>
         )}
         <span className="flex-shrink-0 text-text-subtle">{doneCount}/{items.length}</span>
-        <button
-          onClick={() => { vibrate(); onExpand?.(); }}
-          className="p-0.5 text-text-muted hover:text-text rounded-[2px] hover:bg-white/10 transition-colors flex-shrink-0"
-          title={t("note.expand")}>
-          <Maximize2 size={12} />
-        </button>
-        <button
-          onClick={() => { vibrate(); onClose(); }}
-          className="p-0.5 text-text-muted hover:text-text rounded-[2px] hover:bg-white/10 transition-colors flex-shrink-0"
-          title={t("note.unpin")}>
-          <X size={12} />
-        </button>
+        {/* Expand and unpin used to sit here; the pane's own strip cluster carries
+            them now, so the strip is not two rows of icons deep. */}
+        {rightSlot}
       </div>
     );
   }

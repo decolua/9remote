@@ -8,6 +8,7 @@ import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { ChevronDown, Folder, RefreshCw, ListChecks, Sparkles } from "@/shared/components/ui/Icon";
 import NotePanel from "@/features/terminal/components/NotePanel";
+import PaneStripButtons from "@/features/terminal/components/PaneStripButtons";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
@@ -37,6 +38,8 @@ function TerminalPane({
   fileSocket,
   bgIndex = 0,
   onOpenArtifact,
+  onOpenRemote,
+  onOpenMobile,
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
@@ -59,7 +62,6 @@ function TerminalPane({
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
   const paneBgKey = paneBackgroundKey(resolvableBackgroundKeys(terminalBackgrounds, customBackgrounds), bgIndex);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
-  const showGitButton = useTerminalStore((s) => s.showGitButton);
   const showNoteButton = useTerminalStore((s) => s.showNoteButton);
   // What the AI has shown from this terminal, newest first. Only this pane's stack —
   // another terminal's artifacts are its own to reopen.
@@ -151,6 +153,8 @@ function TerminalPane({
   // xterm canvas above stays fully transparent so padding can't create a bright frame
   const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
   const bgActive = !!bgSrc && theme === "dark" && typeof window !== "undefined" && window.innerWidth < DESKTOP_BREAKPOINT;
+
+  const stripButtons = <PaneStripButtons onOpenRemote={onOpenRemote} onOpenMobile={onOpenMobile} />;
 
   const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
     // Effective key — the canvas goes transparent only when the image actually renders,
@@ -260,10 +264,11 @@ function TerminalPane({
       {showTitleStrip && (
         <div
           style={{ height: STATUS_BAR_HEIGHT }}
-          className="sm:hidden flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface border-b border-border-subtle text-[11px] select-none"
+          className="sm:hidden flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface border-b border-border-subtle text-[11px] select-none relative z-10"
         >
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClassName(sessionState)}`} style={{ background: statusVisual(sessionState).dot }} />
           <span className="flex-1 min-w-0 truncate text-text">{sessionName || t("terminal.defaultName")}</span>
+          {stripButtons}
         </div>
       )}
 
@@ -273,8 +278,7 @@ function TerminalPane({
           socket={socket}
           sessionId={sessionId}
           variant="pinned"
-          onExpand={() => setNoteModalOpen(true)}
-          onClose={() => setNotePinned(sessionId, false)}
+          rightSlot={stripButtons}
         />
       )}
 
@@ -382,7 +386,7 @@ function TerminalPane({
               title={t("terminalPane.openFolderHere")}
             >
               <Folder size={16} />
-              {showGitButton && shownCount > 0 && (
+              {shownCount > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
                   {badgeLabel}
                 </span>

@@ -98,8 +98,7 @@ export default function EditorKeyBar({ viewRef }) {
       </div>
 
       <div
-        className="bg-surface border-t border-border px-2 py-2 flex flex-col gap-1 flex-shrink-0"
-        style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+        className="bg-surface border-t border-border px-2 pt-2 pb-safe flex flex-col gap-1 flex-shrink-0"
       >
         <div className="flex gap-1">
           {NAV_KEYS.map((item) => (

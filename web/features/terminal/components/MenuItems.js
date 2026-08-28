@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { FolderOpen, Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, GitBranch, ListChecks, Wallpaper, Keyboard, PanelRight, Zap } from "@/shared/components/ui/Icon";
+import { Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
-import { HEADER_BUTTONS } from "@/features/terminal/constants/terminalConfig";
-import { HEADER_BUTTON_ICONS } from "@/features/terminal/constants/headerButtonIcons";
+import { BUTTON_GROUPS } from "@/features/terminal/constants/terminalConfig";
+import { BUTTON_TOGGLE_ICONS } from "@/features/terminal/constants/headerButtonIcons";
+import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
 
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
@@ -56,8 +57,7 @@ export default function MenuItems({
   const openShortcuts = useShortcutsModalStore((s) => s.open);
   const closeMenu = useSlideMenuStore((s) => s.close);
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
-  const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
-  const toggleHeaderButton = useTerminalStore((s) => s.toggleHeaderButton);
+  const buttonToggles = useButtonToggles();
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
   const fontSize = useTerminalStore((s) => s.fontSize);
@@ -65,12 +65,6 @@ export default function MenuItems({
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const setTerminalTheme = useTerminalStore((s) => s.setTerminalTheme);
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
-  const showFolderButton = useTerminalStore((s) => s.showFolderButton);
-  const setShowFolderButton = useTerminalStore((s) => s.setShowFolderButton);
-  const showGitButton = useTerminalStore((s) => s.showGitButton);
-  const setShowGitButton = useTerminalStore((s) => s.setShowGitButton);
-  const showNoteButton = useTerminalStore((s) => s.showNoteButton);
-  const setShowNoteButton = useTerminalStore((s) => s.setShowNoteButton);
   const { theme: appMode } = useTheme();
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -225,28 +219,33 @@ export default function MenuItems({
             className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
           >
             <PanelRight className="text-brand-500" size={16} />
-            <span className="text-sm flex-1">{t("menu.headerButtons")}</span>
+            <span className="text-sm flex-1">{t("menu.settingsButtons")}</span>
             <ChevronDown className={`text-text-muted transition-transform duration-200 ${headerMenuOpen ? "rotate-180" : ""}`} size={16} />
           </button>
           {headerMenuOpen && (
             <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
-              {HEADER_BUTTONS.map(({ id, labelKey }) => {
-                const RowIcon = HEADER_BUTTON_ICONS[id];
-                const on = !hiddenHeaderButtons.includes(id);
-                return (
-                  <button
-                    key={id}
-                    onClick={() => { vibrate(); toggleHeaderButton(id); }}
-                    className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
-                  >
-                    <RowIcon className="text-text" size={16} />
-                    <span className="text-sm flex-1">{t(labelKey)}</span>
-                    <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${on ? "bg-brand-500" : "bg-surface-2"}`}>
-                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
-                    </span>
-                  </button>
-                );
-              })}
+              {BUTTON_GROUPS.map(({ group, titleKey }) => (
+                <div key={group} className="space-y-1.5">
+                  <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">{t(titleKey)}</p>
+                  {buttonToggles.buttons.filter((b) => b.group === group).map((btn) => {
+                    const RowIcon = BUTTON_TOGGLE_ICONS[btn.id];
+                    const on = buttonToggles.isOn(btn);
+                    return (
+                      <button
+                        key={btn.id}
+                        onClick={() => { vibrate(); buttonToggles.toggle(btn); }}
+                        className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+                      >
+                        <RowIcon className="text-text" size={16} />
+                        <span className="text-sm flex-1">{t(btn.labelKey)}</span>
+                        <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${on ? "bg-brand-500" : "bg-surface-2"}`}>
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -306,38 +305,6 @@ export default function MenuItems({
                       <option key={opt.key} value={opt.key}>{opt.label}</option>
                     ))}
                 </select>
-              </div>
-
-              {/* Quick-action button visibility (folder / git / note) */}
-              <div className="flex items-center gap-2.5 pt-1.5">
-                <FolderOpen className="text-text" size={16} />
-                <span className="text-sm">{t("menu.showFolder")}</span>
-                <button
-                  onClick={() => { vibrate(); setShowFolderButton(!showFolderButton); }}
-                  className={`ml-auto relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${showFolderButton ? "bg-brand-500" : "bg-surface-2"}`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showFolderButton ? "translate-x-4" : "translate-x-0.5"}`} />
-                </button>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <GitBranch className="text-text" size={16} />
-                <span className="text-sm">{t("menu.showGit")}</span>
-                <button
-                  onClick={() => { vibrate(); setShowGitButton(!showGitButton); }}
-                  className={`ml-auto relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${showGitButton ? "bg-brand-500" : "bg-surface-2"}`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showGitButton ? "translate-x-4" : "translate-x-0.5"}`} />
-                </button>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <ListChecks className="text-text" size={16} />
-                <span className="text-sm">{t("menu.showNote")}</span>
-                <button
-                  onClick={() => { vibrate(); setShowNoteButton(!showNoteButton); }}
-                  className={`ml-auto relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${showNoteButton ? "bg-brand-500" : "bg-surface-2"}`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${showNoteButton ? "translate-x-4" : "translate-x-0.5"}`} />
-                </button>
               </div>
             </div>
           )}

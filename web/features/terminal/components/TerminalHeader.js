@@ -6,6 +6,7 @@ import NotificationsBell from "./NotificationsBell";
 import SitesList from "./SitesList";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
@@ -70,7 +71,6 @@ function TerminalHeader({
   const activeTabRef = useRef(null);
   // Tab right-click context menu (rename/delete)
   const [tabMenu, setTabMenu] = useState({ sessionId: null, x: 0, y: 0 });
-  const [sitesOpen, setSitesOpen] = useState(false);
   const tabMenuRef = useRef(null);
   const tabMenuPos = useClampedMenu(tabMenuRef, tabMenu.x, tabMenu.y);
   const [tabDeleteConfirm, setTabDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
@@ -121,6 +121,9 @@ function TerminalHeader({
   // Actions only (stable identities): this component WRITES context/callbacks, so
   // subscribing to the whole store would re-render it on its own every write.
   const openMenu = useSlideMenuStore((s) => s.open);
+  const sitesOpen = useSitesModalStore((s) => s.isOpen);
+  const openSites = useSitesModalStore((s) => s.open);
+  const closeSites = useSitesModalStore((s) => s.close);
   // Hidden by id rather than listed by id, so a button added later shows up
   // instead of being invisible until the user finds the setting.
   const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
@@ -340,7 +343,7 @@ function TerminalHeader({
       {showButton("remote") && onOpenRemote && (
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
-          className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
+          className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
           title={t("menu.remoteDesktop")}
         >
           <Monitor size={16} />
@@ -349,7 +352,7 @@ function TerminalHeader({
       {showButton("mobile") && onOpenMobile && (
         <button
           onClick={() => { vibrate(); onOpenMobile(); }}
-          className={`p-1.5 hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] ${
+          className={`hidden sm:block p-1.5 hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] ${
             mobileDeviceCount > 0 ? "text-green-400" : "text-text hover:text-text"
           }`}
           title={mobileDeviceCount > 0
@@ -362,7 +365,7 @@ function TerminalHeader({
 
       {showButton("sites") && (
       <button
-        onClick={() => { vibrate(); setSitesOpen(true); }}
+        onClick={() => { vibrate(); openSites(); }}
         disabled={!connected}
         className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed"
         title={t("menu.sites")}
@@ -501,7 +504,7 @@ function TerminalHeader({
         </div>
       )}
 
-      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} socketRef={socketRef} isOpen={sitesOpen} onClose={() => setSitesOpen(false)} />
+      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} socketRef={socketRef} isOpen={sitesOpen} onClose={closeSites} />
     </div>
   );
 }

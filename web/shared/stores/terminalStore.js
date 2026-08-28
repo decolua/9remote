@@ -198,10 +198,8 @@ export const useTerminalStore = create(
 
       // Per-pane quick-action button visibility (folder / git / note). Default all on.
       showFolderButton: true,
-      showGitButton: true,
       showNoteButton: true,
       setShowFolderButton: (v) => set({ showFolderButton: !!v }),
-      setShowGitButton: (v) => set({ showGitButton: !!v }),
       setShowNoteButton: (v) => set({ showNoteButton: !!v }),
 
       // User-added note suggestion chips on top of NOTE_SUGGESTIONS. Persisted.
@@ -292,6 +290,10 @@ export const useTerminalStore = create(
       // it is running. Not persisted — it describes the host right now.
       mobileDeviceCount: 0,
       setMobileDeviceCount: (n) => set({ mobileDeviceCount: Number(n) || 0 }),
+      // Whether the host has Android tooling at all — a machine with no adb can
+      // never mirror anything, so the button is hidden rather than offered.
+      mobileAvailable: false,
+      setMobileAvailable: (v) => set({ mobileAvailable: !!v }),
 
       // Android mirror on desktop. "float" keeps the terminal full width; "pin"
       // docks it as a right-hand column. Not tied to a workspace: the device
@@ -482,7 +484,6 @@ export const useTerminalStore = create(
         terminalBackgrounds: state.terminalBackgrounds,
         terminalBackgroundOpacity: state.terminalBackgroundOpacity,
         showFolderButton: state.showFolderButton,
-        showGitButton: state.showGitButton,
         showNoteButton: state.showNoteButton,
         noteChips: state.noteChips,
         pinnedNotes: state.pinnedNotes,

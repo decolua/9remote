@@ -48,14 +48,23 @@ export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: Infinity };
 // Inline editor opened from the file tree.
 export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: Infinity };
 
-// Header buttons the user can hide. Update and Settings are deliberately not
-// here: one is a warning that must not be silenced, the other is the way back
-// into this screen. Order matches the header itself.
-export const HEADER_BUTTONS = [
-  { id: "remote", labelKey: "menu.remoteDesktop" },
-  { id: "mobile", labelKey: "mobile.androidDevice" },
-  { id: "sites", labelKey: "menu.sites" },
-  { id: "notifications", labelKey: "menu.notificationsButton" }
+// Every button the user can hide, in one list so a single settings screen covers
+// both places they live. "header" ids share the hiddenHeaderButtons list; "pane"
+// ids each own a store flag. Update and Settings are deliberately absent: one is
+// a warning that must not be silenced, the other is the way back into this screen.
+export const TOGGLEABLE_BUTTONS = [
+  { id: "remote", labelKey: "menu.remoteDesktop", group: "header" },
+  { id: "mobile", labelKey: "mobile.androidDevice", group: "header" },
+  { id: "sites", labelKey: "menu.sites", group: "header" },
+  { id: "notifications", labelKey: "menu.notificationsButton", group: "header" },
+  { id: "folder", labelKey: "menu.showFolder", group: "pane", storeKey: "showFolderButton", setterKey: "setShowFolderButton" },
+  { id: "note", labelKey: "menu.showNote", group: "pane", storeKey: "showNoteButton", setterKey: "setShowNoteButton" }
+];
+
+// Group heading for each half of the list, in render order.
+export const BUTTON_GROUPS = [
+  { group: "header", titleKey: "menu.headerButtons" },
+  { group: "pane", titleKey: "menu.showButtons" }
 ];
 
 // Android mirror docked right. Narrower than the editor: a phone screen is tall
@@ -108,6 +117,11 @@ export const INPUT_CONTROL_KEYS = {
   z: { ctrl: true, data: "\x1a" },
   l: { ctrl: true, data: "\x0c" }
 };
+
+// Coalesce terminalStore → localStorage writes. zustand's persist serializes the whole
+// partialized state on EVERY set(), so a drag or a keystroke would stringify + write
+// synchronously per event and block the main thread.
+export const PERSIST_DEBOUNCE_MS = 250;
 
 // Per-terminal folder/changed-files toolbar
 export const WATCH_DEBOUNCE_MS = 400; // Debounce gitStatus refresh on file changes
