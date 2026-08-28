@@ -71,6 +71,10 @@ enabled = true
 [assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
+# The sites host serves these two from the Worker, not from Assets: Assets would
+# 307 /proxy.html to /proxy (extension stripped), and the SW only accepts a
+# bridge whose path is /proxy.html. The security headers ride on that branch too.
+run_worker_first = ["/proxy.html", "/sw-site.js"]
 
 [env.dev]
 name = "9remote-worker-dev"
@@ -118,3 +122,7 @@ crons = ["0 * * * *"]
 [env.dev.assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
+# The sites host serves these two from the Worker, not from Assets: Assets would
+# 307 /proxy.html to /proxy (extension stripped), and the SW only accepts a
+# bridge whose path is /proxy.html. The security headers ride on that branch too.
+run_worker_first = ["/proxy.html", "/sw-site.js"]

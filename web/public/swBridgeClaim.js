@@ -26,3 +26,18 @@ function canBeBridge(clientUrl, expectedOrigin) {
   // query or fragment cannot smuggle the shell's name into it.
   return url.pathname === "/proxy.html";
 }
+
+// The one app origin that may sit above a browsed site. frame-ancestors is
+// checked against EVERY ancestor, not just the parent, so a site framed by the
+// shell is also framed by the app — naming only the shell blocks the load.
+const APP_ORIGIN_BY_SITES_HOST = {
+  "sites.9remote.cc": "https://9remote.cc",
+  "sites-dev.9remote.cc": "https://dev.9remote.cc",
+  "sites.localhost": "http://localhost:3000"
+};
+
+// "" for an unknown host: the policy then names the shell alone, which is the
+// safe direction — a load fails rather than an unknown origin being allowed.
+function appOriginFor(hostname) {
+  return APP_ORIGIN_BY_SITES_HOST[String(hostname || "").toLowerCase()] || "";
+}

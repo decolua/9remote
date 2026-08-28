@@ -17,11 +17,13 @@ const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
 
 // 'self' is this origin, which the worker serves entirely from the agent — so a
 // site keeps working while losing the ability to post what it finds elsewhere.
-// frame-ancestors names the shell, the only page meant to hold these documents.
+// frame-ancestors names the shell AND the app above it: the directive is checked
+// against every ancestor, so omitting the app cancels the load (CSP3 §frame-
+// ancestors) — and a cancelled one renders as an empty 200, with nothing logged.
 const SITE_CSP = [
   "connect-src 'self'",
   "form-action 'self'",
-  "frame-ancestors 'self'",
+  `frame-ancestors 'self' ${appOriginFor(self.location.hostname)}`.trim(),
   "base-uri 'self'"
 ].join("; ");
 
@@ -294,6 +296,7 @@ self.addEventListener("fetch", (event) => {
 
   if (url.origin !== self.location.origin) return; // CDN/external — direct network
   if (url.pathname === "/sw-site.js") return;      // own script
+  if (url.pathname.startsWith("/cdn-cgi/")) return; // Cloudflare's own endpoints
 
   const inScope = url.pathname.match(BROWSE_RE);
   if (inScope) {

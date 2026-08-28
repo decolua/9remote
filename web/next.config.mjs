@@ -74,8 +74,9 @@ const nextConfig = {
         // Codespaces forwards the agent over its own domain.
         "https://*.app.github.dev wss://*.app.github.dev"
       ].join(" "),
-      // PDFs and HTML previews render from blob: URLs.
-      "frame-src 'self' blob:",
+      // PDFs and HTML previews render from blob: URLs; the sites host holds the
+      // browsed local servers, framed by the site browser.
+      "frame-src 'self' blob: https://*.9remote.cc http://sites.localhost:3000",
       "worker-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",
