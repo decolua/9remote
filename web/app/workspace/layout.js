@@ -27,6 +27,7 @@ import { useAgentUpdate } from "@/features/session/hooks/useAgentUpdate";
 import { useGlobalShortcuts } from "@/shared/hooks/useGlobalShortcuts";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
+import { useMobileDeviceWatch } from "@/features/mobile/hooks/useMobileDeviceWatch";
 import { loadTerminalPrefs } from "@/features/terminal/constants/agentCli";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import TerminalWorkspace from "@/features/terminal/components/TerminalWorkspace";
@@ -35,6 +36,7 @@ import AnimatedBackground from "@/features/landing/components/AnimatedBackground
 
 const SessionList = dynamic(() => import("@/features/session/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
+const MobileMirror = dynamic(() => import("@/features/mobile/components/MobileMirror"), { ssr: false });
 const BrowserView = dynamic(() => import("@/features/browser/components/BrowserView"), { ssr: false });
 const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/WorkspaceList"), { ssr: false });
 const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/FileExplorer"), { ssr: false });
@@ -93,6 +95,13 @@ export default function WorkspaceLayout({ children }) {
     openEditorFile,
     closeEditorFile,
     editorPreviewSeq,
+    mobileOpen,
+    mobileMode,
+    mobilePanelWidth,
+    setMobileOpen,
+    setMobileMode,
+    setMobilePanelWidth,
+    setMobileSession,
     artifactTitle,
     pushArtifact,
     removeArtifact
@@ -130,6 +139,13 @@ export default function WorkspaceLayout({ children }) {
     openEditorFile: s.openEditorFile,
     closeEditorFile: s.closeEditorFile,
     editorPreviewSeq: s.editorPreviewSeq,
+    mobileOpen: s.mobileOpen,
+    mobileMode: s.mobileMode,
+    mobilePanelWidth: s.mobilePanelWidth,
+    setMobileOpen: s.setMobileOpen,
+    setMobileMode: s.setMobileMode,
+    setMobilePanelWidth: s.setMobilePanelWidth,
+    setMobileSession: s.setMobileSession,
     artifactTitle: s.artifactTitle,
     pushArtifact: s.pushArtifact,
     removeArtifact: s.removeArtifact,
@@ -141,7 +157,7 @@ export default function WorkspaceLayout({ children }) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, loadWorkspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useSocket();
+  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useSocket();
   const [shells, setShells] = useState([]);
 
   const { updating, updateMode, resumeGrace, doUpdate, doRestart } = useAgentUpdate({
@@ -182,6 +198,9 @@ export default function WorkspaceLayout({ children }) {
   }, [connected, platform]);
 
   const fileSocket = useFileSocket(socketRef, protocolRef);
+  // Session-long, so the header button reflects a running device even with the
+  // mirror panel closed.
+  useMobileDeviceWatch({ socketRef, connected, enabled: mobileAvailable });
   useClipboardSocket(socketRef, connected);
   const { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification } = useNotification(socketRef, connected);
 
@@ -408,11 +427,8 @@ export default function WorkspaceLayout({ children }) {
   // Load sessions + workspaces when the socket connects.
   // Lost-packet retry lives in useSocket (loadedRef-gated, every view).
   useEffect(() => {
-    if (socket) {
-      loadSessions();
-      loadWorkspaces();
-    }
-  }, [socket, loadSessions, loadWorkspaces]);
+    if (socket) loadSessions();
+  }, [socket, loadSessions]);
 
   // Drop openedSessions that no longer exist. Delayed to avoid racing newly-created sessions
   // (server create → loadSessions is async).
@@ -430,6 +446,38 @@ export default function WorkspaceLayout({ children }) {
   const handleOpenRemote = useCallback(() => {
     pushView({ type: "remote" });
   }, [pushView]);
+
+  // Desktop keeps the mirror beside the terminal (float / pinned / PiP); a phone
+  // has no room to split, so it stays a full-screen view there.
+  const handleOpenMobile = useCallback(() => {
+    if (!isDesktop) { pushView({ type: "mobile" }); return; }
+    if (!mobileOpen) { setMobileOpen(true); return; }
+    // Closing must end the agent session, not just hide the panel: the encoder
+    // would keep producing frames nobody acknowledges, and the next open would
+    // rejoin a stream already crawling behind a backlog of ack timeouts.
+    socketRef.current?.emit("mobile:stop");
+    setMobileSession(null);
+    setMobileOpen(false);
+  }, [isDesktop, mobileOpen, setMobileOpen, setMobileSession, socketRef, pushView]);
+
+  // Drag the pinned mirror's left edge. Mirrors the editor panel's handle: the
+  // panel grows as the pointer moves left, so the delta is inverted.
+  const handleMobileResizeStart = useCallback((e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = mobilePanelWidth;
+    const onMove = (ev) => setMobilePanelWidth(startW - (ev.clientX - startX));
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  }, [mobilePanelWidth, setMobilePanelWidth]);
 
   const handleRetryNow = useCallback(() => {
     protocolRef.current?.retryNow();
@@ -470,6 +518,7 @@ export default function WorkspaceLayout({ children }) {
   }
 
   const remoteEntry = connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null;
+  const mobileEntry = connected && mobileAvailable ? handleOpenMobile : null;
 
   return (
     <>
@@ -496,6 +545,7 @@ export default function WorkspaceLayout({ children }) {
             onResumeAgentSession={nav.handleResumeAgentSession}
             onLogout={handleLogoutWithConfirm}
             onOpenRemote={remoteEntry}
+            onOpenMobile={mobileEntry}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}
             connectionMode={connectionMode}
@@ -568,6 +618,7 @@ export default function WorkspaceLayout({ children }) {
             onBack={popView}
             atStackBottom={isDesktop && currentView.type === "list"}
             onOpenRemote={remoteEntry}
+            onOpenMobile={mobileEntry}
             onOpenFiles={handleOpenFiles}
             onLogout={handleLogoutWithConfirm}
             onStopCodespace={stopCodespace}
@@ -601,6 +652,13 @@ export default function WorkspaceLayout({ children }) {
               // Side panel → full editor route at the file's own workspace root
               onOpenFull: openEditorFull
             }}
+            mobilePanel={{
+              open: mobileOpen,
+              mode: mobileMode,
+              width: mobilePanelWidth,
+              protocolRef,
+              onResizeStart: handleMobileResizeStart
+            }}
             codespaceInfo={codespaceInfo}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}
@@ -626,6 +684,13 @@ export default function WorkspaceLayout({ children }) {
         {currentView.type === "remote" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <RemoteDesktop onClose={popView} socketRef={socketRef} protocolRef={protocolRef} connected={connected} connectionMode={connectionMode} transport={transport} hostPlatform={platform} />
+          </div>
+        )}
+
+        {/* Android device mirroring (scrcpy over the transport bus) */}
+        {currentView.type === "mobile" && (
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
+            <MobileMirror onClose={popView} socketRef={socketRef} protocolRef={protocolRef} connected={connected} />
           </div>
         )}
 

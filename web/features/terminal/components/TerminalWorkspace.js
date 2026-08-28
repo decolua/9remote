@@ -12,6 +12,7 @@ const TerminalHeader = dynamic(() => import("@/features/terminal/components/Term
 const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
 const TerminalSidebar = dynamic(() => import("@/features/terminal/components/TerminalSidebar"), { ssr: false });
 const TerminalStatusBar = dynamic(() => import("@/features/terminal/components/TerminalStatusBar"), { ssr: false });
+const MobileDock = dynamic(() => import("@/features/mobile/components/MobileDock"), { ssr: false });
 const MobileStatusStrip = dynamic(() => import("@/features/terminal/components/TerminalStatusBar").then((m) => m.MobileStatusStrip), { ssr: false });
 const TerminalRightPanel = dynamic(() => import("@/features/terminal/components/TerminalRightPanel"), { ssr: false });
 const TerminalEditorPanel = dynamic(() => import("@/features/terminal/components/TerminalEditorPanel"), { ssr: false });
@@ -36,10 +37,10 @@ export default function TerminalWorkspace({
   sidebarCollapsed, sidebarWidth, setSidebarWidth, toggleSidebar,
   paneWidth = null, setPaneWidth,
   paneRegistry, bindSwipeTab, nav,
-  onBack, onOpenRemote, onOpenFiles, onLogout, onStopCodespace, onUpdate, onRestart,
+  onBack, onOpenRemote, onOpenMobile, onOpenFiles, onLogout, onStopCodespace, onUpdate, onRestart,
   onDeleteWorkspace, onReorderSession, onSetHiddenRepos, atStackBottom = false,
   onAddWorkspace, onOpenSettings, homeDir, recentWorkspaces,
-  rightPanel, editorPanel, onOpenArtifact,
+  rightPanel, editorPanel, mobilePanel, onOpenArtifact,
   codespaceInfo, tunnelUrl, apiKey, connectionMode,
   subscribeToPush, unsubscribeFromPush, updateAvailable, canSelfUpdate
 }) {
@@ -48,6 +49,10 @@ export default function TerminalWorkspace({
     panesContainerRef, registerPaneApi, registerPaneElement, registerKeyboardTextApi,
     handlePasteFallback, handleInputFocusChange, focusPane, focusKeyboardInput, scrollPaneIntoView
   } = paneRegistry;
+
+  // The pinned mirror renders into this column via a portal, so the node is
+  // published to MobileDock rather than looked up by id.
+  const [mobilePinSlot, setMobilePinSlot] = useState(null);
 
   const { workspaceSessionIds, workspaceOpenedSessions, renderedSessions, mountedSet, workspaceIndex } =
     derivePaneLayout({ sessions, openedSessions, livePanes, mountedWorkspaces, activeWorkspaceId, isDesktop });
@@ -308,7 +313,7 @@ export default function TerminalWorkspace({
           </div>
         )}
 
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {/* With no session there is nothing to tab between, so the strip goes away on
               desktop. Mobile keeps it: the header is the only way to reach Settings there,
               since the sidebar (which holds it on desktop) does not exist. */}
@@ -333,6 +338,7 @@ export default function TerminalWorkspace({
             onSelectWorkspace={nav.handleSelectWorkspace}
             hasUngrouped={sessions.some(s => !sessionWorkspaceId(s))}
             onOpenRemote={onOpenRemote}
+            onOpenMobile={onOpenMobile}
             onOpenFiles={onOpenFiles}
             onLogout={onLogout}
             onStopCodespace={onStopCodespace}
@@ -485,6 +491,31 @@ export default function TerminalWorkspace({
               isDesktop={isDesktop}
             />
           </div>
+        )}
+
+        {/* Android mirror pinned right. Desktop only: on a phone the mirror takes
+            the whole screen instead of splitting one. Floating and PiP modes are
+            portalled out of this row by MobileDock itself. */}
+        {/* Column the pinned mirror portals into. It is only the slot: MobileDock
+            is mounted once, below, and moves its content between slots — two
+            sibling branches would unmount it on every mode switch and tear the
+            decoder down with it. */}
+        {isDesktop && mobilePanel?.open && mobilePanel.mode === "pin" && (
+          <div
+            ref={setMobilePinSlot}
+            className="relative overflow-hidden flex-shrink-0 border-l border-border"
+            style={{ width: mobilePanel.width }}
+          >
+            <div
+              onPointerDown={mobilePanel.onResizeStart}
+              className="absolute top-0 left-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-500/40 transition-colors z-20"
+            />
+          </div>
+        )}
+
+        {/* Single mount for every mode — see the pin slot above. */}
+        {isDesktop && mobilePanel?.open && (
+          <MobileDock socketRef={socketRef} protocolRef={mobilePanel.protocolRef} connected={connected} pinSlot={mobilePinSlot} />
         )}
 
         {/* Right panel: files / git / worktrees. Slides in over the panes on mobile, with a

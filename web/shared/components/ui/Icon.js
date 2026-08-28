@@ -127,4 +127,9 @@ export const {
   Replace,
   Command,
   Type,
+  Triangle,
+  Circle,
+  Power,
+  Volume2,
+  VolumeX,
 } = LucideIcons;

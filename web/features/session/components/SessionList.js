@@ -7,7 +7,7 @@ import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import {
-  Folder, Monitor, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap, ArrowRight
+  Folder, Monitor, Smartphone, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap, ArrowRight
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -23,7 +23,7 @@ const UNGROUPED_KEY = "ungrouped";
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
 // operations, so this screen would only be a larger, weaker copy of it.
 export default function SessionList({
-  sessions, cwdBySession = {}, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote,
+  sessions, cwdBySession = {}, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenMobile,
   tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected,
   onStopCodespace, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush,
   onResumeAgentSession = null,
@@ -155,6 +155,9 @@ export default function SessionList({
         <div className="flex items-center gap-1 flex-shrink-0">
           {onOpenRemote && (
             <HeaderButton icon={Monitor} label={t("menu.remoteDesktop")} onClick={onOpenRemote} disabled={!connected} />
+          )}
+          {onOpenMobile && (
+            <HeaderButton icon={Smartphone} label={t("mobile.androidDevice")} onClick={onOpenMobile} disabled={!connected} />
           )}
           <HeaderButton icon={Globe} label={t("menu.sites")} onClick={() => setSitesOpen(true)} disabled={!connected} />
           <HeaderButton icon={Settings} label={t("menu.title")} onClick={openMenu} />

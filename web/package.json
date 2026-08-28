@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "predev": "pkill -f 'workerd.*9remote' 2>/dev/null; true",
-    "dev": "next dev -H 0.0.0.0",
+    "dev": "next dev -H ::",
     "build": "NODE_ENV=production next build --webpack && node ../scripts/obfuscateNextBuild.js",
     "build:cf": "npm run build && NODE_ENV=production opennextjs-cloudflare build && node scripts/injectSignalingDO.mjs && node scripts/injectSitesHost.mjs && node scripts/injectScheduled.mjs",
     "deploy": "npm run build:cf && opennextjs-cloudflare deploy",

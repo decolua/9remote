@@ -10,6 +10,7 @@ export const VIEW_TO_PATH = {
   editor: (v) => withQuery(`${WORKSPACE_BASE}/editor`, { path: v.path, line: v.line, col: v.column }),
   git: (v) => withQuery(`${WORKSPACE_BASE}/git`, { ws: v.workspace }),
   remote: () => `${WORKSPACE_BASE}/remote`,
+  mobile: () => `${WORKSPACE_BASE}/mobile`,
   workspaces: () => `${WORKSPACE_BASE}/workspaces`,
   browse: (v) => withQuery(`${WORKSPACE_BASE}/browse`, { path: v.path })
 };
@@ -27,6 +28,7 @@ export const SEGMENT_TO_TYPE = {
   editor: "editor",
   git: "git",
   remote: "remote",
+  mobile: "mobile",
   workspaces: "workspaces",
   browse: "browse"
 };
