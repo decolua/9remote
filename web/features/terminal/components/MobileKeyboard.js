@@ -21,7 +21,6 @@ import CommandSuggestions, { pickCommandItems } from "@/shared/components/ui/Com
 import { useTerminalHistoryStore } from "@/shared/stores/historyStore";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
-import { useDeviceInfo } from "@/shared/hooks/useDeviceInfo";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
@@ -162,7 +161,6 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     return () => clearTimeout(timer);
   }, [sessionId]);
 
-  const { isIosPwa } = useDeviceInfo();
 
   const [ctrlPressed, setCtrlPressed] = useState(false);
   const [metaPressed, setMetaPressed] = useState(false);
@@ -434,7 +432,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
       {/* Text Input Panel */}
       <div
-        className={`transition-all duration-300 overflow-visible ${hasPhysicalKeyboard ? "" : (attachments.length ? "max-h-40" : "max-h-24")} opacity-100`}
+        className="transition-all duration-300 overflow-visible opacity-100 flex-shrink-0"
       >
         <div className={`${stripVisible ? "pt-0.5" : "pt-2"} px-2 pb-2 flex gap-2 items-end`}>
           <div className="relative flex-1 bg-surface-2 rounded-xl transition-all duration-150 ease-out input-focus-glow border border-border-subtle">
@@ -587,7 +585,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
               }}
               placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend") : t("mobileKeyboard.typeCommand")}
               rows={1}
-              className="block w-full pl-9 pr-16 py-2 bg-transparent text-text text-sm placeholder-text-muted focus:outline-none resize-none overflow-y-auto touch-none"
+              className="block w-full pl-9 pr-16 py-2 bg-transparent text-text text-sm placeholder-text-muted placeholder:text-[11px] placeholder:leading-[20px] focus:outline-none resize-none overflow-y-auto touch-none"
             />
             {textInput ? (
               <button
@@ -645,7 +643,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       {/* Bottom keyboard bar */}
       {!hasPhysicalKeyboard && (
         <div
-          className={`overflow-x-auto overflow-y-hidden touch-pan-x px-1.5 pb-1.5 bg-bg ${isIosPwa ? "safe-area-bottom" : ""}`}
+          className="overflow-x-auto overflow-y-hidden touch-pan-x px-1.5 pb-1.5 safe-area-bottom bg-bg"
         >
           <div className="flex items-center gap-1 max-w-4xl mx-auto">
             <div className="flex gap-1 flex-1 overflow-x-auto scroll-thin-x touch-pan-x pr-2 rounded-lg">
