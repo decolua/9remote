@@ -41,17 +41,13 @@ export function handleWsStateChange(pm, state) {
     // RTC is started from connect() (signaling via DO, independent of WS).
     // WS reconnect no longer needs to renegotiate RTC — the DO relay carries
     // signaling without the tunnel.
-  } else if (pm._lastWsState === ADAPTER_STATE.open) {
+  } else {
     pm._rawSocket = null;
-    termLog("switch", "ws down");
-    // Only signal disconnect if NO other adapter is keeping connection alive
-    if (!pm._anyAdapterReady()) {
-      pm._onConnectFired = false;
-      termLog("switch", "onDisconnect FIRE (no adapter ready)");
-      pm._wsCallbacks.onDisconnect?.(state);
-    } else {
-      debugLog("transport", "[pm] ws down but rtc alive → skip onDisconnect");
-      termLog("switch", "ws down but rtc alive → skip onDisconnect");
+    if (pm._lastWsState === ADAPTER_STATE.open) {
+      termLog("switch", "ws down");
+      // Whether the app hears about it is decided in PM._onAdapterStateChange,
+      // which sees BOTH carriers — this branch only knows about ws.
+      if (pm._anyAdapterReady()) termLog("switch", "ws down but rtc alive → skip onDisconnect");
     }
   }
   pm._lastWsState = state;
@@ -77,8 +73,7 @@ export function handleRtcStateChange(pm, state) {
     pm._probeAttempts = 0;
     pm._rtcGivenUp = false;
     pm._giveUpIp = null;
-    clearTimeout(pm._rtcRestartTimer);
-    pm._rtcRestartTimer = null;
+    pm._disarmRestart();
     // RTC opened → cancel any pending WS-rejoin debounce: the switch is transparent,
     // no need to reset the terminal.
     clearTimeout(pm._rejoinDebounceTimer);
@@ -108,12 +103,6 @@ export function handleRtcStateChange(pm, state) {
     pm._ackTimers.clear();
     // RTC died → retry RTC via DO signaling (STUN again). Only after maxAttempts
     // of repeated failure does the tunnel (ws) own the session permanently.
-    pm._scheduleRtcRestart();
-    // RTC died — if WS also down, emit disconnect now (was suppressed earlier)
-    if (!pm._anyAdapterReady()) {
-      // All adapters down → next "ready" should fire onConnect again.
-      pm._onConnectFired = false;
-      pm._wsCallbacks.onDisconnect?.("rtc-closed");
-    }
+    pm._scheduleRtcRestart("rtc-closed");
   }
 }
