@@ -99,7 +99,7 @@ export class SignalingClient {
       logger.debug(`${this._role} handshake stalled — retrying`);
       this._ws = null;
       try { ws.close(); } catch {}
-      this._onClose();
+      this._onClose(null, "handshake-stall");
     }, HANDSHAKE_TIMEOUT_MS);
     ws.addEventListener("open", () => {
       clearTimeout(stallTimer);
@@ -119,18 +119,25 @@ export class SignalingClient {
     });
     // Guard: failed connects fire error+close both — only one may drive reconnect,
     // else every failure doubles the retry timers (exponential storm).
-    ws.addEventListener("close", () => { clearTimeout(stallTimer); if (this._ws === ws) this._onClose(); });
-    ws.addEventListener("error", () => { clearTimeout(stallTimer); if (this._ws === ws) this._onClose(); });
+    ws.addEventListener("close", (e) => { clearTimeout(stallTimer); if (this._ws === ws) this._onClose(e?.code, e?.reason); });
+    ws.addEventListener("error", () => { clearTimeout(stallTimer); if (this._ws === ws) this._onClose(null, "error"); });
   }
 
   /** Network may be back (e.g. a client just reached us over the tunnel) —
    *  retry immediately and clear the pre-open cap, which otherwise strands the
    *  relay for the life of the process. Throttled: many clients may call this
    *  at once, and each accepted call costs a WS upgrade + a D1 read in the DO. */
-  retryNow() {
-    if (this._closed || this._ws) return;
+  retryNow(reason = "?") {
+    if (this._closed || this._ws) {
+      logger.debug(`retryNow skip by=${reason} (${this._closed ? "closed" : "socket already up"})`);
+      return;
+    }
     const now = Date.now();
-    if (now - (this._lastRetryNowAt || 0) < RETRY_NOW_THROTTLE_MS) return;
+    if (now - (this._lastRetryNowAt || 0) < RETRY_NOW_THROTTLE_MS) {
+      logger.debug(`retryNow throttled by=${reason}`);
+      return;
+    }
+    logger.debug(`retryNow go by=${reason} (was attempt ${this._attempt}, preOpenFails ${this._preOpenFails})`);
     this._lastRetryNowAt = now;
     this._attempt = 0;
     this._preOpenFails = 0;
@@ -139,11 +146,12 @@ export class SignalingClient {
     this._open();
   }
 
-  _onClose() {
+  _onClose(code, why) {
     this._stopPing();
     this._ws = null;
     this._ready = false;
     if (this._closed) return;
+    logger.debug(`${this._role} relay closed code=${code ?? "?"}${why ? ` (${why})` : ""} openedOnce=${this._openedOnce}`);
     if (!this._openedOnce) {
       this._preOpenFails++;
       if (this._preOpenFails > MAX_PRE_OPEN_FAILURES) {

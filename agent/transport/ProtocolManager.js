@@ -6,6 +6,9 @@ import { encodeTilesBatch } from "../features/remote/handlers/ScreenHandler.js";
 import { isDeviceRejected } from "../lib/deviceApproval.js";
 import { onSignalingMessage, onSignalingReady, sendSignaling as sendGlobalSignaling, isSignalingReady } from "../lib/signalingGlobal.js";
 import { pushTransportState } from "../api/ui.js";
+import { createLogger } from "../lib/logger.js";
+
+const logger = createLogger("transport");
 
 registerProtocol(WsProtocol);
 registerProtocol(WebRtcProtocol);
@@ -371,6 +374,7 @@ export class ProtocolManager {
 
   _onAdapterStateChange(adapterId, state) {
     if (this._closed) return; // PM torn down — adapter state changes are noise
+    logger.debug(`${adapterId}→${state} (carriers: ${[...this._adapters.entries()].map(([id, a]) => `${id}=${a.ready ? "ready" : a.state}`).join(" ")})`);
     pushTransportState();
     if (state === ADAPTER_STATE.open) {
       // Peer came back (re-offer after resume/handover) — cancel the teardown.
@@ -387,9 +391,14 @@ export class ProtocolManager {
     if (state === ADAPTER_STATE.closed && adapterId === "rtc"
       && this._host?.isVirtual && !this._adapters.get("ws")?.ready) {
       clearTimeout(this._deadTimer);
+      logger.debug(`rtc closed, no ws on a virtual session → ${RTC_DEAD_GRACE_MS}ms grace before declaring dead`);
       this._deadTimer = setTimeout(() => {
         this._deadTimer = null;
-        if (this._closed || this._adapters.get("rtc")?.ready) return;
+        if (this._closed || this._adapters.get("rtc")?.ready) {
+          logger.debug("rtc came back inside grace — session kept");
+          return;
+        }
+        logger.info("rtc never returned → session dead");
         this._onDead?.();
       }, RTC_DEAD_GRACE_MS);
     }

@@ -861,7 +861,7 @@ export async function startTransportServer(server) {
   io.on("connection", (socket) => {
     // A client got through, so the network is up: revive the DO relay if it
     // gave up during boot (agent started before wifi). Throttled inside.
-    retrySignalingNow();
+    retrySignalingNow("client-connected");
     const ip = socket.handshake.headers["x-forwarded-for"] || socket.handshake.address || "unknown";
     const deviceId = socket.handshake.auth?.deviceId || null;
 

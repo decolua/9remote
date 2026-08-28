@@ -230,15 +230,22 @@ export class WebRtcProtocol extends BaseProtocol {
     // ICE lifecycle — close on real death; grace-debounce transient "disconnected"
     this._pcState = "new";
     pc.onStateChange((state) => {
+      const prev = this._pcState;
       this._pcState = state;
+      logger.debug(`peer ${prev}→${state}`);
       if (state === "failed" || state === "closed") {
         if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
         this._setState(ADAPTER_STATE.closed);
       } else if (state === "disconnected") {
         if (this._iceGraceTimer) return;
+        // Transient by default: a peer that comes back inside the grace window
+        // costs nothing, while tearing down on the first blip loses a live path.
+        logger.debug(`peer disconnected → grace ${REMOTE_CONFIG.webrtc.iceDisconnectGraceMs}ms before closing`);
         this._iceGraceTimer = setTimeout(() => {
           this._iceGraceTimer = null;
-          if (this._pcState !== "connected") this._setState(ADAPTER_STATE.closed);
+          if (this._pcState === "connected") { logger.debug("peer recovered inside grace"); return; }
+          logger.debug(`peer still ${this._pcState} after grace → closed`);
+          this._setState(ADAPTER_STATE.closed);
         }, REMOTE_CONFIG.webrtc.iceDisconnectGraceMs);
       } else if (state === "connected") {
         if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
@@ -255,8 +262,9 @@ export class WebRtcProtocol extends BaseProtocol {
         // secondary channel that may open slightly later and is optional for state.
         if (this._dcControl && this._dcBinary) this._setState(ADAPTER_STATE.open);
       };
-      dc.onOpen(setOpen);
+      dc.onOpen(() => { logger.debug(`DC[${label}] open`); setOpen(); });
       dc.onClosed(() => {
+        logger.debug(`DC[${label}] closed`);
         if (label === "control") this._dcControl = null;
         if (label === "binary") this._dcBinary = null;
         if (label === "file") this._dcFile = null;

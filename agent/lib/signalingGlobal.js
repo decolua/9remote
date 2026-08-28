@@ -123,8 +123,8 @@ export function pendingPeersOf(deviceId) {
 
 /** A client just reached us (so the network is back) — revive a relay that hit
  *  its pre-open cap. No-op when it is already connected or was never started. */
-export function retrySignalingNow() {
-  try { _client?.retryNow?.(); } catch (e) { logger.warn(`retrySignalingNow: ${e.message}`); }
+export function retrySignalingNow(reason = "?") {
+  try { _client?.retryNow?.(reason); } catch (e) { logger.warn(`retrySignalingNow: ${e.message}`); }
 }
 
 export function isSignalingReady() {
