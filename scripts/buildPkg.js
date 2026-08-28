@@ -143,6 +143,20 @@ function copyDesktopBridge() {
   console.log(`✅ desktop-bridge .cs → agent/dist/bin/`);
 }
 
+// Ship the scrcpy server jar for Android mirroring: dev layout
+// agent/features/mobile/vendor/, dist agent/dist/vendor/.
+function copyMobileVendor() {
+  console.log("\n📱 Copying scrcpy server...");
+  const srcDir = path.join(SERVER_DIR, "features/mobile/vendor");
+  const destDir = path.join(DIST_DIR, "vendor");
+  if (!fs.existsSync(srcDir)) return;
+  ensureDir(destDir);
+  for (const file of fs.readdirSync(srcDir)) {
+    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+  }
+  console.log(`✅ scrcpy-server → agent/dist/vendor/`);
+}
+
 async function build() {
   console.log("🔨 Building npm package...\n");
 
@@ -155,6 +169,7 @@ async function build() {
   await buildInstall();
   copyAssets();
   copyDesktopBridge();
+  copyMobileVendor();
 
   // Disabled: obfuscation triggers Defender false positive (Trojan:JS/NpmSteal)
   // console.log("\n🔒 Obfuscating bundles...");
