@@ -1,4 +1,4 @@
-import { ADAPTER_STATE, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_SKIP_HIDDEN_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_SKIP_HIDDEN_MS, RTC_RESTART } from "@/shared/constants/transport";
 import { isWsZombie } from "../wsZombie";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
@@ -22,14 +22,20 @@ const RESUME_COALESCE_MS = 150;
 // fast rungs; the guards above this call still decide whether to retry at all,
 // so no extra signaling is spent — it merely happens sooner.
 function resetLadderOnResume(pm, reason) {
-  termLog("switch", `RESET attempts (was ${pm._rtcRestartAttempts}) reason=${reason}`);
+  const pendingIn = pm._rtcRestartTimer ? Math.max(pm._rtcRestartDueAt - Date.now(), 0) : -1;
+  termLog("switch", `RESET attempts (was ${pm._rtcRestartAttempts}) reason=${reason} pendingIn=${pendingIn}ms`);
   pm._rtcRestartAttempts = 0;
   pm._probeAttempts = 0;
-  // The rung armed before we hid is deliberately left running. Cancelling it
-  // removed the only retry left on the paths that decline to restart here — a
-  // peer stuck "connecting" is skipped as in-flight by _restartRtc, so the net
-  // was load-bearing. It is harmless now: whenever it fires it reschedules off
-  // the counters this just zeroed, which is the fast rung.
+  // A rung armed before we hid stays armed — it is the safety net for the paths
+  // below that decline to restart (a peer stuck "connecting" is skipped as
+  // in-flight by _restartRtc). But a probe rung can be minutes out, and
+  // _scheduleRtcRestart declines to arm while one is pending, so a stale long
+  // timer would swallow every retry request until it fires. Pull it forward to
+  // the fast rung the counters above just reset to.
+  if (pendingIn <= RTC_RESTART.backoffMs[0]) return;
+  termLog("switch", `resume: pending rung was ${pendingIn}ms out → re-arm fast`);
+  pm._disarmRestart();
+  pm._scheduleRtcRestart("resume-rearm");
 }
 
 export function attachWatchers(pm) {
@@ -101,7 +107,7 @@ export function attachWatchers(pm) {
     const rtcState = rtc?.state;
     if (!rtc || rtcState === ADAPTER_STATE.closed || rtcState === ADAPTER_STATE.degraded) {
       termLog("switch", `visibility → restartRtc (rtc=${rtcState || "absent"})`);
-      pm._restartRtc();
+      pm._restartRtc("resume-dead-rtc");
     } else {
       // RTC reports open/connecting — but OS suspension often kills the DC
       // without firing an iceConnectionState change. Probe the DC before
@@ -138,17 +144,21 @@ export function attachWatchers(pm) {
       if (navigator.onLine === false) return; // still down — wait for "online"
       debugLog("transport", "[pm] network change → probe rtc");
       pm._sig?.retryNow();
+      // WS too: a full outage closes it and leaves it inside its own backoff, so
+      // the tunnel could sit idle long after the network came back. retryNow is
+      // throttled internally, and revives an adapter PM tore down entirely.
+      pm.retryNow();
       // Fresh network deserves a fresh budget, else a session that burned its
       // 3 restarts on a bad network is locked to the tunnel forever. A network
       // change also means the NAT may differ → clear any give-up and try again.
-      termLog("switch", `RESET attempts (was ${pm._rtcRestartAttempts}) givenUp=${pm._rtcGivenUp} reason=net-change`); // TEMP DIAGNOSTIC
+      termLog("switch", `RESET attempts (was ${pm._rtcRestartAttempts}) givenUp=${pm._rtcGivenUp} reason=net-change`);
       pm._rtcRestartAttempts = 0;
       pm._probeAttempts = 0;
       pm._rtcGivenUp = false;
       pm._giveUpIp = null;
       // No carrier yet — the relay just reconnected; its onReady fires the
       // restart. Renegotiating now would only buffer an offer nobody reads.
-      if (pm._shouldRenegotiate()) pm._restartRtc();
+      if (pm._shouldRenegotiate()) pm._restartRtc("net-change");
     }, NET_RECOVERY.debounceMs);
   };
   window.addEventListener("online", netHandler);
@@ -177,7 +187,7 @@ export function attachWatchers(pm) {
  *  agent cooperation (and no DO signaling round-trip on a healthy resume). */
 export function probeRtcOnResume(pm) {
   const rtc = pm._adapters.get("rtc");
-  if (!rtc?.ready) { pm._restartRtc(); return; }
+  if (!rtc?.ready) { pm._restartRtc("resume-not-ready"); return; }
   // Certain-death shortcut: on a touch device the OS suspends WebRTC soon after
   // the app hides, so a peer hidden past the threshold is dead and probing it
   // only spends the whole probe window before the same restart. Desktop keeps
@@ -188,11 +198,11 @@ export function probeRtcOnResume(pm) {
   if (isTouch && hiddenFor > RESUME_PROBE_SKIP_HIDDEN_MS) {
     termLog("switch", `resume: hidden ${Math.round(hiddenFor / 1000)}s on touch → skip probe, force restart`);
     debugLog("transport", `[pm] resume: hidden ${Math.round(hiddenFor / 1000)}s → immediate restart`);
-    pm._forceRestartRtc();
+    pm._forceRestartRtc("resume-hidden-touch");
     return;
   }
   const pc = rtc._pc;
-  if (!pc || pc.connectionState === "failed") { pm._forceRestartRtc(); return; }
+  if (!pc || pc.connectionState === "failed") { pm._forceRestartRtc("resume-pc-failed"); return; }
   // Browser-only probe (no agent cooperation): sample the selected ICE
   // candidate-pair's responsesReceived across the window. ICE sends STUN
   // keepalives continuously — even with no app traffic — so a live DC grows
@@ -217,11 +227,11 @@ export function probeRtcOnResume(pm) {
     } else {
       termLog("switch", `resume probe getStats dead (Δ=${delta}) → forceRestartRtc`);
       debugLog("transport", `[pm] resume probe dead (delta=${delta}) → restart rtc`);
-      pm._forceRestartRtc();
+      pm._forceRestartRtc("resume-probe-dead");
     }
   }).catch(() => {
     if (token !== pm._probeToken) return;
     termLog("switch", "resume probe getStats error → forceRestartRtc");
-    pm._forceRestartRtc();
+    pm._forceRestartRtc("resume-probe-error");
   });
 }
