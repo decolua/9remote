@@ -156,7 +156,7 @@ export default {
     settingsGeneral: "General",
     settingsAppearance: "Appearance",
     settingsTerminalTab: "Terminal",
-    settingsMcp: "MCP",
+    settingsMcp: "Plugins",
     mcpIntro: "Extra abilities you can give your AI coding tools.",
     mcpTools: "Allow",
     mcpRestartHint: "Turning it off applies at once. Turning it on needs the AI tool restarted.",

@@ -196,9 +196,9 @@ export const useTerminalStore = create(
       customBackgrounds: [],
       setCustomBackgrounds: (items) => set({ customBackgrounds: Array.isArray(items) ? items.filter((it) => it?.id && it?.dataUrl) : [] }),
 
-      // Per-pane quick-action button visibility (folder / git / note). Default all on.
+      // Per-pane quick-action button visibility (folder / git / note). Checklist is opt-in.
       showFolderButton: true,
-      showNoteButton: true,
+      showNoteButton: false,
       setShowFolderButton: (v) => set({ showFolderButton: !!v }),
       setShowNoteButton: (v) => set({ showNoteButton: !!v }),
 
