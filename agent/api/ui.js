@@ -212,6 +212,11 @@ export function pushTransportState() {
   pushUiEvent("transport", getTransportState());
 }
 
+/** How many clients are connected right now. */
+export function connectionCount() {
+  return activeConnections.size;
+}
+
 export function trackConnection(socketId, ip, deviceId = null, type = "ws") {
   activeConnections.set(socketId, { socketId, ip, deviceId, type, connectedAt: Date.now() });
   pushUiEvent("connections", { connections: [...activeConnections.values()] });
