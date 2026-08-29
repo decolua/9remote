@@ -49,6 +49,21 @@ export function disableAllRtc() {
   logger.debug(`disableAllRtc: cleared RTC on ${active.size} PM(s)`);
 }
 
+// server.js registers this — broadcast must stay importable from features
+// (remoteSocket) without importing server.js back (cycle).
+let _rtcSessionKiller = null;
+export function setRtcSessionKiller(fn) { _rtcSessionKiller = fn; }
+
+/** Dispose a PM AND the RTC-first session it hosts. pm.close()/unregister alone
+ *  leave the VirtualSocket's tracked entry and rtcSessions record behind — a
+ *  closed browser then shows as online forever (each tab/reload = one leak). */
+export function disposeProtocol(pm) {
+  if (!pm) return;
+  try { pm.close(); } catch {}
+  unregisterProtocol(pm);
+  if (pm._host?.isVirtual && _rtcSessionKiller) _rtcSessionKiller(pm._host.peerId);
+}
+
 // Notify every active PM that RTC is enabled again (test-toggle off) — clients
 // clear their stop-retry flag and renegotiate. Re-registers the signalingGlobal
 // handler that disableAllRtc cleared, so the next offer finds this PM (answer)

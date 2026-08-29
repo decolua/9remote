@@ -2,6 +2,9 @@ import pty from "node-pty";
 import * as daemonClient from "../ptyDaemonClient.js";
 import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveWorkspaces, loadSessionNote, saveSessionNote, deleteSessionNote, UPLOAD_DIR } from "../ptyHelper.js";
 import { resolveShell, getShellList, SESSION_NAME_MAX, AUTO_NAME_RE, OUTPUT_SLICE_BYTES } from "../constants.js";
+import { createLogger } from "../../../lib/logger.js";
+
+const capsLogger = createLogger("terminal");
 import { detectAgentClis } from "../agentCatalog.js";
 import { listAgentSessions, matchLiveSessions, conversationTitle } from "../agentHistory.js";
 import { getLiveConversations, forgetSession, claimResumedConversation, getConversation } from "../statusManager.js";
@@ -160,6 +163,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   };
 
   socket.on("getSessions", async (callback) => {
+    capsLogger.info("[diag] getSessions arrived (socket ready to answer)"); // TEMP DIAGNOSTIC — stuck-loading bug
     try {
       const list = [];
       // Fetch live cwd for daemon sessions (OSC 7 updates daemon-side, not agent cache)
@@ -184,7 +188,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       // Sort by persisted order; unranked ids (new sessions) fall to the end, stable
       const rank = new Map(sessionOrder.map((id, i) => [id, i]));
       list.sort((a, b) => (rank.has(a.id) ? rank.get(a.id) : Infinity) - (rank.has(b.id) ? rank.get(b.id) : Infinity));
-      callback(list);
+      callback(list); capsLogger.info(`[diag] getSessions ack → ${list.length} sessions`);
     } catch (error) {
       console.error("Failed to list sessions:", error);
       callback([]);
@@ -196,7 +200,10 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   });
 
   // Workspace operations — handled at agent (independent of daemon)
-  const listWorkspaces = (callback) => callback(Array.from(workspaces.values()));
+  const listWorkspaces = (callback) => {
+    capsLogger.info(`[diag] getWorkspaces arrived+ack → ${workspaces.size} workspaces`); // TEMP DIAGNOSTIC
+    callback(Array.from(workspaces.values()));
+  };
 
   const createWorkspace = ({ name, path: wsPath }, callback) => {
     // Validate at this trust boundary: a workspace may be path-less (legacy group), but a
@@ -490,7 +497,9 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     }
 
     if (session.buffer?.length > 0) {
-      socket.emit("output", { sessionId, data: Buffer.from(takeBufferTail(session.buffer, JOIN_REPLAY_SIZE), "utf-8") });
+      // enc:"bin" routes it through the send door's capability check like every
+      // other output — a legacy peer gets b64 there instead of a raw Buffer.
+      socket.emit("output", { sessionId, enc: "bin", data: Buffer.from(takeBufferTail(session.buffer, JOIN_REPLAY_SIZE), "utf-8") });
     }
     // Return the current live seq so the client can resync lastSeq after the
     // reset+replay (next live chunk = currentSeq + 1 → contiguous, no false gap).
@@ -502,6 +511,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   // Answered symmetrically: the client re-announces on every carrier connect, and
   // its record of OUR capabilities lives on a PM that a reconnect may have replaced.
   socket.on("caps", (caps = {}) => {
+    capsLogger.debug(`[caps] client announced: ${JSON.stringify(caps)}`);
     if (caps?.fragOut) socket.data.fragOut = true;
     socket.emit("srvCaps", { env2: 1 });
   });
@@ -517,13 +527,15 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       if (!result.success) return callback?.({ success: false, error: result.error });
       if (result.prefix) {
         // Fragment SCTP-safe with part markers — but only for clients that reassemble.
-        // An old client would splice+replay per event, so it keeps the single big event.
+        // An old client would splice+replay per event, so it keeps the single big
+        // event. Bytes are Buffers (canonical internal form); the send door
+        // downgrades to b64 for a peer that never announced caps.binOut.
         if (socket.data?.fragOut) {
           const raw = Buffer.from(result.prefix, "base64");
           const parts = Math.max(1, Math.ceil(raw.length / OUTPUT_SLICE_BYTES));
           for (let part = 0; part < parts; part++) {
             const piece = raw.subarray(part * OUTPUT_SLICE_BYTES, (part + 1) * OUTPUT_SLICE_BYTES);
-            socket.emit("output", { sessionId, enc: "b64", isHistoryPrefix: true, part, parts, data: piece.toString("base64") });
+            socket.emit("output", { sessionId, enc: "bin", isHistoryPrefix: true, part, parts, data: piece });
           }
         } else {
           socket.emit("output", { sessionId, enc: "b64", isHistoryPrefix: true, data: result.prefix });

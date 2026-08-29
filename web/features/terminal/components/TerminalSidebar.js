@@ -350,7 +350,7 @@ function TerminalSidebar({
                       key={s.id}
                       ref={registerEl(s.id)}
                       data-sid={s.id}
-                      className={`group w-full flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 text-left border-l-2 relative cursor-pointer ${
+                      className={`group w-full flex items-center gap-1.5 pl-5 pr-2 py-1.5 text-left border-l-2 relative cursor-pointer ${
                         isActive
                           ? "bg-text/8 border-brand-500 text-text"
                           : "border-transparent text-text-muted hover:bg-text/5 hover:text-text"
@@ -367,8 +367,7 @@ function TerminalSidebar({
                           data-sid={s.id}
                           onPointerDown={startReorder}
                           disabled={grp.items.length < 2}
-                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-0.5 text-text-subtle opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none disabled:opacity-0 disabled:cursor-default bg-surface-3"
-                          title={t("sessions.editName")}
+                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-0.5 text-text-subtle opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none disabled:opacity-0 disabled:cursor-default"
                           tabIndex={-1}
                         >
                           <GripVertical size={12} />

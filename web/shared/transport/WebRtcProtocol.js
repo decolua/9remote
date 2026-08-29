@@ -107,6 +107,8 @@ export class WebRtcProtocol extends BaseProtocol {
     // carrier is up first, which is usually WS (RTC is still gathering ICE), so it
     // must not be read off this adapter's own channel.
     this._peerEnv2 = false;
+    this._v2Announced = false; // one-shot: first v2 frame we SEND
+    this._v2RxSeen = false;    // one-shot: first v2 frame we DECODE
 
     this._signalingHandlers = {};
     this._signaling = null;
@@ -249,7 +251,16 @@ export class WebRtcProtocol extends BaseProtocol {
       let parsed;
       // The DC itself tells the two wire forms apart: a string is v1 JSON, an
       // ArrayBuffer is a v2 frame (binaryType is "arraybuffer"). No sniffing.
-      try { parsed = typeof data === "string" ? decode(data) : decodeFrame(data); }
+      try {
+        if (typeof data === "string") parsed = decode(data);
+        else {
+          parsed = decodeFrame(data);
+          if (!this._v2RxSeen) {
+            this._v2RxSeen = true;
+            termLog("switch", "env2: first v2 binary frame DECODED from agent (mutual upgrade confirmed)");
+          }
+        }
+      }
       catch (err) { console.error("[rtc] control parse error:", err.message); return; }
       if (parsed.event === "__ping") {
         // Lazy-arm on the first ping: an old agent never pings, and a watch armed
@@ -333,8 +344,13 @@ export class WebRtcProtocol extends BaseProtocol {
         const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
         // v2 binary frame once the agent announced it — buffers ride raw instead
         // of base64 inside JSON. Old agents keep the text form.
-        if (this._peerEnv2) this._dcControl.send(encodeFrame(env));
-        else this._dcControl.send(encode(env));
+        if (this._peerEnv2) {
+          if (!this._v2Announced) {
+            this._v2Announced = true;
+            termLog("switch", "env2: client→agent control now SENT as v2 binary frames");
+          }
+          this._dcControl.send(encodeFrame(env));
+        } else this._dcControl.send(encode(env));
         return true;
       } catch (err) {
         console.error("[rtc] send control error:", err.message);

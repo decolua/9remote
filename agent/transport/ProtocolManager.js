@@ -55,6 +55,12 @@ export class ProtocolManager {
     this._listeners = new Map();
     this._buffer = [];
     this._binOut = false; // peer announced caps.binOut — output bytes may ride binary
+    // Diagnostic one-shots/counters — confirm the protocol switches are live, not
+    // just negotiated. Reported once on first use and every 60s in the summary.
+    this._stats = { binChunks: 0, b64Chunks: 0, sentRtc: 0, sentWs: 0, binAnnounced: false, env2Announced: false };
+    this._statsTimer = setInterval(() => this._reportStats(), 60_000);
+    // do not hold the process open just for the report
+    this._statsTimer.unref?.();
     this._rtcSignalingHandler = null;
     this._wsPendingSince = new Map();
     // Pending-since timestamps — RTC backpressure priority, mirrors WS path.
@@ -180,6 +186,21 @@ export class ProtocolManager {
     this._sendControl(event, args);
   }
 
+  /** One-shot announcements (device verdicts) ride EVERY live carrier at once.
+   *  A single-carrier send lands on whichever adapter _pickAdapter fancies — on a
+   *  fresh connect that is a young RTC DC that can silently eat the message, and
+   *  an approval the web never hears is a modal stuck forever. Receivers treat
+   *  these events as idempotent, so the duplicate copy is free. */
+  emitEverywhere(event, ...args) {
+    let sent = 0;
+    for (const a of this._adapters.values()) {
+      if (!a.ready) continue;
+      try { if (a.send(CHANNELS.control, { event, args })) sent++; } catch {}
+    }
+    logger.info(`[diag] emitEverywhere ${event} → sent on ${sent} carrier(s)`); // TEMP DIAGNOSTIC
+    return sent > 0;
+  }
+
   /** Recreate the RTC adapter after it was torn down by the test-toggle. Sets up
    *  a fresh answerer PeerConnection + the signaling handler (_buildCtx wires
    *  signaling.on → _rtcSignalingHandler), so the client's next offer is answered
@@ -234,6 +255,7 @@ export class ProtocolManager {
 
   close() {
     this._closed = true;
+    clearInterval(this._statsTimer);
     clearTimeout(this._deadTimer);
     this._deadTimer = null;
     try { this._offGlobalSig?.(); } catch {}
@@ -445,34 +467,60 @@ export class ProtocolManager {
     }
     // One conversion, before the carrier is even chosen — the payload is the same
     // envelope whichever adapter carries it.
-    this._upgradeBin(event, args);
+    this._legacyB64Down(event, args);
+    if (event === "output") {
+      const st = this._stats;
+      if (args[0]?.enc === "bin") {
+        st.binChunks++;
+        if (!st.binAnnounced) {
+          st.binAnnounced = true;
+          logger.info(`[binout] FIRST binary output chunk sent → ${args[0].sessionId}`);
+        }
+      } else st.b64Chunks++;
+    }
     if (adapter.constructor.id === "rtc") {
+      this._stats.sentRtc++;
       const ok = adapter.send(CHANNELS.control, { event, args, ackId });
       // RTC DC may silently drop (dead SCTP during ice transient) → fallback WS so the
       // client (likely already on WS) still receives server control like "output".
       if (ok) return;
       const ws = this._adapters.get("ws");
       if (ws?.ready && ws.send(CHANNELS.control, { event, args })) return;
-    } else if (adapter.send(CHANNELS.control, { event, args })) {
-      return;
+    } else {
+      this._stats.sentWs++;
+      if (adapter.send(CHANNELS.control, { event, args })) return;
     }
     // Couldn't deliver on any adapter — buffer for next ready window.
     this._buffer.push({ event, args, ackId });
     if (this._buffer.length > this._maxControlBuffer) this._buffer.shift();
   }
 
-  /** caps.binOut peers take output bytes as a Buffer instead of a base64 string:
-   *  25% less wire, zero client-side decode. Carrier-agnostic on purpose — each
-   *  adapter already knows how to put a Buffer on its own wire (socket.io lifts it
-   *  into a binary attachment; the RTC codec into a v2 frame part, or {__b} for a
-   *  legacy peer), so this layer never asks which carrier is underneath.
-   *  Idempotent: an already-converted payload (enc:"bin") passes through. */
-  _upgradeBin(event, args) {
-    if (!this._binOut || event !== "output") return;
+  /** Output bytes are Buffers end-to-end inside the agent (canonical form since
+   *  emit). A peer that announced caps.binOut receives them as-is — socket.io
+   *  lifts a Buffer into a binary attachment, the RTC codec into a v2 frame part.
+   *  A peer that never announced it (old web, or a stale open tab) cannot read
+   *  binary, so THIS is the one place it is downgraded to the legacy base64
+   *  string. Carrier-agnostic: this layer never asks which adapter is underneath. */
+  _legacyB64Down(event, args) {
+    if (this._binOut || event !== "output") return;
     const p = args[0];
-    if (p?.enc === "b64" && typeof p.data === "string") {
-      args[0] = { ...p, enc: "bin", data: Buffer.from(p.data, "base64") };
+    if (p?.enc === "bin" && Buffer.isBuffer(p.data)) {
+      args[0] = { ...p, enc: "b64", data: p.data.toString("base64") };
     }
+  }
+
+  /** 60s heartbeat of what actually happened — answers "is RTC carrying?" and
+   *  "is binary live?" with one line instead of tracing each chunk. */
+  _reportStats() {
+    const st = this._stats;
+    const out = st.binChunks + st.b64Chunks;
+    if (!out && !st.sentRtc && !st.sentWs) return; // quiet peer: nothing to say
+    const binPct = out ? Math.round((st.binChunks / out) * 100) : 0;
+    const rtcPct = (st.sentRtc + st.sentWs) ? Math.round((st.sentRtc / (st.sentRtc + st.sentWs)) * 100) : 0;
+    logger.info(
+      `[stats] output=${out} (bin ${binPct}% / b64 ${100 - binPct}%) | control rtc=${rtcPct}% (${st.sentRtc}/${st.sentRtc + st.sentWs}) | env2=${this._adapters.get("rtc")?._peerEnv2 ? "on" : "off"} binOut=${this._binOut ? "on" : "off"}`
+    );
+    st.binChunks = 0; st.b64Chunks = 0; st.sentRtc = 0; st.sentWs = 0;
   }
 
   _flushBuffer() {
@@ -542,6 +590,7 @@ export class ProtocolManager {
 
   _sendAck(ackId, resp) {
     const adapter = this._adapters.get("rtc");
+    logger.info(`[diag] _sendAck id=${ackId} via=${adapter?.ready ? "rtc" : "ws?"}`); // TEMP DIAGNOSTIC
     if (adapter?.ready && adapter.send(CHANNELS.control, { event: "__ack", args: resp, ackId })) return;
     // RTC dead/unavailable → ack rides WS so the client request doesn't hang.
     const ws = this._adapters.get("ws");

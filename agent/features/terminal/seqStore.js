@@ -13,13 +13,15 @@
 // shorter than a phone app-switch, which then fell back to reset+replay and lost
 // everything above the join tail.
 const RING_MAX_BYTES = 4 * 1024 * 1024; // per session
-// Gap packet bound in b64 wire bytes (chunks are cached as b64 strings, so c.size
-// IS the wire cost). 60KB b64 + envelope stays under the 64KB SCTP message cap, so
-// a refill packet never detours off the RTC control DC. A single chunk may exceed
-// it (a full 45KB slice is ~61KB b64) — that packet travels alone, still under cap.
-const GAP_PACKET_MAX_B64 = 60 * 1024;
+// Gap packet bound in RAW bytes, sized so the WORST wire form still fits one SCTP
+// message: a legacy peer (no caps.binOut) gets the packet re-encoded to base64 at
+// the send door — 45KB raw → ~60KB b64 + envelope < 64KB cap, same margin as the
+// output slices. A single chunk is itself ≤ OUTPUT_SLICE_BYTES, so a lone chunk
+// always fits too.
+import { OUTPUT_SLICE_BYTES } from "./constants.js";
+const GAP_PACKET_MAX_RAW = OUTPUT_SLICE_BYTES;
 const sessionSeq = new Map();
-const sessionChunks = new Map(); // sessionId -> Map(seq -> { data, enc, size })
+const sessionChunks = new Map(); // sessionId -> Map(seq -> { data, size })
 const sessionBytes = new Map();  // sessionId -> total bytes held in its ring
 
 export const nextSeq = (sessionId) => {
@@ -30,13 +32,14 @@ export const nextSeq = (sessionId) => {
 
 export const currentSeq = (sessionId) => sessionSeq.get(sessionId) ?? 0;
 
-// Cache a live chunk for later gap recovery. `data`/`enc` are kept as-received
-// from the daemon so the client decodes them exactly like a live chunk.
-export const cacheChunk = (sessionId, seq, data, enc) => {
+// Cache a live chunk for later gap recovery. Chunks are Buffers — the canonical
+// internal form since emit; b64 only exists on the daemon leg and at the send
+// door for peers that never announced caps.binOut.
+export const cacheChunk = (sessionId, seq, data) => {
   let m = sessionChunks.get(sessionId);
   if (!m) { m = new Map(); sessionChunks.set(sessionId, m); }
-  const size = typeof data === "string" ? data.length : (data?.length || 0);
-  m.set(seq, { data, enc, size });
+  const size = data?.length || 0;
+  m.set(seq, { data, size });
   let bytes = (sessionBytes.get(sessionId) ?? 0) + size;
   // Ring eviction — drop the oldest seqs until under capacity (any gap spanning an
   // evicted chunk falls back to a full reset+rejoin).
@@ -72,7 +75,7 @@ export const getGap = (sessionId, fromSeq, toSeq) => {
   let lastSeq = 0;
   const flush = () => {
     if (!parts.length) return;
-    out.push({ seq: lastSeq, enc: "b64", data: Buffer.concat(parts).toString("base64") });
+    out.push({ seq: lastSeq, enc: "bin", data: Buffer.concat(parts) });
     parts = [];
     partsBytes = 0;
   };
@@ -80,10 +83,10 @@ export const getGap = (sessionId, fromSeq, toSeq) => {
     const c = m.get(s);
     if (!c) return null;
     // Flush BEFORE the chunk that would cross the cap, never after — the last
-    // chunk must not overshoot. c.size is the b64 string length (the wire form),
-    // so the packet + envelope stays under CONTROL_RTC_MAX_BYTES.
-    if (parts.length && partsBytes + c.size > GAP_PACKET_MAX_B64) flush();
-    parts.push(c.enc === "b64" ? Buffer.from(c.data, "base64") : Buffer.from(c.data, "utf-8"));
+    // chunk must not overshoot. Bound in raw bytes so the legacy b64 re-encode
+    // at the send door also stays under CONTROL_RTC_MAX_BYTES.
+    if (parts.length && partsBytes + c.size > GAP_PACKET_MAX_RAW) flush();
+    parts.push(c.data);
     partsBytes += c.size;
     lastSeq = s;
   }

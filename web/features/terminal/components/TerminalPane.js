@@ -17,6 +17,12 @@ import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
 import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, paneBackgroundKey, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
 
+// Floating quick-action circles at the pane's top-right: thumb-sized on touch,
+// slimmer on desktop where the hover bg need not carry the whole tap target.
+const OVERLAY_BTN_CLS =
+  "p-2 sm:p-1.5 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md sm:shadow-sm transition-all duration-150 ease-out active:scale-[0.94]";
+const OVERLAY_ICON_SM = "sm:w-3.5 sm:h-3.5";
+
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
 // isFocused: pane receives keyboard input + shows active border
@@ -347,10 +353,10 @@ function TerminalPane({
                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onClick={(e) => { e.stopPropagation(); vibrate(); setNoteAppend(null); setNoteModalOpen(true); }}
-                className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+                className={OVERLAY_BTN_CLS}
                 title={t("terminalPane.note")}
               >
-                <ListChecks size={16} />
+                <ListChecks size={16} className={OVERLAY_ICON_SM} />
               </button>
             )}
             <button
@@ -364,10 +370,10 @@ function TerminalPane({
                 reload();
                 setTimeout(() => setRefreshing(false), 700);
               }}
-              className="p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+              className={OVERLAY_BTN_CLS}
               title={t("terminalPane.refresh")}
             >
-              <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
+              <RefreshCw size={16} className={`${OVERLAY_ICON_SM} ${refreshing ? "animate-spin" : ""}`} />
             </button>
           </div>
           {showFolderButton && (
@@ -382,10 +388,10 @@ function TerminalPane({
                 if (window.innerWidth >= DESKTOP_BREAKPOINT) setRightPanelTab("files", workspacePath);
                 else openRightPanel();
               }}
-              className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+              className={`relative ${OVERLAY_BTN_CLS}`}
               title={t("terminalPane.openFolderHere")}
             >
-              <Folder size={16} />
+              <Folder size={16} className={OVERLAY_ICON_SM} />
               {shownCount > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
                   {badgeLabel}
@@ -400,10 +406,10 @@ function TerminalPane({
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onClick={(e) => { e.stopPropagation(); vibrate(); onOpenArtifact(sessionId, artifacts[0]); }}
-              className="relative p-2 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94]"
+              className={`relative ${OVERLAY_BTN_CLS}`}
               title={t("terminalPane.artifacts")}
             >
-              <Sparkles size={16} />
+              <Sparkles size={16} className={OVERLAY_ICON_SM} />
               <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
                 {artifacts.length}
               </span>

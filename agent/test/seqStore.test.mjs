@@ -13,9 +13,10 @@ const test = (name, fn) => {
   catch (e) { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); }
 };
 
-// getGap merges consecutive chunks into batched b64 packets, so a range's CONTENT is
-// the concatenation of its packets and only the last seq of each packet is reported.
-const gapText = (gap) => gap.map((c) => Buffer.from(c.data, "base64").toString("utf-8")).join("");
+// getGap merges consecutive chunks into batched bin packets (Buffers — the
+// canonical internal form), so a range's CONTENT is the concatenation of its
+// packets and only the last seq of each packet is reported.
+const gapText = (gap) => gap.map((c) => c.data.toString("utf-8")).join("");
 
 // Each test uses a unique session id — the store is module-level state.
 let n = 0;
@@ -53,31 +54,33 @@ test("sessions have independent counters (no cross-talk between terminals)", () 
 
 test("getGap returns the exact requested range, in order", () => {
   const s = sid();
-  for (let i = 1; i <= 5; i++) cacheChunk(s, nextSeq(s), `d${i}`, undefined);
+  for (let i = 1; i <= 5; i++) cacheChunk(s, nextSeq(s), Buffer.from(`d${i}`));
   const gap = getGap(s, 2, 4);
   assert.equal(gapText(gap), "d2d3d4");
   assert.equal(gap.at(-1).seq, 4, "last packet must carry the range's final seq");
 });
 
-test("getGap mixes b64 and raw chunks into one correctly decoded stream", () => {
+test("getGap batches chunks into one correctly decoded stream", () => {
   const s = sid();
-  cacheChunk(s, nextSeq(s), Buffer.from("AB").toString("base64"), "b64");
-  cacheChunk(s, nextSeq(s), "CD", undefined);
+  cacheChunk(s, nextSeq(s), Buffer.from("AB"));
+  cacheChunk(s, nextSeq(s), Buffer.from("CD"));
   const gap = getGap(s, 1, 2);
-  assert.ok(gap.every((c) => c.enc === "b64"), "packets are always b64");
+  // Canonical internal form is a Buffer ("bin"); b64 only reappears at the send
+  // door for a peer that never announced caps.binOut.
+  assert.ok(gap.every((c) => c.enc === "bin" && Buffer.isBuffer(c.data)), "packets are always bin Buffers");
   assert.equal(gapText(gap), "ABCD");
 });
 
 test("single-chunk gap works (from === to)", () => {
   const s = sid();
-  cacheChunk(s, nextSeq(s), "only", undefined);
+  cacheChunk(s, nextSeq(s), Buffer.from("only"));
   assert.equal(gapText(getGap(s, 1, 1)), "only");
 });
 
 test("a large gap is batched into few packets, not one per chunk", () => {
   const s = sid();
   const N = 400;
-  for (let i = 1; i <= N; i++) cacheChunk(s, nextSeq(s), "x".repeat(1024), undefined);
+  for (let i = 1; i <= N; i++) cacheChunk(s, nextSeq(s), Buffer.alloc(1024, 120));
   const gap = getGap(s, 1, N);
   assert.ok(gap.length < N / 10, `expected batching, got ${gap.length} packets for ${N} chunks`);
   assert.equal(gapText(gap).length, N * 1024, "no bytes lost in batching");
@@ -85,20 +88,20 @@ test("a large gap is batched into few packets, not one per chunk", () => {
 
 test("empty range (to < from) returns [] not null — nothing to send, not a miss", () => {
   const s = sid();
-  cacheChunk(s, nextSeq(s), "x", undefined);
+  cacheChunk(s, nextSeq(s), Buffer.from("x"));
   assert.deepEqual(getGap(s, 2, 1), []);
 });
 
 test("missing chunk in the middle → null (caller must fall back to full replay)", () => {
   const s = sid();
-  cacheChunk(s, 1, "a", undefined);
-  cacheChunk(s, 3, "c", undefined); // 2 never cached
+  cacheChunk(s, 1, Buffer.from("a"));
+  cacheChunk(s, 3, Buffer.from("c")); // 2 never cached
   assert.equal(getGap(s, 1, 3), null);
 });
 
 test("range past the newest chunk → null, never a short read", () => {
   const s = sid();
-  cacheChunk(s, nextSeq(s), "a", undefined);
+  cacheChunk(s, nextSeq(s), Buffer.from("a"));
   assert.equal(getGap(s, 1, 5), null, "must not silently return a partial range");
 });
 
@@ -112,7 +115,7 @@ test("ring evicts oldest chunks; evicted range reads as a miss, recent range hit
   const s = sid();
   const CHUNK = 64 * 1024;
   const N = 100; // 6.4MB > RING_MAX_BYTES (4MB)
-  for (let i = 1; i <= N; i++) cacheChunk(s, nextSeq(s), "x".repeat(CHUNK), undefined);
+  for (let i = 1; i <= N; i++) cacheChunk(s, nextSeq(s), Buffer.alloc(CHUNK, 120));
   assert.equal(getGap(s, 1, 10), null, "long-evicted range must miss, not return stale data");
   assert.equal(gapText(getGap(s, N - 4, N)).length, 5 * CHUNK, "recent range must still hit");
 });
@@ -121,11 +124,11 @@ test("ring is bounded by BYTES — a chatty stream of small chunks keeps a long 
   const s = sid();
   // 5000 tiny chunks are far under the byte cap: a count-based ring would have evicted
   // most of them, leaving a phone app-switch unrecoverable.
-  for (let i = 1; i <= 5000; i++) cacheChunk(s, nextSeq(s), "x".repeat(10), undefined);
+  for (let i = 1; i <= 5000; i++) cacheChunk(s, nextSeq(s), Buffer.alloc(10, 120));
   assert.notEqual(getGap(s, 1, 5000), null, "small chunks must not be evicted by count");
   // And the cap does bite once the bytes are real.
   const big = sid();
-  for (let i = 1; i <= 100; i++) cacheChunk(big, nextSeq(big), "y".repeat(64 * 1024), undefined);
+  for (let i = 1; i <= 100; i++) cacheChunk(big, nextSeq(big), Buffer.alloc(64 * 1024, 121));
   assert.equal(getGap(big, 1, 1), null, "byte cap must evict once exceeded");
 });
 
@@ -133,7 +136,7 @@ test("ring is bounded by BYTES — a chatty stream of small chunks keeps a long 
 
 test("clearSession drops cached chunks so a dead session frees its ring", () => {
   const s = sid();
-  for (let i = 1; i <= 5; i++) cacheChunk(s, nextSeq(s), `d${i}`, undefined);
+  for (let i = 1; i <= 5; i++) cacheChunk(s, nextSeq(s), Buffer.from(`d${i}`));
   clearSession(s);
   assert.equal(getGap(s, 1, 5), null, "chunks must be gone after clearSession");
 });
@@ -154,8 +157,8 @@ test("clearSession is idempotent and safe on an unknown id", () => {
 
 test("clearSession only affects its own session", () => {
   const a = sid(), b = sid();
-  cacheChunk(a, nextSeq(a), "a1", undefined);
-  cacheChunk(b, nextSeq(b), "b1", undefined);
+  cacheChunk(a, nextSeq(a), Buffer.from("a1"));
+  cacheChunk(b, nextSeq(b), Buffer.from("b1"));
   clearSession(a);
   assert.equal(getGap(a, 1, 1), null);
   assert.equal(gapText(getGap(b, 1, 1)), "b1", "sibling session must survive");

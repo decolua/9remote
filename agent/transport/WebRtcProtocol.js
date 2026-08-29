@@ -107,6 +107,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._hbLastPong = 0;
     this._peerHb = false;   // peer announced caps.hb — only then may we ping it
     this._peerEnv2 = false; // peer announced caps.env2 — send the binary frame form
+    this._v2RxSeen = false; // first decoded v2 frame (one-shot diagnostic)
     this._closed = false;
   }
 
@@ -148,8 +149,13 @@ export class WebRtcProtocol extends BaseProtocol {
         const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
         // v2 binary frame once the peer announced it — buffers ride raw instead of
         // base64 inside JSON. Legacy peers keep the text form.
-        if (this._peerEnv2) this._dcControl.sendMessageBinary(encodeFrame(env));
-        else this._dcControl.sendMessage(encode(env));
+        if (this._peerEnv2) {
+          if (!this._v2Announced) {
+            this._v2Announced = true;
+            logger.info("[env2] agent→client control now SENT as v2 binary frames");
+          }
+          this._dcControl.sendMessageBinary(encodeFrame(env));
+        } else this._dcControl.sendMessage(encode(env));
         return true;
       } catch (err) {
         // Oversize/dead-channel errors are expected — ProtocolManager falls back to WS.
@@ -289,7 +295,16 @@ export class WebRtcProtocol extends BaseProtocol {
         let parsed;
         // The DC itself tells the two wire forms apart: a string is v1 JSON, a
         // binary message is a v2 frame. No sniffing, no ambiguity.
-        try { parsed = typeof data === "string" ? decode(data) : decodeFrame(data); }
+        try {
+          if (typeof data === "string") parsed = decode(data);
+          else {
+            parsed = decodeFrame(data);
+            if (!this._v2RxSeen) {
+              this._v2RxSeen = true;
+              logger.info("[env2] first v2 binary frame DECODED from client (mutual upgrade confirmed)");
+            }
+          }
+        }
         catch (err) { logger.error(`control parse: ${err.message}`); return; }
         if (parsed.event === "__pong") { this._hbLastPong = Date.now(); return; }
         try { this._emit("message", { event: parsed.event, data: parsed, source: "rtc" }); }

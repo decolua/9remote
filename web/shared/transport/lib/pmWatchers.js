@@ -186,6 +186,42 @@ export function attachWatchers(pm) {
  *  getStats() across the window — STUN keepalives grow responsesReceived on a
  *  live DC; a flat counter means zombie → force a restart. Browser-only, no
  *  agent cooperation (and no DO signaling round-trip on a healthy resume). */
+/**
+ * Browser-only liveness probe (no agent cooperation): sample the selected ICE
+ * candidate-pair's responsesReceived across the window. ICE sends STUN keepalives
+ * continuously — even with no app traffic — so a live DC grows this counter; a
+ * frozen/zombie DC stays flat. Shared by the resume path and the ack-timeout
+ * path: a state=open peer that eats messages must be probed, not restarted blind.
+ */
+export function probeRtcLiveness(pm, reason) {
+  const rtc = pm._adapters.get("rtc");
+  const pc = rtc?._pc;
+  if (!pc || pc.connectionState === "failed") { pm._forceRestartRtc(`${reason}-pc-failed`); return; }
+  clearTimeout(pm._resumeProbeTimer);
+  const token = ++pm._probeToken;
+  (async () => {
+    const r1 = await pc.getStats();
+    const a = selectedIceResponses(r1);
+    if (a == null) return null;
+    await new Promise((res) => { pm._resumeProbeTimer = setTimeout(res, RESUME_PROBE_TIMEOUT_MS); });
+    if (token !== pm._probeToken) return null; // superseded / disconnected
+    const r2 = await pc.getStats();
+    return selectedIceResponses(r2) - a;
+  })().then((delta) => {
+    if (token !== pm._probeToken) return;
+    if (delta != null && delta > 0) {
+      termLog("switch", `${reason} probe alive (Δ=${delta})`);
+    } else {
+      termLog("switch", `${reason} probe DEAD (Δ=${delta}) → forceRestartRtc`);
+      pm._forceRestartRtc(`${reason}-probe-dead`);
+    }
+  }).catch(() => {
+    if (token !== pm._probeToken) return;
+    termLog("switch", `${reason} probe error → forceRestartRtc`);
+    pm._forceRestartRtc(`${reason}-probe-error`);
+  });
+}
+
 export function probeRtcOnResume(pm) {
   const rtc = pm._adapters.get("rtc");
   if (!rtc?.ready) { pm._restartRtc("resume-not-ready"); return; }

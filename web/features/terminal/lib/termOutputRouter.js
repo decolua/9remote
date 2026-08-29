@@ -101,6 +101,7 @@ export function createOutputRouter({ sessionId, term, writeBatcherRef, gapFetch,
         acc.chunks[payload.part] = data;
         if (acc.chunks.filter(Boolean).length < payload.parts) return;
         refs.prefixFragsRef.current = null;
+        termLog("recv", `prefix reassembled from ${payload.parts} parts (${acc.chunks.reduce((n, c) => n + c.length, 0)}B)`);
         const whole = new Uint8Array(acc.chunks.reduce((n, c) => n + c.length, 0));
         let off = 0;
         for (const c of acc.chunks) { whole.set(c, off); off += c.length; }

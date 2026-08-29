@@ -46,7 +46,9 @@ export function useAgentBus() {
   //   approved          = terminal for this session
   //   carrier-reconnect = NOT an answer, must never clear a standing verdict
   const applyApproval = useCallback((next) => {
+    termLog("diag", `applyApproval ${next}`); // TEMP DIAGNOSTIC — approval stuck
     setApprovalStatus((prev) => {
+      // Updater stays pure — the arrival log lives outside (StrictMode double-invokes updaters).
       if (next === APPROVAL_STATUS.reconnect) return prev === APPROVAL_STATUS.approved ? null : prev;
       if (prev === APPROVAL_STATUS.approved && next === APPROVAL_STATUS.pending) return prev; // stale late signal
       return next;
@@ -134,7 +136,10 @@ export function useAgentBus() {
 
   const emitSessions = useCallback((bus) => {
     const seq = ++sessionSeqRef.current;
-    bus.emit("getSessions", (list) => { if (seq === sessionSeqRef.current) applySessions(list); });
+    bus.emit("getSessions", (list) => { // TEMP DIAGNOSTIC — bug: stuck loading after key login
+      termLog("diag", `getSessions ack seq=${seq} type=${Array.isArray(list) ? "list" : typeof list} n=${Array.isArray(list) ? list.length : "-"}`);
+      if (seq === sessionSeqRef.current) applySessions(list);
+    });
   }, [applySessions]);
 
   const emitWorkspaces = useCallback((bus) => {
@@ -153,10 +158,20 @@ export function useAgentBus() {
     fetchTimerRef.current = setTimeout(() => {
       fetchTimerRef.current = null;
       lastFetchAtRef.current = Date.now();
+      termLog("diag", `fetchLists FIRE (bus=${bus ? "ok" : "null"} connected-already=${loadedRef.current.sessions}/${loadedRef.current.workspaces})`); // TEMP DIAGNOSTIC
       emitWorkspaces(bus);
       emitSessions(bus);
     }, FETCH_COALESCE_MS);
   }, [emitSessions, emitWorkspaces]);
+
+  // What this client understands. Sent once on first bind and again on every
+  // carrier rejoin — the agent gates __ping (hb), binary output (binOut),
+  // fragmented prefixes (fragOut) and its v2 sender (env2) on this announcement.
+  const CAPS = { fragOut: true, binOut: true, hb: 1, env2: 1 };
+  const announceCaps = (bus) => {
+    termLog("switch", `caps → ${JSON.stringify(CAPS)} announced`);
+    bus.emit("caps", CAPS);
+  };
 
   // The bus this hook's listeners are bound to. onConnect fires again on every
   // carrier reconnect after a full outage, but the bus — and everything registered
@@ -180,11 +195,13 @@ export function useAgentBus() {
 
     // Listen for device approval flow
     bus.on("device:pendingApproval", () => {
+      termLog("diag", "EVENT device:pendingApproval arrived"); // TEMP DIAGNOSTIC
       console.log("[auth] agent says: waiting for host approval"); // TEMP DIAGNOSTIC
       applyApproval(APPROVAL_STATUS.pending);
     });
 
     bus.on("device:approved", () => {
+      termLog("diag", "EVENT device:approved arrived → applying"); // TEMP DIAGNOSTIC
       applyApproval(APPROVAL_STATUS.approved);
       setAdmitted(true);
       // The agent accepted this key — the first moment anything checked the
@@ -213,16 +230,12 @@ export function useAgentBus() {
     bus.on("connect", () => {
       resetLoaded("carrier-connect");
       bus.emit("device:clientReady");
-      // Terminal capabilities: fragOut — reassembles fragmented history prefixes
-      // (part/parts markers, SCTP-safe slices); binOut — takes output bytes as a
-      // binary attachment instead of the base64 string; hb — answers RTC __ping
-      // (agent only pings peers that announced this, so old webs never get killed).
-      // env2 — parses the v2 binary envelope on the RTC control channel.
-      bus.emit("caps", { fragOut: true, binOut: true, hb: 1, env2: 1 });
+      announceCaps(bus);
       fetchLists(bus);
     });
 
     bus.on("device:rejected", () => {
+      termLog("diag", "EVENT device:rejected arrived → applying"); // TEMP DIAGNOSTIC
       applyApproval(APPROVAL_STATUS.rejected);
       // Stop auto-reconnect — user must re-submit key to try again
       disconnectRef.current?.();
@@ -289,6 +302,13 @@ export function useAgentBus() {
 
     bus.on("codespace:stopping", handleCodespaceStopping);
 
+    // The "connect" listener above only fires on LATER carrier changes (a rejoin):
+    // on the first bind the link is already up before that listener exists, so the
+    // agent would never learn our capabilities — no __ping heartbeat, no binary
+    // output, no v2 frames from its side. Announce on first bind too; both emits
+    // are idempotent on the agent.
+    announceCaps(bus);
+
     // Signal server that client listeners are ready
     bus.emit("device:clientReady");
   }, [removeTempKey, handleCodespaceStopping, fetchLists, applyApproval, getAuth, resetLoaded]);
@@ -327,6 +347,7 @@ export function useAgentBus() {
     if (!connected) return;
     const timer = setInterval(() => {
       if (bothLoaded()) return;
+      termLog("diag", `list-retry tick: connected but not loaded (sessions=${loadedRef.current.sessions} workspaces=${loadedRef.current.workspaces}) — refetching`); // TEMP DIAGNOSTIC
       loadSessions();
     }, 2000);
     return () => clearInterval(timer);

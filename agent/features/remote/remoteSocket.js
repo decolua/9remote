@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { unregisterProtocol } from "../../transport/broadcast.js";
+import { unregisterProtocol, disposeProtocol } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
 import { ADAPTER_STATE } from "../../lib/transportConstants.js";
 import { wakeDisplay } from "../../lib/displayWaker.js";
@@ -266,8 +266,7 @@ export async function setupRemoteHandlers(socket, apiKey) {
       if (clipboardTimer) { clearInterval(clipboardTimer); clipboardTimer = null; }
       if (desktopPoll) { clearInterval(desktopPoll); desktopPoll = null; }
       resourceManager.removeClient(socket.id);
-      protocol.close();
-      unregisterProtocol(protocol);
+      disposeProtocol(protocol);
     };
     if (!rtc?.ready) return cleanup();
     // WS dropped but RTC alive → keep session; cleanup on RTC death or grace timeout

@@ -8,7 +8,7 @@ import { PATHS, LOCAL_UI_ORIGINS, LOCAL_UI_DEVICE_ID } from "../lib/constants.js
 import { verifyLocalToken } from "../lib/localToken.js";
 import { ProtocolManager } from "./ProtocolManager.js";
 import { SIGNALING_ERRORS } from "../lib/transportConstants.js";
-import { registerProtocol, unregisterProtocol, activeProtocols, disableAllRtc, notifyRtcEnabled } from "./broadcast.js";
+import { registerProtocol, unregisterProtocol, activeProtocols, disableAllRtc, notifyRtcEnabled, setRtcSessionKiller, disposeProtocol } from "./broadcast.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { setupTerminalSocket, setupTerminalHandlers } from "../features/terminal/terminalSocket.js";
 import { checkRemoteAvailable } from "../features/remote/remoteSocket.js";
@@ -208,7 +208,7 @@ async function setupSocketFeatures(socket) {
         socketId: carrier.pendingId,
         ip: carrier.ip,
         peerId: socket.peerId,
-        notify: () => socket.emit("device:pendingApproval")
+        notify: () => verdictEmit(socket, "device:pendingApproval")
       });
       return;
     }
@@ -318,6 +318,7 @@ async function attachTransportBus(socket) {
   // Virtual session: RTC dying with no WS fallback means the session is over.
   if (socket.isVirtual) {
     pm._onDead = () => {
+      logger.info(`[diag] _onDead fired peer=${(socket.peerId || "").slice(0, 12)} — rtc never returned in grace`); // TEMP DIAGNOSTIC — stale-connected bug
       pushUiLogDebug(`RTC session closed: ${socket.handshake.auth?.deviceId?.slice(0, 8)}...`);
       try { pm.close(); } catch {}
       unregisterProtocol(pm);
@@ -509,10 +510,18 @@ function hasLiveWsForPeer(peerId) {
  * yet. Three separate carriers used to announce this on their own, which is how
  * a wrong key reached the workspace on whichever one happened to fire first.
  */
+// One-shot verdicts must survive a single flaky carrier: prefer the PM's
+// every-carrier send, keep the socket emit as the pre-PM fallback.
+function verdictEmit(socket, event) {
+  const pm = socket.data?.protocol;
+  if (pm && !pm._closed && pm.emitEverywhere(event)) return;
+  socket.emit(event);
+}
+
 function announceAdmitted(socket) {
   const say = () => {
     if (!socket.connected) return;
-    onClientReady(socket, () => socket.emit("device:approved"));
+    onClientReady(socket, () => verdictEmit(socket, "device:approved"));
   };
   // The local UI is trusted by token and has no device to gate.
   if (socket.data.localUi) return say();
@@ -583,6 +592,7 @@ async function releaseDevice(deviceId) {
  * cuts the channel before the client learns why.
  */
 function rejectDeviceTail(socket, deviceId, reason) {
+  logger.info(`[diag] rejectDeviceTail device=${deviceId?.slice(0, 8)} reason=${reason}`); // TEMP DIAGNOSTIC
   socket.data.tailReject = socket.data.tailReject || { reason, penaltyMs: 0 };
   const why = socket.data.tailReject.reason;
   logger.warn(`tail rejected (${why}): device=${deviceId?.slice(0, 8) ?? "none"} carrier=${carrierOf(socket).id}`);
@@ -598,6 +608,7 @@ function rejectDeviceTail(socket, deviceId, reason) {
  *  the tunnel and the data channel are two paths to one session, and leaving
  *  either up would keep an unproven device connected. */
 function revokeDevice(deviceId, reason) {
+  logger.info(`[diag] revokeDevice device=${deviceId?.slice(0, 8)} reason=${reason}`); // TEMP DIAGNOSTIC — kick trace
   if (!deviceId) return;
   clearProofWaiters(deviceId); // nothing is waiting to ask the host any more
   removePendingApproval(getPendingSocketId(deviceId) || "");
@@ -643,6 +654,8 @@ function killRtcSession(peerId) {
   try { session.disconnect(); } catch {}
   if (pm) { try { pm.close(); } catch {} unregisterProtocol(pm); }
 }
+// broadcast.disposeProtocol hands PM disposal back here for the session part.
+setRtcSessionKiller(killRtcSession);
 
 /** Fire-and-forget build — every caller is a sync signaling/approval path. */
 function startRtcSession(peerId, deviceId) {
@@ -669,6 +682,7 @@ async function buildRtcSession(peerId, deviceId) {
   rtcSessions.set(peerId, socket);
   trackConnection(socket.id, "rtc", deviceId, "rtc");
   socket.on("disconnect", () => {
+    logger.info(`[diag] VirtualSocket disconnect peer=${(peerId || "").slice(0, 12)} → untrack + conn.close`); // TEMP DIAGNOSTIC — stale-connected bug
     if (rtcSessions.get(peerId) === socket) rtcSessions.delete(peerId);
     untrackConnection(socket.id);
     // The connection dies with its last carrier. Leaving it open kept a closed
@@ -747,6 +761,7 @@ export function approveRejectedDevice(deviceId) {
 
 /** Disconnect all active sockets belonging to a deviceId (device stays approved) */
 export function disconnectDeviceSockets(deviceId) {
+  logger.info(`[diag] disconnectDeviceSockets device=${deviceId?.slice(0, 8)} — stack hint: ${new Error().stack.split("\n")[2]?.trim()?.slice(0, 90)}`); // TEMP DIAGNOSTIC — who kicks whom
   const io = ioInstance;
   if (!io || !deviceId) return 0;
   let count = 0;
@@ -763,8 +778,7 @@ export function disconnectDeviceSockets(deviceId) {
   for (const pm of activeProtocols()) {
     if (pm._closed) continue;
     if (pm._deviceId?.split(":")[0] !== deviceId) continue;
-    try { pm.close(); } catch {}
-    unregisterProtocol(pm);
+    disposeProtocol(pm);
     count++;
   }
   // RTC-only sessions have no socket.io entry — kill them by peerId prefix.
@@ -794,7 +808,7 @@ export function rejectSocketDevice(socketId) {
   }
 
   if (socket) {
-    socket.emit("device:rejected");
+    verdictEmit(socket, "device:rejected");
     socket.disconnect(true);
   }
 
@@ -930,10 +944,7 @@ export async function startTransportServer(server) {
       pushUiLogDebug(`Client disconnected: ${ip} (${reason}) pm=${pm?._deviceId?.slice(0, 12) || "none"} remoteAttached=${!!socket.data?.remoteAttached}`);
       // PM cleanup deferred: remoteSocket grace timer handles it if remote was attached;
       // otherwise close immediately
-      if (pm && !socket.data?.remoteAttached) {
-        try { pm.close(); } catch {}
-        unregisterProtocol(pm);
-      }
+      if (pm && !socket.data?.remoteAttached) disposeProtocol(pm);
     });
 
     // Route this socket: attach to an existing RTC session, wait for an in-flight
@@ -973,13 +984,13 @@ export async function startTransportServer(server) {
           // hand it to this socket without raising it a second time.
           if (moved) {
             addPendingApproval(socket.id, { deviceId, ip });
-            socket.emit("device:pendingApproval");
+            verdictEmit(socket, "device:pendingApproval");
             return;
           }
           askHostToApprove(deviceId, {
             socketId: socket.id,
             ip,
-            notify: () => socket.emit("device:pendingApproval")
+            notify: () => verdictEmit(socket, "device:pendingApproval")
           });
         });
       };
@@ -1064,7 +1075,7 @@ export async function startTransportServer(server) {
           // Previously rejected — keep socket unapproved, no modal, update socketId for later approve
           updateRejectedSocket(deviceId, socket.id, ip);
           pushUiLog(`Rejected device reconnected: ${deviceId.slice(0, 8)} — waiting in Clients list`);
-          socket.emit("device:rejected");
+          verdictEmit(socket, "device:rejected");
           pushUiEvent("deviceApproval", { action: "refresh" });
           return;
         }

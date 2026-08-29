@@ -63,18 +63,14 @@ export function termLog(category, ...args) {
     lastEntry.count = (lastEntry.count || 1) + 1;
     lastEntry.ts = now;
     lastEntry.msg = `${msg} ×${lastEntry.count}`;
-    for (const fn of listeners) {
-      try { fn(lastEntry); } catch (e) { void e; }
-    }
+    queueMicrotask(() => { for (const fn of listeners) { try { fn(lastEntry); } catch (e) { void e; } } });
     return;
   }
   if (COALESCE_CATS.has(category) && lastEntry && lastEntry.category === category && now - lastEntry.ts < COALESCE_MS) {
     lastEntry.count = (lastEntry.count || 1) + 1;
     lastEntry.ts = now;
     lastEntry.msg = `${msg} ×${lastEntry.count}`;
-    for (const fn of listeners) {
-      try { fn(lastEntry); } catch (e) { void e; }
-    }
+    queueMicrotask(() => { for (const fn of listeners) { try { fn(lastEntry); } catch (e) { void e; } } });
     return;
   }
   const entry = { ts: now, category, msg, baseMsg: msg, count: 1 };
@@ -82,7 +78,13 @@ export function termLog(category, ...args) {
   buffer.push(entry);
   if (buffer.length > MAX) buffer.shift();
   console.log(`[termLog:${category}]`, ...args);
-  for (const fn of listeners) {
-    try { fn(entry); } catch (e) { void e; }
-  }
+  // Listeners are notified on a microtask, never synchronously: termLog can be
+  // called from a render-phase state update (a legal React pattern in its own
+  // component), and a synchronous notify made a log-panel component setState
+  // while another component was still rendering.
+  queueMicrotask(() => {
+    for (const fn of listeners) {
+      try { fn(entry); } catch (e) { void e; }
+    }
+  });
 }
