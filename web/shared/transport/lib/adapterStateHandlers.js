@@ -1,5 +1,4 @@
 import { ADAPTER_STATE } from "@/shared/constants/transport";
-import { rebindProxyListeners } from "./proxySocket";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 
@@ -14,28 +13,30 @@ export function handleWsStateChange(pm, state) {
     const isReconnect = pm._lastWsState === ADAPTER_STATE.degraded;
     pm._connected = true;
     pm._connectionMode = ws?.connectionMode || "tunnel";
+    // Kept only for bus.id and for disconnect(); no listener lives on it, so a
+    // fresh bus needs no re-binding — the bus already holds every handler.
     pm._rawSocket = ws?.socket || null;
-    // Re-attach proxy listeners to new raw socket
-    rebindProxyListeners(pm._rawSocket, pm._proxySocket);
-    // On WS reconnect (resume from background), the new socket is already
-    // connected by the time we bind "connect" handlers — Socket.IO won't fire
-    // the event again. Manually notify so terminal panes rejoin for fresh
-    // scrollback.
+    // "connect" is a RESERVED socket.io event (onAny never carries it), and no app
+    // listener sits on the bus any more — so a carrier coming back up can only
+    // reach the app from here. It is NOT announced on the first open: consumers
+    // register their "connect" listener from inside the onConnect callback below,
+    // and the pre-existing contract is that the first open reaches them through
+    // that callback (plus terminal:ready), not through the event.
     if (isReconnect) {
       pm._maybeFireRejoin("ws", "ws reconnect while rtc ready");
     }
     if (pm._lastWsState !== ADAPTER_STATE.open) {
       // First WS open after RTC already fired onConnect → just note the tunnel
       // is up (mode/transport update); don't re-fire onConnect (handlers would
-      // double-register listeners on the proxy).
+      // double-register listeners on the bus).
       if (pm._onConnectFired) {
         pm._wsCallbacks.onUrlUpdate?.({});
       } else {
         pm._onConnectFired = true;
         termLog("switch", `onConnect FIRE (ws, mode=${pm._connectionMode})`);
-        // Pass proxy socket so consumer's onConnect handlers register listeners on PROXY
-        // (which auto re-binds to new raw socket after reconnect)
-        pm._wsCallbacks.onConnect?.(pm._proxySocket, pm._connectionMode);
+        // Hand consumers the bus: listeners they register there survive every
+        // later carrier change on their own.
+        pm._wsCallbacks.onConnect?.(pm._bus, pm._connectionMode);
       }
     }
     // RTC is started from connect() (signaling via DO, independent of WS).
@@ -59,13 +60,13 @@ export function handleRtcStateChange(pm, state) {
     clearTimeout(pm._wsFallbackTimer);
     pm._rtcCallbacks.onUpgrade?.(pm._adapters.get("rtc")?.typeDetail || "dc-stun");
     // RTC opened first (tunnel not up yet) — fire onConnect so workspace hooks
-    // get the proxy socket and stop waiting for the tunnel. Data rides RTC.
+    // get the bus and stop waiting for the tunnel. Data rides RTC.
     if (!pm._onConnectFired) {
       pm._onConnectFired = true;
       pm._connected = true;
       pm._connectionMode = "webrtc";
       termLog("switch", "onConnect FIRE (rtc, mode=webrtc)");
-      pm._wsCallbacks.onConnect?.(pm._proxySocket, pm._connectionMode);
+      pm._wsCallbacks.onConnect?.(pm._bus, pm._connectionMode);
     }
     // Successful RTC open → reset zombie recovery attempts + probe cadence
     termLog("switch", `RESET attempts (was ${pm._rtcRestartAttempts}) reason=rtc-open`); // TEMP DIAGNOSTIC
@@ -78,10 +79,8 @@ export function handleRtcStateChange(pm, state) {
     // no need to reset the terminal.
     clearTimeout(pm._rejoinDebounceTimer);
     pm._rejoinDebounceTimer = null;
-    // On RTC reconnect (resume from background/mobility), fire "connect" on the
-    // proxy so terminal panes rejoin and fetch fresh scrollback. The proxy was
-    // already bound during first open — this just re-notifies listeners the
-    // transport is ready again (mirrors WS reconnect path).
+    // A reconnect additionally asks the panes to refetch scrollback — a heavier
+    // decision than "the link is up", so it stays debounced against the other carrier.
     if (isRtcReconnect) {
       pm._maybeFireRejoin("rtc", "rtc reconnect while ws ready");
     }

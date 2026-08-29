@@ -71,6 +71,17 @@ export function flushBuffer(pm) {
  * (legacy single-arg from raw socket.io onAny).
  */
 export function dispatch(pm, event, payload, source) {
+  // Agent capability announcement. It rides whichever carrier is up first — after
+  // a cold start that is usually WS, since RTC is still gathering ICE — so it is
+  // read here, not off the RTC channel, and handed to the adapter it configures.
+  if (event === "srvCaps") {
+    const caps = source === "rtc" ? payload?.args?.[0] : payload;
+    // Remembered on the PM, not only handed to the adapter: RTC may not exist yet
+    // (its start is deferred until signaling is ready) and it is torn down and
+    // rebuilt on every renegotiation — a fresh instance re-reads this.
+    pm._srvCaps = caps || {};
+    pm._adapters.get("rtc")?.setPeerCaps?.(pm._srvCaps);
+  }
   // Resolve ack reply — may arrive via RTC or WS (agent falls back to WS when RTC dies)
   if (event === "__ack") {
     const { ackId, args } = payload || {};
@@ -106,16 +117,14 @@ export function dispatch(pm, event, payload, source) {
   const args = source === "rtc" && Array.isArray(payload?.args)
     ? payload.args
     : [payload];
-  // 1) PM bus listeners
+  // 1) PM-internal listeners
   const set = pm._listeners.get(event);
   if (set) for (const h of set) h(...args);
-  // 2) Forward to raw socket listeners ONLY if not from WS (WS source: socket.io already
-  // invoked native listeners; forwarding would double-fire).
-  if (source === "ws") return;
-  const sock = pm.socketRef.current;
-  if (!sock) return;
-  const fns = sock.listeners?.(event);
-  if (fns?.length) for (const fn of fns) fn(...args);
+  // 2) The app's listeners, which all live on the one bus — the carrier that
+  // delivered this is not its business. (Previously the WS path returned here
+  // because socket.io had already invoked the handlers itself; now nothing is
+  // registered on the bus, so every carrier ends the same way.)
+  pm._bus?.dispatch(event, args);
 }
 
 /**
@@ -125,10 +134,9 @@ export function dispatch(pm, event, payload, source) {
  */
 export function onBinary(pm, msg) {
   if (!msg || msg.channel !== "file") return;
-  const sock = pm.socketRef.current;
-  if (!sock) return;
-  const fns = sock.listeners?.("file-bin");
-  if (fns?.length) for (const fn of fns) fn(msg.buffer);
+  // Same door as every other event: WS delivers "file-bin" through the normal
+  // dispatch, RTC arrives here as a raw frame — both end at the one registry.
+  pm._bus?.dispatch("file-bin", [msg.buffer]);
 }
 
 // Short ack timeout — if ack doesn't arrive, RTC is likely zombie (open but bytes lost).

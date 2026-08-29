@@ -87,8 +87,11 @@ function makePm({ pick = null, adapters = {} } = {}) {
     trace,
     ...initialState(),
     _adapters: new Map(Object.entries(adapters)),
-    socketRef: { current: { listeners: (ev) => pm._sockListeners.get(ev) || [] } },
+    // The app's listeners live on the bus, whichever carrier delivered the event.
     _sockListeners: new Map(),
+    _bus: {
+      dispatch(ev, args) { for (const h of pm._sockListeners.get(ev) || []) h(...args); }
+    },
     _pickAdapter: () => pick,
     _scheduleAckTimeout(id) { trace.push(["ackTimeout", id]); },
     _scheduleRtcRestart() { trace.push(["scheduleRtcRestart"]); },
@@ -179,14 +182,18 @@ test("dispatch: RTC envelope spreads args; WS payload stays single-arg", () => {
   assert.deepEqual(seen[1], [{ data: "x" }]);
 });
 
-test("dispatch: WS source does not double-fire raw socket listeners", () => {
+test("dispatch: an app listener fires exactly once per event, on either carrier", () => {
+  // The point is single delivery. It used to be enforced by skipping the forward
+  // step for WS (socket.io had already invoked the handler itself); now nothing is
+  // registered on the socket, so both carriers simply end at the bus — one copy,
+  // one delivery, no source-dependent branch to get wrong.
   const pm = makePm();
-  let raw = 0;
-  pm._sockListeners.set("output", [() => raw++]);
+  let app = 0;
+  pm._sockListeners.set("output", [() => app++]);
   dispatch(pm, "output", { data: "x" }, "ws");
-  assert.equal(raw, 0, "socket.io already invoked its native listeners");
+  assert.equal(app, 1, "WS delivery reaches the bus exactly once");
   dispatch(pm, "output", { args: ["y"] }, "rtc");
-  assert.equal(raw, 1, "RTC source must forward to raw listeners");
+  assert.equal(app, 2, "RTC delivery reaches the same listener");
 });
 
 test("dispatch: device:approved clears the flag and renegotiates when rtc is dead", () => {

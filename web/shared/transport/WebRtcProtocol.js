@@ -1,7 +1,7 @@
 import { BaseProtocol } from "./BaseProtocol";
-import { encode, decode } from "./codec";
+import { encode, decode, encodeFrame, decodeFrame } from "./codec";
 import { API_ENDPOINTS } from "@/shared/constants/API";
-import { ADAPTER_STATE, CHANNELS, DEAD_PATH_POLL_MS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, DEAD_PATH_POLL_MS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS, RTC_HEARTBEAT_INTERVAL_MS, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { getTrust, setTrust, getPendingFp2, takePendingFp2, hostFingerprint, verifySdpSignature } from "./lib/deviceTrust";
@@ -98,6 +98,16 @@ export class WebRtcProtocol extends BaseProtocol {
     this._flushTimer = null;
     this._latestTileTs = new Map();
 
+    // Heartbeat staleness (agent pings, we pong): a stalled SCTP reports "open"
+    // while blackholing messages — no ping for interval+grace means dead.
+    this._hbTimer = null;
+    this._hbLastPing = 0;
+    // Agent announced the v2 binary envelope (srvCaps.env2) — until then, send v1
+    // text so an old agent still parses us. Set by PM: srvCaps arrives on whichever
+    // carrier is up first, which is usually WS (RTC is still gathering ICE), so it
+    // must not be read off this adapter's own channel.
+    this._peerEnv2 = false;
+
     this._signalingHandlers = {};
     this._signaling = null;
   }
@@ -141,7 +151,7 @@ export class WebRtcProtocol extends BaseProtocol {
     }, RTC_CONNECT_TIMEOUT_MS);
 
     // Full cluster (see the agent's DEFAULT_ICE note): each server is a separate
-    // socket and therefore a separate CGNAT mapping, and carriers admit inbound
+    // bus and therefore a separate CGNAT mapping, and carriers admit inbound
     // UDP per-port inconsistently — the extra mappings are what keep cellular
     // networks connectable. Benchmarked from VN: Google ~150ms, Twilio ~144ms,
     // Cloudflare ~813ms; the checking tail is absorbed by the ICE window.
@@ -237,8 +247,18 @@ export class WebRtcProtocol extends BaseProtocol {
 
     dcControl.onmessage = ({ data }) => {
       let parsed;
-      try { parsed = decode(data); }
+      // The DC itself tells the two wire forms apart: a string is v1 JSON, an
+      // ArrayBuffer is a v2 frame (binaryType is "arraybuffer"). No sniffing.
+      try { parsed = typeof data === "string" ? decode(data) : decodeFrame(data); }
       catch (err) { console.error("[rtc] control parse error:", err.message); return; }
+      if (parsed.event === "__ping") {
+        // Lazy-arm on the first ping: an old agent never pings, and a watch armed
+        // at DC-open would kill its healthy RTC after one timeout of silence.
+        if (!this._hbTimer) this._startHeartbeatWatch();
+        this._hbLastPing = Date.now();
+        try { dcControl.send(encode({ event: "__pong", args: parsed.args || [] })); } catch {}
+        return;
+      }
       this._emit("message", { event: parsed.event, data: parsed, source: "rtc" });
     };
 
@@ -310,7 +330,11 @@ export class WebRtcProtocol extends BaseProtocol {
     if (channel === CHANNELS.control) {
       if (this._dcControl?.readyState !== "open") return false;
       try {
-        this._dcControl.send(encode({ event: payload.event, args: payload.args || [], ackId: payload.ackId || null }));
+        const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
+        // v2 binary frame once the agent announced it — buffers ride raw instead
+        // of base64 inside JSON. Old agents keep the text form.
+        if (this._peerEnv2) this._dcControl.send(encodeFrame(env));
+        else this._dcControl.send(encode(env));
         return true;
       } catch (err) {
         console.error("[rtc] send control error:", err.message);
@@ -353,6 +377,32 @@ export class WebRtcProtocol extends BaseProtocol {
     termLog("switch", `rtc→closed reason=${reason}`);
     this._cleanupPeer();
     this._setState(ADAPTER_STATE.closed);
+  }
+
+  /** PM forwards the agent's srvCaps announcement (it may arrive on either
+   *  carrier). env2 flips this adapter's sender to the v2 binary frame. */
+  setPeerCaps(caps) {
+    this._peerEnv2 = !!caps?.env2;
+  }
+
+  /** Ping-staleness watch — armed lazily on the first __ping (see onmessage).
+   *  The agent pings every RTC_HEARTBEAT_INTERVAL_MS; silence past interval+grace
+   *  means the peer is stalled (SCTP "open" but blackholing) — close it so the PM
+   *  routes around to WS and the restart loop can re-offer. */
+  _startHeartbeatWatch() {
+    if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null; }
+    this._hbLastPing = Date.now();
+    this._hbTimer = setInterval(() => {
+      if (this._state !== ADAPTER_STATE.open) {
+        clearInterval(this._hbTimer); this._hbTimer = null;
+        return;
+      }
+      const silent = Date.now() - this._hbLastPing;
+      if (silent > RTC_HEARTBEAT_TIMEOUT_MS) {
+        debugLog("transport", `[rtc] heartbeat: no ping for ${silent}ms → closing stalled peer`);
+        this._closePeer(`heartbeat-stale (${silent}ms)`);
+      }
+    }, RTC_HEARTBEAT_INTERVAL_MS);
   }
 
   /** Empty candidate = end-of-candidates; the spec spells it as a bare "" line. */
@@ -593,6 +643,7 @@ export class WebRtcProtocol extends BaseProtocol {
     clearTimeout(this._connectTimer);
     this._connectTimer = null;
     this._stopDeadPathWatch();
+    if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null; }
     for (const dc of [this._dcControl, this._dcBinary, this._dcFile]) {
       if (!dc) continue;
       dc.onopen = null; dc.onclose = null; dc.onerror = null; dc.onmessage = null;

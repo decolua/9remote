@@ -1,4 +1,4 @@
-// Reset transient terminal state that can get stuck across a socket disconnect.
+// Reset transient terminal state that can get stuck across a bus disconnect.
 // R2: historyFetchingRef/historyHaveAtEmitRef — if disconnect lands mid requestHistory,
 //     the ack never fires and the ref stays true → scroll-up history fetch dead.
 // R3: awaitingTuiOutputRef — if disconnect lands mid SGR wheel round-trip, handleOutput
@@ -23,6 +23,10 @@ export function resetReconnectState(refs) {
   if (refs.joining) refs.joining.current = false;
   if (refs.joinClaimed) refs.joinClaimed.current = false;
   if (refs.joinQueue) refs.joinQueue.current = [];
+  // R7: a fragmented history prefix cut short by the disconnect would never complete
+  // (part count never reached) and hold its bytes forever — drop it; the in-flight
+  // fetch the fragments belong to is being reset above anyway.
+  if (refs.prefixFrags) refs.prefixFrags.current = null;
   if (refs.awaitingGap) {
     if (refs.awaitingGap.current?.timer) clearTimeout(refs.awaitingGap.current.timer);
     refs.awaitingGap.current = null;

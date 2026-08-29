@@ -42,7 +42,7 @@ function makePm({ wsReady = false, rtcReady = false } = {}) {
     _rawSocket: null,
     _lastWsState: null,
     _onConnectFired: false,
-    _proxySocket: { _proxyListeners: new Map() },
+    _bus: { dispatch: () => {} },
     _rtcRestartAttempts: 3,
     _probeAttempts: 2,
     _rtcGivenUp: true,
@@ -118,7 +118,7 @@ function origStateChange(pm, adapterId, state) {
           pm._wsCallbacks.onUrlUpdate?.({});
         } else {
           pm._onConnectFired = true;
-          pm._wsCallbacks.onConnect?.(pm._proxySocket, pm._connectionMode);
+          pm._wsCallbacks.onConnect?.(pm._bus, pm._connectionMode);
         }
       }
     } else {
@@ -135,7 +135,7 @@ function origStateChange(pm, adapterId, state) {
       pm._onConnectFired = true;
       pm._connected = true;
       pm._connectionMode = "webrtc";
-      pm._wsCallbacks.onConnect?.(pm._proxySocket, pm._connectionMode);
+      pm._wsCallbacks.onConnect?.(pm._bus, pm._connectionMode);
     }
     pm._rtcRestartAttempts = 0;
     pm._probeAttempts = 0;

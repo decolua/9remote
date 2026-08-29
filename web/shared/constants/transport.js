@@ -41,6 +41,13 @@ export const STUN_PROBE = {
 // flicker. If not → fall back to a WS-driven rejoin to recover content.
 export const REJOIN_DEBOUNCE_MS = 500;
 
+// Control-DC liveness (ttyd pattern: periodic ping, hang up after interval+grace
+// of silence). SCTP can stay "open" while an app-level stall blackholes every
+// message. Agent pings, web pongs; each side also measures the other direction.
+// Mirrored in agent/lib/transportConstants.js.
+export const RTC_HEARTBEAT_INTERVAL_MS = 10_000;
+export const RTC_HEARTBEAT_TIMEOUT_MS = 25_000;
+
 // Max time RTC stays "connecting" before we give up. Without this, an offer that
 // reached the DO before the agent joined its room is silently dropped — no answer
 // ever arrives, ICE never runs, and the adapter hangs in "connecting" forever
@@ -147,7 +154,7 @@ export const NET_RECOVERY = {
   debounceMs: 500 // connection.change fires in bursts on handover
 };
 
-// WS zombie recovery — detect a socket.io socket that still reports connected
+// WS zombie recovery — detect a socket.io bus that still reports connected
 // after OS background suspension froze its pings (data never flows again).
 // Sized at ~2 missed cycles of the agent's pingInterval (12s), with room for a
 // mobile stall: shorter than that and a phone waking up would be torn down for

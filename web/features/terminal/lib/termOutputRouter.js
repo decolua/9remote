@@ -61,6 +61,10 @@ export function createOutputRouter({ sessionId, term, writeBatcherRef, gapFetch,
 
   const handleOutput = (payload) => {
     if (payload.sessionId !== sessionId) return;
+    // caps.binOut upgrade: WS delivers bytes as a binary attachment (ArrayBuffer).
+    // Everything downstream (batcher, mirror, gapFetch) takes Uint8Array — wrap once
+    // at the door. b64-string (old agent / RTC codec) path is untouched below.
+    if (payload.data instanceof ArrayBuffer) payload = { ...payload, data: new Uint8Array(payload.data) };
     refs.lastOutputAtRef.current = Date.now();
     const dlen = payload.data?.length || 0;
     refs.outputTotalRef.current += dlen;
@@ -85,6 +89,24 @@ export function createOutputRouter({ sessionId, term, writeBatcherRef, gapFetch,
 
     // Older-than-tail prefix (scroll-up fetch): splice before mirror, reset+replay once.
     if (payload.isHistoryPrefix) {
+      // Fragmented prefix (SCTP-safe slices, part/parts markers): the splice is
+      // once-semantics, so hold the parts and replay only the concatenated whole.
+      // Parts arrive in order on the same channel; part 0 resets a stale accumulation.
+      if (payload.parts > 1) {
+        let acc = refs.prefixFragsRef.current;
+        if (payload.part === 0 || !acc || acc.parts !== payload.parts) {
+          acc = { parts: payload.parts, chunks: [] };
+          refs.prefixFragsRef.current = acc;
+        }
+        acc.chunks[payload.part] = data;
+        if (acc.chunks.filter(Boolean).length < payload.parts) return;
+        refs.prefixFragsRef.current = null;
+        const whole = new Uint8Array(acc.chunks.reduce((n, c) => n + c.length, 0));
+        let off = 0;
+        for (const c of acc.chunks) { whole.set(c, off); off += c.length; }
+        replayWithPrefix(whole);
+        return;
+      }
       replayWithPrefix(data);
       return;
     }

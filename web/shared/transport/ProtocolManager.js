@@ -5,7 +5,7 @@ import { CHANNELS, ADAPTER_STATE, REJOIN_DEBOUNCE_MS, RTC_CONNECT_TIMEOUT_MS, RT
 import { probePublicIp, shouldRearmOnIpChange, NO_PUBLIC_IP } from "./stunProbe";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
-import { createProxySocket, fireProxyEvent } from "./lib/proxySocket";
+import { createClientBus } from "./lib/clientBus";
 import { pickAdapter } from "./lib/controlRouting";
 import { nextRestartStep, restartTimerAction, restartRtcAction, peerDeadline } from "./lib/rtcRecoveryPolicy";
 import { attachWatchers } from "./lib/pmWatchers";
@@ -23,7 +23,7 @@ registerProtocol(WebRtcProtocol);
  * ProtocolManager — orchestrator. Holds auth, instantiates adapters from profile,
  * routes messages by channel via priority, auto-reroutes on stateChange.
  *
- * Backward-compat API kept (on/off/emit/connect/disconnect, socketRef, type, connected, connectionMode).
+ * Backward-compat API kept (on/off/emit/connect/disconnect, busRef, type, connected, connectionMode).
  */
 export class ProtocolManager {
   constructor(wsConfig, rtcConfig) {
@@ -36,15 +36,15 @@ export class ProtocolManager {
     this._peerId = peerId;
     Object.assign(this, initialState());
 
-    // Persistent proxy socket — emit always routed through PM (auto fallback to RTC).
-    // on/off delegate to current raw socket. Survives WS disconnect.
-    this._proxySocket = createProxySocket(this);
-    this.socketRef = { current: this._proxySocket };
-    // Device-auth events arrive on either carrier: WS fires proxy listeners
-    // natively, RTC dispatch invokes them via the proxy map — one registration
-    // covers both (see lib/deviceTrust).
+    // The one handler host, mirroring the agent's VirtualSocket: it owns every
+    // app listener and outlives each carrier, so a WS reconnect or an RTC-only
+    // session changes nothing about who is registered.
+    this._bus = createClientBus(this);
+    this.busRef = { current: this._bus };
+    // Device-auth events arrive on either carrier; one registration covers both
+    // because the bus is downstream of the carrier choice (see lib/deviceTrust).
     for (const ev of DEVICE_AUTH_EVENTS) {
-      this._proxySocket.on(ev, (data) => handleDeviceAuthEvent(this, ev, data));
+      this._bus.on(ev, (data) => handleDeviceAuthEvent(this, ev, data));
     }
     // Environment watchers (tab visibility/resume/freeze, network handover) drive the
     // RTC recovery paths — see lib/pmWatchers.
@@ -167,7 +167,12 @@ export class ProtocolManager {
     inst.on("stateChange", (state) => this._onAdapterStateChange(id, state));
     inst.on("message", ({ event, data, source }) => this._dispatch(event, data, source));
     inst.on("binary", (msg) => this._onBinary(msg));
-    if (id === "rtc") inst.on("netFingerprint", (ip) => this._onNetFingerprint(ip));
+    if (id === "rtc") {
+      inst.on("netFingerprint", (ip) => this._onNetFingerprint(ip));
+      // Caps announced before this instance existed (deferred start, or a
+      // renegotiation that replaced its predecessor) still apply to it.
+      if (this._srvCaps) inst.setPeerCaps?.(this._srvCaps);
+    }
     this._adapters.set(id, inst);
   }
 
@@ -326,6 +331,9 @@ export class ProtocolManager {
     }
     this._adapters.clear();
     this._listeners.clear();
+    // App listeners live on the bus now (they used to die with the socket.io
+    // socket) — a torn-down PM must not keep panes and their closures alive.
+    this._bus.clear();
     this._buffer = [];
     this._connected = false;
     this._rawSocket = null;
@@ -404,7 +412,7 @@ export class ProtocolManager {
     this._flushBuffer();
   }
 
-  /** Fire the proxy "connect" rejoin on a carrier reconnect — UNLESS the other
+  /** Fire the bus "connect" rejoin on a carrier reconnect — UNLESS the other
    * carrier is already carrying data, in which case this is a transparent switch
    * and terminal panes must not reset+reload. Only the first adapter up after a
    * full outage triggers the rejoin.
@@ -434,12 +442,12 @@ export class ProtocolManager {
           return;
         }
         termLog("switch", `debounce expired → FIRE rejoin (rtc=${r?.state || "absent"})`);
-        fireProxyEvent(this._proxySocket, "connect");
+        this._bus.dispatch("connect", []);
       }, REJOIN_DEBOUNCE_MS);
       return;
     }
     termLog("switch", `${reason} → FIRE rejoin`);
-    fireProxyEvent(this._proxySocket, "connect");
+    this._bus.dispatch("connect", []);
   }
 
   _recomputeType() {

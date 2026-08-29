@@ -52,12 +52,12 @@ export function attachWatchers(pm) {
     // WS zombie: socket.io still reports connected after background suspension
     // froze its pings, so it looks ready but no bytes flow (terminal/remote go
     // dead with NO disconnect modal, and only an app reload recovers). Break the
-    // zombie socket so the normal reconnect path replaces it.
+    // zombie bus so the normal reconnect path replaces it.
     // lastInboundAt comes from Engine.IO "pong" (true liveness, independent of
     // app traffic or RTC) so an idle-but-alive WS is never mistaken for a zombie.
     // Use the FRESHEST of pong and app-event: a carrier that still delivers app
     // bytes is alive even if the server's pingInterval is long/disabled, and an
-    // idle socket is kept alive by pong. Only when BOTH go stale is it a zombie.
+    // idle bus is kept alive by pong. Only when BOTH go stale is it a zombie.
     const wsLastAlive = Math.max(ws?.lastInboundAt ?? 0, ws?.lastMsgAt ?? 0);
     const wsZombie = ws?.ready && isWsZombie({
       ready: true,
@@ -79,7 +79,7 @@ export function attachWatchers(pm) {
     }
     // WS not ready but not a zombie → leave it alone. WsProtocol's own
     // visibility handler owns that path (it calls retryNow, guarded against
-    // killing a mid-handshake socket → no onConnect → handleSocketReady flash).
+    // killing a mid-handshake bus → no onConnect → handleSocketReady flash).
     // Signaling rides the tunnel WS *or* the DO relay — an RTC-only session
     // has no ws adapter at all, so gating on WS here left it stuck forever.
     if (pm._awaitingApproval) return; // host hasn't approved yet — nothing to retry

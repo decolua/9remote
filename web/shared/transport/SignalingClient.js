@@ -16,7 +16,7 @@ const MAX_PRE_OPEN_FAILURES = 5;
 // call costs a fresh WS upgrade, and every upgrade runs the DO's session gate —
 // one D1 read. Collapse a burst into a single attempt.
 const RETRY_NOW_THROTTLE_MS = 3000;
-// A socket that has been handshaking longer than this is presumed wedged, so
+// A bus that has been handshaking longer than this is presumed wedged, so
 // replacing it is worth another upgrade. Below it, let the handshake finish.
 const HANDSHAKE_STALL_MS = 5000;
 
@@ -75,7 +75,7 @@ export class SignalingClient {
       this._ws.send(JSON.stringify({ to: msg.to || OTHER_ROLE[this._role], from: this._from, type: msg.type, payload: sigData(msg) }));
       return true;
     } catch {
-      return false; // socket closing between the ready check and send
+      return false; // bus closing between the ready check and send
     }
   }
 
@@ -89,7 +89,7 @@ export class SignalingClient {
 
     const now = Date.now();
     // Burst guard. Without it, visibility + resume + network-change on one app
-    // switch each tore down the in-flight socket and opened another.
+    // switch each tore down the in-flight bus and opened another.
     //
     // Deferred, never dropped: after MAX_PRE_OPEN_FAILURES the close handler stops
     // scheduling, leaving retryNow as the only way back. Discarding a throttled
@@ -118,7 +118,7 @@ export class SignalingClient {
     this._preOpenFails = 0;
     clearTimeout(this._reconnectTimer);
     this._reconnectTimer = null;
-    // A socket still handshaking is bound to the old network — drop it, else
+    // A bus still handshaking is bound to the old network — drop it, else
     // _open() leaves two sockets racing and _onClose reschedules a duplicate.
     const stale = this._ws;
     this._ws = null;
@@ -169,7 +169,7 @@ export class SignalingClient {
       debugLog("transport", `[sig] recv ${msg.type} from=${msg.from}`);
       this._handler?.({ type: msg.type, from: msg.from, ...msg.payload });
     });
-    // Guard: a socket replaced by retryNow() must not drive reconnect state.
+    // Guard: a bus replaced by retryNow() must not drive reconnect state.
     ws.addEventListener("close", () => { if (this._ws === ws) this._onClose(); });
     ws.addEventListener("error", () => { if (this._ws === ws) this._onClose(); });
   }

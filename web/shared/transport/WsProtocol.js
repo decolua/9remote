@@ -256,8 +256,12 @@ export class WsProtocol extends BaseProtocol {
     // Also stamp on connect — a freshly opened socket is by definition alive.
     socket.on("connect", () => { this._lastInboundAt = Date.now(); });
 
-    // Forward all incoming events into unified bus as "message" (tagged source so PM
-    // doesn't double-fire raw socket listeners — socket.io already invoked them natively)
+    // Every inbound event goes to PM as "message"; PM ends it at the ClientBus,
+    // which is the only place app listeners live. Nothing is registered on this
+    // socket, so this is the sole delivery path — no double-fire to avoid.
+    // (`source` is still tagged: RTC envelopes need their args unwrapped.)
+    // Acks are the exception and stay native: a WS request emits with its callback
+    // (see send()), and socket.io resolves that callback itself.
     socket.onAny((event, data) => {
       this._lastMsgAt = Date.now(); // TEMP DIAGNOSTIC — app event over WS
       this._emit("message", { event, data, source: "ws" });

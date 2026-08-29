@@ -228,10 +228,10 @@ export async function verifySdpSignature(publicKeyB64, sdp, sigB64) {
 
 // ── PM integration — control-channel events both directions ──────────────────
 
-// Registered on the PM proxy socket (web ProtocolManager constructor): WS fires
-// these natively on the raw socket, RTC dispatch reaches them via the proxy
-// listener map — both carriers land in handleDeviceAuthEvent with the unpacked
-// payload as the first arg.
+// Registered on the PM's ClientBus (web ProtocolManager constructor): every
+// carrier's dispatch ends at that one bus, so a single registration covers both —
+// WS and RTC alike land in handleDeviceAuthEvent with the unpacked payload as the
+// first arg.
 export const DEVICE_AUTH_EVENTS = ["device:keyIssued", "device:tailRejected"];
 
 /** Handle a device-auth control event. Returns true when consumed. */

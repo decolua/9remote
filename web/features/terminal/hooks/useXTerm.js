@@ -21,7 +21,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
-export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, bgKey = "none", onInput, onSelectionMade }) {
+export function useXTerm({ bus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, bgKey = "none", onInput, onSelectionMade }) {
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const writeBatcherRef = useRef(null);
@@ -31,7 +31,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const inputHandlerRef = useRef(null);
   const resizeTimerRef = useRef(null);
   const doResizeRef = useRef(null);
-  const doJoinSessionRef = useRef(null); // reload() calls this — no full socket reconnect
+  const doJoinSessionRef = useRef(null); // reload() calls this — no full bus reconnect
   const fireJoinRef = useRef(null);      // emit joinSession at a size (set by doJoinSession, called by settle)
   const forceNextRef = useRef(false);   // doResize({force}) flag carried into the settle timer
   const joinNextRef = useRef(false);    // doResize({join}) flag — fire a deferred join at settled size
@@ -58,6 +58,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const historyFetchingRef = useRef(false); // in-flight requestHistory
   const historyLastFetchRef = useRef(0);    // timestamp of last fetch (guard)
   const historyHaveAtEmitRef = useRef(0);   // historyBytesRef snapshot at requestHistory emit (race-dedup)
+  // Fragmented history prefix (part/parts markers from the agent): held until all
+  // parts arrive, then replayed as one — the prefix splice is once-semantics.
+  const prefixFragsRef = useRef(null);
   // Live-output seq (plan F): last live seq rendered. Detects a scrollback gap when output was
   // lost during a background suspension the warm-reconnect heuristic missed. null until the
   // first seq'd chunk arrives (old agents send no seq → seq logic stays disabled).
@@ -80,7 +83,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   const scrollDisposeRef = useRef(null);    // disposable from term.onScroll
   const pendingRecoverRef = useRef(null);   // recovery asked for while pane hidden/busy → reason, replayed when it can run
   const requestRecoverRef = useRef(null);   // single recovery entry point, shared with the visibility effect
-  const isVisibleRef = useRef(isVisible);   // mirror isVisible for socket handlers
+  const isVisibleRef = useRef(isVisible);   // mirror isVisible for bus handlers
   useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
   const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
   const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers
@@ -92,12 +95,12 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   // (layout mid-transition, app-resume reconnect) re-wraps scrollback narrow forever.
   const emitResize = useCallback(() => {
     const term = termRef.current;
-    if (!term || !socket) return;
+    if (!term || !bus) return;
     const { cols, rows } = term;
     if (cols < MIN_COLS || rows < MIN_ROWS) return;
     lastPtySizeRef.current = { cols, rows };
-    socket.emit("resize", { sessionId, cols, rows });
-  }, [socket, sessionId]);
+    bus.emit("resize", { sessionId, cols, rows });
+  }, [bus, sessionId]);
 
   // Settle-and-emit: single debounce (SETTLE_DEBOUNCE_MS) after the LAST layout change, then fit
   // once + emit at the settled size. PTY cols is one-way (a transient narrow cols re-wraps
@@ -116,7 +119,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       const term = termRef.current;
       const fitAddon = fitAddonRef.current;
       const el = containerRef.current;
-      if (!term || term._isDisposed || !fitAddon || !socket) return;
+      if (!term || term._isDisposed || !fitAddon || !bus) return;
       if (!el?.offsetWidth || !el?.offsetHeight) return; // not laid out yet → RO will re-kick
       fitAddon.fit();
       const { cols, rows } = term;
@@ -135,7 +138,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         return;
       }
       lastPtySizeRef.current = { cols, rows };
-      socket.emit("resize", { sessionId, cols, rows });
+      bus.emit("resize", { sessionId, cols, rows });
       // A join was wanted but the closure is not wired yet (mount race) — nothing
       // will fire, so a claimed lane would stay claimed forever.
       if (wantJoin && !fireJoinRef.current) joinClaimedRef.current = false;
@@ -150,13 +153,13 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         fireJoinRef.current(cols, rows);
       }
     }, SETTLE_DEBOUNCE_MS);
-  }, [socket, sessionId, containerRef]);
+  }, [bus, sessionId, containerRef]);
 
   useEffect(() => { doResizeRef.current = doResize; }, [doResize]);
 
   // Initialize XTerm instance
   useEffect(() => {
-    if (!containerRef.current || !socket || !sessionId) return;
+    if (!containerRef.current || !bus || !sessionId) return;
     if (termRef.current) return;
 
     // Fresh session → no prior output; clear so a carrier switch right after join
@@ -287,7 +290,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       historyLastFetchRef.current = now;
       historyHaveAtEmitRef.current = historyBytesRef.current;
       setHistoryFetching(true);
-      socket.emit("requestHistory", { sessionId, have: historyHaveAtEmitRef.current }, (result) => {
+      bus.emit("requestHistory", { sessionId, have: historyHaveAtEmitRef.current }, (result) => {
         if (!result || !result.success) { historyFetchingRef.current = false; setHistoryFetching(false); return; }
         if (!result.prefixLen) { historyFetchingRef.current = false; setHistoryFetching(false); }
         historyTotalRef.current = result.total || historyTotalRef.current;
@@ -309,7 +312,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     // Gap-recovery state machine (plan G): request a missing live-output range and append it —
     // no reset, no flash. Live output meanwhile is queued, then flushed after the gap.
     const gapFetch = createGapFetch({
-      emit: (payload, ack) => socket.emit("requestGap", { sessionId, ...payload }, ack),
+      emit: (payload, ack) => bus.emit("requestGap", { sessionId, ...payload }, ack),
       writeChunk: (data) => {
         const b = writeBatcherRef.current;
         writeChunked(term, data, historyMirrorRef, historyBytesRef, b);
@@ -359,7 +362,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         pendingRecoverRef.current = pendingRecoverRef.current || reason;
         drainPending();
       }, PEEK_TIMEOUT_MS);
-      socket.emit("peekSeq", { sessionId }, (res) => {
+      bus.emit("peekSeq", { sessionId }, (res) => {
         if (gen !== peekGen) return; // this peek was retired (timeout/reconnect) — a newer one owns the decision
         clearTimeout(peekDeadline);
         peekDeadline = null;
@@ -381,7 +384,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     };
 
     /** The ONE door into recovery. A resume fires several triggers at once (visibilitychange,
-     *  socket connect, pane focus), so the peek is debounced into a single round-trip. A request
+     *  bus connect, pane focus), so the peek is debounced into a single round-trip. A request
      *  that can't run right now is REMEMBERED, not dropped: a hidden pane would recover into a
      *  zero-size buffer (wrong wrap), so it waits for the visibility effect to replay it. */
     const requestRecover = (reason) => {
@@ -405,22 +408,22 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       refs: {
         joiningRef, joinQueueRef, lastSeqRef, lastOutputAtRef, outputTotalRef,
         awaitingTuiOutputRef, userAtTopRef, historyFetchingRef, historyHaveAtEmitRef,
-        historyMirrorRef, historyBytesRef
+        historyMirrorRef, historyBytesRef, prefixFragsRef
       },
       setHistoryFetching
     });
-    socket.on("output", handleOutput);
+    bus.on("output", handleOutput);
 
     // Server-pushed cwd change (OSC 7 detected daemon-side) — authoritative cwd source
     const handleCwdChange = (payload) => {
       if (!payload || payload.sessionId !== sessionId) return;
       if (payload.cwd) { cwdRef.current = payload.cwd; setCwd(payload.cwd); useTerminalStore.getState().setCwd(sessionId, payload.cwd); }
     };
-    socket.on("cwdChange", handleCwdChange);
+    bus.on("cwdChange", handleCwdChange);
 
     // Join session and replay scrollback buffer from the daemon
     const doJoinSession = createJoinSession({
-      socket, sessionId, term, fitAddon, writeBatcherRef, doResizeRef, fireJoinRef,
+      bus, sessionId, term, fitAddon, writeBatcherRef, doResizeRef, fireJoinRef,
       refs: {
         historyMirrorRef, historyBytesRef, historyTotalRef, historyFetchingRef,
         userAtTopRef, joiningRef, joinClaimedRef, joinQueueRef, joinGenRef, lastSeqRef, cwdRef, setJoining
@@ -449,6 +452,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
         joining: joiningRef,
         joinClaimed: joinClaimedRef,
         joinQueue: joinQueueRef,
+        prefixFrags: prefixFragsRef,
       });
       gapFetch.cancel();
       clearTimeout(peekDeadline); peekDeadline = null;
@@ -464,7 +468,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       // inside requestRecover — the request is kept, not dropped.
       requestRecover("reconnect");
     };
-    socket.on("connect", handleReconnect);
+    bus.on("connect", handleReconnect);
 
     // Orientation change: wait for mobile layout to settle, then force-refit + re-emit cols.
     // RO may not fire or fire mid-transition with a stale width → cols lock to the wrong value.
@@ -493,9 +497,9 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       resizeObserver.disconnect();
       wheelEl.removeEventListener("wheel", handleWheel);
-      socket.off("connect", handleReconnect);
-      socket.off("output", handleOutput);
-      socket.off("cwdChange", handleCwdChange);
+      bus.off("connect", handleReconnect);
+      bus.off("output", handleOutput);
+      bus.off("cwdChange", handleCwdChange);
       if (scrollDisposeRef.current) scrollDisposeRef.current.dispose();
       term.textarea?.removeEventListener("keyup", maybeFetchHistory);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
@@ -513,32 +517,32 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
       setTermReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, sessionId]);
+  }, [bus, sessionId]);
 
   // Live WebGL toggle: swap renderer + re-fit on change (no reload needed)
   useEffect(() => {
     const term = termRef.current;
     const fitAddon = fitAddonRef.current;
-    if (!term || !fitAddon || !socket || !sessionId) return;
+    if (!term || !fitAddon || !bus || !sessionId) return;
     if (webglEnabled) loadWebGLRef.current?.();
     else disposeWebGLRef.current?.();
-  }, [webglEnabled, socket, sessionId]);
+  }, [webglEnabled, bus, sessionId]);
 
   // Live font size: apply + re-fit on change
   useEffect(() => {
     const term = termRef.current;
     const fitAddon = fitAddonRef.current;
-    if (!term || !fitAddon || !socket || !sessionId) return;
+    if (!term || !fitAddon || !bus || !sessionId) return;
     if (fontSizeSetting == null) return;
     term.options.fontSize = fontSizeSetting;
     fitAddon.fit();
     emitResize();
     term.refresh(0, term.rows - 1);
-  }, [fontSizeSetting, socket, sessionId, emitResize]);
+  }, [fontSizeSetting, bus, sessionId, emitResize]);
 
   // Input handler - only when active
   useEffect(() => {
-    if (!termRef.current || !socket || !sessionId) return;
+    if (!termRef.current || !bus || !sessionId) return;
 
     if (inputHandlerRef.current) {
       inputHandlerRef.current.dispose();
@@ -548,22 +552,22 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     if (isFocused) {
       inputHandlerRef.current = termRef.current.onData((data) => {
         if (isUserTyping(data)) onInput?.(sessionId);
-        socket.emit("input", { sessionId, data });
+        bus.emit("input", { sessionId, data });
       });
     }
-  }, [isFocused, socket, sessionId, onInput]);
+  }, [isFocused, bus, sessionId, onInput]);
 
   // Hover scroll: forward mouse-report sequences to the PTY even when the pane is not focused,
   // so alt-screen apps (Claude Code CLI) scroll on hover without stealing keyboard focus.
   useEffect(() => {
-    if (!termRef.current || !socket || !sessionId || isFocused) return;
+    if (!termRef.current || !bus || !sessionId || isFocused) return;
     // Mouse SGR (\x1b[<) or normal (\x1b[M) report → forward; ignore keyboard data
     const isMouseReport = (d) => d.startsWith("\x1b[<") || d.startsWith("\x1b[M");
     const handler = termRef.current.onData((data) => {
-      if (isMouseReport(data)) socket.emit("input", { sessionId, data });
+      if (isMouseReport(data)) bus.emit("input", { sessionId, data });
     });
     return () => handler.dispose();
-  }, [isFocused, socket, sessionId]);
+  }, [isFocused, bus, sessionId]);
 
   // Re-fit when becoming visible (desktop: all opened panes; mobile: active pane)
   useEffect(() => {
@@ -611,17 +615,17 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
   }, [theme, terminalTheme, bgKey]);
 
   useTermTouchGestures({
-    termRef, termReady, isVisible, socket, sessionId,
+    termRef, termReady, isVisible, bus, sessionId,
     onSelectionMadeRef, awaitingTuiOutputRef, maybeFetchHistoryRef, userAtTopRef,
     stopMomentumRef
   });
 
   // Manual per-pane reload: reset the local XTerm + re-join THIS session to re-fetch the
-  // scrollback tail + restore modes, then rebuild WebGL to clear glyph glitches. No socket
+  // scrollback tail + restore modes, then rebuild WebGL to clear glyph glitches. No bus
   // reconnect, no impact on other panes.
   const reload = useCallback(() => {
     const term = termRef.current;
-    if (!term || !socket) return;
+    if (!term || !bus) return;
     termLog("join", "manual reload (user refetch)");
     doJoinSessionRef.current?.(true); // doResize wipes at the settled size
     if (webglEnabled) {
@@ -630,7 +634,7 @@ export function useXTerm({ socket, sessionId, theme, terminalTheme, isVisible, i
     } else {
       term.refresh(0, term.rows - 1);
     }
-  }, [socket, webglEnabled]);
+  }, [bus, webglEnabled]);
 
   return {
     termRef,

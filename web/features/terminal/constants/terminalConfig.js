@@ -94,7 +94,7 @@ export const REPO_SCAN = { maxDepth: 1, deepMaxDepth: 3, cacheTtlMs: 30000 };
 // fetched on demand when user scrolls near top (primary buffer only).
 export const HISTORY_FETCH = {
   topThresholdLines: 5,    // within N lines of buffer top → fetch older prefix
-  guardMs: 2000,           // min interval between scroll-top fetches (anti-spam + visible loading)
+  guardMs: 600,            // min interval between scroll-top fetches — short enough that deep scroll-up flows (2s made a 2MB buffer take ~30s to walk)
   minFetchBytes: 256,      // skip fetch when fewer bytes remain — a few stray ANSI bytes aren't worth a full mirror reset+rewrite that yanks the viewport
   disabled: false          // global kill switch (e.g. alt-buffer apps)
 };
@@ -263,7 +263,7 @@ export const SETTLE_DEBOUNCE_MS = 100;
 export const ORIENTATION_SETTLE_MS = 600;
 
 // Resume recovery: a resume fires several triggers within ms (visibilitychange,
-// socket connect, pane focus). Debounce them into ONE peekSeq round-trip so a
+// bus connect, pane focus). Debounce them into ONE peekSeq round-trip so a
 // single decision drives a single recovery.
 export const RECOVER_DEBOUNCE_MS = 150;
 
