@@ -54,6 +54,7 @@ export class ProtocolManager {
     this._adapters = new Map();
     this._listeners = new Map();
     this._buffer = [];
+    this._binOut = false; // peer announced caps.binOut — output bytes may ride binary
     this._rtcSignalingHandler = null;
     this._wsPendingSince = new Map();
     // Pending-since timestamps — RTC backpressure priority, mirrors WS path.
@@ -192,6 +193,7 @@ export class ProtocolManager {
       inst.on("stateChange", (s) => this._onAdapterStateChange("rtc", s));
       inst.on("message", ({ event, data, args, source }) => this._dispatch(event, data, source, args));
       inst.on("binary", (msg) => this._onBinary(msg));
+      if (this._peerCaps) inst.setPeerCaps?.(this._peerCaps); // caps predate this instance
       this._adapters.set("rtc", inst);
       inst.connect(this._buildCtx("rtc"));
     } catch (e) {
@@ -441,6 +443,9 @@ export class ProtocolManager {
       const ws = this._adapters.get("ws");
       if (ws?.ready) adapter = ws;
     }
+    // One conversion, before the carrier is even chosen — the payload is the same
+    // envelope whichever adapter carries it.
+    this._upgradeBin(event, args);
     if (adapter.constructor.id === "rtc") {
       const ok = adapter.send(CHANNELS.control, { event, args, ackId });
       // RTC DC may silently drop (dead SCTP during ice transient) → fallback WS so the
@@ -454,6 +459,20 @@ export class ProtocolManager {
     // Couldn't deliver on any adapter — buffer for next ready window.
     this._buffer.push({ event, args, ackId });
     if (this._buffer.length > this._maxControlBuffer) this._buffer.shift();
+  }
+
+  /** caps.binOut peers take output bytes as a Buffer instead of a base64 string:
+   *  25% less wire, zero client-side decode. Carrier-agnostic on purpose — each
+   *  adapter already knows how to put a Buffer on its own wire (socket.io lifts it
+   *  into a binary attachment; the RTC codec into a v2 frame part, or {__b} for a
+   *  legacy peer), so this layer never asks which carrier is underneath.
+   *  Idempotent: an already-converted payload (enc:"bin") passes through. */
+  _upgradeBin(event, args) {
+    if (!this._binOut || event !== "output") return;
+    const p = args[0];
+    if (p?.enc === "b64" && typeof p.data === "string") {
+      args[0] = { ...p, enc: "bin", data: Buffer.from(p.data, "base64") };
+    }
   }
 
   _flushBuffer() {
@@ -472,6 +491,17 @@ export class ProtocolManager {
    * WS source: socket.io already dispatched natively; only invoke internal PM listeners.
    */
   _dispatch(event, payload, source, wsArgs) {
+    // Client capability: caps.binOut peers take terminal output as a Buffer
+    // attachment on WS (see _upgradeBin). RTC shape: {event, args}; WS: data=args[0].
+    if (event === "caps") {
+      const caps = source === "rtc" ? payload?.args?.[0] : (wsArgs?.[0] ?? payload);
+      if (caps?.binOut) this._binOut = true;
+      // Remembered on the PM, not only handed to the adapter: RTC is rebuilt on
+      // renegotiation (restartRtc) and the fresh instance must not fall back to
+      // the legacy wire form just because the announcement predates it.
+      this._peerCaps = caps || {};
+      this._adapters.get("rtc")?.setPeerCaps?.(this._peerCaps); // gates heartbeat + env2
+    }
     if (source === "rtc") {
       const args = Array.isArray(payload?.args) ? [...payload.args] : [];
       const ackId = payload?.ackId;
@@ -544,10 +574,27 @@ export class ProtocolManager {
 // Approximate serialized size of control args — cheap upper bound for SCTP limit check.
 function _controlBytes(args) {
   let bytes = 0;
-  for (const a of args) {
-    if (a == null) bytes += 4;
-    else if (typeof a === "string") bytes += a.length;
-    else bytes += JSON.stringify(a).length;
-  }
+  for (const a of args) bytes += _valueBytes(a);
   return bytes;
+}
+
+// Buffers must be measured by their byte length, not by JSON.stringify: a Buffer
+// serializes to {"type":"Buffer","data":[171,171,…]} — roughly 10x its real size,
+// which would push every binary output payload over the SCTP cap and off RTC.
+// On the wire a Buffer costs its own length (v2 frame part / socket.io attachment).
+function _valueBytes(v) {
+  if (v == null) return 4;
+  if (typeof v === "string") return v.length;
+  if (Buffer.isBuffer(v) || ArrayBuffer.isView(v)) return v.byteLength ?? v.length;
+  if (Array.isArray(v)) {
+    let n = 2;
+    for (const x of v) n += _valueBytes(x) + 1;
+    return n;
+  }
+  if (typeof v === "object") {
+    let n = 2;
+    for (const k of Object.keys(v)) n += k.length + 3 + _valueBytes(v[k]);
+    return n;
+  }
+  return JSON.stringify(v)?.length ?? 8;
 }

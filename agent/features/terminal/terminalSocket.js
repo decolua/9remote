@@ -22,7 +22,7 @@ import { touchWorking, startReaper, getStatuses, setSessionAgent, forgetSession,
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
-import { AUTO_NAME_DEBOUNCE_MS } from "./constants.js";
+import { AUTO_NAME_DEBOUNCE_MS, OUTPUT_SLICE_BYTES } from "./constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ORANGE = chalk.rgb(230, 138, 110);
@@ -266,13 +266,23 @@ export function setupTerminalSocket(io, apiKey) {
     daemonClient.on("output", ({ sessionId, enc, data, replay }) => {
       // Live (non-replay) output = agent still producing → keep working status alive.
       if (replay !== true) touchWorking(sessionId);
-      // Title-based agent detection (works for replay too — same session, same CLI)
-      if (enc === "b64") scanTitleForAgent(sessionId, Buffer.from(data, "base64").toString("utf8"));
-      // Live advances the seq; replay (rejoin tail) snapshots the current seq so
-      // the client can resync after a reset+replay without a false gap.
-      const seq = replay === true ? currentSeq(sessionId) : nextSeq(sessionId);
-      if (replay !== true) cacheChunk(sessionId, seq, data, enc); // plan G: recover gaps without a flash
-      broadcast(io, "output", { sessionId, enc, data, replay: replay === true, seq });
+      // Decoded once and reused for both the title scan and the slicing below.
+      const raw = enc === "b64" ? Buffer.from(data, "base64") : Buffer.from(data || "");
+      // Title-based agent detection (works for replay too — same session, same CLI).
+      // Scan the FULL chunk before slicing — a slice boundary could cut an OSC sequence.
+      if (enc === "b64") scanTitleForAgent(sessionId, raw.toString("utf8"));
+      // Fragment at the source: one event per OUTPUT_SLICE_BYTES so every chunk fits one
+      // SCTP message on the RTC control DC. Each slice is a complete event — clients
+      // append in order, so no reassembly is needed for live/replay output.
+      for (let off = 0; off < raw.length || off === 0; off += OUTPUT_SLICE_BYTES) {
+        const piece = raw.subarray(off, off + OUTPUT_SLICE_BYTES).toString("base64");
+        // Live advances the seq (per slice, contiguous — gap detection stays exact);
+        // replay (rejoin tail) snapshots the current seq so the client can resync
+        // after a reset+replay without a false gap.
+        const seq = replay === true ? currentSeq(sessionId) : nextSeq(sessionId);
+        if (replay !== true) cacheChunk(sessionId, seq, piece, "b64"); // plan G: recover gaps without a flash
+        broadcast(io, "output", { sessionId, enc: "b64", data: piece, replay: replay === true, seq });
+      }
     });
 
     // Clear stuck "working" entries (agent crashed / Stop hook never fired).
@@ -348,6 +358,9 @@ export async function setupTerminalHandlers(socket, io, apiKey) {
   trackConnection();
 
   onConnectCheck?.();
+  // What THIS agent understands. The client mirrors it with its own "caps" — both
+  // sides need the announcement before either may switch off the legacy wire form.
+  socket.emit("srvCaps", { env2: 1 });
   socket.emit("serverInfo", setupTerminalSocket._buildServerInfo?.());
 
   setupSessionHandlers(socket, io, sessions, workspaces, sessionWorkspaces, sessionOrder);

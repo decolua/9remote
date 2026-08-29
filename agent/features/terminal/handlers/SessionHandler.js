@@ -1,7 +1,7 @@
 import pty from "node-pty";
 import * as daemonClient from "../ptyDaemonClient.js";
 import { getDefaultShell, getDefaultCwd, buildShellEnv, saveSessionBuffer, loadSessionBuffer, deleteSessionBuffer, saveSessionMetadata, saveWorkspaces, loadSessionNote, saveSessionNote, deleteSessionNote, UPLOAD_DIR } from "../ptyHelper.js";
-import { resolveShell, getShellList, SESSION_NAME_MAX, AUTO_NAME_RE } from "../constants.js";
+import { resolveShell, getShellList, SESSION_NAME_MAX, AUTO_NAME_RE, OUTPUT_SLICE_BYTES } from "../constants.js";
 import { detectAgentClis } from "../agentCatalog.js";
 import { listAgentSessions, matchLiveSessions, conversationTitle } from "../agentHistory.js";
 import { getLiveConversations, forgetSession, claimResumedConversation, getConversation } from "../statusManager.js";
@@ -497,6 +497,15 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     callback({ success: true, name: session.name, cwd: session.cwd, seq: currentSeq(sessionId) });
   });
 
+  // Client capability announcement — e.g. fragOut: understands fragmented prefix
+  // events (part/parts markers). Fires once per connect on whichever carrier is up.
+  // Answered symmetrically: the client re-announces on every carrier connect, and
+  // its record of OUR capabilities lives on a PM that a reconnect may have replaced.
+  socket.on("caps", (caps = {}) => {
+    if (caps?.fragOut) socket.data.fragOut = true;
+    socket.emit("srvCaps", { env2: 1 });
+  });
+
   // Scroll-up history fetch — client asks for the prefix older than the bytes it holds.
   // Emit prefix ONLY to the requesting socket (not broadcast) so other clients keep their stream intact.
   socket.on("requestHistory", async ({ sessionId, have } = {}, callback) => {
@@ -507,7 +516,18 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       const result = await daemonClient.requestHistory(sessionId, have || 0);
       if (!result.success) return callback?.({ success: false, error: result.error });
       if (result.prefix) {
-        socket.emit("output", { sessionId, enc: "b64", isHistoryPrefix: true, data: result.prefix });
+        // Fragment SCTP-safe with part markers — but only for clients that reassemble.
+        // An old client would splice+replay per event, so it keeps the single big event.
+        if (socket.data?.fragOut) {
+          const raw = Buffer.from(result.prefix, "base64");
+          const parts = Math.max(1, Math.ceil(raw.length / OUTPUT_SLICE_BYTES));
+          for (let part = 0; part < parts; part++) {
+            const piece = raw.subarray(part * OUTPUT_SLICE_BYTES, (part + 1) * OUTPUT_SLICE_BYTES);
+            socket.emit("output", { sessionId, enc: "b64", isHistoryPrefix: true, part, parts, data: piece.toString("base64") });
+          }
+        } else {
+          socket.emit("output", { sessionId, enc: "b64", isHistoryPrefix: true, data: result.prefix });
+        }
       }
       callback?.({ success: true, prefixLen: result.prefixLen || 0, total: result.total || 0, remaining: result.remaining || 0 });
     } catch (e) {

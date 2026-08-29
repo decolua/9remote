@@ -1,7 +1,7 @@
 import { loadNative } from "./nativeSelfHeal.js";
 import { BaseProtocol } from "./BaseProtocol.js";
-import { encode, decode } from "./codec.js";
-import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER } from "../lib/transportConstants.js";
+import { encode, decode, encodeFrame, decodeFrame } from "./codec.js";
+import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER, RTC_HEARTBEAT_INTERVAL_MS, RTC_HEARTBEAT_TIMEOUT_MS } from "../lib/transportConstants.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { resolveCandidate } from "../lib/mdnsResolver.js";
 import { createLogger } from "../lib/logger.js";
@@ -103,6 +103,10 @@ export class WebRtcProtocol extends BaseProtocol {
     this._signaling = null;
     this._iceGraceTimer = null;
     this._answerTimer = null;
+    this._hbTimer = null;
+    this._hbLastPong = 0;
+    this._peerHb = false;   // peer announced caps.hb — only then may we ping it
+    this._peerEnv2 = false; // peer announced caps.env2 — send the binary frame form
     this._closed = false;
   }
 
@@ -141,7 +145,11 @@ export class WebRtcProtocol extends BaseProtocol {
     if (channel === CHANNELS.control) {
       if (!this._dcControl) return false;
       try {
-        this._dcControl.sendMessage(encode({ event: payload.event, args: payload.args || [], ackId: payload.ackId || null }));
+        const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
+        // v2 binary frame once the peer announced it — buffers ride raw instead of
+        // base64 inside JSON. Legacy peers keep the text form.
+        if (this._peerEnv2) this._dcControl.sendMessageBinary(encodeFrame(env));
+        else this._dcControl.sendMessage(encode(env));
         return true;
       } catch (err) {
         // Oversize/dead-channel errors are expected — ProtocolManager falls back to WS.
@@ -255,7 +263,7 @@ export class WebRtcProtocol extends BaseProtocol {
     pc.onDataChannel((dc) => {
       const label = dc.getLabel?.() || "";
       const setOpen = () => {
-        if (label === "control") this._dcControl = dc;
+        if (label === "control") { this._dcControl = dc; if (this._peerHb) this._startHeartbeat(dc); }
         else if (label === "binary") this._dcBinary = dc;
         else if (label === "file") this._dcFile = dc;
         // Adapter is "open" once control+binary (tiles) are up; the file DC is a
@@ -265,7 +273,7 @@ export class WebRtcProtocol extends BaseProtocol {
       dc.onOpen(() => { logger.debug(`DC[${label}] open`); setOpen(); });
       dc.onClosed(() => {
         logger.debug(`DC[${label}] closed`);
-        if (label === "control") this._dcControl = null;
+        if (label === "control") { this._stopHeartbeat(); this._dcControl = null; }
         if (label === "binary") this._dcBinary = null;
         if (label === "file") this._dcFile = null;
         if (!this._dcControl && !this._dcBinary) this._setState(ADAPTER_STATE.closed);
@@ -279,8 +287,11 @@ export class WebRtcProtocol extends BaseProtocol {
         }
         if (label !== "control") return;
         let parsed;
-        try { parsed = decode(data); }
+        // The DC itself tells the two wire forms apart: a string is v1 JSON, a
+        // binary message is a v2 frame. No sniffing, no ambiguity.
+        try { parsed = typeof data === "string" ? decode(data) : decodeFrame(data); }
         catch (err) { logger.error(`control parse: ${err.message}`); return; }
+        if (parsed.event === "__pong") { this._hbLastPong = Date.now(); return; }
         try { this._emit("message", { event: parsed.event, data: parsed, source: "rtc" }); }
         catch (err) { logger.error(`handler error event=${parsed.event}: ${err.message}`); }
       });
@@ -354,11 +365,47 @@ export class WebRtcProtocol extends BaseProtocol {
   _cleanupPeer() {
     if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
     if (this._answerTimer) { clearTimeout(this._answerTimer); this._answerTimer = null; }
+    this._stopHeartbeat();
     try { this._pc?.close(); } catch {}
     this._pc = null;
     this._dcControl = null;
     this._dcBinary = null;
     this._dcFile = null;
+  }
+
+  /** PM forwards the peer's caps announcement. Heartbeat pings only peers that
+   *  declared caps.hb — an old web silently drops __ping, and pinging it would
+   *  tear down a healthy RTC every timeout. Caps may arrive before or after the
+   *  control DC opens, so arm from both sides. */
+  setPeerCaps(caps) {
+    this._peerHb = !!caps?.hb;
+    this._peerEnv2 = !!caps?.env2;
+    if (this._peerHb && this._dcControl && !this._hbTimer) this._startHeartbeat(this._dcControl);
+  }
+
+  /** Control-DC liveness (ttyd pattern): ping every interval, tear the peer down
+   *  after interval+grace of silence. A stalled SCTP reports "open" while
+   *  blackholing every message — this DC carries the whole terminal stream, so
+   *  the stall must convert into a close the PM can route around (→ WS). */
+  _startHeartbeat(dc) {
+    this._stopHeartbeat();
+    this._hbLastPong = Date.now();
+    this._hbTimer = setInterval(() => {
+      if (!this._dcControl) { this._stopHeartbeat(); return; }
+      const silent = Date.now() - this._hbLastPong;
+      if (silent > RTC_HEARTBEAT_TIMEOUT_MS) {
+        logger.warn(`heartbeat: no pong for ${silent}ms → closing stalled peer`);
+        this._stopHeartbeat();
+        try { this._pc?.close(); } catch {}
+        return;
+      }
+      try { dc.sendMessage(encode({ event: "__ping", args: [Date.now()] })); }
+      catch (err) { logger.debug(`heartbeat send failed: ${err.message}`); }
+    }, RTC_HEARTBEAT_INTERVAL_MS);
+  }
+
+  _stopHeartbeat() {
+    if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null; }
   }
 
   async _refreshTurn(rtcCfg) {

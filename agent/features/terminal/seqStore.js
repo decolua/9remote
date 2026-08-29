@@ -13,7 +13,11 @@
 // shorter than a phone app-switch, which then fell back to reset+replay and lost
 // everything above the join tail.
 const RING_MAX_BYTES = 4 * 1024 * 1024; // per session
-const GAP_BATCH_BYTES = 64 * 1024;      // merge gap chunks into packets of this size
+// Gap packet bound in b64 wire bytes (chunks are cached as b64 strings, so c.size
+// IS the wire cost). 60KB b64 + envelope stays under the 64KB SCTP message cap, so
+// a refill packet never detours off the RTC control DC. A single chunk may exceed
+// it (a full 45KB slice is ~61KB b64) — that packet travels alone, still under cap.
+const GAP_PACKET_MAX_B64 = 60 * 1024;
 const sessionSeq = new Map();
 const sessionChunks = new Map(); // sessionId -> Map(seq -> { data, enc, size })
 const sessionBytes = new Map();  // sessionId -> total bytes held in its ring
@@ -54,10 +58,10 @@ export const clearSession = (sessionId) => {
 
 // Return the chunks spanning [fromSeq..toSeq] inclusive, or null on miss (any
 // chunk evicted/absent → caller falls back to full reset+replay).
-// Consecutive chunks are merged into ~GAP_BATCH_BYTES packets so a multi-minute
-// gap travels as a handful of messages instead of thousands. Each packet carries
-// the seq of its LAST chunk — the client only needs the range boundary to advance
-// lastSeq, and dedups retransmits by that seq.
+// Consecutive chunks are merged into packets so a multi-minute gap travels as a
+// handful of messages instead of thousands. Each packet carries the seq of its
+// LAST chunk — the client only needs the range boundary to advance lastSeq, and
+// dedups retransmits by that seq.
 export const getGap = (sessionId, fromSeq, toSeq) => {
   const m = sessionChunks.get(sessionId);
   if (!m) return null;
@@ -65,19 +69,24 @@ export const getGap = (sessionId, fromSeq, toSeq) => {
   const out = [];
   let parts = [];
   let partsBytes = 0;
-  const flush = (seq) => {
+  let lastSeq = 0;
+  const flush = () => {
     if (!parts.length) return;
-    out.push({ seq, enc: "b64", data: Buffer.concat(parts).toString("base64") });
+    out.push({ seq: lastSeq, enc: "b64", data: Buffer.concat(parts).toString("base64") });
     parts = [];
     partsBytes = 0;
   };
   for (let s = fromSeq; s <= toSeq; s++) {
     const c = m.get(s);
     if (!c) return null;
+    // Flush BEFORE the chunk that would cross the cap, never after — the last
+    // chunk must not overshoot. c.size is the b64 string length (the wire form),
+    // so the packet + envelope stays under CONTROL_RTC_MAX_BYTES.
+    if (parts.length && partsBytes + c.size > GAP_PACKET_MAX_B64) flush();
     parts.push(c.enc === "b64" ? Buffer.from(c.data, "base64") : Buffer.from(c.data, "utf-8"));
     partsBytes += c.size;
-    if (partsBytes >= GAP_BATCH_BYTES) flush(s);
+    lastSeq = s;
   }
-  flush(toSeq);
+  flush();
   return out;
 };

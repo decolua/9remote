@@ -41,12 +41,16 @@ test("takeBufferTail empty when maxLen=0 or no chunks", () => {
 
 // --- takeBufferTail: ANSI boundary ---
 test("takeBufferTail skips forward to next ESC when cut is mid-sequence", () => {
-  // Construct so the byte cut lands inside an ANSI escape (between ESC and its params).
-  // "...AAAA\x1b[38;2;10" → cut 5 bytes from end lands at ";10", missing the leading ESC.
-  const chunks = [buf("AAAA"), buf("\x1b[38;2;10")];
-  const tail = takeBufferTail(chunks, 5);
-  // Tail must start at ESC (0x1b), not at a fragment like ";10".
-  assert.equal(tail[0], ESC, "tail should start at ESC boundary");
+  // The cut must land mid-sequence AND leave an ESC ahead of it: the tail can only
+  // skip FORWARD (dropping the partial sequence), never reach back for bytes it does
+  // not contain. Buffer = "AAAA\x1b[38;2;10m\x1b[0mTEXT"; a 12-byte tail starts inside
+  // the first escape's params, so it must skip to the "\x1b[0m" that follows.
+  const chunks = [buf("AAAA"), buf("\x1b[38;2;10m"), buf("\x1b[0mTEXT")];
+  const raw = Buffer.concat(chunks).subarray(-12);
+  assert.notEqual(raw[0], ESC, "precondition: the raw cut lands mid-sequence");
+  const tail = takeBufferTail(chunks, 12);
+  assert.equal(tail[0], ESC, "tail should start at the next ESC boundary");
+  assert.equal(tail.toString(), "\x1b[0mTEXT");
 });
 
 test("takeBufferTail bounded skip — returns unchanged if no ESC within window", () => {
@@ -58,11 +62,22 @@ test("takeBufferTail bounded skip — returns unchanged if no ESC within window"
   assert.notEqual(tail[0], ESC);
 });
 
-test("takeBufferTail handles multi-chunk: boundary found in earlier chunk", () => {
-  const chunks = [buf("XYZ\x1b[38;2"), buf("10;20;30mTEXT")];
-  // Cut near the end lands mid-sequence in chunk 2; ESC lives in chunk 1.
-  const tail = takeBufferTail(chunks, 8);
+test("takeBufferTail handles multi-chunk: skips to an ESC in a later chunk", () => {
+  // The cut lands mid-sequence inside chunk 1; the ESC it skips forward to lives in
+  // chunk 2, so the scan must cross the chunk boundary.
+  const chunks = [buf("XYZ\x1b[38;2;10m"), buf("\x1b[0mTEXT")];
+  const tail = takeBufferTail(chunks, 13);
   assert.equal(tail[0], ESC);
+  assert.equal(tail.toString(), "\x1b[0mTEXT");
+});
+
+test("takeBufferTail keeps the slice when the only ESC is BEHIND the cut", () => {
+  // An ESC that precedes the cut is unreachable: those bytes are not in the tail.
+  // The tail is handed to a client that resets its terminal first, so a leading
+  // partial sequence is discarded by xterm rather than corrupting anything.
+  const chunks = [buf("AAAA"), buf("\x1b[38;2;10")];
+  const tail = takeBufferTail(chunks, 5);
+  assert.equal(tail.toString(), ";2;10");
 });
 
 // --- scanBackForEsc ---
@@ -98,9 +113,12 @@ test("takeBufferRange returns slice before held tail", () => {
 });
 
 test("takeBufferRange clamps when chunkLen exceeds available", () => {
+  // The client holds the last 8 bytes ("23456789"), so the older region it is
+  // missing is exactly "01" — asking for 100 more bytes cannot invent any, and
+  // must not re-send bytes the client already has (that would duplicate them).
   const chunks = [buf("0123456789")];
-  const r = takeBufferRange(chunks, 8, 100); // only 2 bytes before "89"
-  assert.equal(r.prefix.toString(), "0123456");
+  const r = takeBufferRange(chunks, 8, 100);
+  assert.equal(r.prefix.toString(), "01");
 });
 
 // --- takeBufferRange: ANSI extension (no data loss) ---

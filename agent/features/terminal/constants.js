@@ -90,6 +90,11 @@ export const AUTO_NAME_RE = /^(Term|Terminal) \d+$/;
 // naming pass rather than re-reading the same transcript per event.
 export const AUTO_NAME_DEBOUNCE_MS = 800;
 
+// Max raw bytes per output event, fragmented at the emission source. 45KB raw →
+// ~60KB base64 + envelope stays under the 64KB SCTP message cap, so the RTC
+// control DC carries the whole terminal stream — no WS detour mid-session.
+export const OUTPUT_SLICE_BYTES = 45 * 1024;
+
 // Agent CLI conversation history (agentHistory.js). The head budgets bound what
 // one transcript costs to identify: enough lines to pass a session's metadata
 // and its first user turn, never enough to read a long conversation.
