@@ -210,12 +210,23 @@ function TerminalHeader({
 
   useEffect(() => {
     if (!activeTabRef.current || !tabsContainerRef.current) return;
+    // MUI-Tabs-style manual scroll: scrollTo a self-clamped target instead of
+    // scrollIntoView("center") — WebKit animates that unclamped request past the
+    // strip's max scroll and bounces back (visible on the first/last tab).
     // Defer 1 frame so a freshly-mounted tab (new session) is measured before scrolling
     const id = requestAnimationFrame(() => {
-      activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
+      const scroller = tabsContainerRef.current;
+      const tab = activeTabRef.current;
+      if (!scroller || !tab) return;
+      const delta = tab.getBoundingClientRect().left - scroller.getBoundingClientRect().left;
+      const centered = scroller.scrollLeft + delta - (scroller.clientWidth - tab.offsetWidth) / 2;
+      const max = scroller.scrollWidth - scroller.clientWidth;
+      scroller.scrollTo({ left: Math.max(0, Math.min(centered, max)), behavior: "smooth" });
     });
     return () => cancelAnimationFrame(id);
-  }, [activeSessionId, sessions]);
+    // Identity-only `sessions` churn (cwd/status ticks) must not re-scroll the strip
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, sessions.length]);
 
   useEffect(() => {
     if (!isActive) return;

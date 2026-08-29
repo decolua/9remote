@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { SWIPE_TAB } from "@/features/terminal/constants/terminalConfig";
 
-// Horizontal swipe to switch tabs (mobile). Left = next, right = prev (wrap).
+// Horizontal swipe to switch tabs (mobile). Left = next, right = prev — no wrap.
 // Passive handlers: never preventDefault so vertical scroll/selection stay intact.
 // bind() is called at render with live data, keeping the hook itself top-level.
 export function useSwipeTab() {
@@ -29,8 +29,7 @@ export function useSwipeTab() {
       ) return;
       const idx = sessionIds.indexOf(activeSessionId);
       if (idx === -1) return;
-      const len = sessionIds.length;
-      const next = dx < 0 ? sessionIds[(idx + 1) % len] : sessionIds[(idx - 1 + len) % len];
+      const next = dx < 0 ? sessionIds[idx + 1] : sessionIds[idx - 1];
       if (next && next !== activeSessionId) onSwitch?.(next);
     }
   });
