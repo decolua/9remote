@@ -21,12 +21,12 @@ import { useFileDocument } from "../hooks/useFileDocument.js";
  * strip, and a hidden tab has no chrome of its own to put a dialog in.
  */
 export default function EditorPane({
-  filePath, workspace, fileSocket, isActive,
+  filePath, workspace, fileBus, isActive,
   onCursorChange, onDirtyChange, onRegisterSaver, previewSeq = 0
 }) {
   const { t } = useI18n();
   const editable = !isDiffPath(filePath) && !isPreviewable(filePath);
-  const doc = useFileDocument({ filePath: editable ? filePath : "", fileSocket });
+  const doc = useFileDocument({ filePath: editable ? filePath : "", fileBus });
 
   // HTML files can flip between source and rendered view; one file = one mode.
   const canPreviewHtml = editable && isHtmlFile(filePath);
@@ -81,10 +81,10 @@ export default function EditorPane({
   }, [isActive, editable, doc]);
 
   if (isDiffPath(filePath)) {
-    return <DiffView diffPath={filePath} workspace={workspace} fileSocket={fileSocket} />;
+    return <DiffView diffPath={filePath} workspace={workspace} fileBus={fileBus} />;
   }
   if (isPreviewable(filePath)) {
-    return <FilePreview filePath={filePath} fileSocket={fileSocket} />;
+    return <FilePreview filePath={filePath} fileBus={fileBus} />;
   }
 
   return (
@@ -124,7 +124,7 @@ export default function EditorPane({
 
       <div className="flex-1 min-h-0">
         {htmlPreview && canPreviewHtml ? (
-          <HtmlViewer filePath={filePath} fileSocket={fileSocket} reloadKey={saveSeq} />
+          <HtmlViewer filePath={filePath} fileBus={fileBus} reloadKey={saveSeq} />
         ) : doc.loading ? (
           <div className="h-full flex items-center justify-center text-text-muted text-sm">{t("common.loading")}</div>
         ) : (

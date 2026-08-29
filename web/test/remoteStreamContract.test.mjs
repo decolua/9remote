@@ -21,8 +21,8 @@ const test = (name, fn) => {
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const SRC = readFileSync(__dirname + "../features/remote/hooks/useRemoteStream.js", "utf8");
 
-const on = [...SRC.matchAll(/socket\.on\("([^"]+)"/g)].map((m) => m[1]);
-const off = [...SRC.matchAll(/socket\.off\("([^"]+)"/g)].map((m) => m[1]);
+const on = [...SRC.matchAll(/bus\.on\("([^"]+)"/g)].map((m) => m[1]);
+const off = [...SRC.matchAll(/bus\.off\("([^"]+)"/g)].map((m) => m[1]);
 
 test("every socket listener is removed on cleanup", () => {
   assert.deepEqual([...on].sort(), [...off].sort());
@@ -61,10 +61,10 @@ test("the socket effect stays keyed on [connected] only", () => {
 });
 
 test("cleanup stops the stream before detaching, and frees tiles + zoom timer", () => {
-  const i = SRC.indexOf('return () => {\n      socket.emit("stop-streaming")');
+  const i = SRC.indexOf('return () => {\n      bus.emit("stop-streaming")');
   assert.ok(i > 0, "cleanup must emit stop-streaming first");
   const cleanup = SRC.slice(i);
-  assert.ok(cleanup.indexOf('socket.emit("stop-streaming")') < cleanup.indexOf("socket.off("));
+  assert.ok(cleanup.indexOf('bus.emit("stop-streaming")') < cleanup.indexOf("bus.off("));
   assert.ok(cleanup.includes("cleanupTiles();"));
   assert.ok(cleanup.includes("zoomGestureTimeoutRef"));
 });
@@ -72,8 +72,8 @@ test("cleanup stops the stream before detaching, and frees tiles + zoom timer", 
 test("hidden-tab pause never uses the hash path", () => {
   const i = SRC.indexOf("const onVisibility");
   const body = SRC.slice(i, SRC.indexOf("};", i));
-  assert.ok(body.includes('socket.emit("stop-streaming")'));
-  assert.ok(body.includes('socket.emit("start-streaming")'));
+  assert.ok(body.includes('bus.emit("stop-streaming")'));
+  assert.ok(body.includes('bus.emit("start-streaming")'));
   const emitted = [...body.matchAll(/emit\("([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(emitted, ["stop-streaming", "start-streaming"],
     "resume must not race the stream loop with a hash request");

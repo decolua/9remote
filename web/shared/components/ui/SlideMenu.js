@@ -185,7 +185,7 @@ export default function SlideMenu() {
     <>
       <SitesList
         tunnelUrl={context.tunnelUrl}
-        socketRef={context.socketRef}
+        busRef={context.busRef}
         apiKey={context.apiKey}
         isOpen={sitesModalOpen}
         onClose={handleCloseSitesModal}
@@ -201,7 +201,7 @@ export default function SlideMenu() {
       <BackgroundPickerSheet
         isOpen={bgPickerOpen}
         onClose={handleCloseBackgroundPicker}
-        socketRef={context.socketRef}
+        busRef={context.busRef}
       />
     </>
   );
@@ -267,7 +267,7 @@ export default function SlideMenu() {
             )}
             <h2 className="text-lg font-semibold text-text">{getTitle()}</h2>
             {activePanel === "menu" && (() => {
-              const isRtc = context.transport && context.transport !== "ws";
+              const isRtc = context.carrier && context.carrier !== "ws";
               return (
                 <span
                   className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
@@ -275,7 +275,7 @@ export default function SlideMenu() {
                       ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
                       : "bg-yellow-500/15 text-yellow-500 border border-yellow-500/30"
                   }`}
-                  title={`Transport: ${isRtc ? `WebRTC (${context.transport})` : "WebSocket"}`}
+                  title={`Carrier: ${isRtc ? `WebRTC (${context.carrier})` : "WebSocket"}`}
                 >
                   {isRtc ? "RTC" : "WS"}
                 </span>
@@ -333,7 +333,7 @@ export default function SlideMenu() {
               theme={context.theme}
               onThemeChange={handleThemeChange}
               hideActions={context.hideActions || []}
-              socketRef={context.socketRef}
+              busRef={context.busRef}
               subscribeToPush={context.subscribeToPush}
               unsubscribeFromPush={context.unsubscribeFromPush}
               onUpdate={handleUpdate}
@@ -347,7 +347,7 @@ export default function SlideMenu() {
           {activePanel === "codespace" && (
             <CodespacePanel
               codespaceInfo={context.codespaceInfo}
-              socketRef={context.socketRef}
+              busRef={context.busRef}
               onStop={handleStopCodespace}
             />
           )}
@@ -356,7 +356,7 @@ export default function SlideMenu() {
 
       <SitesList
         tunnelUrl={context.tunnelUrl}
-        socketRef={context.socketRef}
+        busRef={context.busRef}
         apiKey={context.apiKey}
         isOpen={sitesModalOpen}
         onClose={handleCloseSitesModal}
@@ -372,7 +372,7 @@ export default function SlideMenu() {
       <BackgroundPickerSheet
         isOpen={bgPickerOpen}
         onClose={handleCloseBackgroundPicker}
-        socketRef={context.socketRef}
+        busRef={context.busRef}
       />
       <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
     </div>

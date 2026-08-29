@@ -15,7 +15,7 @@ const SAVE_TIMEOUT_MS = 20000;
 // Wallpaper-style picker sheet for the mobile terminal background. Tiles are
 // multi-select: the ordered pool round-robins across panes by display index
 // (pane 0 → pick 1, pane 1 → pick 2, …), previewed live on the terminal above.
-export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
+export default function BackgroundPickerSheet({ isOpen, onClose, busRef }) {
   const { t } = useI18n();
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
   const setTerminalBackgrounds = useTerminalStore((s) => s.setTerminalBackgrounds);
@@ -54,14 +54,14 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
   // Send the picked image to the agent — it compresses/stores, then we add the
   // returned item to the list and select it at the end of the pool.
   const saveBackground = (dataUrl) => {
-    const socket = socketRef?.current;
-    if (!socket?.emit) { setError(t("menu.bgSaveFailed")); return; }
+    const bus = busRef?.current;
+    if (!bus?.emit) { setError(t("menu.bgSaveFailed")); return; }
     setSaving(true);
     setError("");
     let done = false;
     const finish = (fn) => { if (done) return; done = true; clearTimeout(timer); setSaving(false); fn(); };
     const timer = setTimeout(() => finish(() => setError(t("menu.bgSaveFailed"))), SAVE_TIMEOUT_MS);
-    socket.emit("bg:save", { dataUrl }, (res) => {
+    bus.emit("bg:save", { dataUrl }, (res) => {
       finish(() => {
         if (res?.success && res.id && res.dataUrl) {
           const key = `custom:${res.id}`;
@@ -78,9 +78,9 @@ export default function BackgroundPickerSheet({ isOpen, onClose, socketRef }) {
 
   const deleteBackground = (id) => {
     vibrate();
-    const socket = socketRef?.current;
-    if (!socket?.emit) return;
-    socket.emit("bg:delete", { id }, (res) => {
+    const bus = busRef?.current;
+    if (!bus?.emit) return;
+    bus.emit("bg:delete", { id }, (res) => {
       if (!res?.success) { setError(res?.error || t("menu.bgDeleteFailed")); return; }
       const key = `custom:${id}`;
       const { customBackgrounds: list, setCustomBackgrounds, terminalBackgrounds: keys, setTerminalBackgrounds: setKeys } = useTerminalStore.getState();

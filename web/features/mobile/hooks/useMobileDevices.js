@@ -7,14 +7,14 @@ import { useCallback, useEffect, useState } from "react";
 import { DEVICE_REFRESH_MS } from "../constants/mobileConfig";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 
-export function emitAck(socket, event, payload) {
+export function emitAck(bus, event, payload) {
   return new Promise((resolve) => {
-    if (!socket) { resolve({ success: false, error: "Not connected" }); return; }
-    socket.emit(event, payload, (res) => resolve(res || { success: false, error: "No response" }));
+    if (!bus) { resolve({ success: false, error: "Not connected" }); return; }
+    bus.emit(event, payload, (res) => resolve(res || { success: false, error: "No response" }));
   });
 }
 
-export function useMobileDevices({ socketRef, connected }) {
+export function useMobileDevices({ busRef, connected }) {
   const [devices, setDevices] = useState([]);
   const [canManage, setCanManage] = useState(false);
   const [booting, setBooting] = useState(null);   // { avdName, phase }
@@ -25,25 +25,25 @@ export function useMobileDevices({ socketRef, connected }) {
   const setLowPower = useTerminalStore((s) => s.setMobileLowPower);
 
   const refresh = useCallback(async () => {
-    const socket = socketRef?.current;
-    if (!socket || !connected) return [];
-    const res = await emitAck(socket, "mobile:list", {});
+    const bus = busRef?.current;
+    if (!bus || !connected) return [];
+    const res = await emitAck(bus, "mobile:list", {});
     if (!res?.success) return [];
     setLoaded(true);
     setCanManage(!!res.canManageEmulators);
     const list = Array.isArray(res.devices) ? res.devices : [];
     setDevices(list);
     return list;
-  }, [socketRef, connected]);
+  }, [busRef, connected]);
 
   // Boot progress arrives as events — the ack only lands when boot finishes.
   useEffect(() => {
-    const socket = socketRef?.current;
-    if (!socket || !connected) return;
+    const bus = busRef?.current;
+    if (!bus || !connected) return;
     const onProgress = ({ avdName, phase }) => setBooting({ avdName, phase });
-    socket.on("mobile:avdProgress", onProgress);
-    return () => socket.off("mobile:avdProgress", onProgress);
-  }, [socketRef, connected]);
+    bus.on("mobile:avdProgress", onProgress);
+    return () => bus.off("mobile:avdProgress", onProgress);
+  }, [busRef, connected]);
 
   // Poll so a device plugged in (or an emulator started elsewhere) shows up.
   useEffect(() => {
@@ -57,20 +57,20 @@ export function useMobileDevices({ socketRef, connected }) {
   const startAvd = useCallback(async (avdName) => {
     setError(null);
     setBooting({ avdName, phase: "launching" });
-    const res = await emitAck(socketRef?.current, "mobile:avdStart", { avdName, lowPower });
+    const res = await emitAck(busRef?.current, "mobile:avdStart", { avdName, lowPower });
     setBooting(null);
     await refresh();
     if (!res?.success) { setError(res?.error || "Could not start"); return null; }
     return res.serial;
-  }, [socketRef, refresh, lowPower]);
+  }, [busRef, refresh, lowPower]);
 
   const stopAvd = useCallback(async (serial) => {
     setError(null);
-    const res = await emitAck(socketRef?.current, "mobile:avdStop", { serial });
+    const res = await emitAck(busRef?.current, "mobile:avdStop", { serial });
     await refresh();
     if (!res?.success) setError(res?.error || "Could not stop");
     return res?.success;
-  }, [socketRef, refresh]);
+  }, [busRef, refresh]);
 
   return {
     devices, canManage, booting, error, setError,

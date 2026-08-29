@@ -14,7 +14,7 @@ import {
 export const DECODER_SUPPORTED =
   typeof window !== "undefined" && "VideoDecoder" in window && "EncodedVideoChunk" in window;
 
-export function useMobileStream({ socketRef, connected, canvasRef, meta }) {
+export function useMobileStream({ busRef, connected, canvasRef, meta }) {
   const [status, setStatus] = useState("idle");
   const [fps, setFps] = useState(0);
   const stateRef = useRef(null);
@@ -24,12 +24,12 @@ export function useMobileStream({ socketRef, connected, canvasRef, meta }) {
     const now = performance.now();
     if (st && now - st.lastKeyframeReq < KEYFRAME_REQUEST_INTERVAL_MS) return;
     if (st) st.lastKeyframeReq = now;
-    socketRef?.current?.emit("mobile:keyframe");
-  }, [socketRef]);
+    busRef?.current?.emit("mobile:keyframe");
+  }, [busRef]);
 
   useEffect(() => {
-    const socket = socketRef?.current;
-    if (!socket || !connected || !meta || !DECODER_SUPPORTED) return;
+    const bus = busRef?.current;
+    if (!bus || !connected || !meta || !DECODER_SUPPORTED) return;
 
     const st = {
       decoder: null,
@@ -173,7 +173,7 @@ export function useMobileStream({ socketRef, connected, canvasRef, meta }) {
     const ack = (seq) => {
       if (seq <= st.ackedSeq) return;
       st.ackedSeq = seq;
-      socket.emit("mobile:ack", { seq });
+      bus.emit("mobile:ack", { seq });
     };
 
     const onBinary = (buffer) => {
@@ -210,38 +210,38 @@ export function useMobileStream({ socketRef, connected, canvasRef, meta }) {
 
     const onEnded = () => setStatus("ended");
 
-    socket.on("file-bin", onBinary);
-    socket.on("mobile:ended", onEnded);
+    bus.on("file-bin", onBinary);
+    bus.on("mobile:ended", onEnded);
     requestKeyframe();
 
     return () => {
-      socket.off("file-bin", onBinary);
-      socket.off("mobile:ended", onEnded);
+      bus.off("file-bin", onBinary);
+      bus.off("mobile:ended", onEnded);
       if (st.raf) cancelAnimationFrame(st.raf);
       closeDecoder();
       st.pending.clear();
       stateRef.current = null;
     };
-  }, [socketRef, connected, canvasRef, meta, requestKeyframe]);
+  }, [busRef, connected, canvasRef, meta, requestKeyframe]);
 
-  // A hidden tab still holds the socket and still acks, so the agent has no way
+  // A hidden tab still holds the bus and still acks, so the agent has no way
   // to tell nobody is watching. Say so explicitly, and ask for a keyframe on the
   // way back since the paused stream left a gap.
   useEffect(() => {
-    const socket = socketRef?.current;
-    if (!socket || !connected || !meta) return;
+    const bus = busRef?.current;
+    if (!bus || !connected || !meta) return;
     const onVisibility = () => {
       const visible = !document.hidden;
-      socket.emit("mobile:visible", { visible });
+      bus.emit("mobile:visible", { visible });
       if (visible) requestKeyframe();
     };
     document.addEventListener("visibilitychange", onVisibility);
     // Always state the current value on mount, never only the hidden case: this
     // effect is re-run whenever the mirror moves between float and pinned, and a
     // remount that only reported "hidden" would leave the agent paused forever.
-    socket.emit("mobile:visible", { visible: !document.hidden });
+    bus.emit("mobile:visible", { visible: !document.hidden });
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [socketRef, connected, meta, requestKeyframe]);
+  }, [busRef, connected, meta, requestKeyframe]);
 
   return { status: DECODER_SUPPORTED ? status : "unsupported", fps, requestKeyframe };
 }

@@ -54,7 +54,7 @@ const themeInitScript = `(function(){try{var t=localStorage.getItem("${STORAGE_K
 // Clipboard-read blocker — neutralizes navigator.clipboard.readText/.read at the
 // browser API level so no library (xterm core OSC52, CodeMirror, addon) can trigger
 // a clipboard-read permission prompt. No web feature reads the clipboard today
-// (useClipboardSocket + ClipboardModal only write). Uncomment the script tag below
+// (useClipboardBus + ClipboardModal only write). Uncomment the script tag below
 // (and add key) to activate; currently commented while investigating the prompt source.
 // const clipboardBlockScript = `(function(){try{var c=navigator.clipboard;if(c){c.readText=function(){return Promise.resolve("");};c.read=function(){return Promise.resolve([]);};}}catch(e){}})();`;
 

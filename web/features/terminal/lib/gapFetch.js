@@ -6,7 +6,7 @@ import { GAP_FETCH_TIMEOUT_MS } from "@/features/terminal/constants/terminalConf
 // reset+rejoin on a ring miss or a stalled transfer.
 //
 // deps:
-//   emit(payload, ack)  — socket.emit("requestGap", ...) ack callback
+//   emit(payload, ack)  — bus.emit("requestGap", ...) ack callback
 //   writeChunk(data)    — paint a gap chunk or a queued live chunk (order preserved)
 //   flush()             — force-paint the write batcher once after a queued burst
 //   onGapChunk(seq)     — called per painted gap chunk (caller advances lastSeq)

@@ -4,14 +4,14 @@
 // so normalize at every boundary where a path enters web state.
 export const toPosixPath = (p) => (typeof p === "string" ? p.replace(/\\/g, "/") : p);
 
-// Field names that carry a filesystem path in socket responses — only these get
+// Field names that carry a filesystem path in bus responses — only these get
 // normalized, so file *content* (readFile/gitDiff) is never touched.
 const PATH_FIELDS = new Set([
   "path", "currentPath", "parentPath", "dirPath", "filePath",
   "repoPath", "oldPath", "newPath", "fullPath", "relativePath",
 ]);
 
-// Recursively normalize path fields in a socket response (no clone unless needed).
+// Recursively normalize path fields in a bus response (no clone unless needed).
 export function normalizePathsResponse(res) {
   if (!res || typeof res !== "object") return res;
   if (Array.isArray(res)) {
@@ -41,7 +41,7 @@ export function normalizePathsResponse(res) {
 }
 
 export const MAX_FILE_SIZE = 1024 * 1024; // 1MB text read limit
-// ponytail: media preview over base64 socket is slow for very large files;
+// ponytail: media preview over base64 bus is slow for very large files;
 // upgrade to HTTP range streaming when users routinely open >5MB media.
 export const MAX_MEDIA_SIZE = 5 * 1024 * 1024; // 5MB previewable media limit
 

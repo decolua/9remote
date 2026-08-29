@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { uploadFiles } from "@/features/fileExplorer/lib/fileTransfer";
 import { emitAck } from "./useMobileDevices";
 
-export function useMobileApps({ socketRef, protocolRef, serial, enabled }) {
+export function useMobileApps({ busRef, protocolRef, serial, enabled }) {
   const [apps, setApps] = useState([]);
   const [foreground, setForeground] = useState(null);
   const [busy, setBusy] = useState(null);      // packageName | "install"
@@ -15,23 +15,23 @@ export function useMobileApps({ socketRef, protocolRef, serial, enabled }) {
 
   const refresh = useCallback(async () => {
     if (!serial || !enabled) return;
-    const res = await emitAck(socketRef?.current, "mobile:apps", { serial });
+    const res = await emitAck(busRef?.current, "mobile:apps", { serial });
     if (!res?.success) return;
     setApps(res.apps || []);
     setForeground(res.foreground || null);
-  }, [socketRef, serial, enabled]);
+  }, [busRef, serial, enabled]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const act = useCallback(async (event, packageName, after) => {
     setBusy(packageName);
     setError(null);
-    const res = await emitAck(socketRef?.current, event, { serial, packageName });
+    const res = await emitAck(busRef?.current, event, { serial, packageName });
     setBusy(null);
     if (!res?.success) { setError(res?.error || "Failed"); return false; }
     if (after) await refresh();
     return true;
-  }, [socketRef, serial, refresh]);
+  }, [busRef, serial, refresh]);
 
   const launch = useCallback((pkg) => act("mobile:launch", pkg), [act]);
   const stopApp = useCallback((pkg) => act("mobile:stopApp", pkg), [act]);
@@ -48,12 +48,12 @@ export function useMobileApps({ socketRef, protocolRef, serial, enabled }) {
     setError(null);
     setProgress(0);
     try {
-      const stage = await emitAck(socketRef?.current, "mobile:apkStage", { name: file.name, size: file.size });
+      const stage = await emitAck(busRef?.current, "mobile:apkStage", { name: file.name, size: file.size });
       if (!stage?.success) throw new Error(stage?.error || "Cannot stage APK");
 
       let uploadError = null;
       await uploadFiles({
-        socket: socketRef?.current,
+        bus: busRef?.current,
         protocolRef,
         targetDir: stage.targetDir,
         items: [{ file, relativePath: stage.fileName }],
@@ -64,7 +64,7 @@ export function useMobileApps({ socketRef, protocolRef, serial, enabled }) {
       });
       if (uploadError) throw uploadError;
 
-      const res = await emitAck(socketRef?.current, "mobile:install", {
+      const res = await emitAck(busRef?.current, "mobile:install", {
         serial,
         fileName: stage.fileName,
         launch: true
@@ -79,14 +79,14 @@ export function useMobileApps({ socketRef, protocolRef, serial, enabled }) {
       setBusy(null);
       setProgress(0);
     }
-  }, [socketRef, protocolRef, serial, refresh]);
+  }, [busRef, protocolRef, serial, refresh]);
 
   const openLink = useCallback(async (url) => {
     setError(null);
-    const res = await emitAck(socketRef?.current, "mobile:openLink", { serial, url });
+    const res = await emitAck(busRef?.current, "mobile:openLink", { serial, url });
     if (!res?.success) setError(res?.error || "Could not open link");
     return res?.success;
-  }, [socketRef, serial]);
+  }, [busRef, serial]);
 
   return { apps, foreground, busy, progress, error, setError, refresh, install, launch, stopApp, clearData, uninstall, openLink };
 }

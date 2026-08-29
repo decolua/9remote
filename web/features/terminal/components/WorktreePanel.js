@@ -10,7 +10,7 @@ import { shortenHomePath } from "../lib/workspaceGrouping";
 
 // Worktrees on top, branches below — the two always move together (pick a branch, give it
 // a worktree, open a terminal in it), so splitting them across tabs would mean ping-pong.
-export default function WorktreePanel({ workspacePath, fileSocket, homeDir, onNewTerminal, onChanged }) {
+export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTerminal, onChanged }) {
   const { t } = useI18n();
   // Hover-reveal on pointer devices; touch has no hover, so keep them visible there.
   const revealCls = "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100";
@@ -23,15 +23,15 @@ export default function WorktreePanel({ workspacePath, fileSocket, homeDir, onNe
   const [addTarget, setAddTarget] = useState(null);       // { branch, path }
 
   const load = useCallback(async () => {
-    if (!workspacePath || !fileSocket?.gitBranchList) return;
+    if (!workspacePath || !fileBus?.gitBranchList) return;
     setLoading(true);
     setError(null);
-    const res = await fileSocket.gitBranchList(workspacePath);
+    const res = await fileBus.gitBranchList(workspacePath);
     setLoading(false);
     if (!res?.success) return setError(res?.error || null);
     setBranches(res.branches || []);
     setWorktrees(res.worktrees || []);
-  }, [workspacePath, fileSocket]);
+  }, [workspacePath, fileBus]);
 
   useEffect(() => {
     const id = setTimeout(() => void load(), 0);
@@ -47,20 +47,20 @@ export default function WorktreePanel({ workspacePath, fileSocket, homeDir, onNe
 
   const checkout = async (branch) => {
     vibrate();
-    const res = await fileSocket.gitBranchCheckout(workspacePath, branch);
+    const res = await fileBus.gitBranchCheckout(workspacePath, branch);
     if (!res?.success) return setError(res?.error || null);
     afterChange();
   };
 
   const addWorktree = async ({ branch, path: wtPath }) => {
-    const res = await fileSocket.gitWorktreeAdd(workspacePath, wtPath, branch, false);
+    const res = await fileBus.gitWorktreeAdd(workspacePath, wtPath, branch, false);
     setAddTarget(null);
     if (!res?.success) return setError(res?.error || null);
     afterChange();
   };
 
   const removeWorktree = async (wtPath, confirmed) => {
-    const res = await fileSocket.gitWorktreeRemove(workspacePath, wtPath, { confirmed });
+    const res = await fileBus.gitWorktreeRemove(workspacePath, wtPath, { confirmed });
     if (res?.busy) return setRemoveTarget({ path: wtPath, busy: res.busy });
     setRemoveTarget(null);
     if (!res?.success) return setError(res?.error || null);

@@ -78,10 +78,10 @@ export function useProtocol({
       socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, deviceId, ...socketOptions.auth } },
       apiKey: auth.apiKey,
       deviceId,
-      onConnect: (socket) => {
+      onConnect: (bus) => {
         setConnected(true);
         setConnectionMode(managerRef.current?.connectionMode || "tunnel");
-        onConnect?.(socket);
+        onConnect?.(bus);
       },
       onDisconnect: (reason) => {
         setConnected(false);

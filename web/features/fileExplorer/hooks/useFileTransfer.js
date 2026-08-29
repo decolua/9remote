@@ -7,7 +7,7 @@ import { vibrate } from "@/shared/utils/vibration";
 // Upload (drop / paste) and download plumbing for the mobile explorer: progress
 // state, the overwrite prompt, and drag-over highlighting.
 // Extracted verbatim from FileExplorer.
-export function useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone, onError }) {
+export function useFileTransfer({ fileBus, currentPath, isBrowsing, onDone, onError }) {
   const [transfer, setTransfer] = useState(null);      // { total, done, current, ratio }
   const [dragOver, setDragOver] = useState(false);
   const [conflict, setConflict] = useState(null);      // { name, resolve }
@@ -20,11 +20,11 @@ export function useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone, o
   // the same bar. Only the newest batch may write.
   const uploadSeqRef = useRef(0);
   const startUpload = useCallback(async (items) => {
-    if (!items.length || !fileSocket.uploadFiles) return;
+    if (!items.length || !fileBus.uploadFiles) return;
     const seq = ++uploadSeqRef.current;
     const isCurrent = () => seq === uploadSeqRef.current;
     setTransfer({ total: items.length, done: 0, current: items[0]?.file?.name || "", ratio: 0 });
-    await fileSocket.uploadFiles(currentPath, items, {
+    await fileBus.uploadFiles(currentPath, items, {
       onConflict: ({ file }, relativePath) => new Promise((resolve) => {
         setConflict({ name: relativePath || file.name, resolve });
       }),
@@ -33,7 +33,7 @@ export function useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone, o
     });
     if (isCurrent()) setTransfer(null);
     onDone?.(currentPath);
-  }, [fileSocket, currentPath, onDone]);
+  }, [fileBus, currentPath, onDone]);
 
   const handleDrop = useCallback(async (e) => {
     e.preventDefault();
@@ -66,11 +66,11 @@ export function useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone, o
   // clear it for both.
   const downloadSeqRef = useRef(0);
   const handleDownload = useCallback((file) => {
-    if (!fileSocket.downloadFile) return;
+    if (!fileBus.downloadFile) return;
     const seq = ++downloadSeqRef.current;
     const isCurrent = () => seq === downloadSeqRef.current;
     setDownloadState({ name: file.name, ratio: 0 });
-    fileSocket.downloadFile(file.path, {
+    fileBus.downloadFile(file.path, {
       onSave: (blob, meta) => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
@@ -84,7 +84,7 @@ export function useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone, o
       onProgress: (ratio) => { if (isCurrent()) setDownloadState((p) => p ? { ...p, ratio } : p); },
       onError: (e) => { onError?.(e.message || "Download failed"); if (isCurrent()) setDownloadState(null); }
     });
-  }, [fileSocket, onError]);
+  }, [fileBus, onError]);
 
   // Mirrors the original inline handler: resolve THEN clear, never inside an
   // updater (StrictMode would double-invoke it and answer the prompt twice).

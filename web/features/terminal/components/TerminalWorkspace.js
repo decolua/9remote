@@ -30,11 +30,11 @@ const focusBorderClass = (isFocused, state) => {
 
 // Terminal view shell: sidebar + header + multi-pane row + editor/tree panels + status bar.
 function TerminalWorkspace({
-  socket, socketRef, connected, transport, platform, agentVersion,
+  bus, busRef, connected, carrier, platform, agentVersion,
   sessions, workspaces, activeSessionId, activeSession, activeWorkspaceId,
   openedSessions, livePanes, mountedWorkspaces, cwdBySession,
   sessionStatus, notifications, clearNotification,
-  isDesktop, isTerminalView, slideClass, shells, fileSocket,
+  isDesktop, isTerminalView, slideClass, shells, fileBus,
   sidebarCollapsed, sidebarWidth, setSidebarWidth, toggleSidebar,
   paneWidth = null, setPaneWidth,
   paneRegistry, bindSwipeTab, nav,
@@ -168,24 +168,24 @@ function TerminalWorkspace({
   // source of truth, so a fresh device gets the same wallpapers as everyone else.
   // bg:list is new; older agents only answer bg:get (single legacy image).
   useEffect(() => {
-    if (!connected || !socket?.emit) return;
+    if (!connected || !bus?.emit) return;
     let cancelled = false;
     // An old agent has no bg:list handler, so its ack never fires — fall back to
     // the legacy single-image bg:get on timeout, not just on a failed ack.
-    const legacyFetch = () => socket.emit("bg:get", {}, (res) => {
+    const legacyFetch = () => bus.emit("bg:get", {}, (res) => {
       if (!cancelled && res?.success && res.dataUrl) {
         useTerminalStore.getState().setCustomBackgrounds([{ id: "custom", dataUrl: res.dataUrl }]);
       }
     });
     const timer = setTimeout(() => { if (!cancelled) legacyFetch(); }, BG_LIST_TIMEOUT_MS);
-    socket.emit("bg:list", {}, (res) => {
+    bus.emit("bg:list", {}, (res) => {
       if (cancelled) return;
       clearTimeout(timer);
       if (res?.success && Array.isArray(res.items)) useTerminalStore.getState().setCustomBackgrounds(res.items);
       else legacyFetch();
     });
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [connected, socket]);
+  }, [connected, bus]);
 
   const paneCount = workspaceOpenedSessions.length;
   const autoBase = rowWidth - sidebarWidth - PANE_ROW_PADDING_PX;
@@ -237,7 +237,7 @@ function TerminalWorkspace({
       workspacePath={session?.workspacePath}
       sessionName={session?.name}
       sessionState={sessionStatus[sessionId]?.state || "idle"}
-      socket={socket}
+      bus={bus}
       connected={connected}
       sessionId={sessionId}
       isVisible={isVisible}
@@ -247,7 +247,7 @@ function TerminalWorkspace({
       onPasteFallback={handlePasteFallback}
       showFocusBorder={false}
       clearNotification={clearNotification}
-      fileSocket={fileSocket}
+      fileBus={fileBus}
       mountDelay={mountDelayFor(sessionId, isFocused, workspaceIndex)}
       bgIndex={bgIndex}
       onOpenArtifact={onOpenArtifact}
@@ -259,7 +259,7 @@ function TerminalWorkspace({
 
   const renderKeyboard = (sessionId) => (
     <MobileKeyboard
-      socket={socket}
+      bus={bus}
       sessionId={sessionId}
       onExpandChange={() => {}}
       onRefocus={() => focusPane(sessionId)}
@@ -272,8 +272,8 @@ function TerminalWorkspace({
       statusStrip={(
         <MobileStatusStrip
           sessionId={sessionId}
-          fileSocket={fileSocket}
-          socketRef={socketRef}
+          fileBus={fileBus}
+          busRef={busRef}
           onReveal={(cwd) => {
             const wsPath = sessions.find((s) => s.id === sessionId)?.workspacePath;
             setRightPanelRoot(wsPath, cwd || wsPath);
@@ -313,8 +313,8 @@ function TerminalWorkspace({
               onDeleteWorkspace={onDeleteWorkspace}
               onAddWorkspace={onAddWorkspace}
               onOpenSettings={onOpenSettings}
-              socketRef={socketRef}
-              fileSocket={fileSocket}
+              busRef={busRef}
+              fileBus={fileBus}
               homeDir={homeDir}
               cwdBySession={cwdBySession}
               connected={connected}
@@ -365,15 +365,15 @@ function TerminalWorkspace({
             agentVersion={agentVersion}
             updateAvailable={updateAvailable}
             canSelfUpdate={canSelfUpdate}
-            socketRef={socketRef}
-            transport={transport}
+            busRef={busRef}
+            carrier={carrier}
             shells={shells}
             onToggleSidebar={isDesktop ? toggleSidebar : null}
             sidebarCollapsed={sidebarCollapsed}
             onReorderSession={handleReorderSession}
             onToggleRightPanel={rightPanel?.onToggle}
             rightPanelOpen={rightPanel?.open}
-            fileSocket={fileSocket}
+            fileBus={fileBus}
             homeDir={homeDir}
           />
           )}
@@ -495,7 +495,7 @@ function TerminalWorkspace({
               artifactTitle={editorOpen ? editorPanel.artifactTitle : lastEditor?.artifactTitle}
               previewSeq={editorOpen ? editorPanel.previewSeq : lastEditor?.previewSeq}
               workspace={filesRoot}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               width={editorPanel.width}
               onResize={editorPanel.onResize}
               onClose={editorPanel.onClose}
@@ -527,7 +527,7 @@ function TerminalWorkspace({
 
         {/* Single mount for every mode — see the pin slot above. */}
         {isDesktop && mobilePanel?.open && (
-          <MobileDock socketRef={socketRef} protocolRef={mobilePanel.protocolRef} connected={connected} pinSlot={mobilePinSlot} />
+          <MobileDock busRef={busRef} protocolRef={mobilePanel.protocolRef} connected={connected} pinSlot={mobilePinSlot} />
         )}
 
         {/* Right panel: files / git / worktrees. Slides in over the panes on mobile, with a
@@ -552,7 +552,7 @@ function TerminalWorkspace({
               workspacePath={baseRoot}
               filesRoot={filesRoot}
               cwdHint={activeCwd}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               activeFile={editorPanel?.filePath}
               tab={rightPanel.tabs?.[baseRoot ?? ""] || "files"}
               onTabChange={handleRightPanelTabChange}
@@ -579,11 +579,11 @@ function TerminalWorkspace({
       {isDesktop && !showEmptyState && (
         <TerminalStatusBar
           cwd={activeSessionId ? cwdBySession[activeSessionId] || "" : ""}
-          fileSocket={fileSocket}
-          socketRef={socketRef}
+          fileBus={fileBus}
+          busRef={busRef}
           connected={connected}
           sessionState={activeSessionId ? sessionStatus[activeSessionId]?.state : "idle"}
-          transport={transport}
+          carrier={carrier}
           sessionName={activeSession ? activeSession?.name : ""}
           agentVersion={agentVersion}
           platform={platform}

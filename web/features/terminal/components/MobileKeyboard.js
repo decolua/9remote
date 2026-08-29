@@ -26,14 +26,14 @@ import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
+import { useFileBus } from "@/features/fileExplorer/hooks/useFileBus";
 import { useAttachments } from "@/features/terminal/hooks/useAttachments";
 import { generateCombination as generateCombo } from "@/features/terminal/lib/keyCombination";
 import PathSuggestion from "@/shared/components/ui/PathSuggestion";
 import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/utils/pathSuggest";
 import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 
-const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null }) => {
+const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null }) => {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   // True only when the OS soft keyboard actually covers the screen (viewport shrinks) —
@@ -90,14 +90,14 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   const cmdActiveClamped = wrap(cmdActive, cmdItems.length);
   const dirCacheRef = useRef(null);
   if (dirCacheRef.current == null) dirCacheRef.current = makeDirCache();
-  const socketRef = useRef(socket);
-  useEffect(() => { socketRef.current = socket; }, [socket]);
-  const fileSocket = useFileSocket(socketRef);
+  const busRef = useRef(bus);
+  useEffect(() => { busRef.current = bus; }, [bus]);
+  const fileBus = useFileBus(busRef);
   // Pending attachments (images/files) shown as chips; sent via OS clipboard on send.
   const {
     attachments, setAttachments,
     addFiles, removeAttachment, sendOneAttachment, handleFileUpload, handleAttachPaste
-  } = useAttachments({ socket, sessionId });
+  } = useAttachments({ bus, sessionId });
 
   // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
   const [voiceLang, setVoiceLang] = useVoiceLang(locale);
@@ -144,7 +144,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       const now = Date.now();
       let entries = dirCacheRef.current.get(parsed.dir, now);
       if (entries == null) {
-        const res = await fileSocket.getFiles(parsed.dir, false);
+        const res = await fileBus.getFiles(parsed.dir, false);
         if (token !== lastSuggestRef.current) return;
         if (!res?.success) { setPathItems([]); return; }
         entries = res.files;
@@ -153,7 +153,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
       setPathItems(pickMatches(entries, parsed.prefix, parsed));
     }, PATH_SUGGEST.debounceMs);
     return () => clearTimeout(timer);
-  }, [textInput, cwd, fileSocket]);
+  }, [textInput, cwd, fileBus]);
 
   // Reset per-session cache + suggestions when switching panes.
   useEffect(() => {
@@ -218,7 +218,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
 
   // Intercept keyboard input when modifiers are active
   useEffect(() => {
-    if (!isMobile || !socket || !sessionId) return;
+    if (!isMobile || !bus || !sessionId) return;
     const hasActiveModifier = ctrlPressed || metaPressed || altPressed || shiftPressed;
     if (!hasActiveModifier) return;
 
@@ -247,15 +247,15 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
         ctrl: ctrlPressed, alt: altPressed, shift: shiftPressed, meta: metaPressed
       });
       onInput?.(sessionId);
-      socket.emit("input", { sessionId, data });
+      bus.emit("input", { sessionId, data });
       setCtrlPressed(false); setMetaPressed(false); setAltPressed(false); setShiftPressed(false);
     };
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [isMobile, socket, sessionId, ctrlPressed, metaPressed, altPressed, shiftPressed, generateCombination, openPasteInput]);
+  }, [isMobile, bus, sessionId, ctrlPressed, metaPressed, altPressed, shiftPressed, generateCombination, openPasteInput]);
 
-  if ((!isMobile && !hasPhysicalKeyboard) || !socket || !sessionId) return null;
+  if ((!isMobile && !hasPhysicalKeyboard) || !bus || !sessionId) return null;
 
   const handleModifierToggle = (modifier) => {
     vibrate();
@@ -268,9 +268,9 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   const handlePasteInput = (e) => {
     e.preventDefault();
     const text = e.clipboardData?.getData("text");
-    if (text && socket) {
+    if (text && bus) {
       onInput?.(sessionId);
-      socket.emit("input", { sessionId, data: text });
+      bus.emit("input", { sessionId, data: text });
       vibrate();
     }
     setShowPasteInput(false);
@@ -287,7 +287,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     }
     const data = generateCombination(key, forceModifiers);
     onInput?.(sessionId);
-    socket.emit("input", { sessionId, data });
+    bus.emit("input", { sessionId, data });
     if (key !== "Ctrl" && key !== "Meta" && key !== "Alt" && key !== "Shift") {
       setCtrlPressed(false); setMetaPressed(false); setAltPressed(false); setShiftPressed(false);
     }
@@ -305,7 +305,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
   const sendTextBatch = async () => {
     vibrate(15);
     if (voice.listening) voice.stop();
-    if (!socket || !sessionId) return;
+    if (!bus || !sessionId) return;
     // Only pull the keyboard back up if the input was already focused when sending.
     const wasFocused = document.activeElement === textInputRef.current;
     // Blur to force-commit pending IME composition before reading value,
@@ -325,12 +325,12 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
     }
 
     if (text === "") {
-      if (!pending.length) socket.emit("input", { sessionId, data: "\r" });
+      if (!pending.length) bus.emit("input", { sessionId, data: "\r" });
     } else {
       // Send text first, then Enter after a short delay so PTY reliably
       // receives both (mobile/IME may otherwise drop the Enter).
-      socket.emit("input", { sessionId, data: text });
-      setTimeout(() => socket.emit("input", { sessionId, data: "\r" }), INPUT_ENTER_DELAY);
+      bus.emit("input", { sessionId, data: text });
+      setTimeout(() => bus.emit("input", { sessionId, data: "\r" }), INPUT_ENTER_DELAY);
       addCommand(text);
       setTextInput("");
       historyIndexRef.current = -1;
@@ -531,7 +531,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                     e.preventDefault();
                     const data = generateCombination("Tab", { ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey });
                     onInput?.(sessionId);
-                    socket.emit("input", { sessionId, data });
+                    bus.emit("input", { sessionId, data });
                     return;
                   }
                   e.preventDefault();
@@ -570,7 +570,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                     && !textInput) {
                   e.preventDefault();
                   onInput?.(sessionId);
-                  socket.emit("input", { sessionId, data: e.key === "ArrowUp" ? "\x1b[A" : "\x1b[B" });
+                  bus.emit("input", { sessionId, data: e.key === "ArrowUp" ? "\x1b[A" : "\x1b[B" });
                   return;
                 }
                 // Control keys (Esc, Ctrl+C/D/Z/L) → straight to terminal.
@@ -580,7 +580,7 @@ const MobileKeyboard = ({ socket, sessionId, onExpandChange, onRefocus, onRegist
                   if (cfg.requireNoSelection && el.selectionStart !== el.selectionEnd) return;
                   e.preventDefault();
                   onInput?.(sessionId);
-                  socket.emit("input", { sessionId, data: cfg.data });
+                  bus.emit("input", { sessionId, data: cfg.data });
                 }
               }}
               placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend") : t("mobileKeyboard.typeCommand")}

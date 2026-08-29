@@ -53,7 +53,7 @@ function readShowHidden() {
   }
 }
 
-export function useFileTreeState({ workspace, fileSocket }) {
+export function useFileTreeState({ workspace, fileBus }) {
   const [tree, setTree] = useState(() => new Map());
   const [expanded, setExpanded] = useState(() => new Set());
   // Which workspace `expanded` currently describes — see the persist effect below.
@@ -71,7 +71,7 @@ export function useFileTreeState({ workspace, fileSocket }) {
         next.add(dirPath);
         return next;
       });
-      const res = await fileSocket.getFiles(dirPath, showHidden);
+      const res = await fileBus.getFiles(dirPath, showHidden);
       setLoading((prev) => {
         const next = new Set(prev);
         next.delete(dirPath);
@@ -94,16 +94,16 @@ export function useFileTreeState({ workspace, fileSocket }) {
       }
       return [];
     },
-    [fileSocket, showHidden]
+    [fileBus, showHidden]
   );
 
   // Load git status and propagate folder-changed up parents. A workspace that is a
   // parent folder of nested repos gets every repo's status merged in.
   const loadGitStatus = useCallback(async () => {
     if (!workspace) return;
-    const { map } = await buildWorkspaceGitStatus(fileSocket, workspace);
+    const { map } = await buildWorkspaceGitStatus(fileBus, workspace);
     setGitStatusMap(map);
-  }, [fileSocket, workspace]);
+  }, [fileBus, workspace]);
 
   // Initial mount: load workspace root + restore expanded + git status
   useEffect(() => {
@@ -210,7 +210,7 @@ export function useFileTreeState({ workspace, fileSocket }) {
     loadGitStatus();
   }, [loadDir, loadGitStatus]);
 
-  useDirWatch({ dirs: watchedDirs, fileSocket, onDirsChanged: reloadDirs, enabled: visible });
+  useDirWatch({ dirs: watchedDirs, fileBus, onDirsChanged: reloadDirs, enabled: visible });
 
   // Events that arrived while the tab was hidden are gone, so the tree is reloaded once
   // on return. Skipped on the first render — the mount effect above already loaded it.

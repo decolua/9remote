@@ -8,7 +8,7 @@ import { useI18n } from "@/shared/i18n";
 // Attachment staging for the mobile input bar: pick/paste files, hold them as
 // base64 until send, then push each into the host clipboard for the CLI to read.
 // Extracted verbatim from MobileKeyboard.
-export function useAttachments({ socket, sessionId }) {
+export function useAttachments({ bus, sessionId }) {
   const { t } = useI18n();
   const [attachments, setAttachments] = useState([]);
   const attachIdRef = useRef(0);
@@ -43,9 +43,9 @@ export function useAttachments({ socket, sessionId }) {
   const sendOneAttachment = useCallback((att) => new Promise((resolve) => {
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
-    socket.emit("clipboard-attach", { sessionId, filename: att.name, type: att.type, content: att.content }, finish);
+    bus.emit("clipboard-attach", { sessionId, filename: att.name, type: att.type, content: att.content }, finish);
     setTimeout(finish, CLIPBOARD_ATTACH_TIMEOUT);
-  }), [socket, sessionId]);
+  }), [bus, sessionId]);
 
   const handleFileUpload = useCallback(async (event) => {
     vibrate();

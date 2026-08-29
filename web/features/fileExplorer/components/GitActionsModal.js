@@ -7,7 +7,7 @@ import { useI18n } from "@/shared/i18n";
 import { commitSummary, pushSummary } from "../lib/gitOutput.js";
 
 // Git commit/push actions. Commit stages all (add .) then commits.
-export default function GitActionsModal({ workspace, fileSocket, branch, changedCount, onDone, onClose }) {
+export default function GitActionsModal({ workspace, fileBus, branch, changedCount, onDone, onClose }) {
   const { t } = useI18n();
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,9 +22,9 @@ export default function GitActionsModal({ workspace, fileSocket, branch, changed
   const canCommit = msg.trim().length > 0 && !busy;
 
   const doCommit = async () => {
-    const add = await fileSocket.gitAdd(workspace);
+    const add = await fileBus.gitAdd(workspace);
     if (!add.success) return { ok: false, text: add.error || t("git.stageFailed") };
-    const res = await fileSocket.gitCommit(workspace, msg.trim());
+    const res = await fileBus.gitCommit(workspace, msg.trim());
     if (!res.success) return { ok: false, text: res.output || res.error || t("git.commitFailed") };
     return { ok: true, text: commitSummary(t, res.output) };
   };
@@ -40,7 +40,7 @@ export default function GitActionsModal({ workspace, fileSocket, branch, changed
   const handlePush = async () => {
     if (busy) return;
     vibrate(); setBusy(true); setOutput(null);
-    const res = await fileSocket.gitPush(workspace);
+    const res = await fileBus.gitPush(workspace);
     setBusy(false);
     setOutput({ ok: res.success, text: res.success ? pushSummary(t, res.output) : (res.output || res.error || t("git.pushFailed")) });
     if (res.success) onDone?.();
@@ -52,7 +52,7 @@ export default function GitActionsModal({ workspace, fileSocket, branch, changed
     const c = await doCommit();
     if (!c.ok) { setBusy(false); setOutput(c); return; }
     setMsg("");
-    const res = await fileSocket.gitPush(workspace);
+    const res = await fileBus.gitPush(workspace);
     setBusy(false);
     setOutput({ ok: res.success, text: res.success ? pushSummary(t, res.output) : (res.output || res.error || t("git.pushFailed")) });
     onDone?.();

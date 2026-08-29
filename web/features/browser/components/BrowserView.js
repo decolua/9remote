@@ -16,7 +16,7 @@ const tabAddress = (tab) => (tab ? `localhost:${tab.port}${tab.path || "/"}` : "
 // navigate rather than resolve to the same URL it already has.
 const srcOf = (tab) => siteProxySrc(tab.port, tab.path, tab.srcTick);
 
-export default function BrowserView({ socketRef, connected = false, initialPort, initialPath, onBack }) {
+export default function BrowserView({ busRef, connected = false, initialPort, initialPath, onBack }) {
   const { t } = useI18n();
   // One state object — tab list, active tab and address bar travel together
   const [state, setState] = useState(() => {
@@ -36,26 +36,26 @@ export default function BrowserView({ socketRef, connected = false, initialPort,
   const startSession = useCallback((port) => {
     if (startedPorts.current.has(port)) return;
     startedPorts.current.add(port);
-    socketRef?.current?.emit?.("startProxySession", port);
-  }, [socketRef]);
+    busRef?.current?.emit?.("startProxySession", port);
+  }, [busRef]);
   const endSession = useCallback((port) => {
     startedPorts.current.delete(port);
-    socketRef?.current?.emit?.("endProxySession", port);
-  }, [socketRef]);
+    busRef?.current?.emit?.("endProxySession", port);
+  }, [busRef]);
 
   useEffect(() => {
-    initSiteBridge(socketRef?.current);
-  }, [socketRef]);
+    initSiteBridge(busRef?.current);
+  }, [busRef]);
 
   // Detected sites for the new-tab picker
   useEffect(() => {
     if (!connected || sites) return;
     let cancelled = false;
-    fetchLocalSites(socketRef?.current).then((result) => {
+    fetchLocalSites(busRef?.current).then((result) => {
       if (!cancelled) setSites(result || []);
     });
     return () => { cancelled = true; };
-  }, [connected, sites, socketRef]);
+  }, [connected, sites, busRef]);
 
   // Address bar follows in-iframe navigations reported by the SW
   useEffect(() => {
@@ -83,10 +83,10 @@ export default function BrowserView({ socketRef, connected = false, initialPort,
   // Last-resort cleanup on unmount
   useEffect(() => () => {
     for (const port of startedPorts.current) {
-      socketRef?.current?.emit?.("endProxySession", port);
+      busRef?.current?.emit?.("endProxySession", port);
     }
     startedPorts.current.clear();
-  }, [socketRef]);
+  }, [busRef]);
 
   const navigate = (port, path = "/") => {
     vibrate();

@@ -7,7 +7,7 @@ import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 // Shared, ref-counted git branch + dirty flag per workspace path. One poll per unique
 // path no matter how many terminals sit in that workspace — otherwise 10 terminals in
 // one repo mean 10 identical `git` calls every tick.
-const entries = new Map(); // path → { state, stop, refs, subs, fileSocket }
+const entries = new Map(); // path → { state, stop, refs, subs, fileBus }
 
 const EMPTY = { branch: null, dirty: false, changedCount: 0 };
 
@@ -17,8 +17,8 @@ function notify(entry) {
 
 async function fetchOnce(entry, wsPath) {
   const [branchRes, countRes] = await Promise.all([
-    entry.fileSocket?.gitBranch?.(wsPath),
-    entry.fileSocket?.gitChangedCount?.(wsPath)
+    entry.fileBus?.gitBranch?.(wsPath),
+    entry.fileBus?.gitChangedCount?.(wsPath)
   ]);
   const branch = branchRes?.success ? branchRes.branch || null : null;
   const changedCount = countRes?.success ? countRes.count || 0 : 0;
@@ -27,10 +27,10 @@ async function fetchOnce(entry, wsPath) {
   notify(entry);
 }
 
-function acquire(wsPath, fileSocket) {
+function acquire(wsPath, fileBus) {
   let entry = entries.get(wsPath);
   if (!entry) {
-    entry = { state: EMPTY, stop: null, refs: 0, subs: new Set(), fileSocket };
+    entry = { state: EMPTY, stop: null, refs: 0, subs: new Set(), fileBus };
     entries.set(wsPath, entry);
     fetchOnce(entry, wsPath);
     entry.stop = pollWhileVisible(() => fetchOnce(entry, wsPath), WORKSPACE_GIT_POLL_MS);
@@ -54,12 +54,12 @@ export function refreshWorkspaceGit(wsPath) {
   if (entry) fetchOnce(entry, wsPath);
 }
 
-export function useWorkspaceGit(wsPath, fileSocket, { enabled = true } = {}) {
+export function useWorkspaceGit(wsPath, fileBus, { enabled = true } = {}) {
   const [state, setState] = useState(EMPTY);
 
   useEffect(() => {
-    if (!wsPath || !fileSocket || !enabled) return;
-    const entry = acquire(wsPath, fileSocket);
+    if (!wsPath || !fileBus || !enabled) return;
+    const entry = acquire(wsPath, fileBus);
     entry.subs.add(setState);
     // Adopt whatever the shared entry already knows, without a redundant render when
     // this is the subscriber that just created it.
@@ -68,7 +68,7 @@ export function useWorkspaceGit(wsPath, fileSocket, { enabled = true } = {}) {
       entry.subs.delete(setState);
       release(wsPath);
     };
-  }, [wsPath, fileSocket, enabled]);
+  }, [wsPath, fileBus, enabled]);
 
   return state;
 }

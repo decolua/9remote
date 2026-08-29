@@ -10,7 +10,7 @@ import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 // `getAgentSessions` round-trips over the tunnel for one answer.
 const pollers = new Map(); // cwd -> { count, stop }
 
-function acquirePoller(socketRef, cwd) {
+function acquirePoller(busRef, cwd) {
   const existing = pollers.get(cwd);
   if (existing) {
     existing.count += 1;
@@ -22,7 +22,7 @@ function acquirePoller(socketRef, cwd) {
   const fetchNow = () => {
     if (inFlight) return;
     inFlight = true;
-    socketRef?.current?.emit("getAgentSessions", { cwd }, (result) => {
+    busRef?.current?.emit("getAgentSessions", { cwd }, (result) => {
       inFlight = false;
       if (Array.isArray(result?.sessions)) useTerminalStore.getState().setAgentHistory(cwd, result.sessions);
     });
@@ -45,7 +45,7 @@ function releasePoller(cwd) {
 // this directory. Refetches when the terminal moves to another cwd, and on a
 // TTL tick while it stays: a conversation started in the terminal above is being
 // written to its store right now, and should appear without a reload.
-export function useAgentSessions(socketRef, cwd) {
+export function useAgentSessions(busRef, cwd) {
   const entry = useTerminalStore((s) => (cwd ? s.agentHistory[cwd] : null));
   // Closing a terminal backdates every cwd's rows; refetching on that timestamp
   // is what turns the invalidation into a refresh instead of a 30s wait.
@@ -53,13 +53,13 @@ export function useAgentSessions(socketRef, cwd) {
 
   useEffect(() => {
     if (!cwd) return;
-    const poller = acquirePoller(socketRef, cwd);
+    const poller = acquirePoller(busRef, cwd);
     // A second reader joining an already-warm poller must not re-ask on its own —
     // only a cache that has actually aged out is worth a fetch.
     const cached = useTerminalStore.getState().agentHistory[cwd];
     if (!cached || Date.now() - cached.at >= AGENT_HISTORY_TTL_MS) poller.fetchNow();
     return () => releasePoller(cwd);
-  }, [socketRef, cwd, staleAt]);
+  }, [busRef, cwd, staleAt]);
 
   return entry?.sessions || null;
 }

@@ -30,7 +30,7 @@ const VISIBLE_TABS = TABS.filter((t) => t.key !== "trees");
 // Roots are the workspace itself plus each of its worktrees — separate directories on
 // disk, so they cannot share one tree.
 function TerminalRightPanel({
-  workspacePath, filesRoot = null, cwdHint = null, fileSocket, activeFile,
+  workspacePath, filesRoot = null, cwdHint = null, fileBus, activeFile,
   tab, onTabChange, width, onResize, onClose,
   onOpenFile, onNewTerminal, onAddWorkspace, onOpenFiles, homeDir,
   changedPerRepo = {}, hiddenRepos = [], onHiddenReposChange, isDesktop = true
@@ -38,16 +38,16 @@ function TerminalRightPanel({
   const { t } = useI18n();
   // A persisted "trees" tab must not strand the panel on hidden content
   const activeTab = tab === "trees" ? "git" : tab;
-  const { repos, refresh: refreshRepos, scanning, deep, scanDeeper } = useWorkspaceRepos(workspacePath, fileSocket);
+  const { repos, refresh: refreshRepos, scanning, deep, scanDeeper } = useWorkspaceRepos(workspacePath, fileBus);
   // The files tab may be revealed at a pane's live cwd; the other tabs stay workspace-rooted
   const effectiveFilesRoot = filesRoot || workspacePath;
-  const { roots, refresh: refreshRoots } = useWorkspaceRoots(effectiveFilesRoot, fileSocket);
+  const { roots, refresh: refreshRoots } = useWorkspaceRoots(effectiveFilesRoot, fileBus);
   const refresh = () => { refreshRepos(); refreshRoots(); };
 
   // A checkout in a terminal leaves every panel here showing the old branch. Reuse the
   // shared (ref-counted) branch poll and rescan only when the branch itself changed —
   // keying off the dirty count instead would rescan on every keystroke-driven edit.
-  const { branch: liveBranch } = useWorkspaceGit(workspacePath, fileSocket);
+  const { branch: liveBranch } = useWorkspaceGit(workspacePath, fileBus);
   // Stamped with the path so switching workspace is not read as a checkout, and the
   // first poll result (null → branch) only seeds the baseline the mount already loaded.
   const lastBranchRef = useRef({ path: null, branch: null });
@@ -58,7 +58,7 @@ function TerminalRightPanel({
     refreshRepos();
     refreshRoots();
     window.dispatchEvent(new Event(GIT_REFRESH_EVENT));
-    // refreshRepos/refreshRoots are stable per (path, socket) — the branch drives this
+    // refreshRepos/refreshRoots are stable per (path, bus) — the branch drives this
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveBranch, workspacePath]);
 
@@ -140,13 +140,13 @@ function TerminalRightPanel({
     }
     setSearchState((prev) => ({ ...prev, loading: true }));
     searchTimerRef.current = setTimeout(async () => {
-      const result = await fileSocket.searchFiles(effectiveFilesRoot, query);
+      const result = await fileBus.searchFiles(effectiveFilesRoot, query);
       // Ignore out-of-order replies once the query moved on.
       setSearchState((prev) => (prev.query === query && prev.loading
         ? { ...prev, results: result.success ? result.files : [], loading: false }
         : prev));
     }, 300);
-  }, [fileSocket, effectiveFilesRoot]);
+  }, [fileBus, effectiveFilesRoot]);
 
   // Clear the debounce timer on unmount.
   useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); }, []);
@@ -270,7 +270,7 @@ function TerminalRightPanel({
             >
               <ExplorerPanel
                 workspace={root.path}
-                fileSocket={fileSocket}
+                fileBus={fileBus}
                 activeFile={activeFile}
                 onOpenFile={onOpenFile}
                 onNewTerminal={onNewTerminal}
@@ -292,7 +292,7 @@ function TerminalRightPanel({
                 onToggle={() => setOpenRepo(activeRepo === repo.path ? "" : repo.path)}
                 onHide={canHideRepo(repo) ? () => hideRepo(repo.path) : null}
               >
-                <ScmPanel workspace={repo.path} fileSocket={fileSocket} onOpenFile={onOpenFile} tagDiffWithRepo />
+                <ScmPanel workspace={repo.path} fileBus={fileBus} onOpenFile={onOpenFile} tagDiffWithRepo />
               </RepoSection>
             ))}
 
@@ -325,7 +325,7 @@ function TerminalRightPanel({
         ) : (
           <WorktreePanel
             workspacePath={workspacePath}
-            fileSocket={fileSocket}
+            fileBus={fileBus}
             onNewTerminal={onNewTerminal}
             homeDir={homeDir}
             onChanged={refresh}

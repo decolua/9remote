@@ -35,8 +35,8 @@ function guessTool(name = "") {
 // when something is happening. The agent's name is not repeated — the icon in the row
 // already says which one it is, and "claude" next to a Claude logo says it twice.
 // A default branch (main/master) is the norm, not information, so it stays hidden.
-export function SessionMeta({ fileSocket, cwd, basePath, homeDir }) {
-  const { branch, dirty } = useWorkspaceGit(cwd, fileSocket);
+export function SessionMeta({ fileBus, cwd, basePath, homeDir }) {
+  const { branch, dirty } = useWorkspaceGit(cwd, fileBus);
   const showBranch = !!branch && !isDefaultBranch(branch);
   // Second line, in priority order: off-default branch → live folder relative to the
   // workspace root → path when the cwd left the workspace. Parked at the root on the
@@ -56,13 +56,13 @@ export function SessionMeta({ fileSocket, cwd, basePath, homeDir }) {
 
 // One workspace row: collapse chevron, name, off-default branch, actions.
 function WorkspaceHeader({
-  workspace, isActive, connected, collapsed, fileSocket,
+  workspace, isActive, connected, collapsed, fileBus,
   onToggleCollapse, onSelect, onNewTerminal, onDelete
 }) {
   const { t } = useI18n();
   const hasKeyboard = useInputMode() === "mouse";
   const gitPath = workspaceGitPath(workspace);
-  const { branch, dirty } = useWorkspaceGit(gitPath, fileSocket);
+  const { branch, dirty } = useWorkspaceGit(gitPath, fileBus);
   // Hover-reveal on pointer devices; always visible on touch, which has no hover.
   // Always visible: hiding them until hover meant a workspace's own actions were
   // undiscoverable, and there is no hover at all on a touch screen.
@@ -139,8 +139,8 @@ function TerminalSidebar({
   onReorderSession,
   onAddWorkspace,
   onOpenSettings,
-  socketRef = null,
-  fileSocket,
+  busRef = null,
+  fileBus,
   homeDir,
   cwdBySession = {},
   connected = true,
@@ -329,7 +329,7 @@ function TerminalSidebar({
                   workspace={grp}
                   isActive={isActiveWorkspace}
                   connected={connected}
-                  fileSocket={fileSocket}
+                  fileBus={fileBus}
                   collapsed={!!collapsed[wsKey]}
                   onToggleCollapse={() => toggleCollapsed(wsKey)}
                   onSelect={grp.items.length && onSelectWorkspace ? () => { vibrate(); onSelectWorkspace(grp.id); } : null}
@@ -385,7 +385,7 @@ function TerminalSidebar({
                           <span className="text-[11px] truncate" data-tip={s.name || t("terminal.defaultName")}>{s.name || t("terminal.defaultName")}</span>
                         </span>
                         <SessionMeta
-                          fileSocket={fileSocket}
+                          fileBus={fileBus}
                           cwd={cwdBySession[s.id] ?? s.workspacePath}
                           basePath={workspaceGitPath(grp)}
                           homeDir={homeDir}
@@ -428,7 +428,7 @@ function TerminalSidebar({
           pinned above the footer so it keeps its place as the session list scrolls. */}
       {onResumeAgentSession && (
         <AgentHistoryPanel
-          socketRef={socketRef}
+          busRef={busRef}
           cwd={activeCwd}
           onResume={onResumeAgentSession}
           onSelectSession={onSelectSession}
@@ -481,7 +481,7 @@ function TerminalSidebar({
             onCreateNamedSession?.(name, wsId, shellId, cwd || null, agent, yolo, nameIsAuto);
           }}
           shells={shells}
-          socketRef={socketRef}
+          busRef={busRef}
           onResumeAgentSession={onResumeAgentSession}
           onSelectSession={onSelectSession}
           liveSessionIds={liveSessionIds}
@@ -489,7 +489,7 @@ function TerminalSidebar({
           connected={connected}
           workspacePath={workspaces.find((w) => w.id === createModalWsId)?.path || null}
           workspaceName={workspaces.find((w) => w.id === createModalWsId)?.name || ""}
-          fileSocket={fileSocket}
+          fileBus={fileBus}
           homeDir={homeDir}
           suggestName={`${t("terminal.defaultName")} ${(allSessions.filter(s => sessionWorkspaceId(s) === (createModalWsId === "" ? null : createModalWsId)).length + 1)}`}
         />
@@ -518,7 +518,7 @@ function TerminalSidebar({
             <button
               onClick={() => {
                 vibrate();
-                socketRef?.current?.emit("session-resume", { sessionId: ctxMenu.sessionId });
+                busRef?.current?.emit("session-resume", { sessionId: ctxMenu.sessionId });
                 setCtxMenu(null);
               }}
               className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"

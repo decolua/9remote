@@ -22,12 +22,12 @@ import {
 // Desktop-only VSCode-like layout: ActivityBar | Sidebar | EditorArea + StatusBar
 export default function FileWorkspaceDesktop({
   workspace,
-  fileSocket,
+  fileBus,
   onBack,
   onSwitchWorkspace,
   initialOpenedFiles,
   onOpenedFilesChange,
-  socket,
+  bus,
   connected,
   sessions,
   onCreateTerminalSession,
@@ -131,11 +131,11 @@ export default function FileWorkspaceDesktop({
 
   // Load git branch
   useEffect(() => {
-    if (!workspace || !fileSocket) return;
-    fileSocket.gitBranch?.(workspace).then(r => {
+    if (!workspace || !fileBus) return;
+    fileBus.gitBranch?.(workspace).then(r => {
       if (r?.success) setGitBranch(r.branch || "");
     }).catch(() => {});
-  }, [workspace, fileSocket]);
+  }, [workspace, fileBus]);
 
   // Keyboard shortcuts
   useFileExplorerShortcuts({
@@ -179,7 +179,7 @@ export default function FileWorkspaceDesktop({
             <SidebarPanel
               activePanel={activePanel}
               workspace={workspace}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               onOpenFile={handleOpenFile}
               onSwitchWorkspace={onSwitchWorkspace}
               activeFile={activeFile}
@@ -192,7 +192,7 @@ export default function FileWorkspaceDesktop({
           <div className="flex-1 min-w-0 min-h-0 flex flex-col">
             <EditorArea
               workspace={workspace}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               openedFiles={openedFiles}
               activeFile={activeFile}
               onActivateFile={setActiveFile}
@@ -203,12 +203,12 @@ export default function FileWorkspaceDesktop({
               onEditorStateChange={setEditorState}
               previewRequest={previewRequest}
             />
-            {bottomVisible && socket && (
+            {bottomVisible && bus && (
               <BottomPanel
                 height={bottomHeight}
                 onResize={setBottomHeight}
                 onClose={() => setBottomVisible(false)}
-                socket={socket}
+                bus={bus}
                 connected={connected}
                 sessions={sessions}
                 onCreateSession={onCreateTerminalSession}
@@ -237,7 +237,7 @@ export default function FileWorkspaceDesktop({
         <CommandPalette
           mode={paletteMode}
           workspace={workspace}
-          fileSocket={fileSocket}
+          fileBus={fileBus}
           onClose={() => setPaletteOpen(false)}
           onOpenFile={handleOpenFile}
           onSetMode={setPaletteMode}

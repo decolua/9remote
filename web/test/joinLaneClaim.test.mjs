@@ -39,7 +39,7 @@ function harness() {
   let ack = null;
   const fireJoinRef = mk(null);
   const doJoinSession = createJoinSession({
-    socket: { emit: (_e, _p, cb) => { ack = cb; } },
+    bus: { emit: (_e, _p, cb) => { ack = cb; } },
     sessionId: "s1",
     term: { write: () => {}, reset: () => {} },
     fitAddon: {},

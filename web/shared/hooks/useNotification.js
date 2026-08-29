@@ -6,7 +6,7 @@ import { sameEntry, sameMap } from "@/shared/utils/shallowEqual";
 
 /**
  * Hook to manage push notifications and chat notification events
- * Badge state is stored on server, synced to client via socket
+ * Badge state is stored on server, synced to client via bus
  * Live updates arrive as statusChange (one entry); full maps are refetched only on
  * reconnect and when another client clears a badge.
  * NOTE: badge state shape here is `notifications` (object keyed by sessionId);
@@ -20,7 +20,7 @@ const omit = (obj, key) => {
   return rest;
 };
 
-export function useNotification(socketRef, connected) {
+export function useNotification(busRef, connected) {
   const subscriptionRef = useRef(null);
   const [notifications, setNotifications] = useState({});
   // 4-state map: sessionId → { state, tool, since }
@@ -57,22 +57,22 @@ export function useNotification(socketRef, connected) {
   useEffect(() => {
     if (typeof window === "undefined" || !isExpoWebView) return;
     window.handleAppStateChange = (hidden) => {
-      socketRef?.current?.emit("visibilityChange", !!hidden);
+      busRef?.current?.emit("visibilityChange", !!hidden);
     };
     return () => {
       try { delete window.handleAppStateChange; } catch (e) { window.handleAppStateChange = undefined; }
     };
-  }, [socketRef, isExpoWebView]);
+  }, [busRef, isExpoWebView]);
 
   // Subscribe to push notifications and send subscription to server
   const subscribeToPush = useCallback(async () => {
-    if (!socketRef?.current) return;
+    if (!busRef?.current) return;
     if (typeof window !== "undefined") localStorage.removeItem(USER_DISABLED_KEY);
 
     // Expo WebView: request token via native bridge
     if (isExpoWebView) {
       window.handleExpoPushToken = (token) => {
-        socketRef.current?.emit("pushSubscribe", { type: "expo", token });
+        busRef.current?.emit("pushSubscribe", { type: "expo", token });
         subscriptionRef.current = { type: "expo", token };
       };
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: "REQUEST_PUSH_TOKEN" }));
@@ -91,8 +91,8 @@ export function useNotification(socketRef, connected) {
       const registration = await navigator.serviceWorker.ready;
       if (!registration.pushManager) return;
 
-      // Await the socket callback so caller can rely on subscription being ready
-      const vapidKey = await new Promise((resolve) => socketRef.current.emit("getVapidKey", resolve));
+      // Await the bus callback so caller can rely on subscription being ready
+      const vapidKey = await new Promise((resolve) => busRef.current.emit("getVapidKey", resolve));
       if (!vapidKey) return;
       let subscription = await registration.pushManager.getSubscription();
       if (!subscription) {
@@ -101,18 +101,18 @@ export function useNotification(socketRef, connected) {
           applicationServerKey: vapidKey
         });
       }
-      socketRef.current.emit("pushSubscribe", subscription.toJSON());
+      busRef.current.emit("pushSubscribe", subscription.toJSON());
       // Sync current visibility so server knows focus state immediately
-      socketRef.current.emit("visibilityChange", document.hidden);
+      busRef.current.emit("visibilityChange", document.hidden);
       subscriptionRef.current = subscription;
     } catch (error) {
       console.error("Push notification setup failed:", error);
     }
-  }, [socketRef, isExpoWebView]);
+  }, [busRef, isExpoWebView]);
 
   // Auto re-send existing subscription on reconnect
   useEffect(() => {
-    const currentSocket = socketRef?.current;
+    const currentSocket = busRef?.current;
     if (!currentSocket || !connected) return;
     // Honor explicit user toggle-off (survives SW updates and reloads)
     if (typeof window !== "undefined" && localStorage.getItem(USER_DISABLED_KEY) === "1") return;
@@ -151,11 +151,11 @@ export function useNotification(socketRef, connected) {
         }
       } catch (e) { /* ignore */ }
     })();
-  }, [socketRef, connected, isExpoWebView]);
+  }, [busRef, connected, isExpoWebView]);
 
   // Listen for notification events from server
   useEffect(() => {
-    const currentSocket = socketRef?.current;
+    const currentSocket = busRef?.current;
     if (!currentSocket || !connected) return;
 
     const fetchState = () => {
@@ -251,7 +251,7 @@ export function useNotification(socketRef, connected) {
       currentSocket.off("connect", handleReconnect);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [socketRef, connected]);
+  }, [busRef, connected]);
 
   // Sync in-app notification count → PWA icon badge (Android/desktop Chrome/Edge/Brave; iOS ignores)
   useEffect(() => {
@@ -289,34 +289,34 @@ export function useNotification(socketRef, connected) {
       ...sessionStatusRef.current,
       [sessionId]: { ...sessionStatusRef.current[sessionId], state: "idle" },
     };
-    socketRef.current?.emit("clearNotification", sessionId);
-    socketRef.current?.emit("clearStatus", sessionId);
-  }, [socketRef]);
+    busRef.current?.emit("clearNotification", sessionId);
+    busRef.current?.emit("clearStatus", sessionId);
+  }, [busRef]);
 
   const unsubscribeFromPush = useCallback(async () => {
     if (typeof window !== "undefined") localStorage.setItem(USER_DISABLED_KEY, "1");
     try {
       if (subscriptionRef.current?.type === "expo") {
-        socketRef.current?.emit("pushUnsubscribe", subscriptionRef.current.token);
+        busRef.current?.emit("pushUnsubscribe", subscriptionRef.current.token);
         subscriptionRef.current = null;
         return;
       }
       if (subscriptionRef.current) {
         await subscriptionRef.current.unsubscribe();
-        socketRef.current?.emit("pushUnsubscribe", subscriptionRef.current.endpoint);
+        busRef.current?.emit("pushUnsubscribe", subscriptionRef.current.endpoint);
         subscriptionRef.current = null;
       } else {
         const registration = await navigator.serviceWorker.ready;
         const sub = await registration.pushManager.getSubscription();
         if (sub) {
-          socketRef.current?.emit("pushUnsubscribe", sub.endpoint);
+          busRef.current?.emit("pushUnsubscribe", sub.endpoint);
           await sub.unsubscribe();
         }
       }
     } catch (error) {
       console.error("Push unsubscribe failed:", error);
     }
-  }, [socketRef]);
+  }, [busRef]);
 
   return { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification };
 }

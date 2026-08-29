@@ -11,7 +11,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import DiffBody from "./DiffBody.js";
 
-export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) {
+export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState("status");
   const [statusLoading, setStatusLoading] = useState(true);
@@ -33,7 +33,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
     setStatusLoading(true);
     setError("");
 
-    const result = await fileSocket.gitStatus(workspace);
+    const result = await fileBus.gitStatus(workspace);
 
     if (result.success) {
       setStatusFiles(result.files);
@@ -41,7 +41,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       setError(result.error);
     }
 
-    fileSocket.gitBranch(workspace).then((r) => {
+    fileBus.gitBranch(workspace).then((r) => {
       if (!r?.success) return;
       setBranch(r.branch);
       setAhead(r.ahead ?? null);
@@ -49,7 +49,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
     });
 
     setStatusLoading(false);
-  }, [workspace, fileSocket]);
+  }, [workspace, fileBus]);
 
   // Load diff
   const loadDiff = useCallback(async (file = null, status = null) => {
@@ -58,7 +58,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
     setSelectedFile(file);
     setSelectedFileStatus(status);
 
-    const result = await fileSocket.gitDiff(workspace, file, status);
+    const result = await fileBus.gitDiff(workspace, file, status);
 
     if (result.success) {
       setDiff(result.diff);
@@ -68,7 +68,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
     }
 
     setDiffLoading(false);
-  }, [workspace, fileSocket]);
+  }, [workspace, fileBus]);
 
   // Load status on mount
   useEffect(() => {
@@ -100,7 +100,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       title: t("git.discardConfirmTitle"),
       message: isUntracked ? t("git.discardConfirmDelete", { name: fileName }) : t("git.discardConfirmDiscard", { name: fileName }),
       onConfirm: async () => {
-        const result = await fileSocket.gitDiscard(workspace, filePath, status);
+        const result = await fileBus.gitDiscard(workspace, filePath, status);
         if (result.success) {
           await loadStatus();
           // If in diff tab, update selection
@@ -120,7 +120,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
         }
       }
     });
-  }, [fileSocket, workspace, loadStatus, loadDiff, statusFiles, activeTab, t]);
+  }, [fileBus, workspace, loadStatus, loadDiff, statusFiles, activeTab, t]);
 
   // Open file in editor
   const handleOpenFile = useCallback((filePath) => {
@@ -428,7 +428,7 @@ export default function GitPanel({ workspace, fileSocket, onBack, onOpenFile }) 
       {actionsOpen && (
         <GitActionsModal
           workspace={workspace}
-          fileSocket={fileSocket}
+          fileBus={fileBus}
           branch={branch}
           changedCount={statusFiles.length}
           onDone={loadStatus}

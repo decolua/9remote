@@ -27,7 +27,7 @@ export default function CommandPalette({
   mode = "files",
   onSetMode,
   workspace,
-  fileSocket,
+  fileBus,
   onClose,
   onOpenFile,
   onAction
@@ -56,7 +56,7 @@ export default function CommandPalette({
   useEffect(() => {
     if (mode !== "files") return;
     const q = query.trim();
-    if (!q || !fileSocket || !workspace) {
+    if (!q || !fileBus || !workspace) {
       setResults([]);
       setLoading(false);
       return;
@@ -64,14 +64,14 @@ export default function CommandPalette({
     setLoading(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
-      const res = await fileSocket.searchFiles(workspace, q);
+      const res = await fileBus.searchFiles(workspace, q);
       setResults(res?.success && Array.isArray(res.files) ? res.files : []);
       setLoading(false);
     }, SEARCH_DEBOUNCE_MS);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, mode, fileSocket, workspace]);
+  }, [query, mode, fileBus, workspace]);
 
   // Smart switch: typing ">" at start in files mode → commands mode
   const handleChange = useCallback((e) => {

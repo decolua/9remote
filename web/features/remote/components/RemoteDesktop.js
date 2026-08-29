@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useCallback, useState, useRef } from "react";
-import { useRemoteSocket } from "@/features/remote/hooks/useRemoteSocket";
+import { useRemoteBus } from "@/features/remote/hooks/useRemoteBus";
 import { useCanvas } from "@/features/remote/hooks/useCanvas";
 import { useInput } from "@/features/remote/hooks/useInput";
 import { useTiles } from "@/features/remote/hooks/useTiles";
@@ -30,7 +30,7 @@ const STORAGE_KEYS = {
   controlsHidden: "remoteDesktop.controlsHidden"
 };
 
-export default function RemoteDesktop({ onClose, socketRef, protocolRef, connected, transport, hostPlatform }) {
+export default function RemoteDesktop({ onClose, busRef, protocolRef, connected, carrier, hostPlatform }) {
   const { t } = useI18n();
   const [showHelp, setShowHelp] = useState(false);
   const [showConfirmExit, setShowConfirmExit] = useState(false);
@@ -97,7 +97,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     emitBoostStream,
     emitSetFocus,
     emitDesktopSwitch
-  } = useRemoteSocket(socketRef, connected);
+  } = useRemoteBus(busRef, connected);
 
   const socketEmitFunctions = {
     emitRequestScreenWithHashes,
@@ -117,8 +117,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   }, []);
 
   useEffect(() => {
-    if (transport) debugLog("remote", `[remote] transport state: ${transport}`);
-  }, [transport]);
+    if (carrier) debugLog("remote", `[remote] carrier: ${carrier}`);
+  }, [carrier]);
 
   const {
     canvasRef,
@@ -206,7 +206,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     });
   }, [setHandMode, selectionMode, toggleSelectionMode, startHandHold, releaseHandHold]);
 
-  const tiles = useTiles(socketRef, streaming, canvasRef);
+  const tiles = useTiles(busRef, streaming, canvasRef);
 
   const {
     screenLocked,
@@ -220,7 +220,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
     activeMonitorIndex,
     cursorShape
   } = useRemoteStream({
-    socketRef, connected, streaming,
+    busRef, connected, streaming,
     canvasRef, serverDimensionsRef, handleCanvasDimensions, resetPan,
     zoomGestureTimeoutRef, trackTilesReceived, tiles
   });
@@ -256,8 +256,8 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
   const onHandRelease = useCallback(() => setHandMode(false), [setHandMode]);
 
   const onSelectMonitor = useCallback((index) => {
-    socketRef?.current?.emit("select_monitor", { index });
-  }, [socketRef]);
+    busRef?.current?.emit("select_monitor", { index });
+  }, [busRef]);
 
   const handleToggleSelection = useCallback(() => {
     if (handMode) setHandMode(false);
@@ -371,7 +371,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
             unlockResult={unlockResult}
             onUnlockSubmit={(text) => {
               setUnlockResult(null);
-              socketRef?.current?.emit("desktop-unlock", { text });
+              busRef?.current?.emit("desktop-unlock", { text });
             }}
           />
         )}
@@ -419,7 +419,7 @@ export default function RemoteDesktop({ onClose, socketRef, protocolRef, connect
 
       {showDebug && (
         <DebugPanel
-          onForceWsDisconnect={() => socketRef?.current?.disconnect()}
+          onForceWsDisconnect={() => busRef?.current?.disconnect()}
           onToggleWsBlock={() => {
             const pm = protocolRef?.current;
             if (!pm) return;

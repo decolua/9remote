@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 import { Loader2 } from "@/shared/components/ui/Icon";
 
 // PDF preview. Streamed over the FILE channel and assembled into a Blob URL
-// (lighter than a base64 data URL, no socket bloat) → built-in browser viewer.
-export default function PdfViewer({ filePath, fileSocket }) {
+// (lighter than a base64 data URL, no bus bloat) → built-in browser viewer.
+export default function PdfViewer({ filePath, fileBus }) {
   const [src, setSrc] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -20,7 +20,7 @@ export default function PdfViewer({ filePath, fileSocket }) {
     setError("");
     setSrc("");
 
-    const cancel = fileSocket.streamMedia(filePath, {
+    const cancel = fileBus.streamMedia(filePath, {
       onMeta: ({ mime: m }) => { if (!cancelled && m) mime = m; },
       onChunk: (payload) => { if (!cancelled) chunks.push(payload); },
       onDone: () => {
@@ -43,7 +43,7 @@ export default function PdfViewer({ filePath, fileSocket }) {
       cancel();
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [filePath, fileSocket]);
+  }, [filePath, fileBus]);
 
   if (loading) {
     return (

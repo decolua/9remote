@@ -1,7 +1,7 @@
 "use client";
 
 // Site bridge — the glue between the /browse/ service worker and the transport
-// socket (proxySocket facade: emit routes RTC-first, on/off survive reconnects).
+// bus (ClientBus facade: emit routes RTC-first, on/off survive carrier changes).
 // One instance per page; initSiteBridge is idempotent.
 
 import { SITE_NAV_EVENT, SITE_REPLY_TIMEOUT_MS, SITES_FETCH_TIMEOUT_MS, isSitesOrigin, SITES_ORIGIN } from "../constants/browserConfig";
@@ -9,7 +9,7 @@ import { SITE_NAV_EVENT, SITE_REPLY_TIMEOUT_MS, SITES_FETCH_TIMEOUT_MS, isSitesO
 // The proxy shell on the sites origin owns the service worker now — this page
 // cannot reach that worker directly, which is the point: the worker serves the
 // browsed site, and the site must not land on the origin holding the keys.
-let socket = null;
+let bus = null;
 let initiated = false;
 
 // reqId → {slots: [], total, status, headers, resolve, timer}
@@ -62,13 +62,13 @@ function runAgentRequest(msg) {
       resolve({ reqId, error: "timeout" });
     }, SITE_REPLY_TIMEOUT_MS);
     pendingChunks.set(reqId, entry);
-    socket?.emit?.("site:httpRequest", msg, () => {});
+    bus?.emit?.("site:httpRequest", msg, () => {});
   });
 }
 
 function onProxyMessage(event) {
   // The proxy shell asks this page to reach the agent, so anything arriving
-  // here speaks with the socket's authority. Only the shell's own origin may.
+  // here speaks with the bus's authority. Only the shell's own origin may.
   if (!isSitesOrigin(event.origin)) return;
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
@@ -90,10 +90,10 @@ function onProxyMessage(event) {
 }
 
 export async function initSiteBridge(sock) {
-  // Subscribe on every call — socket.on is Set-backed, so re-adds are free
+  // Subscribe on every call — bus.on is Set-backed, so re-adds are free
   if (sock) {
-    socket = sock;
-    socket.on?.("site:httpChunk", onChunk);
+    bus = sock;
+    bus.on?.("site:httpChunk", onChunk);
   }
   if (!initiated && typeof window !== "undefined") {
     initiated = true;

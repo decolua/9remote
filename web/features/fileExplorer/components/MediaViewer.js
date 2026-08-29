@@ -13,7 +13,7 @@ function formatSize(bytes) {
 // Media preview. Audio/video stream progressively over the FILE channel via
 // MediaSource Extensions (play starts before the full file arrives); images and
 // MSE-incompatible types fall back to the base64 readMedia path.
-export default function MediaViewer({ filePath, fileSocket }) {
+export default function MediaViewer({ filePath, fileBus }) {
   const [src, setSrc] = useState("");
   const [mime, setMime] = useState("");
   const [size, setSize] = useState(0);
@@ -42,7 +42,7 @@ export default function MediaViewer({ filePath, fileSocket }) {
       if (done && ms && ms.readyState === "open") { try { ms.endOfStream(); } catch {} }
     };
 
-    cancel = fileSocket.streamMedia(filePath, {
+    cancel = fileBus.streamMedia(filePath, {
       onMeta: ({ mime: m, size: s }) => {
         if (cancelled) return;
         setMime(m);
@@ -92,7 +92,7 @@ export default function MediaViewer({ filePath, fileSocket }) {
       if (url) URL.revokeObjectURL(url);
       try { if (ms && ms.readyState === "open") ms.endOfStream(); } catch {}
     };
-  }, [filePath, fileSocket]);
+  }, [filePath, fileBus]);
 
   if (loading) {
     return (

@@ -17,14 +17,14 @@ import EditorKeyBar from "./EditorKeyBar.js";
 // Mobile full-screen editor. The editing itself is CodeEditor + useFileDocument, the same
 // pair the desktop tabs and the terminal panel use; what is special here is the chrome —
 // a key bar, because a phone keyboard has no Esc, Tab or arrows.
-export default function FileEditor({ filePath, fileSocket, onBack, line, column, workspace, diffStatus, preview = false }) {
+export default function FileEditor({ filePath, fileBus, onBack, line, column, workspace, diffStatus, preview = false }) {
   const { t } = useI18n();
   const previewOnly = isPreviewable(filePath);
   // Opened from a git entry — this overlay exists to show the diff, not the file.
   const diffOnly = !!diffStatus;
   const fileName = filePath.split("/").pop();
 
-  const doc = useFileDocument({ filePath: !diffOnly && !previewOnly ? filePath : "", fileSocket });
+  const doc = useFileDocument({ filePath: !diffOnly && !previewOnly ? filePath : "", fileBus });
   const guard = useUnsavedGuard({ dirty: !diffOnly && !previewOnly && doc.dirty, onSave: doc.save });
 
   const viewRef = useRef(null);
@@ -56,17 +56,17 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
   useEffect(() => {
     if (diffOnly || !workspace || !filePath) return;
     let cancelled = false;
-    fileSocket.gitFileStatus(workspace, filePath).then((r) => {
+    fileBus.gitFileStatus(workspace, filePath).then((r) => {
       if (cancelled) return;
       setGitStatus(r?.success && r.status ? r : null);
     });
     return () => { cancelled = true; };
-  }, [filePath, workspace, fileSocket]);
+  }, [filePath, workspace, fileBus]);
 
   const showDiff = async () => {
     if (!gitStatus || !workspace) return;
     setDiffLoading(true);
-    const r = await fileSocket.gitDiff(workspace, gitStatus.file, gitStatus.status);
+    const r = await fileBus.gitDiff(workspace, gitStatus.file, gitStatus.status);
     setDiffLoading(false);
     if (r?.success) setDiff(r.diff || "");
   };
@@ -79,13 +79,13 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
     // Deferred a tick so the loading flag is not set synchronously inside the effect.
     const id = setTimeout(async () => {
       setDiffLoading(true);
-      const r = await fileSocket.gitDiff(workspace, filePath, diffStatus);
+      const r = await fileBus.gitDiff(workspace, filePath, diffStatus);
       if (cancelled) return;
       setDiffLoading(false);
       if (r?.success) setDiff(r.diff || "");
     }, 0);
     return () => { cancelled = true; clearTimeout(id); };
-  }, [diffStatus, workspace, filePath, fileSocket]);
+  }, [diffStatus, workspace, filePath, fileBus]);
 
   const copyContent = async () => {
     const text = viewRef.current?.state.doc.toString();
@@ -179,9 +179,9 @@ export default function FileEditor({ filePath, fileSocket, onBack, line, column,
             )}
           </div>
         ) : previewOnly ? (
-          <FilePreview filePath={filePath} fileSocket={fileSocket} />
+          <FilePreview filePath={filePath} fileBus={fileBus} />
         ) : htmlPreview && canPreviewHtml ? (
-          <HtmlViewer filePath={filePath} fileSocket={fileSocket} reloadKey={saveSeq} />
+          <HtmlViewer filePath={filePath} fileBus={fileBus} reloadKey={saveSeq} />
         ) : doc.loading ? (
           <div className="h-full flex items-center justify-center text-text-muted">{t("common.loading")}</div>
         ) : (

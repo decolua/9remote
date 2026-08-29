@@ -2,11 +2,11 @@
  * RemoteTransport — unified transport layer for WS and WebRTC DataChannel.
  *
  * Exposes a Socket.IO-like interface (emit / on / off) so all consumers
- * (useTiles, useRemoteSocket, ...) work identically regardless of transport.
+ * (useTiles, useRemoteBus, ...) work identically regardless of carrier.
  *
  * Strategy:
- *   - SEND  : prefer DC when open, fallback to socket
- *   - RECEIVE: socket handles all JSON events (control + hashes)
+ *   - SEND  : prefer DC when open, fallback to bus
+ *   - RECEIVE: bus handles all JSON events (control + hashes)
  *              DC delivers binary tile frames → decoded off-thread via Worker → re-emitted as "tiles-data"
  */
 
@@ -62,8 +62,8 @@ function resetWorker() {
 }
 
 export class RemoteTransport {
-  constructor(socket) {
-    this._socket = socket;
+  constructor(bus) {
+    this._socket = bus;
     this._dc = null;            // RTCDataChannel, set when DC opens
     this._tileBatch = [];
 
@@ -71,7 +71,7 @@ export class RemoteTransport {
     // Map<eventName, Set<handler>>
     this._listeners = new Map();
 
-    // Proxy all socket events into our listener bus so consumers
+    // Proxy all bus events into our listener bus so consumers
     // use transport.on() for both WS and DC events uniformly
     this._socketProxy = (eventName) => (...args) => {
       this._emit(eventName, ...args);
@@ -90,7 +90,7 @@ export class RemoteTransport {
   on(eventName, handler) {
     if (!this._listeners.has(eventName)) {
       this._listeners.set(eventName, new Set());
-      // Mirror socket event into our bus (only once per event name)
+      // Mirror bus event into our bus (only once per event name)
       const proxy = (...args) => {
         // Tag WS events with transport method
         if (eventName === "tiles-data" && args[0] && !args[0].transport) {
@@ -105,7 +105,7 @@ export class RemoteTransport {
   }
 
   /**
-   * Remove a listener. Cleans up socket proxy when no handlers remain.
+   * Remove a listener. Cleans up bus proxy when no handlers remain.
    */
   off(eventName, handler) {
     const set = this._listeners.get(eventName);
@@ -122,11 +122,11 @@ export class RemoteTransport {
   }
 
   /**
-   * Send via DC if open, else via socket (WS).
-   * Binary data always goes through socket as a normal emit.
+   * Send via DC if open, else via bus (WS).
+   * Binary data always goes through bus as a normal emit.
    */
   emit(eventName, data) {
-    // Control/signaling always via socket (WS)
+    // Control/signaling always via bus (WS)
     this._socket?.emit(eventName, data);
   }
 
@@ -161,7 +161,7 @@ export class RemoteTransport {
   }
 
   /**
-   * Full cleanup — remove all socket proxies and DC listeners.
+   * Full cleanup — remove all bus proxies and DC listeners.
    */
   destroy() {
     this.detachDataChannel();

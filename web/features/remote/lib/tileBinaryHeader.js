@@ -3,7 +3,7 @@
 // Shared by the v1 (tiles-data-binary) and v2 (tiles-bin-v2) listeners.
 const HEADER_BYTES = 12;
 
-/** Normalize a socket payload (ArrayBuffer or TypedArray) to an ArrayBuffer. */
+/** Normalize a bus payload (ArrayBuffer or TypedArray) to an ArrayBuffer. */
 export function toArrayBuffer(buffer) {
   return buffer instanceof ArrayBuffer ? buffer : buffer?.buffer;
 }

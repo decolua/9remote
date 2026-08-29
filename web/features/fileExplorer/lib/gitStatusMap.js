@@ -35,17 +35,17 @@ export function buildGitStatusMap(result, prefix = "") {
  * still match relativeTo(workspace, file.path) in both trees.
  * Returns { hasGit, map }: hasGit is true for a repo root OR any nested repo.
  */
-export async function buildWorkspaceGitStatus(fileSocket, workspace) {
-  const root = await fileSocket.gitStatus(workspace);
+export async function buildWorkspaceGitStatus(fileBus, workspace) {
+  const root = await fileBus.gitStatus(workspace);
   if (root?.success) return { hasGit: true, map: buildGitStatusMap(root) };
 
-  const scan = await fileSocket.gitScanRepos?.(workspace);
+  const scan = await fileBus.gitScanRepos?.(workspace);
   const repos = (scan?.success ? scan.repos : []) || [];
   const maps = await Promise.all(repos.map(async (repo) => {
     // Windows agents send relPath with backslashes; map keys are forward-slash.
     const rel = String(repo.relPath || "").split("\\").join("/");
     if (!rel) return null; // the root itself — already tried and failed above
-    const res = await fileSocket.gitStatus(repo.path);
+    const res = await fileBus.gitStatus(repo.path);
     if (!res?.success) return null;
     const map = buildGitStatusMap(res, `${rel}/`);
     if (Object.keys(map).length) map[rel] ||= "folder-changed";

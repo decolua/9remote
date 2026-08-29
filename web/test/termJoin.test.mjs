@@ -153,7 +153,7 @@ test("join: payload with size only when agent advertises joinSessionSize", async
   useTerminalStore.setState({ agentCaps: {} });
   const socket2 = { emit: spy((_e, _p, ack) => setTimeout(() => ack({ success: true }), 0)) };
   const fj2 = ref(null);
-  const doJoin3 = createJoinSession({ socket: socket2, sessionId: "s1", term, fitAddon: { fit: spy() }, writeBatcherRef: ref(null), doResizeRef: ref(spy()), fireJoinRef: fj2, refs: makeRefs(), setCwd: spy() });
+  const doJoin3 = createJoinSession({ bus: socket2, sessionId: "s1", term, fitAddon: { fit: spy() }, writeBatcherRef: ref(null), doResizeRef: ref(spy()), fireJoinRef: fj2, refs: makeRefs(), setCwd: spy() });
   doJoin3();
   fj2.current(80, 24);
   assert.equal(socket2.emit.calls[0][1], "s1");

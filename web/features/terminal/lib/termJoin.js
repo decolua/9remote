@@ -8,7 +8,7 @@ import { STARTUP_CMD_DELAY_MS } from "@/features/terminal/constants/terminalConf
 // mode-restore replay packet; the ack flushes it in arrival order.
 //
 // deps:
-//   socket, sessionId, term, fitAddon
+//   bus, sessionId, term, fitAddon
 //   writeBatcherRef — rAF batcher (stable ref)
 //   doResizeRef     — settle-debounce resize; join delegates size negotiation to it
 //   fireJoinRef     — receives the fireJoin(cols, rows) closure (called by doResize settle)
@@ -16,7 +16,7 @@ import { STARTUP_CMD_DELAY_MS } from "@/features/terminal/constants/terminalConf
 //                       userAtTopRef, joiningRef, joinClaimedRef, joinQueueRef, joinGenRef,
 //                       lastSeqRef, cwdRef, setJoining }
 //   setCwd          — local reactive cwd setter
-export function createJoinSession({ socket, sessionId, term, fitAddon, writeBatcherRef, doResizeRef, fireJoinRef, refs, setCwd }) {
+export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcherRef, doResizeRef, fireJoinRef, refs, setCwd }) {
   const doJoinSession = (isRejoin = false) => {
     // Reset history mirror — rejoin starts fresh with the tail replay.
     refs.historyMirrorRef.current = [];
@@ -40,7 +40,7 @@ export function createJoinSession({ socket, sessionId, term, fitAddon, writeBatc
       refs.joinQueueRef.current = [];
       const myGen = ++refs.joinGenRef.current;
       termLog("join", `emit gen=${myGen} cols=${cols} rows=${rows}`);
-      socket.emit("joinSession", joinPayload, (result) => {
+      bus.emit("joinSession", joinPayload, (result) => {
         if (myGen !== refs.joinGenRef.current) { termLog("join", `stale ack gen=${myGen} (current=${refs.joinGenRef.current})`); return; }
         termLog("join", `ack gen=${myGen} success=${!!result?.success} total=${result?.total} replaySize=${result?.replaySize}`);
         // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
@@ -75,7 +75,7 @@ export function createJoinSession({ socket, sessionId, term, fitAddon, writeBatc
           const startupCmd = useTerminalStore.getState().consumeStartup(sessionId);
           if (startupCmd) {
             termLog("join", `startup cmd queued (${startupCmd})`);
-            setTimeout(() => socket.emit("input", { sessionId, data: `${startupCmd}\r` }), STARTUP_CMD_DELAY_MS);
+            setTimeout(() => bus.emit("input", { sessionId, data: `${startupCmd}\r` }), STARTUP_CMD_DELAY_MS);
           }
           setTimeout(() => fitAddon.fit(), 200);
         } else {

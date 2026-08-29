@@ -74,7 +74,7 @@ async function _decodeTile(blob) {
   return bitmap;
 }
 
-export function useTiles(socketRef, streaming, canvasRef) {
+export function useTiles(busRef, streaming, canvasRef) {
   const [totalTileCount, setTotalTileCount] = useState(126);
   const renderedTilesRef = useRef(new Set());
   const loadingTilesRef = useRef(new Map());
@@ -124,8 +124,8 @@ export function useTiles(socketRef, streaming, canvasRef) {
     rafQueueRef.current.clear();
     // App-level flow control: ack the newest painted frame so the agent releases
     // its window=1 slot and sends the next frame (caps hidden SCTP queue at ~1).
-    if (maxTs > 0) socketRef?.current?.emit("tile-ack", { ts: maxTs });
-  }, [canvasRef, socketRef]);
+    if (maxTs > 0) busRef?.current?.emit("tile-ack", { ts: maxTs });
+  }, [canvasRef, busRef]);
 
   const scheduleRaf = useCallback((forceReschedule = false) => {
     // For WebRTC: cancel and reschedule so we accumulate all chunks before flush
@@ -388,7 +388,7 @@ export function useTiles(socketRef, streaming, canvasRef) {
   }, []);
 
   const requestScreenWithHashes = useCallback(() => {
-    if (!socketRef?.current || !streamingRef.current) return;
+    if (!busRef?.current || !streamingRef.current) return;
     if (isRequestingRef.current) return;
 
     // No baseline yet → don't request. Empty hashes hit the agent's first-request path,
@@ -403,7 +403,7 @@ export function useTiles(socketRef, streaming, canvasRef) {
     }
 
     isRequestingRef.current = true;
-    socketRef.current.emit("request-screen-with-hashes", {
+    busRef.current.emit("request-screen-with-hashes", {
       tileHashes: clientTileHashesRef.current
     });
 

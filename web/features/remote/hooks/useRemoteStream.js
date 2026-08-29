@@ -5,13 +5,13 @@ import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { tileStatsFrom } from "@/features/remote/lib/tileBinaryHeader";
 import { debugLog } from "@/shared/utils/debugLog";
 
-// Screen-stream lifecycle: agent socket listeners, the (re)stream handshake, and the
+// Screen-stream lifecycle: agent bus listeners, the (re)stream handshake, and the
 // keep-alive effects that guarantee a painted canvas (periodic hash sync, dimension
-// recovery, pause while hidden). All of it is keyed on the same socket + connection,
+// recovery, pause while hidden). All of it is keyed on the same bus + connection,
 // so it lives together.
 // Extracted verbatim from RemoteDesktop.
 export function useRemoteStream({
-  socketRef, connected, streaming,
+  busRef, connected, streaming,
   canvasRef, serverDimensionsRef, handleCanvasDimensions, resetPan,
   zoomGestureTimeoutRef, trackTilesReceived, tiles
 }) {
@@ -32,8 +32,8 @@ export function useRemoteStream({
   } = tiles;
 
   useEffect(() => {
-    const socket = socketRef?.current;
-    if (!socket || !connected) return;
+    const bus = busRef?.current;
+    if (!bus || !connected) return;
 
     // Reset stale tile state on (re)connect — stale hashes cause agent to skip tiles → black canvas
     cleanupTiles();
@@ -88,22 +88,22 @@ export function useRemoteStream({
 
     // Fresh handshake: wipe stale client tiles/hashes then request a full frame.
     // Reused on both mount and remote:ready (fired by agent after it (re)attaches
-    // handlers for a NEW socket post-reconnect — the reliable "agent is ready" signal,
+    // handlers for a NEW bus post-reconnect — the reliable "agent is ready" signal,
     // avoiding the race where start-streaming lands before addClient() on the agent).
     const doRestream = () => {
       cleanupTiles();
-      socket.emit("get-screen-dimensions");
+      bus.emit("get-screen-dimensions");
       // Ask the agent to re-emit the current lock state — the initial
       // screen-locked event fires before this listener mounts (race).
-      socket.emit("get-unlock-state");
+      bus.emit("get-unlock-state");
       // start-streaming alone clears agent checksums + pushes a full frame. Do NOT also
       // emit request-screen-with-hashes: it races the stream loop, fills the agent's
       // lastTileChecksums without delivering a full frame → agent thinks client is
       // synced → only diffs sent → black canvas.
-      socket.emit("start-streaming");
+      bus.emit("start-streaming");
     };
 
-    // Agent (re)attached remote handlers on a new socket → reset everything fresh.
+    // Agent (re)attached remote handlers on a new bus → reset everything fresh.
     const onRemoteReady = () => doRestream();
 
     // Host clipboard changed → stash text + badge. Agent seeds baseline on attach
@@ -131,42 +131,42 @@ export function useRemoteStream({
       if (typeof meta?.monitorIndex === "number") setActiveMonitorIndex(meta.monitorIndex);
     };
 
-    socket.on("screen-dimensions", onScreenDimensions);
-    socket.on("full-screen-data", onFullScreenData);
-    socket.on("tiles-data", onTilesData);
-    socket.on("tiles-data-binary", onTilesBinary);
-    socket.on("tiles-bin-v2", onTilesBinV2);
-    socket.on("tiles-meta", onTilesMeta);
-    socket.on("screen-error", onScreenError);
-    socket.on("screen-locked", onScreenLocked);
-    socket.on("unlock-result", onUnlockResult);
-    socket.on("remote:ready", onRemoteReady);
-    socket.on("clipboard-update", onClipboardUpdate);
-    socket.on("monitors", onMonitors);
-    socket.on("frame_meta", onFrameMeta);
+    bus.on("screen-dimensions", onScreenDimensions);
+    bus.on("full-screen-data", onFullScreenData);
+    bus.on("tiles-data", onTilesData);
+    bus.on("tiles-data-binary", onTilesBinary);
+    bus.on("tiles-bin-v2", onTilesBinV2);
+    bus.on("tiles-meta", onTilesMeta);
+    bus.on("screen-error", onScreenError);
+    bus.on("screen-locked", onScreenLocked);
+    bus.on("unlock-result", onUnlockResult);
+    bus.on("remote:ready", onRemoteReady);
+    bus.on("clipboard-update", onClipboardUpdate);
+    bus.on("monitors", onMonitors);
+    bus.on("frame_meta", onFrameMeta);
     const onCursorShape = (data) => setCursorShape(data?.shape ?? null);
-    socket.on("cursor-shape", onCursorShape);
+    bus.on("cursor-shape", onCursorShape);
 
     // Initial handshake on mount — agent may have emitted remote:ready before this
-    // component mounted (socket already connected via terminal) so listener missed it.
+    // component mounted (bus already connected via terminal) so listener missed it.
     doRestream();
 
     return () => {
-      socket.emit("stop-streaming");
-      socket.off("screen-dimensions", onScreenDimensions);
-      socket.off("full-screen-data", onFullScreenData);
-      socket.off("tiles-data", onTilesData);
-      socket.off("tiles-data-binary", onTilesBinary);
-      socket.off("tiles-bin-v2", onTilesBinV2);
-      socket.off("tiles-meta", onTilesMeta);
-      socket.off("screen-error", onScreenError);
-      socket.off("screen-locked", onScreenLocked);
-      socket.off("unlock-result", onUnlockResult);
-      socket.off("remote:ready", onRemoteReady);
-      socket.off("clipboard-update", onClipboardUpdate);
-      socket.off("monitors", onMonitors);
-      socket.off("frame_meta", onFrameMeta);
-      socket.off("cursor-shape", onCursorShape);
+      bus.emit("stop-streaming");
+      bus.off("screen-dimensions", onScreenDimensions);
+      bus.off("full-screen-data", onFullScreenData);
+      bus.off("tiles-data", onTilesData);
+      bus.off("tiles-data-binary", onTilesBinary);
+      bus.off("tiles-bin-v2", onTilesBinV2);
+      bus.off("tiles-meta", onTilesMeta);
+      bus.off("screen-error", onScreenError);
+      bus.off("screen-locked", onScreenLocked);
+      bus.off("unlock-result", onUnlockResult);
+      bus.off("remote:ready", onRemoteReady);
+      bus.off("clipboard-update", onClipboardUpdate);
+      bus.off("monitors", onMonitors);
+      bus.off("frame_meta", onFrameMeta);
+      bus.off("cursor-shape", onCursorShape);
       cleanupTiles();
       if (zoomGestureTimeoutRef.current) clearTimeout(zoomGestureTimeoutRef.current);
     };
@@ -179,19 +179,19 @@ export function useRemoteStream({
   // no longer empty. Covers the case where start-streaming's initial full frame was
   // lost (transport not ready yet / landed before addClient / decode worker suspended).
   useEffect(() => {
-    if (!streaming || !connected || !socketRef?.current) return;
+    if (!streaming || !connected || !busRef?.current) return;
     const id = setInterval(() => {
       if (renderedTilesRef.current.size === 0) {
-        socketRef.current.emit("request-screen-with-hashes", { tileHashes: [] });
+        busRef.current.emit("request-screen-with-hashes", { tileHashes: [] });
       } else {
         requestScreenWithHashes();
       }
     }, REMOTE_CONFIG.hashRequestInterval);
     return () => clearInterval(id);
-  }, [streaming, connected, socketRef, requestScreenWithHashes, renderedTilesRef]);
+  }, [streaming, connected, busRef, requestScreenWithHashes, renderedTilesRef]);
 
-  // WS reconnect (new server socket) is handled by the agent's remote:ready event
-  // → onRemoteReady → doRestream. No socket.id polling needed.
+  // WS reconnect (new server bus) is handled by the agent's remote:ready event
+  // → onRemoteReady → doRestream. No bus.id polling needed.
 
   // Canvas has no dimensions → tiles draw into a 0×0 canvas → black screen while input
   // still works (mouse coords use %). Happens on re-entry: a fresh <canvas> mounts with
@@ -205,30 +205,30 @@ export function useRemoteStream({
       if (!canvas || canvas.width > 0) return true;
       const { width, height } = serverDimensionsRef.current || {};
       if (width > 0) handleCanvasDimensions({ width, height }, renderedTilesRef);
-      else socketRef.current?.emit("get-screen-dimensions");
+      else busRef.current?.emit("get-screen-dimensions");
       return false;
     };
     if (ensureSized()) return;
     const id = setInterval(() => { if (ensureSized()) clearInterval(id); }, REMOTE_CONFIG.restreamDelay);
     return () => clearInterval(id);
-  }, [connected, socketRef, canvasRef, serverDimensionsRef, handleCanvasDimensions, renderedTilesRef]);
+  }, [connected, busRef, canvasRef, serverDimensionsRef, handleCanvasDimensions, renderedTilesRef]);
 
   // Pause stream when tab hidden to save CPU + bandwidth
   useEffect(() => {
-    const socket = socketRef?.current;
-    if (!socket || !connected) return;
+    const bus = busRef?.current;
+    if (!bus || !connected) return;
     const onVisibility = () => {
       if (document.hidden) {
-        socket.emit("stop-streaming");
+        bus.emit("stop-streaming");
       } else {
         // start-streaming alone clears checksums + pushes a full frame. Emitting
         // request-screen-with-hashes([]) here races the stream loop → black canvas.
-        socket.emit("start-streaming");
+        bus.emit("start-streaming");
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [connected, socketRef]);
+  }, [connected, busRef]);
 
   return {
     screenLocked,

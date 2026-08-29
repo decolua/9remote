@@ -20,10 +20,10 @@ function relativeAge(ms, t) {
 // Conversations the agent CLIs already hold for the directory the active
 // terminal is standing in — resuming one opens a terminal there and types the
 // CLI's own resume command, so the transcript comes back rather than restarting.
-export default function AgentHistoryPanel({ socketRef, cwd, onResume, onSelectSession, liveSessionIds, activeSessionId, connected = true, variant = "section" }) {
+export default function AgentHistoryPanel({ busRef, cwd, onResume, onSelectSession, liveSessionIds, activeSessionId, connected = true, variant = "section" }) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
-  const sessions = useAgentSessions(socketRef, cwd);
+  const sessions = useAgentSessions(busRef, cwd);
 
   // A modal tab owns its whole panel: it is already a titled, scrolling surface, so
   // it drops the collapsible section header and the height share meant for a sidebar.

@@ -16,7 +16,7 @@ function parse(line, seq) {
   return { seq, time: m[1].slice(6), level: m[2], tag: m[3].trim(), message: m[4] };
 }
 
-export function useMobileLogcat({ socketRef, serial, active, foregroundPackage }) {
+export function useMobileLogcat({ busRef, serial, active, foregroundPackage }) {
   const [lines, setLines] = useState([]);
   // Info and above by default: V and D are two thirds of a stock device's
   // output and are rarely what someone opened this panel to read.
@@ -43,7 +43,7 @@ export function useMobileLogcat({ socketRef, serial, active, foregroundPackage }
   // bury the app output the panel exists to show.
   const [includeNoise, setIncludeNoise] = useState(false);
   const seqRef = useRef(0);
-  // The socket handler is created once; it reads pause state through a ref so
+  // The bus handler is created once; it reads pause state through a ref so
   // toggling pause does not resubscribe and drop the tail.
   const pausedRef = useRef(false);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
@@ -52,8 +52,8 @@ export function useMobileLogcat({ socketRef, serial, active, foregroundPackage }
 
   // Start/stop with the panel so a closed panel costs nothing on the host.
   useEffect(() => {
-    const socket = socketRef?.current;
-    if (!socket || !serial || !active) return;
+    const bus = busRef?.current;
+    if (!bus || !serial || !active) return;
 
     // A different device is a different log — starting it appended the new
     // lines under the old device's, which read as one stream.
@@ -66,31 +66,31 @@ export function useMobileLogcat({ socketRef, serial, active, foregroundPackage }
         return next.length > LOG_BUFFER_LINES ? next.slice(next.length - LOG_BUFFER_LINES) : next;
       });
     };
-    socket.on("mobile:logcat", onLines);
+    bus.on("mobile:logcat", onLines);
     // packageName is omitted, not sent as null, until the user has chosen: that
     // lets the agent scope to the foreground app immediately instead of
     // streaming everything until the app list arrives here.
-    emitAck(socket, "mobile:logcatStart", {
+    emitAck(bus, "mobile:logcatStart", {
       serial, minLevel, search, includeNoise,
       ...(pickedRef.current || packageName ? { packageName } : {})
     });
 
     return () => {
-      socket.off("mobile:logcat", onLines);
-      socket.emit("mobile:logcatStop");
+      bus.off("mobile:logcat", onLines);
+      bus.emit("mobile:logcatStop");
     };
     // Filters are pushed by the effect below — restarting here would drop the tail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socketRef, serial, active]);
+  }, [busRef, serial, active]);
 
   // Filter changes are applied in place; no restart, so history is kept.
   useEffect(() => {
     if (!active || !serial) return;
     const id = setTimeout(() => {
-      socketRef?.current?.emit("mobile:logcatFilter", { minLevel, search, packageName, includeNoise });
+      busRef?.current?.emit("mobile:logcatFilter", { minLevel, search, packageName, includeNoise });
     }, 200);
     return () => clearTimeout(id);
-  }, [minLevel, search, packageName, includeNoise, active, serial, socketRef]);
+  }, [minLevel, search, packageName, includeNoise, active, serial, busRef]);
 
   return {
     lines, clear,

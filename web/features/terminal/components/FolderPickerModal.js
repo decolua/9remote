@@ -127,7 +127,7 @@ function resolveSegmentStep(segment, baseEntries) {
 // Desktop folder picker: browse the host filesystem and pick one directory
 // (breadcrumb, dual-mode input, cached listings).
 // Keeps the terminal visible behind it — the mobile flow uses the full-screen WorkspaceList instead.
-export default function FolderPickerModal({ fileSocket, initialPath, onSelect, onClose }) {
+export default function FolderPickerModal({ fileBus, initialPath, onSelect, onClose }) {
   const { t } = useI18n();
   // Frozen at mount: lastBrowsedDir mutates on every navigate, so recomputing this
   // per render would re-fire the boot effects and yank the user back to the start dir.
@@ -161,7 +161,7 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
   const fetchListing = useCallback(async (target) => {
     const cached = listingCacheRef.current.get(target);
     if (cached) return cached;
-    const res = await fileSocket.getFiles(target, false);
+    const res = await fileBus.getFiles(target, false);
     if (!res?.success) throw new Error(res?.error || t("workspaces.pathNotFolder"));
     const result = {
       resolvedPath: toPosixPath(res.currentPath) || target,
@@ -170,7 +170,7 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
     listingCacheRef.current.set(result.resolvedPath, result);
     if (target !== result.resolvedPath) listingCacheRef.current.set(target, result);
     return result;
-  }, [fileSocket, t]);
+  }, [fileBus, t]);
 
   const loadDir = useCallback(async (target) => {
     if (target == null) {
@@ -209,7 +209,7 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
   // only refresh systemInfo, never reset the browse position).
   useEffect(() => {
     let cancelled = false;
-    fileSocket?.getSystemInfo?.().then((res) => {
+    fileBus?.getSystemInfo?.().then((res) => {
       if (cancelled || !res?.success) return;
       setSystemInfo(res);
       const home = toPosixPath(res.homedir);
@@ -221,7 +221,7 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
       }
     });
     return () => { cancelled = true; };
-  }, [fileSocket, startPath, loadDir]);
+  }, [fileBus, startPath, loadDir]);
 
   // Central navigation: drops filter/preview and bumps the preview gen so a stale resolve can't clobber.
   const navigate = useCallback((target) => {

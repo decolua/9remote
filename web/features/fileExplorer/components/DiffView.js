@@ -7,7 +7,7 @@ import DiffBody from "./DiffBody.js";
 
 // One file's git diff, fetched then handed to DiffBody. The git panel renders a
 // whole-repo diff through the same body, so both look identical.
-export default function DiffView({ diffPath, workspace, fileSocket, compact = false }) {
+export default function DiffView({ diffPath, workspace, fileBus, compact = false }) {
   const { t } = useI18n();
   const { status, absPath } = parseDiffPath(diffPath);
   const [loading, setLoading] = useState(true);
@@ -20,14 +20,14 @@ export default function DiffView({ diffPath, workspace, fileSocket, compact = fa
     const id = setTimeout(async () => {
       setLoading(true);
       setError("");
-      const r = await fileSocket.gitDiff?.(workspace, absPath, status);
+      const r = await fileBus.gitDiff?.(workspace, absPath, status);
       if (cancelled) return;
       if (r?.success) setDiff(r.diff || "");
       else setError(r?.error || "");
       setLoading(false);
     }, 0);
     return () => { cancelled = true; clearTimeout(id); };
-  }, [workspace, absPath, status, fileSocket]);
+  }, [workspace, absPath, status, fileBus]);
 
   return (
     <div className={`h-full overflow-auto ${compact ? "p-0" : "p-2 sm:p-3"}`}>

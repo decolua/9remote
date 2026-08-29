@@ -12,13 +12,13 @@ import { getCustomPorts, saveCustomPorts, getSiteLabels, saveSiteLabels } from "
 const SOCKET_SITES_TIMEOUT_MS = 8000;
 const PROXY_START_TIMEOUT_MS = 5000;
 
-// Returns null when the socket path is unavailable so the caller can fall back to the tunnel.
-function fetchSitesOverSocket(socketRef) {
-  const socket = socketRef?.current;
-  if (!socket?.connected) return Promise.resolve(null);
+// Returns null when the bus path is unavailable so the caller can fall back to the tunnel.
+function fetchSitesOverSocket(busRef) {
+  const bus = busRef?.current;
+  if (!bus?.connected) return Promise.resolve(null);
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), SOCKET_SITES_TIMEOUT_MS);
-    socket.emit("getLocalSites", (result) => {
+    bus.emit("getLocalSites", (result) => {
       clearTimeout(timer);
       resolve(Array.isArray(result?.sites) ? result.sites : null);
     });
@@ -44,16 +44,16 @@ function resolveProxyBase(tunnelUrl, localIp) {
 // Toggles a proxy session on the agent. Socket first so it works without a live tunnel.
 // Starting returns the session id that addresses the site — the URL is no longer
 // derivable from the port, which is what stopped it being guessable.
-async function setProxySession(action, { socketRef, base, apiKey, port }) {
-  const socket = socketRef?.current;
-  if (socket?.connected) {
+async function setProxySession(action, { busRef, base, apiKey, port }) {
+  const bus = busRef?.current;
+  if (bus?.connected) {
     if (action !== "start") {
-      socket.emit("endProxySession", port);
+      bus.emit("endProxySession", port);
       return true;
     }
     const viaSocket = await new Promise((resolve) => {
       const timer = setTimeout(() => resolve(null), PROXY_START_TIMEOUT_MS);
-      socket.emit("startProxySession", port, (reply) => {
+      bus.emit("startProxySession", port, (reply) => {
         clearTimeout(timer);
         // An agent from before session ids answers {ok:true} with no id. It
         // still opened the session, and its /proxy/ still keys on the port —
@@ -77,7 +77,7 @@ async function setProxySession(action, { socketRef, base, apiKey, port }) {
   return data?.sessionId || String(port);
 }
 
-export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
+export default function SitesList({ tunnelUrl, apiKey, busRef, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
   const { t } = useI18n();
   const pushView = useTerminalStore((s) => s.pushView);
   const { getAuth } = useSessionStorage();
@@ -110,9 +110,9 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
     }
     try {
       // Socket first: the tunnel URL may be stale or absent on an RTC-only session
-      const sites = await fetchSitesOverSocket(socketRef) ?? await fetchSitesOverTunnel(tunnelUrl, apiKey);
+      const sites = await fetchSitesOverSocket(busRef) ?? await fetchSitesOverTunnel(tunnelUrl, apiKey);
       if (!sites) {
-        console.error("[SitesList] unable to load local sites (no socket, tunnel unreachable)");
+        console.error("[SitesList] unable to load local sites (no bus, tunnel unreachable)");
         return;
       }
       setCurrentSites(sites);
@@ -142,7 +142,7 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
     // End sessions on agent in parallel
     const base = resolveProxyBase(tunnelUrl, getAuth()?.localIp);
     await Promise.all(ports.map((port) =>
-      setProxySession("end", { socketRef, base, apiKey, port: Number(port) }).catch(() => {})
+      setProxySession("end", { busRef, base, apiKey, port: Number(port) }).catch(() => {})
     ));
   };
 
@@ -168,8 +168,8 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
     // Inside the workspace, the in-app site view (SW over the transport bus) replaces the popup.
     // Store-only overlay (never in the URL) — see OVERLAY_VIEWS in routeConfig.
     const inWorkspace = typeof window !== "undefined" && window.location.pathname.startsWith("/workspace");
-    if (inWorkspace && socketRef?.current?.connected) {
-      socketRef.current.emit("startProxySession", port);
+    if (inWorkspace && busRef?.current?.connected) {
+      busRef.current.emit("startProxySession", port);
       pushView({ type: "site", port, path: "/" });
       onSelectSite?.(site);
       handleCloseModal();
@@ -199,7 +199,7 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
     setOpenedWindows(prev => ({ ...prev, [port]: windowRef }));
 
     // Start proxy session
-    const sessionId = await setProxySession("start", { socketRef, base, apiKey, port }).catch(() => false);
+    const sessionId = await setProxySession("start", { busRef, base, apiKey, port }).catch(() => false);
     if (!sessionId) {
       console.error("[SitesList] Failed to start proxy session for port", port);
       alert(t("sites.startProxyFailed", { name: site.name }));
@@ -227,7 +227,7 @@ export default function SitesList({ tunnelUrl, apiKey, socketRef, onSelectSite, 
           return updated;
         });
 
-        await setProxySession("end", { socketRef, base, apiKey, port })
+        await setProxySession("end", { busRef, base, apiKey, port })
           .catch((err) => console.error(`[SitesList] Cleanup failed for port ${port}:`, err));
       }
     }, 1000);

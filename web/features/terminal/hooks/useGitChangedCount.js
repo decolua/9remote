@@ -4,24 +4,24 @@ import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 // Shared, ref-counted git changed-count per cwd. One 10s poll per unique cwd
 // regardless of how many panes share it → all panes stay in sync.
 const POLL_MS = 10000;
-const entries = new Map(); // cwd → { count, stop, refs, subs, fileSocket }
+const entries = new Map(); // cwd → { count, stop, refs, subs, fileBus }
 
 function notify(entry) {
   entry.subs.forEach((fn) => fn(entry.count));
 }
 
 function fetchOnce(entry, cwd) {
-  entry.fileSocket?.gitChangedCount(cwd).then((res) => {
+  entry.fileBus?.gitChangedCount(cwd).then((res) => {
     if (!res?.success) return;
     entry.count = res.count || 0;
     notify(entry);
   });
 }
 
-function acquire(cwd, fileSocket) {
+function acquire(cwd, fileBus) {
   let entry = entries.get(cwd);
   if (!entry) {
-    entry = { count: 0, stop: null, refs: 0, subs: new Set(), fileSocket };
+    entry = { count: 0, stop: null, refs: 0, subs: new Set(), fileBus };
     entries.set(cwd, entry);
     fetchOnce(entry, cwd);
     entry.stop = pollWhileVisible(() => fetchOnce(entry, cwd), POLL_MS);
@@ -40,19 +40,19 @@ function release(cwd) {
   }
 }
 
-export function useGitChangedCount(cwd, fileSocket, { enabled = true } = {}) {
+export function useGitChangedCount(cwd, fileBus, { enabled = true } = {}) {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    if (!cwd || !fileSocket || !enabled) return;
-    const entry = acquire(cwd, fileSocket);
+    if (!cwd || !fileBus || !enabled) return;
+    const entry = acquire(cwd, fileBus);
     setCount(entry.count);
     entry.subs.add(setCount);
     return () => {
       entry.subs.delete(setCount);
       release(cwd);
     };
-  }, [cwd, fileSocket, enabled]);
+  }, [cwd, fileBus, enabled]);
 
   return count;
 }

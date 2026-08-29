@@ -8,7 +8,7 @@ import { DEFAULT_PRESET, streamOptionsFor } from "../constants/mobileConfig";
 import { emitAck } from "./useMobileDevices";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 
-export function useMobileSession({ socketRef, connected, devices, startAvd }) {
+export function useMobileSession({ busRef, connected, devices, startAvd }) {
   // Serial and meta live in the store, not in this component: the desktop dock
   // remounts this tree when the user moves the mirror between float, pinned and
   // PiP, and a restarted stream there would cost a visible reconnect.
@@ -27,17 +27,17 @@ export function useMobileSession({ socketRef, connected, devices, startAvd }) {
   useEffect(() => { if (meta) startedRef.current = true; }, [meta]);
 
   const stop = useCallback(() => {
-    socketRef?.current?.emit("mobile:stop");
+    busRef?.current?.emit("mobile:stop");
     startedRef.current = false;
     setSession(null);
-  }, [socketRef, setSession]);
+  }, [busRef, setSession]);
 
   const startStream = useCallback(async (targetSerial) => {
     // Size follows this viewport's real pixels, bitrate follows that size — a
     // fixed bitrate spread over a bigger frame is what made it look soft.
     const cssEdge = typeof window !== "undefined" ? Math.max(window.innerWidth, window.innerHeight) : 900;
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
-    const res = await emitAck(socketRef?.current, "mobile:start", {
+    const res = await emitAck(busRef?.current, "mobile:start", {
       serial: targetSerial,
       options: streamOptionsFor(DEFAULT_PRESET, cssEdge, dpr)
     });
@@ -45,7 +45,7 @@ export function useMobileSession({ socketRef, connected, devices, startAvd }) {
     startedRef.current = true;
     setSession({ serial: targetSerial, meta: res.meta });
     return res.meta;
-  }, [socketRef, setSession]);
+  }, [busRef, setSession]);
 
   /**
    * Open a device by row. A stopped AVD is booted first, so the user taps once
@@ -82,15 +82,15 @@ export function useMobileSession({ socketRef, connected, devices, startAvd }) {
   // the requested one. The canvas and decoder are keyed on meta, so adopting the
   // new meta is what re-sizes them.
   useEffect(() => {
-    const socket = socketRef?.current;
-    if (!socket || !connected) return;
+    const bus = busRef?.current;
+    if (!bus || !connected) return;
     const onResized = ({ meta: next }) => {
       if (!next) return;
       setSession((prev) => (prev ? { ...prev, meta: next } : prev));
     };
-    socket.on("mobile:resized", onResized);
-    return () => socket.off("mobile:resized", onResized);
-  }, [socketRef, connected, setSession]);
+    bus.on("mobile:resized", onResized);
+    return () => bus.off("mobile:resized", onResized);
+  }, [busRef, connected, setSession]);
 
   // The agent tears the session down on disconnect; forget it here too so a
   // reconnect starts fresh instead of painting into a dead decoder.

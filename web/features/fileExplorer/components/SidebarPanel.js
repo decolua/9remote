@@ -16,22 +16,22 @@ const PANEL_TITLES = {
   [ACTIVITY_PANELS.settings]: "Settings"
 };
 
-function renderBody({ activePanel, workspace, fileSocket, onOpenFile, onSwitchWorkspace, activeFile }) {
+function renderBody({ activePanel, workspace, fileBus, onOpenFile, onSwitchWorkspace, activeFile }) {
   switch (activePanel) {
     case ACTIVITY_PANELS.explorer:
       return (
         <ExplorerPanel
           workspace={workspace}
-          fileSocket={fileSocket}
+          fileBus={fileBus}
           onOpenFile={onOpenFile}
           activeFile={activeFile}
           onSwitchWorkspace={onSwitchWorkspace}
         />
       );
     case ACTIVITY_PANELS.search:
-      return <SearchPanel workspace={workspace} fileSocket={fileSocket} onOpenFile={onOpenFile} />;
+      return <SearchPanel workspace={workspace} fileBus={fileBus} onOpenFile={onOpenFile} />;
     case ACTIVITY_PANELS.scm:
-      return <ScmPanel workspace={workspace} fileSocket={fileSocket} onOpenFile={onOpenFile} />;
+      return <ScmPanel workspace={workspace} fileBus={fileBus} onOpenFile={onOpenFile} />;
     case ACTIVITY_PANELS.settings:
       return <SettingsPanel />;
     default:
@@ -42,7 +42,7 @@ function renderBody({ activePanel, workspace, fileSocket, onOpenFile, onSwitchWo
 export default function SidebarPanel({
   activePanel,
   workspace,
-  fileSocket,
+  fileBus,
   onOpenFile,
   onSwitchWorkspace,
   activeFile
@@ -51,7 +51,7 @@ export default function SidebarPanel({
 
   const handleRefresh = () => {
     vibrate(10);
-    fileSocket?.refresh?.();
+    fileBus?.refresh?.();
   };
 
   // The explorer draws its own title bar (workspace name + new file/folder/refresh), so a
@@ -77,7 +77,7 @@ export default function SidebarPanel({
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-        {renderBody({ activePanel, workspace, fileSocket, onOpenFile, onSwitchWorkspace, activeFile })}
+        {renderBody({ activePanel, workspace, fileBus, onOpenFile, onSwitchWorkspace, activeFile })}
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ import { TOUCH_SCROLL, TOUCH_SELECT, HISTORY_FETCH } from "@/features/terminal/c
 // Touch layer over the XTerm viewport: inertia scroll (scrollback or SGR wheel for TUI apps),
 // soft-KB wrapper pan handoff, long-press text selection, and top-of-scrollback history fetch.
 export function useTermTouchGestures({
-  termRef, termReady, isVisible, socket, sessionId,
+  termRef, termReady, isVisible, bus, sessionId,
   onSelectionMadeRef, awaitingTuiOutputRef, maybeFetchHistoryRef, userAtTopRef,
   stopMomentumRef
 }) {
@@ -47,7 +47,7 @@ export function useTermTouchGestures({
       const y = Math.max(1, Math.ceil(t.rows / 2));
       const seq = pendingLines > 0 ? TOUCH_SCROLL.sgrDown(x, y) : TOUCH_SCROLL.sgrUp(x, y);
       const n = Math.min(Math.abs(pendingLines), TOUCH_SCROLL.wheelStepLines);
-      for (let i = 0; i < n; i++) socket.emit("input", { sessionId, data: seq });
+      for (let i = 0; i < n; i++) bus.emit("input", { sessionId, data: seq });
       pendingLines = 0;
       lastSgrAt = performance.now();
       awaitingTuiOutputRef.current = true; // expect output round-trip; cleared in handleOutput
@@ -279,5 +279,5 @@ export function useTermTouchGestures({
       xtermScreen.removeEventListener("touchend", handleTouchEnd);
       xtermScreen.removeEventListener("wheel", handleWheel);
     };
-  }, [termReady, isVisible, termRef, socket, sessionId, onSelectionMadeRef, awaitingTuiOutputRef, maybeFetchHistoryRef, userAtTopRef, stopMomentumRef]);
+  }, [termReady, isVisible, termRef, bus, sessionId, onSelectionMadeRef, awaitingTuiOutputRef, maybeFetchHistoryRef, userAtTopRef, stopMomentumRef]);
 }

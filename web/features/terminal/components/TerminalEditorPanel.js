@@ -25,7 +25,7 @@ const DiffView = dynamic(() => import("@/features/fileExplorer/components/DiffVi
 // A file opened from the tree, edited without leaving the terminal. Narrow on purpose —
 // this is for a quick read or fix, not a replacement for the full editor view.
 export default function TerminalEditorPanel({
-  filePath, workspace, fileSocket, width, onResize, onClose, onOpenFull, isDesktop = true,
+  filePath, workspace, fileBus, width, onResize, onClose, onOpenFull, isDesktop = true,
   previewSeq = 0, artifactTitle = null
 }) {
   const { t } = useI18n();
@@ -39,7 +39,7 @@ export default function TerminalEditorPanel({
   const displayPath = isDiff ? diff.filePath : filePath;
   const editable = !!filePath && !isDiff && !isPreviewable(filePath);
 
-  const doc = useFileDocument({ filePath: editable ? filePath : "", fileSocket });
+  const doc = useFileDocument({ filePath: editable ? filePath : "", fileBus });
   // The watch callback must not be rebuilt on every keystroke — doc is a new object each
   // render, so it is read through a ref instead of captured. Synced in an effect, the
   // same shape useDirWatch uses for its own callback ref.
@@ -98,7 +98,7 @@ export default function TerminalEditorPanel({
   }, []);
   useDirWatch({
     dirs: watchDirs,
-    fileSocket,
+    fileBus,
     enabled: !!fileDir && pageVisible,
     debounceMs: FILE_WATCH.PREVIEW_DEBOUNCE_MS,
     onDirsChanged: onDiskChanged
@@ -202,11 +202,11 @@ export default function TerminalEditorPanel({
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {isDiff ? (
-          <DiffView diffPath={makeDiffPath(diff.status, diff.filePath)} workspace={diffRepo} fileSocket={fileSocket} compact />
+          <DiffView diffPath={makeDiffPath(diff.status, diff.filePath)} workspace={diffRepo} fileBus={fileBus} compact />
         ) : isPreviewable(filePath) ? (
-          <FilePreview filePath={filePath} fileSocket={fileSocket} />
+          <FilePreview filePath={filePath} fileBus={fileBus} />
         ) : showRendered && previewKind === "html" ? (
-          <HtmlViewer filePath={filePath} fileSocket={fileSocket} reloadKey={saveSeq} />
+          <HtmlViewer filePath={filePath} fileBus={fileBus} reloadKey={saveSeq} />
         ) : showRendered && previewKind === "mermaid" ? (
           <MermaidViewer content={doc.content} reloadKey={saveSeq} />
         ) : doc.loading ? (

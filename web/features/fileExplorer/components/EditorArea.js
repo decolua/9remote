@@ -9,7 +9,7 @@ import UnsavedDialog from "./UnsavedDialog.js";
 
 export default function EditorArea({
   workspace,
-  fileSocket,
+  fileBus,
   openedFiles,
   activeFile,
   onActivateFile,
@@ -124,7 +124,7 @@ export default function EditorArea({
             <EditorPane
               filePath={path}
               workspace={workspace}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               isActive={path === activeFile}
               onCursorChange={onEditorStateChange}
               onDirtyChange={handleDirtyChange}

@@ -25,12 +25,12 @@ const UNGROUPED_KEY = "ungrouped";
 export default function SessionList({
   sessions, cwdBySession = {}, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenMobile,
   tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected,
-  onStopCodespace, isActive = true, socketRef, subscribeToPush, unsubscribeFromPush,
+  onStopCodespace, isActive = true, busRef, subscribeToPush, unsubscribeFromPush,
   onResumeAgentSession = null,
   notifications = {}, sessionStatus = {}, clearNotification, agentVersion,
-  updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, transport = "ws",
+  updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, carrier = "ws",
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
-  fileSocket, homeDir, recentWorkspaces = [], shells = []
+  fileBus, homeDir, recentWorkspaces = [], shells = []
 }) {
   const { t } = useI18n();
   // Actions only — same reason as TerminalHeader: this writes context/callbacks.
@@ -66,7 +66,7 @@ export default function SessionList({
       codespaceInfo,
       showTheme: false,
       theme: "default",
-      socketRef,
+      busRef,
       // Remote and Sites sit in this screen's own header, and Files needs a workspace
       // that has not been picked yet — all three would be duplicates or dead entries.
       hideActions: ["remote", "files", "sites", "terminalSettings"],
@@ -78,7 +78,7 @@ export default function SessionList({
       notifications,
       clearNotification,
       agentVersion,
-      transport
+      carrier
     });
     setCallbacks({
       onRemote: null,
@@ -95,8 +95,8 @@ export default function SessionList({
     });
   }, [
     isActive, connected, onOpenRemote, codespaceInfo, onLogout, onStopCodespace, onUpdate,
-    onRestart, setContext, setCallbacks, socketRef, connectionMode, subscribeToPush,
-    unsubscribeFromPush, agentVersion, transport, tunnelUrl, apiKey, notifications,
+    onRestart, setContext, setCallbacks, busRef, connectionMode, subscribeToPush,
+    unsubscribeFromPush, agentVersion, carrier, tunnelUrl, apiKey, notifications,
     clearNotification
   ]);
 
@@ -199,9 +199,9 @@ export default function SessionList({
                   items={items}
                   connected={connected}
                   shellCount={shells.length}
-                  socketRef={socketRef}
+                  busRef={busRef}
                   cwdBySession={cwdBySession}
-                  fileSocket={fileSocket}
+                  fileBus={fileBus}
                   homeDir={homeDir}
                   sessionStatus={sessionStatus}
                   notifications={notifications}
@@ -278,34 +278,34 @@ export default function SessionList({
             setTerminalModal(null);
           }}
           shells={shells}
-          socketRef={socketRef}
+          busRef={busRef}
           onResumeAgentSession={onResumeAgentSession}
           onSelectSession={onSelect}
           liveSessionIds={liveSessionIds}
           connected={connected}
           workspacePath={workspaces.find((w) => w.id === terminalModal.workspaceId)?.path || null}
           workspaceName={workspaces.find((w) => w.id === terminalModal.workspaceId)?.name || ""}
-          fileSocket={fileSocket}
+          fileBus={fileBus}
           homeDir={homeDir}
           suggestName={`${t("terminal.defaultName")} ${sessionsIn(terminalModal.workspaceId).length + 1}`}
         />
       )}
 
-      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} socketRef={socketRef} isOpen={sitesOpen} onClose={() => setSitesOpen(false)} />
+      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} busRef={busRef} isOpen={sitesOpen} onClose={() => setSitesOpen(false)} />
     </div>
   );
 }
 
 // One workspace: a header naming the folder and where it is, then its terminals.
 function WorkspaceSection({
-  section, items, connected, cwdBySession = {}, fileSocket, homeDir, sessionStatus, notifications, shellCount = 1, socketRef,
+  section, items, connected, cwdBySession = {}, fileBus, homeDir, sessionStatus, notifications, shellCount = 1, busRef,
   onSelect, onNewTerminal, onSessionMenu, onWorkspaceMenu, onRenameSession, onDeleteSession
 }) {
   const { t } = useI18n();
   const gitPath = section.path || items.find((s) => s.workspacePath)?.workspacePath;
   // Read only to tell a terminal's own branch apart from the workspace's — the header
   // does not show it, since every card below already carries one.
-  const { branch } = useWorkspaceGit(gitPath, fileSocket);
+  const { branch } = useWorkspaceGit(gitPath, fileBus);
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -354,14 +354,14 @@ function WorkspaceSection({
               hasNotification={!!notifications[session.id]}
               connected={connected}
               cwd={cwdBySession[session.id] || null}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               homeDir={homeDir}
               shellCount={shellCount}
               onSelect={onSelect}
               onLongPress={onSessionMenu}
               onRename={onRenameSession}
               onDelete={onDeleteSession}
-              onResume={socketRef ? (session) => socketRef.current?.emit("session-resume", { sessionId: session.id }) : null}
+              onResume={busRef ? (session) => busRef.current?.emit("session-resume", { sessionId: session.id }) : null}
             />
           ))}
           {/* Inline dashed card to add a terminal — desktop only; hidden on mobile when the

@@ -9,7 +9,7 @@ import { shortenHomePath } from "../lib/workspaceGrouping";
 // Where a new terminal starts. Flat list grouped by repo — worktrees of a repo are its
 // rows, so picking "the feat/x checkout" is one tap, not a wizard. Repo scan + worktree
 // lists are lazy: nothing is fetched until the menu opens.
-export default function LocationPicker({ workspacePath, workspaceName, fileSocket, homeDir, value, onChange, onBrowse }) {
+export default function LocationPicker({ workspacePath, workspaceName, fileBus, homeDir, value, onChange, onBrowse }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [groups, setGroups] = useState(null); // [{ repoPath, name, isRoot, entries: [{path,branch,detached}] }]
@@ -17,13 +17,13 @@ export default function LocationPicker({ workspacePath, workspaceName, fileSocke
   const wrapRef = useRef(null);
 
   const load = useCallback(async () => {
-    if (!workspacePath || !fileSocket?.gitScanRepos) return setGroups([]);
+    if (!workspacePath || !fileBus?.gitScanRepos) return setGroups([]);
     setLoading(true);
-    const res = await fileSocket.gitScanRepos(workspacePath);
+    const res = await fileBus.gitScanRepos(workspacePath);
     const repos = res?.success ? res.repos || [] : [];
     // One worktree list per repo, in parallel — a workspace holds a handful, not hundreds.
     const built = await Promise.all(repos.map(async (repo) => {
-      const wt = await fileSocket.gitWorktreeList?.(repo.path);
+      const wt = await fileBus.gitWorktreeList?.(repo.path);
       const trees = wt?.success ? wt.worktrees || [] : [];
       const entries = trees.length
         ? trees.map((w) => ({ path: w.path, branch: w.branch, detached: w.detached }))
@@ -36,7 +36,7 @@ export default function LocationPicker({ workspacePath, workspaceName, fileSocke
     }
     setGroups(built);
     setLoading(false);
-  }, [workspacePath, workspaceName, fileSocket, t]);
+  }, [workspacePath, workspaceName, fileBus, t]);
 
   // Close on outside click / Escape — the menu floats over the modal body
   useEffect(() => {

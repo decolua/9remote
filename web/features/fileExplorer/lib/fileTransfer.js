@@ -7,11 +7,11 @@ import { encodeFileFrame, decodeFileFrame } from "@/shared/transport/fileFrame";
 import { AckTracker } from "./ackTrackerWeb";
 import { ConflictResolver } from "./conflict";
 
-// Promisify a socket emit-with-callback (last arg fn → ack).
-function emitAck(socket, event, payload) {
+// Promisify a bus emit-with-callback (last arg fn → ack).
+function emitAck(bus, event, payload) {
   return new Promise((resolve) => {
-    if (!socket) { resolve({ success: false, error: "Not connected" }); return; }
-    socket.emit(event, payload, (res) => resolve(res || { success: false, error: "No response" }));
+    if (!bus) { resolve({ success: false, error: "Not connected" }); return; }
+    bus.emit(event, payload, (res) => resolve(res || { success: false, error: "No response" }));
   });
 }
 
@@ -30,20 +30,20 @@ function planChunks(size, chunkSize) {
 /**
  * Upload a list of files into targetDir (preserving relativePath for folders).
  * @param {object} ctx
- * @param {object} ctx.socket  - socket.io client (proxy)
+ * @param {object} ctx.bus  - the transport bus (carrier-agnostic)
  * @param {object} ctx.protocolRef - { current: ProtocolManager }
  * @param {string} ctx.targetDir
  * @param {Array<{file:File, relativePath:string}>} ctx.items
  * @param {object} ctx.callbacks - { onConflict(file,relativePath,exists)=>Promise<choice>, onProgress(file, ratio), onFileDone(file, status), onError(file, err) }
  *   onConflict returns one of: "skip" | "replace" | "skipAll" | "replaceAll"
  */
-export async function uploadFiles({ socket, protocolRef, targetDir, items, callbacks }) {
+export async function uploadFiles({ bus, protocolRef, targetDir, items, callbacks }) {
   const { onConflict, onProgress, onFileDone, onError } = callbacks || {};
   const resolver = new ConflictResolver();
 
   for (const { file, relativePath } of items) {
     try {
-      const result = await uploadOne(socket, protocolRef, targetDir, file, relativePath, resolver, onConflict, onProgress);
+      const result = await uploadOne(bus, protocolRef, targetDir, file, relativePath, resolver, onConflict, onProgress);
       onFileDone?.(file, result.status);
     } catch (e) {
       onError?.(file, e);
@@ -51,8 +51,8 @@ export async function uploadFiles({ socket, protocolRef, targetDir, items, callb
   }
 }
 
-async function uploadOne(socket, protocolRef, targetDir, file, relativePath, resolver, onConflict, onProgress) {
-  const start = await emitAck(socket, "upload:start", {
+async function uploadOne(bus, protocolRef, targetDir, file, relativePath, resolver, onConflict, onProgress) {
+  const start = await emitAck(bus, "upload:start", {
     targetDir, relativePath, size: file.size, mtime: file.lastModified || 0
   });
   if (!start.success) throw new Error(start.error);
@@ -66,16 +66,16 @@ async function uploadOne(socket, protocolRef, targetDir, file, relativePath, res
       decision = resolver.resolve(true);
     }
     if (decision === "skip") {
-      socket.emit("upload:cancel", { uploadId });
+      bus.emit("upload:cancel", { uploadId });
       return { status: "skipped" };
     }
   }
 
-  await streamFile(socket, protocolRef, uploadId, file, onProgress);
+  await streamFile(bus, protocolRef, uploadId, file, onProgress);
   return { status: "done" };
 }
 
-function streamFile(socket, protocolRef, uploadId, file, onProgress) {
+function streamFile(bus, protocolRef, uploadId, file, onProgress) {
   return new Promise(async (resolve, reject) => {
     const size = file.size;
     const chunkSize = FILE_TRANSFER.chunkSize;
@@ -94,7 +94,7 @@ function streamFile(socket, protocolRef, uploadId, file, onProgress) {
         ackedOffset = offset;
         onProgress?.(file, size ? ackedOffset / size : 1);
       }
-      if (ackedOffset >= size && !done) { done = true; socket.emit("upload:end", { uploadId }); }
+      if (ackedOffset >= size && !done) { done = true; bus.emit("upload:end", { uploadId }); }
       else pump();
     };
     const onErr = ({ uploadId: uid, error }) => {
@@ -108,18 +108,18 @@ function streamFile(socket, protocolRef, uploadId, file, onProgress) {
       resolve();
     };
     function cleanup() {
-      socket.off("upload:ack", onAck);
-      socket.off("upload:error", onErr);
-      socket.off("upload:done", onDoneEv);
+      bus.off("upload:ack", onAck);
+      bus.off("upload:error", onErr);
+      bus.off("upload:done", onDoneEv);
     }
-    socket.on("upload:ack", onAck);
-    socket.on("upload:error", onErr);
-    socket.on("upload:done", onDoneEv);
+    bus.on("upload:ack", onAck);
+    bus.on("upload:error", onErr);
+    bus.on("upload:done", onDoneEv);
 
     const sendFrame = (frame) => {
       const pm = protocolRef?.current;
       if (pm?.sendBinary) return pm.sendBinary(CHANNELS.file, frame);
-      socket.emit("file-bin", frame);
+      bus.emit("file-bin", frame);
       return true;
     };
 
@@ -133,7 +133,7 @@ function streamFile(socket, protocolRef, uploadId, file, onProgress) {
       }
       if (ackedOffset >= size && !done) {
         done = true;
-        socket.emit("upload:end", { uploadId });
+        bus.emit("upload:end", { uploadId });
         return;
       }
       // Still chunks to send but sendBinary refused → short backoff keeps window full.
@@ -148,10 +148,10 @@ function streamFile(socket, protocolRef, uploadId, file, onProgress) {
 /**
  * Download a file/folder from agent → client, assembling into a Blob.
  * Folder downloads arrive as a streamed .zip (size unknown up front).
- * @param {object} ctx - { socket, protocolRef, filePath, onSave(blob, meta), onProgress(ratio), onError(err) }
+ * @param {object} ctx - { bus, protocolRef, filePath, onSave(blob, meta), onProgress(ratio), onError(err) }
  * onSave receives a Blob + { size, fileName }; caller triggers the browser save.
  */
-export function downloadFile({ socket, protocolRef: _protocolRef, filePath, onSave, onProgress, onError }) {
+export function downloadFile({ bus, protocolRef: _protocolRef, filePath, onSave, onProgress, onError }) {
   let downloadId = null;
   let size = null;       // null = folder zip (size unknown until stream ends)
   let fileName = null;
@@ -185,21 +185,21 @@ export function downloadFile({ socket, protocolRef: _protocolRef, filePath, onSa
     onError?.(new Error(error));
   };
   function cleanup() {
-    socket.off("file-bin", onFrame);
-    socket.off("download:done", onDoneEv);
-    socket.off("download:error", onErrEv);
+    bus.off("file-bin", onFrame);
+    bus.off("download:done", onDoneEv);
+    bus.off("download:error", onErrEv);
   }
 
-  emitAck(socket, "download:start", { filePath }).then((res) => {
+  emitAck(bus, "download:start", { filePath }).then((res) => {
     if (!res.success) { onError?.(new Error(res.error)); return; }
     downloadId = res.downloadId;
     size = res.size;              // null for folder zip
     fileName = res.fileName;
     tracker = size != null ? new AckTracker(size) : null;
     parts = new Map();
-    socket.on("file-bin", onFrame);
-    socket.on("download:done", onDoneEv);
-    socket.on("download:error", onErrEv);
+    bus.on("file-bin", onFrame);
+    bus.on("download:done", onDoneEv);
+    bus.on("download:error", onErrEv);
   }).catch((e) => onError?.(e));
 }
 
@@ -209,10 +209,10 @@ export function downloadFile({ socket, protocolRef: _protocolRef, filePath, onSa
  * caller's SourceBuffer is open — caller must queue onChunk until ready.
  * Images: the agent streams a server-scaled JPEG and the ack carries its dims
  * (width/height + originalWidth/originalHeight/scaled) alongside mime/size.
- * @param {object} ctx - { socket, filePath, onMeta(meta), onChunk(Uint8Array), onDone(), onError(err) }
+ * @param {object} ctx - { bus, filePath, onMeta(meta), onChunk(Uint8Array), onDone(), onError(err) }
  * @returns {Function} cancel()
  */
-export function streamMedia({ socket, filePath, onMeta, onChunk, onDone, onError }) {
+export function streamMedia({ bus, filePath, onMeta, onChunk, onDone, onError }) {
   let streamId = null;
   const pending = new Map(); // offset → payload (drain in order; guards reordering)
   let nextOffset = 0;
@@ -244,17 +244,17 @@ export function streamMedia({ socket, filePath, onMeta, onChunk, onDone, onError
     onError?.(new Error(error));
   };
   function cleanup() {
-    socket.off("file-bin", onFrame);
-    socket.off("download:done", onDoneEv);
-    socket.off("download:error", onErrEv);
+    bus.off("file-bin", onFrame);
+    bus.off("download:done", onDoneEv);
+    bus.off("download:error", onErrEv);
   }
 
   // Register before the ack resolves so early frames buffer into `pending`.
-  socket.on("file-bin", onFrame);
-  socket.on("download:done", onDoneEv);
-  socket.on("download:error", onErrEv);
+  bus.on("file-bin", onFrame);
+  bus.on("download:done", onDoneEv);
+  bus.on("download:error", onErrEv);
 
-  emitAck(socket, "streamMedia:start", { filePath }).then((res) => {
+  emitAck(bus, "streamMedia:start", { filePath }).then((res) => {
     if (!res.success) { cleanup(); onError?.(new Error(res.error)); return; }
     streamId = res.streamId;
     onMeta?.({
@@ -271,7 +271,7 @@ export function streamMedia({ socket, filePath, onMeta, onChunk, onDone, onError
 
   return () => {
     cleanup();
-    if (streamId != null) socket.emit("download:cancel", { downloadId: streamId });
+    if (streamId != null) bus.emit("download:cancel", { downloadId: streamId });
   };
 }
 

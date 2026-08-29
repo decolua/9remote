@@ -15,7 +15,7 @@ import { SearchBar, TransferBanner, NewItemModal, RenameModal, ConflictModal } f
 export default function FileExplorer({
   workspace,
   initialPath,
-  fileSocket,
+  fileBus,
   onBack,
   onOpenFile,
   onOpenGit,
@@ -56,19 +56,19 @@ export default function FileExplorer({
       return;
     }
 
-    const result = await buildWorkspaceGitStatus(fileSocket, dirPath);
+    const result = await buildWorkspaceGitStatus(fileBus, dirPath);
     setHasGit(result.hasGit);
     const statusMap = result.map;
     // Keep the previous reference when nothing changed — the map feeds every row.
     setGitStatusMap((prev) => (sameStatusMap(prev, statusMap) ? prev : statusMap));
-  }, [fileSocket, isBrowsing]);
+  }, [fileBus, isBrowsing]);
 
   // Load files
   const loadFiles = useCallback(async (dirPath) => {
     setLoading(true);
     setError("");
 
-    const result = await fileSocket.getFiles(dirPath, true);
+    const result = await fileBus.getFiles(dirPath, true);
 
     if (result.success) {
       let filteredFiles = result.files;
@@ -91,12 +91,12 @@ export default function FileExplorer({
     }
 
     setLoading(false);
-  }, [fileSocket, isBrowsing]);
+  }, [fileBus, isBrowsing]);
 
   const {
     transfer, dragOver, conflict, downloadState,
     startUpload, handleDrop, handleDragOver, handleDragLeave, handleDownload, resolveConflict
-  } = useFileTransfer({ fileSocket, currentPath, isBrowsing, onDone: loadFiles, onError: setError });
+  } = useFileTransfer({ fileBus, currentPath, isBrowsing, onDone: loadFiles, onError: setError });
 
   // Search files with debounce
   const handleSearch = useCallback((query) => {
@@ -115,13 +115,13 @@ export default function FileExplorer({
     setSearchLoading(true);
 
     searchTimerRef.current = setTimeout(async () => {
-      const result = await fileSocket.searchFiles(workspace, query);
+      const result = await fileBus.searchFiles(workspace, query);
       if (result.success) {
         setSearchResults(result.files);
       }
       setSearchLoading(false);
     }, 300);
-  }, [workspace, fileSocket]);
+  }, [workspace, fileBus]);
 
   // Close search
   const closeSearch = useCallback(() => {
@@ -193,7 +193,7 @@ export default function FileExplorer({
       title: t("files.deleteConfirmTitle"),
       message: t("files.deleteConfirmMessage", { name: file.name }),
       onConfirm: async () => {
-        const result = await fileSocket.deleteItem(file.path);
+        const result = await fileBus.deleteItem(file.path);
         if (result.success) {
           loadFiles(currentPath);
         } else {
@@ -212,7 +212,7 @@ export default function FileExplorer({
     if (!renameModal || !renameModal.newName.trim()) return;
 
     const newPath = currentPath + "/" + renameModal.newName.trim();
-    const result = await fileSocket.renameItem(renameModal.file.path, newPath);
+    const result = await fileBus.renameItem(renameModal.file.path, newPath);
 
     if (result.success) {
       loadFiles(currentPath);
@@ -227,7 +227,7 @@ export default function FileExplorer({
     if (!newItemName.trim()) return;
 
     const itemPath = currentPath + "/" + newItemName.trim();
-    const result = await fileSocket.createItem(itemPath, newItemType);
+    const result = await fileBus.createItem(itemPath, newItemType);
 
     if (result.success) {
       loadFiles(currentPath);

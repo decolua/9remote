@@ -42,14 +42,14 @@ function AgentAvatar({ agent }) {
 }
 
 export default function NewTerminalModal({
-  onClose, onCreate, shells = [], suggestName = "", socketRef = null,
-  workspacePath = null, workspaceName = "", fileSocket = null, homeDir = null,
+  onClose, onCreate, shells = [], suggestName = "", busRef = null,
+  workspacePath = null, workspaceName = "", fileBus = null, homeDir = null,
   onResumeAgentSession = null, liveSessionIds = null, activeSessionId = null,
   onSelectSession = null, connected = true
 }) {
   const { t } = useI18n();
   const inputMode = useInputMode();
-  const agentClis = useAgentClis(socketRef);
+  const agentClis = useAgentClis(busRef);
   // "" = plain terminal. Held as an id (not the object) so the last-used agent
   // restores from localStorage before detection lands, with no effect/setState race.
   const [agentId, setAgentId] = useState(() => loadTerminalPrefs().agentId);
@@ -193,7 +193,7 @@ export default function NewTerminalModal({
             <LocationPicker
               workspacePath={workspacePath}
               workspaceName={workspaceName}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               homeDir={homeDir}
               value={cwd}
               onChange={setCwd}
@@ -205,7 +205,7 @@ export default function NewTerminalModal({
         {showHistory ? (
           <AgentHistoryPanel
             variant="list"
-            socketRef={socketRef}
+            busRef={busRef}
             cwd={historyCwd}
             onResume={(row) => { onResumeAgentSession?.(row); onClose?.(); }}
             onSelectSession={(id) => { onSelectSession?.(id); onClose?.(); }}
@@ -316,7 +316,7 @@ export default function NewTerminalModal({
       {/* Sibling, not child: its backdrop click must not bubble into this modal's close */}
       {browsing && (
         <FolderPickerModal
-          fileSocket={fileSocket}
+          fileBus={fileBus}
           initialPath={cwd || workspacePath}
           onSelect={(p) => { setBrowsing(false); if (p) setCwd(p); }}
           onClose={() => setBrowsing(false)}

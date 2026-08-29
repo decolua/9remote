@@ -34,7 +34,7 @@ const hasOsFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
 
 export default function ExplorerPanel({
   workspace,
-  fileSocket,
+  fileBus,
   onOpenFile,
   activeFile,
   onSwitchWorkspace,
@@ -85,10 +85,10 @@ export default function ExplorerPanel({
     tree, expanded, loading, truncatedDirs, gitStatusMap,
     showHidden, setShowHidden,
     loadDir, loadGitStatus, toggleFolder, expandDir, collapseAll, refreshAll
-  } = useFileTreeState({ workspace, fileSocket });
+  } = useFileTreeState({ workspace, fileBus });
 
   const { createItem, renameItem, deleteItem, deleteMany, duplicateItem, moveTo, pasteInto } = useFileOperations({
-    fileSocket, loadDir, loadGitStatus, expandDir, onOpenFile,
+    fileBus, loadDir, loadGitStatus, expandDir, onOpenFile,
     onMoved: () => setSelectedPaths(new Set())
   });
 
@@ -303,7 +303,7 @@ export default function ExplorerPanel({
   const runUpload = useCallback(async (items, targetDir) => {
     if (!items.length) return;
     setUpload({ total: items.length, done: 0 });
-    await fileSocket.uploadFiles(targetDir, items, {
+    await fileBus.uploadFiles(targetDir, items, {
       onConflict: (file, relativePath) =>
         new Promise((resolve) => setUploadConflict({ name: relativePath || file?.name, resolve })),
       onFileDone: () => setUpload((p) => (p ? { ...p, done: p.done + 1 } : p)),
@@ -314,7 +314,7 @@ export default function ExplorerPanel({
     await loadDir(targetDir);
     expandDir(targetDir);
     loadGitStatus();
-  }, [fileSocket, loadDir, expandDir, loadGitStatus]);
+  }, [fileBus, loadDir, expandDir, loadGitStatus]);
 
   // Files dragged in from the OS: upload into the folder they were dropped on.
   const uploadInto = useCallback(async (dataTransfer, targetDir) => {
@@ -576,7 +576,7 @@ export default function ExplorerPanel({
       items.push({ label: "Paste", icon: "ClipboardPaste", action: () => pasteClipboard(file) });
     }
     if (!many) {
-      items.push({ label: "Reveal in OS", icon: "FolderOpen", action: () => fileSocket.revealInOS(file.path) });
+      items.push({ label: "Reveal in OS", icon: "FolderOpen", action: () => fileBus.revealInOS(file.path) });
       items.push({
         label: "Rename",
         icon: "Pencil",

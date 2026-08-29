@@ -48,7 +48,7 @@ function TailTruncate({ text, title, style, className = "" }) {
 export default function SessionCard({
   session, status, hasNotification, connected,
   onSelect, onLongPress, onRename, onDelete, onResume,
-  cwd, fileSocket, homeDir, shellCount = 1
+  cwd, fileBus, homeDir, shellCount = 1
 }) {
   const { t } = useI18n();
   const state = status?.state || "idle";
@@ -56,7 +56,7 @@ export default function SessionCard({
   // Live checkout of where the terminal actually sits, not of its fixed workspace root —
   // a `cd` into another worktree has to show that worktree's branch.
   const gitPath = cwd || session.workspacePath || null;
-  const { branch, dirty, changedCount } = useWorkspaceGit(gitPath, fileSocket, { enabled: connected && !!fileSocket });
+  const { branch, dirty, changedCount } = useWorkspaceGit(gitPath, fileBus, { enabled: connected && !!fileBus });
   const basePath = session.workspacePath || null;
   // Prompt path: relative to the workspace root while inside it, ~-shortened outside.
   const promptPath = !gitPath ? "~"

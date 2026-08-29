@@ -7,23 +7,23 @@ import { useI18n } from "@/shared/i18n";
 /**
  * Codespace Panel Component
  */
-export default function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
+export default function CodespacePanel({ codespaceInfo, busRef, onStop }) {
   const { t } = useI18n();
   const [autoStart, setAutoStart] = useState(null); // null = loading, true/false = status
   const [toggling, setToggling] = useState(false);
 
   // Load auto start status on mount
   useEffect(() => {
-    if (!socketRef?.current || !codespaceInfo?.isCodespaces) {
-      // Not in codespaces or no socket, show OFF state
-      if (codespaceInfo?.isCodespaces && !socketRef?.current) {
-        console.log("CodespacePanel: socketRef not available");
+    if (!busRef?.current || !codespaceInfo?.isCodespaces) {
+      // Not in codespaces or no bus, show OFF state
+      if (codespaceInfo?.isCodespaces && !busRef?.current) {
+        console.log("CodespacePanel: busRef not available");
       }
       setAutoStart(false);
       return;
     }
 
-    socketRef.current.emit("getAutoStartStatus", (result) => {
+    busRef.current.emit("getAutoStartStatus", (result) => {
       console.log("getAutoStartStatus result:", result);
       if (result.success) {
         setAutoStart(result.enabled);
@@ -31,22 +31,22 @@ export default function CodespacePanel({ codespaceInfo, socketRef, onStop }) {
         setAutoStart(false);
       }
     });
-  }, [socketRef, codespaceInfo]);
+  }, [busRef, codespaceInfo]);
 
   // Toggle auto start
   const handleToggleAutoStart = useCallback(() => {
-    if (!socketRef?.current || toggling) return;
+    if (!busRef?.current || toggling) return;
 
     setToggling(true);
     const newValue = !autoStart;
 
-    socketRef.current.emit("setAutoStart", { enabled: newValue }, (result) => {
+    busRef.current.emit("setAutoStart", { enabled: newValue }, (result) => {
       setToggling(false);
       if (result.success) {
         setAutoStart(result.enabled);
       }
     });
-  }, [socketRef, autoStart, toggling]);
+  }, [busRef, autoStart, toggling]);
 
   if (!codespaceInfo) return null;
 

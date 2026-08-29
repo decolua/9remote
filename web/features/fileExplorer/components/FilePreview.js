@@ -14,9 +14,9 @@ export const isPreviewable = (filePath) =>
 
 // Picks the viewer a non-text file needs. Keyed on filePath so switching files remounts
 // rather than feeding a new source to a player still holding the old one.
-export default function FilePreview({ filePath, fileSocket }) {
-  if (isPdfFile(filePath)) return <PdfViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />;
-  if (isDocxFile(filePath) || isSheetFile(filePath)) return <OfficeViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />;
-  if (isVideoFile(filePath) || isAudioFile(filePath)) return <MediaViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />;
-  return <ImageViewer key={filePath} filePath={filePath} fileSocket={fileSocket} />;
+export default function FilePreview({ filePath, fileBus }) {
+  if (isPdfFile(filePath)) return <PdfViewer key={filePath} filePath={filePath} fileBus={fileBus} />;
+  if (isDocxFile(filePath) || isSheetFile(filePath)) return <OfficeViewer key={filePath} filePath={filePath} fileBus={fileBus} />;
+  if (isVideoFile(filePath) || isAudioFile(filePath)) return <MediaViewer key={filePath} filePath={filePath} fileBus={fileBus} />;
+  return <ImageViewer key={filePath} filePath={filePath} fileBus={fileBus} />;
 }

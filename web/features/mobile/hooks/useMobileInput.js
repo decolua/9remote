@@ -12,7 +12,7 @@ import { useCallback, useRef } from "react";
 import { WHEEL_LINE_PX, WHEEL_PAGE_PX, WHEEL_NOTCH_PX, SCROLL_MAX } from "../constants/mobileConfig";
 
 
-export function useMobileInput({ socketRef, canvasRef }) {
+export function useMobileInput({ busRef, canvasRef }) {
   const pressRef = useRef(null);
   // Moves coalesce to one per animation frame: a touch can fire 120+ moves/sec,
   // and through a tunnel they arrive bunched, which Android's velocity tracker
@@ -21,8 +21,8 @@ export function useMobileInput({ socketRef, canvasRef }) {
   const moveRafRef = useRef(0);
 
   const send = useCallback((msg) => {
-    socketRef?.current?.emit("mobile:input", msg);
-  }, [socketRef]);
+    busRef?.current?.emit("mobile:input", msg);
+  }, [busRef]);
 
   const flushMove = useCallback(() => {
     moveRafRef.current = 0;

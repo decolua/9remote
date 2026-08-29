@@ -53,7 +53,7 @@ export default function SettingsDialog({
   const buttonToggles = useButtonToggles();
 
   const push = usePushToggle(context.subscribeToPush, context.unsubscribeFromPush);
-  const artifact = useArtifactToggle(context.socketRef, context.connected);
+  const artifact = useArtifactToggle(context.busRef, context.connected);
   const mcpClients = useTerminalStore((s) => s.mcpClients);
   const artifactSupported = artifact.supported;
 
@@ -353,7 +353,7 @@ export default function SettingsDialog({
             {section === "codespace" && (
               <CodespacePanel
                 codespaceInfo={context.codespaceInfo}
-                socketRef={context.socketRef}
+                busRef={context.busRef}
                 onStop={() => run(callbacks.onStopCodespace)}
               />
             )}

@@ -77,7 +77,7 @@ const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, o
   );
 });
 
-export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWithRepo = false }) {
+export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRepo = false }) {
   const { t } = useI18n();
   const [branch, setBranch] = useState("");
   const [ahead, setAhead] = useState(null);
@@ -97,11 +97,11 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
   const [moreMenu, setMoreMenu] = useState(null);
 
   const reload = useCallback(async () => {
-    if (!workspace || !fileSocket) return;
+    if (!workspace || !fileBus) return;
     setLoading(true);
     const [statusRes, branchRes] = await Promise.all([
-      fileSocket.gitStatus?.(workspace),
-      fileSocket.gitBranch?.(workspace)
+      fileBus.gitStatus?.(workspace),
+      fileBus.gitBranch?.(workspace)
     ]);
     setLoading(false);
     if (statusRes?.success) setFiles(statusRes.files || []);
@@ -110,7 +110,7 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
       setAhead(branchRes.ahead ?? null);
       setBehind(branchRes.behind ?? null);
     }
-  }, [workspace, fileSocket]);
+  }, [workspace, fileBus]);
 
   useEffect(() => {
     reload();
@@ -144,21 +144,21 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
 
   const stageFile = useCallback(async (file) => {
     if (!workspace) return;
-    await fileSocket.gitAdd?.(workspace, [file.path]);
+    await fileBus.gitAdd?.(workspace, [file.path]);
     reload();
-  }, [workspace, fileSocket, reload]);
+  }, [workspace, fileBus, reload]);
 
   const stageAll = useCallback(async () => {
     if (!workspace) return;
-    await fileSocket.gitAdd?.(workspace, ["."]);
+    await fileBus.gitAdd?.(workspace, ["."]);
     reload();
-  }, [workspace, fileSocket, reload]);
+  }, [workspace, fileBus, reload]);
 
   const discardFile = useCallback(async (file) => {
     if (!workspace) return;
-    await fileSocket.gitDiscard?.(workspace, file.path, file.status);
+    await fileBus.gitDiscard?.(workspace, file.path, file.status);
     reload();
-  }, [workspace, fileSocket, reload]);
+  }, [workspace, fileBus, reload]);
 
   const requestDiscard = useCallback((file) => {
     setDiscardTarget(file);
@@ -181,12 +181,12 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
   const confirmAutoStageAndCommit = useCallback(async () => {
     if (!workspace) return;
     setResult(null);
-    const add = await fileSocket.gitAdd?.(workspace, ["."]);
+    const add = await fileBus.gitAdd?.(workspace, ["."]);
     if (add && !add.success) {
       setResult({ ok: false, text: add.error || t("git.stageFailed") });
       return;
     }
-    const res = await fileSocket.gitCommit?.(workspace, commitMsg.trim());
+    const res = await fileBus.gitCommit?.(workspace, commitMsg.trim());
     if (!res?.success) {
       setResult({ ok: false, text: res?.output || res?.error || t("git.commitFailed") });
       reload();
@@ -198,36 +198,36 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
       reload();
       return;
     }
-    const pushed = await fileSocket.gitPush?.(workspace);
+    const pushed = await fileBus.gitPush?.(workspace);
     setResult(pushed?.success
       ? { ok: true, text: `${commitSummary(t, res.output)} · ${pushSummary(t, pushed.output)}` }
       : { ok: false, text: pushed?.output || pushed?.error || t("git.pushFailed") });
     reload();
-  }, [workspace, fileSocket, commitMsg, pendingPush, reload, t]);
+  }, [workspace, fileBus, commitMsg, pendingPush, reload, t]);
 
   const handlePush = useCallback(async () => {
     if (!workspace) return;
     setLoading(true);
     setResult(null);
-    const res = await fileSocket.gitPush?.(workspace);
+    const res = await fileBus.gitPush?.(workspace);
     setLoading(false);
     setResult(res?.success
       ? { ok: true, text: pushSummary(t, res.output) }
       : { ok: false, text: res?.output || res?.error || t("git.pushFailed") });
     reload();
-  }, [workspace, fileSocket, reload, t]);
+  }, [workspace, fileBus, reload, t]);
 
   const handlePull = useCallback(async () => {
     if (!workspace) return;
     setLoading(true);
     setResult(null);
-    const res = await fileSocket.gitPull?.(workspace);
+    const res = await fileBus.gitPull?.(workspace);
     setLoading(false);
     setResult(res?.success
       ? { ok: true, text: pullSummary(t, res.output) }
       : { ok: false, text: res?.output || res?.error || t("git.pullFailed") });
     reload();
-  }, [workspace, fileSocket, reload, t]);
+  }, [workspace, fileBus, reload, t]);
 
 
   const anchorMenu = useCallback((e, set) => {

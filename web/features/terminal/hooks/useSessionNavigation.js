@@ -12,7 +12,7 @@ export function useSessionNavigation({
   sessions, currentView, viewStack, setViewStack, pushView, storePopView,
   activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
   addOpenedSession, removeOpenedSession, touchLivePane,
-  createSession, deleteSession, renameSession, clearNotification, socketRef
+  createSession, deleteSession, renameSession, clearNotification, busRef
 }) {
   const { t } = useI18n();
 
@@ -121,13 +121,13 @@ export function useSessionNavigation({
       if (row.agent) useTerminalStore.getState().setSessionAgent(result.sessionId, row.agent);
       // Tell the agent which conversation this terminal is resuming, so the
       // history row points at it before the CLI reports anything of its own.
-      socketRef?.current?.emit("claimAgentSession", {
+      busRef?.current?.emit("claimAgentSession", {
         sessionId: result.sessionId, agent: row.agent, conversationId: row.sessionId
       }, () => useTerminalStore.getState().invalidateAgentHistory());
       addOpenedSession(result.sessionId);
       replaceTopWithSession(result.sessionId);
     });
-  }, [createSession, activeWorkspaceId, addOpenedSession, alertCreateFailed, replaceTopWithSession, socketRef]);
+  }, [createSession, activeWorkspaceId, addOpenedSession, alertCreateFailed, replaceTopWithSession, busRef]);
 
   // Quick create in the active workspace (header "+" button, Mod+Shift+Enter chord).
   // Always focuses the new pane, unlike handleCreateSession which only does so from

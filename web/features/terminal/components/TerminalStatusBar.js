@@ -47,9 +47,9 @@ function FadeSlot({ pages, activeKey }) {
 
 // The running CLI's 5h quota — the only window worth a phone-width slot, since the
 // question it answers is "do I still have quota right now".
-function useSessionQuota(sessionId, socketRef) {
+function useSessionQuota(sessionId, busRef) {
   const agentId = useTerminalStore((s) => s.agentBySession[sessionId]) || "";
-  const quota = useQuota(socketRef, { enabled: !!agentId });
+  const quota = useQuota(busRef, { enabled: !!agentId });
   const provider = agentId ? quota?.providers?.[agentId] : null;
   if (!provider || provider.status !== "ok" || !provider.session) return null;
   return { agentId, usedPct: provider.session.usedPercent };
@@ -74,10 +74,10 @@ function useRotatingPage(pageCount, { pinnedIndex = -1, paused = false } = {}) {
 // Mobile strip above the keyboard input, shown only while the soft keyboard is closed.
 // Width is scarce: branch + changed stay pinned on the left, and the right slot
 // alternates between the cwd's leaf folder and the running CLI's 5h quota.
-export function MobileStatusStrip({ sessionId, fileSocket, socketRef, onReveal }) {
+export function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
   const cwd = useTerminalStore((s) => s.cwdBySession[sessionId]) || "";
-  const { branch, changedCount } = useWorkspaceGit(cwd, fileSocket, { enabled: !!cwd && !!fileSocket });
-  const quota = useSessionQuota(sessionId, socketRef);
+  const { branch, changedCount } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd && !!fileBus });
+  const quota = useSessionQuota(sessionId, busRef);
   const [paused, setPaused] = useState(false);
 
   // The last two segments name the folder and its parent — a lone leaf is cryptic,
@@ -154,21 +154,21 @@ export function MobileStatusStrip({ sessionId, fileSocket, socketRef, onReveal }
 // connection/state on the right. The shell comes from the shared StatusBar.
 export default function TerminalStatusBar({
   cwd,
-  fileSocket,
-  socketRef,
+  fileBus,
+  busRef,
   connected,
   sessionState = "idle",
-  transport = "ws",
+  carrier = "ws",
   sessionName = "",
   agentVersion = "",
   platform = "",
 }) {
   const { t } = useI18n();
-  const quota = useQuota(socketRef);
+  const quota = useQuota(busRef);
 
   // Branch + changed come from the shared ref-counted poll — one round-trip per unique
   // path, shared with the mobile strip, instead of two parallel pollers here.
-  const { branch, changedCount: changed } = useWorkspaceGit(cwd, fileSocket, { enabled: !!cwd && !!fileSocket });
+  const { branch, changedCount: changed } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd && !!fileBus });
 
   const v = statusVisual(sessionState);
   const stateLabel = sessionState === "working"
@@ -219,7 +219,7 @@ export default function TerminalStatusBar({
         )}
         <span className="flex items-center gap-1.5">
           <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500 animate-pulse"}`} />
-          <span className="uppercase tracking-wide">{transport}</span>
+          <span className="uppercase tracking-wide">{carrier}</span>
         </span>
         <span className="flex items-center gap-1.5">
           <span className={`w-2 h-2 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />

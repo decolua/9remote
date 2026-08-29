@@ -16,7 +16,7 @@ function formatSize(bytes) {
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 8;
 
-export default function ImageViewer({ filePath, fileSocket }) {
+export default function ImageViewer({ filePath, fileBus }) {
   const [dataUrl, setDataUrl] = useState("");
   const [meta, setMeta] = useState(null);
   const [error, setError] = useState("");
@@ -60,7 +60,7 @@ export default function ImageViewer({ filePath, fileSocket }) {
     const isTiff = lower.endsWith(".tif") || lower.endsWith(".tiff");
 
     if (isTiff) {
-      fileSocket.readMedia(filePath).then(r => {
+      fileBus.readMedia(filePath).then(r => {
         if (cancelled) return;
         if (r.success) {
           setDataUrl(r.dataUrl);
@@ -71,7 +71,7 @@ export default function ImageViewer({ filePath, fileSocket }) {
       return () => { cancelled = true; };
     }
 
-    const cancel = fileSocket.streamMedia(filePath, {
+    const cancel = fileBus.streamMedia(filePath, {
       onMeta: (info) => {
         if (cancelled) return;
         blobMime = info.mime || "image/*";
@@ -111,7 +111,7 @@ export default function ImageViewer({ filePath, fileSocket }) {
       cancelled = true;
       cancel?.();
     };
-  }, [filePath, fileSocket]);
+  }, [filePath, fileBus]);
 
   // Revoke the live object URL on unmount (the per-file effect revokes on switch).
   useEffect(() => () => {

@@ -28,7 +28,7 @@ function displayPathOf(path, root) {
 // History is kept here rather than read off the iframe: it runs sandboxed on an opaque
 // origin, so its location is unreadable from this side. The agent injects a reporter
 // into every served HTML page, and those messages are what move this history along.
-export default function HtmlViewer({ filePath, fileSocket, reloadKey = 0 }) {
+export default function HtmlViewer({ filePath, fileBus, reloadKey = 0 }) {
   const { t } = useI18n();
   const { getAuth } = useSessionStorage();
   // origin is the scheme+host the agent answers on; root is the path prefix that names
@@ -55,15 +55,15 @@ export default function HtmlViewer({ filePath, fileSocket, reloadKey = 0 }) {
 
   useEffect(() => {
     let cancelled = false;
-    fileSocket.previewStart(filePath).then((res) => {
+    fileBus.previewStart(filePath).then((res) => {
       if (cancelled) {
-        if (res.success) fileSocket.previewEnd(res.sessionId);
+        if (res.success) fileBus.previewEnd(res.sessionId);
         return;
       }
       if (!res.success) { setError(res.error || t("editor.previewFailed")); return; }
       const origin = resolveAgentBase(getAuth());
       if (!origin) {
-        fileSocket.previewEnd(res.sessionId);
+        fileBus.previewEnd(res.sessionId);
         setError(t("editor.previewNoRoute"));
         return;
       }
@@ -74,12 +74,12 @@ export default function HtmlViewer({ filePath, fileSocket, reloadKey = 0 }) {
     });
     return () => {
       cancelled = true;
-      if (sessionRef.current) fileSocket.previewEnd(sessionRef.current);
+      if (sessionRef.current) fileBus.previewEnd(sessionRef.current);
       sessionRef.current = null;
     };
   // getAuth reads storage on demand; t is stable enough for an error string.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filePath, fileSocket]);
+  }, [filePath, fileBus]);
 
   // Where the page says it is now. Same path = a reload, not a new entry.
   const root = route?.root;

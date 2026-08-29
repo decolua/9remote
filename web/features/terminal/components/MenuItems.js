@@ -45,7 +45,7 @@ export default function MenuItems({
   theme = "default",
   onThemeChange,
   hideActions = [],
-  socketRef = null,
+  busRef = null,
   subscribeToPush = null,
   unsubscribeFromPush = null,
   onUpdate,
@@ -159,7 +159,7 @@ export default function MenuItems({
   const isOutdated = isAgentOutdated(agentVersion, webVersion) || isWebOutdated(agentVersion, webVersion);
 
   const push = usePushToggle(subscribeToPush, unsubscribeFromPush);
-  const artifact = useArtifactToggle(socketRef, connected);
+  const artifact = useArtifactToggle(busRef, connected);
   const mcpClients = useTerminalStore((s) => s.mcpClients);
   // Treat native WebView (Expo) the same as PWA for UI gating
   const isApp = typeof window !== "undefined" && (

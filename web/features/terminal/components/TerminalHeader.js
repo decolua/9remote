@@ -44,8 +44,8 @@ function TerminalHeader({
   subscribeToPush,
   unsubscribeFromPush,
   agentVersion,
-  socketRef,
-  transport = "ws",
+  busRef,
+  carrier = "ws",
   isActive = true,
   shells = [],
   workspaces = [],
@@ -61,7 +61,7 @@ function TerminalHeader({
   rightPanelOpen = false,
   updateAvailable = null,
   canSelfUpdate = false,
-  fileSocket = null,
+  fileBus = null,
   homeDir = null,
 }) {
   const { t } = useI18n();
@@ -236,14 +236,14 @@ function TerminalHeader({
       remoteAvailable: !!onOpenRemote,
       codespaceInfo,
       showTheme: false,
-      socketRef,
+      busRef,
       tunnelUrl,
       apiKey,
       connectionMode,
       subscribeToPush,
       unsubscribeFromPush,
       agentVersion,
-      transport,
+      carrier,
     });
 
     setCallbacks({
@@ -256,7 +256,7 @@ function TerminalHeader({
       onUpdate,
       onRestart,
     });
-  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, socketRef, transport, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
+  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
     // Desktop left inset matches the panes row (px-1) plus the pane's p-px border
@@ -445,7 +445,7 @@ function TerminalHeader({
             <button
               onClick={() => {
                 vibrate();
-                socketRef?.current?.emit("session-resume", { sessionId: tabMenu.sessionId });
+                busRef?.current?.emit("session-resume", { sessionId: tabMenu.sessionId });
                 setTabMenu({ sessionId: null, x: 0, y: 0 });
               }}
               className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
@@ -480,11 +480,11 @@ function TerminalHeader({
           onClose={() => setCreateModalOpen(false)}
           onCreate={handleModalCreate}
           shells={shells}
-          socketRef={socketRef}
+          busRef={busRef}
           suggestName={suggestTerminalName(activeWorkspaceId)}
           workspacePath={activeWorkspace?.path || null}
           workspaceName={activeWorkspace?.name || ""}
-          fileSocket={fileSocket}
+          fileBus={fileBus}
           homeDir={homeDir}
           onResumeAgentSession={onResumeAgentSession}
           onSelectSession={onSwitchSession}
@@ -525,7 +525,7 @@ function TerminalHeader({
         </div>
       )}
 
-      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} socketRef={socketRef} isOpen={sitesOpen} onClose={closeSites} />
+      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} busRef={busRef} isOpen={sitesOpen} onClose={closeSites} />
     </div>
   );
 }

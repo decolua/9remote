@@ -12,7 +12,7 @@ export default function BottomPanel({
   height,
   onResize,
   onClose,
-  socket,
+  bus,
   connected,
   sessions = [],
   onCreateSession,
@@ -133,7 +133,7 @@ export default function BottomPanel({
             style={{ display: s.id === activeId ? "block" : "none" }}
           >
             <TerminalPane
-              socket={socket}
+              bus={bus}
               connected={connected}
               sessionId={s.id}
               isVisible={s.id === activeId}

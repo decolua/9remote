@@ -22,7 +22,7 @@ const RESTART_LABELS = {
   timeout: "menu.restartTimeout",
 };
 
-// Update progress overlay. Web only observes socket connect/disconnect (the update runs
+// Update progress overlay. Web only observes bus connect/disconnect (the update runs
 // in a detached script), so phases are time-estimated. Agent restart = connected true→false→true.
 export default function UpdateModal({ open, connected, mode = "update" }) {
   const { t } = useI18n();

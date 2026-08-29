@@ -11,7 +11,7 @@ import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
 const SAVE_DEBOUNCE_MS = 500;
 
 // Quick checklist stored as markdown task-list text via the existing getNote/saveNote
-// socket API — the agent never learns about checklists, it just keeps the text.
+// bus API — the agent never learns about checklists, it just keeps the text.
 const ITEM_RE = /^- \[([ xX])\] ?/;
 
 function parseItems(text) {
@@ -34,7 +34,7 @@ const writeClipboard = (text) => {
   try { navigator.clipboard?.writeText(text).catch(() => {}); } catch {}
 };
 
-export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, variant = "modal", pinned = false, onPin, rightSlot = null }) {
+export default function NotePanel({ bus, sessionId, appendOnOpen, onClose, variant = "modal", pinned = false, onPin, rightSlot = null }) {
   const { t } = useI18n();
   const noteChips = useTerminalStore((s) => s.noteChips);
   const addNoteChip = useTerminalStore((s) => s.addNoteChip);
@@ -75,8 +75,8 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
   };
 
   const doSave = useCallback((value) => {
-    socket?.emit("saveNote", { sessionId, text: value }, () => {});
-  }, [socket, sessionId]);
+    bus?.emit("saveNote", { sessionId, text: value }, () => {});
+  }, [bus, sessionId]);
 
   // Any mutation flows through here: update state + debounce-save the whole list, and
   // tell this session's other NotePanel mount (pinned strip vs modal) about the change.
@@ -95,7 +95,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
 
   // Load once on open; append selection text (each line = one unchecked item)
   useEffect(() => {
-    if (!socket || !sessionId) return;
+    if (!bus || !sessionId) return;
     let cancelled = false;
     const cached = noteCache.get(sessionId);
     const adopt = (next, appended) => {
@@ -111,7 +111,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
       adopt(extra.length ? [...cached, ...withIds(extra)] : cached, extra.length > 0);
       return;
     }
-    socket.emit("getNote", { sessionId }, (res) => {
+    bus.emit("getNote", { sessionId }, (res) => {
       if (cancelled) return;
       const next = parseItems(res?.success ? res.text : "");
       const extra = appendLines();
@@ -120,7 +120,7 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
       adopt(withIds([...next, ...extra]), extra.length > 0);
     });
     return () => { cancelled = true; };
-  }, [socket, sessionId, doSave]);
+  }, [bus, sessionId, doSave]);
 
   // Adopt changes made by this session's other mount — it already saved them
   useEffect(() => {
@@ -301,8 +301,8 @@ export default function NotePanel({ socket, sessionId, appendOnOpen, onClose, va
   // A chip sends its text plus the checklist (markdown) into this pane's terminal
   const sendChip = (chip) => {
     vibrate();
-    socket?.emit("input", { sessionId, data: `${chip}\n${serializeItems(items || [])}` });
-    setTimeout(() => socket?.emit("input", { sessionId, data: "\r" }), INPUT_ENTER_DELAY);
+    bus?.emit("input", { sessionId, data: `${chip}\n${serializeItems(items || [])}` });
+    setTimeout(() => bus?.emit("input", { sessionId, data: "\r" }), INPUT_ENTER_DELAY);
     onClose();
   };
 

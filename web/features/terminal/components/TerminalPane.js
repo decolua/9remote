@@ -21,7 +21,7 @@ import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_V
 // isVisible: pane is shown (layout-level)
 // isFocused: pane receives keyboard input + shows active border
 function TerminalPane({
-  socket,
+  bus,
   workspacePath,
   connected,
   sessionId,
@@ -35,7 +35,7 @@ function TerminalPane({
   onPasteFallback,
   showFocusBorder = false,
   clearNotification,
-  fileSocket,
+  fileBus,
   bgIndex = 0,
   onOpenArtifact,
   onOpenRemote,
@@ -159,7 +159,7 @@ function TerminalPane({
   const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
     // Effective key — the canvas goes transparent only when the image actually renders,
     // so a pool key without a resolvable item (deleted/raced) falls back to opaque, not black
-    socket, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: bgActive ? paneBgKey : "none",
+    bus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: bgActive ? paneBgKey : "none",
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
@@ -222,7 +222,7 @@ function TerminalPane({
   }, [termRef, termReady, isVisible]);
 
   // Each pane counts its own cwd; the hook shares one poll per unique cwd across panes.
-  const shownCount = useGitChangedCount(cwd, fileSocket, { enabled: isVisible });
+  const shownCount = useGitChangedCount(cwd, fileBus, { enabled: isVisible });
 
   const badgeLabel = shownCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : shownCount;
 
@@ -275,7 +275,7 @@ function TerminalPane({
       {/* Pinned checklist sits in flow above the terminal, like the bottom status bar */}
       {showPinnedNote && (
         <NotePanel
-          socket={socket}
+          bus={bus}
           sessionId={sessionId}
           variant="pinned"
           rightSlot={stripButtons}
@@ -414,7 +414,7 @@ function TerminalPane({
 
       {noteModalOpen && showNoteButton && (
         <NotePanel
-          socket={socket}
+          bus={bus}
           sessionId={sessionId}
           appendOnOpen={noteAppend}
           pinned={notePinned}

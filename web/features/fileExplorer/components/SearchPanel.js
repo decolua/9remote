@@ -69,7 +69,7 @@ function ToggleBtn({ active, onClick, title, children }) {
   );
 }
 
-export default function SearchPanel({ workspace, fileSocket, onOpenFile }) {
+export default function SearchPanel({ workspace, fileBus, onOpenFile }) {
   const [query, setQuery] = useState("");
   const [replacement, setReplacement] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -86,12 +86,12 @@ export default function SearchPanel({ workspace, fileSocket, onOpenFile }) {
   const debounceRef = useRef(null);
 
   const runSearch = useCallback(async () => {
-    if (!query || !workspace || !fileSocket?.searchInFiles) {
+    if (!query || !workspace || !fileBus?.searchInFiles) {
       setResults([]);
       return;
     }
     setLoading(true);
-    const res = await fileSocket.searchInFiles(workspace, query, {
+    const res = await fileBus.searchInFiles(workspace, query, {
       caseSensitive,
       wholeWord,
       regex,
@@ -106,7 +106,7 @@ export default function SearchPanel({ workspace, fileSocket, onOpenFile }) {
     } else {
       setResults([]);
     }
-  }, [query, workspace, fileSocket, caseSensitive, wholeWord, regex, includeGlob, excludeGlob]);
+  }, [query, workspace, fileBus, caseSensitive, wholeWord, regex, includeGlob, excludeGlob]);
 
   // Debounced search on query/options change
   useEffect(() => {
@@ -135,10 +135,10 @@ export default function SearchPanel({ workspace, fileSocket, onOpenFile }) {
   }, []);
 
   const handleReplaceAll = useCallback(async () => {
-    if (!query || !workspace || !fileSocket?.replaceInFiles || !results.length) return;
+    if (!query || !workspace || !fileBus?.replaceInFiles || !results.length) return;
     const files = results.map((r) => r.path);
     setLoading(true);
-    await fileSocket.replaceInFiles(
+    await fileBus.replaceInFiles(
       workspace,
       query,
       replacement,
@@ -147,7 +147,7 @@ export default function SearchPanel({ workspace, fileSocket, onOpenFile }) {
     );
     setLoading(false);
     runSearch();
-  }, [query, replacement, workspace, fileSocket, results, caseSensitive, wholeWord, regex, includeGlob, excludeGlob, runSearch]);
+  }, [query, replacement, workspace, fileBus, results, caseSensitive, wholeWord, regex, includeGlob, excludeGlob, runSearch]);
 
   return (
     <div className="flex flex-col h-full text-sm text-text">

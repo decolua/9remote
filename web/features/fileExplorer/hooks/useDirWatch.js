@@ -11,13 +11,13 @@ const parentOf = (p) => p.slice(0, p.lastIndexOf("/")) || "/";
 // Four things keep this off the user's machine: only open directories are watched, never
 // more than MAX_DIRS of them (oldest dropped first), nothing at all while the tab is
 // hidden, and events are coalesced so a burst of writes costs one reload per directory.
-export function useDirWatch({ dirs, fileSocket, onDirsChanged, enabled = true, debounceMs = FILE_WATCH.DEBOUNCE_MS }) {
+export function useDirWatch({ dirs, fileBus, onDirsChanged, enabled = true, debounceMs = FILE_WATCH.DEBOUNCE_MS }) {
   const watchedRef = useRef(new Set());
   // Read at event time so the debounce timer never captures a stale callback.
   const changedRef = useRef(onDirsChanged);
   useEffect(() => { changedRef.current = onDirsChanged; }, [onDirsChanged]);
 
-  const { watchDir, unwatchDir, onFileChange } = fileSocket || {};
+  const { watchDir, unwatchDir, onFileChange } = fileBus || {};
   // A stable string lets the sync effect depend on the contents, not the array identity.
   const key = dirs.join("\n");
 
@@ -64,7 +64,7 @@ export function useDirWatch({ dirs, fileSocket, onDirsChanged, enabled = true, d
         if (watched.has(dir)) continue;
         watched.add(dir);
         const res = await watchDir(dir);
-        // Refused (agent at its own cap) or the socket dropped mid-call: forget it so a
+        // Refused (agent at its own cap) or the bus dropped mid-call: forget it so a
         // later sync can try again rather than believing it is covered.
         if (!alive || res?.watching === false) watched.delete(dir);
       }

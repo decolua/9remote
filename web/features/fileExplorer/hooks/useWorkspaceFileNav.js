@@ -7,7 +7,7 @@ import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath } fr
 // workspace selection (recent workspaces), folder browsing, the mobile editor overlay,
 // and per-workspace last-folder persistence. Verbatim moves from the workspace layout.
 export function useWorkspaceFileNav({
-  pushView, viewStack, setViewStack, currentView, cwdBySession, isDesktop, fileSocket
+  pushView, viewStack, setViewStack, currentView, cwdBySession, isDesktop, fileBus
 }) {
   const [systemInfo, setSystemInfo] = useState(null);
   // Mobile-only: file opened as an overlay above the files view (no viewStack entry), so the
@@ -20,11 +20,11 @@ export function useWorkspaceFileNav({
   const handleOpenWorkspaceList = useCallback(async () => {
     // Fetch system info when opening the workspaces view
     if (!systemInfo) {
-      const info = await fileSocket.getSystemInfo();
+      const info = await fileBus.getSystemInfo();
       if (info.success) setSystemInfo(info);
     }
     pushView({ type: "workspaces" });
-  }, [pushView, fileSocket, systemInfo]);
+  }, [pushView, fileBus, systemInfo]);
 
   const handleOpenFiles = useCallback(async (prefWorkspace) => {
     // Explicit workspace (side panel's "open full") wins over the terminal's cwd

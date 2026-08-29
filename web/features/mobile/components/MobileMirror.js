@@ -21,24 +21,24 @@ import AppPanel from "./AppPanel";
 import LogcatPanel from "./LogcatPanel";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-export default function MobileMirror({ onClose, socketRef, protocolRef, connected, variant = "fullscreen" }) {
+export default function MobileMirror({ onClose, busRef, protocolRef, connected, variant = "fullscreen" }) {
   const { t } = useI18n();
   const canvasRef = useRef(null);
   // Which overlay is up over the screen, if any. Null is the plain mirror.
   const [overlay, setOverlay] = useState(null);   // "apps" | "logs" | null
   const [confirmShutdown, setConfirmShutdown] = useState(false);
 
-  const deviceApi = useMobileDevices({ socketRef, connected });
+  const deviceApi = useMobileDevices({ busRef, connected });
   const { devices, canManage, booting, refresh, startAvd, stopAvd, lowPower, setLowPower } = deviceApi;
 
-  const session = useMobileSession({ socketRef, connected, devices, startAvd });
+  const session = useMobileSession({ busRef, connected, devices, startAvd });
   const { serial, meta, starting, error: sessionError, open, stop } = session;
 
-  const { status } = useMobileStream({ socketRef, connected, canvasRef, meta });
-  const input = useMobileInput({ socketRef, canvasRef });
-  const apps = useMobileApps({ socketRef, protocolRef, serial, enabled: !!meta });
+  const { status } = useMobileStream({ busRef, connected, canvasRef, meta });
+  const input = useMobileInput({ busRef, canvasRef });
+  const apps = useMobileApps({ busRef, protocolRef, serial, enabled: !!meta });
   const logcat = useMobileLogcat({
-    socketRef, serial,
+    busRef, serial,
     active: !!meta && overlay === "logs",
     foregroundPackage: apps.foreground?.packageName
   });

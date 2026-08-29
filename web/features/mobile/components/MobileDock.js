@@ -31,7 +31,7 @@ const RESIZE_EDGES = [
   { edge: "se", className: "bottom-0 right-0 w-3 h-3", cursor: "cursor-nwse-resize" }
 ];
 
-export default function MobileDock({ socketRef, protocolRef, connected, pinSlot = null }) {
+export default function MobileDock({ busRef, protocolRef, connected, pinSlot = null }) {
   const { t } = useI18n();
 
   const mobileMode = useTerminalStore((s) => s.mobileMode);
@@ -50,10 +50,10 @@ export default function MobileDock({ socketRef, protocolRef, connected, pinSlot 
   // Closing the dock ends the mirror for real: hiding the UI while the agent
   // kept encoding would burn host CPU and bandwidth for nobody.
   const handleClose = useCallback(() => {
-    socketRef?.current?.emit("mobile:stop");
+    busRef?.current?.emit("mobile:stop");
     setMobileSession(null);
     setMobileOpen(false);
-  }, [socketRef, setMobileSession, setMobileOpen]);
+  }, [busRef, setMobileSession, setMobileOpen]);
 
   // One toggle, not two buttons: floating is simply "not pinned", so a separate
   // control for it did nothing from the default state.
@@ -97,7 +97,7 @@ export default function MobileDock({ socketRef, protocolRef, connected, pinSlot 
       {chrome(draggable)}
       <div className="flex-1 min-h-0 relative">
         <MobileMirror
-          socketRef={socketRef}
+          busRef={busRef}
           protocolRef={protocolRef}
           connected={connected}
           variant="panel"

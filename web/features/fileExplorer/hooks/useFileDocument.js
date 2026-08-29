@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * for it; `dirty` is driven by the editor telling us the text moved away from what was
  * loaded.
  */
-export function useFileDocument({ filePath, fileSocket }) {
+export function useFileDocument({ filePath, fileBus }) {
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState(null);
   const [error, setError] = useState("");
@@ -40,7 +40,7 @@ export function useFileDocument({ filePath, fileSocket }) {
     setDirty(false);
     setStaleOnDisk(false);
 
-    const result = await fileSocket.readFile(filePath);
+    const result = await fileBus.readFile(filePath);
     if (isCancelled()) return;
     if (!result?.success) {
       setError(result?.error || "");
@@ -55,7 +55,7 @@ export function useFileDocument({ filePath, fileSocket }) {
       try {
         const chunks = [];
         await new Promise((resolve, reject) => {
-          fileSocket.streamMedia(filePath, {
+          fileBus.streamMedia(filePath, {
             onMeta: () => {},
             onChunk: (payload) => chunks.push(payload),
             onDone: resolve,
@@ -75,7 +75,7 @@ export function useFileDocument({ filePath, fileSocket }) {
     originalRef.current = text;
     setContent(text);
     setLoading(false);
-  }, [filePath, fileSocket]);
+  }, [filePath, fileBus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,7 +114,7 @@ export function useFileDocument({ filePath, fileSocket }) {
     if (text === originalRef.current) return true;
 
     setSaving(true);
-    const result = await fileSocket.writeFile(filePath, text);
+    const result = await fileBus.writeFile(filePath, text);
     setSaving(false);
 
     if (!result?.success) {
@@ -131,7 +131,7 @@ export function useFileDocument({ filePath, fileSocket }) {
       window.dispatchEvent(new CustomEvent("fileExplorer:fileSaved", { detail: { filePath } }));
     }
     return true;
-  }, [filePath, fileSocket, saving]);
+  }, [filePath, fileBus, saving]);
 
   // Give up the edits and go back to what is on disk.
   const discard = useCallback(() => {

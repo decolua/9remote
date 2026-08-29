@@ -3,13 +3,13 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { useSocket } from "@/features/session/hooks/useSocket";
+import { useAgentBus } from "@/features/session/hooks/useAgentBus";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useShallow } from "zustand/react/shallow";
 import { useUIStore } from "@/shared/stores/uiStore";
-import { useFileSocket } from "@/features/fileExplorer/hooks/useFileSocket";
-import { useClipboardSocket } from "@/features/clipboard/hooks/useClipboardSocket";
+import { useFileBus } from "@/features/fileExplorer/hooks/useFileBus";
+import { useClipboardBus } from "@/features/clipboard/hooks/useClipboardBus";
 import DevTermLog from "@/features/terminal/components/DevTermLog";
 import { getRecentWorkspaces, addRecentWorkspace, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
 import { isDiffPath, parseRepoDiffPath } from "@/features/fileExplorer/constants/fileExplorer";
@@ -55,7 +55,7 @@ import { useI18n } from "@/shared/i18n";
 import { useRouteSync } from "@/shared/hooks/useRouteSync";
 import { useLastRoute } from "@/shared/hooks/useLastRoute";
 
-// Workspace shell - holds socket/state/views; child routes are URL markers only
+// Workspace shell - holds the bus/state/views; child routes are URL markers only
 export default function WorkspaceLayout({ children }) {
   const { t } = useI18n();
   const [hydrated, setHydrated] = useState(false);
@@ -158,7 +158,7 @@ export default function WorkspaceLayout({ children }) {
 
   const router = useRouter();
   const { getAuth } = useSessionStorage();
-  const { socket, socketRef, protocolRef, connected, connectionMode, transport, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useSocket();
+  const { bus, busRef, protocolRef, connected, connectionMode, carrier, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   const [shells, setShells] = useState([]);
 
   const { updating, updateMode, resumeGrace, doUpdate, doRestart } = useAgentUpdate({
@@ -198,12 +198,12 @@ export default function WorkspaceLayout({ children }) {
     }
   }, [connected, platform]);
 
-  const fileSocket = useFileSocket(socketRef, protocolRef);
+  const fileBus = useFileBus(busRef, protocolRef);
   // Session-long, so the header button reflects a running device even with the
   // mirror panel closed.
-  useMobileDeviceWatch({ socketRef, connected, enabled: mobileAvailable });
-  useClipboardSocket(socketRef, connected);
-  const { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification } = useNotification(socketRef, connected);
+  useMobileDeviceWatch({ busRef: busRef, connected, enabled: mobileAvailable });
+  useClipboardBus(busRef, connected);
+  const { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification } = useNotification(busRef, connected);
 
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen);
@@ -244,14 +244,14 @@ export default function WorkspaceLayout({ children }) {
     sessions, currentView, viewStack, setViewStack, pushView, storePopView,
     activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
     addOpenedSession, removeOpenedSession, touchLivePane,
-    createSession, deleteSession, renameSession, clearNotification, socketRef
+    createSession, deleteSession, renameSession, clearNotification, busRef
   });
 
   const {
     systemInfo, mobileEditor, setMobileEditor, openFileRef,
     handleOpenWorkspaceList, handleOpenFiles, handleSelectWorkspace, handleBrowseFolder,
     handlePathChange, handleOpenFile, handleOpenGit, handleSetWorkspace
-  } = useWorkspaceFileNav({ pushView, viewStack, setViewStack, currentView, cwdBySession, isDesktop, fileSocket });
+  } = useWorkspaceFileNav({ pushView, viewStack, setViewStack, currentView, cwdBySession, isDesktop, fileBus });
 
 
   // Folder picker → create a workspace rooted there, then offer its first terminal.
@@ -286,7 +286,7 @@ export default function WorkspaceLayout({ children }) {
 
   // Mod+Shift chords for the workspace shell. Desktop-only — a phone has no physical
   // keyboard to serve, and the mobile input bar already owns Tab / Ctrl+1-9.
-  const agentClis = useAgentClis(socketRef);
+  const agentClis = useAgentClis(busRef);
   const openShortcutsModal = useShortcutsModalStore((st) => st.open);
   const shortcutsOpen = useShortcutsModalStore((st) => st.isOpen);
   const closeShortcutsModal = useShortcutsModalStore((st) => st.close);
@@ -364,17 +364,17 @@ export default function WorkspaceLayout({ children }) {
   // stack of the terminal that asked; it only takes over the screen when that terminal
   // is the one on screen — another terminal's file must not shove this one aside.
   useEffect(() => {
-    const socket = socketRef.current;
-    if (!socket) return;
+    const bus = busRef.current;
+    if (!bus) return;
     const onArtifactOpen = ({ path, title, sessionId } = {}) => {
       if (!path) return;
       const item = { path, title: title || path.split("/").pop(), at: Date.now() };
       if (sessionId) pushArtifact(sessionId, item);
       if (!sessionId || sessionId === activeSessionId) openArtifact(sessionId, item);
     };
-    socket.on("artifactOpen", onArtifactOpen);
-    return () => socket.off("artifactOpen", onArtifactOpen);
-  }, [socketRef, connected, activeSessionId, pushArtifact, openArtifact]);
+    bus.on("artifactOpen", onArtifactOpen);
+    return () => bus.off("artifactOpen", onArtifactOpen);
+  }, [busRef, connected, activeSessionId, pushArtifact, openArtifact]);
 
   // Lazy per-workspace mount: the FIRST time a workspace becomes active, mark it mounted so its
   // panes' XTerms initialize. Others stay as placeholders until visited — avoids mounting every
@@ -425,11 +425,11 @@ export default function WorkspaceLayout({ children }) {
     else storePopView();
   }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor, removeArtifact]);
 
-  // Load sessions + workspaces when the socket connects.
+  // Load sessions + workspaces when the bus connects.
   // Lost-packet retry lives in useSocket (loadedRef-gated, every view).
   useEffect(() => {
-    if (socket) loadSessions();
-  }, [socket, loadSessions]);
+    if (bus) loadSessions();
+  }, [bus, loadSessions]);
 
   // Drop openedSessions that no longer exist. Delayed to avoid racing newly-created sessions
   // (server create → loadSessions is async).
@@ -456,10 +456,10 @@ export default function WorkspaceLayout({ children }) {
     // Closing must end the agent session, not just hide the panel: the encoder
     // would keep producing frames nobody acknowledges, and the next open would
     // rejoin a stream already crawling behind a backlog of ack timeouts.
-    socketRef.current?.emit("mobile:stop");
+    busRef.current?.emit("mobile:stop");
     setMobileSession(null);
     setMobileOpen(false);
-  }, [isDesktop, mobileOpen, setMobileOpen, setMobileSession, socketRef, pushView]);
+  }, [isDesktop, mobileOpen, setMobileOpen, setMobileSession, busRef, pushView]);
 
   // Drag the pinned mirror's left edge. Mirrors the editor panel's handle: the
   // panel grows as the pointer moves left, so the delta is inverted.
@@ -536,7 +536,7 @@ export default function WorkspaceLayout({ children }) {
   const auth = getAuth();
   // Persist the current URL per-agent so switching agents restores the last view
   useLastRoute(auth?.apiKey);
-  const isInitializing = !hydrated || (!socket && !auth?.tunnelUrl);
+  const isInitializing = !hydrated || (!bus && !auth?.tunnelUrl);
 
   if (isInitializing) {
     return <ReconnectScreen label={t("workspace.loading")} />;
@@ -580,7 +580,7 @@ export default function WorkspaceLayout({ children }) {
             onUpdate={handleUpdate}
             onRestart={handleRestart}
             isActive={currentView.type === "list"}
-            socketRef={socketRef}
+            busRef={busRef}
             subscribeToPush={subscribeToPush}
             unsubscribeFromPush={unsubscribeFromPush}
             notifications={notifications}
@@ -589,10 +589,10 @@ export default function WorkspaceLayout({ children }) {
             agentVersion={agentVersion}
             updateAvailable={updateAvailable}
             canSelfUpdate={canSelfUpdate}
-            transport={transport}
+            carrier={carrier}
             workspaces={workspaces}
             onAddWorkspace={openFolderPicker}
-            fileSocket={fileSocket}
+            fileBus={fileBus}
             homeDir={systemInfo?.homedir}
             onRenameWorkspace={renameWorkspace}
             onDeleteWorkspace={deleteWorkspace}
@@ -608,10 +608,10 @@ export default function WorkspaceLayout({ children }) {
             greets an empty machine there. */}
         {(isDesktop || openedSessions.length > 0) && (
           <TerminalWorkspace
-            socket={socket}
-            socketRef={socketRef}
+            bus={bus}
+            busRef={busRef}
             connected={connected}
-            transport={transport}
+            carrier={carrier}
             platform={platform}
             agentVersion={agentVersion}
             sessions={sessions}
@@ -630,7 +630,7 @@ export default function WorkspaceLayout({ children }) {
             isTerminalView={isTerminalView}
             slideClass={slideClass}
             shells={shells}
-            fileSocket={fileSocket}
+            fileBus={fileBus}
             sidebarCollapsed={sidebarCollapsed}
             sidebarWidth={sidebarWidth}
             setSidebarWidth={setSidebarWidth}
@@ -674,7 +674,7 @@ export default function WorkspaceLayout({ children }) {
         {/* Folder picker (desktop): choose the directory a new workspace is rooted at */}
         {folderPicker && (
           <FolderPickerModal
-            fileSocket={fileSocket}
+            fileBus={fileBus}
             initialPath={folderPicker.initialPath}
             onSelect={createWorkspaceAt}
             onClose={() => setFolderPicker(null)}
@@ -684,14 +684,14 @@ export default function WorkspaceLayout({ children }) {
         {/* Remote Desktop */}
         {currentView.type === "remote" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
-            <RemoteDesktop onClose={popView} socketRef={socketRef} protocolRef={protocolRef} connected={connected} connectionMode={connectionMode} transport={transport} hostPlatform={platform} />
+            <RemoteDesktop onClose={popView} busRef={busRef} protocolRef={protocolRef} connected={connected} connectionMode={connectionMode} carrier={carrier} hostPlatform={platform} />
           </div>
         )}
 
         {/* Android device mirroring (scrcpy over the transport bus) */}
         {currentView.type === "mobile" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
-            <MobileMirror onClose={popView} socketRef={socketRef} protocolRef={protocolRef} connected={connected} />
+            <MobileMirror onClose={popView} busRef={busRef} protocolRef={protocolRef} connected={connected} />
           </div>
         )}
 
@@ -700,7 +700,7 @@ export default function WorkspaceLayout({ children }) {
             navigation would otherwise pile entries onto the parent history. */}
         {currentView.type === "site" && (
           <BrowserView
-            socketRef={socketRef}
+            busRef={busRef}
             connected={connected}
             initialPort={currentView.port}
             initialPath={currentView.path}
@@ -726,7 +726,7 @@ export default function WorkspaceLayout({ children }) {
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <FileExplorer
               workspace={currentView.path}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               onBack={popView}
               onSetWorkspace={handleSetWorkspace}
               isBrowsing={true}
@@ -751,13 +751,13 @@ export default function WorkspaceLayout({ children }) {
               <FileWorkspaceDesktop
                 key={ws}
                 workspace={ws}
-                fileSocket={fileSocket}
+                fileBus={fileBus}
                 onBack={popView}
                 onSwitchWorkspace={handleOpenWorkspaceList}
                 initialOpenedFiles={routeFile ? [routeFile] : recent?.openedFiles || []}
                 initialActiveFile={routeFile || recent?.activeFile || null}
                 onOpenedFilesChange={(files, activeFile) => updateOpenedFiles(ws, files, activeFile)}
-                socket={socket}
+                bus={bus}
                 connected={connected}
                 sessions={sessions}
                 onCreateTerminalSession={nav.handleCreateSessionInline}
@@ -776,7 +776,7 @@ export default function WorkspaceLayout({ children }) {
             <FileExplorer
               workspace={currentView.workspace}
               initialPath={currentView.currentPath}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               onBack={popView}
               onOpenFile={handleOpenFile}
               onOpenGit={handleOpenGit}
@@ -792,7 +792,7 @@ export default function WorkspaceLayout({ children }) {
           <div className="absolute inset-0 z-30 transition-all duration-300 ease-out">
             <GitPanel
               workspace={currentView.workspace}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               onBack={popView}
               onOpenFile={handleOpenFile}
             />
@@ -809,7 +809,7 @@ export default function WorkspaceLayout({ children }) {
               column={mobileEditor.column}
               diffStatus={mobileEditor.diffStatus}
               preview={mobileEditor.preview}
-              fileSocket={fileSocket}
+              fileBus={fileBus}
               onBack={() => {
                 if (mobileEditor.artifactSessionId) removeArtifact(mobileEditor.artifactSessionId, mobileEditor.path);
                 setMobileEditor(null);
@@ -837,7 +837,7 @@ export default function WorkspaceLayout({ children }) {
           <CommandPalette
             mode="files"
             workspace={paletteWorkspace}
-            fileSocket={fileSocket}
+            fileBus={fileBus}
             onClose={() => setQuickOpen(false)}
             onOpenFile={(path) => openEditorFile(path)}
           />

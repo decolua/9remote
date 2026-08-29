@@ -7,7 +7,7 @@ import { isDocxFile } from "../constants/fileExplorer.js";
 // Office doc preview: docx via docx-preview, sheets (xlsx/xls/csv/tsv) via SheetJS.
 // Streamed over the FILE channel, parsed client-side; libs are dynamic-imported
 // so they only land in bundle when a user opens such a file.
-export default function OfficeViewer({ filePath, fileSocket }) {
+export default function OfficeViewer({ filePath, fileBus }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sheets, setSheets] = useState([]);
@@ -78,7 +78,7 @@ export default function OfficeViewer({ filePath, fileSocket }) {
       }
     };
 
-    cancel = fileSocket.streamMedia(filePath, {
+    cancel = fileBus.streamMedia(filePath, {
       onChunk: (payload) => { if (!cancelled) chunks.push(payload); },
       onDone: () => {
         if (cancelled) return;
@@ -92,7 +92,7 @@ export default function OfficeViewer({ filePath, fileSocket }) {
     });
 
     return () => { cancelled = true; cancel?.(); };
-  }, [filePath, fileSocket]);
+  }, [filePath, fileBus]);
 
   // Re-render when the active sheet tab changes.
   useEffect(() => {

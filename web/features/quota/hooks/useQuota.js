@@ -6,22 +6,22 @@ import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 
 // Polls the agent's aggregate quota:get (agent caches for 60s server-side).
 // Returns null until the first successful response.
-export function useQuota(socketRef, { enabled = true } = {}) {
+export function useQuota(busRef, { enabled = true } = {}) {
   const [quota, setQuota] = useState(null);
 
   useEffect(() => {
-    if (!enabled || !socketRef) return;
+    if (!enabled || !busRef) return;
     let cancelled = false;
     const fetchQuota = () => {
-      if (!socketRef.current) return;
-      socketRef.current.emit("quota:get", {}, (res) => {
+      if (!busRef.current) return;
+      busRef.current.emit("quota:get", {}, (res) => {
         if (!cancelled && res?.success && res.providers) setQuota(res);
       });
     };
     fetchQuota();
     const stop = pollWhileVisible(fetchQuota, QUOTA_POLL_MS);
     return () => { cancelled = true; stop(); };
-  }, [socketRef, enabled]);
+  }, [busRef, enabled]);
 
   return quota;
 }
