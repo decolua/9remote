@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-// TUI agent CLIs offered in the new-terminal modal (Orca-style quick launch).
+// TUI agent CLIs offered in the new-terminal modal.
 // cmd = binary name used for PATH detection AND the startup command typed into
 // the shell — often differs from the product name (e.g. Continue → cn).
 // yolo = the CLI's own flag for running without per-action approval prompts;

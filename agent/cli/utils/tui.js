@@ -212,7 +212,7 @@ export function resetProgress() {
 
 /**
  * Interactive arrow-key menu. Clears full screen on each render.
- * Mirrors 9router_cli pattern exactly: emitKeypressEvents → setRawMode → on("keypress") → resume.
+ * Setup order: emitKeypressEvents → setRawMode → on("keypress") → resume.
  * cleanup: setRawMode(false) → removeListener → pause.
  * Subsequent readline.createInterface calls work because they resume stdin internally.
  *
@@ -281,7 +281,6 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
       }
     };
 
-    // Exact same order as 9router_cli
     process.stdin.removeAllListeners("keypress");
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) {

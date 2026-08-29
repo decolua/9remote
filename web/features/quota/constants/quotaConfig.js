@@ -10,7 +10,7 @@ export const PROVIDER_LABELS = {
   grok: "Grok"
 };
 
-// Same urgency curve as Orca's status bar: quiet under 60%, warn 60-80%, alert above.
+// Urgency curve: quiet under 60%, warn 60-80%, alert above.
 export const QUOTA_WARN_PCT = 60;
 export const QUOTA_CRITICAL_PCT = 80;
 

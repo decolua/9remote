@@ -1,6 +1,8 @@
 import crypto from "crypto";
 
-const API_KEY_SECRET = process.env.API_KEY_SECRET || "9remote-api-key-secret";
+// v1-key CRC secret — must match web's API_KEY_SECRET. v2 keys carry no CRC,
+// so a missing value only affects legacy v1 generation/verification.
+const API_KEY_SECRET = process.env.API_KEY_SECRET;
 
 /**
  * Generate 4-char random keyId
@@ -18,6 +20,7 @@ function generateKeyId() {
  * Generate CRC (6-char HMAC)
  */
 function generateCrc(machineId, keyId) {
+  if (!API_KEY_SECRET) throw new Error("API_KEY_SECRET not configured (required for v1 keys)");
   return crypto
     .createHmac("sha256", API_KEY_SECRET)
     .update(machineId + keyId)

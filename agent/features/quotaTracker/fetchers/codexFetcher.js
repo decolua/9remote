@@ -85,7 +85,7 @@ async function fetchViaRpc() {
     // mid-write — without a listener it's an uncaught exception.
     child.stdin.on("error", () => settle(makeResult("codex", "error", "Codex app-server closed unexpectedly")));
 
-    child.stderr.on("data", () => {}); // drain orca-style diagnostics noise
+    child.stderr.on("data", () => {}); // drain diagnostics noise
     child.on("error", (e) => {
       const msg = e.code === "ENOENT" ? "codex CLI not found" : e.message;
       settle(makeResult("codex", "unavailable", msg), false);

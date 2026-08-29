@@ -36,7 +36,6 @@ yarn-error.log*
 .dev.vars.*
 !.dev.vars.example
 !.env.example
-!.env.production
 
 # vercel
 .vercel
@@ -95,6 +94,10 @@ agent/graphify-out/*
 
 .handoff/
 agent/tester/*
+# Bench output: logs + dump images with local machine paths
+agent/remote-bench/out/*
+# Former submodule, kept locally only
+9remote_public/
 # OTA code signing certificate — public, must be committed (referenced by expo/app.json)
 !expo/certs/*.pem
 desktop/release/*

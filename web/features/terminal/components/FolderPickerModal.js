@@ -63,7 +63,7 @@ function filterEntries(list, filterText) {
   return list.filter((e) => e.name.toLowerCase().includes(q));
 }
 
-// ---------- Path-aware input parsing (orca picker pattern) ----------
+// ---------- Path-aware input parsing ----------
 
 // Slashes (either separator), drive anchors, and standalone base markers enter path mode.
 const isPathMode = (raw) =>
@@ -124,8 +124,8 @@ function resolveSegmentStep(segment, baseEntries) {
   return { type: "error", multiple: matches.length > 1 };
 }
 
-// Desktop folder picker: browse the host filesystem and pick one directory (orca
-// RemoteFileBrowser pattern — breadcrumb, dual-mode input, cached listings).
+// Desktop folder picker: browse the host filesystem and pick one directory
+// (breadcrumb, dual-mode input, cached listings).
 // Keeps the terminal visible behind it — the mobile flow uses the full-screen WorkspaceList instead.
 export default function FolderPickerModal({ fileSocket, initialPath, onSelect, onClose }) {
   const { t } = useI18n();
@@ -407,7 +407,7 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
     }
   };
 
-  // Filter-first on desktop (orca picker pattern): type to narrow, arrows + Enter to walk in.
+  // Filter-first on desktop: type to narrow, arrows + Enter to walk in.
   useEffect(() => {
     if (typeof window === "undefined") return;
     isDesktopRef.current = window.matchMedia("(min-width: 640px)").matches;
@@ -429,7 +429,7 @@ export default function FolderPickerModal({ fileSocket, initialPath, onSelect, o
   };
 
   // Single vs double click: a delayed navigate lets dblclick pick the folder itself
-  // (orca pattern) — navigating immediately would unmount the row before dblclick lands.
+  // — navigating immediately would unmount the row before dblclick lands.
   const rowGo = (entry) => {
     // Stale rows from a prior listing may show while a preview resolves.
     if (preview?.loading) return;

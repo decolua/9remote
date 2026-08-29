@@ -149,7 +149,7 @@ export async function fetchGeminiQuota() {
     if (!rawBuckets.length) return makeResult("gemini", "ok");
 
     const buckets = dedupeBuckets(rawBuckets);
-    // Summary = most-constrained bucket (same convention as Orca).
+    // Summary = most-constrained bucket.
     const worst = buckets.reduce((a, b) => (b.usedPercent > a.usedPercent ? b : a));
     return makeResult("gemini", "ok", null, {
       session: { usedPercent: worst.usedPercent, windowMinutes: 60, resetsAt: worst.resetsAt },

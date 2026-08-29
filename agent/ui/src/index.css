@@ -59,7 +59,7 @@
     0 24px 50px -20px rgba(60, 70, 120, 0.35);
 }
 
-/* Dark theme — web-login orca zinc (globals.css parity) */
+/* Dark theme — web-login zinc (globals.css parity) */
 :root[data-theme="dark"] {
   --brand-500: #FF6A3D;
   --brand-600: #e5572c;
@@ -337,7 +337,7 @@
     border-color: rgba(220, 53, 69, 0.4);
   }
 
-  /* Sidebar — 9router pattern: vibrancy bg + right border */
+  /* Sidebar — vibrancy bg + right border */
   .sidebar {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
     border-right: 1px solid var(--border);
@@ -357,7 +357,7 @@
     font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
   }
 
-  /* Filled icon variant for active nav (9router) */
+  /* Filled icon variant for active nav */
   .fill-1 {
     font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
   }
@@ -369,7 +369,7 @@
   }
 }
 
-/* Brand-tinted text selection (9router) */
+/* Brand-tinted text selection */
 ::selection {
   background-color: rgba(var(--brand-rgb), 0.25);
   color: var(--brand-500);

@@ -202,7 +202,7 @@
   border-color: rgba(0, 0, 0, 0.08);
 }
 
-/* Default = dark theme tokens (orca-style neutral zinc) */
+/* Default = dark theme tokens (neutral zinc) */
 :root {
   --bg: #0a0a0a;
   --surface: #171717;
@@ -234,7 +234,7 @@
   --card-shine: inset 0 1px 0 rgba(255,255,255,0.16);
   color-scheme: dark;
 
-  /* Dark mode brand — terracotta #E56A4A (synced with 9router dark) */
+  /* Dark mode brand — terracotta #E56A4A */
   --brand-rgb: 229, 106, 74;
   --color-brand-50: #2a1612;
   --color-brand-100: #3d201a;

@@ -1,5 +1,4 @@
 // Quota tracker tunables — endpoints, timeouts, cache TTL, window lengths.
-// Fetch logic mirrors Orca's rate-limits module (.source/orca/src/main/rate-limits).
 
 export const QUOTA_TTL_MS = 60_000; // cache aggregate result; web polls at the same cadence
 export const API_TIMEOUT_MS = 10_000;
@@ -37,7 +36,7 @@ export const GROK_BILLING_CREDITS_URL = `${GROK_CLI_PROXY_BASE}/billing?format=c
 export const GROK_BILLING_DEFAULT_URL = `${GROK_CLI_PROXY_BASE}/billing`;
 export const GROK_AUTH_HEADER = "xai-grok-cli";
 
-// Compact display name per Gemini modelId (matches Orca's bucket naming).
+// Compact display name per Gemini modelId.
 export const GEMINI_MODEL_NAMES = {
   "gemini-3.1-pro": "3.1 Pro",
   "gemini-3.1-flash": "3.1 Flash",

@@ -360,7 +360,7 @@ function LoginContent() {
     <>
       <AnimatedBackground />
       <div className="min-h-screen grid lg:grid-cols-2">
-        {/* HERO — onorca-style, hidden on mobile */}
+        {/* HERO — hidden on mobile */}
         <section className="hidden lg:flex flex-col justify-between px-12 xl:px-20 py-12 relative overflow-hidden">
           <div className="login-hero-glow" aria-hidden />
           <div className="my-auto max-w-xl relative z-10">
