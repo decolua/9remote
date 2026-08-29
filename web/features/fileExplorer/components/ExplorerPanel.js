@@ -23,6 +23,15 @@ const DRAG_MIME = "application/x-file-paths";
 const dirPickerSupported = () =>
   typeof document !== "undefined" && "webkitdirectory" in document.createElement("input");
 
+// A drop carries either OS files or an internal path list — never both.
+const readDragPaths = (e) => {
+  const data = e.dataTransfer.getData(DRAG_MIME);
+  if (!data) return null;
+  try { return JSON.parse(data); } catch { return null; }
+};
+
+const hasOsFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+
 export default function ExplorerPanel({
   workspace,
   fileSocket,
@@ -45,6 +54,13 @@ export default function ExplorerPanel({
   const [confirmDelete, setConfirmDelete] = useState(null);   // { files: [...] }
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
+  // Read at event time so drag handlers can stay identity-stable across selection changes
+  const selectionRef = useRef(selectedPaths);
+  useEffect(() => { selectionRef.current = selectedPaths; }, [selectedPaths]);
+  const renameValueRef = useRef(renameValue);
+  useEffect(() => { renameValueRef.current = renameValue; }, [renameValue]);
+  const renameTargetRef = useRef(renameTarget);
+  useEffect(() => { renameTargetRef.current = renameTarget; }, [renameTarget]);
   const [dragOverPath, setDragOverPath] = useState(null);
   const [rootDragOver, setRootDragOver] = useState(false);
   const [clipboard, setClipboard] = useState(null);           // { paths, mode: copy|cut }
@@ -121,16 +137,19 @@ export default function ExplorerPanel({
     [newItemValue, newItemModal, getNewItemTargetDir, createItem]
   );
 
+  // Reads rename state from refs: this is a prop on every memoized row, so depending
+  // on renameValue would re-render the whole tree on each keystroke of one input.
   const handleRenameSubmit = useCallback(async () => {
-    if (!renameTarget) return;
-    const newName = renameValue.trim();
-    if (!newName || newName === renameTarget.name) {
+    const target = renameTargetRef.current;
+    if (!target) return;
+    const newName = renameValueRef.current.trim();
+    if (!newName || newName === target.name) {
       setRenameTarget(null);
       return;
     }
-    await renameItem(renameTarget, newName);
+    await renameItem(target, newName);
     setRenameTarget(null);
-  }, [renameTarget, renameValue, renameItem]);
+  }, [renameItem]);
 
   const copyToClipboard = useCallback(async (text) => {
     try {
@@ -166,12 +185,6 @@ export default function ExplorerPanel({
       longPressTimer.current = null;
     }
   }, []);
-
-  const readDragPaths = (e) => {
-    const data = e.dataTransfer.getData(DRAG_MIME);
-    if (!data) return null;
-    try { return JSON.parse(data); } catch { return null; }
-  };
 
   // The Git tab's tab id is virtual; resolve it once so both the highlight and the
   // reveal below compare against a path a row actually carries.
@@ -308,6 +321,39 @@ export default function ExplorerPanel({
     runUpload(await dataTransferToItems(dataTransfer), targetDir);
   }, [runUpload]);
 
+  // One stable handler set shared by every row (they take the row's file) — rows are
+  // memoized, so a closure built per row per render would re-render the whole tree on
+  // every keystroke, selection click and drag-over.
+  const handleRowRenameCancel = useCallback(() => setRenameTarget(null), []);
+  const handleRowDragStart = useCallback((e, file) => {
+    const sel = selectionRef.current;
+    const paths = sel.has(file.path) ? [...sel] : [file.path];
+    e.dataTransfer.setData(DRAG_MIME, JSON.stringify(paths));
+    e.dataTransfer.effectAllowed = "move";
+  }, []);
+  const handleRowDragOver = useCallback((e, file) => {
+    const os = hasOsFiles(e);
+    if (file.type !== "folder" && !os) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = os ? "copy" : "move";
+    if (file.type === "folder") setDragOverPath(file.path);
+  }, []);
+  const handleRowDragLeave = useCallback((file) => {
+    setDragOverPath((p) => (p === file.path ? null : p));
+  }, []);
+  const handleRowDrop = useCallback((e, file) => {
+    const os = hasOsFiles(e);
+    if (file.type !== "folder" && !os) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverPath(null);
+    setRootDragOver(false);
+    // A file row takes the drop on behalf of its folder.
+    if (os) { uploadInto(e.dataTransfer, dirOf(file)); return; }
+    const paths = readDragPaths(e);
+    if (paths) moveTo(paths, file.path);
+  }, [uploadInto, dirOf, moveTo]);
+
   // <input type="file"> picks: webkitRelativePath carries the folder structure.
   const handlePickedFiles = useCallback((e) => {
     const dir = newItemModal?.dir || getNewItemTargetDir();
@@ -316,9 +362,6 @@ export default function ExplorerPanel({
     setNewItemModal(null);
     runUpload(items, dir);
   }, [newItemModal, getNewItemTargetDir, runUpload]);
-
-  // A drop carries either OS files or an internal path list — never both.
-  const hasOsFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
 
   const moveCursor = useCallback((delta, extend) => {
     if (!visibleRows.length) return;
@@ -414,41 +457,20 @@ export default function ExplorerPanel({
         isDragOver={dragOverPath === file.path && isFolder}
         isCut={clipboard?.mode === "cut" && clipboard.paths.includes(file.path)}
         gitStatus={gitStatusMap[getRelative(file.path)]}
-        renameValue={renameValue}
+        renameValue={renameTarget?.path === file.path ? renameValue : ""}
         renameInputRef={renameInputRef}
         onRenameChange={setRenameValue}
         onRenameSubmit={handleRenameSubmit}
-        onRenameCancel={() => setRenameTarget(null)}
-        onToggleFolder={() => toggleFolder(file)}
-        onClick={(e) => handleFileClick(file, e)}
-        onContextMenu={(e) => openContextMenu(e, file)}
-        onTouchStart={(e) => startLongPress(e, file)}
+        onRenameCancel={handleRowRenameCancel}
+        onToggleFolder={toggleFolder}
+        onClick={handleFileClick}
+        onContextMenu={openContextMenu}
+        onTouchStart={startLongPress}
         onTouchEnd={cancelLongPress}
-        onDragStart={(e) => {
-          const paths = isSelected ? [...selectedPaths] : [file.path];
-          e.dataTransfer.setData(DRAG_MIME, JSON.stringify(paths));
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onDragOver={(e) => {
-          const os = hasOsFiles(e);
-          if (!isFolder && !os) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = os ? "copy" : "move";
-          if (isFolder) setDragOverPath(file.path);
-        }}
-        onDragLeave={() => setDragOverPath(p => p === file.path ? null : p)}
-        onDrop={(e) => {
-          const os = hasOsFiles(e);
-          if (!isFolder && !os) return;
-          e.preventDefault();
-          e.stopPropagation();
-          setDragOverPath(null);
-          setRootDragOver(false);
-          // A file row takes the drop on behalf of its folder.
-          if (os) { uploadInto(e.dataTransfer, dirOf(file)); return; }
-          const paths = readDragPaths(e);
-          if (paths) moveTo(paths, file.path);
-        }}
+        onDragStart={handleRowDragStart}
+        onDragOver={handleRowDragOver}
+        onDragLeave={handleRowDragLeave}
+        onDrop={handleRowDrop}
         compact={compact}
       >
         {isFolder && isExpanded && (

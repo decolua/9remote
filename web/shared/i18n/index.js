@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo } from "react";
 import { useI18nStore } from "../stores/i18nStore.js";
-import { LOCALES } from "./locales/index.js";
 import { DEFAULT_LOCALE } from "./config.js";
 
 // Resolve "a.b.c" dot-path inside a nested dict
@@ -18,19 +17,22 @@ function interpolate(template, params) {
 }
 
 export function useI18n() {
-  const { locale, hydrated, hydrate, setLocale } = useI18nStore();
+  const { locale, dicts, hydrated, hydrate, setLocale } = useI18nStore();
 
   // Hydrate locale from localStorage/navigator after mount (avoid SSR mismatch)
   useEffect(() => { if (!hydrated) hydrate(); }, [hydrated, hydrate]);
 
+  // The active locale's dict arrives async the first time it is needed — until then it
+  // resolves against `en` exactly like an untranslated key, then re-renders when loaded.
+  const dict = dicts[locale] || dicts[DEFAULT_LOCALE];
+  const fallback = dicts[DEFAULT_LOCALE];
+
   const t = useMemo(() => {
-    const dict = LOCALES[locale] || LOCALES[DEFAULT_LOCALE];
-    const fallback = LOCALES[DEFAULT_LOCALE];
     return (key, params) => {
       const value = resolvePath(dict, key) ?? resolvePath(fallback, key) ?? key;
       return interpolate(value, params);
     };
-  }, [locale]);
+  }, [dict, fallback]);
 
   return { t, locale, setLocale, hydrated };
 }

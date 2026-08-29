@@ -173,7 +173,7 @@ export default function MenuItems({
       {!isApp && !isInstalled && onInstallApp && (
         <button
           onClick={() => { vibrate(); onInstallApp(); }}
-          className="w-full px-3 py-1.5 mb-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 mb-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <Download className="text-brand-500 flex-shrink-0" size={16} />
           <span className="text-sm flex-1 min-w-0 truncate">{t("menu.installApp")}</span>
@@ -190,7 +190,7 @@ export default function MenuItems({
         <button
           onClick={push.toggle}
           disabled={push.loading}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 disabled:opacity-50 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 disabled:opacity-50 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <div className="flex items-center gap-2.5">
             <Bell className="text-brand-500" size={16} />
@@ -216,7 +216,7 @@ export default function MenuItems({
         <div className="bg-surface rounded-brand-lg overflow-hidden">
           <button
             onClick={() => { vibrate(); setHeaderMenuOpen((v) => !v); }}
-            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
           >
             <PanelRight className="text-brand-500" size={16} />
             <span className="text-sm flex-1">{t("menu.settingsButtons")}</span>
@@ -234,7 +234,7 @@ export default function MenuItems({
                       <button
                         key={btn.id}
                         onClick={() => { vibrate(); buttonToggles.toggle(btn); }}
-                        className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+                        className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
                       >
                         <RowIcon className="text-text" size={16} />
                         <span className="text-sm flex-1">{t(btn.labelKey)}</span>
@@ -255,7 +255,7 @@ export default function MenuItems({
         <div ref={terminalMenuRef} className="bg-surface rounded-brand-lg overflow-hidden">
           <button
             onClick={() => { vibrate(); setTerminalMenuOpen((v) => !v); }}
-            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
           >
             <Terminal className="text-brand-500" size={16} />
             <span className="text-sm flex-1">{t("menu.terminalSettings")}</span>
@@ -265,7 +265,7 @@ export default function MenuItems({
             <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
               <button
                 onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
-                className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+                className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
               >
                 <Monitor className="text-text" size={16} />
                 <div className="flex flex-col flex-1">
@@ -317,7 +317,7 @@ export default function MenuItems({
         <div className="bg-surface rounded-brand-lg overflow-hidden">
           <button
             onClick={() => { vibrate(); setMcpMenuOpen((v) => !v); }}
-            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
           >
             <Zap className="text-brand-500" size={16} />
             <span className="text-sm flex-1">{t("menu.settingsMcp")}</span>
@@ -356,7 +356,7 @@ export default function MenuItems({
       {appMode === "dark" && (
         <button
           onClick={() => { vibrate(); onOpenBackgroundPicker?.(); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <Wallpaper className="text-brand-500 flex-shrink-0" size={16} />
           <span className="text-sm flex-1 min-w-0">{t("menu.terminalBackground")}</span>
@@ -379,7 +379,7 @@ export default function MenuItems({
         <button
           onClick={() => { vibrate(); onSites(); }}
           disabled={!connected}
-          className={`w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out ${
+          className={`w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out ${
             connected
               ? "bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
               : "bg-surface/30 text-text-muted cursor-not-allowed"
@@ -394,7 +394,7 @@ export default function MenuItems({
       {onCommandNotes && (
         <button
           onClick={() => { vibrate(); onCommandNotes(); }}
-          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
+          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
         >
           <FileText className="text-brand-500" size={16} />
           <span className="text-sm">{t("menu.commandNotes")}</span>
@@ -405,7 +405,7 @@ export default function MenuItems({
       {inputMode === "mouse" && (
         <button
           onClick={() => { vibrate(); closeMenu(); openShortcuts(); }}
-          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
+          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
         >
           <Keyboard className="text-brand-500" size={16} />
           <span className="text-sm">{t("shortcuts.menuLabel")}</span>
@@ -416,7 +416,7 @@ export default function MenuItems({
       {onCommunity && (
         <button
           onClick={() => { vibrate(); onCommunity(); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <Users className="text-brand-500" size={16} />
           <span className="text-sm">{t("menu.community")}</span>
@@ -427,7 +427,7 @@ export default function MenuItems({
       {codespaceInfo?.isCodespaces && onCodespace && (
         <button
           onClick={() => { vibrate(); onCodespace(); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <Sparkles className="text-brand-500" size={16} />
           <span className="text-sm">{t("menu.codespace")}</span>
@@ -439,7 +439,7 @@ export default function MenuItems({
       <div ref={powerMenuRef} className="rounded-brand-lg overflow-hidden">
         <button
           onClick={() => { vibrate(); setPowerMenuOpen((v) => !v); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <RefreshCw className="text-brand-500" size={16} />
           <span className="text-sm flex-1">{t("menu.reloadRestart")}</span>
@@ -452,7 +452,7 @@ export default function MenuItems({
             <button
               onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
               disabled={reloading}
-              className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition-all duration-150 ease-out hover:text-brand-500 active:scale-[0.99] disabled:opacity-70"
+              className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition duration-150 ease-out hover:text-brand-500 active:scale-[0.99] disabled:opacity-70"
             >
               <RefreshCw size={16} className={`ml-3 ${reloading ? "animate-spin" : ""}`} />
               <span className="text-sm">{t("menu.reload")}</span>
@@ -460,7 +460,7 @@ export default function MenuItems({
             {onRestart && (
               <button
                 onClick={() => { vibrate(); setPowerMenuOpen(false); onRestart(); }}
-                className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition-all duration-150 ease-out hover:text-brand-500 active:scale-[0.99]"
+                className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition duration-150 ease-out hover:text-brand-500 active:scale-[0.99]"
               >
                 <RotateCw size={16} className="ml-3" />
                 <span className="text-sm">{t("menu.restartHost")}</span>
@@ -491,7 +491,7 @@ export default function MenuItems({
       {onLogout && (
         <button
           onClick={() => { vibrate(); onLogout(); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-red-500/15 text-text hover:text-red-400 rounded-brand-lg text-left flex items-center gap-2.5 transition-all duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 bg-surface hover:bg-red-500/15 text-text hover:text-red-400 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <LogOut className="text-red-400" size={16} />
           <span className="text-sm">{t("menu.logout")}</span>

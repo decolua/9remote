@@ -35,8 +35,8 @@ export function handleTouchEvent(ctx, event, type, options) {
 
     if (type === "touch") {
       ctx.setIsZooming(true);
-      ctx.setLastTouchDistance(distance);
-      ctx.setLastTouchCenter(center);
+      ctx.lastTouchDistanceRef.current = distance;
+      ctx.lastTouchCenterRef.current = center;
       ctx.gestureLockRef.current = null;
       ctx.gestureStartRef.current = { time: Date.now(), distance, centerX: center.x, centerY: center.y };
       ctx.twoFingerMaxMovedRef.current = 0;
@@ -60,7 +60,7 @@ export function handleTouchEvent(ctx, event, type, options) {
       // Scroll mode: anchor the scroll position so the wheel event targets the right spot
       // (trackpad → virtual cursor, direct → 2-finger centroid), then scroll by centroid delta.
       if (ctx.gestureLockRef.current === "scroll") {
-        const deltaY = center.y - ctx.lastTouchCenter.y;
+        const deltaY = center.y - ctx.lastTouchCenterRef.current.y;
         if (!ctx.isEdgeScrolling) {
           const canvasNow = ctx.canvasRef.current;
           const coords = (pointerMode === "trackpad" && canvasNow && canvasNow.width > 0)
@@ -71,27 +71,27 @@ export function handleTouchEvent(ctx, event, type, options) {
           ctx.setIsEdgeScrolling(true);
         }
         ctx.emitScrollFromDelta(deltaY);
-        ctx.setLastTouchDistance(distance);
-        ctx.setLastTouchCenter(center);
+        ctx.lastTouchDistanceRef.current = distance;
+        ctx.lastTouchCenterRef.current = center;
         return;
       }
 
       // Zoom mode: pinch-zoom canvas
-      if (ctx.gestureLockRef.current === "zoom" && ctx.lastTouchDistance > 0) {
+      if (ctx.gestureLockRef.current === "zoom" && ctx.lastTouchDistanceRef.current > 0) {
         const containerRect = container.getBoundingClientRect();
         const size = { width: container.clientWidth, height: container.clientHeight };
         const focal = { x: center.x - containerRect.left, y: center.y - containerRect.top };
-        const nextZoomRaw = ctx.canvasZoom * (distance / ctx.lastTouchDistance);
+        const nextZoomRaw = ctx.canvasZoom * (distance / ctx.lastTouchDistanceRef.current);
 
         ctx.setCanvasPan(prev => zoomAtFocal({
           prevZoom: ctx.canvasZoom, prevPan: prev, focal, nextZoomRaw,
           maxZoom: MAX_ZOOM, containerSize: size, displaySizeAt: ctx.displaySizeAt
         }).pan);
         ctx.setCanvasZoom(clamp(nextZoomRaw, 1, MAX_ZOOM));
-        ctx.setLastTouchDistance(distance);
+        ctx.lastTouchDistanceRef.current = distance;
       }
 
-      ctx.setLastTouchCenter(center);
+      ctx.lastTouchCenterRef.current = center;
       return;
     }
   }
@@ -102,12 +102,12 @@ export function handleTouchEvent(ctx, event, type, options) {
 
     // Skip while transitioning from 2 fingers to 1
     if (ctx.isZooming) {
-      ctx.setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+      ctx.lastTouchCenterRef.current = { x: touch.clientX, y: touch.clientY };
       return;
     }
 
     if (type === "touch") {
-      ctx.setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+      ctx.lastTouchCenterRef.current = { x: touch.clientX, y: touch.clientY };
       ctx.lastTouchTimeRef.current = Date.now();
       ctx.velocityRef.current = { x: 0, y: 0 };
       ctx.edgeScrollAccumRef.current = { x: 0, y: 0 };
@@ -134,8 +134,8 @@ export function handleTouchEvent(ctx, event, type, options) {
       }
 
       if (!selectionMode && !dragMode) {
-        const deltaX = touch.clientX - ctx.lastTouchCenter.x;
-        const deltaY = touch.clientY - ctx.lastTouchCenter.y;
+        const deltaX = touch.clientX - ctx.lastTouchCenterRef.current.x;
+        const deltaY = touch.clientY - ctx.lastTouchCenterRef.current.y;
 
         const now = Date.now();
         const dt = now - ctx.lastTouchTimeRef.current;
@@ -164,7 +164,7 @@ export function handleTouchEvent(ctx, event, type, options) {
           // zoom = 1: direct vertical scroll (like 2-finger on a macbook)
           if (ctx.canvasZoom === 1) {
             if (isVerticalSwipe) processScroll(deltaY);
-            ctx.setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+            ctx.lastTouchCenterRef.current = { x: touch.clientX, y: touch.clientY };
             return;
           }
 
@@ -182,7 +182,7 @@ export function handleTouchEvent(ctx, event, type, options) {
             }
             return r.pan;
           });
-          ctx.setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+          ctx.lastTouchCenterRef.current = { x: touch.clientX, y: touch.clientY };
         }
         return;
       }

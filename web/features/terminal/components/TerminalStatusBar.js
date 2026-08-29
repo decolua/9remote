@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { Folder, GitBranch, Terminal } from "@/shared/components/ui/Icon";
-import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount";
 import { useQuota } from "@/features/quota/hooks/useQuota";
 import QuotaSegments from "@/features/quota/components/QuotaSegments";
 import { quotaBarColor } from "@/features/quota/constants/quotaConfig";
@@ -19,8 +18,6 @@ import StatusBar from "@/shared/components/ui/StatusBar";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
-
-const POLL_BRANCH_MS = 10000;
 
 const PLATFORM_LABEL = { darwin: "mac", win32: "win", linux: "linux" };
 
@@ -167,24 +164,11 @@ export default function TerminalStatusBar({
   platform = "",
 }) {
   const { t } = useI18n();
-  const [branch, setBranch] = useState("");
   const quota = useQuota(socketRef);
 
-  const changed = useGitChangedCount(cwd, fileSocket, { enabled: !!cwd && !!fileSocket });
-
-  useEffect(() => {
-    if (!cwd || !fileSocket) return;
-    let cancelled = false;
-    const fetchBranch = () => {
-      fileSocket.gitBranch?.(cwd).then((res) => {
-        if (cancelled) return;
-        setBranch(res?.branch || res?.name || "");
-      }).catch(() => {});
-    };
-    fetchBranch();
-    const stop = pollWhileVisible(fetchBranch, POLL_BRANCH_MS);
-    return () => { cancelled = true; stop(); };
-  }, [cwd, fileSocket]);
+  // Branch + changed come from the shared ref-counted poll — one round-trip per unique
+  // path, shared with the mobile strip, instead of two parallel pollers here.
+  const { branch, changedCount: changed } = useWorkspaceGit(cwd, fileSocket, { enabled: !!cwd && !!fileSocket });
 
   const v = statusVisual(sessionState);
   const stateLabel = sessionState === "working"

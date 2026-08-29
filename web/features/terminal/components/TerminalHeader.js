@@ -252,7 +252,7 @@ function TerminalHeader({
       {onToggleSidebar && sidebarCollapsed && (
         <button
           onClick={() => { vibrate(); onToggleSidebar(); }}
-          className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+          className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0"
           title={hint(t("common.open"), "toggleSidebar")}
         >
           <PanelLeft size={16} />
@@ -264,7 +264,7 @@ function TerminalHeader({
       {onBack && (
         <button
           onClick={() => { vibrate(); onBack(); }}
-          className="p-1.5 pl-1 pr-3 sm:pl-1.5 sm:pr-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+          className="p-1.5 pl-1 pr-3 sm:pl-1.5 sm:pr-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0"
           title={t("common.back")}
         >
           <ChevronLeft size={16} />
@@ -307,7 +307,7 @@ function TerminalHeader({
                 onTouchEnd={clearTabLongPress}
                 className={`term-tab px-2 sm:px-2.5 py-1 text-xs font-medium duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   isActiveTab ? "term-tab-active" : ""
-                } ${dragId === session.id ? "relative z-20 opacity-90 shadow-lg" : "transition-all"}`}
+                } ${dragId === session.id ? "relative z-20 opacity-90 shadow-lg" : "transition"}`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} title={t(v.label)} />
                 <span className="truncate max-w-[80px] sm:max-w-[120px]" data-tip={tabName}>{tabName}</span>
@@ -319,7 +319,7 @@ function TerminalHeader({
               <button
                 onClick={() => { vibrate(); setCreateModalOpen(true); }}
                 disabled={!connected}
-                className="p-1.5 text-text hover:bg-surface-2 hover:text-brand-500 transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
+                className="p-1.5 text-text hover:bg-surface-2 hover:text-brand-500 transition duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
                 title={hint(t("terminal.newTerminal"), "newTerminal")}
               >
                 <Plus size={17} strokeWidth={2.4} />
@@ -333,7 +333,7 @@ function TerminalHeader({
       {connected && onUpdate && canSelfUpdate && (isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || !!updateAvailable) && (
         <button
           onClick={() => { vibrate(); onUpdate(); }}
-          className="hidden sm:flex px-2 sm:px-2.5 py-1 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-brand items-center gap-1.5 flex-shrink-0 transition-all duration-150 ease-out active:scale-[0.94]"
+          className="hidden sm:flex px-2 sm:px-2.5 py-1 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-brand items-center gap-1.5 flex-shrink-0 transition duration-150 ease-out active:scale-[0.94]"
           title={t("menu.updateAvailableTitle")}
         >
           <Download size={13} />
@@ -343,7 +343,7 @@ function TerminalHeader({
       {showButton("remote") && onOpenRemote && (
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
-          className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
+          className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94]"
           title={t("menu.remoteDesktop")}
         >
           <Monitor size={16} />
@@ -352,7 +352,7 @@ function TerminalHeader({
       {showButton("mobile") && onOpenMobile && (
         <button
           onClick={() => { vibrate(); onOpenMobile(); }}
-          className={`hidden sm:block p-1.5 hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] ${
+          className={`hidden sm:block p-1.5 hover:bg-surface-2 rounded-brand transition duration-150 ease-out active:scale-[0.94] ${
             mobileDeviceCount > 0 ? "text-green-400" : "text-text hover:text-text"
           }`}
           title={mobileDeviceCount > 0
@@ -367,7 +367,7 @@ function TerminalHeader({
       <button
         onClick={() => { vibrate(); openSites(); }}
         disabled={!connected}
-        className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed"
+        className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed"
         title={t("menu.sites")}
       >
         <Globe size={16} />
@@ -388,7 +388,7 @@ function TerminalHeader({
       {onToggleRightPanel && (
         <button
           onClick={() => { vibrate(); onToggleRightPanel(); }}
-          className={`hidden sm:block p-1.5 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] hover:bg-surface-2 ${
+          className={`hidden sm:block p-1.5 rounded-brand transition duration-150 ease-out active:scale-[0.94] hover:bg-surface-2 ${
             rightPanelOpen ? "text-brand-500" : "text-text hover:text-text"
           }`}
           title={t("workspaces.tabFiles")}
@@ -400,7 +400,7 @@ function TerminalHeader({
       {/* Settings lives at the bottom of the sidebar on desktop; kept here for mobile */}
       <button
         onClick={() => { vibrate(); openMenu(); }}
-        className={`p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.94] ${onToggleSidebar ? "sm:hidden" : ""}`}
+        className={`p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] ${onToggleSidebar ? "sm:hidden" : ""}`}
         title={t("menu.title")}
       >
         <Settings size={16} />

@@ -47,9 +47,8 @@ function makeCtx(over = {}) {
     setCanvasZoom: spy(), setCanvasPan: spy(), setVirtualCursor: spy(),
     // gesture state
     isZooming: false, isPanning: false, isEdgeScrolling: false, recentZoomGesture: false,
-    lastTouchDistance: 0, lastTouchCenter: { x: 0, y: 0 },
+    lastTouchDistanceRef: ref(0), lastTouchCenterRef: ref({ x: 0, y: 0 }),
     setIsZooming: spy(), setIsPanning: spy(), setIsEdgeScrolling: spy(), setRecentZoomGesture: spy(),
-    setLastTouchDistance: spy(), setLastTouchCenter: spy(),
     // refs
     gestureLockRef: ref(null), gestureStartRef: ref({ time: Date.now(), distance: 0, centerX: 0, centerY: 0 }),
     multiTouchLatchRef: ref(false), twoFingerMaxMovedRef: ref(0), touchOutsideRef: ref(false),
@@ -146,7 +145,7 @@ test("trackpad: tap → click at virtual cursor percent", () => {
 
 test("trackpad: scroll lock drag scrolls, cursor stays frozen", () => {
   clear();
-  const ctx = makeCtx({ scrollLockRef: ref(true), lastTouchCenter: { x: 100, y: 100 }, lastTouchTimeRef: ref(Date.now()) });
+  const ctx = makeCtx({ scrollLockRef: ref(true), lastTouchCenterRef: ref({ x: 100, y: 100 }), lastTouchTimeRef: ref(Date.now()) });
   handleTrackpadEvent(ctx, touchEv([{ clientX: 130, clientY: 160 }]), "touchmove", { ...OPTS, pointerMode: "trackpad" });
   assert.deepEqual(ctx.emitScrollFromDelta.calls, [[60]], "deltaY 60 forwarded");
   assert.deepEqual(ctx.emitHScrollFromDelta.calls, [[30]]);
@@ -165,7 +164,7 @@ test("trackpad: hand mode touchend releases hold", () => {
 // ── touchMode ─────────────────────────────────────────────────────────────────
 test("touch: 2-finger start arms gesture state; zoom-locked pinch pans+zooms", () => {
   clear();
-  const ctx = makeCtx({ canvasZoom: 2, lastTouchDistance: 100 });
+  const ctx = makeCtx({ canvasZoom: 2, lastTouchDistanceRef: ref(100) });
   handleTouchEvent(ctx, touchEv([{ clientX: 100, clientY: 300 }, { clientX: 200, y: 300, clientY: 300 }], { type: "touchstart", touches: [{ clientX: 100, clientY: 300 }, { clientX: 200, clientY: 300 }] }), "touch", OPTS);
   assert.equal(ctx.setIsZooming.calls[0][0], true);
   // pinch out: distance 100 → 200 at zoom 2 → clamped to 4
@@ -179,7 +178,7 @@ test("touch: 2-finger start arms gesture state; zoom-locked pinch pans+zooms", (
 
 test("touch: scroll-locked 2-finger move anchors once then scrolls", () => {
   clear();
-  const ctx = makeCtx({ lastTouchCenter: { x: 150, y: 150 } });
+  const ctx = makeCtx({ lastTouchCenterRef: ref({ x: 150, y: 150 }) });
   ctx.gestureLockRef.current = "scroll";
   ctx.isZooming = true;
   handleTouchEvent(ctx, touchEv([{ clientX: 100, clientY: 180 }, { clientX: 200, clientY: 180 }]), "touchmove", OPTS);
@@ -190,7 +189,7 @@ test("touch: scroll-locked 2-finger move anchors once then scrolls", () => {
 
 test("touch: zoom>1 pan overflows at edge → scroll; free pan → no scroll", () => {
   clear();
-  const ctx = makeCtx({ canvasZoom: 2, lastTouchCenter: { x: 500, y: 300 }, displaySizeAt: () => ({ width: 2000, height: 1200 }) });
+  const ctx = makeCtx({ canvasZoom: 2, lastTouchCenterRef: ref({ x: 500, y: 300 }), displaySizeAt: () => ({ width: 2000, height: 1200 }) });
   const ev = touchEv([{ clientX: 500, clientY: 400 }]); // deltaY +100 downward
   // free move: pan shifts, no overflow
   handleTouchEvent(ctx, ev, "touchmove", OPTS);
@@ -200,7 +199,7 @@ test("touch: zoom>1 pan overflows at edge → scroll; free pan → no scroll", (
   assert.equal(ctx.emitScrollFromDelta.calls.length, 0);
   // stuck at top edge (y=-600 max): upward move → overflow
   const up = touchEv([{ clientX: 500, clientY: 200 }]);
-  ctx.lastTouchCenter = { x: 500, y: 400 };
+  ctx.lastTouchCenterRef.current = { x: 500, y: 400 };
   handleTouchEvent(ctx, up, "touchmove", OPTS);
   const updater2 = ctx.setCanvasPan.calls[1][0];
   const r2 = updater2({ x: -600, y: -600 });

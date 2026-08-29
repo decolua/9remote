@@ -21,8 +21,10 @@ export function useCanvas(socketEmitFunctions) {
 
   const [isZooming, setIsZooming] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
-  const [lastTouchDistance, setLastTouchDistance] = useState(0);
-  const [lastTouchCenter, setLastTouchCenter] = useState({ x: 0, y: 0 });
+  // Gesture math only — nothing renders from these, and a two-finger scroll sets them on
+  // every touchmove, so state here re-rendered the whole canvas view per frame for nothing.
+  const lastTouchDistanceRef = useRef(0);
+  const lastTouchCenterRef = useRef({ x: 0, y: 0 });
   const [recentZoomGesture, setRecentZoomGesture] = useState(false);
   const zoomGestureTimeoutRef = useRef(null);
   const [clickIndicator, setClickIndicator] = useState(null);
@@ -217,9 +219,8 @@ export function useCanvas(socketEmitFunctions) {
       canvasZoom, fitScale, virtualCursor, canvasPan,
       setCanvasZoom, setCanvasPan, setVirtualCursor,
       isZooming, isPanning, isEdgeScrolling, recentZoomGesture,
-      lastTouchDistance, lastTouchCenter,
+      lastTouchDistanceRef, lastTouchCenterRef,
       setIsZooming, setIsPanning, setIsEdgeScrolling, setRecentZoomGesture,
-      setLastTouchDistance, setLastTouchCenter,
       gestureLockRef, gestureStartRef, multiTouchLatchRef, twoFingerMaxMovedRef, touchOutsideRef,
       longPressTriggeredRef, touchStartPosRef,
       edgeScrollAccumRef, velocityRef, lastTouchTimeRef,
@@ -272,7 +273,7 @@ export function useCanvas(socketEmitFunctions) {
 
     handleTouchEvent(ctx, event, type, options);
   }, [
-    isZooming, isPanning, isEdgeScrolling, canvasZoom, lastTouchDistance, lastTouchCenter,
+    isZooming, isPanning, isEdgeScrolling, canvasZoom,
     recentZoomGesture, fitScale, virtualCursor, canvasPan, getCanvasCoordinates, showClickIndicator,
     socketEmitFunctions, cancelLongPress, startLongPress, checkDoubleClick, stopMomentum,
     startMomentumScroll, emitVirtualCursor, emitScrollFromDelta, emitHScrollFromDelta,

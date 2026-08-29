@@ -27,7 +27,7 @@ export function handleTrackpadEvent(ctx, event, type, options) {
   if (type === "touch") {
     ctx.touchStartTimeRef.current = Date.now();
     ctx.touchTotalMoveRef.current = 0;
-    ctx.setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+    ctx.lastTouchCenterRef.current = { x: touch.clientX, y: touch.clientY };
     ctx.lastTouchTimeRef.current = Date.now();
     // Selection mode: anchor selection start at the virtual cursor (not the finger)
     if (selectionMode) {
@@ -65,15 +65,15 @@ export function handleTrackpadEvent(ctx, event, type, options) {
   }
 
   if (type === "touchmove") {
-    const deltaX = touch.clientX - ctx.lastTouchCenter.x;
-    const deltaY = touch.clientY - ctx.lastTouchCenter.y;
+    const deltaX = touch.clientX - ctx.lastTouchCenterRef.current.x;
+    const deltaY = touch.clientY - ctx.lastTouchCenterRef.current.y;
     ctx.touchTotalMoveRef.current += Math.abs(deltaX) + Math.abs(deltaY);
 
     // Scroll lock active: drag scrolls both axes, cursor stays frozen
     if (ctx.scrollLockRef.current) {
       ctx.emitScrollFromDelta(deltaY);
       ctx.emitHScrollFromDelta(deltaX);
-      ctx.setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+      ctx.lastTouchCenterRef.current = { x: touch.clientX, y: touch.clientY };
       ctx.lastTouchTimeRef.current = Date.now();
       return true;
     }
@@ -105,7 +105,7 @@ export function handleTrackpadEvent(ctx, event, type, options) {
         handleSelection?.(0, 0, "move", { ...options, percentOverride: { percentX, percentY } });
         return next;
       });
-      ctx.setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+      ctx.lastTouchCenterRef.current = { x: touch.clientX, y: touch.clientY };
       ctx.lastTouchTimeRef.current = now;
       return true;
     }
@@ -145,7 +145,7 @@ export function handleTrackpadEvent(ctx, event, type, options) {
       return next;
     });
 
-    ctx.setLastTouchCenter({ x: touch.clientX, y: touch.clientY });
+    ctx.lastTouchCenterRef.current = { x: touch.clientX, y: touch.clientY };
     ctx.lastTouchTimeRef.current = now;
     return true;
   }

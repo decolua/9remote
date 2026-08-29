@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import Icon from "@/shared/components/ui/Icon";
 import { GIT_STATUS_COLORS, EXPLORER_ROW, actionRightFor } from "../constants/fileExplorer.js";
 import { resolveFileIcon, resolveFolderIcon } from "../constants/fileIcons.js";
@@ -35,7 +36,7 @@ export function TruncatedNote({ depth, compact = false }) {
 // One row of the desktop file tree: expander, icon, name (or rename input),
 // git badge and the overflow button. Recursion lives in the parent.
 // Extracted verbatim from ExplorerPanel.renderRow.
-export default function ExplorerRow({
+function ExplorerRow({
   file, depth, isFolder, isExpanded, isLoading, isActive, isSelected, isRenaming, isDragOver, isCut,
   gitStatus, renameValue, renameInputRef,
   onRenameChange, onRenameSubmit, onRenameCancel,
@@ -50,10 +51,10 @@ export default function ExplorerRow({
       <div
         data-path={file.path}
         draggable={!isRenaming}
-        onDragStart={onDragStart}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
+        onDragStart={(e) => onDragStart(e, file)}
+        onDragOver={(e) => onDragOver(e, file)}
+        onDragLeave={() => onDragLeave(file)}
+        onDrop={(e) => onDrop(e, file)}
         className={`group relative flex items-center gap-1 rounded-[3px] mx-0.5 pr-2 cursor-pointer select-none ${m.text} ${m.padY} ${isCut ? "opacity-50" : ""} ${
           isDragOver ? "bg-brand-500/30 ring-1 ring-brand-500" :
           // Selection has to outrank hover: sharing bg-surface-2 with it made a
@@ -62,15 +63,15 @@ export default function ExplorerRow({
           isActive ? "bg-brand-500/15" : "hover:bg-surface-2"
         }`}
         style={{ paddingLeft: indentFor(depth, compact) }}
-        onContextMenu={onContextMenu}
-        onTouchStart={onTouchStart}
+        onContextMenu={(e) => onContextMenu(e, file)}
+        onTouchStart={(e) => onTouchStart(e, file)}
         onTouchEnd={onTouchEnd}
         onTouchMove={onTouchEnd}
-        onClick={(e) => !isRenaming && onClick(e)}
+        onClick={(e) => !isRenaming && onClick(file, e)}
       >
         {isFolder ? (
           <span
-            onClick={(e) => { e.stopPropagation(); onToggleFolder(); }}
+            onClick={(e) => { e.stopPropagation(); onToggleFolder(file); }}
             className="flex items-center justify-center w-4 h-4 text-text-muted"
           >
             {isLoading ? (
@@ -119,7 +120,7 @@ export default function ExplorerRow({
             style={{ right: actionRightFor(gitStatus) }}
           >
             <button
-              onClick={onContextMenu}
+              onClick={(e) => onContextMenu(e, file)}
               className="p-0.5 text-text-muted hover:text-text"
             >
               <Icon name="MoreHorizontal" size={m.chevron} />
@@ -132,3 +133,8 @@ export default function ExplorerRow({
     </div>
   );
 }
+
+// Leaf rows (children undefined) re-render only when their own visible flags change;
+// a folder row with open children still re-renders with its children. The parent passes
+// one stable handler set that takes `file` — a closure per row would defeat this.
+export default memo(ExplorerRow);
