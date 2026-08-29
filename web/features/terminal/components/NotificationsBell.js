@@ -5,6 +5,7 @@ import { Bell, Bot, Terminal, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
 import { statusVisual } from "@/shared/utils/statusVisual";
+import { statusItems, attentionSummary } from "../lib/sessionStatusSummary";
 
 // Compact relative time (e.g. "now", "3m", "2h", "1d")
 const timeAgo = (ts) => {
@@ -24,19 +25,8 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
   const wrapRef = useRef(null);
 
   // All sessions surface; state from sessionStatus (idle if none). Non-idle first (by since), idle last.
-  const stateRank = { working: 0, blocked: 1, done: 2, idle: 3 };
-  const items = allSessions.length
-    ? allSessions.map((s) => {
-        const st = sessionStatus[s.id];
-        return { id: s.id, state: st?.state || "idle", tool: st?.tool, since: st?.since };
-      })
-    : Object.entries(sessionStatus).map(([id, st]) => ({ id, ...st }));
-  items.sort((a, b) => {
-    const r = (stateRank[a.state] ?? 9) - (stateRank[b.state] ?? 9);
-    if (r !== 0) return r;
-    return (b.since || 0) - (a.since || 0);
-  });
-  const count = items.filter((it) => it.state === "done" || it.state === "blocked").length;
+  const items = statusItems(sessionStatus, allSessions);
+  const { total: count } = attentionSummary(sessionStatus, allSessions);
 
   // Resolve name from the full session list so cross-group notifications show
   // their real name instead of a truncated id.

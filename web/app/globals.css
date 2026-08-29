@@ -342,6 +342,52 @@
   }
 }
 
+/* Panels that rise from the bottom edge — the apps and log sheets over the
+   Android mirror. The repo has no tailwindcss-animate plugin, so the
+   `animate-in slide-in-from-bottom` utilities do nothing; this is the real one. */
+@keyframes sheetRise {
+  from {
+    transform: translateY(12%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.sheet-rise {
+  animation: sheetRise 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Someone who asked the system for less motion gets the fade without the slide. */
+@media (prefers-reduced-motion: reduce) {
+  .sheet-rise { animation: fadeIn 150ms ease-out; }
+}
+
+/* List rows arriving one after another — the device picker. Delay comes from the
+   row's own --i, so the same class serves a list of any length (capped by the
+   caller, since a long list should not keep the last row waiting). */
+@keyframes listRise {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.list-rise {
+  animation: listRise 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .list-rise { animation: fadeIn 150ms ease-out both; }
+}
+
 /* Mobile tab switch: active pane slides in from swipe direction (one-shot) */
 @keyframes termSlideFromLeft {
   from { transform: translateX(-100%); }

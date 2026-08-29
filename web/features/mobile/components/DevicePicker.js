@@ -7,8 +7,12 @@ import { Smartphone, Monitor, Play, Square, Loader2, RefreshCw, Zap } from "@/sh
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 
+// Past this many rows the arrival delay stops growing — the tail of a long list
+// should not be left waiting for its turn.
+const MAX_STAGGER = 8;
+
 function StateDot({ state }) {
-  const cls = state === "running" ? "bg-green-500"
+  const cls = state === "running" ? "bg-green-500 animate-pulse"
     : state === "starting" ? "bg-amber-400 animate-pulse"
       : "bg-text-muted/40";
   return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cls}`} />;
@@ -18,7 +22,7 @@ export default function DevicePicker({ devices, canManage, booting, loading, err
   const { t } = useI18n();
 
   return (
-    <div className="w-full max-w-sm mx-auto p-4 space-y-3">
+    <div className="w-full max-w-sm mx-auto p-4 space-y-3 fade-in">
       <div className="flex items-center gap-2">
         <h2 className="text-text text-sm font-medium flex-1">{t("mobile.pickDevice")}</h2>
         <button
@@ -32,7 +36,7 @@ export default function DevicePicker({ devices, canManage, booting, loading, err
       </div>
 
       {devices.length === 0 && (
-        <div className="text-center py-8 space-y-2">
+        <div className="text-center py-8 space-y-2 fade-in">
           {loading ? (
             <Loader2 size={20} className="text-brand-500 animate-spin mx-auto" />
           ) : (
@@ -47,11 +51,15 @@ export default function DevicePicker({ devices, canManage, booting, loading, err
       )}
 
       <div className="space-y-1.5">
-        {devices.map((device) => {
+        {devices.map((device, index) => {
           const isBooting = booting?.avdName && booting.avdName === device.avdName;
           const running = device.state === "running";
           return (
-            <div key={device.id} className="bg-surface rounded-brand-lg overflow-hidden">
+            <div
+              key={device.id}
+              className="bg-surface rounded-brand-lg overflow-hidden list-rise"
+              style={{ "--i": Math.min(index, MAX_STAGGER) }}
+            >
               <div className="flex items-center gap-2.5 px-3 py-2">
                 <button
                   onClick={() => { vibrate(); onOpen?.(device); }}

@@ -1,25 +1,16 @@
 "use client";
 
-// Pointer + keyboard → scrcpy input events. Coordinates leave as unit floats so
-// the client never tracks device resolution; the agent scales them.
+// Pointer → scrcpy input events. Coordinates leave as unit floats so the client
+// never tracks device resolution; the agent scales them.
+//
+// No keyboard path: Android raises its own on-screen keyboard when a text field
+// in the app takes focus, which tapping through the mirror already does, and
+// there is no way to force it from outside. The agent still accepts key and
+// text messages if a caller ever needs them.
 
 import { useCallback, useRef } from "react";
 import { WHEEL_LINE_PX, WHEEL_PAGE_PX, WHEEL_NOTCH_PX, SCROLL_MAX } from "../constants/mobileConfig";
 
-// Browser key → Android keycode, for the keys a soft keyboard can't send as text.
-const KEY_MAP = {
-  Enter: 66,
-  Backspace: 67,
-  Tab: 61,
-  Escape: 111,
-  ArrowUp: 19,
-  ArrowDown: 20,
-  ArrowLeft: 21,
-  ArrowRight: 22,
-  Delete: 112,
-  Home: 122,
-  End: 123
-};
 
 export function useMobileInput({ socketRef, canvasRef }) {
   const pressRef = useRef(null);
@@ -101,22 +92,7 @@ export function useMobileInput({ socketRef, canvasRef }) {
     send({ type: "touch", action: "up", ...pos });
   }, [send, toUnit]);
 
-  const onKeyDown = useCallback((event) => {
-    const mapped = KEY_MAP[event.key];
-    if (mapped) {
-      event.preventDefault();
-      send({ type: "key", keycode: mapped });
-      return;
-    }
-    // Printable characters go as text so IME and non-ASCII work.
-    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      send({ type: "text", text: event.key });
-    }
-  }, [send]);
-
   const sendKey = useCallback((name) => send({ type: "key", name }), [send]);
-  const sendText = useCallback((text) => send({ type: "text", text }), [send]);
 
-  return { onPointerDown, onPointerMove, onPointerUp: endPress, onPointerCancel: endPress, onWheel, onKeyDown, sendKey, sendText };
+  return { onPointerDown, onPointerMove, onPointerUp: endPress, onPointerCancel: endPress, onWheel, sendKey };
 }

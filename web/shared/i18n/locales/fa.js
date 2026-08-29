@@ -568,6 +568,7 @@ export default {
     geminiCli: "Gemini CLI",
     openCode: "OpenCode",
     needsInput: "needs input",
+    badgeTitle: "{blocked} waiting for input, {done} finished",
     replied: "replied",
     agent: "Agent",
   },

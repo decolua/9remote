@@ -519,6 +519,7 @@ export default {
     title: "Thông báo",
     empty: "Không có thông báo",
     needsInput: "cần nhập liệu",
+    badgeTitle: "{blocked} waiting for input, {done} finished",
     replied: "đã trả lời",
     agent: "Agent"
   },

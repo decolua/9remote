@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { memo, useState, useEffect, useCallback, useMemo } from "react";
 import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -30,6 +30,52 @@ function joinPath(base, rel) {
   const sep = base.endsWith("/") || base.endsWith("\\") ? "" : "/";
   return `${base}${sep}${rel}`;
 }
+
+// One changed-file row. Memoized so typing a commit message (panel-level state) does not
+// re-render the whole file list per keystroke — handlers take the row's `file`, so every
+// row shares one stable identity.
+const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, openDiff, onCtxMenu, onDiscard, onStage }) {
+  const colorClass = GIT_STATUS_COLORS[file.status] || "text-text-muted";
+  const absPath = joinPath(workspace, file.path);
+  return (
+    <div
+      className="group relative flex items-center gap-1.5 px-2 py-1 hover:bg-surface-2 cursor-pointer"
+      onContextMenu={(e) => onCtxMenu(file, e)}
+      onClick={() => {
+        vibrate();
+        // file.path is relative to THIS repo. Where the host shows several repos side by
+        // side it must travel with its repo, or the diff is read from the wrong one.
+        openDiff(file);
+      }}
+    >
+      <span className="flex-shrink-0 flex items-center">{resolveFileIcon({ name: basename(file.path), path: file.path, type: "file" }, 16)}</span>
+      <span className="truncate text-xs text-text" title={file.path}>{basename(file.path)}</span>
+      <span className="truncate text-[11px] text-text-muted flex-1" title={dirname(file.path)}>{dirname(file.path)}</span>
+      {/* VS Code parity: hover shows only Discard + Stage, floating OVER the directory
+          text (no reserved space — the full row width stays readable when not hovered).
+          Opening the file itself is a context-menu action; the row click opens the diff. */}
+      <div className="absolute right-[22px] top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-2 pr-1 bg-surface-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          title={isUntracked ? t("common.delete") : t("git.discard")}
+          onClick={(e) => { e.stopPropagation(); vibrate(); onDiscard(file); }}
+          className="p-0.5 text-text-muted hover:text-text"
+        >
+          <X size={12} />
+        </button>
+        <button
+          type="button"
+          title={t("git.stage")}
+          onClick={(e) => { e.stopPropagation(); vibrate(); onStage(file); }}
+          className="p-0.5 text-text-muted hover:text-text"
+        >
+          <Plus size={12} />
+        </button>
+      </div>
+      <span className={`flex-shrink-0 w-4 h-4 flex items-center justify-center text-[10px] font-mono rounded bg-surface-2 ${colorClass}`}>{file.status}</span>
+    </div>
+  );
+});
 
 export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWithRepo = false }) {
   const { t } = useI18n();
@@ -119,6 +165,12 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
     setConfirmDiscardOpen(true);
   }, []);
 
+  const openDiff = useCallback((file) => {
+    onOpenFile?.(tagDiffWithRepo
+      ? makeRepoDiffPath(file.status, workspace, file.path)
+      : makeDiffPath(file.status, file.path));
+  }, [onOpenFile, tagDiffWithRepo, workspace]);
+
   const handleCommitClick = useCallback((withPush = false) => {
     if (!commitMsg.trim()) return;
     if (!files.length) return;
@@ -207,51 +259,19 @@ export default function ScmPanel({ workspace, fileSocket, onOpenFile, tagDiffWit
     ];
   }, [workspace, onOpenFile, copyToClipboard, t]);
 
-  const renderFileRow = (file, isUntracked) => {
-    const colorClass = GIT_STATUS_COLORS[file.status] || "text-text-muted";
-    const absPath = joinPath(workspace, file.path);
-    return (
-      <div
-        key={`${file.status}-${file.path}`}
-        className="group relative flex items-center gap-1.5 px-2 py-1 hover:bg-surface-2 cursor-pointer"
-        onContextMenu={(e) => openCtxMenu(file, e)}
-        onClick={() => {
-          vibrate();
-          // file.path is relative to THIS repo. Where the host shows several repos side by
-          // side it must travel with its repo, or the diff is read from the wrong one.
-          onOpenFile?.(tagDiffWithRepo
-            ? makeRepoDiffPath(file.status, workspace, file.path)
-            : makeDiffPath(file.status, file.path));
-        }}
-      >
-        <span className="flex-shrink-0 flex items-center">{resolveFileIcon({ name: basename(file.path), path: file.path, type: "file" }, 16)}</span>
-        <span className="truncate text-xs text-text" title={file.path}>{basename(file.path)}</span>
-        <span className="truncate text-[11px] text-text-muted flex-1" title={dirname(file.path)}>{dirname(file.path)}</span>
-        {/* VS Code parity: hover shows only Discard + Stage, floating OVER the directory
-            text (no reserved space — the full row width stays readable when not hovered).
-            Opening the file itself is a context-menu action; the row click opens the diff. */}
-        <div className="absolute right-[22px] top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-2 pr-1 bg-surface-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            title={isUntracked ? t("common.delete") : t("git.discard")}
-            onClick={(e) => { e.stopPropagation(); vibrate(); requestDiscard(file); }}
-            className="p-0.5 text-text-muted hover:text-text"
-          >
-            <X size={12} />
-          </button>
-          <button
-            type="button"
-            title={t("git.stage")}
-            onClick={(e) => { e.stopPropagation(); vibrate(); stageFile(file); }}
-            className="p-0.5 text-text-muted hover:text-text"
-          >
-            <Plus size={12} />
-          </button>
-        </div>
-        <span className={`flex-shrink-0 w-4 h-4 flex items-center justify-center text-[10px] font-mono rounded bg-surface-2 ${colorClass}`}>{file.status}</span>
-      </div>
-    );
-  };
+  const renderFileRow = (file, isUntracked) => (
+    <ScmFileRow
+      key={`${file.status}-${file.path}`}
+      file={file}
+      workspace={workspace}
+      isUntracked={isUntracked}
+      t={t}
+      openDiff={openDiff}
+      onCtxMenu={openCtxMenu}
+      onDiscard={requestDiscard}
+      onStage={stageFile}
+    />
+  );
 
   const renderSection = (id, label, list, isUntracked) => {
     const expanded = expandedSections.has(id);

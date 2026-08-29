@@ -7,7 +7,7 @@
 // panels, which slide over the screen rather than living behind tabs.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, Smartphone, Loader2, Keyboard, Triangle, Circle, Square, Power, RotateCw, Package, FileText, X } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Smartphone, Loader2, Triangle, Circle, Square, Lock, PowerOff, Package, FileText, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useMobileDevices, emitAck } from "../hooks/useMobileDevices";
@@ -19,15 +19,14 @@ import { useMobileLogcat } from "../hooks/useMobileLogcat";
 import DevicePicker from "./DevicePicker";
 import AppPanel from "./AppPanel";
 import LogcatPanel from "./LogcatPanel";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
 export default function MobileMirror({ onClose, socketRef, protocolRef, connected, variant = "fullscreen" }) {
   const { t } = useI18n();
   const canvasRef = useRef(null);
-  const keyboardInputRef = useRef(null);
   // Which overlay is up over the screen, if any. Null is the plain mirror.
   const [overlay, setOverlay] = useState(null);   // "apps" | "logs" | null
-  const [keyboardOn, setKeyboardOn] = useState(false);
-  const [rotation, setRotation] = useState(0);
+  const [confirmShutdown, setConfirmShutdown] = useState(false);
 
   const deviceApi = useMobileDevices({ socketRef, connected });
   const { devices, canManage, booting, refresh, startAvd, stopAvd, lowPower, setLowPower } = deviceApi;
@@ -54,26 +53,23 @@ export default function MobileMirror({ onClose, socketRef, protocolRef, connecte
 
   const isPanel = variant === "panel";
 
+  // The row for whatever is being mirrored, so the rail knows whether this
+  // device is one the agent may shut down.
+  const currentDevice = devices.find((d) => d.serial === serial) || null;
+
+  // Shutting the device down loses whatever is running on it and costs ~25s to
+  // undo, so it asks first — unlike every other control on the rail.
+  const shutdownDevice = useCallback(async () => {
+    setConfirmShutdown(false);
+    const target = serial;
+    stop();
+    if (target) await stopAvd(target);
+  }, [serial, stop, stopAvd]);
+
   const handleStop = useCallback(async (device) => {
     if (device.serial === serial) stop();
     await stopAvd(device.serial);
   }, [serial, stop, stopAvd]);
-
-  const toggleKeyboard = useCallback(() => {
-    vibrate();
-    setKeyboardOn((on) => {
-      if (!on) setTimeout(() => keyboardInputRef.current?.focus(), 0);
-      else keyboardInputRef.current?.blur();
-      return !on;
-    });
-  }, []);
-
-  const rotate = useCallback(async () => {
-    vibrate();
-    const next = (rotation + 1) % 4;
-    const res = await emitAck(socketRef?.current, "mobile:rotate", { serial, rotation: next });
-    if (res?.success) setRotation(res.rotation);
-  }, [rotation, serial, socketRef]);
 
   // Leaving the full-screen view ends the session; the desktop dock keeps it
   // alive instead, because moving the mirror is not the same as closing it.
@@ -131,6 +127,14 @@ export default function MobileMirror({ onClose, socketRef, protocolRef, connecte
 
   return (
     <div className="absolute inset-0 flex bg-bg">
+      <ConfirmDialog
+        isOpen={confirmShutdown}
+        onClose={() => setConfirmShutdown(false)}
+        onConfirm={shutdownDevice}
+        title={t("mobile.shutdownTitle")}
+        message={t("mobile.shutdownMessage", { name: meta.deviceName })}
+        confirmText={t("mobile.shutdownConfirm")}
+      />
       {/* Screen. The canvas stays mounted under any overlay: unmounting it would
           tear down the decoder and cost a full re-sync on every panel open. */}
       <div className="flex-1 min-w-0 relative flex items-center justify-center bg-black">
@@ -216,9 +220,7 @@ export default function MobileMirror({ onClose, socketRef, protocolRef, connecte
 
         <div className="w-5 h-px bg-border my-1" />
 
-        <RailButton icon={<RotateCw size={15} />} label={t("mobile.rotate")} onClick={rotate} />
-        <RailButton icon={<Keyboard size={15} />} label={t("mobile.keyboard")} onClick={toggleKeyboard} active={keyboardOn} />
-        <RailButton icon={<Power size={15} />} label={t("mobile.power")} onClick={() => input.sendKey("power")} />
+        <RailButton icon={<Lock size={15} />} label={t("mobile.power")} onClick={() => input.sendKey("power")} />
 
         <div className="w-5 h-px bg-border my-1" />
 
@@ -239,25 +241,20 @@ export default function MobileMirror({ onClose, socketRef, protocolRef, connecte
             not something to hit while reaching for the nav keys. */}
         <div className="flex-1 min-h-2" />
         <RailButton icon={<Smartphone size={15} />} label={t("mobile.switchDevice")} onClick={stop} />
+        {/* Only for emulators the agent can stop: a phone on USB is not ours to
+            power off, and neither is an emulator someone else started. */}
+        {currentDevice?.canStop && (
+          <button
+            onClick={() => { vibrate(); setConfirmShutdown(true); }}
+            className="p-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0 text-red-400 hover:bg-red-500/15"
+            title={t("mobile.shutdownDevice")}
+            aria-label={t("mobile.shutdownDevice")}
+          >
+            <PowerOff size={15} />
+          </button>
+        )}
         {!isPanel && <RailButton icon={<X size={15} />} label={t("common.close")} onClick={handleClose} />}
       </div>
-
-      {/* Off-screen field: the soft keyboard only opens for a focused input,
-          and its keystrokes are forwarded rather than inserted. */}
-      {keyboardOn && (
-        <input
-          ref={keyboardInputRef}
-          onKeyDown={input.onKeyDown}
-          onBlur={() => setKeyboardOn(false)}
-          value=""
-          onChange={() => { }}
-          className="absolute opacity-0 pointer-events-none w-px h-px"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          aria-hidden
-        />
-      )}
     </div>
   );
 }

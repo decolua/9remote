@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
+import SessionStatusBadge from "./SessionStatusBadge";
 import SitesList from "./SitesList";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
@@ -275,10 +276,11 @@ function TerminalHeader({
       {onBack && (
         <button
           onClick={() => { vibrate(); onBack(); }}
-          className="p-1.5 pl-1 pr-3 sm:pl-1.5 sm:pr-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+          className="p-2 pl-1.5 pr-3.5 sm:p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0"
           title={t("common.back")}
         >
-          <ChevronLeft size={16} />
+          <ChevronLeft size={20} className="sm:hidden" />
+          <ChevronLeft size={16} className="hidden sm:block" />
         </button>
       )}
 
@@ -383,6 +385,14 @@ function TerminalHeader({
       >
         <Globe size={16} />
       </button>
+      )}
+
+      {showButton("notifications") && (
+        <SessionStatusBadge
+          sessionStatus={sessionStatus}
+          allSessions={allSessions}
+          onSwitchSession={onSwitchSession}
+        />
       )}
 
       {showButton("notifications") && (
