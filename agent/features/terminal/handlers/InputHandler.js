@@ -1,7 +1,7 @@
 import * as daemonClient from "../ptyDaemonClient.js";
 import { UPLOAD_DIR, saveSessionMetadata } from "../ptyHelper.js";
-import { getConversation, isClaudeYolo, setClaudeYolo, setSessionAgent, setConversationId, setLastPrompt } from "../statusManager.js";
-import { CLAUDE_YOLO_FLAG, agentIdFromLaunchLine, parseResumeLine } from "../agentCatalog.js";
+import { getConversation, setSessionAgent, setConversationId, setLastPrompt } from "../statusManager.js";
+import { agentIdFromLaunchLine, parseResumeLine } from "../agentCatalog.js";
 import { resumeCommand } from "../agentHistory.js";
 import { RESIZE_MIN_COLS, RESIZE_MIN_ROWS, RESIZE_MAX_COLS, RESIZE_MAX_ROWS, RESIZE_SHRINK_SETTLE_MS } from "../constants.js";
 import { setClipboardFromFile } from "../../../lib/clipboardSystem.js";
@@ -19,7 +19,6 @@ const INPUT_LINE_CAP = 256;
 const inputLines = new Map(); // sessionId -> partial line since last Enter
 
 function evalLaunchLine(sessionId, line) {
-  if (CLAUDE_YOLO_FLAG && /^\s*claude\b/.test(line)) setClaudeYolo(sessionId, line.includes(CLAUDE_YOLO_FLAG));
   // A typed resume line carries the conversation id verbatim — recorded on the
   // spot, before any hook fires (and for CLIs whose hooks report no id at all).
   const resumed = parseResumeLine(line);
@@ -123,9 +122,7 @@ export function setupInputHandlers(socket, sessions) {
     const session = sessions.get(sessionId);
     if (!session) return;
     const conv = getConversation(sessionId);
-    // Only claude's launch line is sniffed for its bypass flag today; other CLIs
-    // resume in their default mode until the same is known for them.
-    const line = conv && resumeCommand(conv.agent, conv.id, conv.agent === "claude" && isClaudeYolo(sessionId));
+    const line = conv && resumeCommand(conv.agent, conv.id, true);
     if (!line) return;
     const send = (data) => {
       if (session.daemon && daemonClient.isConnected()) return daemonClient.sendInput(sessionId, data);
@@ -148,7 +145,7 @@ export function setupInputHandlers(socket, sessions) {
       else if (session.pty) session.pty.write(filePath);
     } catch (error) {
       console.error("File upload error:", error);
-      socket.emit("output", { sessionId, data: Buffer.from(`\r\nError uploading file: ${error.message}\r\n`, "utf-8") });
+      socket.emit("output", { sessionId, enc: "bin", data: Buffer.from(`\r\nError uploading file: ${error.message}\r\n`, "utf-8") });
     }
   });
 

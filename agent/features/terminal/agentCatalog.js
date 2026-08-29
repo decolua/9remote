@@ -75,9 +75,6 @@ export function sessionIdFromHookPayload(agentId, payload) {
   return null;
 }
 
-// Claude's skip-permission flag, reused when resuming a conversation from a session card
-export const CLAUDE_YOLO_FLAG = AGENT_BY_ID.get("claude")?.yolo || "";
-
 // --- parsing a typed resume line back into its conversation id ---
 // Built from the same `resume` templates resumeCommand uses, so a CLI added to
 // the catalog is instantly both emit-able and re-readable — no second spec.

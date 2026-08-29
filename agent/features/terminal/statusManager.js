@@ -102,10 +102,6 @@ export function getLiveConversations() {
   return out;
 }
 
-// Whether the session's claude was launched with its skip-permission flag (sniffed
-// from the launch line by InputHandler). Powers re-applying the flag on exact resume.
-const claudeYoloSessions = new Set();
-
 // Agent CLI per session detected without hooks (typed launch line or OSC title).
 // Fills `tool` only where no hook entry provided one; hook events stay authoritative.
 const sessionAgents = new Map();
@@ -243,16 +239,6 @@ export function getLastPrompt(sessionId) {
 export function onAgentChange(cb) {
   agentChangeCallbacks.add(cb);
   return () => agentChangeCallbacks.delete(cb);
-}
-
-export function setClaudeYolo(sessionId, on) {
-  if (!sessionId) return;
-  if (on) claudeYoloSessions.add(sessionId);
-  else claudeYoloSessions.delete(sessionId);
-}
-
-export function isClaudeYolo(sessionId) {
-  return claudeYoloSessions.has(sessionId);
 }
 
 export function applyEvent({ type, sessionId, tool, message } = {}) {
