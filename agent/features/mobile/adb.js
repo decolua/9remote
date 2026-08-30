@@ -9,9 +9,12 @@ const execFileAsync = promisify(execFile);
 import path from "path";
 import fs from "fs";
 import os from "os";
-import { ADB_TIMEOUTS } from "./constants.js";
+import { ADB_TIMEOUTS, SDK_SETUP } from "./constants.js";
 
 let cachedAdb;
+// A cached-null must not outlive an install the user just clicked through:
+// re-probe at most this often, instead of pinning null for the process lifetime.
+let probedAt = 0;
 
 // Android SDK layouts, in the order the tools themselves prefer them.
 function sdkCandidates() {
@@ -29,7 +32,8 @@ function sdkCandidates() {
 
 /** Absolute adb path, or null when Android tooling is not installed. */
 export function findAdb() {
-  if (cachedAdb !== undefined) return cachedAdb;
+  if (cachedAdb !== undefined && (cachedAdb || Date.now() - probedAt < SDK_SETUP.reprobeMs)) return cachedAdb;
+  probedAt = Date.now();
   const probe = spawnSync(process.platform === "win32" ? "where" : "which", ["adb"], { encoding: "utf8" });
   if (probe.status === 0) {
     const first = probe.stdout.split("\n")[0]?.trim();
@@ -37,6 +41,12 @@ export function findAdb() {
   }
   cachedAdb = sdkCandidates().find((p) => fs.existsSync(p)) || null;
   return cachedAdb;
+}
+
+/** Drop the cached path so a just-finished install is picked up immediately. */
+export function resetAdbCache() {
+  cachedAdb = undefined;
+  probedAt = 0;
 }
 
 export function isAvailable() {

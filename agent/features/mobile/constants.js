@@ -226,6 +226,55 @@ export const TAP_HOLD_MS = 20;
 // gesture still lands smoothly.
 export const MOVE_MIN_INTERVAL_MS = 33;
 
+// SDK setup — the agent can fetch Android tooling the host is missing, on an
+// explicit user click from the UI. URLs are Google's direct downloads; the zip
+// layouts already match the SDK root layout (platform-tools/, cmdline-tools/).
+export const SDK_SETUP = {
+  // Re-probe cadence for cached-null tool lookups: a just-finished install
+  // must be visible without an agent restart, but which/exists every poll of
+  // every device would be wasteful.
+  reprobeMs: 30_000,
+  // A failed or cancelled download is discarded wholesale (tmp dir removed),
+  // so a truncated zip from a flaky tunnel never reaches the SDK root.
+  downloadTimeoutMs: 30 * 60 * 1000,
+  components: {
+    "platform-tools": {
+      // ~13MB zipped; unzips to ~25MB. Includes adb and fastboot.
+      urls: {
+        darwin: "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
+        win32: "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
+        linux: "https://dl.google.com/android/repository/platform-tools-latest-linux.zip"
+      }
+    },
+    "cmdline-tools": {
+      // ~150MB. The zip unpacks to cmdline-tools/ — relaid into
+      // cmdline-tools/latest/ after extract, which is the layout sdkmanager
+      // requires of itself.
+      urls: {
+        darwin: "https://dl.google.com/android/repository/commandlinetools-mac-11076708_latest.zip",
+        win32: "https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip",
+        linux: "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+      }
+    }
+  }
+};
+
+// sdkmanager is a Java tool and needs JDK 17+. The JDK click installs a pinned
+// Temurin 17 build as a plain archive (no installer, no admin) under the SDK
+// root, so nothing outside it is touched.
+export const JDK_SETUP = {
+  version: 17,
+  // Where the JDK lands under the SDK root when we install it ourselves.
+  dirName: "jdk-17",
+  // Adoptium API: stable "latest GA" links per OS/arch, plain archives.
+  urls: {
+    darwinX64: "https://api.adoptium.net/v3/binary/latest/17/ga/mac/x64/jdk/hotspot/normal/eclipse",
+    darwinArm64: "https://api.adoptium.net/v3/binary/latest/17/ga/mac/aarch64/jdk/hotspot/normal/eclipse",
+    win32: "https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jdk/hotspot/normal/eclipse",
+    linux: "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse"
+  }
+};
+
 // scrcpy's own scroll message: one 21-byte packet per scroll, versus the ~17
 // touch packets a simulated swipe needs. hscroll/vscroll are fixed-point i16
 // covering the range [-16, 16].

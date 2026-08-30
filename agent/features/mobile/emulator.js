@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
-import { EMULATOR, EMULATOR_ARGS, EMULATOR_ARGS_LOW_POWER, GPU_HOST_ARGS, QEMU_MEMORY_ARGS, ADB_TIMEOUTS, IDLE_SHUTDOWN_MS, IDLE_CHECK_MS } from "./constants.js";
+import { EMULATOR, EMULATOR_ARGS, EMULATOR_ARGS_LOW_POWER, GPU_HOST_ARGS, QEMU_MEMORY_ARGS, ADB_TIMEOUTS, IDLE_SHUTDOWN_MS, IDLE_CHECK_MS, SDK_SETUP } from "./constants.js";
 import { connectionCount } from "../../api/ui.js";
 import { PATHS } from "../../lib/constants.js";
 import { findAdb, listDevices, listDevicesAsync, listSerials, listSerialsAsync } from "./adb.js";
@@ -18,6 +18,8 @@ import { createLogger } from "../../lib/logger.js";
 const logger = createLogger("mobile");
 
 let cachedEmulator;
+// Same re-probe rule as adb.js: a cached null must not survive an install.
+let probedAt = 0;
 // avdName → child process we spawned. Only these can be stopped by us.
 const running = new Map();
 
@@ -34,7 +36,8 @@ export function sdkRoots() {
 
 /** Absolute path of the `emulator` binary, or null when the SDK lacks it. */
 export function findEmulator() {
-  if (cachedEmulator !== undefined) return cachedEmulator;
+  if (cachedEmulator !== undefined && (cachedEmulator || Date.now() - probedAt < SDK_SETUP.reprobeMs)) return cachedEmulator;
+  probedAt = Date.now();
   const exe = process.platform === "win32" ? "emulator.exe" : "emulator";
   const probe = spawnSync(process.platform === "win32" ? "where" : "which", ["emulator"], { encoding: "utf8" });
   if (probe.status === 0) {
@@ -43,6 +46,12 @@ export function findEmulator() {
   }
   cachedEmulator = sdkRoots().map((r) => path.join(r, "emulator", exe)).find((p) => fs.existsSync(p)) || null;
   return cachedEmulator;
+}
+
+/** Drop the cached path so a just-finished install is picked up immediately. */
+export function resetEmulatorCache() {
+  cachedEmulator = undefined;
+  probedAt = 0;
 }
 
 /**
@@ -99,7 +108,7 @@ function avdNameOf(serial) {
   return r.stdout.split("\n").map((l) => l.trim()).find((l) => l && l !== "OK") || null;
 }
 
-async function avdNameOfAsync(serial) {
+export async function avdNameOfAsync(serial) {
   const adb = findAdb();
   if (!adb) return null;
   try {

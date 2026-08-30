@@ -9,8 +9,9 @@ import { isAvailable } from "./adb.js";
 import { ScrcpySession } from "./scrcpySession.js";
 import { encodeMobileFrame, MOBILE_FLAG_KEY, MOBILE_FLAG_CONFIG } from "./mobileFrame.js";
 import { VIDEO_CHUNK_PAYLOAD, FLOW, ADAPT, DEVICE_WATCH_MS, SLEEP_ON_HIDE_MS } from "./constants.js";
-import { listAll, listAvdsAsync, startAvd, stopAvd, canManageEmulators, isAgentStarted } from "./emulator.js";
+import { listAll, listAvdsAsync, startAvd, stopAvd, canManageEmulators, isAgentStarted, avdNameOfAsync } from "./emulator.js";
 import { listSerialsAsync } from "./adb.js";
+import { envStatus, installComponent, cancelInstall, sdkJobState, setJobListener, listImages, installImage, uninstallImage, listInstalledImages, hostAbi, isBusy, beginJob, endJob, setCancelled, listDeviceProfiles, createAvd, deleteAvd, wipeAvdData } from "./sdkSetup.js";
 import { LogcatStream } from "./logcat.js";
 import {
   listApps, foregroundApp, installApk, uninstallApp, launchApp, stopApp, clearAppData,
@@ -34,8 +35,11 @@ function scaled(options, scale) {
   };
 }
 
+// The feature is always offered: a host with no tooling shows the setup card
+// and can install what it needs. Hiding the entry would leave that host with
+// no way in. Whether adb itself is present rides along in mobile:list env.
 export function isMobileAvailable() {
-  return isAvailable();
+  return true;
 }
 
 export function setupMobileHandlers(socket) {
@@ -267,8 +271,105 @@ export function setupMobileHandlers(socket) {
   socket.on("mobile:list", handle(async () => ({
     available: isAvailable(),
     canManageEmulators: canManageEmulators(),
-    devices: isAvailable() ? await listAll() : []
+    devices: isAvailable() ? await listAll() : [],
+    env: await envStatus()
   })));
+
+  // ── SDK setup (install missing tooling on an explicit user click) ─────────
+
+  // Progress reaches the client as events; the ack only lands when the whole
+  // install does. Same shape as avdStart: close the panel freely, the job runs
+  // on the agent.
+  const pushJob = () => {
+    const state = sdkJobState();
+    if (state) protocol.emit("mobile:sdkProgress", state);
+  };
+
+  // One listener per connection; the set in sdkSetup multicasts to all of
+  // them, and a disconnect removes only this one.
+  const removeJobListener = setJobListener(pushJob);
+
+  socket.on("mobile:sdkInstall", handle(async (data) => {
+    const result = await installComponent(data?.component);
+    watchDevices();
+    return result;
+  }));
+
+  socket.on("mobile:sdkCancel", handle(async () => {
+    setCancelled(true);
+    return { cancelled: cancelInstall() };
+  }));
+
+  socket.on("mobile:sdkStatus", handle(async () => ({ env: await envStatus() })));
+
+  // ── System images (sdkmanager) ─────────────────────────────────────────────
+
+  socket.on("mobile:imageList", handle(async () => ({
+    images: await listImages(),
+    installed: listInstalledImages(),
+    hostAbi: hostAbi()
+  })));
+
+  // Downloads run as the single SDK job so the setup card's spinner, cancel
+  // and re-attach semantics apply unchanged; percent comes from sdkmanager.
+  socket.on("mobile:imageInstall", handle(async (data) => {
+    const imagePath = data?.imagePath;
+    beginJob(imagePath, { kind: "image" });
+    try {
+      const result = await installImage(imagePath, (pct) => endJob({ percent: pct }));
+      endJob({ phase: "done" });
+      watchDevices();
+      return result;
+    } catch (err) {
+      endJob({ phase: "error", error: err.message });
+      throw err;
+    }
+  }));
+
+  socket.on("mobile:imageUninstall", handle(async (data) => {
+    const result = await uninstallImage(data?.imagePath);
+    watchDevices();
+    return result;
+  }));
+
+  // ── AVD management (avdmanager) ────────────────────────────────────────────
+
+  socket.on("mobile:deviceProfiles", handle(async () => ({ profiles: await listDeviceProfiles() })));
+
+  socket.on("mobile:avdCreate", handle(async (data) => {
+    const result = await createAvd({
+      name: data?.name,
+      imagePath: data?.imagePath,
+      deviceId: data?.deviceId
+    });
+    watchDevices();
+    return result;
+  }));
+
+  // Refused for a running AVD: deleting or wiping the image under a live
+  // emulator corrupts it. The client checks state, the agent enforces it.
+  // A running emulator is asked its AVD name directly — the device list does
+  // not carry it, and the ini file would say "running" for a half-dead one.
+  const assertStopped = async (avdName) => {
+    for (const d of await listSerialsAsync()) {
+      if (!d.isEmulator) continue;
+      if (await avdNameOfAsync(d.serial) === avdName) {
+        throw new Error("Stop the AVD before changing or deleting it");
+      }
+    }
+  };
+
+  socket.on("mobile:avdDelete", handle(async (data) => {
+    const avdName = data?.avdName;
+    await assertStopped(avdName);
+    return deleteAvd(avdName);
+  }));
+
+  socket.on("mobile:avdWipe", handle(async (data) => {
+    const avdName = data?.avdName;
+    await assertStopped(avdName);
+    return wipeAvdData(avdName);
+  }));
 
   // ── Emulator lifecycle ───────────────────────────────────────────────────
 
@@ -484,5 +585,5 @@ export function setupMobileHandlers(socket) {
     session?.requestKeyframe();
   });
 
-  socket.on("disconnect", () => { stop(); stopLogcat(); clearInterval(deviceWatch); });
+  socket.on("disconnect", () => { stop(); stopLogcat(); clearInterval(deviceWatch); removeJobListener(); });
 }

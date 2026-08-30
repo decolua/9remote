@@ -21,6 +21,11 @@ export function useMobileDevices({ busRef, connected }) {
   const [error, setError] = useState(null);
   // Rendered (empty list vs. not asked yet), so it has to be state, not a ref.
   const [loaded, setLoaded] = useState(false);
+  // Host tooling state from mobile:list env { installRoot, diskFree, components }.
+  const [env, setEnv] = useState(null);
+  // Live download job { component, phase, received, total, bytesPerSec, error }.
+  // Null between jobs; survives panel close because the job runs on the agent.
+  const [sdkJob, setSdkJob] = useState(null);
   const lowPower = useTerminalStore((s) => s.mobileLowPower);
   const setLowPower = useTerminalStore((s) => s.setMobileLowPower);
 
@@ -31,6 +36,12 @@ export function useMobileDevices({ busRef, connected }) {
     if (!res?.success) return [];
     setLoaded(true);
     setCanManage(!!res.canManageEmulators);
+    if (res.env) {
+      setEnv(res.env);
+      // The job lives on the agent; a null here means it is gone (agent restart
+      // or settled) — the UI must not keep showing a stale spinner.
+      setSdkJob(res.env.job || null);
+    }
     const list = Array.isArray(res.devices) ? res.devices : [];
     setDevices(list);
     return list;
@@ -42,8 +53,17 @@ export function useMobileDevices({ busRef, connected }) {
     if (!bus || !connected) return;
     const onProgress = ({ avdName, phase }) => setBooting({ avdName, phase });
     bus.on("mobile:avdProgress", onProgress);
-    return () => bus.off("mobile:avdProgress", onProgress);
-  }, [busRef, connected]);
+    // SDK download progress; refresh() re-syncs the settled state.
+    const onSdkProgress = (job) => {
+      setSdkJob(job);
+      if (job.phase === "done" || job.phase === "error") refresh();
+    };
+    bus.on("mobile:sdkProgress", onSdkProgress);
+    return () => {
+      bus.off("mobile:avdProgress", onProgress);
+      bus.off("mobile:sdkProgress", onSdkProgress);
+    };
+  }, [busRef, connected, refresh]);
 
   // Poll so a device plugged in (or an emulator started elsewhere) shows up.
   useEffect(() => {
@@ -72,10 +92,90 @@ export function useMobileDevices({ busRef, connected }) {
     return res?.success;
   }, [busRef, refresh]);
 
+  /** Install a missing SDK component; progress arrives as mobile:sdkProgress. */
+  const installSdk = useCallback(async (component) => {
+    const res = await emitAck(busRef?.current, "mobile:sdkInstall", { component });
+    if (!res?.success) setError(res?.error || "Install failed");
+    await refresh();
+    return res?.success;
+  }, [busRef, refresh]);
+
+  const cancelSdk = useCallback(async () => {
+    await emitAck(busRef?.current, "mobile:sdkCancel", {});
+    await refresh();
+  }, [busRef, refresh]);
+
+  // ── System images (sdkmanager) ─────────────────────────────────────────────
+
+  const [images, setImages] = useState([]);
+  const [imagesLoading, setImagesLoading] = useState(false);
+  const [imagesError, setImagesError] = useState(null);
+
+  const [installedImages, setInstalledImages] = useState([]);
+  const [hostAbi, setHostAbi] = useState(null);
+
+  const refreshImages = useCallback(async () => {
+    const bus = busRef?.current;
+    if (!bus || !connected) return;
+    setImagesLoading(true);
+    setImagesError(null);
+    const res = await emitAck(bus, "mobile:imageList", {});
+    setImagesLoading(false);
+    if (!res?.success) { setImagesError(res?.error || "Could not list images"); return; }
+    setImages(Array.isArray(res.images) ? res.images : []);
+    setInstalledImages(Array.isArray(res.installed) ? res.installed : []);
+    setHostAbi(res.hostAbi || null);
+  }, [busRef, connected]);
+
+  const installImage = useCallback(async (imagePath) => {
+    const res = await emitAck(busRef?.current, "mobile:imageInstall", { imagePath });
+    if (!res?.success) setImagesError(res?.error || "Install failed");
+    await refreshImages();
+  }, [busRef, refreshImages]);
+
+  const uninstallImage = useCallback(async (imagePath) => {
+    const res = await emitAck(busRef?.current, "mobile:imageUninstall", { imagePath });
+    if (!res?.success) setImagesError(res?.error || "Remove failed");
+    await refreshImages();
+  }, [busRef, refreshImages]);
+
+  // ── AVD management (avdmanager) ────────────────────────────────────────────
+
+  const [deviceProfiles, setDeviceProfiles] = useState([]);
+
+  const refreshProfiles = useCallback(async () => {
+    const res = await emitAck(busRef?.current, "mobile:deviceProfiles", {});
+    if (res?.success) setDeviceProfiles(Array.isArray(res.profiles) ? res.profiles : []);
+  }, [busRef]);
+
+  const createAvd = useCallback(async ({ name, imagePath, deviceId }) => {
+    const res = await emitAck(busRef?.current, "mobile:avdCreate", { name, imagePath, deviceId });
+    if (!res?.success) { setError(res?.error || "Could not create AVD"); return false; }
+    await refresh();
+    return true;
+  }, [busRef, refresh]);
+
+  const deleteAvd = useCallback(async (avdName) => {
+    const res = await emitAck(busRef?.current, "mobile:avdDelete", { avdName });
+    if (!res?.success) setError(res?.error || "Could not delete AVD");
+    await refresh();
+    return res?.success;
+  }, [busRef, refresh]);
+
+  const wipeAvd = useCallback(async (avdName) => {
+    const res = await emitAck(busRef?.current, "mobile:avdWipe", { avdName });
+    if (!res?.success) setError(res?.error || "Could not wipe AVD");
+    await refresh();
+    return res?.success;
+  }, [busRef, refresh]);
+
   return {
     devices, canManage, booting, error, setError,
     refresh, startAvd, stopAvd,
     lowPower, setLowPower,
+    installSdk, cancelSdk, env, sdkJob,
+    images, imagesLoading, imagesError, refreshImages, installImage, uninstallImage, installedImages, hostAbi,
+    deviceProfiles, refreshProfiles, createAvd, deleteAvd, wipeAvd,
     // Distinguishes "still asking the agent" from "asked, and there are none".
     loaded
   };

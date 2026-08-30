@@ -368,7 +368,7 @@ export function setConnectCheckHandler(fn) { onConnectCheck = fn; }
 // Per-socket terminal + remote handlers (called from the single connection handler,
 // AFTER the transport bus is ready so remote tiles never race pm.init()).
 export async function setupTerminalHandlers(socket, io, apiKey) {
-  termLogger.info(`[diag] setupTerminalHandlers START id=${socket.id} virtual=${!!socket.isVirtual}`); // TEMP DIAGNOSTIC
+  termLogger.info(`[diag] setupTerminalHandlers START id=${socket.id} virtual=${!!socket.defersWsAdapter}`); // TEMP DIAGNOSTIC
   trackConnection();
 
   onConnectCheck?.();
@@ -391,7 +391,9 @@ export async function setupTerminalHandlers(socket, io, apiKey) {
 
   // Android mirroring — attached whenever adb is on the host (permissions and
   // device pick happen at invoke time).
-  if (isMobileAvailable()) setupMobileHandlers(socket);
+  // Unconditional: setup handlers must exist even with no adb on the host —
+  // installing the missing tooling from the UI is exactly what they are for.
+  setupMobileHandlers(socket);
 
   socket.on("disconnect", () => {
     markSubscriptionDisconnected(socket.id);

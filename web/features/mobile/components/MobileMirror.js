@@ -29,7 +29,12 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
   const [confirmShutdown, setConfirmShutdown] = useState(false);
 
   const deviceApi = useMobileDevices({ busRef, connected });
-  const { devices, canManage, booting, refresh, startAvd, stopAvd, lowPower, setLowPower } = deviceApi;
+  const {
+    devices, canManage, booting, refresh, startAvd, stopAvd, lowPower, setLowPower,
+    env, sdkJob, installSdk, cancelSdk,
+    images, imagesLoading, imagesError, installedImages, refreshImages, installImage, uninstallImage,
+    deviceProfiles, refreshProfiles, createAvd, deleteAvd, wipeAvd
+  } = deviceApi;
 
   const session = useMobileSession({ busRef, connected, devices, startAvd });
   const { serial, meta, starting, error: sessionError, open, stop } = session;
@@ -118,6 +123,22 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
               onRefresh={refresh}
               lowPower={lowPower}
               onLowPowerChange={setLowPower}
+              env={env}
+              sdkJob={sdkJob}
+              onInstallSdk={installSdk}
+              onCancelSdk={cancelSdk}
+              images={images}
+              imagesLoading={imagesLoading}
+              imagesError={imagesError}
+              installedImages={installedImages}
+              onRefreshImages={refreshImages}
+              onInstallImage={installImage}
+              onUninstallImage={uninstallImage}
+              profiles={deviceProfiles}
+              onRefreshProfiles={refreshProfiles}
+              onCreateAvd={createAvd}
+              onDeleteAvd={deleteAvd}
+              onWipeAvd={wipeAvd}
             />
           )}
         </div>
