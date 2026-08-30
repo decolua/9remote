@@ -17,6 +17,7 @@ import { useMobileInput } from "../hooks/useMobileInput";
 import { useMobileApps } from "../hooks/useMobileApps";
 import { useMobileLogcat } from "../hooks/useMobileLogcat";
 import DevicePicker from "./DevicePicker";
+import AddDeviceModal from "./AddDeviceModal";
 import AppPanel from "./AppPanel";
 import LogcatPanel from "./LogcatPanel";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -27,13 +28,12 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
   // Which overlay is up over the screen, if any. Null is the plain mirror.
   const [overlay, setOverlay] = useState(null);   // "apps" | "logs" | null
   const [confirmShutdown, setConfirmShutdown] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
 
   const deviceApi = useMobileDevices({ busRef, connected });
   const {
     devices, canManage, booting, refresh, startAvd, stopAvd, lowPower, setLowPower,
-    env, sdkJob, installSdk, cancelSdk,
-    images, imagesLoading, imagesError, installedImages, refreshImages, installImage, uninstallImage,
-    deviceProfiles, refreshProfiles, createAvd, deleteAvd, wipeAvd
+    sdkJob, presets, refreshPresets, provision, cancelSetup, deleteAvd, wipeAvd
   } = deviceApi;
 
   const session = useMobileSession({ busRef, connected, devices, startAvd });
@@ -112,6 +112,7 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
           ) : !DECODER_SUPPORTED ? (
             <p className="text-text-muted text-sm max-w-xs text-center p-6">{t("mobile.unsupportedBrowser")}</p>
           ) : (
+            <>
             <DevicePicker
               devices={devices}
               canManage={canManage}
@@ -123,23 +124,22 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
               onRefresh={refresh}
               lowPower={lowPower}
               onLowPowerChange={setLowPower}
-              env={env}
-              sdkJob={sdkJob}
-              onInstallSdk={installSdk}
-              onCancelSdk={cancelSdk}
-              images={images}
-              imagesLoading={imagesLoading}
-              imagesError={imagesError}
-              installedImages={installedImages}
-              onRefreshImages={refreshImages}
-              onInstallImage={installImage}
-              onUninstallImage={uninstallImage}
-              profiles={deviceProfiles}
-              onRefreshProfiles={refreshProfiles}
-              onCreateAvd={createAvd}
+              onAddDevice={() => { refreshPresets(); setShowAdd(true); }}
               onDeleteAvd={deleteAvd}
               onWipeAvd={wipeAvd}
+              sdkJob={sdkJob}
+              onShowSetup={() => setShowAdd(true)}
             />
+
+            <AddDeviceModal
+              isOpen={showAdd}
+              onClose={() => setShowAdd(false)}
+              presets={presets}
+              sdkJob={sdkJob}
+              onProvision={provision}
+              onCancel={cancelSetup}
+            />
+            </>
           )}
         </div>
       </div>

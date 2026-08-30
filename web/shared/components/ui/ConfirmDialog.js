@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 
@@ -22,11 +23,14 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
     return () => window.removeEventListener("keydown", handleEscape);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
-  return (
+  // Portaled to the body: rendered inside a view whose ancestor creates a
+  // stacking context (transform, z-index), a fixed z-50 dialog sinks under
+  // sibling layers no matter its own z-index.
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center px-4"
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
     >
       {/* Backdrop */}
@@ -67,6 +71,7 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

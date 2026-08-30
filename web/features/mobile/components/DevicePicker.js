@@ -1,16 +1,13 @@
 "use client";
 
 // Device chooser. Running and stopped devices share one list: tapping a row
-// opens it, booting first when it needs booting. Collapsible sections cover
-// the manager side: tooling setup and system images.
+// opens it, booting first when it needs booting. "+" adds a device in one
+// tap (the agent handles every install); ⋮ on a stopped AVD deletes or wipes.
 
 import { useState } from "react";
-import { Smartphone, Monitor, Play, Square, Loader2, RefreshCw, Zap, HardDrive, ChevronDown, ChevronUp, Plus, Trash2, RotateCw, MoreVertical } from "@/shared/components/ui/Icon";
+import { Smartphone, Monitor, Play, Square, Loader2, RefreshCw, Zap, Plus, Trash2, RotateCw, MoreVertical } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
-import SdkSetupCard from "./SdkSetupCard";
-import ImagesPanel from "./ImagesPanel";
-import CreateAvdModal from "./CreateAvdModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
 // Past this many rows the arrival delay stops growing — the tail of a long list
@@ -24,33 +21,35 @@ function StateDot({ state }) {
   return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cls}`} />;
 }
 
+// Setup steps, as plain words — the same labels the add-device modal uses.
+function setupStepKey(job) {
+  if (job?.step) return `mobile.provisionStep_${job.step}`;
+  const c = job?.component || "";
+  if (c.startsWith("system-images;")) return "mobile.provisionStep_image";
+  return `mobile.provisionStep_${c}`;
+}
+
 export default function DevicePicker({
   devices, canManage, booting, loading, error, onOpen, onStop, onRefresh,
-  lowPower, onLowPowerChange, env, sdkJob, onInstallSdk, onCancelSdk,
-  images, imagesLoading, imagesError, installedImages, hostAbi, onRefreshImages,
-  onInstallImage, onUninstallImage,
-  profiles, onRefreshProfiles, onCreateAvd, onDeleteAvd, onWipeAvd
+  lowPower, onLowPowerChange, onAddDevice, onDeleteAvd, onWipeAvd,
+  sdkJob, onShowSetup
 }) {
   const { t } = useI18n();
-  const [showImages, setShowImages] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
   const [menuFor, setMenuFor] = useState(null);       // device.id with menu open
-  const [confirm, setConfirm] = useState(null);        // { kind: "delete"|"wipe", avdName, name }
+  const [confirm, setConfirm] = useState(null);        // { kind, avdName, name }
 
   return (
     <div className="w-full max-w-sm mx-auto p-4 space-y-3 fade-in">
       <div className="flex items-center gap-2">
         <h2 className="text-text text-sm font-medium flex-1">{t("mobile.pickDevice")}</h2>
-        {canManage && (
-          <button
-            onClick={() => { vibrate(); onRefreshProfiles?.(); onRefreshImages?.(); setShowCreate(true); }}
-            className="p-1.5 text-text-muted hover:text-brand-500 hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
-            title={t("mobile.avdCreateTitle")}
-            aria-label={t("mobile.avdCreateTitle")}
-          >
-            <Plus size={15} />
-          </button>
-        )}
+        <button
+          onClick={() => { vibrate(); onAddDevice?.(); }}
+          className="p-1.5 text-text-muted hover:text-brand-500 hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
+          title={t("mobile.addDevice")}
+          aria-label={t("mobile.addDevice")}
+        >
+          <Plus size={15} />
+        </button>
         <button
           onClick={() => { vibrate(); onRefresh?.(); }}
           className="p-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94]"
@@ -61,40 +60,23 @@ export default function DevicePicker({
         </button>
       </div>
 
-      <SdkSetupCard
-        env={env}
-        sdkJob={sdkJob}
-        onInstall={onInstallSdk}
-        onCancel={onCancelSdk}
-        onRefresh={onRefresh}
-      />
-
-      {/* Manager section — collapsed while the picker is the focus. */}
-      {(env?.components?.["cmdline-tools"]?.installed || sdkJob) && (
-        <div className="bg-surface rounded-brand-lg overflow-hidden">
-          <button
-            onClick={() => { vibrate(); setShowImages(!showImages); }}
-            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-surface-2 transition-colors text-left"
-          >
-            <HardDrive size={14} className="text-brand-500 flex-shrink-0" />
-            <span className="text-xs text-text flex-1">{t("mobile.imagesTitle")}</span>
-            {showImages ? <ChevronUp size={13} className="text-text-muted" /> : <ChevronDown size={13} className="text-text-muted" />}
-          </button>
-          {showImages && (
-            <div className="px-2 pb-2">
-              <ImagesPanel
-                images={images}
-                loading={imagesLoading}
-                error={imagesError}
-                installedPaths={new Set(installedImages)}
-                job={sdkJob}
-                onInstall={onInstallImage}
-                onUninstall={onUninstallImage}
-                onRefresh={onRefreshImages}
-              />
-            </div>
-          )}
-        </div>
+      {/* Setup runs agent-side; this banner is the way back to its progress
+          after the modal was closed (or the view was left and reopened). */}
+      {sdkJob && sdkJob.phase !== "done" && sdkJob.phase !== "error" && (
+        <button
+          onClick={() => { vibrate(); onShowSetup?.(); }}
+          className="w-full flex items-center gap-2.5 bg-surface rounded-brand-lg px-3 py-2.5 hover:bg-surface-2 transition-colors text-left"
+        >
+          <Loader2 size={15} className="text-brand-500 animate-spin flex-shrink-0" />
+          <div className="flex flex-col min-w-0 flex-1">
+            <span className="text-xs text-text truncate">{t(setupStepKey(sdkJob))}</span>
+            <span className="text-[10px] text-text-muted">
+              {sdkJob.kind === "image" || sdkJob.step === "image"
+                ? `${sdkJob.percent ?? 0}%`
+                : `${Math.round((sdkJob.received || 0) / 1024 / 1024)} MB${sdkJob.bytesPerSec ? ` · ${Math.round(sdkJob.bytesPerSec / 1024 / 1024)} MB/s` : ""}`}
+            </span>
+          </div>
+        </button>
       )}
 
       {devices.length === 0 && (
@@ -104,9 +86,7 @@ export default function DevicePicker({
           ) : (
             <>
               <Smartphone size={26} className="text-text-muted mx-auto" />
-              <p className="text-text-muted text-sm">
-                {canManage ? t("mobile.noDevicesWithSdk") : t("mobile.noDevices")}
-              </p>
+              <p className="text-text-muted text-sm">{t("mobile.noDevicesHint")}</p>
             </>
           )}
         </div>
@@ -162,10 +142,10 @@ export default function DevicePicker({
                   </button>
                 ) : null}
 
-                {/* Manager menu, only where the AVD is actually ours to
-                    manage — a running one must be stopped first, matching the
-                    agent-side enforcement. */}
-                {canManage && device.kind === "emulator" && device.avdName && !running && (
+                {/* Housekeeping on our own stopped AVDs only — a running one's
+                    files are held by the emulator, and a physical phone is
+                    never ours to erase. */}
+                {canManage && device.kind === "emulator" && device.avdName && !running && !isBooting && (
                   <button
                     onClick={(e) => { e.stopPropagation(); vibrate(); setMenuFor(menuFor === device.id ? null : device.id); }}
                     className="p-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors flex-shrink-0"
@@ -217,18 +197,6 @@ export default function DevicePicker({
       )}
 
       {error && <p className="text-red-400 text-xs text-center">{error}</p>}
-
-      <CreateAvdModal
-        isOpen={showCreate}
-        onClose={() => setShowCreate(false)}
-        profiles={profiles}
-        images={images}
-        installedImages={installedImages}
-        hostAbi={hostAbi}
-        loading={imagesLoading}
-        onCreate={onCreateAvd}
-        onRefreshImages={onRefreshImages}
-      />
 
       <ConfirmDialog
         isOpen={!!confirm}

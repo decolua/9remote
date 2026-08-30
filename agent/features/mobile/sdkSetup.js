@@ -11,7 +11,7 @@ import https from "https";
 import { SDK_SETUP, JDK_SETUP } from "./constants.js";
 import { createLogger } from "../../lib/logger.js";
 import { findAdb, resetAdbCache } from "./adb.js";
-import { resetEmulatorCache, findEmulator } from "./emulator.js";
+import { resetEmulatorCache, findEmulator, listAvds } from "./emulator.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -450,6 +450,92 @@ export function cancelInstall() {
   return true;
 }
 
+// ── One-tap provisioning ─────────────────────────────────────────────────────
+// The UI offers devices, not SDK packages: the user picks "Pixel 7" and this
+// side works out the profile, the image, and every missing tool in order.
+
+// Two presets, deliberately generic profiles: medium_phone/tablet ask for
+// 800MB of data partition, while named-device profiles (pixel_7: 6GB) make
+// the emulator refuse to boot on a disk with under ~7.3GB free.
+const PROVISION_PRESETS = [
+  { id: "phone", label: "Phone", profileId: "medium_phone", api: 36 },
+  { id: "tablet", label: "Tablet", profileId: "medium_tablet", api: 36 }
+];
+
+// Presets store the API level only; the package path is derived from the host
+// ABI at use time. Building it in one place keeps the list and the provision
+// run from drifting apart.
+function presetImagePath(preset) {
+  return `system-images;android-${preset.api};google_apis;${hostAbi()}`;
+}
+
+export function listProvisionPresets() {
+  return PROVISION_PRESETS.map((p) => {
+    const imagePath = presetImagePath(p);
+    const needsImage = !listInstalledImages().includes(imagePath);
+    return {
+      ...p,
+      imagePath,
+      // What the tap will cost: "ready" when everything is already on disk,
+      // otherwise the ~1.5GB image download is the honest number to show.
+      ready: !needsImage && Boolean(findAdb() && sdkManagerPath() && findJava() && findEmulator())
+    };
+  });
+}
+
+// Sequential self-setup then AVD creation. Each step manages the shared job
+// slot itself (installComponent/installImage already do), so this only
+// orchestrates and stamps the step name for the client.
+export async function provisionPreset(presetId, { onStep } = {}) {
+  const preset = PROVISION_PRESETS.find((p) => p.id === presetId);
+  if (!preset) throw new Error(`Unknown device: ${presetId}`);
+  if (isBusy()) throw new Error("A setup is already running");
+
+  // Fail fast with real numbers: the emulator's own error surfaces only at
+  // boot, far from the tap that caused it.
+  const free = await diskFreeBytes(avdHome());
+  if (free != null && free < SDK_SETUP.minDiskBytes) {
+    throw new Error(`Not enough disk space — a new device needs ~7.3 GB free, only ${(free / 1024 ** 3).toFixed(1)} GB available`);
+  }
+
+  const step = async (label, fn) => {
+    onStep?.(label);
+    await fn();
+  };
+
+  try {
+    if (!findAdb()) await step("platform-tools", () => installComponent("platform-tools"));
+    if (!findJava()) await step("jdk", () => installComponent("jdk"));
+    if (!sdkManagerPath()) await step("cmdline-tools", () => installComponent("cmdline-tools"));
+    if (!findEmulator()) await step("emulator", () => installComponent("emulator"));
+
+    const imagePath = presetImagePath(preset);
+    if (!listInstalledImages().includes(imagePath)) {
+      await step("image", () => installImage(imagePath, (pct) => endJob({ percent: pct })));
+    }
+
+    // Auto-name: 9r_phone, 9r_phone_2, … — the user never types one.
+    const existing = await listAvds();
+    let n = 1;
+    let name = `9r_${preset.id}`;
+    while (existing.includes(name)) {
+      n += 1;
+      name = `9r_${preset.id}_${n}`;
+    }
+
+    await step("create", () => createAvd({ name, imagePath, deviceId: preset.profileId }));
+    endJob({ phase: "done" });
+    logger.info(`📱 Provisioned ${name} (${imagePath})`);
+    return { avdName: name };
+  } catch (err) {
+    // The install steps stamp their own error onto the job; this catch covers
+    // the ones that do not (naming, create) — without it the shared job slot
+    // stays "busy" and blocks every later install until an agent restart.
+    endJob({ phase: "error", error: err.message });
+    throw err;
+  }
+}
+
 // ── AVD management (avdmanager) ──────────────────────────────────────────────
 
 // Device profiles the create wizard offers. `avdmanager list device` answers
@@ -529,10 +615,11 @@ export async function wipeAvdData(avdName) {
   return { wiped };
 }
 
-// sdkmanager progress lines look like: "[===  12%] Downloading SDK Patch...".
+// sdkmanager progress looks like "[====    ] 12% Fetch remote repository..." —
+// the percent sits AFTER the bracket, and lines arrive as \r-separated runs.
 function extractPercent(line) {
-  const m = line.match(/\[\s*(\d+)%\]/);
-  return m ? Number(m[1]) : null;
+  const matches = [...line.matchAll(/(\d+)%/g)];
+  return matches.length ? Number(matches[matches.length - 1][1]) : null;
 }
 
 export async function listImages() {
@@ -610,7 +697,9 @@ export async function installEmulatorPackage(onProgress) {
 export async function installImage(imagePath, onProgress) {
   const sdk = sdkManagerPath();
   if (!sdk) throw new Error("cmdline-tools not installed");
-  if (!/^[\w.;-]+$/.test(imagePath)) throw new Error("Invalid package path");
+  // `|| ""` matters: regex.test(undefined) coerces to the string "undefined"
+  // and passes, sending a literal "undefined" package name to sdkmanager.
+  if (!/^[\w.;-]+$/.test(imagePath || "")) throw new Error("Invalid package path");
   // sdkmanager refuses to install while licenses are unanswered; the user has
   // already confirmed the download, so accepting on their behalf here matches
   // what Android Studio's first wizard run does.

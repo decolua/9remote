@@ -237,6 +237,10 @@ export const SDK_SETUP = {
   // A failed or cancelled download is discarded wholesale (tmp dir removed),
   // so a truncated zip from a flaky tunnel never reaches the SDK root.
   downloadTimeoutMs: 30 * 60 * 1000,
+  // The emulator allocates ~7.3GB for a new AVD's userdata on first boot,
+  // regardless of profile or image. Rather than let it die at boot with no
+  // explanation, provisioning refuses early with the real numbers.
+  minDiskBytes: Math.ceil(7372.8 * 1024 * 1024),
   components: {
     "platform-tools": {
       // ~13MB zipped; unzips to ~25MB. Includes adb and fastboot.

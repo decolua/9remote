@@ -21,9 +21,7 @@ export function useMobileDevices({ busRef, connected }) {
   const [error, setError] = useState(null);
   // Rendered (empty list vs. not asked yet), so it has to be state, not a ref.
   const [loaded, setLoaded] = useState(false);
-  // Host tooling state from mobile:list env { installRoot, diskFree, components }.
-  const [env, setEnv] = useState(null);
-  // Live download job { component, phase, received, total, bytesPerSec, error }.
+  // Live setup/download job { component, step, phase, received, total, … }.
   // Null between jobs; survives panel close because the job runs on the agent.
   const [sdkJob, setSdkJob] = useState(null);
   const lowPower = useTerminalStore((s) => s.mobileLowPower);
@@ -37,7 +35,6 @@ export function useMobileDevices({ busRef, connected }) {
     setLoaded(true);
     setCanManage(!!res.canManageEmulators);
     if (res.env) {
-      setEnv(res.env);
       // The job lives on the agent; a null here means it is gone (agent restart
       // or settled) — the UI must not keep showing a stale spinner.
       setSdkJob(res.env.job || null);
@@ -53,7 +50,7 @@ export function useMobileDevices({ busRef, connected }) {
     if (!bus || !connected) return;
     const onProgress = ({ avdName, phase }) => setBooting({ avdName, phase });
     bus.on("mobile:avdProgress", onProgress);
-    // SDK download progress; refresh() re-syncs the settled state.
+    // Setup/download progress; refresh() re-syncs the settled state.
     const onSdkProgress = (job) => {
       setSdkJob(job);
       if (job.phase === "done" || job.phase === "error") refresh();
@@ -92,79 +89,39 @@ export function useMobileDevices({ busRef, connected }) {
     return res?.success;
   }, [busRef, refresh]);
 
-  /** Install a missing SDK component; progress arrives as mobile:sdkProgress. */
-  const installSdk = useCallback(async (component) => {
-    const res = await emitAck(busRef?.current, "mobile:sdkInstall", { component });
-    if (!res?.success) setError(res?.error || "Install failed");
-    await refresh();
-    return res?.success;
-  }, [busRef, refresh]);
+  // ── One-tap provisioning ────────────────────────────────────────────────────
 
-  const cancelSdk = useCallback(async () => {
+  const [presets, setPresets] = useState([]);
+
+  const refreshPresets = useCallback(async () => {
+    const res = await emitAck(busRef?.current, "mobile:provisionPresets", {});
+    if (res?.success) setPresets(Array.isArray(res.presets) ? res.presets : []);
+  }, [busRef]);
+
+  /** Tap a device row → agent installs what's missing and creates the AVD. */
+  const provision = useCallback(async (presetId) => {
+    setError(null);
+    const res = await emitAck(busRef?.current, "mobile:provision", { presetId });
+    await Promise.all([refresh(), refreshPresets()]);
+    if (!res?.success) { setError(res?.error || "Could not create device"); return false; }
+    return true;
+  }, [busRef, refresh, refreshPresets]);
+
+  const cancelSetup = useCallback(async () => {
     await emitAck(busRef?.current, "mobile:sdkCancel", {});
     await refresh();
   }, [busRef, refresh]);
 
-  // ── System images (sdkmanager) ─────────────────────────────────────────────
-
-  const [images, setImages] = useState([]);
-  const [imagesLoading, setImagesLoading] = useState(false);
-  const [imagesError, setImagesError] = useState(null);
-
-  const [installedImages, setInstalledImages] = useState([]);
-  const [hostAbi, setHostAbi] = useState(null);
-
-  const refreshImages = useCallback(async () => {
-    const bus = busRef?.current;
-    if (!bus || !connected) return;
-    setImagesLoading(true);
-    setImagesError(null);
-    const res = await emitAck(bus, "mobile:imageList", {});
-    setImagesLoading(false);
-    if (!res?.success) { setImagesError(res?.error || "Could not list images"); return; }
-    setImages(Array.isArray(res.images) ? res.images : []);
-    setInstalledImages(Array.isArray(res.installed) ? res.installed : []);
-    setHostAbi(res.hostAbi || null);
-  }, [busRef, connected]);
-
-  const installImage = useCallback(async (imagePath) => {
-    const res = await emitAck(busRef?.current, "mobile:imageInstall", { imagePath });
-    if (!res?.success) setImagesError(res?.error || "Install failed");
-    await refreshImages();
-  }, [busRef, refreshImages]);
-
-  const uninstallImage = useCallback(async (imagePath) => {
-    const res = await emitAck(busRef?.current, "mobile:imageUninstall", { imagePath });
-    if (!res?.success) setImagesError(res?.error || "Remove failed");
-    await refreshImages();
-  }, [busRef, refreshImages]);
-
-  // ── AVD management (avdmanager) ────────────────────────────────────────────
-
-  const [deviceProfiles, setDeviceProfiles] = useState([]);
-
-  const refreshProfiles = useCallback(async () => {
-    const res = await emitAck(busRef?.current, "mobile:deviceProfiles", {});
-    if (res?.success) setDeviceProfiles(Array.isArray(res.profiles) ? res.profiles : []);
-  }, [busRef]);
-
-  const createAvd = useCallback(async ({ name, imagePath, deviceId }) => {
-    const res = await emitAck(busRef?.current, "mobile:avdCreate", { name, imagePath, deviceId });
-    if (!res?.success) { setError(res?.error || "Could not create AVD"); return false; }
-    await refresh();
-    return true;
-  }, [busRef, refresh]);
-
   const deleteAvd = useCallback(async (avdName) => {
     const res = await emitAck(busRef?.current, "mobile:avdDelete", { avdName });
-    if (!res?.success) setError(res?.error || "Could not delete AVD");
+    if (!res?.success) setError(res?.error || "Could not delete");
     await refresh();
     return res?.success;
   }, [busRef, refresh]);
 
   const wipeAvd = useCallback(async (avdName) => {
     const res = await emitAck(busRef?.current, "mobile:avdWipe", { avdName });
-    if (!res?.success) setError(res?.error || "Could not wipe AVD");
+    if (!res?.success) setError(res?.error || "Could not wipe");
     await refresh();
     return res?.success;
   }, [busRef, refresh]);
@@ -173,9 +130,7 @@ export function useMobileDevices({ busRef, connected }) {
     devices, canManage, booting, error, setError,
     refresh, startAvd, stopAvd,
     lowPower, setLowPower,
-    installSdk, cancelSdk, env, sdkJob,
-    images, imagesLoading, imagesError, refreshImages, installImage, uninstallImage, installedImages, hostAbi,
-    deviceProfiles, refreshProfiles, createAvd, deleteAvd, wipeAvd,
+    sdkJob, presets, refreshPresets, provision, cancelSetup, deleteAvd, wipeAvd,
     // Distinguishes "still asking the agent" from "asked, and there are none".
     loaded
   };

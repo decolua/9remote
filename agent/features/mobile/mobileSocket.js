@@ -11,7 +11,7 @@ import { encodeMobileFrame, MOBILE_FLAG_KEY, MOBILE_FLAG_CONFIG } from "./mobile
 import { VIDEO_CHUNK_PAYLOAD, FLOW, ADAPT, DEVICE_WATCH_MS, SLEEP_ON_HIDE_MS } from "./constants.js";
 import { listAll, listAvdsAsync, startAvd, stopAvd, canManageEmulators, isAgentStarted, avdNameOfAsync } from "./emulator.js";
 import { listSerialsAsync } from "./adb.js";
-import { envStatus, installComponent, cancelInstall, sdkJobState, setJobListener, listImages, installImage, uninstallImage, listInstalledImages, hostAbi, isBusy, beginJob, endJob, setCancelled, listDeviceProfiles, createAvd, deleteAvd, wipeAvdData } from "./sdkSetup.js";
+import { envStatus, installComponent, cancelInstall, sdkJobState, setJobListener, listImages, installImage, uninstallImage, listInstalledImages, hostAbi, isBusy, beginJob, endJob, setCancelled, listDeviceProfiles, createAvd, deleteAvd, wipeAvdData, listProvisionPresets, provisionPreset } from "./sdkSetup.js";
 import { LogcatStream } from "./logcat.js";
 import {
   listApps, foregroundApp, installApk, uninstallApp, launchApp, stopApp, clearAppData,
@@ -301,6 +301,21 @@ export function setupMobileHandlers(socket) {
   }));
 
   socket.on("mobile:sdkStatus", handle(async () => ({ env: await envStatus() })));
+
+  // ── One-tap device provisioning ─────────────────────────────────────────────
+  // The whole setup chain (missing tools → image → AVD) behind one pick. Each
+  // internal step still drives the shared job slot, so progress/cancel behave
+  // exactly like a direct component install.
+
+  socket.on("mobile:provisionPresets", handle(async () => ({ presets: listProvisionPresets() })));
+
+  socket.on("mobile:provision", handle(async (data) => {
+    const result = await provisionPreset(data?.presetId, {
+      onStep: (label) => endJob({ step: label })
+    });
+    watchDevices();
+    return result;
+  }));
 
   // ── System images (sdkmanager) ─────────────────────────────────────────────
 
