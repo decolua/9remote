@@ -1,14 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, Globe, Loader2, Plus, RotateCw, X } from "@/shared/components/ui/Icon";
+import { ChevronLeft, ChevronRight, Globe, Home, Loader2, Plus, RotateCw, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { initSiteBridge, fetchLocalSites, parseSiteAddress } from "../lib/siteBridge";
 import { SITE_NAV_EVENT, siteProxySrc } from "../constants/browserConfig";
 
 let tabKeySeq = 0;
-const newTab = (port, path) => ({ key: `site-${++tabKeySeq}`, port, path: path || "/", srcTick: 0 });
+// Each tab carries its own history stack — the iframe's real history piles onto
+// the parent's, which the view deliberately stays out of (OVERLAY_VIEWS).
+const newTab = (port, path) => {
+  const entry = { port, path: path || "/" };
+  return { key: `site-${++tabKeySeq}`, port, path: entry.path, srcTick: 0, hist: [entry], histIdx: 0 };
+};
 const tabAddress = (tab) => (tab ? `localhost:${tab.port}${tab.path || "/"}` : "");
 // Points at the shell on the sites origin, not at a path here: the browsed page
 // must not share an origin with the app's stored credentials.
@@ -57,13 +62,20 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
     return () => { cancelled = true; };
   }, [connected, sites, busRef]);
 
-  // Address bar follows in-iframe navigations reported by the SW
+  // Address bar follows in-iframe navigations reported by the SW; a genuinely
+  // new address (e.g. a redirect) becomes a history entry
   useEffect(() => {
     const onNav = (e) => {
       const { port, path } = e.detail || {};
       if (!port) return;
       setState((prev) => ({
-        tabs: prev.tabs.map((tab) => (tab.key === prev.activeKey ? { ...tab, port, path } : tab)),
+        tabs: prev.tabs.map((tab) => {
+          if (tab.key !== prev.activeKey) return tab;
+          const cur = tab.hist[tab.histIdx];
+          if (cur && cur.port === port && cur.path === (path || "/")) return { ...tab, port, path };
+          const hist = [...tab.hist.slice(0, tab.histIdx + 1), { port, path: path || "/" }];
+          return { ...tab, port, path, hist, histIdx: hist.length - 1 };
+        }),
         activeKey: prev.activeKey,
         address: `localhost:${port}${path || "/"}`
       }));
@@ -96,11 +108,16 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
       const existing = prev.tabs.find((tab) => tab.key === prev.activeKey);
       if (existing) {
         return {
-          tabs: prev.tabs.map((tab) => (
-            tab.key === prev.activeKey
-              ? { ...tab, port, path, srcTick: tab.srcTick + 1 }
-              : tab
-          )),
+          tabs: prev.tabs.map((tab) => {
+            if (tab.key !== prev.activeKey) return tab;
+            // Same address again is a reload, not a new history entry
+            const cur = tab.hist[tab.histIdx];
+            if (cur && cur.port === port && cur.path === path) {
+              return { ...tab, port, path, srcTick: tab.srcTick + 1 };
+            }
+            const hist = [...tab.hist.slice(0, tab.histIdx + 1), { port, path }];
+            return { ...tab, port, path, srcTick: tab.srcTick + 1, hist, histIdx: hist.length - 1 };
+          }),
           activeKey: prev.activeKey,
           address: `localhost:${port}${path}`
         };
@@ -135,6 +152,32 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
       ...prev,
       tabs: prev.tabs.map((tab) => (tab.key === prev.activeKey ? { ...tab, srcTick: tab.srcTick + 1 } : tab))
     }));
+  };
+
+  // Walk the active tab's own history; the srcTick bump forces the iframe to
+  // load the entry rather than stay on its current document
+  const goHist = (delta) => {
+    if (!activeTab) return;
+    const idx = activeTab.histIdx + delta;
+    const entry = activeTab.hist[idx];
+    if (!entry) return;
+    vibrate();
+    startSession(entry.port);
+    setLoading(true);
+    setState((prev) => ({
+      tabs: prev.tabs.map((tab) => (
+        tab.key === prev.activeKey
+          ? { ...tab, port: entry.port, path: entry.path, srcTick: tab.srcTick + 1, histIdx: idx }
+          : tab
+      )),
+      activeKey: prev.activeKey,
+      address: tabAddress(entry)
+    }));
+  };
+
+  const goHome = () => {
+    if (!activeTab) return;
+    navigate(activeTab.port, "/");
   };
 
   const showPicker = () => {
@@ -183,7 +226,31 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
       </div>
 
       {/* Address bar */}
-      <div className="h-11 flex items-center gap-2 px-2 border-b border-border-subtle shrink-0">
+      <div className="h-11 flex items-center gap-1 px-2 border-b border-border-subtle shrink-0">
+        <button
+          onClick={() => goHist(-1)}
+          disabled={!activeTab || activeTab.histIdx === 0}
+          className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors disabled:opacity-40 shrink-0"
+          title={t("sites.goBack")}
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <button
+          onClick={() => goHist(1)}
+          disabled={!activeTab || activeTab.histIdx >= activeTab.hist.length - 1}
+          className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors disabled:opacity-40 shrink-0"
+          title={t("sites.goForward")}
+        >
+          <ChevronRight size={16} />
+        </button>
+        <button
+          onClick={goHome}
+          disabled={!activeTab}
+          className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors disabled:opacity-40 shrink-0"
+          title={t("menu.home")}
+        >
+          <Home size={15} />
+        </button>
         <input
           type="text"
           value={address}
@@ -198,7 +265,7 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
         <button
           onClick={reload}
           disabled={!activeTab}
-          className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors disabled:opacity-40"
+          className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors disabled:opacity-40 shrink-0"
           title={t("editor.reload")}
         >
           <RotateCw size={15} />
