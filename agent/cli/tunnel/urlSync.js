@@ -9,7 +9,7 @@ import {
 } from "../utils/tunnelHealth.js";
 import { getLanIp } from "../core/localApi.js";
 import { waitForTunnelReady } from "./readiness.js";
-import { WORKER_URL, URL_SYNC_DEBOUNCE_MS, FAST_PROBE_TIMEOUT_MS } from "../config.js";
+import { WORKER_URL, URL_SYNC_DEBOUNCE_MS, FAST_PROBE_TIMEOUT_MS, SESSION_HEARTBEAT_INTERVAL_MS } from "../config.js";
 
 const logger = createLogger("tunnel");
 
@@ -19,6 +19,7 @@ let lastSyncedAt = 0;
 
 export async function updateTunnelUrl(selectedKey, tunnelUrl) {
   logger.debug(`updateTunnelUrl: key=${selectedKey?.slice(0,8)} url=${tunnelUrl}`);
+  startSessionHeartbeat(selectedKey);
   if (tunnelUrl && tunnelUrl === lastSyncedUrl && Date.now() - lastSyncedAt < URL_SYNC_DEBOUNCE_MS) {
     logger.debug(`updateTunnelUrl: skipped (debounce, same URL)`);
     return;
@@ -57,6 +58,68 @@ export async function updateTunnelUrl(selectedKey, tunnelUrl) {
   });
 
   if (tunnelUrl) startTunnelHealthWatchdog(tunnelUrl);
+}
+
+// ── Session heartbeat ────────────────────────────────────────────────────────
+// The Worker cannot tell a running agent from a crashed one on its own — a
+// session row survives both. A periodic beat keeps agentSeenAt fresh and a
+// goodbye on shutdown marks agentOnline=0, so /api/connect can answer "agent
+// is offline" at login instead of handing out a dead tunnel.
+let heartbeatTimer = null;
+let heartbeatKey = null;
+let heartbeatBusy = false;
+let lastBeatAt = 0;
+
+async function postHeartbeat(apiKey, online) {
+  const fields = { apiKey, online };
+  const res = await browserFetch(`${WORKER_URL}/api/session/heartbeat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...fields, ...sessionMutationAuth(fields) }),
+  });
+  if (!res.ok) logger.warn(`heartbeat online=${online} HTTP ${res.status}`);
+  return res.ok;
+}
+
+async function beat() {
+  if (heartbeatBusy || !heartbeatKey) return;
+  heartbeatBusy = true;
+  try {
+    await postHeartbeat(heartbeatKey, true);
+    lastBeatAt = Date.now();
+  } catch (e) {
+    logger.debug(`heartbeat failed: ${e?.message || e}`);
+  } finally {
+    heartbeatBusy = false;
+  }
+}
+
+/** Idempotent per key; re-invoked with the same key only re-beats when the
+ *  last one is stale (e.g. right after the machine woke from sleep). */
+export function startSessionHeartbeat(selectedKey) {
+  const apiKey = headOf(selectedKey);
+  if (!apiKey) return;
+  if (heartbeatTimer && heartbeatKey === apiKey) {
+    if (Date.now() - lastBeatAt >= SESSION_HEARTBEAT_INTERVAL_MS) beat();
+    return;
+  }
+  stopSessionHeartbeat();
+  heartbeatKey = apiKey;
+  beat(); // first beat lands now so a just-started agent reads online at once
+  heartbeatTimer = setInterval(beat, SESSION_HEARTBEAT_INTERVAL_MS);
+  heartbeatTimer.unref?.();
+}
+
+/** Stop the beat and, on shutdown, tell the Worker we are gone on purpose —
+ *  login flips to offline instantly instead of waiting out the grace window.
+ *  Returns the in-flight goodbye promise (caller bounds it), or null. */
+export function stopSessionHeartbeat({ offline = false } = {}) {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  const key = heartbeatKey;
+  heartbeatKey = null;
+  lastBeatAt = 0;
+  if (!offline || !key) return null;
+  return postHeartbeat(key, false).catch((e) => logger.debug(`goodbye failed: ${e?.message || e}`));
 }
 
 let fastProbeCtx = null;

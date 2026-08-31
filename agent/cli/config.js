@@ -53,6 +53,10 @@ export const UPDATE = {
 };
 
 export const URL_SYNC_DEBOUNCE_MS = 5000;
+// How often the agent tells the Worker it is alive, and how long shutdown may
+// wait for the final "offline" beat to flush before exiting anyway.
+export const SESSION_HEARTBEAT_INTERVAL_MS = 120000;
+export const HEARTBEAT_GOODBYE_MAX_MS = 1500;
 export const HEALTH_FLAP_STABLE_CHECKS = 2;
 export const FAST_PROBE_TIMEOUT_MS = 30000;
 

@@ -12,7 +12,8 @@ import { stopTunnelHealthWatchdog } from "../utils/tunnelHealth.js";
 import { killTray } from "../utils/tray.js";
 import { clearState } from "../utils/state.js";
 import { clearPid } from "../utils/pids.js";
-import { SERVER_HEALTHY_RESET_MS, SHUTDOWN_EXIT_DELAY_MS, SHUTDOWN_CRASH_DELAY_MS } from "../config.js";
+import { SERVER_HEALTHY_RESET_MS, SHUTDOWN_EXIT_DELAY_MS, SHUTDOWN_CRASH_DELAY_MS, HEARTBEAT_GOODBYE_MAX_MS } from "../config.js";
+import { stopSessionHeartbeat } from "../tunnel/urlSync.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Bundle: dist/cli.cjs → ./server.cjs ; Dev: agent/cli/core/ → ../../dist/server.cjs
@@ -145,7 +146,17 @@ export function shutdownAll({ serverManager, tunnelProcess, exit = true, code = 
   try { clearState(); } catch {}
   try { clearPid("agent"); } catch {}
   try { clearPid("cloudflared"); } catch {}
+  // Final "offline" beat before exit — bounded so a slow network cannot stall
+  // shutdown; if it never got sent, the Worker's grace window catches up.
+  const goodbye = stopSessionHeartbeat({ offline: true });
   if (exit) {
+    if (goodbye) {
+      Promise.race([
+        goodbye,
+        new Promise((r) => setTimeout(r, HEARTBEAT_GOODBYE_MAX_MS)),
+      ]).finally(() => process.exit(code));
+      return;
+    }
     setTimeout(() => process.exit(code), SHUTDOWN_EXIT_DELAY_MS);
   }
 }
