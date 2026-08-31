@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, Suspense, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/shared/hooks/useAuth";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
@@ -44,14 +44,14 @@ function parsePairingInput(raw) {
   const str = String(raw || "").trim();
   const split = (code) => ({
     tempKey: code.slice(0, 6).toUpperCase(),
-    tail: code.slice(6).toUpperCase()
+    tail: code.slice(6, 8).toUpperCase()
   });
 
   const hashMatch = /#([A-NP-Z1-9]{6}-?[a-np-z1-9]{2})$/i.exec(str);
-  if (hashMatch) return split(hashMatch[1].replace("-", ""));
+  if (hashMatch) return split(hashMatch[1].replace(/-/g, ""));
 
   const codeMatch = /^([A-NP-Z1-9]{6}-?[a-np-z1-9]{2})$/i.exec(str);
-  if (codeMatch) return split(codeMatch[1].replace("-", ""));
+  if (codeMatch) return split(codeMatch[1].replace(/-/g, ""));
 
   // Bare 6-char code: a QR from an older agent, or a code typed without its
   // tail. It still routes; the agent decides what an absent tail is worth.
@@ -176,10 +176,18 @@ function LoginContent() {
     }
   }, [authenticateWithToken, router]);
 
+  // One attempt per code, not per effect run: StrictMode (dev) remounts and
+  // re-fires this, and the callbacks' identity changes every render — either
+  // would double-POST /api/connect with the same one-time key. The ref guards
+  // both, and the stash-scrub inside authenticateWithTempKey covers real nav.
+  const tokenAuthStarted = useRef(false);
   useEffect(() => {
+    if (!token && !tempKey) return;
+    if (tokenAuthStarted.current) return;
+    tokenAuthStarted.current = true;
     if (token) {
       authenticateWithToken(token);
-    } else if (tempKey) {
+    } else {
       authenticateWithTempKey(tempKey);
     }
   }, [token, tempKey, authenticateWithToken, authenticateWithTempKey]);
@@ -202,7 +210,6 @@ function LoginContent() {
     // The routing half goes to the Worker; the TAIL is kept for the agent.
     const routingKey = isOneTime ? parsed.tempKey : headOf(trimmedKey);
     const tail = isOneTime ? parsed.tail : tailOf(trimmedKey);
-
     const result = isOneTime
       ? await authenticateWithToken(parsed.tempKey, true, parsed.tail)
       : await authenticateWithApiKey(trimmedKey);
@@ -483,10 +490,13 @@ function LoginContent() {
             </div>
             {(error || tailRejected) && (
               <p className="mt-2 text-xs font-mono text-danger">
-                {/* useAuth has no i18n context, so a wrong TAIL comes back as a
-                    marker and is localised here — the same message whether the
-                    agent refused it at login or after connecting. */}
-                {error && error !== "wrong-key-tail" ? error : t("login.invalidKeyTail")}
+                {/* useAuth has no i18n context, so its failures come back as
+                    markers and are localised here — wrong TAIL (refused at
+                    login or after connecting) and agent-offline (the Worker
+                    knows the machine is down). Anything else is shown as-is. */}
+                {error === "agent-offline" ? t("login.agentOffline")
+                  : error && error !== "wrong-key-tail" ? error
+                  : t("login.invalidKeyTail")}
               </p>
             )}
 
