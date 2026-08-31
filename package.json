@@ -37,7 +37,8 @@
     "agent:dev:ui:start": "npm run dev:ui:start --prefix agent",
     "pc:build:win": "bash desktop/scripts/build-windows.sh",
     "pc:build:linux": "bash desktop/scripts/build-linux.sh",
-    "pc:build:linux:amd64": "bash desktop/scripts/build-linux.sh --amd64"
+    "pc:build:linux:amd64": "bash desktop/scripts/build-linux.sh --amd64",
+    "web:pc:build": "node desktop/chromeShell/build.mjs"
   },
   "devDependencies": {
     "@napi-rs/image": "^1.12.0",

@@ -1,0 +1,13 @@
+{
+  "appName": "9Remote Web",
+  "bundleId": "cc.9remote.chromeshell",
+  "url": "https://dev.9remote.cc",
+  "profileDir": "9RemoteWeb",
+  "windowSize": "1280,840",
+  "browsers": [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium"
+  ]
+}
