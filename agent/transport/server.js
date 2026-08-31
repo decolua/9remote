@@ -604,6 +604,13 @@ function rejectDeviceTail(socket, deviceId, reason) {
   const why = socket.data.tailReject.reason;
   logger.warn(`tail rejected (${why}): device=${deviceId?.slice(0, 8) ?? "none"} carrier=${carrierOf(socket).id}`);
   pushUiLog(`Device refused (${why}): ${deviceId?.slice(0, 8)}`);
+  // A wrong TAIL on a pairing BURNS the code (consumePairingTail killed it here
+  // and at the Worker) — the UI must stop showing a key that can never work
+  // again. Timeout/seal-unreadable leave it alive, so only mismatch clears.
+  if (authOf(socket)?.tempKey && why === TAIL_REJECT_REASON.mismatch) {
+    logger.warn("one-time key burned (wrong TAIL) — clearing from UI");
+    clearOneTimeKey();
+  }
   finishTailRejection(socket, () => {
     if (socket.defersWsAdapter) killRtcSession(socket.peerId);
     revokeDevice(deviceId, why);

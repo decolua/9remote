@@ -161,11 +161,12 @@ export function noteTailFailure(keyHead) {
  * key can be refused at the login screen instead of after the user has been
  * sent to a workspace that will throw them out.
  *
- * Deliberately answers the same question the gate asks, with the same two
- * secrets — the live code's tail for a pairing, the key's otherwise — and the
- * same rate limit. It settles nothing: no verdict is recorded, no device is
- * involved, and a code is not spent. A client that skips this gets exactly as
- * far, which is what makes answering it safe.
+ * Answers the same question the gate asks, with the same two secrets — the live
+ * code's tail for a pairing, the key's otherwise — and the same rate limit. A
+ * WRONG TAIL on a pairing burns the code here too (one strike, exactly like a
+ * carrier proof): the login screen and the agent must agree on what a miss
+ * costs, or the screen keeps showing a key that is already dead. No verdict is
+ * recorded and no device is involved — only the code is spent.
  *
  * @returns {{ok: boolean, reason?: string, penaltyMs?: number}}
  */
@@ -174,7 +175,7 @@ export function verifyPresentedTail({ tail, tempKey } = {}) {
   if (!pairing && !isTailProofEnabled()) return { ok: true }; // v1 key: nothing to prove
   if (!tail) return { ok: false, reason: TAIL_REJECT_REASON.mismatch, penaltyMs: 0 };
 
-  const matches = pairing ? matchesPairingTail(tail) : verifyKeyTail(tail);
+  const matches = pairing ? consumePairingTail(tail) : verifyKeyTail(tail);
   if (matches) return { ok: true };
   return {
     ok: false,

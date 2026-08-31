@@ -141,6 +141,21 @@ async function handleVerifyKey(req, res) {
   const { verifyPresentedTail } = await import("./lib/deviceAuth.js");
   const result = verifyPresentedTail({ tail: data.tail, tempKey: data.tempKey });
   if (result.ok) { jsonOk(res, { ok: true }); return; }
+  // logger, not pushUiLog: the SSE-only push is lost to any UI that opens
+  // after the attempt, while the logger line persists (file + /logs + SSE).
+  const ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown";
+  if (data.tempKey && data.tail) {
+    // One strike, same as a carrier proof: a wrong TAIL burned the code above,
+    // so the UI must stop showing a key that can never work again. pairingUsed
+    // blocks the auto-mint — a fresh code is a deliberate host action.
+    logger.warn(`wrong one-time code TAIL (${ip}) — code burned, clearing from UI`);
+    const { clearOneTimeKey } = await import("./api/ui.js");
+    clearOneTimeKey();
+  } else if (data.tempKey) {
+    logger.warn(`wrong one-time code TAIL (${ip}) — no TAIL presented, code still live`);
+  } else {
+    logger.warn(`wrong API-key TAIL (${ip}) — rejected`);
+  }
   // The delay is the rate limiter's, applied here as it is on a connection:
   // guessing must not be cheaper through this door than through that one.
   setTimeout(() => jsonOk(res, { ok: false, reason: result.reason }), result.penaltyMs || 0);

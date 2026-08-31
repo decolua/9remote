@@ -370,13 +370,15 @@ test("pre-login verification settles nothing", () => {
   removeDevice("dev-preflight");
 });
 
-test("pre-login verification does not burn a one-time code", () => {
-  // Checking a code must not consume it: the user is still on the login screen,
-  // and the code has to survive to open the session that follows.
+test("pre-login verification burns a one-time code on a wrong TAIL", () => {
+  // One strike, same as a carrier proof: the login screen and the agent must
+  // agree on what a miss costs, or the screen keeps showing a dead key. A
+  // correct TAIL still verifies without spending anything.
   const tail = generatePairingTail();
   setActivePairing("ABC126", tail, Date.now() + 60000);
-  verifyPresentedTail({ tail: "ZZ", tempKey: "ABC126" });
-  assert.equal(matchesPairingTail(tail), true, "the code is still alive");
   assert.equal(verifyPresentedTail({ tail, tempKey: "ABC126" }).ok, true);
+  assert.equal(matchesPairingTail(tail), true, "a correct check leaves the code alive");
+  assert.equal(verifyPresentedTail({ tail: "ZZ", tempKey: "ABC126" }).ok, false);
+  assert.equal(matchesPairingTail(tail), false, "a wrong check burns the code");
   clearActivePairing();
 });
