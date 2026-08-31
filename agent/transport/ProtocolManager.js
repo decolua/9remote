@@ -36,7 +36,7 @@ export class ProtocolManager {
     this._auth = { apiKey: config.apiKey || null, socketId: socket?.id || null };
     this._socket = socket || null;
     // Handler host — where feature handlers are registered. For an RTC-only
-    // session this is the VirtualSocket and stays so even after a real socket
+    // session this is the AgentBus and stays so even after a real socket
     // late-attaches, so handlers are never registered twice.
     this._host = socket || null;
     this._wsChunkSize = config.wsChunkSize;
@@ -76,9 +76,9 @@ export class ProtocolManager {
 
   async init() {
     for (const id of this._profile.enabled) {
-      // Virtual (RTC-only) session — no real socket.io yet. WS attaches later
-      // via attachSocket() when the tunnel comes up.
-      if (id === "ws" && this._host?.isVirtual) continue;
+      // RTC-first session — the host defers the WS adapter; attachSocket()
+      // brings it up when the tunnel arrives.
+      if (id === "ws" && this._host?.defersWsAdapter) continue;
       const Adapter = getProtocol(id);
       if (!Adapter) continue;
       let inst;
@@ -107,7 +107,7 @@ export class ProtocolManager {
 
   /**
    * Late-attach a real socket.io socket to an RTC-only session (tunnel came up
-   * after RTC connected). Adds WS as a fallback carrier; the virtual socket
+   * after RTC connected). Adds WS as a fallback carrier; the AgentBus
    * stays the handler host so features are never re-registered.
    */
   async attachSocket(socket) {
@@ -407,15 +407,15 @@ export class ProtocolManager {
       this._flushBuffer();
       return;
     }
-    // RTC died on a virtual session with no WS to fall back to. The client is
+    // RTC died on an AgentBus session with no WS to fall back to. The client is
     // already renegotiating over DO (resume, network handover), and its re-offer
     // lands on THIS pm's handler — tearing down now would unregister that
     // handler and strand the offer. Wait out the client's restart window; only
     // a peer that never comes back is really dead.
     if (state === ADAPTER_STATE.closed && adapterId === "rtc"
-      && this._host?.isVirtual && !this._adapters.get("ws")?.ready) {
+      && this._host?.defersWsAdapter && !this._adapters.get("ws")?.ready) {
       clearTimeout(this._deadTimer);
-      logger.debug(`rtc closed, no ws on a virtual session → ${RTC_DEAD_GRACE_MS}ms grace before declaring dead`);
+      logger.debug(`rtc closed, no ws on an AgentBus session → ${RTC_DEAD_GRACE_MS}ms grace before declaring dead`);
       this._deadTimer = setTimeout(() => {
         this._deadTimer = null;
         if (this._closed || this._adapters.get("rtc")?.ready) {
@@ -565,15 +565,19 @@ export class ProtocolManager {
       return;
     }
     // WS source — socket.io already fired raw listeners; only invoke PM bus.
-    // Virtual host: handlers live on the VirtualSocket, forward full args (incl
-    // ack callback from onAny) so gitChangedCount/getVapidKey etc. get their ack.
+    // RTC-hosted session: handlers live on the AgentBus (which socket.io never
+    // fired into), so forward full args (incl the ack callback from onAny) —
+    // this is how gitChangedCount/getVapidKey etc. get their ack over WS.
+    // Asked as "does the host need this forward" (dispatchAny exists only on
+    // an AgentBus), not as a type flag: a socket.io host must NOT be forwarded
+    // into (it already fired), an AgentBus must be.
     const set = this._listeners.get(event);
     if (set) for (const h of set) h(payload);
-    if (this._host?.isVirtual) {
+    if (this._host?.dispatchAny) {
       const fns = this._host.listeners?.(event) || [];
       const args = wsArgs || [payload];
       for (const fn of fns) fn(...args);
-      this._host.dispatchAny?.(event, payload);
+      this._host.dispatchAny(event, payload);
     }
   }
 

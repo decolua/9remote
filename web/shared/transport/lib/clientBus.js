@@ -1,4 +1,4 @@
-// ClientBus — the client's single handler host, mirroring the agent's VirtualSocket.
+// ClientBus — the client's single handler host, mirroring the agent's AgentBus.
 //
 // It presents the socket.io surface the app is written against (on/off/once/emit/
 // connected/id/disconnect) while owning the ONLY registry of listeners. PM dispatches

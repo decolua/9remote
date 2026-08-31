@@ -6,6 +6,7 @@ import { writeCmd } from "../../../cli/utils/state.js";
 import { scanLocalSites } from "../portScanner.js";
 import { startProxySession, endProxySession, setupSiteRequestHandler } from "../../../proxy/index.js";
 import { setMcpEnabled, MCP_CLIENTS } from "../../../mcp/mcpConfig.js";
+import { broadcast } from "../../../transport/broadcast.js";
 
 export function setupPushHandlers(socket, io) {
   // Full 4-state map (idle/working/blocked/done). New name; UI consumes this.
@@ -56,16 +57,16 @@ export function setupPushHandlers(socket, io) {
     if (!sessionId) return;
     const cleared = clearStatus(sessionId);
     if (cleared) {
-      socket.broadcast.emit("statusCleared", sessionId);
-      socket.broadcast.emit("notificationCleared", sessionId);
+      broadcast(null, "statusCleared", sessionId);
+      broadcast(null, "notificationCleared", sessionId);
     }
   });
   socket.on("clearNotification", (sessionId) => {
     if (!sessionId) return;
     const cleared = clearStatus(sessionId);
     if (cleared) {
-      socket.broadcast.emit("notificationCleared", sessionId);
-      socket.broadcast.emit("statusCleared", sessionId);
+      broadcast(null, "notificationCleared", sessionId);
+      broadcast(null, "statusCleared", sessionId);
     }
   });
 
@@ -75,7 +76,9 @@ export function setupPushHandlers(socket, io) {
     const identifier = subscription?.type === "expo" ? subscription.token : subscription?.endpoint;
     if (!identifier) return;
     markSubscriptionConnected(socket.id, identifier);
-    addPushSubscription(subscription, socket.id, socket.handshake.auth?.deviceId);
+    // Device identity reads the normalized field first — the handshake is the
+    // socket.io spelling of the same thing and stays for real-socket hosts.
+    addPushSubscription(subscription, socket.id, socket.data?.auth?.deviceId ?? socket.handshake?.auth?.deviceId);
   });
 
   socket.on("pushUnsubscribe", (identifier) => {

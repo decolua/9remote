@@ -1,4 +1,4 @@
-// TDD spec for ClientBus — the client-side mirror of the agent's VirtualSocket.
+// TDD spec for ClientBus — the client-side mirror of the agent's AgentBus.
 //
 // Today the client keeps listeners in TWO places: a tracked map inside proxySocket
 // AND the live socket.io socket. That duplication is what forces
@@ -8,7 +8,7 @@
 //
 // ClientBus removes the second copy: the bus IS the only listener registry, and PM
 // dispatches into it regardless of which carrier delivered the message — exactly
-// how the agent's VirtualSocket works. No rebinding, no manual firing.
+// how the agent's AgentBus works. No rebinding, no manual firing.
 //
 // Run: node --import ./test/loader-alias.mjs test/clientBus.test.mjs
 import assert from "node:assert/strict";

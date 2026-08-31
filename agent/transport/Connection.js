@@ -4,7 +4,7 @@ import { CONNECTION_STATE, AUTH_EVENTS } from "../lib/connectionConstants.js";
 /**
  * One device's presence on this agent — the layer that was missing.
  *
- * Before this, the connection WAS a carrier: an RTC peer owned a VirtualSocket
+ * Before this, the connection WAS a carrier: an RTC peer owned an AgentBus
  * that hosted every handler, and the tunnel had to attach itself to that as a
  * latecomer. Two carriers, two lifecycles, two of every rule — and a rule added
  * to one of them was a bug waiting in the other. Approval gates, event

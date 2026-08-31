@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { initSignalingGlobal, setOfferFallback, sendSignaling, dropPending, pendingPeersOf, onSignalingReady, hasPendingOffer, retrySignalingNow } from "../lib/signalingGlobal.js";
-import { VirtualSocket } from "./VirtualSocket.js";
+import { AgentBus } from "./AgentBus.js";
 import { PATHS, LOCAL_UI_ORIGINS, LOCAL_UI_DEVICE_ID } from "../lib/constants.js";
 import { verifyLocalToken } from "../lib/localToken.js";
 import { ProtocolManager } from "./ProtocolManager.js";
@@ -73,8 +73,8 @@ export function getIO() {
  * How a socket describes itself as a carrier: which protocol it is, what to
  * show as its address, and the id its pending-approval entry is filed under.
  *
- * A VirtualSocket answers this itself; a socket.io socket gets the tunnel's
- * answer here. Asking the socket, rather than branching on isVirtual at every
+ * An AgentBus answers this itself; a socket.io socket gets the tunnel's
+ * answer here. Asking the socket, rather than testing a type flag at every
  * call site, is what lets a third protocol arrive without a hunt through the
  * file for the places that assumed there were only two.
  */
@@ -86,6 +86,13 @@ function carrierOf(socket) {
   };
 }
 
+// One identity accessor for BOTH hosts: an AgentBus answers from data.auth (its
+// normalized copy), a socket.io socket from its handshake. Every auth/deviceId
+// read goes through here, so a third host only teaches this one question.
+function authOf(socket) {
+  return socket?.data?.auth || socket?.handshake?.auth || null;
+}
+
 /**
  * Ask the one gate, for any carrier. A socket presents its tail in the
  * handshake; signaling has no socket at all and presents nothing. Both end up
@@ -93,13 +100,13 @@ function carrierOf(socket) {
  */
 function askGate(socket, deviceId) {
   const presented = socket
-    ? presentedTailOf(socket.handshake?.auth, openSealedTail)
+    ? presentedTailOf(authOf(socket), openSealedTail)
     : undefined;
   const verdict = admissionGate(deviceId, presented, {
     provenSocket: socket?.data?.provenDevice === true,
     // A QR pairing has no tail yet — enrollment is what delivers it — so the
     // live one-time code is what carries this device through gate 1.
-    tempKey: socket?.handshake?.auth?.tempKey || null
+    tempKey: authOf(socket)?.tempKey || null
   });
   logger.info(`gate: device=${deviceId?.slice(0, 8) ?? "none"} step=${verdict.step} ` +
     `decision=${verdict.decision}${verdict.reason ? ` reason=${verdict.reason}` : ""} ` +
@@ -111,7 +118,7 @@ function askGate(socket, deviceId) {
   // device past gate 1 precisely because it has no tail yet — recording the
   // stale one its browser still holds turned an accepted pairing into a refused
   // device seconds after the host had been asked about it.
-  const pairing = !!socket?.handshake?.auth?.tempKey;
+  const pairing = !!authOf(socket)?.tempKey;
   const carriedByTail = verdict.step === "authz" && !pairing;
   if (socket && presented !== undefined && (carriedByTail || verdict.step === "auth")) {
     // The flag matters: a pairing device's secret is the CODE's tail, and
@@ -136,7 +143,7 @@ function registerAuthHandlers(socket) {
   if (socket.data.authHandlersReady) return;
   socket.data.authHandlersReady = true;
   socket.on("device:tailProof", (data) => {
-    const deviceId = socket.handshake.auth?.deviceId;
+    const deviceId = authOf(socket)?.deviceId;
     // The RTC dispatcher does not guard handlers, so anything thrown here would
     // be swallowed by the data-channel callback and look like silence.
     try {
@@ -156,8 +163,8 @@ function registerAuthHandlers(socket) {
  * without racing the async setup (F5 was landing getSessions before getSessions handler). */
 async function setupSocketFeatures(socket) {
   // Clear one-time key if used
-  if (socket.handshake.auth?.tempKey) {
-    pushUiLog("One-time key used \u2014 clearing from UI");
+  if (authOf(socket)?.tempKey) {
+    logger.info("one-time key used — clearing from UI");
     clearOneTimeKey();
   }
   await attachTransportBus(socket);
@@ -170,7 +177,7 @@ async function setupSocketFeatures(socket) {
   // answer into consequences, and this applies them — so the tunnel, RTC and
   // anything added later are admitted by the same code, in the same order.
   if (!socket.data.localUi) {
-    const deviceId = socket.handshake.auth?.deviceId || null;
+    const deviceId = authOf(socket)?.deviceId || null;
     const conn = connectionFor(socket);
     if (!conn) return;
     // Attach the carrier this socket speaks, not the PM that multiplexes them:
@@ -237,7 +244,7 @@ async function setupSocketFeatures(socket) {
  * else holds, and this is the one secret that must not travel it.
  */
 function issueKeyToPairedDevice(socket) {
-  if (!socket.handshake?.auth?.tempKey) return; // not a pairing
+  if (!authOf(socket)?.tempKey) return; // not a pairing
   const tail = tailOf(loadApiKey() || "");
   if (!tail) return; // v1 key — nothing to hand over
   const rtc = socket.data?.protocol?._adapters?.get("rtc");
@@ -258,11 +265,11 @@ function issueKeyToPairedDevice(socket) {
     // Bounded: a device that never gets RTC keeps working on this session and
     // simply pairs again next time, rather than holding a timer for ever.
     setTimeout(() => clearInterval(stop), KEY_ISSUE_WINDOW_MS);
-    logger.info(`key issue deferred (no RTC yet): device=${socket.handshake.auth?.deviceId?.slice(0, 8)}`);
+    logger.info(`key issue deferred (no RTC yet): device=${authOf(socket)?.deviceId?.slice(0, 8)}`);
     return;
   }
   const sent = rtc.send(CHANNELS.control, { event: "device:keyIssued", args: [{ tail }] });
-  logger.info(`key issued to paired device=${socket.handshake.auth?.deviceId?.slice(0, 8)} sent=${sent}`);
+  logger.info(`key issued to paired device=${authOf(socket)?.deviceId?.slice(0, 8)} sent=${sent}`);
 }
 
 /** The session itself — reached only once both gates said yes. Split out so a
@@ -307,19 +314,19 @@ async function attachTransportBus(socket) {
       // Always route by peerId (deviceId:tab) — the client's offer arrives with
       // from=peerId, so the PM must register its handler under that exact key or
       // signalingGlobal won't find it and will spawn a second RTC-only PM (→ the
-      // two-PM duplicate-output bug). VirtualSocket has .peerId; a real socket.io
+      // two-PM duplicate-output bug). AgentBus has .peerId; a real socket.io
       // socket carries it in handshake.auth.peerId (set by the client).
-      deviceId: socket.peerId || socket.handshake.auth?.peerId || socket.handshake.auth?.deviceId || null,
+      deviceId: socket.peerId || authOf(socket)?.peerId || authOf(socket)?.deviceId || null,
       doUrl: webrtc.signalingDoUrl,
       apiKey: loadApiKey()
     }
   });
   socket.data.protocol = pm;
-  // Virtual session: RTC dying with no WS fallback means the session is over.
-  if (socket.isVirtual) {
+  // AgentBus (RTC-first) session: RTC dying with no WS fallback means it is over.
+  if (socket.defersWsAdapter) {
     pm._onDead = () => {
       logger.info(`[diag] _onDead fired peer=${(socket.peerId || "").slice(0, 12)} — rtc never returned in grace`); // TEMP DIAGNOSTIC — stale-connected bug
-      pushUiLogDebug(`RTC session closed: ${socket.handshake.auth?.deviceId?.slice(0, 8)}...`);
+      pushUiLogDebug(`RTC session closed: ${authOf(socket)?.deviceId?.slice(0, 8)}...`);
       try { pm.close(); } catch {}
       unregisterProtocol(pm);
       socket.disconnect();
@@ -334,7 +341,7 @@ async function attachTransportBus(socket) {
   }
 }
 
-// RTC-only VirtualSockets keyed by peerId — the handler host for a session
+// RTC-only AgentBus instances keyed by peerId — the handler host for a session
 // whose carrier is RTC. The SESSION itself lives in `sessions` below; this map
 // is only the transport-side object that carries it.
 const rtcSessions = new Map();
@@ -347,9 +354,9 @@ const connections = new ConnectionRegistry();
 /** The CONNECTION a socket belongs to — created on first sight of the device.
  *  Not a terminal session: this is the web↔agent link the carriers ride on. */
 function connectionFor(socket) {
-  const deviceId = socket?.handshake?.auth?.deviceId || null;
+  const deviceId = authOf(socket)?.deviceId || null;
   if (!deviceId) return null;
-  const peerId = socket.peerId || socket.handshake.auth?.peerId || deviceId;
+  const peerId = socket.peerId || authOf(socket)?.peerId || deviceId;
   const existing = socket.data.conn;
   if (existing && !existing.closed) return existing;
   const conn = connections.open({ deviceId, peerId, apiKey: loadApiKey() });
@@ -372,7 +379,7 @@ export function setRtcTestDisabled(disabled) {
   // RTC now lives inside the WS-hosted PM (not rtcSessions), so tear it down
   // across every active PM. The client then falls back to the WS tunnel.
   disableAllRtc();
-  // Also clear VirtualSocket RTC sessions (RTC-first offer-before-WS case).
+  // Also clear AgentBus RTC sessions (RTC-first offer-before-WS case).
   for (const peerId of [...rtcSessions.keys()]) {
     killRtcSession(peerId);
     pushUiLogDebug(`RTC test-disabled: killed session ${peerId?.slice(0, 8)}`);
@@ -497,7 +504,7 @@ function askHostToApprove(deviceId, { socketId, ip, peerId, notify }) {
  * (existing or mid-setup) owns the buffered offer for that tab. */
 function hasLiveWsForPeer(peerId) {
   for (const s of ioInstance?.sockets.sockets.values() || []) {
-    if (s.connected && s.handshake.auth?.peerId === peerId) return true;
+    if (s.connected && authOf(s)?.peerId === peerId) return true;
   }
   return false;
 }
@@ -569,14 +576,14 @@ async function releaseDevice(deviceId) {
   if (key) removePendingApproval(key);
   const setups = [];
   for (const socket of ioInstance?.sockets.sockets.values() || []) {
-    if (socket.handshake.auth?.deviceId !== deviceId || socket.data.approved) continue;
+    if (authOf(socket)?.deviceId !== deviceId || socket.data.approved) continue;
     setups.push(unlockSocket(socket));
   }
   // Sessions already built and waiting on this very answer — RTC peers that
   // proved their key and were held. They need no spawning, only the second gate
   // re-asked, which is what re-entering the flow does.
   for (const vs of rtcSessions.values()) {
-    if (vs.handshake?.auth?.deviceId !== deviceId || vs.data.approved) continue;
+    if (authOf(vs)?.deviceId !== deviceId || vs.data.approved) continue;
     setups.push(setupSocketFeatures(vs).catch((e) => pushUiLog(`Connection resume failed: ${e.message}`)));
   }
   await Promise.allSettled(setups);
@@ -598,7 +605,7 @@ function rejectDeviceTail(socket, deviceId, reason) {
   logger.warn(`tail rejected (${why}): device=${deviceId?.slice(0, 8) ?? "none"} carrier=${carrierOf(socket).id}`);
   pushUiLog(`Device refused (${why}): ${deviceId?.slice(0, 8)}`);
   finishTailRejection(socket, () => {
-    if (socket.isVirtual) killRtcSession(socket.peerId);
+    if (socket.defersWsAdapter) killRtcSession(socket.peerId);
     revokeDevice(deviceId, why);
   });
 }
@@ -615,15 +622,15 @@ function revokeDevice(deviceId, reason) {
   // One call reaches every tab and every protocol the device holds.
   connections.closeDevice(deviceId, reason);
   for (const socket of ioInstance?.sockets.sockets.values() || []) {
-    if (socket.handshake.auth?.deviceId !== deviceId) continue;
+    if (authOf(socket)?.deviceId !== deviceId) continue;
     socket.data.tailReject = socket.data.tailReject || { reason, penaltyMs: 0 };
     finishTailRejection(socket);
   }
-  // The virtual session is the carrier the verdict may have arrived on, and
+  // The AgentBus session is the carrier the verdict may have arrived on, and
   // finishTailRejection answers on a timer — killing it here would cut the
   // channel before the client ever heard why. Let that path close it.
   for (const [peerId, session] of rtcSessions) {
-    if (session.handshake?.auth?.deviceId !== deviceId) continue;
+    if (authOf(session)?.deviceId !== deviceId) continue;
     if (session.data?.tailReject) continue; // already answering, will close itself
     killRtcSession(peerId);
   }
@@ -636,7 +643,7 @@ function resolvePending(socketId) {
   const direct = getPendingApproval(socketId);
   if (direct) return { key: socketId, ...direct };
   const deviceId = rtcPeerId(socketId)?.split(":")[0]
-    || ioInstance?.sockets.sockets.get(socketId)?.handshake.auth?.deviceId
+    || (authOf(ioInstance?.sockets.sockets.get(socketId) || null))?.deviceId
     || null;
   const key = deviceId ? getPendingSocketId(deviceId) : null;
   const entry = key ? getPendingApproval(key) : null;
@@ -665,10 +672,10 @@ function startRtcSession(peerId, deviceId) {
   });
 }
 
-/** Build the virtual socket + PM for an approved RTC peer. */
+/** Build the AgentBus + PM for an approved RTC peer. */
 async function buildRtcSession(peerId, deviceId) {
   if (rtcSessions.has(peerId)) return;
-  const socket = new VirtualSocket({ deviceId, peerId, apiKey: loadApiKey() });
+  const socket = new AgentBus({ deviceId, peerId, apiKey: loadApiKey() });
   // The carrier exists so the device has somewhere to prove its key; being
   // admitted is a separate question, answered by the session below.
   socket.data.approved = false;
@@ -682,7 +689,7 @@ async function buildRtcSession(peerId, deviceId) {
   rtcSessions.set(peerId, socket);
   trackConnection(socket.id, "rtc", deviceId, "rtc");
   socket.on("disconnect", () => {
-    logger.info(`[diag] VirtualSocket disconnect peer=${(peerId || "").slice(0, 12)} → untrack + conn.close`); // TEMP DIAGNOSTIC — stale-connected bug
+    logger.info(`[diag] AgentBus disconnect peer=${(peerId || "").slice(0, 12)} → untrack + conn.close`); // TEMP DIAGNOSTIC — stale-connected bug
     if (rtcSessions.get(peerId) === socket) rtcSessions.delete(peerId);
     untrackConnection(socket.id);
     // The connection dies with its last carrier. Leaving it open kept a closed
@@ -766,7 +773,7 @@ export function disconnectDeviceSockets(deviceId) {
   if (!io || !deviceId) return 0;
   let count = 0;
   for (const socket of io.sockets.sockets.values()) {
-    if (socket.handshake.auth?.deviceId === deviceId) {
+    if (authOf(socket)?.deviceId === deviceId) {
       socket.disconnect(true);
       count++;
     }
@@ -877,17 +884,16 @@ export async function startTransportServer(server) {
     // gave up during boot (agent started before wifi). Throttled inside.
     retrySignalingNow("client-connected");
     const ip = socket.handshake.headers["x-forwarded-for"] || socket.handshake.address || "unknown";
-    const deviceId = socket.handshake.auth?.deviceId || null;
+    const deviceId = authOf(socket)?.deviceId || null;
 
-    // clientReady can beat route()'s grace wait — track it so a late once() doesn't miss the event
-    socket.data.clientReady = false;
-    socket.on("device:clientReady", () => { socket.data.clientReady = true; });
+    // clientReady can beat route()'s grace wait — armed at connection, same
+    // surface as the RTC path (AgentBus).
 
     // Block all events from unapproved sockets (except device:clientReady)
     socket.data.approved = false;
     // One rule, read from the session: an inactive session carries auth and
     // nothing else. The RTC side asks the same question through
-    // VirtualSocket.listeners(), so neither protocol has a gate of its own.
+    // AgentBus.listeners(), so neither protocol has a gate of its own.
     socket.use((packet, next) => {
       // The local UI is trusted by token, not by session, and never has one.
       if (socket.data.localUi) return next();
@@ -1014,7 +1020,7 @@ export async function startTransportServer(server) {
           // Registered only once the adapter exists — attachSocket is what
           // builds it, so attaching earlier would hand the session a null.
           .then(() => conn?.attach("ws", rtcSession.data.protocol?._adapters?.get("ws") || null))
-          // The virtual session's terminal:ready rode RTC and could race the
+          // The AgentBus session's terminal:ready rode RTC and could race the
           // client's listener binding — re-emit so the session list always gets
           // a fetch trigger (the client handler is idempotent). Only for a
           // session that IS active: announcing readiness on one that is still

@@ -36,7 +36,7 @@ export class ProtocolManager {
     this._peerId = peerId;
     Object.assign(this, initialState());
 
-    // The one handler host, mirroring the agent's VirtualSocket: it owns every
+    // The one handler host, mirroring the agent's AgentBus: it owns every
     // app listener and outlives each carrier, so a WS reconnect or an RTC-only
     // session changes nothing about who is registered.
     this._bus = createClientBus(this);

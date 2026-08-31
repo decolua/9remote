@@ -137,7 +137,10 @@ export async function setupRemoteHandlers(socket, apiKey) {
   const protocol = socket.data.protocol;
   if (!protocol) { socket.emit("remote:unavailable"); return; }
 
-  const clientApiKey = socket.handshake.auth?.apiKey;
+  // Device-bound apiKey from either host spelling — data.auth is the normalized
+  // one, handshake the socket.io original. Stored per client; consumed by TURN
+  // credential checks downstream.
+  const clientApiKey = socket.data?.auth?.apiKey ?? socket.handshake?.auth?.apiKey;
   // Multi-monitor is Win + Mac. Win maps input in physical px, Mac in points
   // (robotjs-mac takes points, matching node-screenshots origin/dims). Linux X11
   // virtual-desktop coords differ, so it keeps the legacy single-display path.

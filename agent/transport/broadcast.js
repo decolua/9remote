@@ -37,7 +37,7 @@ export function disableAllRtc() {
     try {
       const rtc = pm._adapters?.get("rtc");
       const ws = pm._adapters?.get("ws");
-      logger.debug(`disableAllRtc peer=${pm._deviceId?.slice(0, 12)} rtc=${rtc?.state || "absent"} ws=${ws?.state || "absent"} virtual=${!!pm._host?.isVirtual}`);
+      logger.debug(`disableAllRtc peer=${pm._deviceId?.slice(0, 12)} rtc=${rtc?.state || "absent"} ws=${ws?.state || "absent"} virtual=${!!pm._host?.defersWsAdapter}`);
       if (rtc) { try { rtc.disconnect(); } catch {} pm._adapters.delete("rtc"); }
       pm._rtcSignalingHandler = null;
       // Unregister the signalingGlobal handler so new offers find no PM → flow into
@@ -55,13 +55,13 @@ let _rtcSessionKiller = null;
 export function setRtcSessionKiller(fn) { _rtcSessionKiller = fn; }
 
 /** Dispose a PM AND the RTC-first session it hosts. pm.close()/unregister alone
- *  leave the VirtualSocket's tracked entry and rtcSessions record behind — a
+ *  leave the AgentBus's tracked entry and rtcSessions record behind — a
  *  closed browser then shows as online forever (each tab/reload = one leak). */
 export function disposeProtocol(pm) {
   if (!pm) return;
   try { pm.close(); } catch {}
   unregisterProtocol(pm);
-  if (pm._host?.isVirtual && _rtcSessionKiller) _rtcSessionKiller(pm._host.peerId);
+  if (pm._host?.defersWsAdapter && _rtcSessionKiller) _rtcSessionKiller(pm._host.peerId);
 }
 
 // Notify every active PM that RTC is enabled again (test-toggle off) — clients
@@ -101,7 +101,7 @@ function warnDuplicate(peers, targets) {
 }
 
 // Broadcast event to all active PMs (routes via best adapter — RTC if WS down).
-// If 2 PMs share one peerId (RTC virtual + WS race) the client gets duplicate output.
+// If 2 PMs share one peerId (RTC-first AgentBus + WS race) the client gets duplicate output.
 export function broadcast(_io, event, data) {
   const peers = [];
   const targets = [];

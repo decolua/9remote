@@ -4,7 +4,7 @@
 // These three used to be separate files because they were written separately;
 // they are one layer and one set of rules, so they read better together. What
 // they lock down is what kept breaking while the lifecycle lived inside a
-// VirtualSocket: approval cannot precede the key proof, an inactive connection
+// AgentBus: approval cannot precede the key proof, an inactive connection
 // carries nothing but auth, no carrier gets a say, and a verdict about a device
 // reaches every tab it holds.
 //

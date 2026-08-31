@@ -171,7 +171,7 @@ test("a device with no id is never admitted", () => {
 test("the carrier cannot change the answer", () => {
   // WS and RTC are two protocols for one connection, so the gate takes no
   // carrier argument at all: the same device presenting the same thing gets
-  // the same verdict whichever road it came in on. A VirtualSocket carries no
+  // the same verdict whichever road it came in on. An AgentBus carries no
   // handshake, which is why it lands on "awaiting-proof" — not because it is
   // RTC, and it must never be trusted for being RTC.
   const overRtc = admissionGate("dev-carrier", NOTHING);
@@ -275,7 +275,7 @@ test("a pairing device's proof is checked against the CODE, on any carrier", asy
 });
 
 test("an RTC-first pairing proof carries its own code, having no handshake", async () => {
-  // A VirtualSocket has no handshake at all, so the code cannot be read from
+  // An AgentBus has no handshake at all, so the code cannot be read from
   // one — the client sends it with the proof instead. Looking only at the
   // handshake measured a QR device against the API key's tail and told the user
   // their correct code was wrong.

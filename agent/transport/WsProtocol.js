@@ -29,7 +29,7 @@ export class WsProtocol extends BaseProtocol {
     ctx.socket.on("disconnect", () => this._setState(ADAPTER_STATE.closed));
 
     // Capture full args (incl ack callback) — onAny fires after onevent pushes
-    // the ack fn into args, so virtual-host handlers get their callback over WS.
+    // the ack fn into args, so AgentBus-hosted handlers get their callback over WS.
     ctx.socket.onAny?.((event, ...args) => this._emit("message", { event, data: args[0], args, source: "ws" }));
   }
 

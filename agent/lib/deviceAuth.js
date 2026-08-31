@@ -42,7 +42,7 @@ let tailPendingRejects = 0;
 // WS and RTC are two carriers of one connection, so the proof belongs to the
 // device, not to whichever socket happened to carry it. Keeping it per-socket
 // is what let a rejected device walk back in through a fresh RTC offer
-// (VirtualSocket has no handshake, so it presents nothing to reject) and what
+// (AgentBus has no handshake, so it presents nothing to reject) and what
 // let an RTC-only session live forever without ever being asked.
 //
 // deviceId -> { keyHead, state: TAIL_VERDICT, reason: TAIL_REJECT_REASON, since }
@@ -259,7 +259,7 @@ export function admissionGate(deviceId, presented, { provenSocket = false, tempK
         };
       }
       // Nothing presented yet. Every carrier waits the same way — a handshake
-      // carries the tail, signaling and a VirtualSocket cannot, and the proof
+      // carries the tail, signaling and an AgentBus cannot, and the proof
       // follows on device:tailProof. The deadline is what ends this.
       return { step: "auth", decision: ADMISSION.hold, reason: "awaiting-proof" };
     }
@@ -323,7 +323,8 @@ export function presentedTailOf(auth, open) {
  * drops the session when this answers false.
  */
 export function handleTailProof(socket, data) {
-  const deviceId = socket.handshake?.auth?.deviceId || socket.deviceId || null;
+  // Same dual-read as server.authOf: data.auth (normalized) first, handshake fallback.
+  const deviceId = socket?.data?.auth?.deviceId || socket.handshake?.auth?.deviceId || socket.deviceId || null;
   // Which secret this device is proving against — the live code if it arrived
   // with one, otherwise the API key. Same question the gate asks; asked here
   // too, because this is the same proof arriving by another road.
@@ -372,7 +373,7 @@ export function finishTailRejection(socket, onClosed) {
       socket.emit("device:tailRejected", { reason });
       socket.disconnect();
     } catch {}
-    // Teardown that must outlive the answer (the PM behind a virtual session,
+    // Teardown that must outlive the answer (the PM behind an AgentBus session,
     // the device's other carriers) runs here, never before the client heard why.
     onClosed?.();
   }, wait);

@@ -1,26 +1,39 @@
 import { EventEmitter } from "events";
 
 
-// Minimal socket.io-socket surface so feature handlers run unchanged over an
-// RTC-only session (no tunnel). PM.attachAsBus() wraps emit → routes via RTC.
-// When the tunnel later brings a real socket, PM.attachSocket() adds WS as
-// fallback; this object stays the handler host for the whole session.
-export class VirtualSocket extends EventEmitter {
+// AgentBus — the agent's handler host, mirroring the web's ClientBus. An
+// RTC-first session has no socket.io socket, so feature handlers need
+// something to register on; PM.attachAsBus() wraps emit → routes via RTC,
+// and PM.attachSocket() adds WS as a fallback when the tunnel comes up.
+//
+// Step one of the registry unification is done: PM asks the host questions
+// (defersWsAdapter, carrier) instead of branching on isVirtual, and identity
+// reads go through data.auth. What remains of the socket.io emulation —
+// .handshake, .broadcast, onAny — exists only because feature handlers still
+// read it; each of those callsites migrates to data.auth / broadcast.js, and
+// when the last one is gone this class collapses to a plain listener registry.
+export class AgentBus extends EventEmitter {
+  /** Hosts the session so the PM can ask it instead of testing a type flag:
+   *  true = the PM's WS adapter must attach LATE (tunnel joined RTC), false =
+   *  a socket.io socket IS the WS adapter from the start. */
+  defersWsAdapter = true;
   constructor({ deviceId, peerId, apiKey }) {
     super();
     this.setMaxListeners(0);
-    this.isVirtual = true;
     // Unique per tab — resource maps (remote clients, transfers) key on socket.id.
     this.id = `rtc-${peerId || deviceId}`;
     this.peerId = peerId || deviceId;
     this.connected = true;
     this.data = {};
+    // Normalized identity — features read data.auth first; .handshake below is
+    // the socket.io spelling kept so legacy handlers keep working.
+    this.data.auth = { deviceId, apiKey };
     this.handshake = { auth: { deviceId, apiKey }, headers: {}, address: "rtc" };
     // How this socket identifies itself as a carrier. Callers ask the socket
-    // rather than testing isVirtual, so adding a protocol later means teaching
+    // rather than testing a type flag, so adding a protocol later means teaching
     // it to answer these — not hunting for every `if` that assumed two.
     this.carrier = { id: "rtc", ip: "rtc", pendingId: `rtc-${peerId || deviceId}` };
-    // socket.broadcast.emit(...) — no peers on a virtual session
+    // socket.broadcast.emit(...) — a virtual session has no other peers
     this.broadcast = { emit: () => true };
     this._onAny = [];
   }
@@ -36,15 +49,14 @@ export class VirtualSocket extends EventEmitter {
    * for the host — which is how a reload walked straight into the workspace.
    *
    * Auth is the exception, and the only one: those events ARE how a device
-   * stops being unapproved.
+   * stops being unapproved. Reads the same session the WS guard does
+   * (data.conn) so the rule cannot drift between the two protocols.
    */
   listeners(event) {
     const all = super.listeners(event);
-    // Same question the tunnel asks through socket.use — asked of the session,
-    // not of this object, so the rule cannot drift between the two protocols.
-    const session = this.data?.session;
-    if (!session) return all;
-    return session.allows(event) ? all : [];
+    const conn = this.data?.conn;
+    if (!conn) return all;
+    return conn.allows(event) ? all : [];
   }
 
   // Feed an inbound event to handlers (RTC dispatch goes through PM directly,
