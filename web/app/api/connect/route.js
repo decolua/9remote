@@ -111,6 +111,27 @@ export async function POST(request) {
     if (sessionMissing) return jsonError("Session not found or expired", 404);
     if (!cached) return jsonError("Server not ready. Please wait...", 503);
 
+    // Liveness gate: an agent that heartbeats keeps agentSeenAt fresh, and its
+    // shutdown sets agentOnline=0. Stale or said-goodbye means the machine is
+    // down — fail login with the marker the web UI localises, instead of
+    // handing out a dead tunnel the client spins on forever. NULL columns =
+    // a pre-heartbeat agent: unknown, not offline. Fails open on a schema
+    // without the columns (migration not applied yet).
+    const OFFLINE_GRACE_SEC = 300; // ≥ 2× the agent's 120s beat — absorbs slow nets
+    try {
+      const liveness = await withD1Retry(() => env.DB.prepare(`
+        SELECT
+          agentOnline = 0 AS saidGoodbye,
+          agentSeenAt IS NOT NULL AND agentSeenAt < datetime('now', '-${OFFLINE_GRACE_SEC} seconds') AS stale
+        FROM sessions WHERE apiKey = ?
+      `).bind(apiKey).first());
+      if (liveness && (liveness.saidGoodbye || liveness.stale)) {
+        return jsonError("agent-offline", 503);
+      }
+    } catch (e) {
+      console.warn(`[connect] liveness check skipped: ${e?.message || e}`);
+    }
+
     console.log(`[connect] apiKey=${apiKey?.slice(0,8)} tunnelUrl=${cached.tunnelUrl} localIp=${cached.localIp || "none"}` +
       // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
       ` [seal] hostKeys=${cached.hostKeys ? (cached.hostKeys.x ? "ed+x" : "ed only (agent has not registered a sealing key)") : "none"}`);

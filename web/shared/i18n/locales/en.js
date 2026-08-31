@@ -72,6 +72,7 @@ export default {
     connecting: "Connecting...",
     authenticating: "Authenticating with token...",
     invalidKeyTail: "Wrong access key — check the last characters and try again.",
+    agentOffline: "This machine isn't running 9remote. Start the agent, then try again.",
     savedKeys: "Saved Keys",
     login: "Login",
     lastLogin: "Last login",
