@@ -303,17 +303,3 @@ export async function maybeSendTailProof(pm) {
   if (sent) pm._tailProofSent = peerMark;
 }
 
-/** Send the enrollment request once the RTC carrier is open and a pairing
- *  fp2 is still pending. Sent DIRECTLY through the RTC adapter — the fp2 must
- *  never transit the tunnel (pm.emit's control bus can fall back to WS). */
-export function maybeSendEnroll(pm) {
-  const apiKey = pm._auth?.apiKey;
-  const deviceId = pm._auth?.deviceId;
-  if (!apiKey || !deviceId) return;
-  const fp2 = getPendingFp2();
-  if (!fp2) return;
-  if (getTrust(apiKey)?.tail) { takePendingFp2(); return; }
-  const rtc = pm._adapters.get("rtc");
-  if (!rtc?.ready) return; // wait for the DTLS channel
-  rtc.send(CHANNELS.control, { event: "device:enroll", args: [{ deviceId, fp2 }] });
-}
