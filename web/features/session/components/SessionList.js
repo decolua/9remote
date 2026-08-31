@@ -83,7 +83,6 @@ export default function SessionList({
     setCallbacks({
       onRemote: null,
       onFiles: null,
-      onSites: null,
       onSelectSite: null,
       onRefreshSites: null,
       onCodespace: null,

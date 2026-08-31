@@ -249,7 +249,6 @@ function TerminalHeader({
     setCallbacks({
       onRemote: onOpenRemote,
       onFiles: onOpenFiles,
-      onSites: null,
       onCodespace: null,
       onLogout,
       onStopCodespace,

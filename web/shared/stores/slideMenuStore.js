@@ -24,7 +24,6 @@ export const useSlideMenuStore = create((set) => ({
   callbacks: {
     onRemote: null,
     onFiles: null,
-    onSites: null,
     onCodespace: null,
     onLogout: null,
     onThemeChange: null,
@@ -63,7 +62,6 @@ export const useSlideMenuStore = create((set) => ({
     callbacks: {
       onRemote: null,
       onFiles: null,
-      onSites: null,
       onCodespace: null,
       onLogout: null,
       onThemeChange: null,

@@ -6,7 +6,6 @@ import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import MenuItems from "@/features/terminal/components/MenuItems";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
-import SitesList from "@/features/terminal/components/SitesList";
 import CommandNotesPanel from "@/features/terminal/components/CommandNotes/CommandNotesPanel";
 import CommunityModal from "@/features/terminal/components/CommunityModal";
 import LanguageModal from "@/shared/components/ui/LanguageModal";
@@ -39,7 +38,6 @@ export default function SlideMenu() {
   const canInstall = usePwaInstallStore((s) => s.canInstall);
   const isInstalled = usePwaInstallStore((s) => s.isInstalled);
 
-  const [sitesModalOpen, setSitesModalOpen] = useState(false);
   const [commandNotesOpen, setCommandNotesOpen] = useState(false);
   const [communityOpen, setCommunityOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
@@ -98,12 +96,6 @@ export default function SlideMenu() {
     callbacks.onFiles?.();
   }, [close, callbacks]);
 
-  const handleSites = useCallback(() => {
-    close();
-    setSitesModalOpen(true);
-    callbacks.onSites?.();
-  }, [close, callbacks]);
-
   // Chromium: trigger native install dialog directly. Otherwise open the
   // manual guide panel (iOS Safari / Firefox / pre-engagement).
   const handleInstallApp = useCallback(() => {
@@ -149,10 +141,6 @@ export default function SlideMenu() {
     setTimeout(() => callbacks.onRestart?.(), 50);
   }, [close, callbacks]);
 
-  const handleCloseSitesModal = useCallback(() => {
-    setSitesModalOpen(false);
-  }, []);
-
   const handleCommandNotes = useCallback(() => {
     close();
     setCommandNotesOpen(true);
@@ -183,13 +171,6 @@ export default function SlideMenu() {
 
   const overlays = (
     <>
-      <SitesList
-        tunnelUrl={context.tunnelUrl}
-        busRef={context.busRef}
-        apiKey={context.apiKey}
-        isOpen={sitesModalOpen}
-        onClose={handleCloseSitesModal}
-      />
       <CommandNotesPanel
         isOpen={commandNotesOpen}
         onClose={handleCloseCommandNotes}
@@ -217,7 +198,6 @@ export default function SlideMenu() {
           canInstall={canInstall}
           isInstalled={isInstalled}
           install={install}
-          onSites={callbacks.onSites ? () => { setSitesModalOpen(true); callbacks.onSites?.(); } : null}
           onClose={close}
         />
         {overlays}
@@ -320,7 +300,6 @@ export default function SlideMenu() {
             <MenuItems
               onRemote={context.remoteAvailable ? handleRemote : null}
               onFiles={handleFiles}
-              onSites={handleSites}
               onInstallApp={handleInstallApp}
               canInstall={canInstall}
               isInstalled={isInstalled}
@@ -354,13 +333,6 @@ export default function SlideMenu() {
         </div>
       </div>
 
-      <SitesList
-        tunnelUrl={context.tunnelUrl}
-        busRef={context.busRef}
-        apiKey={context.apiKey}
-        isOpen={sitesModalOpen}
-        onClose={handleCloseSitesModal}
-      />
       <CommandNotesPanel
         isOpen={commandNotesOpen}
         onClose={handleCloseCommandNotes}

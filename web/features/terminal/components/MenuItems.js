@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Globe, Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap } from "@/shared/components/ui/Icon";
+import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { BUTTON_GROUPS } from "@/features/terminal/constants/terminalConfig";
@@ -30,7 +30,6 @@ import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 export default function MenuItems({
   onRemote,
   onFiles,
-  onSites,
   onCommandNotes,
   onCommunity,
   onInstallApp,
@@ -371,22 +370,6 @@ export default function MenuItems({
               : backgroundLabel(terminalBackgrounds[0])}
           </span>
           <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
-        </button>
-      )}
-
-      {/* Sites */}
-      {!hideActions.includes('sites') && onSites && (
-        <button
-          onClick={() => { vibrate(); onSites(); }}
-          disabled={!connected}
-          className={`w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out ${
-            connected
-              ? "bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
-              : "bg-surface/30 text-text-muted cursor-not-allowed"
-          }`}
-        >
-          <Globe className="text-brand-500" size={16} />
-          <span className="text-sm">{t("menu.sites")}</span>
         </button>
       )}
 

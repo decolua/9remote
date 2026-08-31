@@ -35,7 +35,7 @@ const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, Pane
  */
 export default function SettingsDialog({
   context, callbacks, canInstall, isInstalled, install,
-  onSites, onClose
+  onClose
 }) {
   const { t, locale } = useI18n();
   const { theme: appTheme, setTheme } = useTheme();
@@ -65,8 +65,6 @@ export default function SettingsDialog({
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || !!window.ReactNativeWebView
   );
-  // Sites live in the session list's own header there, so the menu hides them
-  const showSites = !hideActions.includes("sites") && !!onSites;
   const showInstall = !isApp && !isInstalled;
 
   // Codespace only inside a codespace; the terminal tab is dead on screens with no PTY.
@@ -165,7 +163,7 @@ export default function SettingsDialog({
           <div className="flex-1 overflow-y-auto modal-scrollable px-6 py-5">
             {section === "general" && (
               <div className="space-y-6">
-                {(push.supported || showSites || showInstall) && (
+                {(push.supported || showInstall) && (
                   <Group>
                     {push.supported && (
                       <ToggleRow
@@ -176,9 +174,6 @@ export default function SettingsDialog({
                         loading={push.loading}
                         onChange={push.toggle}
                       />
-                    )}
-                    {showSites && (
-                      <ActionRow icon={Globe} label={t("menu.sites")} disabled={!context.connected} onClick={() => run(onSites)} />
                     )}
                     {showInstall && (
                       <ActionRow
