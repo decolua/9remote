@@ -297,16 +297,17 @@ function LoginContent() {
     setEditingKeyId(null);
   };
 
-  // Handle QR scan result — may be a bare code or a full login URL
+  // Handle QR scan result — may be a bare code or a full login URL.
+  // Returns success so the scanner can close itself (or recover on failure).
   const handleQRScan = async (scanned) => {
     const parsed = parsePairingInput(scanned);
-    if (!parsed?.tempKey) return;
+    if (!parsed?.tempKey) return false;
     const result = await authenticateWithToken(parsed.tempKey, true, parsed.tail);
-    if (result.success) {
-      // Same rule as a typed code: the TAIL is the code's, kept under the code.
-      if (parsed.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
-      router.push("/workspace/");
-    }
+    if (!result.success) return false;
+    // Same rule as a typed code: the TAIL is the code's, kept under the code.
+    if (parsed.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
+    router.push("/workspace/");
+    return true;
   };
 
   // Clear input
@@ -486,6 +487,15 @@ function LoginContent() {
                     </button>
                   </>
                 )}
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setShowQRScanner(true)}
+                  className="w-7 h-7 grid place-items-center rounded-[7px] text-text-subtle hover:bg-surface-3 hover:text-brand-500 transition-colors"
+                  type="button"
+                  aria-label={t("login.scanQr")}
+                >
+                  <Icon name="QrCode" size={16} />
+                </button>
               </div>
             </div>
             {(error || tailRejected) && (
