@@ -31,8 +31,8 @@ const clients = new Set();
 
 // Constants
 const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB raw fallback per session
-const JOIN_REPLAY_SIZE = 128 * 1024; // 128KB tail on join — older history fetched on scroll-up
-const HISTORY_CHUNK_SIZE = 128 * 1024; // 128KB per scroll-up fetch chunk
+const JOIN_REPLAY_SIZE = 256 * 1024; // 256KB tail on join — older history fetched on scroll-up
+const HISTORY_CHUNK_SIZE = 256 * 1024; // 256KB per scroll-up fetch chunk
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
 
 // Buffer storage = Buffer[] (byte-accurate). The web mirror also counts BYTES, so total/have

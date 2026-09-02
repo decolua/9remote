@@ -7,7 +7,8 @@
 // v38: zsh PTY now sources ~/.zprofile + ~/.zlogin (ZDOTDIR=temp dir previously skipped them).
 // v45: OSC 7 cwd tracking for cmd.exe (PROMPT env + re-inject) + strip leading slash on Win drive paths.
 // v46: PowerShell OSC 7 injected via `-NoExit -Command` arg instead of stdin write (no echo, no race).
-export const DAEMON_VERSION = "46";
+// v47: join replay + history chunk 128KB → 256KB (deeper rejoin/load-more).
+export const DAEMON_VERSION = "47";
 
 // PowerShell prompt function emitting OSC 7 so the client can track cwd. Passed via
 // `-NoExit -Command` at spawn — running it pre-REPL avoids PSReadLine echoing the line.

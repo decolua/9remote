@@ -1,6 +1,6 @@
 {
   "name": "9remote-monorepo",
-  "version": "2.5.8",
+  "version": "3.5.8",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -46,7 +46,6 @@
     "esbuild": "^0.27.2",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
-    "javascript-obfuscator": "^5.4.1",
     "koffi": "^2.16.1",
     "node-screenshots": "^0.2.8",
     "node-windows": "^1.0.0-beta.8",

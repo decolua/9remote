@@ -146,18 +146,16 @@ export function shutdownAll({ serverManager, tunnelProcess, exit = true, code = 
   try { clearState(); } catch {}
   try { clearPid("agent"); } catch {}
   try { clearPid("cloudflared"); } catch {}
-  // Final "offline" beat before exit — bounded so a slow network cannot stall
-  // shutdown; if it never got sent, the Worker's grace window catches up.
+  // Final "offline" beat before exit — never shortens the usual flush window,
+  // only extends it (bounded) while the beat is in flight; if it never lands,
+  // the Worker's grace window catches up.
   const goodbye = stopSessionHeartbeat({ offline: true });
   if (exit) {
-    if (goodbye) {
-      Promise.race([
-        goodbye,
-        new Promise((r) => setTimeout(r, HEARTBEAT_GOODBYE_MAX_MS)),
-      ]).finally(() => process.exit(code));
-      return;
-    }
-    setTimeout(() => process.exit(code), SHUTDOWN_EXIT_DELAY_MS);
+    const flush = new Promise((r) => setTimeout(r, SHUTDOWN_EXIT_DELAY_MS));
+    const beat = goodbye
+      ? Promise.race([goodbye, new Promise((r) => setTimeout(r, HEARTBEAT_GOODBYE_MAX_MS))])
+      : null;
+    Promise.all([flush, beat]).finally(() => process.exit(code));
   }
 }
 

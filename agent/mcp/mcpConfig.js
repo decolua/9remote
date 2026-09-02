@@ -147,6 +147,52 @@ const CLIENTS = {
       `${JSON.stringify(SESSION_HEADER)} = ${JSON.stringify(SESSION_ENV)}`,
     ],
   }),
+  // ── JSON MCP registries ──────────────────────────────────────────────────────
+  // Gemini/Qwen fork the same schema: settings.json, httpUrl + headers, trust
+  // skips the per-call tool confirmation.
+  gemini: jsonClient({
+    file: () => homeSub(".gemini", "settings.json"),
+    entry: () => ({ httpUrl: URL, headers: { Authorization: AUTH() }, trust: true }),
+  }),
+  "qwen-code": jsonClient({
+    file: () => homeSub(".qwen", "settings.json"),
+    entry: () => ({ httpUrl: URL, headers: { Authorization: AUTH() }, trust: true }),
+  }),
+  cursor: jsonClient({
+    file: () => homeSub(".cursor", "mcp.json"),
+    entry: () => ({ url: URL, headers: { Authorization: AUTH() } }),
+  }),
+  copilot: jsonClient({
+    file: () => homeSub(".copilot", "mcp-config.json"),
+    entry: () => ({ type: "http", url: URL, headers: { Authorization: AUTH() } }),
+  }),
+  kimi: jsonClient({
+    file: () => homeSub(".kimi-code", "mcp.json"),
+    entry: () => ({ url: URL, headers: { Authorization: AUTH() } }),
+  }),
+  // Droid/Crush expand ${VAR} in headers, so the session id rides along there.
+  droid: jsonClient({
+    file: () => homeSub(".factory", "mcp.json"),
+    entry: () => ({ type: "http", url: URL, headers: { Authorization: AUTH(), [SESSION_HEADER]: `\${${SESSION_ENV}}` } }),
+  }),
+  crush: jsonClient({
+    file: () => homeSub(".config", "crush", "crush.json"),
+    keyPath: ["mcp"],
+    entry: () => ({ type: "http", url: URL, headers: { Authorization: AUTH(), [SESSION_HEADER]: `\${${SESSION_ENV}}` } }),
+  }),
+  // ── TOML registries ──────────────────────────────────────────────────────────
+  // Grok expands ${VAR} in header values (same key structure as Codex).
+  grok: blockClient({
+    file: () => homeSub(".grok", "config.toml"),
+    lines: () => [
+      `[mcp_servers."${NAME}"]`,
+      `url = ${JSON.stringify(URL)}`,
+      `enabled = true`,
+      `[mcp_servers."${NAME}".headers]`,
+      `Authorization = ${JSON.stringify(AUTH())}`,
+      `${JSON.stringify(SESSION_HEADER)} = ${JSON.stringify(`\${${SESSION_ENV}}`)}`,
+    ],
+  }),
 };
 
 export const MCP_CLIENTS = Object.keys(CLIENTS);

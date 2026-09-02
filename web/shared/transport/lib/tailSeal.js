@@ -109,6 +109,10 @@ export async function sealTail(tail, hostX25519PubB64) {
 const FP2_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export async function hostFp2Of(ed25519PubB64, x25519PubB64) {
+  // Insecure context (crypto.subtle gone) — null tells the caller "cannot
+  // verify", same contract as sealTail's fallback, instead of blowing up
+  // mid-signal (see WebRtcProtocol _handleSignal's catch).
+  if (typeof crypto === "undefined" || !crypto.subtle) return null;
   // Length-prefixed, so the boundary between the two keys cannot shift.
   const parts = [ed25519PubB64, x25519PubB64].map((k) => {
     let raw;

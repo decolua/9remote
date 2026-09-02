@@ -73,6 +73,7 @@ export function beginJob(component, extra = {}) {
 }
 
 export function endJob(patch) {
+  if (!job) return;   // no job to patch — a step stamp before the first install
   setJob(patch);
 }
 
@@ -672,6 +673,11 @@ export async function installEmulatorPackage(onProgress) {
   if (!sdk) throw new Error("cmdline-tools not installed");
   // A cancel must reach the java process itself — sdkmanager ignores flags and
   // would happily download gigabytes after one.
+  // sdkmanager refuses to install while licenses are unanswered; without this
+  // the java process parks on its own "Accept? (y/N)" stdin prompt forever.
+  try {
+    await runToolCancelable(sdk, ["--licenses"], { stdinput: "y\n" });
+  } catch { /* already accepted, or the probe failed — install will tell */ }
   const childPromise = runToolCancelable(sdk, ["--install", "emulator"], {
     onStdout: (chunk) => {
       for (const line of chunk.split(/[\r\n]+/)) {
@@ -732,10 +738,10 @@ function runToolCancelable(toolPath, args, { onStdout, stdinput } = {}) {
   let kill = () => {};
   const done = new Promise((resolve, reject) => {
     const child = spawn(toolPath, args, { env: javaEnv(), stdio: ["pipe", "pipe", "pipe"] });
-    if (stdinput) {
-      child.stdin.write(stdinput.repeat(20));
-      child.stdin.end();
-    }
+    if (stdinput) child.stdin.write(stdinput.repeat(20));
+    // No stdin to feed: close it, so an unexpected prompt reads EOF and exits
+    // instead of blocking the java process (and the job slot) forever.
+    child.stdin.end();
     kill = () => { try { child.kill("SIGKILL"); } catch {} reject(new Error("cancelled")); };
     let stdout = "";
     let stderr = "";
