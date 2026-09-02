@@ -1,6 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { DragDropProvider } from "@dnd-kit/react";
+import { useSortable } from "@dnd-kit/react/sortable";
+import { PointerSensor, PointerActivationConstraints } from "@dnd-kit/dom";
+import { move } from "@dnd-kit/helpers";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
@@ -19,6 +23,23 @@ import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import SessionCard from "./SessionCard";
 
 const UNGROUPED_KEY = "ungrouped";
+
+// Touch drag: hold-to-drag matches the old long-press UX; 8px tolerance keeps a
+// scroll gesture from activating it. Mouse uses a small distance instead.
+const DRAG_ACTIVATION = (event) => (event.pointerType === "touch"
+  ? [new PointerActivationConstraints.Delay({ value: 500, tolerance: 8 })]
+  : [new PointerActivationConstraints.Distance({ value: 8 })]);
+
+// Saved card order per workspace: workspace id -> [sessionId, ...]. Missing ids
+// (new terminals) keep their agent order after the saved ones.
+function readOrder(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
 
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
 // operations, so this screen would only be a larger, weaker copy of it.
@@ -198,7 +219,6 @@ export default function SessionList({
                   items={items}
                   connected={connected}
                   shellCount={shells.length}
-                  busRef={busRef}
                   cwdBySession={cwdBySession}
                   fileBus={fileBus}
                   homeDir={homeDir}
@@ -296,10 +316,36 @@ export default function SessionList({
 }
 
 // One workspace: a header naming the folder and where it is, then its terminals.
+// Hold a card ~500ms to pick it up and drop it on another card to reorder — order
+// persists to localStorage; a swipe before the deadline scrolls the list as usual.
 function WorkspaceSection({
-  section, items, connected, cwdBySession = {}, fileBus, homeDir, sessionStatus, notifications, shellCount = 1, busRef,
+  section, items, connected, cwdBySession = {}, fileBus, homeDir, sessionStatus, notifications, shellCount = 1,
   onSelect, onNewTerminal, onSessionMenu, onWorkspaceMenu, onRenameSession, onDeleteSession
 }) {
+  const storageKey = `sessions.listOrder:${section.key}`;
+  // Lazy init re-reads on remount (workspace switch); the drag preview rewrites the
+  // state itself and persistence goes to localStorage, so no effect sync is needed.
+  const [order, setOrder] = useState(() => readOrder(storageKey));
+  const [orderKey, setOrderKey] = useState(storageKey);
+  if (orderKey !== storageKey) {
+    setOrderKey(storageKey);
+    setOrder(readOrder(storageKey));
+  }
+
+  const ordered = useMemo(() => {
+    const at = new Map(order.map((id, i) => [id, i]));
+    return [...items].sort((a, b) => (at.get(a.id) ?? Infinity) - (at.get(b.id) ?? Infinity));
+  }, [items, order]);
+
+  // Persist a completed reorder. dnd-kit drives the preview/animations; this only
+  // commits the settled order (missing ids keep their agent order after the saved ones).
+  const handleDragEnd = (event) => {
+    const ids = ordered.map((s) => s.id);
+    const next = move(ids, event);
+    setOrder(next);
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
+  };
+
   const { t } = useI18n();
   const gitPath = section.path || items.find((s) => s.workspacePath)?.workspacePath;
   // Read only to tell a terminal's own branch apart from the workspace's — the header
@@ -344,25 +390,29 @@ function WorkspaceSection({
       </div>
 
       {!collapsed && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-          {items.map((session) => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              status={sessionStatus[session.id]}
-              hasNotification={!!notifications[session.id]}
-              connected={connected}
-              cwd={cwdBySession[session.id] || null}
-              fileBus={fileBus}
-              homeDir={homeDir}
-              shellCount={shellCount}
-              onSelect={onSelect}
-              onLongPress={onSessionMenu}
-              onRename={onRenameSession}
-              onDelete={onDeleteSession}
-              onResume={busRef ? (session) => busRef.current?.emit("session-resume", { sessionId: session.id }) : null}
-            />
-          ))}
+        <DragDropProvider
+          sensors={[PointerSensor.configure({ activationConstraints: DRAG_ACTIVATION })]}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+            {ordered.map((session, index) => (
+              <SessionCard
+                key={session.id}
+                session={session}
+                index={index}
+                status={sessionStatus[session.id]}
+                hasNotification={!!notifications[session.id]}
+                connected={connected}
+                cwd={cwdBySession[session.id] || null}
+                fileBus={fileBus}
+                homeDir={homeDir}
+                shellCount={shellCount}
+                onSelect={onSelect}
+                onLongPress={onSessionMenu}
+                onRename={onRenameSession}
+                onDelete={onDeleteSession}
+              />
+            ))}
           {/* Inline dashed card to add a terminal — desktop only; hidden on mobile when the
               workspace has terminals (the header Plus covers it there). */}
           <button
@@ -373,7 +423,8 @@ function WorkspaceSection({
           >
             <Plus className="text-brand-500" size={16} /> <span className="text-brand-500">{t("terminal.newTerminal")}</span>
           </button>
-        </div>
+          </div>
+        </DragDropProvider>
       )}
     </section>
   );

@@ -230,7 +230,7 @@ export default function SlideMenu() {
 
       {/* Menu Panel - slides from right */}
       <div
-        className="absolute top-0 right-0 bottom-0 w-[85vw] sm:w-96 max-w-md bg-surface border-l border-border shadow-2xl flex flex-col slide-in-right"
+        className="absolute top-0 right-0 bottom-0 w-[85vw] sm:w-96 max-w-md bg-surface border-l border-border shadow-2xl flex flex-col slide-in-right pt-[var(--safe-top)] pb-[var(--safe-bottom)]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

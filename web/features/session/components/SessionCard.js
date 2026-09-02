@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2, RotateCw } from "@/shared/components/ui/Icon";
+import { useSortable } from "@dnd-kit/react/sortable";
+import { Pencil, Trash2 } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { vibrate } from "@/shared/utils/vibration";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 import { MAX_CHANGED_BADGE } from "@/features/terminal/constants/terminalConfig";
-
-const LONG_PRESS_MS = 500;
 
 // The tail of a path carries the meaning (the leaf folder), so overflow trims the
 // HEAD, not the tail. Width comes from the flexed span, so no pixel constants.
@@ -44,10 +43,10 @@ function TailTruncate({ text, title, style, className = "" }) {
 
 // One terminal, one mini terminal window: titlebar with the classic dots, fake prompt
 // body, status riding as a badge. A div, not a button: the titlebar actions cannot
-// nest inside one. Long press still opens the full sheet.
+// nest inside one. Hold starts a drag-reorder (dnd-kit); right-click opens the sheet.
 export default function SessionCard({
-  session, status, hasNotification, connected,
-  onSelect, onLongPress, onRename, onDelete, onResume,
+  session, index, status, hasNotification, connected,
+  onSelect, onLongPress, onRename, onDelete,
   cwd, fileBus, homeDir, shellCount = 1
 }) {
   const { t } = useI18n();
@@ -64,25 +63,14 @@ export default function SessionCard({
     : basePath && gitPath.startsWith(`${basePath}/`) ? gitPath.slice(basePath.length + 1)
     : shortenHomePath(gitPath, homeDir) || "~";
 
-  // A ref, not a local: the timer has to survive the re-render a touch triggers.
-  const pressTimer = useRef(null);
-  const startPress = () => {
-    if (!onLongPress) return;
-    pressTimer.current = setTimeout(() => { vibrate(); onLongPress(session); }, LONG_PRESS_MS);
-  };
-  const cancelPress = () => {
-    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
-  };
-  useEffect(() => cancelPress, []);
+  const { ref, isDragging } = useSortable({ id: session.id, index });
 
   return (
     <div
-      onClick={() => { if (connected) { vibrate(); onSelect(session.id); } }}
+      ref={ref}
+      onClick={() => { if (connected && !isDragging) { vibrate(); onSelect(session.id); } }}
       onContextMenu={(e) => { if (onLongPress) { e.preventDefault(); onLongPress(session); } }}
-      onTouchStart={startPress}
-      onTouchMove={cancelPress}
-      onTouchEnd={cancelPress}
-      className={`group relative select-none rounded-xl transition-transform duration-150 ${
+      className={`group relative select-none rounded-xl ${isDragging ? "opacity-70" : ""} ${
         connected ? "cursor-pointer active:scale-[0.98] hover:-translate-y-1" : "opacity-60"
       }`}
     >
@@ -101,28 +89,14 @@ export default function SessionCard({
           className="flex items-center gap-2 px-2.5 py-1.5 border-b"
           style={{ background: "var(--card-titlebar-bg)", borderColor: "var(--card-titlebar-border)" }}
         >
-          <div className={`flex items-center gap-1.5 flex-shrink-0 ${connected ? "" : "opacity-40 saturate-0"}`}>
-            <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
-            <span className="w-[10px] h-[10px] rounded-full bg-[#febc2e]" />
-            <span className="w-[10px] h-[10px] rounded-full bg-[#28c840]" />
+          <div className={`flex items-center gap-1 flex-shrink-0 ${connected ? "" : "opacity-40 saturate-0"}`}>
+            <span className="w-[7px] h-[7px] rounded-full bg-[#ff5f57]" />
+            <span className="w-[7px] h-[7px] rounded-full bg-[#febc2e]" />
           </div>
           <span className="flex-1 min-w-0 text-center text-[11px] font-medium truncate" style={{ color: "var(--card-name-fg)" }} title={session.name || t("terminal.defaultName")}>
             {session.name || t("terminal.defaultName")}
           </span>
           <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-            {onResume && status?.conversationId && (
-              <button
-                type="button"
-                onClick={() => { vibrate(); onResume(session); }}
-                disabled={!connected}
-                className="p-1.5 rounded-md transition-colors hover:bg-emerald-500/10 disabled:cursor-not-allowed"
-                style={{ color: connected ? "var(--card-accent-amber)" : "var(--card-btn-disabled)" }}
-                aria-label={t("sessions.resumeSession")}
-                title={t("sessions.resumeSession")}
-              >
-                <RotateCw size={16} />
-              </button>
-            )}
             {onRename && (
               <button
                 type="button"

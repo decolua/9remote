@@ -290,7 +290,7 @@ export default function RemoteDesktop({ onClose, busRef, protocolRef, connected,
 
   return (
     <div
-      className={`bg-bg text-text flex flex-col h-[var(--app-height,100vh)] w-full ${tallLandscape ? "" : "landscape:flex-row"}`}
+      className={`bg-bg text-text flex flex-col h-full w-full ${tallLandscape ? "" : "landscape:flex-row"}`}
       style={{
         userSelect: "none",
         WebkitUserSelect: "none",

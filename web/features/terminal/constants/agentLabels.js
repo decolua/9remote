@@ -16,6 +16,9 @@ export const AGENT_LABELS = {
   hermes: "Hermes",
   amp: "Amp",
   pi: "Pi",
+  "qwen-code": "Qwen",
+  droid: "Droid",
+  crush: "Crush",
 };
 
 // Brand SVG available in /public/agents/. Others fall back to a generic icon.

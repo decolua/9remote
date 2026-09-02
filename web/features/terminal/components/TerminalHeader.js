@@ -275,7 +275,7 @@ function TerminalHeader({
       {onBack && (
         <button
           onClick={() => { vibrate(); onBack(); }}
-          className="p-2 pl-1.5 pr-3.5 sm:p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+          className="p-1 pl-1.5 pr-3.5 sm:p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0"
           title={t("common.back")}
         >
           <ChevronLeft size={20} className="sm:hidden" />

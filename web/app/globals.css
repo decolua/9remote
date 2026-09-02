@@ -491,6 +491,24 @@ html.terminal-page body {
   overscroll-behavior: none !important;
 }
 
+/* Safe-area insets — single source of truth. The expo bridge sets --pl-top
+   from the real native status-bar inset; env() covers PWA + Safari iPhone.
+   max() picks whichever is real; both are 0 on desktop browsers.
+   Ownership: TOP is inset here once (.terminal-container); BOTTOM is owned by
+   each bottom bar (.safe-area-bottom / .pb-safe) — never both, or it stacks. */
+:root {
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--pl-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--pl-bottom, 0px));
+}
+
+/* Native shell (expo): push content below the status bar; background stays
+   full-screen. Every view renders inside this container, so components
+   inherit the top inset instead of computing their own. */
+.terminal-container {
+  top: var(--safe-top);
+  height: calc(var(--app-height, 100vh) - var(--safe-top));
+}
+
 /* Terminal container */
 .terminal-container {
   overscroll-behavior: none;
@@ -708,18 +726,18 @@ label[for] {
   cursor: pointer;
 }
 
-/* iOS PWA Safe Area Support */
+/* Safe-area helpers — same vars as .terminal-container (--safe-top/bottom in :root) */
 .safe-area-top {
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: var(--safe-top);
 }
 
 .safe-area-bottom {
-  padding-bottom: 30px;
+  padding-bottom: max(30px, var(--safe-bottom));
 }
 
 /* Same inset as .safe-area-bottom, for bottom bars that set their own padding-x */
 .pb-safe {
-  padding-bottom: 30px;
+  padding-bottom: max(30px, var(--safe-bottom));
 }
 
 body.keyboard-open .safe-area-bottom {

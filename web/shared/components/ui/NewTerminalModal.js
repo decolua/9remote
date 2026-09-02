@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { X, Terminal, Bot, Check, History } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { agentIconUrl, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
 import { SHORTCUTS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
@@ -48,7 +47,6 @@ export default function NewTerminalModal({
   onSelectSession = null, connected = true
 }) {
   const { t } = useI18n();
-  const inputMode = useInputMode();
   const agentClis = useAgentClis(busRef);
   // "" = plain terminal. Held as an id (not the object) so the last-used agent
   // restores from localStorage before detection lands, with no effect/setState race.
@@ -117,8 +115,7 @@ export default function NewTerminalModal({
   // Where to look for past conversations: whatever the location picker points at,
   // falling back to the workspace root it defaults to.
   const historyCwd = cwd || workspacePath;
-  // Touch only: on a pointer device past conversations already live in the right panel
-  const canShowHistory = inputMode === "touch" && !!onResumeAgentSession && !!historyCwd;
+  const canShowHistory = !!onResumeAgentSession && !!historyCwd;
   const showHistory = canShowHistory && tab === "history";
 
   const submit = (picked = agent) => {

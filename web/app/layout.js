@@ -51,6 +51,11 @@ export const viewport = {
 // Inline script - apply theme class before paint to prevent FOUC
 const themeInitScript = `(function(){try{var t=localStorage.getItem("${STORAGE_KEY}")||"${DEFAULT_THEME}";document.documentElement.classList.add(t);}catch(e){document.documentElement.classList.add("${DEFAULT_THEME}");}})();`;
 
+// Native shell bridge — expo injects the real status-bar inset via
+// handleSafeAreaInset; web applies it as --pl-top (0 when unset, so browsers/PWA
+// are unaffected). Bottom inset is owned by bottom bars (.safe-area-bottom).
+const safeAreaScript = `window.handleSafeAreaInset=function(top,bottom){try{if(top&&top>0)document.documentElement.style.setProperty("--pl-top",top+"px");}catch(e){}};`;
+
 // Clipboard-read blocker — neutralizes navigator.clipboard.readText/.read at the
 // browser API level so no library (xterm core OSC52, CodeMirror, addon) can trigger
 // a clipboard-read permission prompt. No web feature reads the clipboard today
@@ -65,6 +70,7 @@ export default function RootLayout({ children }) {
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <script key="theme-init" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script key="safe-area-bridge" dangerouslySetInnerHTML={{ __html: safeAreaScript }} />
         <script
           key="sw-register"
           dangerouslySetInnerHTML={{
