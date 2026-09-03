@@ -170,8 +170,9 @@ function LoginContent() {
       // against the API key's HEAD would leave that key holding a secret that
       // expires in minutes and was never its own.
       if (parsed?.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
-      // Nothing parked: a one-time login has no API key TAIL to remember, and
-      // saving the HEAD alone would store a key that can prove nothing.
+      if (typeof window !== "undefined" && localStorage.getItem("9remote_remember_key_preference") !== "false") {
+        sessionStorage.setItem(WANTS_SAVE_KEY, "1");
+      }
       router.push("/workspace/");
     }
   }, [authenticateWithToken, router]);
@@ -306,6 +307,9 @@ function LoginContent() {
     if (!result.success) return false;
     // Same rule as a typed code: the TAIL is the code's, kept under the code.
     if (parsed.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
+    if (typeof window !== "undefined" && localStorage.getItem("9remote_remember_key_preference") !== "false") {
+      sessionStorage.setItem(WANTS_SAVE_KEY, "1");
+    }
     router.push("/workspace/");
     return true;
   };
