@@ -185,7 +185,7 @@ export default function SessionList({
       </header>
 
       <div
-        className="relative z-10 flex-1 overflow-auto modal-scrollable px-4 pt-4 pb-6"
+        className="relative z-10 flex-1 overflow-auto modal-scrollable px-4 pt-4 pb-12"
         style={{ overflowAnchor: "none" }}
       >
         {showBanner && (
@@ -531,7 +531,7 @@ function ActionRow({ icon, label, onClick, disabled }) {
     <button
       onClick={() => { vibrate(); onClick?.(); }}
       disabled={disabled}
-      className="flex items-center gap-1.5 px-1 py-2 text-[13px] font-medium uppercase text-brand-500 active:opacity-60 disabled:opacity-40 transition-opacity"
+      className="w-full flex items-center justify-center gap-1.5 px-1 py-2 text-[13px] font-medium uppercase text-brand-500 active:opacity-60 disabled:opacity-40 transition-opacity"
     >
       {icon}
       {label}
