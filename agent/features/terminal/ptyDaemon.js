@@ -122,8 +122,9 @@ function buildShellEnv(shellPath) {
     COLORTERM: "truecolor",
     LANG: process.env.LANG || "en_US.UTF-8"
   };
-  // Don't leak 9remote's internal PORT=2208 into user shells (breaks their npm run dev)
+  // Don't leak agent internals into user shells: PORT breaks their npm run dev, dev NODE_ENV flips their apps
   delete env.PORT;
+  delete env.NODE_ENV;
 
   const isZsh = shellPath.includes("zsh");
   const isBash = shellPath.includes("bash");

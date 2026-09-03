@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "2.5.8",
+  "version": "3.5.8",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "license": "BSL-1.1",
