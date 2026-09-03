@@ -239,6 +239,18 @@ test("ack timeout fires a restart when the reply never arrives", async () => {
   assert.deepEqual(pm.trace, [["scheduleRtcRestart"]]);
 });
 
+test("ack timeout ignores restart when rtc is actively receiving data", async () => {
+  const pm = makePm({
+    adapters: {
+      rtc: { ready: true, lastInboundAt: Date.now() }
+    }
+  });
+  pm._ackTimeoutMs = 10;
+  scheduleAckTimeout(pm, "c_10", { event: "bg:get" });
+  await sleep(20);
+  assert.deepEqual(pm.trace, [], "must not restart rtc while inbound data is actively arriving");
+});
+
 await Promise.all(tests);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

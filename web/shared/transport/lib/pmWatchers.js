@@ -1,8 +1,8 @@
-import { ADAPTER_STATE, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_SKIP_HIDDEN_MS, RTC_RESTART } from "@/shared/constants/transport";
+import { ADAPTER_STATE, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_SKIP_HIDDEN_MS, RTC_RESTART, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
 import { isWsZombie } from "../wsZombie";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
-import { selectedIceResponses } from "./controlRouting";
+import { selectedIceTraffic } from "./controlRouting";
 
 // Environment watchers for the transport: tab visibility/resume/freeze and network
 // handover. Both classes of event invalidate an RTC peer well before its own timers
@@ -201,22 +201,28 @@ export function probeRtcLiveness(pm, reason) {
   const token = ++pm._probeToken;
   (async () => {
     const r1 = await pc.getStats();
-    const a = selectedIceResponses(r1);
+    const a = selectedIceTraffic(r1);
     if (a == null) return null;
     await new Promise((res) => { pm._resumeProbeTimer = setTimeout(res, RESUME_PROBE_TIMEOUT_MS); });
     if (token !== pm._probeToken) return null; // superseded / disconnected
     const r2 = await pc.getStats();
-    return selectedIceResponses(r2) - a;
+    return selectedIceTraffic(r2) - a;
   })().then((delta) => {
     if (token !== pm._probeToken) return;
-    if (delta != null && delta > 0) {
-      termLog("switch", `${reason} probe alive (Δ=${delta})`);
+    const recentlyActive = rtc?.lastInboundAt && (Date.now() - rtc.lastInboundAt < RTC_HEARTBEAT_TIMEOUT_MS);
+    if ((delta != null && delta > 0) || recentlyActive) {
+      termLog("switch", `${reason} probe alive (Δ=${delta}, recent=${!!recentlyActive})`);
     } else {
       termLog("switch", `${reason} probe DEAD (Δ=${delta}) → forceRestartRtc`);
       pm._forceRestartRtc(`${reason}-probe-dead`);
     }
   }).catch(() => {
     if (token !== pm._probeToken) return;
+    const recentlyActive = rtc?.lastInboundAt && (Date.now() - rtc.lastInboundAt < RTC_HEARTBEAT_TIMEOUT_MS);
+    if (recentlyActive) {
+      termLog("switch", `${reason} probe error ignored (rtc recently active)`);
+      return;
+    }
     termLog("switch", `${reason} probe error → forceRestartRtc`);
     pm._forceRestartRtc(`${reason}-probe-error`);
   });
@@ -238,37 +244,5 @@ export function probeRtcOnResume(pm) {
     pm._forceRestartRtc("resume-hidden-touch");
     return;
   }
-  const pc = rtc._pc;
-  if (!pc || pc.connectionState === "failed") { pm._forceRestartRtc("resume-pc-failed"); return; }
-  // Browser-only probe (no agent cooperation): sample the selected ICE
-  // candidate-pair's responsesReceived across the window. ICE sends STUN
-  // keepalives continuously — even with no app traffic — so a live DC grows
-  // this counter; a frozen/zombie DC stays flat. Avoids a DO round-trip per
-  // resume and needs no new agent event.
-  clearTimeout(pm._resumeProbeTimer);
-  const token = ++pm._probeToken;
-  const sample = async () => {
-    const r1 = await pc.getStats();
-    const a = selectedIceResponses(r1);
-    if (a == null) return null;
-    await new Promise((res) => { pm._resumeProbeTimer = setTimeout(res, RESUME_PROBE_TIMEOUT_MS); });
-    if (token !== pm._probeToken) return null; // superseded / disconnected
-    const r2 = await pc.getStats();
-    return selectedIceResponses(r2) - a;
-  };
-  sample().then((delta) => {
-    if (token !== pm._probeToken) return;
-    if (delta != null && delta > 0) {
-      termLog("switch", `resume probe getStats alive (Δ=${delta})`);
-      debugLog("transport", `[pm] resume probe alive (delta=${delta})`);
-    } else {
-      termLog("switch", `resume probe getStats dead (Δ=${delta}) → forceRestartRtc`);
-      debugLog("transport", `[pm] resume probe dead (delta=${delta}) → restart rtc`);
-      pm._forceRestartRtc("resume-probe-dead");
-    }
-  }).catch(() => {
-    if (token !== pm._probeToken) return;
-    termLog("switch", "resume probe getStats error → forceRestartRtc");
-    pm._forceRestartRtc("resume-probe-error");
-  });
+  probeRtcLiveness(pm, "resume");
 }

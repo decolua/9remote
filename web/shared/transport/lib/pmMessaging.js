@@ -1,4 +1,4 @@
-import { CHANNELS, CONTROL_RTC_MAX_BYTES, ADAPTER_STATE } from "@/shared/constants/transport";
+import { CHANNELS, CONTROL_RTC_MAX_BYTES, ADAPTER_STATE, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
 import { controlBytes } from "./controlRouting";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
@@ -148,7 +148,7 @@ export function onBinary(pm, msg) {
 // create/rename would run twice on the agent. This is the list-loading pair that
 // a first-connect RTC blip strands (fresh browser → RTC-first → young trickling
 // DC eats an ack → restart ladder refuses to act while state=open → stuck UI).
-const ACK_RETRY_SAFE = new Set(["getSessions", "getWorkspaces"]);
+const ACK_RETRY_SAFE = new Set(["getSessions", "getWorkspaces", "bg:get", "bg:list"]);
 
 // Short ack timeout — if ack doesn't arrive, RTC is likely zombie (open but bytes lost).
 // Safe reads retry once over WS immediately (the UI recovers in ~5s, no restart);
@@ -156,21 +156,36 @@ const ACK_RETRY_SAFE = new Set(["getSessions", "getWorkspaces"]);
 export function scheduleAckTimeout(pm, ackId, ctx) {
   const timer = setTimeout(() => {
     pm._ackTimers.delete(ackId);
-    debugLog("transport", `[pm] ack timeout ackId=${ackId} → suspect zombie RTC`);
+    debugLog("transport", `[pm] ack timeout ackId=${ackId} event=${ctx?.event} → suspect zombie RTC`);
     const cb = pm._pendingAcks.get(ackId);
-    // A state=open peer that just ate a message is the prime zombie suspect —
-    // probe it (ICE keepalive counter) and force-restart if dead. The restart
-    // ladder alone refuses to act while state=open, which is how a first-connect
-    // zombie survived forever and every read kept dying on it.
     const rtc = pm._adapters.get("rtc");
-    if (rtc?.state === ADAPTER_STATE.open) probeRtcLiveness(pm, "ack-timeout");
     const ws = pm._adapters.get("ws");
+
+    // Safe reads retry once over WS immediately (the UI recovers in ~5s, no restart)
     if (cb && ctx && ws?.ready && ACK_RETRY_SAFE.has(ctx.event)) {
       pm._pendingAcks.delete(ackId);
       termLog("switch", `ack-timeout ${ctx.event} → retry via ws (rtc zombie?)`);
       ws.send(CHANNELS.control, { event: ctx.event, args: ctx.args, cb });
       return;
     }
+
+    // Check liveness: if RTC recently delivered inbound data (< RTC_HEARTBEAT_TIMEOUT_MS),
+    // RTC is clearly alive and moving bytes — this timeout is just a slow/unanswered
+    // request, NOT a dead carrier. Never tear down a healthy connection for one stalled ack.
+    const now = Date.now();
+    const rtcLastInbound = rtc?.lastInboundAt || 0;
+    if (rtc?.ready && rtcLastInbound && (now - rtcLastInbound < RTC_HEARTBEAT_TIMEOUT_MS)) {
+      termLog("switch", `ack-timeout ${ctx?.event || "?"} ignored (rtc active, lastInbound=${now - rtcLastInbound}ms ago)`);
+      return;
+    }
+
+    // A state=open peer that went silent: probe it (ICE keepalive/byte counter)
+    // and let the probe force-restart ONLY if it confirms the peer is truly dead.
+    if (rtc?.state === ADAPTER_STATE.open) {
+      probeRtcLiveness(pm, `ack-timeout:${ctx?.event || "?"}`);
+      return;
+    }
+
     pm._scheduleRtcRestart("ack-timeout");
   }, pm._ackTimeoutMs);
   pm._ackTimers.set(ackId, timer);

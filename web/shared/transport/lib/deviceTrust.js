@@ -252,6 +252,7 @@ export function handleDeviceAuthEvent(pm, event, data) {
     // was parked at login; a pairing parks nothing, so the full key is parked
     // here instead — after acceptance, which is the rule for every key.
     if (typeof window !== "undefined" && sessionStorage.getItem(WANTS_SAVE_KEY)) {
+      sessionStorage.removeItem(WANTS_SAVE_KEY);
       sessionStorage.setItem(PENDING_SAVE_KEY, `${apiKey}-${tail}`);
       commitPendingKey();
     }

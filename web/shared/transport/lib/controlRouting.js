@@ -37,20 +37,20 @@ export function randomTag() {
 }
 
 
-// Sum responsesReceived over the nominated/selected ICE candidate-pairs of a
-// RTCStatsReport. Returns null if no selected pair exists yet (still gathering).
-// Used by the resume probe to tell a live DC (counter grows from STUN keepalives)
-// from a frozen/zombie one (counter flat) without any agent cooperation.
-export function selectedIceResponses(report) {
+// Sum inbound traffic (bytesReceived + responsesReceived) over the nominated/selected
+// ICE candidate-pairs of a RTCStatsReport. Returns null if no selected pair exists yet.
+// Used by the liveness probe to verify whether bytes or STUN keepalives are flowing.
+export function selectedIceTraffic(report) {
   let total = 0, found = false;
   for (const v of report.values()) {
     if (v.type === "candidate-pair" && (v.nominated || v.selected)) {
       found = true;
-      total += v.responsesReceived ?? 0;
+      total += (v.bytesReceived ?? 0) + (v.responsesReceived ?? 0);
     }
   }
   return found ? total : null;
 }
+export const selectedIceResponses = selectedIceTraffic;
 
 /**
  * Pick the best ready adapter for a channel: the profile's preferred adapter if

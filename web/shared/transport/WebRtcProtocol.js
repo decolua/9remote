@@ -109,10 +109,13 @@ export class WebRtcProtocol extends BaseProtocol {
     this._peerEnv2 = false;
     this._v2Announced = false; // one-shot: first v2 frame we SEND
     this._v2RxSeen = false;    // one-shot: first v2 frame we DECODE
+    this._lastInboundAt = 0;
 
     this._signalingHandlers = {};
     this._signaling = null;
   }
+
+  get lastInboundAt() { return this._lastInboundAt; }
 
   /**
    * @param {object} ctx
@@ -215,6 +218,7 @@ export class WebRtcProtocol extends BaseProtocol {
       clearTimeout(this._connectTimer);
       this._connectTimer = null;
       this._everOpened = true;
+      this._lastInboundAt = Date.now();
       this._setState(ADAPTER_STATE.open);
     };
 
@@ -248,6 +252,7 @@ export class WebRtcProtocol extends BaseProtocol {
     };
 
     dcControl.onmessage = ({ data }) => {
+      this._lastInboundAt = Date.now();
       let parsed;
       // The DC itself tells the two wire forms apart: a string is v1 JSON, an
       // ArrayBuffer is a v2 frame (binaryType is "arraybuffer"). No sniffing.
@@ -274,11 +279,13 @@ export class WebRtcProtocol extends BaseProtocol {
     };
 
     dcBinary.onmessage = ({ data }) => {
+      this._lastInboundAt = Date.now();
       if (data instanceof ArrayBuffer) this._receiveTile(data);
     };
 
     // File DC carries raw binary frames (download chunks from agent).
     dcFile.onmessage = ({ data }) => {
+      this._lastInboundAt = Date.now();
       if (data instanceof ArrayBuffer) this._emit("binary", { channel: "file", buffer: data, source: "rtc" });
     };
 
