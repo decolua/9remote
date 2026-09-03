@@ -9,6 +9,7 @@ import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import {
   Folder, Monitor, Smartphone, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap, ArrowRight
@@ -30,17 +31,6 @@ const DRAG_ACTIVATION = (event) => (event.pointerType === "touch"
   ? [new PointerActivationConstraints.Delay({ value: 500, tolerance: 8 })]
   : [new PointerActivationConstraints.Distance({ value: 8 })]);
 
-// Saved card order per workspace: workspace id -> [sessionId, ...]. Missing ids
-// (new terminals) keep their agent order after the saved ones.
-function readOrder(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
 // operations, so this screen would only be a larger, weaker copy of it.
 export default function SessionList({
@@ -51,13 +41,16 @@ export default function SessionList({
   notifications = {}, sessionStatus = {}, clearNotification, agentVersion,
   updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, carrier = "ws",
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
-  fileBus, homeDir, recentWorkspaces = [], shells = []
+  fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession
 }) {
   const { t } = useI18n();
   // Actions only — same reason as TerminalHeader: this writes context/callbacks.
   const openMenu = useSlideMenuStore((s) => s.open);
   const setContext = useSlideMenuStore((s) => s.setContext);
   const setCallbacks = useSlideMenuStore((s) => s.setCallbacks);
+  const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
+  const mobileDeviceCount = useTerminalStore((s) => s.mobileDeviceCount);
+  const showButton = (id) => !hiddenHeaderButtons.includes(id);
 
   const [sheet, setSheet] = useState(null);                 // { target } — a long-pressed terminal
   const [renaming, setRenaming] = useState(null);           // { kind, id, value }
@@ -173,13 +166,23 @@ export default function SessionList({
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">
-          {onOpenRemote && (
+          {showButton("remote") && onOpenRemote && (
             <HeaderButton icon={Monitor} label={t("menu.remoteDesktop")} onClick={onOpenRemote} disabled={!connected} />
           )}
-          {onOpenMobile && (
-            <HeaderButton icon={Smartphone} label={t("mobile.androidDevice")} onClick={onOpenMobile} disabled={!connected} />
+          {showButton("mobile") && onOpenMobile && (
+            <HeaderButton
+              icon={Smartphone}
+              label={mobileDeviceCount > 0
+                ? t("mobile.deviceRunning", { count: mobileDeviceCount })
+                : t("mobile.androidDevice")}
+              onClick={onOpenMobile}
+              disabled={!connected}
+              className={mobileDeviceCount > 0 ? "!text-green-400" : ""}
+            />
           )}
-          <HeaderButton icon={Globe} label={t("menu.sites")} onClick={() => setSitesOpen(true)} disabled={!connected} />
+          {showButton("sites") && (
+            <HeaderButton icon={Globe} label={t("menu.sites")} onClick={() => setSitesOpen(true)} disabled={!connected} />
+          )}
           <HeaderButton icon={Settings} label={t("menu.title")} onClick={openMenu} />
         </div>
       </header>
@@ -229,6 +232,7 @@ export default function SessionList({
                   onSessionMenu={(session) => setSheet({ target: session })}
                   onRenameSession={(s) => setRenaming({ kind: "session", id: s.id, value: s.name })}
                   onDeleteSession={(s) => setConfirm({ kind: "session", id: s.id, name: s.name })}
+                  onReorderSession={onReorderSession}
                   onWorkspaceMenu={section.isUnassigned ? null : (action) => {
                     if (action === "rename") setRenaming({ kind: "workspace", id: section.id, value: section.name });
                     else setConfirm({ kind: "workspace", id: section.id, name: section.name });
@@ -320,30 +324,34 @@ export default function SessionList({
 // persists to localStorage; a swipe before the deadline scrolls the list as usual.
 function WorkspaceSection({
   section, items, connected, cwdBySession = {}, fileBus, homeDir, sessionStatus, notifications, shellCount = 1,
-  onSelect, onNewTerminal, onSessionMenu, onWorkspaceMenu, onRenameSession, onDeleteSession
+  onSelect, onNewTerminal, onSessionMenu, onWorkspaceMenu, onRenameSession, onDeleteSession, onReorderSession
 }) {
-  const storageKey = `sessions.listOrder:${section.key}`;
-  // Lazy init re-reads on remount (workspace switch); the drag preview rewrites the
-  // state itself and persistence goes to localStorage, so no effect sync is needed.
-  const [order, setOrder] = useState(() => readOrder(storageKey));
-  const [orderKey, setOrderKey] = useState(storageKey);
-  if (orderKey !== storageKey) {
-    setOrderKey(storageKey);
-    setOrder(readOrder(storageKey));
-  }
+  const [localOrder, setLocalOrder] = useState(null);
+
+  useEffect(() => {
+    if (!localOrder) return;
+    const timer = setTimeout(() => setLocalOrder(null), 1500);
+    return () => clearTimeout(timer);
+  }, [localOrder]);
 
   const ordered = useMemo(() => {
-    const at = new Map(order.map((id, i) => [id, i]));
+    if (!localOrder) return items;
+    if (items.length !== localOrder.length || items.some((s) => !localOrder.includes(s.id))) {
+      return items;
+    }
+    const at = new Map(localOrder.map((id, i) => [id, i]));
     return [...items].sort((a, b) => (at.get(a.id) ?? Infinity) - (at.get(b.id) ?? Infinity));
-  }, [items, order]);
+  }, [items, localOrder]);
 
-  // Persist a completed reorder. dnd-kit drives the preview/animations; this only
-  // commits the settled order (missing ids keep their agent order after the saved ones).
+  // Persist a completed reorder. dnd-kit drives the preview/animations; this commits
+  // the settled order to agent and updates local terminal store / tabs.
   const handleDragEnd = (event) => {
+    if (!connected) return;
     const ids = ordered.map((s) => s.id);
     const next = move(ids, event);
-    setOrder(next);
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
+    if (!next) return;
+    setLocalOrder(next);
+    onReorderSession?.(next);
   };
 
   const { t } = useI18n();
@@ -445,14 +453,14 @@ function IconAction({ icon: Icon, label, onClick, danger, disabled }) {
   );
 }
 
-function HeaderButton({ icon: Icon, label, onClick, disabled }) {
+function HeaderButton({ icon: Icon, label, onClick, disabled, className = "" }) {
   return (
     <button
       onClick={() => { vibrate(); onClick(); }}
       disabled={disabled}
       title={label}
       className={`p-2 rounded-brand transition-colors active:scale-[0.96] ${
-        disabled ? "text-text-subtle cursor-not-allowed" : "text-text-muted hover:text-text hover:bg-surface-2"
+        disabled ? "text-text-subtle cursor-not-allowed" : `text-text-muted hover:text-text hover:bg-surface-2 ${className}`
       }`}
     >
       <Icon className="w-5 h-5" />

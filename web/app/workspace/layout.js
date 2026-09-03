@@ -70,6 +70,7 @@ export default function WorkspaceLayout({ children }) {
     setViewStack,
     addOpenedSession,
     removeOpenedSession,
+    reorderOpenedSessions,
     activeWorkspaceId,
     setActiveWorkspaceId,
     livePanes,
@@ -114,6 +115,7 @@ export default function WorkspaceLayout({ children }) {
     setViewStack: s.setViewStack,
     addOpenedSession: s.addOpenedSession,
     removeOpenedSession: s.removeOpenedSession,
+    reorderOpenedSessions: s.reorderOpenedSessions,
     activeWorkspaceId: s.activeWorkspaceId,
     setActiveWorkspaceId: s.setActiveWorkspaceId,
     livePanes: s.livePanes,
@@ -496,6 +498,11 @@ export default function WorkspaceLayout({ children }) {
     setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: null });
   }, []);
 
+  const handleReorderSession = useCallback((orderedIds) => {
+    reorderOpenedSessions(orderedIds);
+    reorderSession(orderedIds);
+  }, [reorderOpenedSessions, reorderSession]);
+
   // The three panel descriptors and the pane-width setter are props on the terminal view.
   // A fresh object/closure per render defeats every memo below them, and this component
   // re-renders on each status change, cwd update and notification.
@@ -596,6 +603,7 @@ export default function WorkspaceLayout({ children }) {
             homeDir={systemInfo?.homedir}
             onRenameWorkspace={renameWorkspace}
             onDeleteWorkspace={deleteWorkspace}
+            onReorderSession={handleReorderSession}
             recentWorkspaces={recentWorkspaces}
             shells={shells}
           />
