@@ -15,6 +15,7 @@ import ExplorerRow, { TruncatedNote, indentFor } from "./ExplorerRow";
 import { dataTransferToItems } from "@/features/fileExplorer/lib/dataTransfer";
 import { ConflictModal } from "./FileExplorerModals";
 import { isMac } from "@/features/terminal/constants/shortcuts";
+import { addToGitignore } from "../lib/gitignore.js";
 
 const LONG_PRESS_MS = 500;
 const DRAG_MIME = "application/x-file-paths";
@@ -548,6 +549,16 @@ export default function ExplorerPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onActions, showHidden, refreshAll, collapseAll, expanded.size, workspace]);
 
+  const handleAddToGitignore = useCallback(async (file) => {
+    if (!workspace || !fileBus || !file?.path) return;
+    const rel = getRelative(file.path);
+    const res = await addToGitignore(fileBus, workspace, rel, file.type === "folder");
+    if (res?.success) {
+      loadGitStatus();
+      window.dispatchEvent(new CustomEvent(GIT_REFRESH_EVENT));
+    }
+  }, [workspace, fileBus, getRelative, loadGitStatus]);
+
   // Context menu items. With more than one row selected the destructive/clipboard
   // entries act on the whole set — the single-item ones drop out.
   const buildMenuItems = (file) => {
@@ -585,6 +596,7 @@ export default function ExplorerPanel({
       items.push({ label: "Duplicate", icon: "Copy", action: () => duplicateItem(file) });
       items.push({ label: "Copy Path", icon: "Copy", action: () => copyToClipboard(file.path) });
       items.push({ label: "Copy Relative Path", icon: "Copy", action: () => copyToClipboard(getRelative(file.path)) });
+      items.push({ label: t("git.addToGitignore", { defaultValue: "Add to .gitignore" }), icon: "EyeOff", action: () => handleAddToGitignore(file) });
     }
     items.push({
       label: many ? `Delete ${picked.length} items` : "Delete",

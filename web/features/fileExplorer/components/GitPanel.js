@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { GIT_STATUS_COLORS } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT } from "../constants/fileExplorer.js";
 import { resolveFileIcon } from "../constants/fileIcons.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import GitActionsModal from "./GitActionsModal.js";
@@ -10,6 +10,7 @@ import FileContextMenu, { FILE_MENU_ICONS } from "@/shared/components/ui/FileCon
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import DiffBody from "./DiffBody.js";
+import { addToGitignore } from "../lib/gitignore.js";
 
 export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
   const { t } = useI18n();
@@ -142,6 +143,15 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
     vibrate();
     setCtxMenu({ file, x: e.clientX, y: e.clientY });
   }, []);
+  const handleAddToGitignore = useCallback(async (file) => {
+    if (!workspace || !fileBus || !file?.path) return;
+    const res = await addToGitignore(fileBus, workspace, file.path);
+    if (res?.success) {
+      window.dispatchEvent(new CustomEvent(GIT_REFRESH_EVENT));
+      loadStatus();
+    }
+  }, [workspace, fileBus, loadStatus]);
+
   const buildMenuItems = useCallback((file) => {
     const absPath = workspace.endsWith("/") ? `${workspace}${file.path}` : `${workspace}/${file.path}`;
     return [
@@ -150,9 +160,10 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
       { key: "copyPath", label: t("files.copyPath", { defaultValue: "Copy Path" }), icon: FILE_MENU_ICONS.Copy, onClick: () => copyToClipboard(absPath) },
       { key: "copyRel", label: t("files.copyRelPath", { defaultValue: "Copy Relative Path" }), icon: FILE_MENU_ICONS.FileText, onClick: () => copyToClipboard(file.path) },
       { key: "copyName", label: t("files.copyName", { defaultValue: "Copy Filename" }), icon: FILE_MENU_ICONS.FileText, onClick: () => copyToClipboard(file.path.split("/").pop()) },
+      { key: "addToGitignore", label: t("git.addToGitignore", { defaultValue: "Add to .gitignore" }), icon: FILE_MENU_ICONS.EyeOff, onClick: () => handleAddToGitignore(file) },
       { key: "discard", label: t("git.discardChangesTitle", { defaultValue: "Discard Changes" }), icon: FILE_MENU_ICONS.Undo2, danger: true, onClick: () => handleDiscardFile(file.path, file.status) },
     ];
-  }, [workspace, t, handleOpenFile, copyToClipboard, handleDiscardFile]);
+  }, [workspace, t, handleOpenFile, copyToClipboard, handleAddToGitignore, handleDiscardFile]);
 
   const groupedFiles = {
     modified: statusFiles.filter(f => f.status === "M"),

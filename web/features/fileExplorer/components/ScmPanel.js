@@ -1,14 +1,16 @@
 "use client";
 
 import { memo, useState, useEffect, useCallback, useMemo } from "react";
-import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown } from "@/shared/components/ui/Icon";
+import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown, EyeOff } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import FileContextMenu from "@/shared/components/ui/FileContextMenu";
 import { useI18n } from "@/shared/i18n";
+import useIsTouch from "@/shared/hooks/useIsTouch.js";
 import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
 import { resolveFileIcon } from "../constants/fileIcons.js";
 import { commitSummary, pushSummary, pullSummary } from "../lib/gitOutput.js";
+import { addToGitignore } from "../lib/gitignore.js";
 
 const SECTION_CHANGES = "changes";
 const SECTION_UNTRACKED = "untracked";
@@ -34,7 +36,7 @@ function joinPath(base, rel) {
 // One changed-file row. Memoized so typing a commit message (panel-level state) does not
 // re-render the whole file list per keystroke — handlers take the row's `file`, so every
 // row shares one stable identity.
-const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, openDiff, onCtxMenu, onDiscard, onStage }) {
+const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, isTouch, openDiff, onCtxMenu, onDiscard, onStage }) {
   const colorClass = GIT_STATUS_COLORS[file.status] || "text-text-muted";
   const absPath = joinPath(workspace, file.path);
   return (
@@ -54,7 +56,7 @@ const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, o
       {/* VS Code parity: hover shows only Discard + Stage, floating OVER the directory
           text (no reserved space — the full row width stays readable when not hovered).
           Opening the file itself is a context-menu action; the row click opens the diff. */}
-      <div className="absolute right-[22px] top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-2 pr-1 bg-surface-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className={`absolute right-[22px] top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-2 pr-1 bg-surface-2 transition-opacity ${isTouch ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
         <button
           type="button"
           title={isUntracked ? t("common.delete") : t("git.discard")}
@@ -79,6 +81,7 @@ const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, o
 
 export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRepo = false }) {
   const { t } = useI18n();
+  const isTouch = useIsTouch();
   const [branch, setBranch] = useState("");
   const [ahead, setAhead] = useState(null);
   const [behind, setBehind] = useState(null);
@@ -248,6 +251,15 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
     vibrate();
     setCtxMenu({ file, x: e.clientX, y: e.clientY });
   }, []);
+  const handleAddToGitignore = useCallback(async (file) => {
+    if (!workspace || !fileBus || !file?.path) return;
+    const res = await addToGitignore(fileBus, workspace, file.path);
+    if (res?.success) {
+      window.dispatchEvent(new CustomEvent(GIT_REFRESH_EVENT));
+      reload();
+    }
+  }, [workspace, fileBus, reload]);
+
   const buildMenuItems = useCallback((file) => {
     const absPath = joinPath(workspace, file.path);
     return [
@@ -256,8 +268,9 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
       { key: "copyPath", label: t("files.copyPath", { defaultValue: "Copy Path" }), icon: ExternalLink, onClick: () => copyToClipboard(absPath) },
       { key: "copyRel", label: t("files.copyRelPath", { defaultValue: "Copy Relative Path" }), icon: ExternalLink, onClick: () => copyToClipboard(file.path) },
       { key: "copyName", label: t("files.copyName", { defaultValue: "Copy Filename" }), icon: ExternalLink, onClick: () => copyToClipboard(basename(file.path)) },
+      { key: "addToGitignore", label: t("git.addToGitignore", { defaultValue: "Add to .gitignore" }), icon: EyeOff, onClick: () => handleAddToGitignore(file) },
     ];
-  }, [workspace, onOpenFile, copyToClipboard, t]);
+  }, [workspace, onOpenFile, copyToClipboard, handleAddToGitignore, t]);
 
   const renderFileRow = (file, isUntracked) => (
     <ScmFileRow
@@ -266,6 +279,7 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
       workspace={workspace}
       isUntracked={isUntracked}
       t={t}
+      isTouch={isTouch}
       openDiff={openDiff}
       onCtxMenu={openCtxMenu}
       onDiscard={requestDiscard}

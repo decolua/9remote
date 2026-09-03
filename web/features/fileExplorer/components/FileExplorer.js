@@ -4,13 +4,15 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import FileTree from "./FileTree";
 import { addRecentWorkspace } from "./WorkspaceList";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
-import { X, Search, GitBranch, Plus, ChevronLeft, Pencil, Copy, Trash2, File, Folder, Package, FolderOpen, Download } from "@/shared/components/ui/Icon";
+import { X, Search, GitBranch, Plus, ChevronLeft, Pencil, Copy, Trash2, File, Folder, Package, FolderOpen, Download, EyeOff } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { useI18n } from "@/shared/i18n";
 import { buildWorkspaceGitStatus, sameStatusMap } from "@/features/fileExplorer/lib/gitStatusMap";
 import { useFileTransfer } from "@/features/fileExplorer/hooks/useFileTransfer";
 import { SearchBar, TransferBanner, NewItemModal, RenameModal, ConflictModal } from "./FileExplorerModals";
+import { addToGitignore } from "../lib/gitignore.js";
+import { GIT_REFRESH_EVENT } from "../constants/fileExplorer.js";
 
 export default function FileExplorer({
   workspace,
@@ -252,6 +254,17 @@ export default function FileExplorer({
 
   const getDisplayPath = () => currentPath.replace(/^\/Users\/[^/]+/, "~");
 
+  const handleAddToGitignore = async (file) => {
+    if (!workspace || !fileBus || !file?.path) return;
+    closeContextMenu();
+    const rel = file.path.startsWith(workspace) ? file.path.slice(workspace.length).replace(/^\/+/, "") : file.path;
+    const res = await addToGitignore(fileBus, workspace, rel, file.type === "folder");
+    if (res?.success) {
+      checkGit(workspace);
+      window.dispatchEvent(new CustomEvent(GIT_REFRESH_EVENT));
+    }
+  };
+
   const isAtWorkspace = currentPath === workspace;
   const headerBtn = "p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]";
 
@@ -469,6 +482,13 @@ export default function FileExplorer({
                 {t("files.download")}
               </button>
             )}
+            <button
+              onClick={() => { vibrate(); handleAddToGitignore(contextMenu.file); }}
+              className="w-full px-4 py-3 text-left text-text hover:bg-surface-2 flex items-center gap-3 transition-colors"
+            >
+              <EyeOff size={16} />
+              {t("git.addToGitignore", { defaultValue: "Add to .gitignore" })}
+            </button>
             <button
               onClick={() => { vibrate(); handleDelete(contextMenu.file); }}
               className="w-full px-4 py-3 text-left text-red-400 hover:bg-surface-2 flex items-center gap-3 transition-colors"

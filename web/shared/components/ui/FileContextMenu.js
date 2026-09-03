@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Copy, FileText, ExternalLink, Undo2, X } from "./Icon";
+import { Copy, FileText, ExternalLink, Undo2, X, EyeOff } from "./Icon";
 
 // VSCode-style right-click menu for a file row.
 // items: array of { key, label, icon, onClick, danger?, disabled? }
@@ -67,4 +67,4 @@ export default function FileContextMenu({ x, y, items, onClose }) {
   );
 }
 
-export const FILE_MENU_ICONS = { Copy, FileText, ExternalLink, Undo2, X };
+export const FILE_MENU_ICONS = { Copy, FileText, ExternalLink, Undo2, X, EyeOff };
