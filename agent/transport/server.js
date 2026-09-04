@@ -16,7 +16,7 @@ import { setupFileExplorerHandlers } from "../features/fileExplorer/fileExplorer
 import { setupClipboardHandlers } from "../features/clipboard/clipboardSocket.js";
 import { setupQuotaTrackerHandlers } from "../features/quotaTracker/quotaTrackerSocket.js";
 import { setupBackgroundHandlers } from "../features/terminal/backgroundSocket.js";
-import { trackConnection, untrackConnection, pushUiLog, pushUiLogDebug, clearOneTimeKey, pushUiEvent, setRemoteAvailable, pushTransportState } from "../api/ui.js";
+import { trackConnection, untrackConnection, pushUiLog, pushUiLogDebug, clearOneTimeKey, pushUiEvent, setRemoteAvailable, pushTransportState, getTunnelPayload } from "../api/ui.js";
 import {
   loadApprovedDevices,
   isDevicePending,
@@ -244,6 +244,20 @@ function issueKeyToPairedDevice(socket) {
   });
 }
 
+/** One-shot session metadata & verdicts synced to client on connect/reconnect. */
+function syncClientSession(socket) {
+  if (!socket.connected) return;
+  if (!socket.data?.conn?.active && !socket.data?.localUi) return;
+  if (!socket.data?.clientReady) return;
+
+  announceAdmitted(socket);
+  issueKeyToPairedDevice(socket);
+  const info = setupTerminalSocket._buildServerInfo?.();
+  if (info) socket.emit("serverInfo", info);
+  socket.emit("srvCaps", { env2: 1 });
+  socket.emit("tunnel:updated", getTunnelPayload());
+}
+
 /** The session itself — reached only once both gates said yes. Split out so a
  *  held RTC session can resume here after its proof (or the host) settles,
  *  without re-registering the auth handlers. */
@@ -254,13 +268,12 @@ async function setupSessionFeatures(socket) {
   // to active); this flag only mirrors it for the socket.io code that predates
   // sessions and still reads socket.data.approved.
   socket.data.approved = true;
-  announceAdmitted(socket); // both gates passed — this is the only place that is true
-  issueKeyToPairedDevice(socket);
   setupFileExplorerHandlers(socket);
   setupClipboardHandlers(socket);
   setupQuotaTrackerHandlers(socket);
   setupBackgroundHandlers(socket);
   await setupTerminalHandlers(socket, ioInstance, loadApiKey());
+  syncClientSession(socket);
   socket.emit("terminal:ready");
 }
 
@@ -379,15 +392,7 @@ function armClientReady(socket) {
   socket.data.clientReady = false;
   socket.on("device:clientReady", () => {
     socket.data.clientReady = true;
-    if (!socket.data.conn?.active) return;
-    // Re-announce the verdict AND the one-shot session info: serverInfo/srvCaps
-    // are sent once per session, so a carrier joining late (or rejoining after
-    // an outage) never saw the first copies. All three are idempotent downstream.
-    announceAdmitted(socket);
-    issueKeyToPairedDevice(socket);
-    const info = setupTerminalSocket._buildServerInfo?.();
-    if (info) socket.emit("serverInfo", info);
-    socket.emit("srvCaps", { env2: 1 });
+    syncClientSession(socket);
   });
 }
 

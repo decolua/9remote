@@ -206,7 +206,8 @@ export const AUTO_SAVE_DELAY = 3000; // 3 seconds
 // Blacklist sensitive paths (relative to home dir, or absolute system paths)
 export const SENSITIVE_HOME_DIRS = [
   ".ssh", ".aws", ".gnupg", ".kube", ".docker", ".cargo",
-  ".npmrc", ".netrc", ".pypirc", ".config/gh", ".config/gcloud"
+  ".npmrc", ".netrc", ".pypirc", ".config/gh", ".config/gcloud",
+  ".9remote" // agent's own keys/state — never expose via file explorer
 ];
 export const SENSITIVE_ABS_PATHS = [
   // /var/root is root's actual home on macOS; /root is the Linux one.

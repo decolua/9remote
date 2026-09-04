@@ -40,7 +40,13 @@ function bothForms(p) {
   return real && real !== p ? [p, real] : [p];
 }
 
-const CANONICAL_ABS_PATHS = SENSITIVE_ABS_PATHS.flatMap(bothForms);
+// Root's home is fenced to keep machine-wide secrets away from remote clients —
+// unless the agent itself runs as root (VPS/container), where /root is the user's
+// own home and the sensitive dot-dirs (SENSITIVE_HOME_DIRS) already carry the load.
+const HOME_CANON = canonicalize(HOME);
+const CANONICAL_ABS_PATHS = SENSITIVE_ABS_PATHS
+  .filter((p) => canonicalize(p) !== HOME_CANON)
+  .flatMap(bothForms);
 
 // The same treatment for the home entries, which is easy to forget because the
 // symlink is in HOME rather than in the entry: with HOME=/tmp/x (a symlink),

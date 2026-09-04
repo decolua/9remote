@@ -88,6 +88,10 @@ async function startServerAndTunnel(selectedKey) {
 
   if (tunnelUrl) await updateTunnelUrl(selectedKey, tunnelUrl);
 
+  // The foreground path must reach READY too — only bg-reconnect set it before,
+  // leaving getTunnelPayload() reporting "down" forever on a healthy tunnel.
+  await setStep(STEP.READY, { tunnelUrl });
+
   saveState({
     apiKey: selectedKey,
     tunnelUrl,

@@ -127,6 +127,9 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
       }
     }
     await showConnectionInfo(apiKey, tunnelUrl);
+    // Foreground success reaches READY here — only the bg-reconnect onReady did
+    // before, so a started-from-UI tunnel reported "down" to RTC clients forever.
+    await setStep(STEP.READY, { tunnelUrl });
     if (!result) {
       startBackgroundTunnelReconnect(SERVER_PORT, {
         onUrlUpdate,

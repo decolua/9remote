@@ -2,7 +2,7 @@
  * UI state & SSE event handlers (localhost-only)
  */
 
-import { STEP, PERMISSION_POLL_FAST_MS, PERMISSION_POLL_FAST_DURATION } from "../lib/constants.js";
+import { STEP, PERMISSION_POLL_FAST_MS, PERMISSION_POLL_FAST_DURATION, SERVER_PORT } from "../lib/constants.js";
 import { setSseEmitter, readRecentLogs, clearRecentLogs, createLogger, IS_DEBUG } from "../lib/logger.js";
 import { LOG_TAIL_LINES } from "../lib/constants.js";
 import { writeCmd } from "../cli/utils/state.js";
@@ -17,9 +17,21 @@ import { join } from "path";
 import { PATHS } from "../lib/constants.js";
 import { readSettings, writeSettings } from "../lib/settings.js";
 import { getSignalingState } from "../lib/signalingGlobal.js";
-import { getTransportStats } from "../transport/broadcast.js";
+import { getTransportStats, broadcast } from "../transport/broadcast.js";
 import { isRtcTestDisabled, setRtcTestDisabled } from "../transport/server.js";
 import { WORKER_URL } from "../cli/config.js";
+import os from "os";
+
+function getLocalIp() {
+  try {
+    for (const iface of Object.values(os.networkInterfaces())) {
+      for (const addr of iface || []) {
+        if (addr.family === "IPv4" && !addr.internal) return addr.address;
+      }
+    }
+  } catch {}
+  return null;
+}
 
 const UI_STATE_FILE = join(PATHS.STATE, "ui-state.json");
 const logger = createLogger("ui");
@@ -118,10 +130,31 @@ setSseEmitter((line) => pushUiEvent("log", { message: line }));
 
 export function getUiState() { return uiState; }
 
+export function getTunnelPayload() {
+  const isReady = uiState.step === STEP.READY && !!uiState.tunnelUrl;
+  const lanIp = getLocalIp();
+  return {
+    status: isReady ? "ready" : "down",
+    tunnelUrl: isReady ? uiState.tunnelUrl : null,
+    localIp: lanIp ? `${lanIp}:${SERVER_PORT}` : null
+  };
+}
+
 export function updateUiState(data) {
+  const prevTunnel = uiState.tunnelUrl;
+  const prevStep = uiState.step;
   uiState = { ...uiState, ...data };
   pushUiEvent("state", uiState);
   saveUiState();
+
+  // Broadcast tunnel URL update to connected RTC/WS clients
+  if (data.tunnelUrl !== undefined || data.step !== undefined) {
+    const tunnelChanged = data.tunnelUrl !== undefined && data.tunnelUrl !== prevTunnel;
+    const stepChanged = data.step !== undefined && data.step !== prevStep;
+    if (tunnelChanged || (stepChanged && (uiState.step === STEP.READY || uiState.step === STEP.STOPPED))) {
+      broadcast(null, "tunnel:updated", getTunnelPayload());
+    }
+  }
 }
 
 export function clearOneTimeKey() {
