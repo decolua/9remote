@@ -412,14 +412,16 @@ function TerminalSidebar({
         )}
 
         {onAddWorkspace && (
-          <button
-            onClick={() => { vibrate(); onAddWorkspace(); }}
-            disabled={!connected}
-            className="mt-2 mb-1 flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 text-left text-xs text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
-          >
-            <Plus size={12} className="flex-shrink-0" />
-            {t("workspaces.newWorkspace")}
-          </button>
+          <div className="px-2 pt-3 pb-1">
+            <button
+              onClick={() => { vibrate(); onAddWorkspace(); }}
+              disabled={!connected}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs text-text-subtle hover:text-text border border-dashed border-border-subtle hover:border-text-muted/40 rounded-brand hover:bg-surface-2 transition-colors disabled:opacity-40"
+            >
+              <Plus size={12} className="flex-shrink-0" />
+              <span>{t("workspaces.newWorkspace")}</span>
+            </button>
+          </div>
         )}
       </div>
 

@@ -175,9 +175,9 @@ export const TERMINAL_BACKGROUNDS = {
   art3: { label: "Anime 3", src: "/backgrounds/bg3.jpg" },
   art4: { label: "Anime 4", src: "/backgrounds/bg4.jpg" },
   art5: { label: "Anime 5", src: "/backgrounds/bg5.jpg" },
-  art6: { label: "Anime 6", src: "/backgrounds/bg6.jpg" },
   art7: { label: "Anime 7", src: "/backgrounds/bg7.jpg" },
-  art8: { label: "Anime 8", src: "/backgrounds/bg8.jpg" }
+  art8: { label: "Anime 8", src: "/backgrounds/bg8.jpg" },
+  art9: { label: "Anime 9", src: "/backgrounds/bg10.jpg" }
 };
 
 // When a background is active the canvas paints NOTHING (alpha 00) — the dim veil
@@ -223,7 +223,8 @@ export function resolvableBackgroundKeys(keys, customItems = []) {
   if (!Array.isArray(keys)) return [];
   return keys.filter((k) => {
     const id = customBgId(k);
-    return !id || customItems.some((it) => it?.id === id);
+    if (id) return customItems.some((it) => it?.id === id);
+    return k === "none" || !!TERMINAL_BACKGROUNDS[k];
   });
 }
 
