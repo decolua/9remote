@@ -78,6 +78,7 @@ export function initialState() {
     _hiddenAt: null,
     _resumeProbeTimer: null,
     _probeToken: 0,
+    _probeLive: null,       // { rtc, token } — the probe currently measuring
 
     _connected: false,
     _type: "ws",

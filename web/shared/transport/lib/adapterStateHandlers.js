@@ -79,6 +79,15 @@ export function handleRtcStateChange(pm, state) {
     // no need to reset the terminal.
     clearTimeout(pm._rejoinDebounceTimer);
     pm._rejoinDebounceTimer = null;
+    const rtc = pm._adapters.get("rtc");
+    if (rtc?.isLoopback) {
+      termLog("switch", "rtc loopback detected (same machine) → drop ws standby");
+      const ws = pm._adapters.get("ws");
+      if (ws) {
+        try { ws.disconnect(); } catch {}
+        pm._adapters.delete("ws");
+      }
+    }
     // A reconnect additionally asks the panes to refetch scrollback — a heavier
     // decision than "the link is up", so it stays debounced against the other carrier.
     if (isRtcReconnect) {

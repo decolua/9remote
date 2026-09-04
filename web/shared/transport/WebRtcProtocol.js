@@ -93,6 +93,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pendingCandidates = [];
     this._iceReachedChecking = false;
     this._everOpened = false;
+    this._isLoopback = false;
 
     this._pendingEmit = null;
     this._flushTimer = null;
@@ -135,6 +136,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pendingCandidates = [];
     this._iceReachedChecking = false;
     this._everOpened = false;
+    this._isLoopback = false;
     this._lastMid = null;
     this._remoteGatheringDone = false;
     this._setState(ADAPTER_STATE.connecting);
@@ -209,6 +211,11 @@ export class WebRtcProtocol extends BaseProtocol {
             const local = [...stats.values()].find((c) => c.id === s.localCandidateId);
             const remote = [...stats.values()].find((c) => c.id === s.remoteCandidateId);
             if (local?.candidateType === "relay") this._typeDetail = "dc-turn";
+            const lAddr = local?.address || local?.ip || "";
+            const rAddr = remote?.address || remote?.ip || "";
+            if (lAddr === "127.0.0.1" || lAddr === "::1" || rAddr === "127.0.0.1" || rAddr === "::1") {
+              this._isLoopback = true;
+            }
             pairInfo = `local=${local?.candidateType}/${local?.protocol} remote=${remote?.candidateType}/${remote?.protocol}`;
           }
         });
@@ -390,6 +397,7 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   get typeDetail() { return this._typeDetail; }
+  get isLoopback() { return this._isLoopback; }
 
   // ─── Signaling ─────────────────────────────────────────────────────────────
 
@@ -675,6 +683,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcControl = null;
     this._dcBinary = null;
     this._dcFile = null;
+    this._isLoopback = false;
     if (this._pc) {
       this._pc.onicecandidate = null;
       this._pc.oniceconnectionstatechange = null;

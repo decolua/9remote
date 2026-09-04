@@ -251,6 +251,23 @@ test("ack timeout ignores restart when rtc is actively receiving data", async ()
   assert.deepEqual(pm.trace, [], "must not restart rtc while inbound data is actively arriving");
 });
 
+test("dispatch: tunnel:updated sets tunnelUrl and retries ws", () => {
+  const ws = adapter("ws");
+  ws.ready = false;
+  let retried = false;
+  ws.retryNow = (why) => { retried = true; };
+  const pm = makePm({ adapters: { ws } });
+  pm._auth = { apiKey: "k", tunnelUrl: "" };
+  let urlUpdate = null;
+  pm._wsCallbacks = { onUrlUpdate: (u) => { urlUpdate = u; } };
+
+  dispatch(pm, "tunnel:updated", { args: [{ status: "ready", tunnelUrl: "https://new-tunnel.test", localIp: "192.168.1.10:2208" }] }, "rtc");
+  assert.equal(pm._auth.tunnelUrl, "https://new-tunnel.test");
+  assert.equal(pm._auth.localIp, "192.168.1.10:2208");
+  assert.equal(retried, true);
+  assert.deepEqual(urlUpdate, { tunnelUrl: "https://new-tunnel.test", localIp: "192.168.1.10:2208" });
+});
+
 await Promise.all(tests);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

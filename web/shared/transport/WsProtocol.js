@@ -43,6 +43,10 @@ export class WsProtocol extends BaseProtocol {
     // TEMP DIAGNOSTIC — last app-level event received (vs pong heartbeat).
     // If this stays fresh while lastInboundAt goes stale, pong stamping is broken.
     this._lastMsgAt = 0;
+    // Generation token: bump on every teardown/restart (retryNow, disconnect,
+    // _forceReconnect, _cancelRetry) so a stale async _doRetry stands down instead
+    // of clobbering the fresh URL or killing the socket a newer cycle just opened.
+    this._retrySeq = 0;
   }
 
   /** Last Engine.IO pong timestamp — real transport liveness (independent of RTC). */
@@ -103,6 +107,7 @@ export class WsProtocol extends BaseProtocol {
       return;
     }
     termLog("switch", `ws retryNow GO by=${reason} (drops attempt ${this._retryAttempt})`);
+    this._retrySeq++; // invalidate any _doRetry awaiting its fetch
     this._lastRetryNowAt = now;
     clearTimeout(this._retryNowTimer);
     this._retryNowTimer = null;
@@ -155,6 +160,7 @@ export class WsProtocol extends BaseProtocol {
 
   disconnect() {
     this._destroyed = true;
+    this._retrySeq++; // stale _doRetry must not act on a torn-down adapter
     this._cancelRetry();
     this._removeNetworkListeners();
     this._detachSocketEvents();
@@ -188,6 +194,16 @@ export class WsProtocol extends BaseProtocol {
     // Guard concurrent connects — iOS wake fires online/visibility/disconnect together,
     // each calling _forceReconnect → duplicate sockets → tiles stream to wrong socket (black canvas).
     if (this._connecting || this._socket?.connected || this._destroyed) return;
+    // No carrier address yet (agent booting, stale tunnel cleared): io("") would
+    // silently target the web origin and burn the whole budget on connect_error.
+    // Fetch-first instead — _doRetry re-reads /api/connect until an URL exists.
+    if (!this._auth.tunnelUrl && !this._auth.localIp) {
+      debugLog("transport", "[ws] connect HOLD (no tunnelUrl/localIp yet) → retry");
+      termLog("switch", "ws connect HOLD (no url yet) → fetch on retry");
+      this._setState(ADAPTER_STATE.degraded);
+      this._scheduleRetry();
+      return;
+    }
     this._connecting = true;
     // Safety: iOS may suspend mid-connect so onSocket/onFail never fire → clear the flag
     // after a grace window so future reconnects aren't permanently blocked.
@@ -346,6 +362,7 @@ export class WsProtocol extends BaseProtocol {
 
   _forceReconnect() {
     if (this._destroyed || this._blocked || this._retryScheduled || this._connecting) return;
+    this._retrySeq++; // new cycle begins — invalidate a mid-flight _doRetry
     this._retryAttempt++;
     if (this._retryAttempt > BEHAVIOR.reconnect.fastFailThreshold) {
       this._retryAttempt = 0;
@@ -377,6 +394,7 @@ export class WsProtocol extends BaseProtocol {
     }
     this._retryAttempt++;
     const attempt = this._retryAttempt;
+    const seq = this._retrySeq;
 
     if (attempt > this._maxAttempts) {
       this._retryScheduled = false;
@@ -398,6 +416,12 @@ export class WsProtocol extends BaseProtocol {
       });
       if (!resp.ok) throw new Error("Failed");
       const { tunnelUrl, localIp } = await resp.json();
+      // A retryNow/disconnect ran while we awaited — its socket owns the cycle now;
+      // applying the stale result would clobber the fresh URL or kill the new socket.
+      if (seq !== this._retrySeq) {
+        termLog("switch", "ws retry ABORT (superseded mid-fetch)");
+        return;
+      }
       this._auth.tunnelUrl = tunnelUrl;
       this._auth.localIp = localIp || null;
       this._connectionMode = "local";
@@ -406,6 +430,7 @@ export class WsProtocol extends BaseProtocol {
       this._retryScheduled = false;
       this._connectInternal();
     } catch {
+      if (seq !== this._retrySeq) return; // a newer cycle owns the schedule
       this._retryScheduled = false;
       this._scheduleRetry();
     }
@@ -416,6 +441,7 @@ export class WsProtocol extends BaseProtocol {
     this._retryTimer = null;
     clearTimeout(this._retryNowTimer);
     this._retryNowTimer = null;
+    this._retrySeq++; // the cancelled cycle's in-flight _doRetry is void now
     this._retryAttempt = 0;
     this._retryScheduled = false;
     this._ctx?.onRetryStatus?.({ isRetrying: false, attempt: 0, maxAttempts: this._maxAttempts, failed: false });

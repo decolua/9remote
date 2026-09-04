@@ -118,6 +118,29 @@ export function dispatch(pm, event, payload, source) {
     }
     return;
   }
+  // Agent announced updated tunnel/lan status over RTC/WS
+  if (event === "tunnel:updated") {
+    const data = source === "rtc" ? payload?.args?.[0] : payload;
+    if (data) {
+      const { tunnelUrl, localIp, status } = data;
+      termLog("switch", `tunnel:updated recv (status=${status} url=${tunnelUrl || "none"})`);
+      if (status === "ready" && tunnelUrl) {
+        const urlChanged = pm._auth.tunnelUrl !== tunnelUrl;
+        pm._auth.tunnelUrl = tunnelUrl;
+        if (localIp) pm._auth.localIp = localIp;
+        pm._wsCallbacks.onUrlUpdate?.({ tunnelUrl, localIp });
+        const ws = pm._adapters.get("ws");
+        if (ws && (!ws.ready || urlChanged)) {
+          termLog("switch", `tunnel:updated → ${urlChanged ? "url changed" : "ws not ready"} → retry ws with new URL`);
+          try { ws.retryNow("tunnel-updated"); } catch {}
+        }
+      } else if (status === "down") {
+        pm._auth.tunnelUrl = "";
+        pm._wsCallbacks.onUrlUpdate?.({ tunnelUrl: "", localIp });
+      }
+    }
+    return;
+  }
   // RTC control envelope carries {event, args}; binary path (tiles-data) keeps raw data
   const args = source === "rtc" && Array.isArray(payload?.args)
     ? payload.args

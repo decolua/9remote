@@ -197,8 +197,18 @@ export function probeRtcLiveness(pm, reason) {
   const rtc = pm._adapters.get("rtc");
   const pc = rtc?._pc;
   if (!pc || pc.connectionState === "failed") { pm._forceRestartRtc(`${reason}-pc-failed`); return; }
+  // A probe is already measuring THIS peer — share its verdict instead of
+  // restarting the window. Staggered ack-timeouts each clearing the timer kept
+  // pushing the answer out forever, so a dead RTC was detected slowest exactly
+  // when the most traffic was dying on it. Superseding still applies when the
+  // rtc instance changed: an old peer's probe must not judge the new one.
+  if (pm._probeLive?.rtc === rtc) {
+    termLog("switch", `${reason} probe shared (already measuring this peer)`);
+    return;
+  }
   clearTimeout(pm._resumeProbeTimer);
   const token = ++pm._probeToken;
+  pm._probeLive = { rtc, token };
   (async () => {
     const r1 = await pc.getStats();
     const a = selectedIceTraffic(r1);
@@ -225,6 +235,8 @@ export function probeRtcLiveness(pm, reason) {
     }
     termLog("switch", `${reason} probe error → forceRestartRtc`);
     pm._forceRestartRtc(`${reason}-probe-error`);
+  }).finally(() => {
+    if (pm._probeLive?.token === token) pm._probeLive = null;
   });
 }
 

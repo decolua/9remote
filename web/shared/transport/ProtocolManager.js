@@ -135,15 +135,15 @@ export class ProtocolManager {
 
   // Bring up the WS tunnel adapter (parallel standby or fallback after RTC death).
   async _startWsFallback() {
-    if (this._adapters.has("ws") || this._sigDestroyed) return;
+    if (this._adapters.has("ws") || this._sigDestroyed || this._adapters.get("rtc")?.isLoopback) return;
     termLog("switch", "ws-fallback: start (refresh url)");
     // The cached tunnelUrl may be stale (cloudflared restarted → new trycloudflare
     // URL). Re-fetch the latest from the Worker before connecting.
     await this._refreshTunnelUrl();
     // Re-check after await: disconnect() may have run, or a concurrent call may
     // have already attached ws while the fetch was in flight.
-    if (this._adapters.has("ws") || this._sigDestroyed) {
-      termLog("switch", "ws-fallback: aborted (destroyed or already attached)");
+    if (this._adapters.has("ws") || this._sigDestroyed || this._adapters.get("rtc")?.isLoopback) {
+      termLog("switch", "ws-fallback: aborted (destroyed, loopback or already attached)");
       return;
     }
     termLog("switch", "ws-fallback: connecting");
