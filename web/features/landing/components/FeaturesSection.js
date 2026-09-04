@@ -2,36 +2,30 @@
 
 import { THEME } from "../constants/landingConfig";
 
-const FEATURES = [
+const PAIN_POINTS = [
   {
-    title: "Code from bed",
-    description: "Terminal on phone",
-    path: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+    title: "Remote Localhost Preview",
+    pain: "Run `npm run dev` but can't view localhost:3000 on your phone?",
+    solution: "Integrated Service Worker bridge previews your local dev servers directly in your mobile browser. Zero port forwarding, no ngrok tunnels.",
+    path: "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
   },
   {
-    title: "Deploy at cafe",
-    description: "No heavy laptop needed",
-    path: "M21 15.546c-.523 0-1.046.151-1.5.454a2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.701 2.701 0 00-1.5-.454M9 6v2m3-2v2m3-2v2M9 3h.01M12 3h.01M15 3h.01M21 21v-7a2 2 0 00-2-2H5a2 2 0 00-2 2v7h18zm-3-9v-2a2 2 0 00-2-2H8a2 2 0 00-2 2v2h12z"
+    title: "Touch File Explorer & Editor",
+    pain: "Fighting vim or nano on a virtual keyboard to tweak code?",
+    solution: "Smooth mobile-friendly file tree, syntax-highlighted editor, and visual Git diff viewer designed for touch screens and quick edits.",
+    path: "M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
   },
   {
-    title: "Fix bugs anywhere",
-    description: "Access from everywhere",
-    path: "M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+    title: "Remote Desktop & Emulator",
+    pain: "Building mobile apps without seeing or tapping the running simulator?",
+    solution: "Low-latency WebRTC screen stream. View and interact with Android Emulator or iOS Simulator directly using multi-touch gestures.",
+    path: "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
   },
   {
-    title: "Secure & fast",
-    description: "Auto tunnel, <50ms",
-    path: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-  },
-  {
-    title: "Simple & powerful",
-    description: "Just scan QR",
-    path: "M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 12h2a1 1 0 001-1v-2a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zM17 8h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1z"
-  },
-  {
-    title: "Light & smooth",
-    description: "No lag, no freeze",
-    path: "M13 10V3L4 14h7v7l9-11h-7z"
+    title: "Persistent Terminal Daemon",
+    pain: "Switching apps to reply to chat disconnects SSH and kills your task?",
+    solution: "Background PTY daemon keeps your sessions alive on your host machine. Network drops or app switches never interrupt running builds or AI agents.",
+    path: "M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
   }
 ];
 
@@ -41,27 +35,26 @@ export default function FeaturesSection() {
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4" style={{ color: THEME.text }}>
-            Powerful <span style={{ color: THEME.text }}>Features</span>
+            Coding on Phone, <span style={{ color: THEME.text }}>Solved</span>
           </h2>
           <p className="text-lg max-w-2xl mx-auto" style={{ color: THEME.textDim }}>
-            Everything you need for secure remote access
+            Mobile coding breaks when you cannot preview web apps, edit files, or test UI. 9Remote eliminates the bottlenecks.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {FEATURES.map((feature, index) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {PAIN_POINTS.map((item, index) => (
             <div
-              key={feature.title}
-              className="group relative p-6 rounded-xl border transition-all duration-300 hover:-translate-y-1"
+              key={item.title}
+              className="group relative p-6 sm:p-8 rounded-xl border transition-all duration-300 hover:-translate-y-1"
               style={{
                 background: THEME.bgElevated,
                 borderColor: THEME.border,
-                animation: `fadeInUp 0.4s ease-out ${index * 0.04}s both`,
-                opacity: 1
+                animation: `fadeInUp 0.4s ease-out ${index * 0.05}s both`
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.borderColor = THEME.borderStrong;
-                e.currentTarget.style.boxShadow = `0 20px 40px -20px rgba(255,255,255,0.08)`;
+                e.currentTarget.style.boxShadow = "0 20px 40px -20px rgba(255,255,255,0.08)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.borderColor = THEME.border;
@@ -69,15 +62,22 @@ export default function FeaturesSection() {
               }}
             >
               <div
-                className="w-12 h-12 rounded-lg flex items-center justify-center mb-4 transition-all duration-300 group-hover:scale-110"
+                className="w-12 h-12 rounded-lg flex items-center justify-center mb-5 transition-all duration-300 group-hover:scale-110"
                 style={{ background: THEME.bgPanel, color: THEME.text }}
               >
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d={feature.path} />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d={item.path} />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold mb-1.5" style={{ color: THEME.text }}>{feature.title}</h3>
-              <p className="text-sm" style={{ color: THEME.textDim }}>{feature.description}</p>
+              <h3 className="text-xl font-bold mb-2" style={{ color: THEME.text }}>
+                {item.title}
+              </h3>
+              <p className="text-xs sm:text-sm font-mono mb-3" style={{ color: THEME.warn }}>
+                {item.pain}
+              </p>
+              <p className="text-sm leading-relaxed" style={{ color: THEME.textDim }}>
+                {item.solution}
+              </p>
             </div>
           ))}
         </div>

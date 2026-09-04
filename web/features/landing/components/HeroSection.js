@@ -23,10 +23,10 @@ export default function HeroSection() {
 
             <h1 className="mb-5 animate-fade-in-delay-1" style={{ fontWeight: 900, lineHeight: 1.1 }}>
               <span className="block text-2xl sm:text-3xl lg:text-4xl xl:text-5xl mb-2" style={{ color: THEME.text }}>
-                Code from bed.
+                Code from your phone.
               </span>
               <span className="block text-2xl sm:text-3xl lg:text-4xl xl:text-5xl mb-2" style={{ color: THEME.text }}>
-                Fix bugs at the cafe.
+                Without compromises.
               </span>
               <span
                 className="block text-2xl sm:text-3xl lg:text-4xl xl:text-5xl"
@@ -36,12 +36,12 @@ export default function HeroSection() {
                   WebkitTextFillColor: "transparent"
                 }}
               >
-                Deploy from anywhere.
+                Terminal, Files & Localhost.
               </span>
             </h1>
 
             <p className="text-base sm:text-lg mb-8 max-w-xl mx-auto lg:mx-0 animate-fade-in-delay-3" style={{ color: THEME.textDim }}>
-              Your terminal. Your phone. Zero config. Claude Code in your pocket.
+              The smoothest mobile dev workflow. Run AI agents, edit files with touch, preview localhost:3000, and control emulators directly from your phone.
             </p>
 
             <div className="flex flex-row gap-2.5 sm:gap-3 justify-center lg:justify-start items-center mb-10 animate-fade-in-delay-4 flex-wrap">

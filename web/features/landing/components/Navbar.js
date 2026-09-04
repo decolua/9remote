@@ -7,6 +7,7 @@ import ThemeToggle from "@/shared/theme/ThemeToggle";
 
 const LINKS = [
   { href: "#features", label: "Features" },
+  { href: "#security", label: "Security" },
   { href: "#terminal-demo", label: "How it Works" },
   { href: "https://docs.9remote.cc/", label: "Docs", external: true },
   { href: "#get-started", label: "Get Started" },
