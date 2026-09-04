@@ -227,6 +227,8 @@ export default function MenuItems({
                 <div key={group} className="space-y-1.5">
                   <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">{t(titleKey)}</p>
                   {buttonToggles.buttons.filter((b) => b.group === group).map((btn) => {
+                    // Hide remote desktop and emulator buttons from mobile right menu
+                    if (btn.id === "remote" || btn.id === "mobile") return null;
                     const RowIcon = BUTTON_TOGGLE_ICONS[btn.id];
                     const on = buttonToggles.isOn(btn);
                     return (
@@ -352,7 +354,7 @@ export default function MenuItems({
       )}
 
       {/* Terminal background picker — standalone row (mobile, dark mode only) */}
-      {appMode === "dark" && (
+      {/* {appMode === "dark" && (
         <button
           onClick={() => { vibrate(); onOpenBackgroundPicker?.(); }}
           className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
@@ -371,7 +373,7 @@ export default function MenuItems({
           </span>
           <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
         </button>
-      )}
+      )} */}
 
       {/* Command Notes */}
       {onCommandNotes && (

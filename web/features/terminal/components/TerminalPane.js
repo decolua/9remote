@@ -158,7 +158,8 @@ function TerminalPane({
   // Mobile-only background image on the pane: veil + screen-lift layers dim it, the
   // xterm canvas above stays fully transparent so padding can't create a bright frame
   const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
-  const bgActive = !!bgSrc && theme === "dark" && typeof window !== "undefined" && window.innerWidth < DESKTOP_BREAKPOINT;
+  // const bgActive = !!bgSrc && theme === "dark" && typeof window !== "undefined" && window.innerWidth < DESKTOP_BREAKPOINT;
+  const bgActive = false;
 
   const stripButtons = <PaneStripButtons onOpenRemote={onOpenRemote} onOpenMobile={onOpenMobile} />;
 

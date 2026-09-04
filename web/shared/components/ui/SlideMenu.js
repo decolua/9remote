@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useCallback, useState } from "react";
-import { X, ChevronLeft, Sun, Moon } from "@/shared/components/ui/Icon";
+import { X, ChevronLeft, Sun, Moon, Github, Star } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import MenuItems from "@/features/terminal/components/MenuItems";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
@@ -17,6 +17,8 @@ import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import SettingsDialog from "@/features/terminal/components/SettingsDialog";
 import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPickerSheet";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
+import { useGithubStars } from "@/shared/hooks/useGithubStars";
+import { GITHUB_REPO_URL, SHOW_GITHUB_STAR } from "@/shared/constants/github";
 
 /**
  * SlideMenu - Global full-screen menu that slides from right to left
@@ -24,6 +26,7 @@ import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig
  */
 export default function SlideMenu() {
   const { t, locale } = useI18n();
+  const { formattedStars } = useGithubStars();
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale) || SUPPORTED_LOCALES[0];
   const isOpen = useSlideMenuStore((s) => s.isOpen);
   const activePanel = useSlideMenuStore((s) => s.activePanel);
@@ -265,6 +268,20 @@ export default function SlideMenu() {
           <div className="flex items-center gap-1">
             {activePanel === "menu" && (
               <>
+                {SHOW_GITHUB_STAR && (
+                  <a
+                    href={GITHUB_REPO_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2 py-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors flex items-center gap-1.5 text-xs font-medium"
+                    title="Star on GitHub"
+                    aria-label="Star on GitHub"
+                  >
+                    <Github size={16} />
+                    <Star size={13} className="text-yellow-500 fill-yellow-500" />
+                    {formattedStars && <span className="font-mono text-[11px] leading-none">{formattedStars}</span>}
+                  </a>
+                )}
                 <button
                   onClick={() => { vibrate(); toggleTheme(); }}
                   className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"

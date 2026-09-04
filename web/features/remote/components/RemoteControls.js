@@ -360,7 +360,7 @@ export default function RemoteControls({
                     <Settings size={16} />
                   </button>
                 )}
-                {rIdx === 1 && onToggleDebug && (
+                {/* {rIdx === 1 && onToggleDebug && (
                   <button
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => { vibrate(); onToggleDebug(); }}
@@ -369,8 +369,8 @@ export default function RemoteControls({
                   >
                     <Bug size={16} />
                   </button>
-                )}
-                {rIdx > 1 && <div className="shrink-0 h-10 w-10" />}
+                )} */}
+                {rIdx > 0 && <div className="shrink-0 h-10 w-10" />}
               </div>
             ))}
           </div>

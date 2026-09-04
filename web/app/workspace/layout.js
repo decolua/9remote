@@ -863,7 +863,7 @@ export default function WorkspaceLayout({ children }) {
       </div>
       {/* Child routes are URL markers only (render nothing) */}
       <div hidden>{children}</div>
-      <DevTermLog />
+      {/* <DevTermLog /> */}
     </>
   );
 }

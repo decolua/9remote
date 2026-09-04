@@ -510,26 +510,30 @@ function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected
         )}
       </button>
 
-      <div className="empty-hairline" aria-hidden />
+      {!!onOpenRemote && (
+        <>
+          <div className="empty-hairline" aria-hidden />
 
-      <button
-        onClick={() => { vibrate(); onOpenRemote?.(); }}
-        disabled={!remoteReady}
-        className="empty-half text-left active:opacity-80 enabled:active:scale-[0.99] transition-all duration-150 disabled:opacity-40 disabled:saturate-50"
-      >
-        <span className="empty-idx"><b>02</b> / {t("workspaces.emptyTagRemote")}</span>
-        <span className="empty-word login-hero-grad">{t("workspaces.emptyWordRemote")}</span>
-        <span
-          className="empty-meta"
-          dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaRemote") }}
-        />
-        {remoteReady && (
-          <span className="empty-go">
-            {t("menu.remoteDesktop")}
-            <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
-          </span>
-        )}
-      </button>
+          <button
+            onClick={() => { vibrate(); onOpenRemote?.(); }}
+            disabled={!remoteReady}
+            className="empty-half text-left active:opacity-80 enabled:active:scale-[0.99] transition-all duration-150 disabled:opacity-40 disabled:saturate-50"
+          >
+            <span className="empty-idx"><b>02</b> / {t("workspaces.emptyTagRemote")}</span>
+            <span className="empty-word login-hero-grad">{t("workspaces.emptyWordRemote")}</span>
+            <span
+              className="empty-meta"
+              dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaRemote") }}
+            />
+            {remoteReady && (
+              <span className="empty-go">
+                {t("menu.remoteDesktop")}
+                <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
+              </span>
+            )}
+          </button>
+        </>
+      )}
     </div>
   );
 }

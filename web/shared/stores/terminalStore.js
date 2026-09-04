@@ -271,8 +271,9 @@ export const useTerminalStore = create(
       setEditorPanelWidth: (w) => set({ editorPanelWidth: clampWidth(w, EDITOR_PANEL_WIDTH) }),
 
       // Header buttons the user has hidden, by id. Absent = shown, so a new
-      // button is visible by default rather than silently missing.
-      hiddenHeaderButtons: [],
+      // button is visible by default rather than silently missing. Android device is hidden by default.
+      hiddenHeaderButtons: ["mobile"],
+      hiddenHeaderButtonsMigrated: false,
       toggleHeaderButton: (id) => set((state) => ({
         hiddenHeaderButtons: state.hiddenHeaderButtons.includes(id)
           ? state.hiddenHeaderButtons.filter((b) => b !== id)
@@ -495,6 +496,7 @@ export const useTerminalStore = create(
         rightPanelWidth: state.rightPanelWidth,
         editorPanelWidth: state.editorPanelWidth,
         hiddenHeaderButtons: state.hiddenHeaderButtons,
+        hiddenHeaderButtonsMigrated: state.hiddenHeaderButtonsMigrated,
         mobileLowPower: state.mobileLowPower,
         mobileMode: state.mobileMode,
         mobilePanelWidth: state.mobilePanelWidth,
@@ -546,6 +548,15 @@ export const useTerminalStore = create(
         }
         // Mobile: the panel overlays the terminal — never restore it open
         if (window.innerWidth < DESKTOP_BREAKPOINT) state.rightPanelOpen = false;
+        // Android device button is hidden by default: migrate existing storage once
+        if (!state.hiddenHeaderButtonsMigrated) {
+          state.hiddenHeaderButtonsMigrated = true;
+          if (!Array.isArray(state.hiddenHeaderButtons)) {
+            state.hiddenHeaderButtons = ["mobile"];
+          } else if (!state.hiddenHeaderButtons.includes("mobile")) {
+            state.hiddenHeaderButtons = [...state.hiddenHeaderButtons, "mobile"];
+          }
+        }
       }
     }
   )

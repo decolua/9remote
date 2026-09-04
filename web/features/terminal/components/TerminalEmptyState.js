@@ -52,23 +52,24 @@ export default function TerminalEmptyState({ onAddWorkspace, onOpenRemote, recen
         )}
       </button>
 
-      <div className="empty-hairline" aria-hidden />
+      {!!onOpenRemote && (
+        <>
+          <div className="empty-hairline" aria-hidden />
 
-      <button
-        onClick={() => { vibrate(); onOpenRemote?.(); }}
-        disabled={!onOpenRemote}
-        className="empty-half text-left transition-all duration-150 enabled:hover:opacity-90 enabled:active:scale-[0.99] disabled:opacity-40 disabled:saturate-50"
-      >
-        <span className="empty-idx"><b>02</b> / {t("workspaces.emptyTagRemote")}</span>
-        <span className="empty-word login-hero-grad">{t("workspaces.emptyWordRemote")}</span>
-        <span className="empty-meta" dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaRemote") }} />
-        {!!onOpenRemote && (
-          <span className="empty-go">
-            {t("menu.remoteDesktop")}
-            <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
-          </span>
-        )}
-      </button>
+          <button
+            onClick={() => { vibrate(); onOpenRemote?.(); }}
+            className="empty-half text-left transition-all duration-150 enabled:hover:opacity-90 enabled:active:scale-[0.99] disabled:opacity-40 disabled:saturate-50"
+          >
+            <span className="empty-idx"><b>02</b> / {t("workspaces.emptyTagRemote")}</span>
+            <span className="empty-word login-hero-grad">{t("workspaces.emptyWordRemote")}</span>
+            <span className="empty-meta" dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaRemote") }} />
+            <span className="empty-go">
+              {t("menu.remoteDesktop")}
+              <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
+            </span>
+          </button>
+        </>
+      )}
 
       {/* Shortcuts as one mono line along the bottom — a hint, not a second subject, and
           out of the halves so neither is taller than the other. */}

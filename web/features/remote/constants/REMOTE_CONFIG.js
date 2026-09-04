@@ -15,6 +15,7 @@ export const REMOTE_CONFIG = {
     transport: false, // [transport] [pm] [rtc] [ws] connection lifecycle + routing
     remote: false,    // [remote] [stats] tile transport + benchmark
     panel: false,     // DebugPanel overlay UI
+    showButton: false, // Debug button in extra controls
   },
   // DataChannel chunk size (tiles per message) — synced with server
   dcChunkSize: 8,

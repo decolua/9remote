@@ -51,6 +51,8 @@ export async function POST(request) {
     VALUES (?, ?, ?, ?, NULL, datetime('now'), datetime('now', '+7 days'))
     ON CONFLICT(apiKey)
     DO UPDATE SET
+      -- Clear stale tunnelUrl on fresh agent start so clients do not try old tunnels
+      tunnelUrl = NULL,
       -- COALESCE keeps a registered key when this call carries none (an older
       -- agent, or one that failed to read hostKey.json).
       hostPublicKey = COALESCE(excluded.hostPublicKey, sessions.hostPublicKey),

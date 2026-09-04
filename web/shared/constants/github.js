@@ -1,6 +1,9 @@
 // GitHub Codespace integration config
 
 export const GITHUB_API = "https://api.github.com";
+export const GITHUB_REPO_URL = "https://github.com/decolua/9remote";
+export const GITHUB_REPO_API = `${GITHUB_API}/repos/decolua/9remote`;
+export const SHOW_GITHUB_STAR = false;
 export const GITHUB_PAT_SCOPES = ["codespace", "repo", "user"];
 export const GITHUB_PAT_DESCRIPTION = "9remote";
 export const GITHUB_PAT_GENERATE_URL = `https://github.com/settings/tokens/new?scopes=${GITHUB_PAT_SCOPES.join(",")}&description=${encodeURIComponent(GITHUB_PAT_DESCRIPTION)}`;

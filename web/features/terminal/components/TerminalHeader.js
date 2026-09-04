@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
 import SitesList from "./SitesList";
@@ -19,6 +19,8 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
+import { useGithubStars } from "@/shared/hooks/useGithubStars";
+import { GITHUB_REPO_URL } from "@/shared/constants/github";
 
 function TerminalHeader({
   sessions = [],
@@ -65,6 +67,7 @@ function TerminalHeader({
   homeDir = null,
 }) {
   const { t } = useI18n();
+  const { formattedStars } = useGithubStars();
   // Chords only fire on desktop, so only a pointer device gets the hint.
   const hasKeyboard = useInputMode() === "mouse";
   const hint = (label, id) => (hasKeyboard ? withHint(label, id) : label);
@@ -352,6 +355,18 @@ function TerminalHeader({
           <span>Update 9Remote</span>
         </button>
       )}
+      {/* GitHub star — re-enable later
+      <a
+        href={GITHUB_REPO_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="hidden sm:flex items-center gap-1 px-2 py-1 text-xs text-text hover:bg-surface-2 rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+        title="Star on GitHub"
+      >
+        <Github size={15} />
+        <Star size={13} className="text-yellow-500 fill-yellow-500" />
+        {formattedStars && <span className="font-mono text-[11px]">{formattedStars}</span>}
+      </a> */}
       {showButton("remote") && onOpenRemote && (
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
