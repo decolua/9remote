@@ -468,6 +468,14 @@
   background: var(--color-brand-500);
 }
 
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 body {
   background-color: var(--color-bg);
   color: var(--color-text);
@@ -585,7 +593,7 @@ html.terminal-page body {
   content: "";
   position: absolute;
   inset: 0;
-  border: 2px solid var(--color-brand-500);
+  border: 1px solid var(--color-brand-500);
   box-shadow: 0 0 8px rgba(var(--brand-rgb), 0.7);
   border-radius: inherit;
   pointer-events: none;

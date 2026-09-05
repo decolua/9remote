@@ -269,6 +269,7 @@ function TerminalWorkspace({
       onInput={clearNotification}
       onSwitchSession={nav.switchSession}
       onSwitchToIndex={nav.switchToIndex}
+      isDesktop={isDesktop}
       statusStrip={(
         <MobileStatusStrip
           sessionId={sessionId}
@@ -392,7 +393,7 @@ function TerminalWorkspace({
           ) : (
           <div
             ref={panesContainerRef}
-            className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1 overflow-x-auto overflow-y-hidden px-1 pb-0 scrollbar-thin" : "relative"}`}
+            className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1 overflow-x-auto overflow-y-hidden px-1 pb-0 scrollbar-none" : "relative"}`}
             {...bindSwipeTab({
               enabled: !isDesktop,
               sessionIds: workspaceOpenedSessions,
@@ -434,12 +435,11 @@ function TerminalWorkspace({
                   ) : isDesktop ? (
                     <>
                       {/* Focus ring is redundant when the workspace has a single pane */}
-                      <div className={`absolute inset-x-0 top-0 bottom-16 overflow-hidden p-px ${focusBorderClass(isFocused && workspaceOpenedSessions.length > 1, sessionStatus[sessionId]?.state || "idle")}`}>
+                      <div className={`absolute inset-x-0 top-0 bottom-[37px] overflow-hidden p-px ${focusBorderClass(isFocused && workspaceOpenedSessions.length > 1, sessionStatus[sessionId]?.state || "idle")}`}>
                         {renderPane(sessionId, isVisible, isFocused, bgIndex)}
                       </div>
-                      {/* Per-pane input slot — absolute, reserved below the fixed-height terminal.
-                          Full keyboard on the focused pane, ghost on the others. */}
-                      <div className="absolute inset-x-0 bottom-0 z-20 h-16 px-1 pb-2 flex items-end">
+                      {/* Per-pane input slot — absolute, directly below the terminal */}
+                      <div className="absolute inset-x-0 bottom-0 z-20 border-t border-border-subtle bg-surface">
                         {isFocused ? renderKeyboard(sessionId) : (
                           <button
                             type="button"
@@ -448,10 +448,10 @@ function TerminalWorkspace({
                               nav.handleSelectSession(sessionId);
                               setTimeout(focusKeyboardInput, 60);
                             }}
-                            className="group block w-full p-2 text-left"
+                            className="group block w-full text-left"
                             aria-label="Focus this terminal input"
                           >
-                            <span className="block w-full pl-9 pr-16 py-2 text-sm text-text-muted/60 rounded-[3px] border border-dashed border-border/50 group-hover:border-brand-500/60 group-hover:bg-surface-2/70 group-hover:text-text-muted transition-colors">
+                            <span className="block w-full pl-9 pr-16 py-2 text-sm text-text-muted/60 group-hover:bg-surface-2/70 group-hover:text-text-muted transition-colors">
                               {t("mobileKeyboard.typeCommand")}
                             </span>
                           </button>

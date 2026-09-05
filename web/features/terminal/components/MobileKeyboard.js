@@ -33,7 +33,7 @@ import PathSuggestion from "@/shared/components/ui/PathSuggestion";
 import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/utils/pathSuggest";
 import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 
-const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null }) => {
+const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null, isDesktop = false }) => {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   // True only when the OS soft keyboard actually covers the screen (viewport shrinks) —
@@ -434,8 +434,10 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
       <div
         className="transition-all duration-300 overflow-visible opacity-100 flex-shrink-0"
       >
-        <div className={`${stripVisible ? "pt-0.5" : "pt-2"} px-2 pb-2 flex gap-2 items-end`}>
-          <div className="relative flex-1 bg-surface-2 rounded-xl transition-all duration-150 ease-out input-focus-glow border border-border-subtle">
+        <div className={isDesktop ? "flex w-full items-stretch" : `${stripVisible ? "pt-0.5" : "pt-2"} px-2 pb-2 flex gap-2 items-end`}>
+          <div className={`relative flex-1 bg-surface-2 transition-all duration-150 ease-out input-focus-glow border-border-subtle ${
+            isDesktop ? "rounded-none border-0 border-r" : "rounded-xl border"
+          }`}>
             <PathSuggestion
               items={pathItems}
               activeIndex={pathActiveClamped}
@@ -633,7 +635,11 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
             onMouseDown={(e) => e.preventDefault()}
             onClick={sendTextBatch}
             disabled={false}
-            className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-xl transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[56px] flex items-center justify-center"
+            className={
+              isDesktop
+                ? "px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-none transition-colors flex-shrink-0 flex items-center justify-center select-none"
+                : "px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-xl transition-all duration-200 shadow-lg shadow-brand-500/20 flex-shrink-0 min-w-[56px] flex items-center justify-center"
+            }
           >
             {textInput.trim() || attachments.length ? t("mobileKeyboard.send") : <CornerDownLeft size={16} strokeWidth={2.5} />}
           </button>
