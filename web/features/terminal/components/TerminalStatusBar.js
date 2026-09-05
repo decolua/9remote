@@ -17,6 +17,7 @@ import {
 import StatusBar from "@/shared/components/ui/StatusBar";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 
@@ -77,7 +78,7 @@ function useRotatingPage(pageCount, { pinnedIndex = -1, paused = false } = {}) {
 // alternates between the cwd's leaf folder and the running CLI's 5h quota.
 export function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
   const cwd = useTerminalStore((s) => s.cwdBySession[sessionId]) || "";
-  const { branch, changedCount } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd && !!fileBus });
+  const { branch, changedCount } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
   const quota = useSessionQuota(sessionId, busRef);
   const [paused, setPaused] = useState(false);
 
@@ -155,10 +156,11 @@ export function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
 // connection/state on the right. The shell comes from the shared StatusBar.
 export default function TerminalStatusBar({
   cwd,
+  sessionId,
   fileBus,
   busRef: propBusRef,
   connected: propConnected,
-  sessionState = "idle",
+  sessionState: propState,
   carrier: propCarrier,
   sessionName = "",
   agentVersion = "",
@@ -168,14 +170,16 @@ export default function TerminalStatusBar({
   const storeConnected = useConnectionStore((s) => s.connected);
   const storeCarrier = useConnectionStore((s) => s.carrier);
   const storeBusRef = useConnectionStore((s) => s.busRef);
+  const storeState = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId]?.state : "idle");
   const connected = propConnected ?? storeConnected;
   const carrier = propCarrier || storeCarrier;
   const busRef = propBusRef || storeBusRef;
+  const sessionState = propState || storeState || "idle";
   const quota = useQuota(busRef);
 
   // Branch + changed come from the shared ref-counted poll — one round-trip per unique
   // path, shared with the mobile strip, instead of two parallel pollers here.
-  const { branch, changedCount: changed } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd && !!fileBus });
+  const { branch, changedCount: changed } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
 
   const v = statusVisual(sessionState);
   const stateLabel = sessionState === "working"

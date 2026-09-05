@@ -6,6 +6,7 @@ import { useI18n } from "@/shared/i18n";
 import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { statusItems, attentionSummary } from "../lib/sessionStatusSummary";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 
 // Compact relative time (e.g. "now", "3m", "2h", "1d")
 const timeAgo = (ts) => {
@@ -19,10 +20,12 @@ const timeAgo = (ts) => {
 
 // Notifications bell + badge + dropdown list. Shown on desktop only (hidden sm:flex);
 // mobile keeps using the slide-out menu. Reads from sessionStatus (already on TerminalHeader).
-export default function NotificationsBell({ sessions = [], allSessions = [], sessionStatus = {}, onSwitchSession, workspaces = [] }) {
+export default function NotificationsBell({ sessions = [], allSessions = [], sessionStatus: propStatus, onSwitchSession, workspaces = [] }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
+  const storeStatus = useNotificationStore((s) => s.sessionStatus);
+  const sessionStatus = propStatus || storeStatus;
 
   // All sessions surface; state from sessionStatus (idle if none). Non-idle first (by since), idle last.
   const items = statusItems(sessionStatus, allSessions);

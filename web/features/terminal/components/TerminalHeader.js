@@ -9,6 +9,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint, tabIndexHint } from "@/features/terminal/constants/shortcuts";
@@ -27,8 +28,8 @@ function TerminalHeader({
   allSessions = [],
   activeSessionId,
   connected,
-  notifications = {},
-  sessionStatus = {},
+  notifications: propNotifications,
+  sessionStatus: propStatus,
   onSwitchSession,
   onCreateSession,
   onBack,
@@ -67,6 +68,10 @@ function TerminalHeader({
   homeDir = null,
 }) {
   const { t } = useI18n();
+  const storeNotifications = useNotificationStore((s) => s.notifications);
+  const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
+  const notifications = propNotifications || storeNotifications;
+  const sessionStatus = propStatus || storeSessionStatus;
   const { formattedStars } = useGithubStars();
   // Chords only fire on desktop, so only a pointer device gets the hint.
   const hasKeyboard = useInputMode() === "mouse";

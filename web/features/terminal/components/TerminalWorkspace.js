@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { startWidthDrag } from "@/shared/utils/dragResize";
@@ -35,7 +36,7 @@ function TerminalWorkspace({
   sessions, workspaces, activeSessionId, activeSession, activeWorkspaceId,
   openedSessions, livePanes, mountedWorkspaces, cwdBySession,
   sessionStatus, notifications, clearNotification,
-  isDesktop, isTerminalView, slideClass, shells, fileBus,
+  isDesktop, isTerminalView, slideClass, shells,
   sidebarCollapsed, sidebarWidth, setSidebarWidth, toggleSidebar,
   paneWidth = null, setPaneWidth,
   paneRegistry, bindSwipeTab, nav,
@@ -55,6 +56,12 @@ function TerminalWorkspace({
   const activeBusRef = busRef || storeBusRef;
   const isConnected = connected ?? storeConnected;
   const activeCarrier = carrier || storeCarrier;
+
+  const storeNotifications = useNotificationStore((s) => s.notifications);
+  const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
+  const activeNotifications = notifications || storeNotifications;
+  const activeSessionStatus = sessionStatus || storeSessionStatus;
+  const handleClearNotification = clearNotification || useNotificationStore.getState().clearNotification;
 
   const {
     panesContainerRef, registerPaneApi, registerPaneElement, registerKeyboardTextApi,
@@ -246,7 +253,7 @@ function TerminalWorkspace({
       // keyed to it, not to whichever workspace currently owns the panel.
       workspacePath={session?.workspacePath}
       sessionName={session?.name}
-      sessionState={sessionStatus[sessionId]?.state || "idle"}
+      sessionState={activeSessionStatus[sessionId]?.state || "idle"}
       bus={activeBus}
       connected={isConnected}
       sessionId={sessionId}
@@ -256,8 +263,7 @@ function TerminalWorkspace({
       onRegisterApi={registerPaneApi}
       onPasteFallback={handlePasteFallback}
       showFocusBorder={false}
-      clearNotification={clearNotification}
-      fileBus={fileBus}
+      clearNotification={handleClearNotification}
       mountDelay={mountDelayFor(sessionId, isFocused, workspaceIndex)}
       bgIndex={bgIndex}
       onOpenArtifact={onOpenArtifact}
@@ -276,14 +282,13 @@ function TerminalWorkspace({
       onRegisterTextApi={registerKeyboardTextApi}
       onInputFocusChange={handleInputFocusChange}
       platform={platform}
-      onInput={clearNotification}
+      onInput={handleClearNotification}
       onSwitchSession={nav.switchSession}
       onSwitchToIndex={nav.switchToIndex}
       isDesktop={isDesktop}
       statusStrip={(
         <MobileStatusStrip
           sessionId={sessionId}
-          fileBus={fileBus}
           busRef={activeBusRef}
           onReveal={(cwd) => {
             const wsPath = sessions.find((s) => s.id === sessionId)?.workspacePath;
@@ -311,8 +316,8 @@ function TerminalWorkspace({
               workspaces={workspaces}
               activeSessionId={activeSessionId}
               activeWorkspaceId={activeWorkspaceId}
-              sessionStatus={sessionStatus}
-              notifications={notifications}
+              sessionStatus={activeSessionStatus}
+              notifications={activeNotifications}
               onSelectSession={nav.handleSelectSession}
               onSelectWorkspace={nav.handleSelectWorkspace}
               onCreateNamedSession={nav.handleCreateSession}
@@ -324,11 +329,10 @@ function TerminalWorkspace({
               onDeleteWorkspace={onDeleteWorkspace}
               onAddWorkspace={onAddWorkspace}
               onOpenSettings={onOpenSettings}
-              busRef={busRef}
-              fileBus={fileBus}
+              busRef={activeBusRef}
               homeDir={homeDir}
               cwdBySession={cwdBySession}
-              connected={connected}
+              connected={isConnected}
               width={sidebarWidth}
               onResize={setSidebarWidth}
               onCollapse={toggleSidebar}
@@ -346,9 +350,9 @@ function TerminalWorkspace({
             allSessions={sessions}
             activeSessionId={activeSessionId}
             isActive={isTerminalView}
-            connected={connected}
-            notifications={notifications}
-            sessionStatus={sessionStatus}
+            connected={isConnected}
+            notifications={activeNotifications}
+            sessionStatus={activeSessionStatus}
             onSwitchSession={nav.handleSelectSession}
             onCreateSession={nav.handleQuickCreateSession}
             onRenameSession={nav.handleRenameSession}
@@ -384,7 +388,6 @@ function TerminalWorkspace({
             onReorderSession={handleReorderSession}
             onToggleRightPanel={rightPanel?.onToggle}
             rightPanelOpen={rightPanel?.open}
-            fileBus={fileBus}
             homeDir={homeDir}
           />
           )}
@@ -445,7 +448,7 @@ function TerminalWorkspace({
                   ) : isDesktop ? (
                     <>
                       {/* Focus ring is redundant when the workspace has a single pane */}
-                      <div className={`absolute inset-x-0 top-0 bottom-[37px] overflow-hidden p-px ${focusBorderClass(isFocused && workspaceOpenedSessions.length > 1, sessionStatus[sessionId]?.state || "idle")}`}>
+                      <div className={`absolute inset-x-0 top-0 bottom-[37px] overflow-hidden p-px ${focusBorderClass(isFocused && workspaceOpenedSessions.length > 1, activeSessionStatus[sessionId]?.state || "idle")}`}>
                         {renderPane(sessionId, isVisible, isFocused, bgIndex)}
                       </div>
                       {/* Per-pane input slot — absolute, directly below the terminal */}
@@ -562,7 +565,6 @@ function TerminalWorkspace({
               workspacePath={baseRoot}
               filesRoot={filesRoot}
               cwdHint={activeCwd}
-              fileBus={fileBus}
               activeFile={editorPanel?.filePath}
               tab={rightPanel.tabs?.[baseRoot ?? ""] || "files"}
               onTabChange={handleRightPanelTabChange}
@@ -589,10 +591,9 @@ function TerminalWorkspace({
       {isDesktop && !showEmptyState && (
         <TerminalStatusBar
           cwd={activeSessionId ? cwdBySession[activeSessionId] || "" : ""}
-          fileBus={fileBus}
+          sessionId={activeSessionId}
           busRef={activeBusRef}
           connected={isConnected}
-          sessionState={activeSessionId ? sessionStatus[activeSessionId]?.state : "idle"}
           carrier={activeCarrier}
           sessionName={activeSession ? activeSession?.name : ""}
           agentVersion={agentVersion}

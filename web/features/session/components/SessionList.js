@@ -10,6 +10,8 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import {
   Folder, Monitor, Smartphone, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap, ArrowRight
@@ -34,16 +36,27 @@ const DRAG_ACTIVATION = (event) => (event.pointerType === "touch"
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
 // operations, so this screen would only be a larger, weaker copy of it.
 export default function SessionList({
-  sessions, cwdBySession = {}, connected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenMobile,
+  sessions, cwdBySession = {}, connected: propConnected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenMobile,
   tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected,
-  onStopCodespace, isActive = true, busRef, subscribeToPush, unsubscribeFromPush,
+  onStopCodespace, isActive = true, busRef: propBusRef, subscribeToPush, unsubscribeFromPush,
   onResumeAgentSession = null,
-  notifications = {}, sessionStatus = {}, clearNotification, agentVersion,
-  updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, carrier = "ws",
+  notifications: propNotifications, sessionStatus: propStatus, clearNotification: propClearNotification, agentVersion,
+  updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, carrier: propCarrier,
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
   fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession
 }) {
   const { t } = useI18n();
+  const storeConnected = useConnectionStore((s) => s.connected);
+  const storeCarrier = useConnectionStore((s) => s.carrier);
+  const storeBusRef = useConnectionStore((s) => s.busRef);
+  const connected = propConnected ?? storeConnected;
+  const carrier = propCarrier || storeCarrier || "ws";
+  const busRef = propBusRef || storeBusRef;
+  const storeNotifications = useNotificationStore((s) => s.notifications);
+  const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
+  const notifications = propNotifications || storeNotifications;
+  const sessionStatus = propStatus || storeSessionStatus;
+  const clearNotification = propClearNotification || useNotificationStore.getState().clearNotification;
   // Actions only — same reason as TerminalHeader: this writes context/callbacks.
   const openMenu = useSlideMenuStore((s) => s.open);
   const setContext = useSlideMenuStore((s) => s.setContext);

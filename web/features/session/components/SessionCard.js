@@ -7,6 +7,7 @@ import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { vibrate } from "@/shared/utils/vibration";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 import { MAX_CHANGED_BADGE } from "@/features/terminal/constants/terminalConfig";
 
@@ -45,17 +46,19 @@ function TailTruncate({ text, title, style, className = "" }) {
 // body, status riding as a badge. A div, not a button: the titlebar actions cannot
 // nest inside one. Hold starts a drag-reorder (dnd-kit); right-click opens the sheet.
 export default function SessionCard({
-  session, index, status, hasNotification, connected,
+  session, index, status, hasNotification, connected: propConnected,
   onSelect, onLongPress, onRename, onDelete,
   cwd, fileBus, homeDir, shellCount = 1
 }) {
   const { t } = useI18n();
+  const storeConnected = useConnectionStore((s) => s.connected);
+  const connected = propConnected ?? storeConnected;
   const state = status?.state || "idle";
   const visual = statusVisual(state);
   // Live checkout of where the terminal actually sits, not of its fixed workspace root —
   // a `cd` into another worktree has to show that worktree's branch.
   const gitPath = cwd || session.workspacePath || null;
-  const { branch, dirty, changedCount } = useWorkspaceGit(gitPath, fileBus, { enabled: connected && !!fileBus });
+  const { branch, dirty, changedCount } = useWorkspaceGit(gitPath, fileBus, { enabled: connected });
   const basePath = session.workspacePath || null;
   // Prompt path: relative to the workspace root while inside it, ~-shortened outside.
   const promptPath = !gitPath ? "~"

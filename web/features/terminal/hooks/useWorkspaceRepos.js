@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { REPO_SCAN } from "../constants/terminalConfig";
+import { useFileBusStore } from "@/shared/stores/fileBusStore";
 
 // Repos found at or under a workspace root. The agent memoizes the disk walk; this hook
 // only holds the result and exposes an explicit refresh, so switching tabs never rescans.
-export function useWorkspaceRepos(rootPath, fileBus) {
+export function useWorkspaceRepos(rootPath, propFileBus) {
   const [repos, setRepos] = useState([]);
   const [scanning, setScanning] = useState(false);
+  const fileBus = propFileBus || useFileBusStore.getState();
   // Off by default: a workspace sitting above a pile of reference clones should not list
   // them. Monorepos whose real repos live at packages/*/ turn this on.
   const [deep, setDeep] = useState(false);

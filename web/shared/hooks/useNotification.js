@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { sameEntry, sameMap } from "@/shared/utils/shallowEqual";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 
 /**
  * Hook to manage push notifications and chat notification events
@@ -15,23 +15,13 @@ import { sameEntry, sameMap } from "@/shared/utils/shallowEqual";
 // Persisted across reloads; survives SW updates so toggle-off sticks
 export const USER_DISABLED_KEY = "9remote:push:userDisabled";
 
-const omit = (obj, key) => {
-  const { [key]: _dropped, ...rest } = obj;
-  return rest;
-};
-
 export function useNotification(busRef, connected) {
   const subscriptionRef = useRef(null);
-  const [notifications, setNotifications] = useState({});
-  // 4-state map: sessionId → { state, tool, since }
-  const [sessionStatus, setSessionStatus] = useState({});
-  // Mirrors of the two maps, read by clearNotification so it can bail out without
-  // depending on them — it fires on every keystroke, and a changed identity there
-  // would re-render the whole workspace once per typed character.
-  const notificationsRef = useRef(notifications);
-  const sessionStatusRef = useRef(sessionStatus);
-  useEffect(() => { notificationsRef.current = notifications; }, [notifications]);
-  useEffect(() => { sessionStatusRef.current = sessionStatus; }, [sessionStatus]);
+  const notifications = useNotificationStore((s) => s.notifications);
+  const sessionStatus = useNotificationStore((s) => s.sessionStatus);
+  const clearNotification = useCallback((sessionId) => {
+    useNotificationStore.getState().clearNotification(sessionId);
+  }, []);
   const getSelectedSession = useTerminalStore((state) => state.getSelectedSession);
   const getCurrentView = useTerminalStore((state) => state.getCurrentView);
   const pushView = useTerminalStore((state) => state.pushView);
@@ -166,59 +156,10 @@ export function useNotification(busRef, connected) {
     // Receive full 4-state map from server (idle/working/blocked/done).
     // Preserve last-known tool for sessions the agent cleared (no longer in map)
     // so the agent icon persists when idle.
-    const handleStatusState = (state) => {
-      setSessionStatus((prev) => {
-        const incoming = state || {};
-        const merged = { ...incoming };
-        for (const [id, s] of Object.entries(prev)) {
-          if (!merged[id] && s.tool) {
-            merged[id] = { state: "idle", tool: s.tool, since: s.since };
-          } else if (merged[id] && !merged[id].tool && s.tool) {
-            merged[id] = { ...merged[id], tool: s.tool };
-          }
-        }
-        return sameMap(prev, merged) ? prev : merged;
-      });
-    };
-
-    // Single status transition from a hook (working/blocked/done) — patch one entry.
-    // conversationId rides along when the CLI's hook reported it; kept across transitions.
-    const handleStatusChange = ({ sessionId, state, tool, since, conversationId }) => {
-      if (!sessionId) return;
-      setSessionStatus((prev) => ({
-        ...prev,
-        [sessionId]: {
-          state, tool: tool || prev[sessionId]?.tool, since,
-          ...(conversationId || prev[sessionId]?.conversationId ? { conversationId: conversationId || prev[sessionId]?.conversationId } : {}),
-        },
-      }));
-      // The badge map is the done/blocked subset of the same state — mirroring it here
-      // is what the chatNotification refetch used to cost two round-trips to learn.
-      // Shape matches the agent's getNotifications() entries.
-      const badge = state === "done" || state === "blocked";
-      setNotifications((prev) => {
-        if (!badge) return sessionId in prev ? omit(prev, sessionId) : prev;
-        const next = { sessionId, type: state, tool, timestamp: since };
-        return sameEntry(prev[sessionId], next) ? prev : { ...prev, [sessionId]: next };
-      });
-    };
-
-    // Another client cleared a session's status → mark idle, keep tool (icon persists)
-    const handleStatusCleared = (sessionId) => {
-      if (!sessionId) return;
-      setSessionStatus((prev) => {
-        const existing = prev[sessionId];
-        if (!existing) return prev;
-        return { ...prev, [sessionId]: { state: "idle", tool: existing.tool, since: existing.since } };
-      });
-    };
-
-    // Receive full badge state from server, auto-clear active focused tab
-    const handleNotificationState = (state) => {
-      // Keep badges even for the focused session; cleared only on input (A) or switch (B)
-      const incoming = state || {};
-      setNotifications((prev) => (sameMap(prev, incoming) ? prev : incoming));
-    };
+    const handleStatusState = (state) => useNotificationStore.getState().handleStatusState(state);
+    const handleStatusChange = (payload) => useNotificationStore.getState().handleStatusChange(payload);
+    const handleStatusCleared = (sessionId) => useNotificationStore.getState().handleStatusCleared(sessionId);
+    const handleNotificationState = (state) => useNotificationStore.getState().handleNotificationState(state);
 
     // Another client cleared a badge → re-fetch to stay in sync
     const handleNotificationCleared = () => fetchState();
@@ -263,35 +204,6 @@ export function useNotification(busRef, connected) {
       navigator.clearAppBadge().catch(() => {});
     }
   }, [notifications]);
-
-  const clearNotification = useCallback((sessionId) => {
-    if (!sessionId) return;
-    const hasBadge = !!notificationsRef.current[sessionId];
-    const hasDone = sessionStatusRef.current[sessionId]?.state === "done";
-    // Nothing to clear — typing into an already-clean session must stay free.
-    if (!hasBadge && !hasDone) return;
-    setNotifications((prev) => {
-      if (!(sessionId in prev)) return prev;
-      const { [sessionId]: _, ...rest } = prev;
-      return rest;
-    });
-    // Only drop status if DONE (seen → idle). working/blocked must persist — focusing a running
-    // agent must not erase its spinner. Keep tool so the agent icon survives when idle.
-    setSessionStatus((prev) => {
-      const existing = prev[sessionId];
-      if (!existing || existing.state !== "done") return prev;
-      return { ...prev, [sessionId]: { state: "idle", tool: existing.tool, since: existing.since } };
-    });
-    // Mark cleared right away: the refs only re-sync after commit, so a second call
-    // in the same tick (fast typing, paste) would otherwise pass the guard again.
-    if (hasBadge) { const { [sessionId]: _b, ...rest } = notificationsRef.current; notificationsRef.current = rest; }
-    if (hasDone) sessionStatusRef.current = {
-      ...sessionStatusRef.current,
-      [sessionId]: { ...sessionStatusRef.current[sessionId], state: "idle" },
-    };
-    busRef.current?.emit("clearNotification", sessionId);
-    busRef.current?.emit("clearStatus", sessionId);
-  }, [busRef]);
 
   const unsubscribeFromPush = useCallback(async () => {
     if (typeof window !== "undefined") localStorage.setItem(USER_DISABLED_KEY, "1");

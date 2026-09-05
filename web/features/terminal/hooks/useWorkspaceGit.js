@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { WORKSPACE_GIT_POLL_MS } from "../constants/terminalConfig";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
+import { useFileBusStore } from "@/shared/stores/fileBusStore";
 
 // Shared, ref-counted git branch + dirty flag per workspace path. One poll per unique
 // path no matter how many terminals sit in that workspace — otherwise 10 terminals in
@@ -54,8 +55,9 @@ export function refreshWorkspaceGit(wsPath) {
   if (entry) fetchOnce(entry, wsPath);
 }
 
-export function useWorkspaceGit(wsPath, fileBus, { enabled = true } = {}) {
+export function useWorkspaceGit(wsPath, propFileBus, { enabled = true } = {}) {
   const [state, setState] = useState(EMPTY);
+  const fileBus = propFileBus || useFileBusStore.getState();
 
   useEffect(() => {
     if (!wsPath || !fileBus || !enabled) return;

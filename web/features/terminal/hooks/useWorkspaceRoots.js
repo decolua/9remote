@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useFileBusStore } from "@/shared/stores/fileBusStore";
 
 // Roots the file tree shows: the workspace plus each of its worktrees. They are separate
 // directories on disk, so one tree cannot contain them — each gets its own root section.
-export function useWorkspaceRoots(workspacePath, fileBus) {
+export function useWorkspaceRoots(workspacePath, propFileBus) {
   const [roots, setRoots] = useState([]);
+  const fileBus = propFileBus || useFileBusStore.getState();
 
   const load = useCallback(async () => {
     if (!workspacePath || !fileBus?.gitWorktreeList) return setRoots([]);

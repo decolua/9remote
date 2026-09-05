@@ -12,6 +12,7 @@ import PaneStripButtons from "@/features/terminal/components/PaneStripButtons";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
@@ -33,7 +34,7 @@ function TerminalPane({
   connected,
   sessionId,
   sessionName,
-  sessionState = "idle",
+  sessionState: propSessionState,
   isVisible,
   isFocused,
   mountDelay = 0,
@@ -50,6 +51,8 @@ function TerminalPane({
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
+  const storeState = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId]?.state : "idle");
+  const sessionState = propSessionState || storeState || "idle";
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
   const fixedMetaRef = useRef({ width: 0, height: null }); // mobile: lock height vs soft-KB shrink
@@ -166,11 +169,16 @@ function TerminalPane({
 
   const stripButtons = <PaneStripButtons onOpenRemote={onOpenRemote} onOpenMobile={onOpenMobile} />;
 
+  const handleClear = useCallback(() => {
+    if (clearNotification) clearNotification(sessionId);
+    else useNotificationStore.getState().clearNotification(sessionId);
+  }, [clearNotification, sessionId]);
+
   const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
     // Effective key — the canvas goes transparent only when the image actually renders,
     // so a pool key without a resolvable item (deleted/raced) falls back to opaque, not black
     bus: activeBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: bgActive ? paneBgKey : "none",
-    onInput: clearNotification,
+    onInput: handleClear,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
 

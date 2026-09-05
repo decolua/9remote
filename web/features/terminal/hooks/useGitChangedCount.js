@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
+import { useFileBusStore } from "@/shared/stores/fileBusStore";
 
 // Shared, ref-counted git changed-count per cwd. One 10s poll per unique cwd
 // regardless of how many panes share it → all panes stay in sync.
@@ -40,8 +41,9 @@ function release(cwd) {
   }
 }
 
-export function useGitChangedCount(cwd, fileBus, { enabled = true } = {}) {
+export function useGitChangedCount(cwd, propFileBus, { enabled = true } = {}) {
   const [count, setCount] = useState(0);
+  const fileBus = propFileBus || useFileBusStore.getState();
 
   useEffect(() => {
     if (!cwd || !fileBus || !enabled) return;

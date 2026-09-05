@@ -200,7 +200,7 @@ export default function WorkspaceLayout({ children }) {
     }
   }, [connected, platform]);
 
-  const fileBus = useFileBus(busRef, protocolRef);
+  const fileBus = useFileBus();
   // Session-long, so the header button reflects a running device even with the
   // mirror panel closed.
   useMobileDeviceWatch({ busRef: busRef, connected, enabled: mobileAvailable });
@@ -590,16 +590,12 @@ export default function WorkspaceLayout({ children }) {
             busRef={busRef}
             subscribeToPush={subscribeToPush}
             unsubscribeFromPush={unsubscribeFromPush}
-            notifications={notifications}
-            sessionStatus={sessionStatus}
-            clearNotification={clearNotification}
             agentVersion={agentVersion}
             updateAvailable={updateAvailable}
             canSelfUpdate={canSelfUpdate}
             carrier={carrier}
             workspaces={workspaces}
             onAddWorkspace={openFolderPicker}
-            fileBus={fileBus}
             homeDir={systemInfo?.homedir}
             onRenameWorkspace={renameWorkspace}
             onDeleteWorkspace={deleteWorkspace}
@@ -627,14 +623,10 @@ export default function WorkspaceLayout({ children }) {
             livePanes={livePanes}
             mountedWorkspaces={mountedWorkspaces}
             cwdBySession={cwdBySession}
-            sessionStatus={sessionStatus}
-            notifications={notifications}
-            clearNotification={clearNotification}
             isDesktop={isDesktop}
             isTerminalView={isTerminalView}
             slideClass={slideClass}
             shells={shells}
-            fileBus={fileBus}
             sidebarCollapsed={sidebarCollapsed}
             sidebarWidth={sidebarWidth}
             setSidebarWidth={setSidebarWidth}

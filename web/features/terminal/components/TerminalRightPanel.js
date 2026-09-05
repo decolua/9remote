@@ -13,6 +13,7 @@ import { useWorkspaceRoots } from "../hooks/useWorkspaceRoots";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { GIT_REFRESH_EVENT } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { SearchBar } from "@/features/fileExplorer/components/FileExplorerModals";
+import { useFileBusStore } from "@/shared/stores/fileBusStore";
 
 const ExplorerPanel = dynamic(() => import("@/features/fileExplorer/components/ExplorerPanel"), { ssr: false });
 const ScmPanel = dynamic(() => import("@/features/fileExplorer/components/ScmPanel"), { ssr: false });
@@ -36,18 +37,19 @@ function TerminalRightPanel({
   changedPerRepo = {}, hiddenRepos = [], onHiddenReposChange, isDesktop = true
 }) {
   const { t } = useI18n();
+  const activeFileBus = fileBus || useFileBusStore.getState();
   // A persisted "trees" tab must not strand the panel on hidden content
   const activeTab = tab === "trees" ? "git" : tab;
-  const { repos, refresh: refreshRepos, scanning, deep, scanDeeper } = useWorkspaceRepos(workspacePath, fileBus);
+  const { repos, refresh: refreshRepos, scanning, deep, scanDeeper } = useWorkspaceRepos(workspacePath, activeFileBus);
   // The files tab may be revealed at a pane's live cwd; the other tabs stay workspace-rooted
   const effectiveFilesRoot = filesRoot || workspacePath;
-  const { roots, refresh: refreshRoots } = useWorkspaceRoots(effectiveFilesRoot, fileBus);
+  const { roots, refresh: refreshRoots } = useWorkspaceRoots(effectiveFilesRoot, activeFileBus);
   const refresh = () => { refreshRepos(); refreshRoots(); };
 
   // A checkout in a terminal leaves every panel here showing the old branch. Reuse the
   // shared (ref-counted) branch poll and rescan only when the branch itself changed —
   // keying off the dirty count instead would rescan on every keystroke-driven edit.
-  const { branch: liveBranch } = useWorkspaceGit(workspacePath, fileBus);
+  const { branch: liveBranch } = useWorkspaceGit(workspacePath, activeFileBus);
   // Stamped with the path so switching workspace is not read as a checkout, and the
   // first poll result (null → branch) only seeds the baseline the mount already loaded.
   const lastBranchRef = useRef({ path: null, branch: null });
@@ -140,13 +142,13 @@ function TerminalRightPanel({
     }
     setSearchState((prev) => ({ ...prev, loading: true }));
     searchTimerRef.current = setTimeout(async () => {
-      const result = await fileBus.searchFiles(effectiveFilesRoot, query);
+      const result = await activeFileBus.searchFiles(effectiveFilesRoot, query);
       // Ignore out-of-order replies once the query moved on.
       setSearchState((prev) => (prev.query === query && prev.loading
         ? { ...prev, results: result.success ? result.files : [], loading: false }
         : prev));
     }, 300);
-  }, [fileBus, effectiveFilesRoot]);
+  }, [activeFileBus, effectiveFilesRoot]);
 
   // Clear the debounce timer on unmount.
   useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); }, []);
@@ -270,7 +272,7 @@ function TerminalRightPanel({
             >
               <ExplorerPanel
                 workspace={root.path}
-                fileBus={fileBus}
+                fileBus={activeFileBus}
                 activeFile={activeFile}
                 onOpenFile={onOpenFile}
                 onNewTerminal={onNewTerminal}
@@ -292,7 +294,7 @@ function TerminalRightPanel({
                 onToggle={() => setOpenRepo(activeRepo === repo.path ? "" : repo.path)}
                 onHide={canHideRepo(repo) ? () => hideRepo(repo.path) : null}
               >
-                <ScmPanel workspace={repo.path} fileBus={fileBus} onOpenFile={onOpenFile} tagDiffWithRepo />
+                <ScmPanel workspace={repo.path} fileBus={activeFileBus} onOpenFile={onOpenFile} tagDiffWithRepo />
               </RepoSection>
             ))}
 
@@ -325,7 +327,7 @@ function TerminalRightPanel({
         ) : (
           <WorktreePanel
             workspacePath={workspacePath}
-            fileBus={fileBus}
+            fileBus={activeFileBus}
             onNewTerminal={onNewTerminal}
             homeDir={homeDir}
             onChanged={refresh}

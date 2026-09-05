@@ -4,12 +4,15 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { attentionSummary } from "../lib/sessionStatusSummary";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 
 // Mobile counterpart to NotificationsBell: the phone has no room for the dropdown,
 // so the count itself is the whole signal and a tap goes straight to the terminal
 // that needs the user. Hidden on desktop, where the bell already says this.
-export default function SessionStatusBadge({ sessionStatus = {}, allSessions = [], onSwitchSession }) {
+export default function SessionStatusBadge({ sessionStatus: propStatus, allSessions = [], onSwitchSession }) {
   const { t } = useI18n();
+  const storeStatus = useNotificationStore((s) => s.sessionStatus);
+  const sessionStatus = propStatus || storeStatus;
   const { blocked, done, total, targetId } = attentionSummary(sessionStatus, allSessions);
   if (!total) return null;
 
