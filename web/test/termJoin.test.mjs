@@ -189,6 +189,28 @@ test("join: failed ack writes error to term", async () => {
   assert.match(term.write.calls[0][0], /boom/);
 });
 
+test("join: rtc-closed ack retries joinSession without writing error", async () => {
+  let attempts = 0;
+  const socket = {
+    emit: spy((_e, _p, ack) => {
+      attempts++;
+      if (attempts === 1) setTimeout(() => ack({ success: false, error: "rtc-closed" }), 0);
+      else setTimeout(() => ack({ success: true, total: 50 }), 0);
+    })
+  };
+  const term = { ...makeTerm(), write: spy() };
+  const refs = makeRefs();
+  const fireJoinRef = ref(null);
+  const doResizeRef = ref((opts) => { if (opts?.join) fireJoinRef.current(80, 24); });
+  const doJoin = createJoinSession({ bus: socket, sessionId: "s1", term, fitAddon: { fit: spy() }, writeBatcherRef: ref(null), doResizeRef, fireJoinRef, refs, setCwd: spy() });
+  doJoin();
+  fireJoinRef.current(80, 24);
+  await sleep(20);
+  assert.equal(term.write.calls.length, 0, "must not write error to term on rtc-closed");
+  assert.equal(attempts, 2, "must automatically retry join via fallback carrier");
+  assert.equal(refs.historyTotalRef.current, 50);
+});
+
 await Promise.all(tests);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

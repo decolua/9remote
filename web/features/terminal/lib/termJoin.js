@@ -69,6 +69,7 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
         termLog("join", `ack gen=${myGen} success=${!!res.success} total=${res.total} replaySize=${res.replaySize}`);
         // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
         setTimeout(() => {
+          if (myGen !== refs.joinGenRef.current || term._core?._isDisposed) return;
           refs.joiningRef.current = false;
           refs.joinClaimedRef.current = false; // the join is done — the recovery lane is free
           refs.setJoining(false);
@@ -103,6 +104,11 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
           }
           setTimeout(() => fitAddon.fit(), 200);
         } else if (res.error) {
+          if (res.error === "rtc-closed") {
+            termLog("join", "rtc-closed during join ack → retry via fallback carrier");
+            doJoinSession(true);
+            return;
+          }
           term.write(`\r\n\x1b[1;31mError: ${res.error}\x1b[0m\r\n`);
         }
       });
