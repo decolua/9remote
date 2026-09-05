@@ -1,7 +1,7 @@
 import { termLog } from "@/shared/utils/termLog";
 import { writeChunked } from "@/features/terminal/lib/historyMirror";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { STARTUP_CMD_DELAY_MS } from "@/features/terminal/constants/terminalConfig";
+import { STARTUP_CMD_DELAY_MS, JOIN_ACK_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 
 // joinSession flow: replay-window management + the emit/ack round-trip. Live output racing
 // the replay is QUEUED (not written) so it never lands between term.reset() and the
@@ -17,6 +17,8 @@ import { STARTUP_CMD_DELAY_MS } from "@/features/terminal/constants/terminalConf
 //                       lastSeqRef, cwdRef, setJoining }
 //   setCwd          — local reactive cwd setter
 export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcherRef, doResizeRef, fireJoinRef, refs, setCwd }) {
+  let joinTimer = null;
+
   const doJoinSession = (isRejoin = false) => {
     // Reset history mirror — rejoin starts fresh with the tail replay.
     refs.historyMirrorRef.current = [];
@@ -40,9 +42,31 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
       refs.joinQueueRef.current = [];
       const myGen = ++refs.joinGenRef.current;
       termLog("join", `emit gen=${myGen} cols=${cols} rows=${rows}`);
+
+      // ponytail: 8s safety ceiling; upgrade path is bus-level ack retry + carrier fallback
+      if (joinTimer) clearTimeout(joinTimer);
+      joinTimer = setTimeout(() => {
+        joinTimer = null;
+        if (myGen !== refs.joinGenRef.current) return;
+        termLog("join", `ack timeout gen=${myGen} (${JOIN_ACK_TIMEOUT_MS}ms) → clear spinner`);
+        refs.joiningRef.current = false;
+        refs.joinClaimedRef.current = false;
+        refs.setJoining(false);
+        const queue = refs.joinQueueRef.current;
+        refs.joinQueueRef.current = [];
+        const b = writeBatcherRef.current;
+        for (const q of queue) {
+          const d = (q && typeof q === "object" && "data" in q) ? q.data : q;
+          writeChunked(term, d, refs.historyMirrorRef, refs.historyBytesRef, b);
+        }
+        b?.flush();
+      }, JOIN_ACK_TIMEOUT_MS);
+
       bus.emit("joinSession", joinPayload, (result) => {
+        if (joinTimer) { clearTimeout(joinTimer); joinTimer = null; }
         if (myGen !== refs.joinGenRef.current) { termLog("join", `stale ack gen=${myGen} (current=${refs.joinGenRef.current})`); return; }
-        termLog("join", `ack gen=${myGen} success=${!!result?.success} total=${result?.total} replaySize=${result?.replaySize}`);
+        const res = result || {};
+        termLog("join", `ack gen=${myGen} success=${!!res.success} total=${res.total} replaySize=${res.replaySize}`);
         // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
         setTimeout(() => {
           refs.joiningRef.current = false;
@@ -59,16 +83,16 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
           }
           // Resync lastSeq: ack carries the snapshot seq; queued live may extend past it.
           // Take the larger so the next live chunk classifies as contiguous.
-          const ackSeq = result?.seq ?? null;
+          const ackSeq = res.seq ?? null;
           if (ackSeq != null || queueTailSeq != null) {
             refs.lastSeqRef.current = Math.max(ackSeq ?? -1, queueTailSeq ?? -1);
           }
           b?.flush();
         }, 0);
-        if (result.success) {
+        if (res.success) {
           // total = bytes agent holds; ceiling for scroll-up fetch.
-          refs.historyTotalRef.current = result.total || 0;
-          if (result.cwd) { refs.cwdRef.current = result.cwd; setCwd(result.cwd); useTerminalStore.getState().setCwd(sessionId, result.cwd); }
+          refs.historyTotalRef.current = res.total || 0;
+          if (res.cwd) { refs.cwdRef.current = res.cwd; setCwd(res.cwd); useTerminalStore.getState().setCwd(sessionId, res.cwd); }
           // One-shot agent-CLI startup command (new-terminal modal). Consume-once so
           // a reconnect rejoin never re-runs it; delayed so the login shell reaches
           // its prompt before the TUI boots.
@@ -78,8 +102,8 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
             setTimeout(() => bus.emit("input", { sessionId, data: `${startupCmd}\r` }), STARTUP_CMD_DELAY_MS);
           }
           setTimeout(() => fitAddon.fit(), 200);
-        } else {
-          term.write(`\r\n\x1b[1;31mError: ${result.error}\x1b[0m\r\n`);
+        } else if (res.error) {
+          term.write(`\r\n\x1b[1;31mError: ${res.error}\x1b[0m\r\n`);
         }
       });
     };

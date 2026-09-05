@@ -7,6 +7,7 @@ import { useDeviceId } from "./useDeviceId";
 import { ProtocolManager } from "@/shared/transport/ProtocolManager";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { debugLog } from "@/shared/utils/debugLog";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 
 /**
  * Owns the ProtocolManager and hands back its bus — the one object the app talks
@@ -65,8 +66,14 @@ export function useBus(config = {}) {
       tempKey: auth.tempKey ?? null,
       onConnect: (bus, mode) => {
         busRef.current = bus;
+        const cMode = mode || protocolRef.current?.connectionMode || "tunnel";
         setConnected(true);
-        setConnectionMode(mode || protocolRef.current?.connectionMode || "tunnel");
+        setConnectionMode(cMode);
+        useConnectionStore.getState().setConnection({
+          bus,
+          connected: true,
+          connectionMode: cMode
+        });
         debugLog("transport", "[transport] ws connected");
         onConnect?.(bus, auth);
       },
@@ -74,11 +81,15 @@ export function useBus(config = {}) {
         debugLog("transport", `[transport] ws disconnect reason=${reason}`);
         busRef.current = null;
         setConnected(false);
+        useConnectionStore.getState().setConnection({ connected: false });
         onDisconnect?.(reason);
       },
       // Device-approval answer over signaling (no tunnel needed to show the modal)
       onApproval,
-      onRetryStatus: setRetryStatus
+      onRetryStatus: (st) => {
+        setRetryStatus(st);
+        useConnectionStore.getState().setRetryStatus(st);
+      }
     };
 
     const rtcConfig = REMOTE_CONFIG.enableWebRTC ? {
@@ -89,6 +100,7 @@ export function useBus(config = {}) {
       onFallback: (to) => debugLog("transport", `[transport] fallback to ${to}`),
       onTransportChange: (type) => {
         setCarrier(type);
+        useConnectionStore.getState().setCarrier(type);
         debugLog("transport", `[transport] active=${type}`);
       }
     } : null;
@@ -98,12 +110,22 @@ export function useBus(config = {}) {
     // adapters (see adapters/freshAuth).
     protocol = new ProtocolManager(wsConfig, rtcConfig);
     protocolRef.current = protocol;
+    busRef.current = protocol.busRef.current;
+    useConnectionStore.getState().setConnection({
+      bus: busRef.current,
+      busRef,
+      protocolRef,
+      connected: false,
+      connectionMode: "tunnel",
+      carrier: "ws"
+    });
     protocol.connect();
 
     return () => {
       protocol?.disconnect();
       protocolRef.current = null;
       busRef.current = null;
+      useConnectionStore.getState().reset();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -114,6 +136,7 @@ export function useBus(config = {}) {
     protocolRef.current = null;
     busRef.current = null;
     setConnected(false);
+    useConnectionStore.getState().reset();
   };
 
   return { bus: busRef.current, busRef, protocolRef, connected, connectionMode, carrier, retryStatus, disconnect };

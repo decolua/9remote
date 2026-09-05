@@ -16,6 +16,7 @@ import {
 } from "@/features/terminal/constants/terminalConfig";
 import StatusBar from "@/shared/components/ui/StatusBar";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 
@@ -155,15 +156,21 @@ export function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
 export default function TerminalStatusBar({
   cwd,
   fileBus,
-  busRef,
-  connected,
+  busRef: propBusRef,
+  connected: propConnected,
   sessionState = "idle",
-  carrier = "ws",
+  carrier: propCarrier,
   sessionName = "",
   agentVersion = "",
   platform = "",
 }) {
   const { t } = useI18n();
+  const storeConnected = useConnectionStore((s) => s.connected);
+  const storeCarrier = useConnectionStore((s) => s.carrier);
+  const storeBusRef = useConnectionStore((s) => s.busRef);
+  const connected = propConnected ?? storeConnected;
+  const carrier = propCarrier || storeCarrier;
+  const busRef = propBusRef || storeBusRef;
   const quota = useQuota(busRef);
 
   // Branch + changed come from the shared ref-counted poll — one round-trip per unique

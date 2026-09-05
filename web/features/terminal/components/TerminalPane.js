@@ -11,6 +11,7 @@ import NotePanel from "@/features/terminal/components/NotePanel";
 import PaneStripButtons from "@/features/terminal/components/PaneStripButtons";
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
@@ -61,6 +62,8 @@ function TerminalPane({
   const setRightPanelTab = useTerminalStore((s) => s.setRightPanelTab);
   const openRightPanel = useTerminalStore((s) => s.openRightPanel);
   const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
+  const storeBus = useConnectionStore((s) => s.bus);
+  const activeBus = bus || storeBus;
   const paneCwd = useTerminalStore((s) => s.cwdBySession[sessionId]);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
@@ -166,7 +169,7 @@ function TerminalPane({
   const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
     // Effective key — the canvas goes transparent only when the image actually renders,
     // so a pool key without a resolvable item (deleted/raced) falls back to opaque, not black
-    bus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: bgActive ? paneBgKey : "none",
+    bus: activeBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: bgActive ? paneBgKey : "none",
     onInput: clearNotification,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
@@ -282,7 +285,7 @@ function TerminalPane({
       {/* Pinned checklist sits in flow above the terminal, like the bottom status bar */}
       {showPinnedNote && (
         <NotePanel
-          bus={bus}
+          bus={activeBus}
           sessionId={sessionId}
           variant="pinned"
           rightSlot={stripButtons}

@@ -616,10 +616,6 @@ export default function WorkspaceLayout({ children }) {
             greets an empty machine there. */}
         {(isDesktop || openedSessions.length > 0) && (
           <TerminalWorkspace
-            bus={bus}
-            busRef={busRef}
-            connected={connected}
-            carrier={carrier}
             platform={platform}
             agentVersion={agentVersion}
             sessions={sessions}

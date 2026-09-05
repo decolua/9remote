@@ -18,10 +18,13 @@ import { createOutputRouter } from "@/features/terminal/lib/termOutputRouter";
 import { writeChunked } from "@/features/terminal/lib/historyMirror";
 import { useTermTouchGestures } from "@/features/terminal/hooks/useTermTouchGestures";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
-export function useXTerm({ bus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, bgKey = "none", onInput, onSelectionMade }) {
+export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, bgKey = "none", onInput, onSelectionMade }) {
+  const storeBus = useConnectionStore((s) => s.bus);
+  const bus = propBus || storeBus;
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const writeBatcherRef = useRef(null);
@@ -285,6 +288,7 @@ export function useXTerm({ bus, sessionId, theme, terminalTheme, isVisible, isFo
       // after mount/write, so relying on it alone would fire a fetch on every F5.
       if (!userAtTopRef.current) return;
       if (buf.viewportY > HISTORY_FETCH.topThresholdLines) { userAtTopRef.current = false; return; }
+      if (!useConnectionStore.getState().connected) return;
 
       historyFetchingRef.current = true;
       historyLastFetchRef.current = now;
@@ -329,6 +333,7 @@ export function useXTerm({ bus, sessionId, theme, terminalTheme, isVisible, isFo
      *  serve — no baseline, or the agent's counter rewound (agent restarted). */
     const hardRejoin = (why) => {
       if (!termRef.current) return;
+      if (!useConnectionStore.getState().connected) { pendingRecoverRef.current = why; return; }
       pendingRecoverRef.current = null; // the rejoin refetches everything — nothing left to recover
       termLog("reconnect", `reset+rejoin (${why})`);
       // Claim the lane now — the wipe is a settle-debounce away and a trigger in
@@ -350,6 +355,7 @@ export function useXTerm({ bus, sessionId, theme, terminalTheme, isVisible, isFo
       // Visibility can flip during the debounce (group switch right after a resume) — re-check
       // at fire time, else the peek recovers into a zero-size buffer and wraps wrong.
       if (!isVisibleRef.current) { pendingRecoverRef.current = reason; return; }
+      if (!useConnectionStore.getState().connected) { pendingRecoverRef.current = reason; return; }
       if (recoveryBusy({ joinClaimed: joinClaimedRef, joining: joiningRef, gapBusy: gapFetch.isBusy() })) return; // recovery already running — it covers this
       if (lastSeqRef.current == null) return hardRejoin(`${reason}: no seq baseline`);
       const gen = ++peekGen;
@@ -483,11 +489,13 @@ export function useXTerm({ bus, sessionId, theme, terminalTheme, isVisible, isFo
     window.addEventListener("orientationchange", handleOrientationChange);
 
     // Force redraw when the tab becomes visible again (WebGL may not repaint after a tab
-    // switch), and ask the agent for its newest seq to recover backgrounded output.
+    // switch), and ask the agent for its newest seq to recover backgrounded output only if connected.
     const handleVisibilityChange = () => {
       if (!document.hidden && termRef.current) {
         termRef.current.refresh(0, termRef.current.rows - 1);
-        requestRecover("visible");
+        if (useConnectionStore.getState().connected) {
+          requestRecover("visible");
+        }
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);

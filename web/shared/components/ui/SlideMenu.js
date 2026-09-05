@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useState } from "react";
 import { X, ChevronLeft, Sun, Moon, Github, Star } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 import MenuItems from "@/features/terminal/components/MenuItems";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
@@ -32,6 +33,7 @@ export default function SlideMenu() {
   const activePanel = useSlideMenuStore((s) => s.activePanel);
   const context = useSlideMenuStore((s) => s.context);
   const callbacks = useSlideMenuStore((s) => s.callbacks);
+  const storeCarrier = useConnectionStore((s) => s.carrier);
   const close = useSlideMenuStore((s) => s.close);
   const setActivePanel = useSlideMenuStore((s) => s.setActivePanel);
   const openMenu = useSlideMenuStore((s) => s.openMenu);
@@ -250,7 +252,8 @@ export default function SlideMenu() {
             )}
             <h2 className="text-lg font-semibold text-text">{getTitle()}</h2>
             {activePanel === "menu" && (() => {
-              const isRtc = context.carrier && context.carrier !== "ws";
+              const liveCarrier = storeCarrier || context.carrier;
+              const isRtc = liveCarrier && liveCarrier !== "ws";
               return (
                 <span
                   className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
@@ -258,7 +261,7 @@ export default function SlideMenu() {
                       ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
                       : "bg-yellow-500/15 text-yellow-500 border border-yellow-500/30"
                   }`}
-                  title={`Carrier: ${isRtc ? `WebRTC (${context.carrier})` : "WebSocket"}`}
+                  title={`Carrier: ${isRtc ? `WebRTC (${liveCarrier})` : "WebSocket"}`}
                 >
                   {isRtc ? "RTC" : "WS"}
                 </span>

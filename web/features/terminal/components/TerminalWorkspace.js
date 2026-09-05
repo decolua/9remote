@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { startWidthDrag } from "@/shared/utils/dragResize";
@@ -46,6 +47,15 @@ function TerminalWorkspace({
   subscribeToPush, unsubscribeFromPush, updateAvailable, canSelfUpdate
 }) {
   const { t } = useI18n();
+  const storeBus = useConnectionStore((s) => s.bus);
+  const storeBusRef = useConnectionStore((s) => s.busRef);
+  const storeConnected = useConnectionStore((s) => s.connected);
+  const storeCarrier = useConnectionStore((s) => s.carrier);
+  const activeBus = bus || storeBus;
+  const activeBusRef = busRef || storeBusRef;
+  const isConnected = connected ?? storeConnected;
+  const activeCarrier = carrier || storeCarrier;
+
   const {
     panesContainerRef, registerPaneApi, registerPaneElement, registerKeyboardTextApi,
     handlePasteFallback, handleInputFocusChange, focusPane, focusKeyboardInput, scrollPaneIntoView
@@ -168,24 +178,24 @@ function TerminalWorkspace({
   // source of truth, so a fresh device gets the same wallpapers as everyone else.
   // bg:list is new; older agents only answer bg:get (single legacy image).
   useEffect(() => {
-    if (!connected || !bus?.emit) return;
+    if (!isConnected || !activeBus?.emit) return;
     let cancelled = false;
     // An old agent has no bg:list handler, so its ack never fires — fall back to
     // the legacy single-image bg:get on timeout, not just on a failed ack.
-    const legacyFetch = () => bus.emit("bg:get", {}, (res) => {
+    const legacyFetch = () => activeBus.emit("bg:get", {}, (res) => {
       if (!cancelled && res?.success && res.dataUrl) {
         useTerminalStore.getState().setCustomBackgrounds([{ id: "custom", dataUrl: res.dataUrl }]);
       }
     });
     const timer = setTimeout(() => { if (!cancelled) legacyFetch(); }, BG_LIST_TIMEOUT_MS);
-    bus.emit("bg:list", {}, (res) => {
+    activeBus.emit("bg:list", {}, (res) => {
       if (cancelled) return;
       clearTimeout(timer);
       if (res?.success && Array.isArray(res.items)) useTerminalStore.getState().setCustomBackgrounds(res.items);
       else legacyFetch();
     });
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [connected, bus]);
+  }, [isConnected, activeBus]);
 
   const paneCount = workspaceOpenedSessions.length;
   const autoBase = rowWidth - sidebarWidth - PANE_ROW_PADDING_PX;
@@ -237,8 +247,8 @@ function TerminalWorkspace({
       workspacePath={session?.workspacePath}
       sessionName={session?.name}
       sessionState={sessionStatus[sessionId]?.state || "idle"}
-      bus={bus}
-      connected={connected}
+      bus={activeBus}
+      connected={isConnected}
       sessionId={sessionId}
       isVisible={isVisible}
       isFocused={isFocused}
@@ -259,7 +269,7 @@ function TerminalWorkspace({
 
   const renderKeyboard = (sessionId) => (
     <MobileKeyboard
-      bus={bus}
+      bus={activeBus}
       sessionId={sessionId}
       onExpandChange={() => {}}
       onRefocus={() => focusPane(sessionId)}
@@ -274,7 +284,7 @@ function TerminalWorkspace({
         <MobileStatusStrip
           sessionId={sessionId}
           fileBus={fileBus}
-          busRef={busRef}
+          busRef={activeBusRef}
           onReveal={(cwd) => {
             const wsPath = sessions.find((s) => s.id === sessionId)?.workspacePath;
             setRightPanelRoot(wsPath, cwd || wsPath);
@@ -366,8 +376,8 @@ function TerminalWorkspace({
             agentVersion={agentVersion}
             updateAvailable={updateAvailable}
             canSelfUpdate={canSelfUpdate}
-            busRef={busRef}
-            carrier={carrier}
+            busRef={activeBusRef}
+            carrier={activeCarrier}
             shells={shells}
             onToggleSidebar={isDesktop ? toggleSidebar : null}
             sidebarCollapsed={sidebarCollapsed}
@@ -527,7 +537,7 @@ function TerminalWorkspace({
 
         {/* Single mount for every mode — see the pin slot above. */}
         {isDesktop && mobilePanel?.open && (
-          <MobileDock busRef={busRef} protocolRef={mobilePanel.protocolRef} connected={connected} pinSlot={mobilePinSlot} />
+          <MobileDock busRef={activeBusRef} protocolRef={mobilePanel.protocolRef} connected={isConnected} pinSlot={mobilePinSlot} />
         )}
 
         {/* Right panel: files / git / worktrees. Slides in over the panes on mobile, with a
@@ -580,10 +590,10 @@ function TerminalWorkspace({
         <TerminalStatusBar
           cwd={activeSessionId ? cwdBySession[activeSessionId] || "" : ""}
           fileBus={fileBus}
-          busRef={busRef}
-          connected={connected}
+          busRef={activeBusRef}
+          connected={isConnected}
           sessionState={activeSessionId ? sessionStatus[activeSessionId]?.state : "idle"}
-          carrier={carrier}
+          carrier={activeCarrier}
           sessionName={activeSession ? activeSession?.name : ""}
           agentVersion={agentVersion}
           platform={platform}

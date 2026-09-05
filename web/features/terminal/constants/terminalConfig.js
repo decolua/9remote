@@ -280,6 +280,10 @@ export const PEEK_TIMEOUT_MS = 4000;
 // felt as a freeze.
 export const GAP_FETCH_TIMEOUT_MS = 3000;
 
+// Maximum wait for joinSession ack before giving up and clearing the spinner.
+// Prevents infinite spinner wedging if the carrier drops the ack mid-switch.
+export const JOIN_ACK_TIMEOUT_MS = 8000;
+
 // Detected TUI agent CLIs (new-terminal modal) — how long the client trusts the
 // cached detection before re-asking the agent to rescan PATH.
 export const AGENT_CLIS_TTL_MS = 60000;
