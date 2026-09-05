@@ -4,20 +4,20 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { THEME } from "../constants/landingConfig";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
+import { useGithubStars } from "@/shared/hooks/useGithubStars";
 
 const LINKS = [
   { href: "#features", label: "Features" },
   { href: "#security", label: "Security" },
-  { href: "#terminal-demo", label: "How it Works" },
+  { href: "#get-started", label: "Quick Start" },
   { href: "https://docs.9remote.cc/", label: "Docs", external: true },
-  { href: "#get-started", label: "Get Started" },
-  { href: "https://github.com/decolua/9remote", label: "GitHub", external: true },
-  { href: "https://www.facebook.com/groups/9teamvn", label: "Community", external: true }
+  { href: "https://github.com/decolua/9remote", label: "GitHub", external: true }
 ];
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { formattedStars } = useGithubStars();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -36,16 +36,11 @@ export default function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-3 group">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-lg transition-shadow"
-            style={{
-              background: THEME.accent,
-              color: "#FFF",
-              boxShadow: `0 8px 24px -8px ${THEME.accentGlow}`
-            }}
-          >
-            9
-          </div>
+          <img
+            src="/icon-192.png"
+            alt="9Remote Logo"
+            className="w-8 h-8 rounded-lg object-contain shadow-md shadow-brand-500/20"
+          />
           <span className="text-xl font-bold tracking-tight" style={{ color: THEME.text }}>9Remote</span>
         </Link>
 
@@ -56,17 +51,23 @@ export default function Navbar() {
               href={l.href}
               target={l.external ? "_blank" : undefined}
               rel={l.external ? "noopener noreferrer" : undefined}
-              className="text-sm transition-colors"
+              className="text-sm transition-colors flex items-center gap-1.5"
               style={{ color: THEME.textDim }}
               onMouseEnter={(e) => (e.currentTarget.style.color = THEME.text)}
               onMouseLeave={(e) => (e.currentTarget.style.color = THEME.textDim)}
             >
-              {l.label}
+              <span>{l.label}</span>
+              {l.label === "GitHub" && formattedStars && (
+                <span className="text-[11px] font-mono px-1.5 py-0.5 rounded-full border border-border-subtle bg-surface-2/80 text-text">
+                  ★ {formattedStars}
+                </span>
+              )}
             </a>
           ))}
         </div>
 
         <div className="hidden md:flex items-center gap-3">
+          <ThemeToggle />
           <Link
             href="/login"
             className="btn-cta px-5 py-2 rounded-lg font-semibold text-sm transition-transform hover:scale-[1.03]"
@@ -74,24 +75,23 @@ export default function Navbar() {
           >
             <span>Remote</span>
           </Link>
-          <ThemeToggle />
         </div>
 
-        <div className="md:hidden flex items-center gap-1">
-        <ThemeToggle />
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2"
-          style={{ color: THEME.text }}
-        >
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            {mobileMenuOpen ? (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            )}
-          </svg>
-        </button>
+        <div className="md:hidden flex items-center gap-1.5">
+          <ThemeToggle />
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-2"
+            style={{ color: THEME.text }}
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {mobileMenuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -108,10 +108,15 @@ export default function Navbar() {
                 target={l.external ? "_blank" : undefined}
                 rel={l.external ? "noopener noreferrer" : undefined}
                 onClick={() => setMobileMenuOpen(false)}
-                className="text-sm"
+                className="text-sm flex items-center justify-between"
                 style={{ color: THEME.textDim }}
               >
-                {l.label}
+                <span>{l.label}</span>
+                {l.label === "GitHub" && formattedStars && (
+                  <span className="text-xs font-mono px-2 py-0.5 rounded-full border border-border-subtle bg-surface-2 text-text">
+                    ★ {formattedStars}
+                  </span>
+                )}
               </a>
             ))}
             <Link

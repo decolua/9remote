@@ -15,7 +15,7 @@ import AnimatedBackground from "@/features/landing/components/AnimatedBackground
 import LanguageSwitcher from "@/shared/components/ui/LanguageSwitcher";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
 import { useI18n } from "@/shared/i18n";
-import { X, Terminal } from "@/shared/components/ui/Icon";
+import { X } from "@/shared/components/ui/Icon";
 import CodespaceList from "@/features/codespace/components/CodespaceList";
 import { useGithub } from "@/features/codespace/hooks/useGithub";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
@@ -437,9 +437,11 @@ function LoginContent() {
 
             {/* Header */}
             <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-[11px] bg-brand-500 grid place-items-center text-white shadow-lg shadow-brand-500/30">
-                <Terminal size={22} />
-              </div>
+              <img
+                src="/icon-192.png"
+                alt="9Remote Logo"
+                className="w-10 h-10 rounded-[11px] object-contain shadow-lg shadow-brand-500/20"
+              />
               <div className="flex-1">
                 <h1 className="text-[22px] font-bold tracking-tight text-text leading-none">9Remote</h1>
                 {version && <p className="font-mono text-[11px] text-text-subtle mt-1">v{version}</p>}

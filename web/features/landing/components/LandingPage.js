@@ -4,9 +4,7 @@ import AnimatedBackground from "./AnimatedBackground";
 import Navbar from "./Navbar";
 import HeroSection from "./HeroSection";
 import FeaturesSection from "./FeaturesSection";
-import TerminalDemoSection from "./TerminalDemoSection";
 import SecuritySection from "./SecuritySection";
-import ComparisonSection from "./ComparisonSection";
 import GetStartedSection from "./GetStartedSection";
 import CTASection from "./CTASection";
 import Footer from "./Footer";
@@ -21,9 +19,7 @@ export default function LandingPage() {
       <main className="relative z-10">
         <HeroSection />
         <FeaturesSection />
-        <TerminalDemoSection />
         <SecuritySection />
-        <ComparisonSection />
         <GetStartedSection />
         <CTASection />
       </main>

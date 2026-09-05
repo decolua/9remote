@@ -45,12 +45,11 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
           <div className="col-span-1 md:col-span-2">
             <div className="flex items-center gap-3 mb-4">
-              <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center"
-                style={{ background: THEME.accent }}
-              >
-                <span className="text-xl font-bold text-white">9</span>
-              </div>
+              <img
+                src="/icon-192.png"
+                alt="9Remote Logo"
+                className="w-9 h-9 rounded-lg object-contain shadow-md shadow-brand-500/20"
+              />
               <h3 className="text-xl font-bold" style={{ color: THEME.text }}>9Remote</h3>
             </div>
             <p className="text-sm max-w-md mb-4" style={{ color: THEME.textDim }}>
