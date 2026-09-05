@@ -8,7 +8,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { relativeTo, basename, dirname } from "@/features/fileExplorer/lib/pathUtils";
-import { isDiffPath, isHtmlFile, parseRepoDiffPath } from "../constants/fileExplorer.js";
+import { isDiffPath, getTextPreviewKind, parseRepoDiffPath } from "../constants/fileExplorer.js";
 import { useFileTreeState } from "@/features/fileExplorer/hooks/useFileTreeState";
 import { useFileOperations } from "@/features/fileExplorer/hooks/useFileOperations";
 import ExplorerRow, { TruncatedNote, indentFor } from "./ExplorerRow";
@@ -576,8 +576,8 @@ export default function ExplorerPanel({
       items.push({ label: "New Folder", icon: "FolderOpen", action: () => openNewItemModal("folder", file.path) });
     } else if (!many) {
       items.push({ label: "Open", icon: "File", action: () => onOpenFile?.(file.path) });
-      // HTML opens rendered rather than as source — the tab still holds the editor.
-      if (isHtmlFile(file.path)) {
+      // Text files with preview (HTML, Markdown, Mermaid) can open rendered rather than as source.
+      if (getTextPreviewKind(file.path)) {
         items.push({ label: t("editor.preview"), icon: "Eye", action: () => onOpenFile?.(file.path, { preview: true }) });
       }
     }

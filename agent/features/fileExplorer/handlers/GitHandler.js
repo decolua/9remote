@@ -1,8 +1,9 @@
 import fs from "fs";
 import path from "path";
 import { spawn, spawnSync, execSync } from "child_process";
-import { BINARY_EXTENSIONS, MAX_FILE_SIZE, DEFAULT_GIT_LOG_LIMIT, MAX_GIT_OUTPUT_SIZE, MAX_GIT_DIFF_SIZE } from "../constants.js";
+import { BINARY_EXTENSIONS, MAX_FILE_SIZE, DEFAULT_GIT_LOG_LIMIT, MAX_GIT_OUTPUT_SIZE, MAX_GIT_DIFF_SIZE, MIME_BY_EXT, MAX_IMAGE_RAW_SIZE } from "../constants.js";
 import { isSensitivePath } from "../pathGuard.js";
+import { scaleImageBuffer } from "./FileHandler.js";
 import {
   scanReposCached, invalidateRepoScan, parseWorktreeList, parseBranchList, terminalsInWorktree
 } from "../gitRepoScan.js";
@@ -239,6 +240,57 @@ export function setupGitHandlers(socket) {
       }
 
       callback({ success: true, diff: capDiff(diff) });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitShowMedia", async ({ repoPath, file: rawFile, ref = "HEAD" }, callback) => {
+    try {
+      if (!repoPath) return callback({ success: false, error: "Missing repoPath" });
+      const file = toRepoRelative(repoPath, rawFile);
+      if (!file) return callback({ success: false, error: "Invalid path" });
+
+      const fullPath = path.join(repoPath, file);
+      if (isSensitivePath(fullPath)) return callback({ success: false, error: "Access denied" });
+
+      const r = spawnSync("git", ["show", `${ref}:${file}`], {
+        cwd: repoPath,
+        maxBuffer: MAX_IMAGE_RAW_SIZE,
+        windowsHide: true
+      });
+
+      if (r.status !== 0 || !r.stdout || r.stdout.length === 0) {
+        return callback({ success: false, error: r.stderr?.toString() || "File not found in git ref" });
+      }
+
+      const buffer = r.stdout;
+      const ext = path.extname(file).toLowerCase().slice(1);
+      const mime = MIME_BY_EXT[ext] || "image/png";
+      const isImage = mime.startsWith("image/");
+
+      if (isImage) {
+        try {
+          const scaled = await scaleImageBuffer(buffer, file);
+          const dataUrl = `data:image/jpeg;base64,${scaled.buffer.toString("base64")}`;
+          return callback({
+            success: true,
+            dataUrl,
+            size: buffer.length,
+            mime,
+            width: scaled.width,
+            height: scaled.height,
+            originalWidth: scaled.originalWidth,
+            originalHeight: scaled.originalHeight
+          });
+        } catch {
+          const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+          return callback({ success: true, dataUrl, size: buffer.length, mime });
+        }
+      }
+
+      const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+      callback({ success: true, dataUrl, size: buffer.length, mime });
     } catch (error) {
       callback({ success: false, error: error.message });
     }

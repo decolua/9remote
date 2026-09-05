@@ -160,6 +160,17 @@ export function useFileBus(busRef, protocolRef) {
     });
   }, [busRef]);
 
+  // Git show media (HEAD version of an image or media file)
+  const gitShowMedia = useCallback((repoPath, file, ref = "HEAD") => {
+    return new Promise((resolve) => {
+      if (!busRef?.current) {
+        resolve({ success: false, error: "Not connected" });
+        return;
+      }
+      busRef.current.emit("gitShowMedia", { repoPath, file, ref }, resolve);
+    });
+  }, [busRef]);
+
   // Search files
   const searchFiles = useCallback((workspace, query) => {
     return new Promise((resolve) => {
@@ -435,6 +446,7 @@ export function useFileBus(busRef, protocolRef) {
     gitChangedCount,
     gitFileStatus,
     gitDiff,
+    gitShowMedia,
     gitDiscard,
     searchFiles,
     searchInFiles,
@@ -466,7 +478,7 @@ export function useFileBus(busRef, protocolRef) {
     previewStart,
     previewEnd
   }), [getSystemInfo, getFiles, readFile, readImage, readMedia, writeFile, createItem, deleteItem,
-    renameItem, copyItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitDiscard, searchFiles,
+    renameItem, copyItem, gitStatus, gitChangedCount, gitFileStatus, gitDiff, gitShowMedia, gitDiscard, searchFiles,
     searchInFiles, replaceInFiles, watchDir, unwatchDir, onFileChange, revealInOS, openInTerminal,
     getFileTree, gitBranch, gitScanRepos, gitWorkspaceChangedCount, gitRefreshRepos, gitWorktreeList, gitWorktreeAdd,
     gitWorktreeRemove, gitBranchList, gitBranchCheckout, gitAdd, gitReset, gitCommit, gitPush, gitPull, gitLog,

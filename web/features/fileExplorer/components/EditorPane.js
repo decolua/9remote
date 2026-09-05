@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 import { Save, Eye, FileCode } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { isDiffPath, isHtmlFile } from "../constants/fileExplorer.js";
+import { isDiffPath, getTextPreviewKind } from "../constants/fileExplorer.js";
 import CodeEditor from "./CodeEditor.js";
 import DiffView from "./DiffView.js";
 import FilePreview, { isPreviewable } from "./FilePreview.js";
-import HtmlViewer from "./HtmlViewer.js";
+import TextPreview from "./TextPreview.js";
 import { useFileDocument } from "../hooks/useFileDocument.js";
 
 /**
@@ -28,10 +28,10 @@ export default function EditorPane({
   const editable = !isDiffPath(filePath) && !isPreviewable(filePath);
   const doc = useFileDocument({ filePath: editable ? filePath : "", fileBus });
 
-  // HTML files can flip between source and rendered view; one file = one mode.
-  const canPreviewHtml = editable && isHtmlFile(filePath);
+  // Text files with rendered forms (html, markdown, mermaid) can flip between source and preview.
+  const previewKind = editable ? getTextPreviewKind(filePath) : null;
   // A pane mounted by a Preview click starts rendered; every other one starts as source.
-  const [htmlPreview, setHtmlPreview] = useState(!!previewSeq && canPreviewHtml);
+  const [showRendered, setShowRendered] = useState(!!previewSeq && !!previewKind);
   const [saveSeq, setSaveSeq] = useState(0);
   const [lastPath, setLastPath] = useState(filePath);
   const [prevSaved, setPrevSaved] = useState(false);
@@ -39,12 +39,12 @@ export default function EditorPane({
   // Adjust during render (not in an effect) — the sanctioned reset-on-prop pattern.
   if (lastPath !== filePath) {
     setLastPath(filePath);
-    setHtmlPreview(false);
+    setShowRendered(false);
   }
   // A Preview asked for from the explorer opens rendered, even on an already-open tab.
   else if (lastPreviewSeq !== previewSeq) {
     setLastPreviewSeq(previewSeq);
-    if (previewSeq && canPreviewHtml) setHtmlPreview(true);
+    if (previewSeq && previewKind) setShowRendered(true);
   }
   // Edge-trigger justSaved into a counter the preview can reload on.
   if (doc.justSaved !== prevSaved) {
@@ -95,15 +95,15 @@ export default function EditorPane({
         </div>
       )}
 
-      {/* HTML preview toggle rides its own slim bar — there is no other chrome here. */}
-      {canPreviewHtml && (
+      {/* Preview toggle rides its own slim bar — there is no other chrome here. */}
+      {previewKind && (
         <div className="px-3 py-1.5 flex items-center justify-end bg-surface border-b border-border-subtle flex-shrink-0">
           <button
-            onClick={() => { vibrate(); setHtmlPreview((v) => !v); }}
-            title={htmlPreview ? t("editor.editCode") : t("editor.preview")}
+            onClick={() => { vibrate(); setShowRendered((v) => !v); }}
+            title={showRendered ? t("editor.editCode") : t("editor.preview")}
             className="p-1 text-text-muted hover:text-text rounded-[3px] hover:bg-surface-2 transition-colors"
           >
-            {htmlPreview ? <FileCode size={13} /> : <Eye size={13} />}
+            {showRendered ? <FileCode size={13} /> : <Eye size={13} />}
           </button>
         </div>
       )}
@@ -123,8 +123,8 @@ export default function EditorPane({
       )}
 
       <div className="flex-1 min-h-0">
-        {htmlPreview && canPreviewHtml ? (
-          <HtmlViewer filePath={filePath} fileBus={fileBus} reloadKey={saveSeq} />
+        {showRendered && previewKind ? (
+          <TextPreview kind={previewKind} filePath={filePath} fileBus={fileBus} content={doc.content} reloadKey={saveSeq} />
         ) : doc.loading ? (
           <div className="h-full flex items-center justify-center text-text-muted text-sm">{t("common.loading")}</div>
         ) : (

@@ -7,9 +7,10 @@ import { useI18n } from "@/shared/i18n";
 import CodeEditor from "./CodeEditor.js";
 import DiffBody from "./DiffBody.js";
 import FilePreview, { isPreviewable } from "./FilePreview.js";
-import HtmlViewer from "./HtmlViewer.js";
+import ImageDiffView from "./ImageDiffView.js";
+import TextPreview from "./TextPreview.js";
 import UnsavedDialog from "./UnsavedDialog.js";
-import { isHtmlFile } from "../constants/fileExplorer.js";
+import { getTextPreviewKind, isImageFile } from "../constants/fileExplorer.js";
 import { useFileDocument } from "../hooks/useFileDocument.js";
 import { useUnsavedGuard } from "../hooks/useUnsavedGuard.js";
 import EditorKeyBar from "./EditorKeyBar.js";
@@ -33,17 +34,17 @@ export default function FileEditor({ filePath, fileBus, onBack, line, column, wo
   const [diff, setDiff] = useState(null);   // null = hidden
   const [diffLoading, setDiffLoading] = useState(false);
 
-  // HTML files can flip between source and rendered view; one file = one mode.
-  const canPreviewHtml = !diffOnly && !previewOnly && isHtmlFile(filePath);
+  // Text files with rendered forms (html, markdown, mermaid) can flip between source and preview.
+  const previewKind = !diffOnly && !previewOnly ? getTextPreviewKind(filePath) : null;
   // Opened by a Preview click, this starts rendered; every other open starts as source.
-  const [htmlPreview, setHtmlPreview] = useState(preview && canPreviewHtml);
+  const [showRendered, setShowRendered] = useState(preview && !!previewKind);
   const [saveSeq, setSaveSeq] = useState(0);
   const [lastPath, setLastPath] = useState(filePath);
   const [prevSaved, setPrevSaved] = useState(false);
   // Adjust during render (not in an effect) — the sanctioned reset-on-prop pattern.
   if (lastPath !== filePath) {
     setLastPath(filePath);
-    setHtmlPreview(preview && canPreviewHtml);
+    setShowRendered(preview && !!previewKind);
   }
   // Edge-trigger justSaved into a counter the preview can reload on.
   if (doc.justSaved !== prevSaved) {
@@ -65,6 +66,10 @@ export default function FileEditor({ filePath, fileBus, onBack, line, column, wo
 
   const showDiff = async () => {
     if (!gitStatus || !workspace) return;
+    if (isImageFile(filePath)) {
+      setDiff("image");
+      return;
+    }
     setDiffLoading(true);
     const r = await fileBus.gitDiff(workspace, gitStatus.file, gitStatus.status);
     setDiffLoading(false);
@@ -78,6 +83,10 @@ export default function FileEditor({ filePath, fileBus, onBack, line, column, wo
     let cancelled = false;
     // Deferred a tick so the loading flag is not set synchronously inside the effect.
     const id = setTimeout(async () => {
+      if (isImageFile(filePath)) {
+        setDiff("image");
+        return;
+      }
       setDiffLoading(true);
       const r = await fileBus.gitDiff(workspace, filePath, diffStatus);
       if (cancelled) return;
@@ -127,13 +136,13 @@ export default function FileEditor({ filePath, fileBus, onBack, line, column, wo
           </button>
         )}
 
-        {canPreviewHtml && (
+        {previewKind && (
           <button
-            onClick={() => { vibrate(); setHtmlPreview((v) => !v); }}
-            title={htmlPreview ? t("editor.editCode") : t("editor.preview")}
+            onClick={() => { vibrate(); setShowRendered((v) => !v); }}
+            title={showRendered ? t("editor.editCode") : t("editor.preview")}
             className="p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.96]"
           >
-            {htmlPreview ? <FileCode size={16} /> : <Eye size={16} />}
+            {showRendered ? <FileCode size={16} /> : <Eye size={16} />}
           </button>
         )}
 
@@ -171,17 +180,21 @@ export default function FileEditor({ filePath, fileBus, onBack, line, column, wo
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {diffOnly ? (
-          <div className="h-full overflow-auto p-2">
-            {diffLoading ? (
-              <div className="h-full flex items-center justify-center text-text-muted">{t("common.loading")}</div>
-            ) : diff ? <DiffBody diff={diff} /> : (
-              <div className="h-32 flex items-center justify-center text-text-muted text-sm">{t("git.noChanges")}</div>
-            )}
-          </div>
+          isImageFile(filePath) ? (
+            <ImageDiffView filePath={filePath} status={diffStatus} workspace={workspace} fileBus={fileBus} />
+          ) : (
+            <div className="h-full overflow-auto p-2">
+              {diffLoading ? (
+                <div className="h-full flex items-center justify-center text-text-muted">{t("common.loading")}</div>
+              ) : diff ? <DiffBody diff={diff} /> : (
+                <div className="h-32 flex items-center justify-center text-text-muted text-sm">{t("git.noChanges")}</div>
+              )}
+            </div>
+          )
         ) : previewOnly ? (
           <FilePreview filePath={filePath} fileBus={fileBus} />
-        ) : htmlPreview && canPreviewHtml ? (
-          <HtmlViewer filePath={filePath} fileBus={fileBus} reloadKey={saveSeq} />
+        ) : showRendered && previewKind ? (
+          <TextPreview kind={previewKind} filePath={filePath} fileBus={fileBus} content={doc.content} reloadKey={saveSeq} />
         ) : doc.loading ? (
           <div className="h-full flex items-center justify-center text-text-muted">{t("common.loading")}</div>
         ) : (
@@ -210,14 +223,18 @@ export default function FileEditor({ filePath, fileBus, onBack, line, column, wo
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-auto p-2">
-            {diff ? <DiffBody diff={diff} /> : (
+            {isImageFile(filePath) ? (
+              <ImageDiffView filePath={filePath} status={gitStatus?.status} workspace={workspace} fileBus={fileBus} />
+            ) : diff ? (
+              <DiffBody diff={diff} />
+            ) : (
               <div className="h-32 flex items-center justify-center text-text-muted text-sm">{t("git.noChanges")}</div>
             )}
           </div>
         </div>
       )}
 
-      {!previewOnly && !diffOnly && !doc.loading && !htmlPreview && <EditorKeyBar viewRef={viewRef} />}
+      {!previewOnly && !diffOnly && !doc.loading && !showRendered && <EditorKeyBar viewRef={viewRef} />}
 
       <UnsavedDialog
         isOpen={guard.asking}

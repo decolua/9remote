@@ -92,6 +92,8 @@ export const HTML_EXTENSIONS = [".html", ".htm", ".xhtml"];
 
 export const MERMAID_EXTENSIONS = [".mmd", ".mermaid"];
 
+export const MARKDOWN_EXTENSIONS = [".md", ".markdown", ".mdx"];
+
 export function hasExt(filePath, exts) {
   if (!filePath) return false;
   const lower = filePath.toLowerCase();
@@ -105,6 +107,15 @@ export const isDocxFile = (p) => hasExt(p, DOCX_EXTENSIONS);
 export const isSheetFile = (p) => hasExt(p, SHEET_EXTENSIONS);
 export const isHtmlFile = (p) => hasExt(p, HTML_EXTENSIONS);
 export const isMermaidFile = (p) => hasExt(p, MERMAID_EXTENSIONS);
+export const isMarkdownFile = (p) => hasExt(p, MARKDOWN_EXTENSIONS);
+
+export function getTextPreviewKind(filePath) {
+  if (!filePath) return null;
+  if (isHtmlFile(filePath)) return "html";
+  if (isMarkdownFile(filePath)) return "markdown";
+  if (isMermaidFile(filePath)) return "mermaid";
+  return null;
+}
 
 // Marks the nav reports the agent's preview route injects into every HTML page it
 // serves. The frame is sandboxed onto an opaque origin, so postMessage is the only

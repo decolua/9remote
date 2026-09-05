@@ -9,7 +9,7 @@ import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { EDITOR_PANEL_WIDTH } from "../constants/terminalConfig";
 import { resolveFileIcon } from "@/features/fileExplorer/constants/fileIcons";
-import { isDiffPath, parseRepoDiffPath, makeDiffPath, GIT_STATUS_COLORS, isHtmlFile, isMermaidFile, FILE_WATCH } from "@/features/fileExplorer/constants/fileExplorer";
+import { isDiffPath, parseRepoDiffPath, makeDiffPath, GIT_STATUS_COLORS, getTextPreviewKind, FILE_WATCH } from "@/features/fileExplorer/constants/fileExplorer";
 import { isPreviewable } from "@/features/fileExplorer/components/FilePreview";
 import { useFileDocument } from "@/features/fileExplorer/hooks/useFileDocument";
 import { useUnsavedGuard } from "@/features/fileExplorer/hooks/useUnsavedGuard";
@@ -18,8 +18,7 @@ import UnsavedDialog from "@/features/fileExplorer/components/UnsavedDialog";
 
 const CodeEditor = dynamic(() => import("@/features/fileExplorer/components/CodeEditor"), { ssr: false });
 const FilePreview = dynamic(() => import("@/features/fileExplorer/components/FilePreview"), { ssr: false });
-const HtmlViewer = dynamic(() => import("@/features/fileExplorer/components/HtmlViewer"), { ssr: false });
-const MermaidViewer = dynamic(() => import("@/features/fileExplorer/components/MermaidViewer"), { ssr: false });
+const TextPreview = dynamic(() => import("@/features/fileExplorer/components/TextPreview"), { ssr: false });
 const DiffView = dynamic(() => import("@/features/fileExplorer/components/DiffView"), { ssr: false });
 
 // A file opened from the tree, edited without leaving the terminal. Narrow on purpose —
@@ -47,12 +46,8 @@ export default function TerminalEditorPanel({
   useEffect(() => { docRef.current = doc; }, [doc]);
   const guard = useUnsavedGuard({ dirty: editable && doc.dirty, onSave: doc.save });
 
-  // Some text files have a rendered form as well as their source; the eye button flips
-  // between the two. One entry per kind — adding a renderer is adding a line here.
-  const previewKind = !editable ? null
-    : isHtmlFile(filePath) ? "html"
-    : isMermaidFile(filePath) ? "mermaid"
-    : null;
+  // Text files with rendered forms (html, markdown, mermaid) can flip between source and preview.
+  const previewKind = !editable ? null : getTextPreviewKind(filePath);
   // A non-zero previewSeq is the opener saying "show this rendered" — the tree's Preview
   // action, and every artifact the AI opens. Read at mount too, not only on a later
   // change: the panel is mounted BY that first open, so a seq compared against its own
@@ -205,10 +200,8 @@ export default function TerminalEditorPanel({
           <DiffView diffPath={makeDiffPath(diff.status, diff.filePath)} workspace={diffRepo} fileBus={fileBus} compact />
         ) : isPreviewable(filePath) ? (
           <FilePreview filePath={filePath} fileBus={fileBus} />
-        ) : showRendered && previewKind === "html" ? (
-          <HtmlViewer filePath={filePath} fileBus={fileBus} reloadKey={saveSeq} />
-        ) : showRendered && previewKind === "mermaid" ? (
-          <MermaidViewer content={doc.content} reloadKey={saveSeq} />
+        ) : showRendered && previewKind ? (
+          <TextPreview kind={previewKind} filePath={filePath} fileBus={fileBus} content={doc.content} reloadKey={saveSeq} />
         ) : doc.loading ? (
           <div className="h-full flex items-center justify-center text-text-muted text-xs">{t("common.loading")}</div>
         ) : (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, isImageFile } from "../constants/fileExplorer.js";
 import { resolveFileIcon } from "../constants/fileIcons.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import GitActionsModal from "./GitActionsModal.js";
@@ -10,6 +10,7 @@ import FileContextMenu, { FILE_MENU_ICONS } from "@/shared/components/ui/FileCon
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import DiffBody from "./DiffBody.js";
+import ImageDiffView from "./ImageDiffView.js";
 import { addToGitignore } from "../lib/gitignore.js";
 
 export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
@@ -54,10 +55,16 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
 
   // Load diff
   const loadDiff = useCallback(async (file = null, status = null) => {
-    setDiffLoading(true);
-    setError("");
     setSelectedFile(file);
     setSelectedFileStatus(status);
+    if (file && isImageFile(file)) {
+      setDiff("image");
+      setDiffLoaded(true);
+      setDiffLoading(false);
+      return;
+    }
+    setDiffLoading(true);
+    setError("");
 
     const result = await fileBus.gitDiff(workspace, file, status);
 
@@ -417,6 +424,13 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
               <div className="flex items-center justify-center h-32 text-text-muted">
                 {t("common.loading")}
               </div>
+            ) : selectedFile && isImageFile(selectedFile) ? (
+              <ImageDiffView
+                filePath={selectedFile}
+                status={selectedFileStatus}
+                workspace={workspace}
+                fileBus={fileBus}
+              />
             ) : diff ? (
               <DiffBody diff={diff} />
             ) : (

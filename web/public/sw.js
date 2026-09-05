@@ -40,8 +40,8 @@ self.addEventListener("push", (event) => {
         const title = data.title || "9Remote";
         const options = {
           body: data.body || "Notification",
-          icon: "/icon-192.svg",
-          badge: "/icon-192.svg",
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
           data: data.data || { url: "/workspace" },
           vibrate: [200, 100, 200],
           tag: "9remote-notification",
