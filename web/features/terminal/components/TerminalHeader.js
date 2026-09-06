@@ -22,6 +22,7 @@ import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { useGithubStars } from "@/shared/hooks/useGithubStars";
 import { GITHUB_REPO_URL } from "@/shared/constants/github";
+import { trackRender, trackScrollTrigger } from "@/shared/utils/renderDiag";
 
 function TerminalHeader({
   sessions = [],
@@ -72,6 +73,8 @@ function TerminalHeader({
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
   const sessionStatus = propStatus || storeSessionStatus;
+
+  trackRender("TerminalHeader", { activeSessionId, sessionCount: sessions.length, connected, sidebarCollapsed });
   const { formattedStars } = useGithubStars();
   // Chords only fire on desktop, so only a pointer device gets the hint.
   const hasKeyboard = useInputMode() === "mouse";
@@ -230,6 +233,7 @@ function TerminalHeader({
       const delta = tab.getBoundingClientRect().left - scroller.getBoundingClientRect().left;
       const centered = scroller.scrollLeft + delta - (scroller.clientWidth - tab.offsetWidth) / 2;
       const max = scroller.scrollWidth - scroller.clientWidth;
+      trackScrollTrigger("TerminalHeader.scrollTabIntoView", { activeSessionId, delta, centered });
       scroller.scrollTo({ left: Math.max(0, Math.min(centered, max)), behavior: "smooth" });
     });
     return () => cancelAnimationFrame(id);

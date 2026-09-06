@@ -1,6 +1,7 @@
 import { termLog } from "@/shared/utils/termLog";
 import { writeChunked, toChunk, chunkByteLength, dedupePrefix, viewportRestoreDelta, decodeMirror } from "@/features/terminal/lib/historyMirror";
 import { classifyLiveChunk, syncAfterReplay, GAP_DETECTED, GAP_STALE } from "@/features/terminal/lib/seqGap";
+import { trackStreamChunk } from "@/shared/utils/renderDiag";
 
 // Output routing for a terminal pane: b64 decode, then in order — history prefix replay,
 // join replay, gap chunk, join-queue, gap-queue, seq classification, live write.
@@ -68,6 +69,7 @@ export function createOutputRouter({ sessionId, term, writeBatcherRef, gapFetch,
     refs.lastOutputAtRef.current = Date.now();
     const dlen = payload.data?.length || 0;
     refs.outputTotalRef.current += dlen;
+    trackStreamChunk(sessionId, dlen);
     // Live output spams the buffer (agent streams many chunks/sec) — only log anomalies
     if (payload.replay || payload.isHistoryPrefix) {
       termLog("recv", `len=${dlen} replay=${!!payload.replay} prefix=${!!payload.isHistoryPrefix} total=${refs.outputTotalRef.current}`);

@@ -54,6 +54,7 @@ import SlideMenu from "@/shared/components/ui/SlideMenu";
 import { useI18n } from "@/shared/i18n";
 import { useRouteSync } from "@/shared/hooks/useRouteSync";
 import { useLastRoute } from "@/shared/hooks/useLastRoute";
+import { trackRender } from "@/shared/utils/renderDiag";
 
 // Workspace shell - holds the bus/state/views; child routes are URL markers only
 export default function WorkspaceLayout({ children }) {
@@ -205,7 +206,7 @@ export default function WorkspaceLayout({ children }) {
   // mirror panel closed.
   useMobileDeviceWatch({ busRef: busRef, connected, enabled: mobileAvailable });
   useClipboardBus(busRef, connected);
-  const { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification } = useNotification(busRef, connected);
+  const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(busRef, connected);
 
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen);
@@ -240,13 +241,23 @@ export default function WorkspaceLayout({ children }) {
     ? currentView.sessionId
     : (isTerminalView ? openedSessions[openedSessions.length - 1] || null : null);
 
+  trackRender("WorkspaceLayout", {
+    currentViewType: currentView?.type,
+    activeSessionId,
+    openedSessionsCount: openedSessions.length,
+    activeWorkspaceId,
+    connected,
+    sessionCount: sessions.length
+  });
+
   const paneRegistry = usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, currentView, openedSessions });
 
   const nav = useSessionNavigation({
     sessions, currentView, viewStack, setViewStack, pushView, storePopView,
     activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
     addOpenedSession, removeOpenedSession, touchLivePane,
-    createSession, deleteSession, renameSession, clearNotification, busRef
+    createSession, deleteSession, renameSession, clearNotification, busRef,
+    requestFocus: paneRegistry.requestFocus
   });
 
   const {
@@ -260,7 +271,7 @@ export default function WorkspaceLayout({ children }) {
   const [folderPicker, setFolderPicker] = useState(null); // { initialPath } | null
   const openSlideMenu = useSlideMenuStore((st) => st.open);
   // Re-read after each workspace change; localStorage is client-only so it stays lazy.
-  const recentWorkspaces = hydrated ? getRecentWorkspaces() : [];
+  const recentWorkspaces = useMemo(() => (hydrated ? getRecentWorkspaces() : []), [hydrated, workspaces]);
 
   const createWorkspaceAt = useCallback((folderPath) => {
     setFolderPicker(null);
@@ -305,14 +316,8 @@ export default function WorkspaceLayout({ children }) {
     const agent = (agentId && agentClis?.find((a) => a.id === agentId)) || null;
     const index = sessions.filter((s) => sessionWorkspaceId(s) === (activeWorkspaceId ?? null)).length + 1;
     const name = agent ? `${agent.short || agent.label} ${index}` : null;
-    // At the bottom of the desktop stack the view is "list", where handleCreateSession
-    // does not auto-focus — without this the pane would open behind the empty state.
-    if (currentView.type !== "terminal") {
-      nav.handleQuickCreateSession(agent ? null : shellId, agent, yolo, name, true);
-      return;
-    }
     nav.handleCreateSession(name, activeWorkspaceId, agent ? null : shellId, null, agent, yolo, true);
-  }, [agentClis, sessions, activeWorkspaceId, currentView, nav]);
+  }, [agentClis, sessions, activeWorkspaceId, nav]);
 
   // Gated on the terminal view too: remote desktop forwards every keystroke to the host
   // machine, and the full-screen file explorer runs its own chord set — neither may be
@@ -656,6 +661,7 @@ export default function WorkspaceLayout({ children }) {
             rightPanel={rightPanelProps}
             editorPanel={editorPanelProps}
             mobilePanel={mobilePanelProps}
+            fileBus={fileBus}
             codespaceInfo={codespaceInfo}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}

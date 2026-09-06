@@ -67,30 +67,30 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
         if (myGen !== refs.joinGenRef.current) { termLog("join", `stale ack gen=${myGen} (current=${refs.joinGenRef.current})`); return; }
         const res = result || {};
         termLog("join", `ack gen=${myGen} success=${!!res.success} total=${res.total} replaySize=${res.replaySize}`);
-        // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
-        setTimeout(() => {
-          if (myGen !== refs.joinGenRef.current || term._core?._isDisposed) return;
-          refs.joiningRef.current = false;
-          refs.joinClaimedRef.current = false; // the join is done — the recovery lane is free
-          refs.setJoining(false);
-          const queue = refs.joinQueueRef.current;
-          refs.joinQueueRef.current = [];
-          const b = writeBatcherRef.current;
-          let queueTailSeq = null;
-          for (const q of queue) {
-            const d = (q && typeof q === "object" && "data" in q) ? q.data : q; // {data,seq} | raw
-            if (q?.seq != null) queueTailSeq = q.seq;
-            writeChunked(term, d, refs.historyMirrorRef, refs.historyBytesRef, b);
-          }
-          // Resync lastSeq: ack carries the snapshot seq; queued live may extend past it.
-          // Take the larger so the next live chunk classifies as contiguous.
-          const ackSeq = res.seq ?? null;
-          if (ackSeq != null || queueTailSeq != null) {
-            refs.lastSeqRef.current = Math.max(ackSeq ?? -1, queueTailSeq ?? -1);
-          }
-          b?.flush();
-        }, 0);
         if (res.success) {
+          // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
+          setTimeout(() => {
+            if (myGen !== refs.joinGenRef.current || term._core?._isDisposed) return;
+            refs.joiningRef.current = false;
+            refs.joinClaimedRef.current = false; // the join is done — the recovery lane is free
+            refs.setJoining(false);
+            const queue = refs.joinQueueRef.current;
+            refs.joinQueueRef.current = [];
+            const b = writeBatcherRef.current;
+            let queueTailSeq = null;
+            for (const q of queue) {
+              const d = (q && typeof q === "object" && "data" in q) ? q.data : q; // {data,seq} | raw
+              if (q?.seq != null) queueTailSeq = q.seq;
+              writeChunked(term, d, refs.historyMirrorRef, refs.historyBytesRef, b);
+            }
+            // Resync lastSeq: ack carries the snapshot seq; queued live may extend past it.
+            // Take the larger so the next live chunk classifies as contiguous.
+            const ackSeq = res.seq ?? null;
+            if (ackSeq != null || queueTailSeq != null) {
+              refs.lastSeqRef.current = Math.max(ackSeq ?? -1, queueTailSeq ?? -1);
+            }
+            b?.flush();
+          }, 0);
           // total = bytes agent holds; ceiling for scroll-up fetch.
           refs.historyTotalRef.current = res.total || 0;
           if (res.cwd) { refs.cwdRef.current = res.cwd; setCwd(res.cwd); useTerminalStore.getState().setCwd(sessionId, res.cwd); }
@@ -103,13 +103,17 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
             setTimeout(() => bus.emit("input", { sessionId, data: `${startupCmd}\r` }), STARTUP_CMD_DELAY_MS);
           }
           setTimeout(() => fitAddon.fit(), 200);
-        } else if (res.error) {
+        } else {
           if (res.error === "rtc-closed") {
             termLog("join", "rtc-closed during join ack → retry via fallback carrier");
             doJoinSession(true);
             return;
           }
-          term.write(`\r\n\x1b[1;31mError: ${res.error}\x1b[0m\r\n`);
+          refs.joiningRef.current = false;
+          refs.joinClaimedRef.current = false;
+          refs.setJoining(false);
+          refs.joinQueueRef.current = [];
+          term.write(`\r\n\x1b[1;31mError: ${res.error || "Failed to join session"}\x1b[0m\r\n`);
         }
       });
     };

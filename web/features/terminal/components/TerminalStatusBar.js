@@ -20,6 +20,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
+import { trackRender } from "@/shared/utils/renderDiag";
 
 const PLATFORM_LABEL = { darwin: "mac", win32: "win", linux: "linux" };
 
@@ -78,6 +79,7 @@ function useRotatingPage(pageCount, { pinnedIndex = -1, paused = false } = {}) {
 // alternates between the cwd's leaf folder and the running CLI's 5h quota.
 export function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
   const cwd = useTerminalStore((s) => s.cwdBySession[sessionId]) || "";
+  trackRender(`MobileStatusStrip[${sessionId?.slice(0, 8)}]`, { cwd });
   const { branch, changedCount } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
   const quota = useSessionQuota(sessionId, busRef);
   const [paused, setPaused] = useState(false);
@@ -176,6 +178,8 @@ export default function TerminalStatusBar({
   const busRef = propBusRef || storeBusRef;
   const sessionState = propState || storeState || "idle";
   const quota = useQuota(busRef);
+
+  trackRender("TerminalStatusBar", { sessionId, cwd, connected, sessionState });
 
   // Branch + changed come from the shared ref-counted poll — one round-trip per unique
   // path, shared with the mobile strip, instead of two parallel pollers here.

@@ -12,7 +12,8 @@ export function useSessionNavigation({
   sessions, currentView, viewStack, setViewStack, pushView, storePopView,
   activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
   addOpenedSession, removeOpenedSession, touchLivePane,
-  createSession, deleteSession, renameSession, clearNotification, busRef
+  createSession, deleteSession, renameSession, clearNotification, busRef,
+  isDesktop = false, requestFocus = null
 }) {
   const { t } = useI18n();
 
@@ -93,16 +94,25 @@ export function useSessionNavigation({
   // first join. `yolo` adds the agent's own skip-permission flag/env to that command.
   const handleCreateSession = useCallback((name, workspaceId = null, shellId = null, cwd = null, agent = null, yolo = false, nameIsAuto = false) => {
     createSession(name, shellId, workspaceId, cwd || null, (result) => {
-      if (!result.success) return alertCreateFailed(result.error);
+      if (!result?.success) return alertCreateFailed(result?.error);
       if (!result.sessionId) return;
       const startupCmd = agentLaunchCommand(agent, yolo);
       if (startupCmd) useTerminalStore.getState().queueStartup(result.sessionId, startupCmd);
       if (agent?.id) useTerminalStore.getState().setSessionAgent(result.sessionId, agent.id);
+      const targetWs = workspaceId ?? null;
+      setActiveWorkspaceId(targetWs);
+      const wsIds = workspaceSessionIds(targetWs);
+      wsIds.forEach((id) => addOpenedSession(id));
       addOpenedSession(result.sessionId);
-      // Auto-select the new terminal when created from within terminal view
-      if (currentView.type === "terminal") replaceTopWithSession(result.sessionId);
+      touchLivePane([...wsIds, result.sessionId]);
+      if (currentView.type === "terminal") {
+        replaceTopWithSession(result.sessionId);
+      } else {
+        pushView({ type: "terminal", sessionId: result.sessionId });
+      }
+      requestFocus?.(result.sessionId);
     }, nameIsAuto);
-  }, [createSession, addOpenedSession, alertCreateFailed, currentView, replaceTopWithSession]);
+  }, [createSession, workspaceSessionIds, addOpenedSession, touchLivePane, alertCreateFailed, currentView, replaceTopWithSession, pushView, setActiveWorkspaceId, requestFocus]);
 
   // Re-enter one past agent-CLI conversation: a fresh terminal parked in the
   // directory that conversation ran in, with the CLI's own resume line queued.
@@ -115,7 +125,7 @@ export function useSessionNavigation({
     // Created unnamed on purpose: the agent names an auto-named terminal after
     // the conversation it runs, so the tab keeps following that chat's title.
     createSession(null, null, activeWorkspaceId, row.cwd || null, (result) => {
-      if (!result.success) return alertCreateFailed(result.error);
+      if (!result?.success) return alertCreateFailed(result?.error);
       if (!result.sessionId) return;
       useTerminalStore.getState().queueStartup(result.sessionId, resumeLine);
       if (row.agent) useTerminalStore.getState().setSessionAgent(result.sessionId, row.agent);
@@ -125,23 +135,35 @@ export function useSessionNavigation({
         sessionId: result.sessionId, agent: row.agent, conversationId: row.sessionId
       }, () => useTerminalStore.getState().invalidateAgentHistory());
       addOpenedSession(result.sessionId);
-      replaceTopWithSession(result.sessionId);
+      touchLivePane(result.sessionId);
+      if (currentView.type === "terminal") {
+        replaceTopWithSession(result.sessionId);
+      } else {
+        pushView({ type: "terminal", sessionId: result.sessionId });
+      }
+      requestFocus?.(result.sessionId);
     });
-  }, [createSession, activeWorkspaceId, addOpenedSession, alertCreateFailed, replaceTopWithSession, busRef]);
+  }, [createSession, activeWorkspaceId, addOpenedSession, touchLivePane, alertCreateFailed, replaceTopWithSession, pushView, currentView, requestFocus, busRef]);
 
   // Quick create in the active workspace (header "+" button, Mod+Shift+Enter chord).
   // Always focuses the new pane, unlike handleCreateSession which only does so from
   // terminal view. `agent`/`yolo`/`name` let the chord replay the modal's last choice.
   const handleQuickCreateSession = useCallback((shellId, agent = null, yolo = false, name = null, nameIsAuto = false) => {
     createSession(name, shellId, activeWorkspaceId, null, (result) => {
-      if (!result.success) return alertCreateFailed(result.error);
+      if (!result?.success) return alertCreateFailed(result?.error);
       if (!result.sessionId) return;
       const startupCmd = agentLaunchCommand(agent, yolo);
       if (startupCmd) useTerminalStore.getState().queueStartup(result.sessionId, startupCmd);
       addOpenedSession(result.sessionId);
-      replaceTopWithSession(result.sessionId);
+      touchLivePane(result.sessionId);
+      if (currentView.type === "terminal") {
+        replaceTopWithSession(result.sessionId);
+      } else {
+        pushView({ type: "terminal", sessionId: result.sessionId });
+      }
+      requestFocus?.(result.sessionId);
     }, nameIsAuto);
-  }, [createSession, activeWorkspaceId, addOpenedSession, alertCreateFailed, replaceTopWithSession]);
+  }, [createSession, activeWorkspaceId, addOpenedSession, touchLivePane, alertCreateFailed, replaceTopWithSession, pushView, currentView, requestFocus]);
 
   // Create from the FileExplorer bottom panel — stay in the current view
   const handleCreateSessionInline = useCallback((onCreated) => {

@@ -10,6 +10,8 @@ import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { startWidthDrag } from "@/shared/utils/dragResize";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
+import { useFileBusStore } from "@/shared/stores/fileBusStore";
+import { trackRender, trackScrollTrigger } from "@/shared/utils/renderDiag";
 
 const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
 const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
@@ -43,7 +45,7 @@ function TerminalWorkspace({
   onBack, onOpenRemote, onOpenMobile, onOpenFiles, onLogout, onStopCodespace, onUpdate, onRestart,
   onDeleteWorkspace, onReorderSession, onSetHiddenRepos, atStackBottom = false,
   onAddWorkspace, onOpenSettings, homeDir, recentWorkspaces,
-  rightPanel, editorPanel, mobilePanel, onOpenArtifact,
+  rightPanel, editorPanel, mobilePanel, onOpenArtifact, fileBus,
   codespaceInfo, tunnelUrl, apiKey, connectionMode,
   subscribeToPush, unsubscribeFromPush, updateAvailable, canSelfUpdate
 }) {
@@ -56,12 +58,17 @@ function TerminalWorkspace({
   const activeBusRef = busRef || storeBusRef;
   const isConnected = connected ?? storeConnected;
   const activeCarrier = carrier || storeCarrier;
+  const activeFileBus = fileBus || useFileBusStore.getState();
 
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const activeNotifications = notifications || storeNotifications;
   const activeSessionStatus = sessionStatus || storeSessionStatus;
   const handleClearNotification = clearNotification || useNotificationStore.getState().clearNotification;
+
+  trackRender("TerminalWorkspace", {
+    activeSessionId, activeWorkspaceId, isConnected, isDesktop, isTerminalView, sidebarCollapsed
+  });
 
   const {
     panesContainerRef, registerPaneApi, registerPaneElement, registerKeyboardTextApi,
@@ -215,9 +222,17 @@ function TerminalWorkspace({
   // scrollLeft doesn't follow, so the focused pane can slide out of sight. Re-center it
   // after the panel's 200ms width transition settles. (Session switches are centered by
   // the registry's own effect; this one only tracks layout-affecting panel changes.)
+  const prevPanelStateRef = useRef({ editorFile: editorPanel?.filePath, rightOpen: rightPanel?.open });
   useEffect(() => {
     if (!isDesktop || !activeSessionId) return;
-    const id = setTimeout(() => scrollPaneIntoView(activeSessionId), 260);
+    const prev = prevPanelStateRef.current;
+    const panelChanged = prev.editorFile !== editorPanel?.filePath || prev.rightOpen !== rightPanel?.open;
+    prevPanelStateRef.current = { editorFile: editorPanel?.filePath, rightOpen: rightPanel?.open };
+    if (!panelChanged) return;
+    const id = setTimeout(() => {
+      trackScrollTrigger("TerminalWorkspace.reCenterPaneTimeout", { activeSessionId });
+      scrollPaneIntoView(activeSessionId);
+    }, 260);
     return () => clearTimeout(id);
   }, [editorPanel?.filePath, rightPanel?.open, activeSessionId, isDesktop, scrollPaneIntoView]);
 
@@ -508,7 +523,7 @@ function TerminalWorkspace({
               artifactTitle={editorOpen ? editorPanel.artifactTitle : lastEditor?.artifactTitle}
               previewSeq={editorOpen ? editorPanel.previewSeq : lastEditor?.previewSeq}
               workspace={filesRoot}
-              fileBus={fileBus}
+              fileBus={activeFileBus}
               width={editorPanel.width}
               onResize={editorPanel.onResize}
               onClose={editorPanel.onClose}
@@ -566,6 +581,7 @@ function TerminalWorkspace({
               filesRoot={filesRoot}
               cwdHint={activeCwd}
               activeFile={editorPanel?.filePath}
+              fileBus={activeFileBus}
               tab={rightPanel.tabs?.[baseRoot ?? ""] || "files"}
               onTabChange={handleRightPanelTabChange}
               width={rightPanel.width}

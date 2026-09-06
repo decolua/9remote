@@ -40,6 +40,7 @@ export default function ExplorerPanel({
   activeFile,
   onSwitchWorkspace,
   onNewTerminal,
+  onSearchFolder,
   compact = false,
   onlyChanged = false,
   onActions
@@ -572,6 +573,9 @@ export default function ExplorerPanel({
       if (onNewTerminal) {
         items.push({ label: t("workspaces.openHere"), icon: "Terminal", action: () => onNewTerminal(file.path) });
       }
+      if (onSearchFolder) {
+        items.push({ label: "Search in Folder", icon: "Search", action: () => onSearchFolder(file.path) });
+      }
       items.push({ label: "New File", icon: "Plus", action: () => openNewItemModal("file", file.path) });
       items.push({ label: "New Folder", icon: "FolderOpen", action: () => openNewItemModal("folder", file.path) });
     } else if (!many) {
@@ -696,7 +700,7 @@ export default function ExplorerPanel({
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed z-50 bg-surface-2 border border-border rounded-brand shadow-lg py-1 min-w-[180px]"
+          className="fixed z-50 bg-surface-2 border border-border rounded-brand shadow-lg py-1 min-w-[150px]"
           style={{ left: contextMenuPos.left, top: contextMenuPos.top }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -708,12 +712,12 @@ export default function ExplorerPanel({
                 item.action();
                 setContextMenu(null);
               }}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left hover:bg-surface-3 ${
+              className={`w-full flex items-center gap-1.5 px-2.5 py-1 text-xs text-left hover:bg-surface-3 transition-colors ${
                 item.danger ? "text-red-400" : "text-text"
               }`}
             >
-              <Icon name={item.icon} size={14} />
-              <span>{item.label}</span>
+              <Icon name={item.icon} size={13} className="shrink-0" />
+              <span className="truncate">{item.label}</span>
             </button>
           ))}
         </div>

@@ -18,6 +18,7 @@ import { useTheme } from "@/shared/theme/ThemeProvider";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
 import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, paneBackgroundKey, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
+import { trackRender, trackScrollTrigger } from "@/shared/utils/renderDiag";
 
 // Floating quick-action circles at the pane's top-right: thumb-sized on touch,
 // slimmer on desktop where the hover bg need not carry the whole tap target.
@@ -86,12 +87,32 @@ function TerminalPane({
 
   // The modal is transient local state; the pinned strip is persisted per session so a
   // remounted pane (LRU eviction, reload) comes back with it.
+  const sessionIdRef = useRef(sessionId);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteAppend, setNoteAppend] = useState(null);
+
+  const handleClear = useCallback(() => {
+    if (clearNotification) clearNotification(sessionId);
+    else useNotificationStore.getState().clearNotification(sessionId);
+  }, [clearNotification, sessionId]);
+
+  const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
+    // Effective key — the canvas goes transparent only when the image actually renders,
+    // so a pool key without a resolvable item (deleted/raced) falls back to opaque, not black
+    bus: activeBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: "none",
+    onInput: handleClear,
+    onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
+  });
+
+  trackRender(`TerminalPane[${sessionId?.slice(0, 8)}]`, {
+    isVisible, isFocused, showFocusBorder, sessionState, cwd, showScrollButton, paneCwd
+  });
 
 // Scroll wrapper so the cursor/content stays visible after a viewport shrink (soft KB).
 // Short content pinned to top; long content scrolls the cursor row into the visible rect.
   const scrollCursorIntoView = useCallback(() => {
+    trackScrollTrigger(`TerminalPane.scrollCursorIntoView[${sessionIdRef.current}]`);
     const el = scrollRef.current;
     const term = termRef.current;
     if (!el || !term) return;
@@ -113,7 +134,7 @@ function TerminalPane({
     }
     const target = Math.max(0, Math.min(cursorY - visibleH + cellH * 2, el.scrollHeight - el.clientHeight));
     el.scrollTop = target;
-  }, []);
+  }, [termRef]);
 
   // Mobile only: lock terminal height to max (keyboard-closed) size; parent scrolls when --app-height shrinks
   useEffect(() => {
@@ -169,19 +190,6 @@ function TerminalPane({
 
   const stripButtons = <PaneStripButtons onOpenRemote={onOpenRemote} onOpenMobile={onOpenMobile} />;
 
-  const handleClear = useCallback(() => {
-    if (clearNotification) clearNotification(sessionId);
-    else useNotificationStore.getState().clearNotification(sessionId);
-  }, [clearNotification, sessionId]);
-
-  const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
-    // Effective key — the canvas goes transparent only when the image actually renders,
-    // so a pool key without a resolvable item (deleted/raced) falls back to opaque, not black
-    bus: activeBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: bgActive ? paneBgKey : "none",
-    onInput: handleClear,
-    onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
-  });
-
   // Expose pane API (focus, resize) to parent for MobileKeyboard callbacks
   useEffect(() => {
     if (!onRegisterApi) return;
@@ -226,14 +234,12 @@ function TerminalPane({
 
     checkScrollPosition();
     const disposable = term.onScroll(checkScrollPositionRaf);
-    const dataDisposable = term.onWriteParsed(checkScrollPositionRaf);
     const onWrapScroll = () => checkScrollPositionRaf();
     scrollRef.current?.addEventListener("scroll", onWrapScroll, { passive: true });
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
       disposable.dispose();
-      dataDisposable.dispose();
       scrollRef.current?.removeEventListener("scroll", onWrapScroll);
       setShowScrollButton(false);
     };
@@ -245,6 +251,7 @@ function TerminalPane({
   const badgeLabel = shownCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : shownCount;
 
   const handleScrollToBottom = () => {
+    trackScrollTrigger(`TerminalPane.handleScrollToBottom[${sessionId}]`);
     vibrate();
     stopMomentum();
     const el = scrollRef.current;
@@ -357,7 +364,7 @@ function TerminalPane({
           <ChevronDown size={20} />
         </button>
       )}
-      {cwd && isFocused && (
+      {isFocused && (
         <div className={`absolute right-2 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none ${showPinnedNote ? "top-9" : "top-9 sm:top-2"}`}>
           <div className="flex flex-row gap-2">
             {showNoteButton && (
@@ -388,7 +395,7 @@ function TerminalPane({
               <RefreshCw size={16} className={`${OVERLAY_ICON_SM} ${refreshing ? "animate-spin" : ""}`} />
             </button>
           </div>
-          {showFolderButton && (
+          {showFolderButton && (cwd || workspacePath) && (
             <button
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}

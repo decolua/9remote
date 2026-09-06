@@ -18,7 +18,6 @@ export const USER_DISABLED_KEY = "9remote:push:userDisabled";
 export function useNotification(busRef, connected) {
   const subscriptionRef = useRef(null);
   const notifications = useNotificationStore((s) => s.notifications);
-  const sessionStatus = useNotificationStore((s) => s.sessionStatus);
   const clearNotification = useCallback((sessionId) => {
     useNotificationStore.getState().clearNotification(sessionId);
   }, []);
@@ -230,5 +229,5 @@ export function useNotification(busRef, connected) {
     }
   }, [busRef]);
 
-  return { subscribeToPush, unsubscribeFromPush, notifications, sessionStatus, clearNotification };
+  return { subscribeToPush, unsubscribeFromPush, notifications, clearNotification };
 }

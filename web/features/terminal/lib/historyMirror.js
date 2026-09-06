@@ -1,12 +1,18 @@
 import { trimEndToEsc } from "@/features/terminal/lib/ansiBoundary";
 
-// Byte length of a string in UTF-8 — matches the daemon's Buffer byte count so `have`/`total`
-// stay consistent across multibyte output.
-const _utf8Encoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+// Fast zero-allocation UTF-8 byte length (matches Buffer.byteLength without GC pressure).
 export function utf8ByteLength(str) {
   if (!str) return 0;
-  if (_utf8Encoder) return _utf8Encoder.encode(str).length;
-  return Buffer.byteLength(str, "utf-8"); // node fallback
+  let len = 0;
+  const strLen = str.length;
+  for (let i = 0; i < strLen; i++) {
+    const code = str.charCodeAt(i);
+    if (code <= 0x7f) len += 1;
+    else if (code <= 0x7ff) len += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) { len += 4; i++; }
+    else len += 3;
+  }
+  return len;
 }
 
 // Normalize a payload to Uint8Array or string — the two forms the mirror stores.

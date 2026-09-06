@@ -42,8 +42,8 @@ export function createWriteBatcher(term) {
   const write = (data) => {
     const bytes = data instanceof Uint8Array ? data.length
       : (typeof data === "string" ? data.length : String(data).length);
-    // Small chunks with nothing queued → write immediately (interactive latency matters).
-    if (bytes <= SMALL_BYTES && queuedBytes === 0) {
+    // Small chunks write immediately only when idle; if a frame is already pending, coalesce into it.
+    if (bytes <= SMALL_BYTES && queuedBytes === 0 && rafId === null) {
       term.write(data instanceof Uint8Array || typeof data === "string" ? data : String(data));
       return;
     }

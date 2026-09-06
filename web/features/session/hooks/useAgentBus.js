@@ -385,10 +385,29 @@ export function useAgentBus() {
     else if (typeof cwd === "function") { callback = cwd; cwd = null; }
 
     busRef.current.emit("createSession", { name, shellId, workspaceId, cwd, nameIsAuto }, (result) => {
-      if (result.success) refreshLists();
+      if (result?.success) {
+        if (result.sessionId) {
+          const wsPath = workspaces.find((w) => w.id === workspaceId)?.path || null;
+          setSessions((prev) => [
+            ...prev.filter((s) => s.id !== result.sessionId),
+            {
+              id: result.sessionId,
+              name: result.name || name || "Terminal",
+              createdAt: Date.now(),
+              cwd: result.cwd || cwd || null,
+              workspaceId: workspaceId || null,
+              groupId: workspaceId || null,
+              workspacePath: wsPath,
+              shellId: result.shellId || shellId || null,
+              shellLabel: result.shellLabel || null
+            }
+          ]);
+        }
+        refreshLists();
+      }
       callback?.(result);
     });
-  }, [busRef, refreshLists]);
+  }, [busRef, refreshLists, workspaces]);
 
   // Workspace CRUD + move
   const createWorkspace = useCallback((name, wsPath, callback) => {

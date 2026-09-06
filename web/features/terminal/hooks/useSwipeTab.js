@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useCallback } from "react";
 import { SWIPE_TAB } from "@/features/terminal/constants/terminalConfig";
 
 // Horizontal swipe to switch tabs (mobile). Left = next, right = prev — no wrap.
@@ -7,7 +7,7 @@ import { SWIPE_TAB } from "@/features/terminal/constants/terminalConfig";
 export function useSwipeTab() {
   const startRef = useRef(null);
 
-  const bind = ({ enabled, sessionIds, activeSessionId, onSwitch }) => ({
+  const bind = useCallback(({ enabled, sessionIds, activeSessionId, onSwitch }) => ({
     onTouchStart: (e) => {
       if (!enabled || e.touches.length !== 1) return (startRef.current = null);
       const t = e.touches[0];
@@ -32,7 +32,7 @@ export function useSwipeTab() {
       const next = dx < 0 ? sessionIds[idx + 1] : sessionIds[idx - 1];
       if (next && next !== activeSessionId) onSwitch?.(next);
     }
-  });
+  }), []);
 
   return bind;
 }

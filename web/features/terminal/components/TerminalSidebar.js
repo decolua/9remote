@@ -22,6 +22,7 @@ import { withHint } from "../constants/shortcuts";
 import { useDragReorder } from "../hooks/useDragReorder";
 import BranchBadge from "./BranchBadge";
 import AgentHistoryPanel from "./AgentHistoryPanel";
+import { trackRender } from "@/shared/utils/renderDiag";
 
 // Guess agent tool from session name when no live status tool is set — drives the icon.
 const TOOL_KEYWORDS = ["claude", "codex", "gemini", "opencode", "grok", "cursor", "copilot", "amp", "pi", "kiro", "qoder", "factory", "codebuddy", "rovodev", "hermes", "antigravity"];
@@ -150,6 +151,7 @@ function TerminalSidebar({
   onResumeAgentSession,
 }) {
   const { t } = useI18n();
+  trackRender("TerminalSidebar", { activeSessionId, activeWorkspaceId, sessionCount: allSessions.length, width });
   const hasKeyboard = useInputMode() === "mouse";
   const collapseHint = hasKeyboard ? withHint(t("common.close"), "toggleSidebar") : t("common.close");
   // Which terminals actually exist right now — the history rows are a snapshot
