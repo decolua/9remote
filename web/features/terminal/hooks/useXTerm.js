@@ -339,10 +339,12 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       if (webglAddon || webglFailed || RENDERER.gpuAcceleration === "off") return;
       try {
         webglAddon = new WebglAddon();
+        webglAddonRef.current = webglAddon;
         // Context loss (GPU reclaimed) → dispose, xterm auto falls back to DOM. Buffer text preserved.
         webglAddon.onContextLoss(() => {
           webglAddon?.dispose();
           webglAddon = null;
+          webglAddonRef.current = null;
         });
         term.loadAddon(webglAddon);
         // Image addon only with WebGL active (VS Code parity, avoids GPU issues)
@@ -359,6 +361,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       if (!webglAddonRef.current) return;
       webglAddonRef.current.dispose();
       webglAddonRef.current = null;
+      webglAddon = null;
       fitAddon.fit();
       emitResize();
       term.refresh(0, term.rows - 1);

@@ -64,6 +64,7 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
   const pinned = useTerminalHistoryStore((s) => s.pinned);
   const textInputRef = useRef(null);
   const pasteInputRef = useRef(null);
+  const isSendingRef = useRef(false);
   // Physical ArrowUp/Down navigate command history; -1 = editing live draft.
   const historyIndexRef = useRef(-1);
   const draftRef = useRef("");
@@ -303,15 +304,25 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
 
   // Read a File → base64 attachment entry, skipping oversized ones.
   const sendTextBatch = async () => {
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
     vibrate(15);
     if (voice.listening) voice.stop();
-    if (!bus || !sessionId) return;
+    if (!bus || !sessionId) {
+      isSendingRef.current = false;
+      return;
+    }
     // Only pull the keyboard back up if the input was already focused when sending.
     const wasFocused = document.activeElement === textInputRef.current;
     // Blur to force-commit pending IME composition before reading value,
     // otherwise the last composed char may be missing → inconsistent sends.
     if (wasFocused) textInputRef.current?.blur();
     const raw = textInputRef.current?.value ?? textInput;
+    // Clear DOM and state immediately to prevent duplicate sends from rapid keydowns/blurs
+    if (textInputRef.current) textInputRef.current.value = "";
+    setTextInput("");
+    historyIndexRef.current = -1;
+
     // Expand a bare snippet alias (e.g. "nrd" -> "npm run dev") before sending.
     const text = resolveAlias(raw);
     onInput?.(sessionId);
@@ -332,10 +343,9 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
       bus.emit("input", { sessionId, data: text });
       setTimeout(() => bus.emit("input", { sessionId, data: "\r" }), INPUT_ENTER_DELAY);
       addCommand(text);
-      setTextInput("");
-      historyIndexRef.current = -1;
     }
     if (wasFocused) textInputRef.current?.focus();
+    setTimeout(() => { isSendingRef.current = false; }, 150);
   };
 
   const buttonBaseClass = BUTTON_STYLES.base;
@@ -546,6 +556,8 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
                   return;
                 }
                 if (hasPhysicalKeyboard && e.key === "Enter" && !e.shiftKey) {
+                  // Do not submit while composing (macOS/Safari IME committing candidate via Enter)
+                  if (e.nativeEvent?.isComposing || e.isComposing || e.keyCode === 229) return;
                   // Accept a keyboard-highlighted suggestion instead of sending.
                   if (pathItems.length > 0 && pathActiveClamped >= 0) {
                     e.preventDefault();
