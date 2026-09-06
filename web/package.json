@@ -6,6 +6,7 @@
     "predev": "pkill -f 'workerd.*9remote' 2>/dev/null; true",
     "dev": "next dev -H ::",
     "build": "NODE_ENV=production next build --webpack",
+    "build:static": "node ../scripts/buildWebStatic.mjs",
     "build:cf": "npm run build && NODE_ENV=production opennextjs-cloudflare build && node scripts/injectSignalingDO.mjs && node scripts/injectSitesHost.mjs && node scripts/injectScheduled.mjs",
     "deploy": "npm run build:cf && opennextjs-cloudflare deploy",
     "deploy:dev": "NEXT_PUBLIC_WORKER_URL=https://dev.9remote.cc npm run build:cf && opennextjs-cloudflare deploy --env dev",

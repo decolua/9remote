@@ -62,6 +62,36 @@ export function useAuth() {
     setError("");
 
     try {
+      const isDirectAgent = typeof window !== "undefined" &&
+        window.location.hostname !== "9remote.cc" &&
+        !window.location.hostname.endsWith(".9remote.cc");
+
+      if (isDirectAgent) {
+        const tail = credentials.tail || tailOf(credentials.apiKey || "");
+        const tempKey = credentials.tempKey || (credentials.token?.length <= 8 ? credentials.token : null);
+        try {
+          const directCheck = await verifyKeyWithAgent(window.location.origin, { tail, tempKey });
+          if (directCheck === true) {
+            const rawKey = credentials.apiKey || tempKey || "";
+            const apiKey = headOf(rawKey) || "direct";
+            if (tail) setTrust(apiKey, { tail });
+            setAuth({
+              apiKey,
+              tunnelUrl: window.location.origin,
+              mode: "local",
+              tempKey: tempKey ? tempKey.toUpperCase() : null,
+              localIp: null
+            });
+            return { success: true, shouldAskToSave: true, apiKey };
+          } else if (directCheck === false) {
+            setError(WRONG_KEY_MESSAGE);
+            return { success: false, wrongTail: true };
+          }
+        } catch {
+          // Fall through to remote connect if direct agent check failed
+        }
+      }
+
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), CONNECT_TIMEOUT_MS);
       let response;

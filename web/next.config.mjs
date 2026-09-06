@@ -8,10 +8,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = path.resolve(__dirname, "..");
 const rootPkg = JSON.parse(readFileSync("../package.json", "utf-8"));
 
-initOpenNextCloudflareForDev();
+const isStaticExport = process.env.STATIC_EXPORT === "1";
+if (!isStaticExport) {
+  initOpenNextCloudflareForDev();
+}
 
 const nextConfig = {
   reactStrictMode: false,
+  output: isStaticExport ? "export" : undefined,
   // Monorepo root — outputFileTracingRoot is needed for both Webpack and Turbopack
   // standalone builds (used by opennextjs-cloudflare) to resolve hoisted deps
   // (zustand/middleware, highlight.js/*, styled-jsx/style).
@@ -33,7 +37,8 @@ const nextConfig = {
     NEXT_PUBLIC_WORKER_URL: process.env.NEXT_PUBLIC_WORKER_URL || "https://9remote.cc",
     NEXT_PUBLIC_SERVER_VERSION: rootPkg.version,
   },
-  async headers() {
+  ...(isStaticExport ? {} : {
+    async headers() {
     // Report-Only for now: this reports what it WOULD block and blocks nothing,
     // so a policy that is subtly wrong shows up in the console instead of in a
     // blank page. Switch the header name to Content-Security-Policy once the
@@ -122,7 +127,8 @@ const nextConfig = {
         ]
       }
     ];
-  },
+  }
+}),
 };
 
 export default nextConfig;

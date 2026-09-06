@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAgentBus } from "@/features/session/hooks/useAgentBus";
@@ -34,6 +34,9 @@ import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import TerminalWorkspace from "@/features/terminal/components/TerminalWorkspace";
 import ReconnectScreen from "@/features/session/components/ReconnectScreen";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
+import { headOf, tailOf } from "@/shared/utils/apiKey";
+import { setTrust } from "@/shared/transport/lib/deviceTrust";
+import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 
 const SessionList = dynamic(() => import("@/features/session/components/SessionList"), { ssr: false });
 const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
@@ -54,7 +57,12 @@ import SlideMenu from "@/shared/components/ui/SlideMenu";
 import { useI18n } from "@/shared/i18n";
 import { useRouteSync } from "@/shared/hooks/useRouteSync";
 import { useLastRoute } from "@/shared/hooks/useLastRoute";
-import { trackRender } from "@/shared/utils/renderDiag";
+
+function RouteSyncTracker({ hydrated, apiKey }) {
+  useRouteSync(hydrated);
+  useLastRoute(apiKey);
+  return null;
+}
 
 // Workspace shell - holds the bus/state/views; child routes are URL markers only
 export default function WorkspaceLayout({ children }) {
@@ -155,12 +163,29 @@ export default function WorkspaceLayout({ children }) {
     removeArtifact: s.removeArtifact,
   })));
 
+  const router = useRouter();
+  const { getAuth, setAuth } = useSessionStorage();
+  const [auth, setAuthState] = useState(() => getAuth());
+
   useEffect(() => {
     setHydrated(true);
-  }, []);
-
-  const router = useRouter();
-  const { getAuth } = useSessionStorage();
+    if (!auth?.apiKey && isLoopbackOrigin()) {
+      fetch("/api/ui/state")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data?.permanentKey) {
+            const fullKey = data.permanentKey;
+            const head = headOf(fullKey);
+            const tail = tailOf(fullKey);
+            setTrust(head, { tail });
+            const a = { apiKey: head, tunnelUrl: window.location.origin, mode: "local", tempKey: null, localIp: null };
+            setAuth(a);
+            setAuthState(a);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [auth, setAuth]);
   const { bus, busRef, protocolRef, connected, connectionMode, carrier, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   const [shells, setShells] = useState([]);
 
@@ -240,15 +265,6 @@ export default function WorkspaceLayout({ children }) {
   const activeSessionId = currentView?.type === "terminal"
     ? currentView.sessionId
     : (isTerminalView ? openedSessions[openedSessions.length - 1] || null : null);
-
-  trackRender("WorkspaceLayout", {
-    currentViewType: currentView?.type,
-    activeSessionId,
-    openedSessionsCount: openedSessions.length,
-    activeWorkspaceId,
-    connected,
-    sessionCount: sessions.length
-  });
 
   const paneRegistry = usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, currentView, openedSessions });
 
@@ -416,9 +432,6 @@ export default function WorkspaceLayout({ children }) {
     setSlideClass(ids.indexOf(active) > ids.indexOf(prev) ? "term-slide-right" : "term-slide-left");
   }, [currentView, swipeAnimEnabled, openedSessions]);
 
-  // Sync URL <-> viewStack (deep-link, F5, back/forward)
-  useRouteSync(hydrated);
-
   // Pop view via browser history — history is the single source of truth, the store syncs
   // from the URL via useRouteSync. Fall back to storePopView for deep-links with no prior entry.
   const popView = useCallback(() => {
@@ -482,6 +495,7 @@ export default function WorkspaceLayout({ children }) {
   const handleDisconnect = useCallback(() => {
     resetStore();
     sessionStorage.clear();
+    sessionStorage.setItem("9remote_manual_disconnect", "1");
     window.location.replace("/login");
   }, [resetStore]);
 
@@ -545,9 +559,6 @@ export default function WorkspaceLayout({ children }) {
     onResizeStart: handleMobileResizeStart
   }), [mobileOpen, mobileMode, mobilePanelWidth, protocolRef, handleMobileResizeStart]);
 
-  const auth = getAuth();
-  // Persist the current URL per-agent so switching agents restores the last view
-  useLastRoute(auth?.apiKey);
   const isInitializing = !hydrated || (!bus && !auth?.tunnelUrl);
 
   if (isInitializing) {
@@ -560,6 +571,9 @@ export default function WorkspaceLayout({ children }) {
   return (
     <>
       <AnimatedBackground />
+      <Suspense fallback={null}>
+        <RouteSyncTracker hydrated={hydrated} apiKey={auth?.apiKey} />
+      </Suspense>
       <div className="terminal-container h-[var(--app-height,100vh)] fixed inset-0 overflow-hidden overscroll-none">
         {/* Session list — mobile only. On desktop the sidebar already lists workspaces
             and terminals with more operations, so this would be a weaker copy of it, and
@@ -825,6 +839,7 @@ export default function WorkspaceLayout({ children }) {
         {/* Not admitted yet = the agent has not accepted this device: the
             carrier can be open while the key TAIL is still being proven, and
             the workspace must not show through that window. */}
+        {(!connected || !admitted) && console.log(`[diag] reconnect overlay: connected=${connected} admitted=${admitted} hydrated=${hydrated} bus=${!!bus}`)} {/* TEMP DIAGNOSTIC — tab-switch overlay */}
         {(!connected || !admitted) && <ReconnectScreen />}
         {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
@@ -856,7 +871,7 @@ export default function WorkspaceLayout({ children }) {
         />
       </div>
       {/* Child routes are URL markers only (render nothing) */}
-      <div hidden>{children}</div>
+      <div hidden><Suspense fallback={null}>{children}</Suspense></div>
       {/* <DevTermLog /> */}
     </>
   );

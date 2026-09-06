@@ -37,13 +37,20 @@ export class LocalFirstAdapter {
     });
 
     const connectTunnel = () => {
-      const socket = io(mkUrl(this._tunnelUrl), mkOpts("tunnel"));
-      socket.once("connect", () => win(socket, "tunnel"));
-      socket.once("connect_error", () => fail());
+      // Mode label follows the ENDPOINT, not the code path: connecting to the
+      // page's own origin (agent-served workspace) IS the local carrier, even
+      // though it rides this function rather than the localIp probe.
+      const mode = this._tunnelUrl === window.location.origin ? "local" : "tunnel";
+      console.log(`[diag] ws adapter connect: url=${mkUrl(this._tunnelUrl)} localIp=${this._localIp} pageOrigin=${window.location.origin} mode=${mode}`); // TEMP DIAGNOSTIC
+      const socket = io(mkUrl(this._tunnelUrl), mkOpts(mode));
+      socket.once("connect", () => win(socket, mode));
+      socket.once("connect_error", (e) => { console.log(`[diag] ws adapter connect_error: ${e?.message || e}`); fail(); }); // TEMP DIAGNOSTIC
     };
 
-    // HTTPS pages block ws:// (Mixed Content) — skip local probe, use tunnel directly
-    if (window.location.protocol === "https:") {
+    // HTTPS pages block ws:// (Mixed Content), and no localIp means no probe
+    // target — both go straight to the tunnel URL (which in local mode IS the
+    // loopback origin, so nothing is lost by skipping the probe).
+    if (!this._localIp || window.location.protocol === "https:") {
       connectTunnel();
       return;
     }

@@ -20,7 +20,6 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
-import { trackRender } from "@/shared/utils/renderDiag";
 
 const PLATFORM_LABEL = { darwin: "mac", win32: "win", linux: "linux" };
 
@@ -79,7 +78,6 @@ function useRotatingPage(pageCount, { pinnedIndex = -1, paused = false } = {}) {
 // alternates between the cwd's leaf folder and the running CLI's 5h quota.
 export const MobileStatusStrip = memo(function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
   const cwd = useTerminalStore((s) => s.cwdBySession[sessionId]) || "";
-  trackRender(`MobileStatusStrip[${sessionId?.slice(0, 8)}]`, { cwd });
   const { branch, changedCount } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
   const quota = useSessionQuota(sessionId, busRef);
   const [paused, setPaused] = useState(false);
@@ -171,6 +169,8 @@ function TerminalStatusBar({
   const { t } = useI18n();
   const storeConnected = useConnectionStore((s) => s.connected);
   const storeCarrier = useConnectionStore((s) => s.carrier);
+  const storeMode = useConnectionStore((s) => s.connectionMode);
+  const storeEndpoint = useConnectionStore((s) => s.endpoint);
   const storeBusRef = useConnectionStore((s) => s.busRef);
   const storeState = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId]?.state : "idle");
   const connected = propConnected ?? storeConnected;
@@ -178,8 +178,6 @@ function TerminalStatusBar({
   const busRef = propBusRef || storeBusRef;
   const sessionState = propState || storeState || "idle";
   const quota = useQuota(busRef);
-
-  trackRender("TerminalStatusBar", { sessionId, cwd, connected, sessionState });
 
   // Branch + changed come from the shared ref-counted poll — one round-trip per unique
   // path, shared with the mobile strip, instead of two parallel pollers here.
@@ -232,9 +230,13 @@ function TerminalStatusBar({
         {agentVersion && (
           <span className="text-text-subtle">v{agentVersion}</span>
         )}
-        <span className="flex items-center gap-1.5">
-          <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500 animate-pulse"}`} />
-          <span className="uppercase tracking-wide">{carrier}</span>
+        {/* Connection: WS / WS·LOCAL / STUN — carrier is "ws" or an RTC detail
+            ("dc-stun"/"dc-turn"); anything non-ws is the RTC carrier. Endpoint on hover. */}
+        <span className="flex items-center gap-1.5" title={`${storeEndpoint || ""}${carrier && carrier !== "ws" ? ` (${carrier})` : ""}`}>
+          <span className={`w-2 h-2 rounded-full ${connected ? (storeMode === "local" ? "bg-emerald-400" : "bg-green-500") : "bg-red-500 animate-pulse"}`} />
+          <span className="uppercase tracking-wide">
+            {carrier && carrier !== "ws" ? "STUN" : `WS${storeMode === "local" ? " · LOCAL" : ""}`}
+          </span>
         </span>
         <span className="flex items-center gap-1.5">
           <span className={`w-2 h-2 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />

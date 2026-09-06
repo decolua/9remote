@@ -21,6 +21,9 @@ export class TunnelAdapter {
 
   connect({ onSocket, onFail }) {
     const url = this._namespace ? `${this._tunnelUrl}${this._namespace}` : this._tunnelUrl;
+    // Mode label follows the ENDPOINT, not this class's name: an agent-served
+    // page connects to its own origin here, which IS the local carrier.
+    const mode = this._tunnelUrl === window.location.origin ? "local" : "tunnel";
     const socket = io(url, {
       ...DEFAULT_SOCKET_OPTIONS,
       ...this._socketOptions,
@@ -28,14 +31,14 @@ export class TunnelAdapter {
       // Function form: socket.io calls it per (re)connect, so a TAIL that
       // arrived mid-session (enrollment) is picked up without a fresh mount.
       // socket.io waits on this callback, so the seal can be computed here.
-      auth: (cb) => { freshAuth(this._socketOptions.auth, "tunnel").then(cb); }
+      auth: (cb) => { freshAuth(this._socketOptions.auth, mode).then(cb); }
     });
 
     // socket.io keeps emitting connect_error after a successful connect, and a
     // late one would report failure for a socket that is actually up (the PM
     // then schedules a needless retry). One settle per attempt.
     let settled = false;
-    socket.once("connect", () => { if (settled) return; settled = true; onSocket(socket, "tunnel"); });
+    socket.once("connect", () => { if (settled) return; settled = true; onSocket(socket, mode); });
     socket.once("connect_error", () => { if (settled) return; settled = true; onFail?.(); });
   }
 }

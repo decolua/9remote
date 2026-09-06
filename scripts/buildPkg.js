@@ -9,6 +9,7 @@ import * as esbuild from "esbuild";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { buildWebStatic } from "./buildWebStatic.mjs";
 // import JavaScriptObfuscator from "javascript-obfuscator";
 // import { nodePreset } from "./obfuscatorConfig.js";
 
@@ -116,6 +117,21 @@ function buildUi() {
   console.log("✅ UI → agent/dist/ui/");
 }
 
+function buildWeb() {
+  console.log("\n🌐 Building Web static export...");
+  try {
+    const outDir = buildWebStatic();
+    const destDir = path.join(DIST_DIR, "web");
+    if (fs.existsSync(outDir)) {
+      ensureDir(destDir);
+      fs.cpSync(outDir, destDir, { recursive: true });
+      console.log("✅ Web → agent/dist/web/");
+    }
+  } catch (err) {
+    console.warn(`⚠️  Web static build failed: ${err.message}`);
+  }
+}
+
 function copyAssets() {
   console.log("\n🖼️  Copying assets...");
   const srcDir = path.join(SERVER_DIR, "cli/utils/assets");
@@ -163,6 +179,7 @@ async function build() {
   if (fs.existsSync(DIST_DIR)) fs.rmSync(DIST_DIR, { recursive: true });
 
   buildUi();
+  buildWeb();
   await buildCli();
   await buildServer();
   await buildDaemon();

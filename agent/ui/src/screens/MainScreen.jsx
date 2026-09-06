@@ -462,18 +462,17 @@ export default function MainScreen({
   const [deviceToLabel, setDeviceToLabel] = useState(null);
   const [labelInput, setLabelInput] = useState("");
 
-  // Open the web app at its login page. No auto-login: the user signs in manually.
-  const openWebTerminal = async () => {
-    const win = window.open("", "_blank");
-    if (!win) return;
-    try {
-      const res = await fetch("/api/ui/state", { cache: "no-store" });
-      if (!res.ok) throw new Error();
-      const { workerUrl } = await res.json();
-      win.location.href = `${workerUrl}/login`;
-    } catch {
-      win.close();
-    }
+  // Open the embedded web terminal workspace directly on localhost.
+  // No key in the URL: the loopback bootstrap fetches it from /api/ui/state
+  // (localhost-only endpoint), so nothing secret ever lands in history.
+  const openWebTerminal = () => {
+    const targetUrl = window.location.port === "5173"
+      ? `${window.location.protocol}//${window.location.hostname}:2208/workspace`
+      : "/workspace";
+    // The Tauri shell's WKWebView blocks window.open — navigate this window
+    // instead (the app window becomes the workspace).
+    if (window.__TAURI__) { window.location.href = targetUrl; return; }
+    window.open(targetUrl, "_blank");
   };
 
   // Refresh devices list whenever connections update (so offline/online stays in sync)

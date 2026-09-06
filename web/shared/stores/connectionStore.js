@@ -9,6 +9,9 @@ export const useConnectionStore = create((set) => ({
   connected: false,
   connectionMode: "tunnel",
   carrier: "ws",
+  // The WS endpoint actually in use (auth.tunnelUrl at connect time) — the
+  // status bar shows it so "local vs tunnel" is verifiable, not guessed.
+  endpoint: null,
   retryStatus: { isRetrying: false, attempt: 0, maxAttempts: 10, failed: false },
 
   setConnection: (patch) => set((prev) => ({ ...prev, ...patch })),
@@ -21,6 +24,7 @@ export const useConnectionStore = create((set) => ({
     connected: false,
     connectionMode: "tunnel",
     carrier: "ws",
+    endpoint: null,
     retryStatus: { isRetrying: false, attempt: 0, maxAttempts: 10, failed: false }
   })
 }));

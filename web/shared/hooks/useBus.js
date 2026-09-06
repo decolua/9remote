@@ -8,6 +8,9 @@ import { ProtocolManager } from "@/shared/transport/ProtocolManager";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { debugLog } from "@/shared/utils/debugLog";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { isLoopbackOrigin, isLocalAgentNetwork } from "@/shared/utils/localOrigin";
+import { headOf, tailOf } from "@/shared/utils/apiKey";
+import { setTrust } from "@/shared/transport/lib/deviceTrust";
 
 /**
  * Owns the ProtocolManager and hands back its bus — the one object the app talks
@@ -26,7 +29,7 @@ export function useBus(config = {}) {
   } = config;
 
   const router = useRouter();
-  const { getAuth } = useSessionStorage();
+  const { getAuth, setAuth } = useSessionStorage();
   const deviceId = useDeviceId();
 
   const busRef = useRef(null);
@@ -43,85 +46,139 @@ export function useBus(config = {}) {
   });
 
   useEffect(() => {
-    const auth = getAuth();
-    if (!auth?.apiKey) {
-      router.push(redirectOnNoAuth);
-      return;
-    }
-
+    let cancelled = false;
     let protocol = null;
 
-    const wsConfig = {
-      tunnelUrl: auth.tunnelUrl,
-      localIp: auth.localIp || null,
-      namespace,
-      // The adapters attach a freshly-signed proof per connect attempt, so
-      // admission is decided straight from the handshake — no challenge
-      // round-trip, no timeout. The pairing fp2 is
-      // deliberately NOT sent here: the handshake rides the tunnel, and fp2 must
-      // stay unknown to the server (enrollment goes over RTC instead).
-      socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, tempKey: auth.tempKey ?? null, deviceId, ...socketOptions.auth } },
-      apiKey: auth.apiKey,
-      deviceId,
-      tempKey: auth.tempKey ?? null,
-      onConnect: (bus, mode) => {
-        busRef.current = bus;
-        const cMode = mode || protocolRef.current?.connectionMode || "tunnel";
-        setConnected(true);
-        setConnectionMode(cMode);
-        useConnectionStore.getState().setConnection({
-          bus,
-          connected: true,
-          connectionMode: cMode
-        });
-        debugLog("transport", "[transport] ws connected");
-        onConnect?.(bus, auth);
-      },
-      onDisconnect: (reason) => {
-        debugLog("transport", `[transport] ws disconnect reason=${reason}`);
-        busRef.current = null;
-        setConnected(false);
-        useConnectionStore.getState().setConnection({ connected: false });
-        onDisconnect?.(reason);
-      },
-      // Device-approval answer over signaling (no tunnel needed to show the modal)
-      onApproval,
-      onRetryStatus: (st) => {
-        setRetryStatus(st);
-        useConnectionStore.getState().setRetryStatus(st);
+    const start = async () => {
+      let auth = getAuth();
+      // Page served BY the agent on this machine: the loopback carrier always
+      // wins over any stored remote auth (a stale tunnel login). The key fetch
+      // is loopback-only — /api/ui/state is a localhost-only endpoint.
+      const isLoopback = isLoopbackOrigin();
+      console.log(`[diag] useBus start: host=${typeof window !== "undefined" ? window.location.hostname : "?"} ` +
+        `loopback=${isLoopback} lan=${isLocalAgentNetwork()} ` +
+        `storedAuth=${auth ? `key=${!!auth.apiKey} tunnelUrl=${auth.tunnelUrl} localIp=${auth.localIp}` : "none"}`); // TEMP DIAGNOSTIC
+      if (isLoopback && auth?.tunnelUrl !== window.location.origin) {
+        try {
+          const res = await fetch("/api/ui/state");
+          const data = res.ok ? await res.json() : null;
+          console.log(`[diag] ui/state: http=${res.status} permanentKey=${!!data?.permanentKey}`); // TEMP DIAGNOSTIC
+          if (res.ok) {
+            if (data?.permanentKey) {
+              const fullKey = data.permanentKey;
+              const head = headOf(fullKey);
+              const tail = tailOf(fullKey);
+              setTrust(head, { tail });
+              auth = {
+                apiKey: head,
+                tunnelUrl: window.location.origin,
+                mode: "local",
+                tempKey: null,
+                localIp: null
+              };
+              setAuth(auth);
+            }
+          }
+        } catch (e) {
+          console.log(`[diag] ui/state fetch failed: ${e?.message || e}`); // TEMP DIAGNOSTIC
+        }
       }
+
+      if (cancelled) return;
+      if (!auth?.apiKey) {
+        console.log(`[diag] useBus: no apiKey → redirect ${redirectOnNoAuth}`); // TEMP DIAGNOSTIC
+        router.push(redirectOnNoAuth);
+        return;
+      }
+
+      const wsConfig = {
+        tunnelUrl: auth.tunnelUrl,
+        localIp: auth.localIp || null,
+        namespace,
+        // The adapters attach a freshly-signed proof per connect attempt, so
+        // admission is decided straight from the handshake — no challenge
+        // round-trip, no timeout. The pairing fp2 is
+        // deliberately NOT sent here: the handshake rides the tunnel, and fp2 must
+        // stay unknown to the server (enrollment goes over RTC instead).
+        socketOptions: { ...socketOptions, auth: { apiKey: auth.apiKey, tempKey: auth.tempKey ?? null, deviceId, ...socketOptions.auth } },
+        apiKey: auth.apiKey,
+        deviceId,
+        tempKey: auth.tempKey ?? null,
+        onConnect: (bus, mode) => {
+          if (cancelled) return;
+          busRef.current = bus;
+          const cMode = mode || protocolRef.current?.connectionMode || "tunnel";
+          setConnected(true);
+          setConnectionMode(cMode);
+          useConnectionStore.getState().setConnection({
+            bus,
+            connected: true,
+            connectionMode: cMode,
+            endpoint: auth.tunnelUrl
+          });
+          console.log(`[diag] bus connected: mode=${cMode} endpoint=${auth.tunnelUrl}`); // TEMP DIAGNOSTIC — local vs tunnel
+          debugLog("transport", "[transport] ws connected");
+          onConnect?.(bus, auth);
+        },
+        onDisconnect: (reason) => {
+          if (cancelled) return;
+          debugLog("transport", `[transport] ws disconnect reason=${reason}`);
+          busRef.current = null;
+          setConnected(false);
+          useConnectionStore.getState().setConnection({ connected: false });
+          onDisconnect?.(reason);
+        },
+        // Device-approval answer over signaling (no tunnel needed to show the modal)
+        onApproval,
+        onRetryStatus: (st) => {
+          if (cancelled) return;
+          setRetryStatus(st);
+          useConnectionStore.getState().setRetryStatus(st);
+        }
+      };
+
+      // The carrier IS the page's own origin (agent-served workspace): the
+      // direct WS beats every other carrier, so RTC (and its DO signaling) is
+      // pure overhead — skip both. A dev server on localhost whose carrier is
+      // a remote tunnelUrl keeps the full RTC stack.
+      const carrierIsPageOrigin = auth.tunnelUrl === window.location.origin;
+      const wantRtc = REMOTE_CONFIG.enableWebRTC && !carrierIsPageOrigin;
+      const rtcConfig = wantRtc ? {
+        enableWebRTC: true,
+        enableTurn: REMOTE_CONFIG.enableTurn,
+        apiKey: auth.apiKey,
+        onUpgrade: (via) => debugLog("transport", `[transport] upgraded to ${via}`),
+        onFallback: (to) => debugLog("transport", `[transport] fallback to ${to}`),
+        onTransportChange: (type) => {
+          if (cancelled) return;
+          setCarrier(type);
+          useConnectionStore.getState().setCarrier(type);
+          debugLog("transport", `[transport] active=${type}`);
+        }
+      } : null;
+
+      // The device proof is NOT built here: it expires in minutes and socket.io
+      // reconnects on its own, so it is computed per connect attempt inside the
+      // adapters (see adapters/freshAuth).
+      console.log(`[diag] useBus connect: tunnelUrl=${auth.tunnelUrl} wantRtc=${wantRtc} rtcEnabled=${REMOTE_CONFIG.enableWebRTC}`); // TEMP DIAGNOSTIC
+      protocol = new ProtocolManager(wsConfig, rtcConfig);
+      protocolRef.current = protocol;
+      busRef.current = protocol.busRef.current;
+      useConnectionStore.getState().setConnection({
+        bus: busRef.current,
+        busRef,
+        protocolRef,
+        connected: false,
+        connectionMode: "tunnel",
+        carrier: "ws"
+      });
+      protocol.connect();
     };
 
-    const rtcConfig = REMOTE_CONFIG.enableWebRTC ? {
-      enableWebRTC: true,
-      enableTurn: REMOTE_CONFIG.enableTurn,
-      apiKey: auth.apiKey,
-      onUpgrade: (via) => debugLog("transport", `[transport] upgraded to ${via}`),
-      onFallback: (to) => debugLog("transport", `[transport] fallback to ${to}`),
-      onTransportChange: (type) => {
-        setCarrier(type);
-        useConnectionStore.getState().setCarrier(type);
-        debugLog("transport", `[transport] active=${type}`);
-      }
-    } : null;
-
-    // The device proof is NOT built here: it expires in minutes and socket.io
-    // reconnects on its own, so it is computed per connect attempt inside the
-    // adapters (see adapters/freshAuth).
-    protocol = new ProtocolManager(wsConfig, rtcConfig);
-    protocolRef.current = protocol;
-    busRef.current = protocol.busRef.current;
-    useConnectionStore.getState().setConnection({
-      bus: busRef.current,
-      busRef,
-      protocolRef,
-      connected: false,
-      connectionMode: "tunnel",
-      carrier: "ws"
-    });
-    protocol.connect();
+    start();
 
     return () => {
+      cancelled = true;
       protocol?.disconnect();
       protocolRef.current = null;
       busRef.current = null;

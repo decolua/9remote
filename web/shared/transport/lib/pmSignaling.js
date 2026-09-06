@@ -102,6 +102,9 @@ export function flushSigBuffer(pm) {
 /** The cached tunnelUrl may be stale (cloudflared restarted → new trycloudflare
  * URL). Re-fetch the latest from the Worker before connecting. */
 export async function refreshTunnelUrl(pm) {
+  // The page-origin carrier cannot go stale — only a remote tunnel URL can.
+  // Skipping also keeps the agent-served tab from calling the Worker at all.
+  if (pm._auth.tunnelUrl === (typeof window !== "undefined" ? window.location.origin : "")) return;
   try {
     debugLog("transport", `[pm] refreshTunnelUrl: fetching from ${WORKER_API}/api/connect`);
     const res = await fetch(`${WORKER_API}/api/connect`, {

@@ -31,7 +31,7 @@ import {
   clearRejectedDevice,
   loadAutoApprove
 } from "../lib/deviceApproval.js";
-import { admissionGate, submitTailProof, noteTailFailure, presentedTailOf, finishTailRejection, handleTailProof, verdictStateOf, onTailProven, clearProofWaiters, PROOF_DEADLINE } from "../lib/deviceAuth.js";
+import { admissionGate, submitTailProof, noteTailFailure, presentedTailOf, finishTailRejection, handleTailProof, verdictStateOf, onTailProven, clearProofWaiters, PROOF_DEADLINE, verifyKeyTail } from "../lib/deviceAuth.js";
 import { openSealedTail } from "../lib/hostKey.js";
 import { ADMISSION, DEVICE_GATE, TAIL_VERDICT, TAIL_REJECT_REASON, CHANNELS } from "../lib/transportConstants.js";
 import { headOf, tailOf } from "../cli/utils/apiKey.js";
@@ -937,6 +937,21 @@ export async function startTransportServer(server) {
       pushUiLog(`Rejected untrusted local-ui socket from ${ip}`);
       socket.disconnect(true);
       return;
+    }
+
+    // The embedded web workspace (Terminal button on this host's agent UI)
+    // connects over loopback presenting the permanent key's TAIL — same machine,
+    // same secret the host itself minted. Holding it for host approval would
+    // flash the waiting modal on every page reload, so it is approved here.
+    // Gate 1 still ran: only a VERIFIED tail gets through, and a device the
+    // host rejected/kicked stays that way (unknown gate only).
+    if (!isTunnel && isLoopback && originOk && deviceId) {
+      const presentedLoopback = presentedTailOf(authOf(socket), openSealedTail);
+      if (presentedLoopback && verifyKeyTail(presentedLoopback) && gateDevice(deviceId) === DEVICE_GATE.unknown) {
+        approveDevice(deviceId);
+        logger.info(`loopback workspace device auto-approved (key TAIL verified): ${deviceId.slice(0, 8)}`);
+        pushUiLogDebug(`Loopback workspace auto-approved: ${deviceId.slice(0, 8)} (key TAIL verified)`);
+      }
     }
 
     trackConnection(socket.id, ip, deviceId);

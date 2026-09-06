@@ -13,14 +13,15 @@
       {
         "label": "main",
         "title": "9Remote",
-        "width": 960,
-        "height": 720,
+        "width": 1280,
+        "height": 840,
         "minWidth": 820,
         "minHeight": 600,
         "resizable": true,
         "center": true,
         "decorations": true,
-        "visible": true
+        "visible": true,
+        "maximized": true
       }
     ],
     "security": {

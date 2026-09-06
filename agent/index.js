@@ -4,8 +4,8 @@
 
 import { createServer, request as httpRequest } from "http";
 import { execFile, execSync, spawn } from "child_process";
-import { readFileSync, existsSync } from "fs";
-import { join, extname } from "path";
+import { readFileSync, existsSync, statSync } from "fs";
+import { join, extname, sep } from "path";
 import { fileURLToPath } from "url";
 import chalk from "chalk";
 
@@ -52,14 +52,47 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const IS_DEV = process.env.NODE_ENV === "development";
 const VITE_PORT = 5173;
 
-const UI_DIST = existsSync(join(__dirname, "ui", "dist"))
-  ? join(__dirname, "ui", "dist")
-  : join(__dirname, "ui");
+const UI_DIST = [
+  join(__dirname, "dist", "ui"),
+  join(__dirname, "ui", "dist"),
+  join(__dirname, "ui"),
+].find((d) => existsSync(d)) || join(__dirname, "dist", "ui");
+
+const WEB_DIST = [
+  join(__dirname, "dist", "web"),
+  join(__dirname, "web"),
+  join(__dirname, "..", "web", "out"),
+].find((d) => existsSync(d)) || UI_DIST;
+
+// TEMP DIAGNOSTIC — prove which web build is actually deployed
+try {
+  const probe = join(WEB_DIST, "workspace.html");
+  if (existsSync(probe)) {
+    const st = statSync(probe);
+    logger.info(`[web-dist] dir=${WEB_DIST} workspace.html mtime=${st.mtime.toISOString()} bytes=${st.size}`);
+  } else {
+    logger.info(`[web-dist] dir=${WEB_DIST} (no workspace.html — agent UI only)`);
+  }
+} catch {}
 
 const MIME_TYPES = {
-  ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
-  ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon",
-  ".woff2": "font/woff2", ".woff": "font/woff",
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
+  ".json": "application/json; charset=utf-8",
+  ".txt": "text/x-component; charset=utf-8",
+  ".webmanifest": "application/manifest+json",
 };
 
 // ── Static / Dev helpers ─────────────────────────────────────────
@@ -75,11 +108,26 @@ function proxyToVite(req, res, fallbackFn) {
 
 function serveStatic(res, filePath) {
   if (!existsSync(filePath)) return false;
-  const mime = MIME_TYPES[extname(filePath)] || "application/octet-stream";
-  res.setHeader("Content-Type", mime);
-  res.writeHead(200);
-  res.end(readFileSync(filePath));
-  return true;
+  try {
+    const stat = statSync(filePath);
+    if (stat.isDirectory()) {
+      const indexFile = join(filePath, "index.html");
+      if (existsSync(indexFile)) return serveStatic(res, indexFile);
+      return false;
+    }
+    const ext = extname(filePath);
+    const mime = MIME_TYPES[ext] || "application/octet-stream";
+    res.setHeader("Content-Type", mime);
+    // Hashed build assets are immutable; everything else (HTML, RSC .txt) must
+    // revalidate or a stale bundle keeps running after an agent update.
+    const immutable = filePath.includes(`${sep}_next${sep}static${sep}`);
+    res.setHeader("Cache-Control", immutable ? "public, max-age=31536000, immutable" : "no-cache");
+    res.writeHead(200);
+    res.end(readFileSync(filePath));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function checkForUpdate(currentVersion) {
@@ -337,22 +385,85 @@ export async function startServer() {
   proxyServer = createProxyServer();
   startViteDev();
 
-  // Static file / Vite dev fallback (localhost-only)
+  // Static file fallback: Agent UI by default, Web Workspace on /workspace* & /_next*
   const staticFallback = (req, res, { pathname }) => {
     if (pathname.startsWith("/api/") || pathname.startsWith("/socket.io")) {
       jsonErr(res, 404, "Not found");
       return;
     }
-    const isTunnel = !!req.headers["cf-connecting-ip"];
-    const isLocal = req.socket.remoteAddress === "127.0.0.1" || req.socket.remoteAddress === "::1";
-    if (isTunnel || !isLocal) { jsonErr(res, 403, "Forbidden"); return; }
-    const serveStaticFiles = () => {
-      const filePath = (pathname === "/" || pathname === "") ? join(UI_DIST, "index.html") : join(UI_DIST, pathname);
-      if (serveStatic(res, filePath)) return;
-      serveStatic(res, join(UI_DIST, "index.html"));
+
+    const cleanPath = pathname.replace(/^\//, "");
+
+    // ── 1. Serve any direct static asset in WEB_DIST (icons, agents, _next, etc.) ──
+    if (existsSync(WEB_DIST) && cleanPath) {
+      try {
+        const directWebPath = join(WEB_DIST, cleanPath);
+        if (existsSync(directWebPath) && !statSync(directWebPath).isDirectory()) {
+          if (serveStatic(res, directWebPath)) return;
+        }
+      } catch {}
+    }
+
+    // ── 2. Web Workspace routes: /workspace*, /_next*, /login* ────────
+    const isWebWorkspace =
+      pathname === "/workspace" ||
+      pathname.startsWith("/workspace/") ||
+      pathname.startsWith("/_next/") ||
+      pathname === "/login" ||
+      pathname.startsWith("/login/");
+
+    if (isWebWorkspace && existsSync(WEB_DIST)) {
+      // Direct file match in WEB_DIST (e.g. /_next/static/chunks/...)
+      const directWebPath = join(WEB_DIST, cleanPath);
+      if (serveStatic(res, directWebPath)) return;
+
+      // Try .html extension
+      if (serveStatic(res, `${directWebPath}.html`)) return;
+
+      // Try index.html in subfolder
+      if (serveStatic(res, join(directWebPath, "index.html"))) return;
+
+      // RSC payload for a path with no prerendered .txt (dynamic terminal ids):
+      // answer with the closest prerendered flight payload, never HTML — an HTML
+      // answer here makes the client router hard-reload the page (kills the WS).
+      const isRsc = req.headers.rsc === "1" || cleanPath.endsWith(".txt");
+      if (isRsc) {
+        logger.info(`[web-nav] rsc fallback for ${pathname}`); // TEMP DIAGNOSTIC — tab-switch reload
+        if (cleanPath.startsWith("workspace/terminal/") && serveStatic(res, join(WEB_DIST, "workspace", "terminal", "default.txt"))) return;
+        if (serveStatic(res, join(WEB_DIST, "workspace.txt"))) return;
+      }
+
+      // SPA fallback for workspace
+      if (pathname.startsWith("/workspace")) {
+        if (serveStatic(res, join(WEB_DIST, "workspace.html"))) return;
+        if (serveStatic(res, join(WEB_DIST, "workspace", "index.html"))) return;
+      }
+
+      // SPA fallback for login
+      if (pathname.startsWith("/login")) {
+        if (serveStatic(res, join(WEB_DIST, "login.html"))) return;
+        if (serveStatic(res, join(WEB_DIST, "login", "index.html"))) return;
+      }
+
+      jsonErr(res, 404, "Not found");
+      return;
+    }
+
+    // ── 2. Agent Host UI (default for /, /ui, /assets, etc.) ───────────
+    const serveAgentUi = () => {
+      // Strip /ui/ prefix if present
+      const uiPath = cleanPath === "ui" || cleanPath === "" ? "index.html" : cleanPath.replace(/^ui\/?/, "");
+      const directUiPath = join(UI_DIST, uiPath);
+      if (serveStatic(res, directUiPath)) return;
+      if (serveStatic(res, join(UI_DIST, "index.html"))) return;
+      jsonErr(res, 404, "Not found");
     };
-    if (IS_DEV) { proxyToVite(req, res, serveStaticFiles); return; }
-    serveStaticFiles();
+
+    if (IS_DEV) {
+      proxyToVite(req, res, serveAgentUi);
+      return;
+    }
+    serveAgentUi();
   };
 
   const router = createRouter(ROUTES, { fallback: staticFallback });

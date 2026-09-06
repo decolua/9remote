@@ -23,6 +23,7 @@ import { buildCodespaceUrl } from "@/shared/constants/github";
 import { setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
 import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY, WANTS_SAVE_KEY } from "@/shared/constants/transport";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
+import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 
 // One-time pairing input: "K7QP3Max" (6-char tempKey + 2-char TAIL, no
 // separator), a bare "K7QP3M", or a full login URL carrying either in
@@ -74,6 +75,7 @@ function LoginContent() {
   const [editingLabel, setEditingLabel] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [loginLoadingKey, setLoginLoadingKey] = useState(null);
+  const [localServerKey, setLocalServerKey] = useState(null);
   const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
 
   const { token: githubToken, clearToken: clearGithubToken } = useGithub();
@@ -127,7 +129,50 @@ function LoginContent() {
     if (githubToken) {
       setAuthTab("github");
     }
-  }, [loadKeys, githubToken]);
+
+    // Auto-connect when accessing directly on the agent's loopback origin
+    if (isLoopbackOrigin()) {
+      fetch("/api/ui/state")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.permanentKey) {
+            setLocalServerKey(data.permanentKey);
+            const manualDisconnect = sessionStorage.getItem("9remote_manual_disconnect") === "1";
+            if (!manualDisconnect) {
+              const fullKey = data.permanentKey;
+              const head = headOf(fullKey);
+              const tail = tailOf(fullKey);
+              setTrust(head, { tail });
+              setAuth({
+                apiKey: head,
+                tunnelUrl: window.location.origin,
+                mode: "local",
+                tempKey: null,
+                localIp: null
+              });
+              router.push("/workspace/");
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [loadKeys, githubToken, router, setAuth]);
+
+  const handleConnectLocalServer = () => {
+    if (!localServerKey) return;
+    sessionStorage.removeItem("9remote_manual_disconnect");
+    const head = headOf(localServerKey);
+    const tail = tailOf(localServerKey);
+    setTrust(head, { tail });
+    setAuth({
+      apiKey: head,
+      tunnelUrl: window.location.origin,
+      mode: "local",
+      tempKey: null,
+      localIp: null
+    });
+    router.push("/workspace/");
+  };
 
   const handleGithubAuthenticated = () => {};
 

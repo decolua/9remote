@@ -123,6 +123,13 @@ export function dispatch(pm, event, payload, source) {
     const data = source === "rtc" ? payload?.args?.[0] : payload;
     if (data) {
       const { tunnelUrl, localIp, status } = data;
+      // The carrier IS the page's own origin (agent-served workspace): the
+      // agent's tunnel URL is someone else's road — adopting it would tear down
+      // a healthy loopback connection and reroute data through Cloudflare.
+      if (pm._auth.tunnelUrl === window.location.origin) {
+        termLog("switch", `tunnel:updated ignored (carrier is the page origin; got url=${tunnelUrl || "none"})`);
+        return;
+      }
       termLog("switch", `tunnel:updated recv (status=${status} url=${tunnelUrl || "none"})`);
       if (status === "ready" && tunnelUrl) {
         const urlChanged = pm._auth.tunnelUrl !== tunnelUrl;
