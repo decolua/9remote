@@ -864,7 +864,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Paste here (Cmd+V)",
-    enterToSend: "Tab or Ctrl+Num to switch tab",
+    enterToSend: "{shortcut} to switch tab",
     typeCommand: "Type command and send...",
     send: "Send",
     toggleExtraKeys: "Toggle extra keys",

@@ -22,6 +22,7 @@ import { withHint } from "../constants/shortcuts";
 import { useDragReorder } from "../hooks/useDragReorder";
 import BranchBadge from "./BranchBadge";
 import AgentHistoryPanel from "./AgentHistoryPanel";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { trackRender } from "@/shared/utils/renderDiag";
 
 // Guess agent tool from session name when no live status tool is set — drives the icon.
@@ -128,8 +129,8 @@ function TerminalSidebar({
   workspaces = [],
   activeSessionId,
   activeWorkspaceId,
-  sessionStatus = {},
-  notifications = {},
+  sessionStatus: propStatus,
+  notifications: propNotifications,
   onSelectSession,
   onSelectWorkspace,
   onCreateNamedSession,
@@ -151,6 +152,10 @@ function TerminalSidebar({
   onResumeAgentSession,
 }) {
   const { t } = useI18n();
+  const storeNotifications = useNotificationStore((s) => s.notifications);
+  const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
+  const notifications = propNotifications || storeNotifications;
+  const sessionStatus = propStatus || storeSessionStatus;
   trackRender("TerminalSidebar", { activeSessionId, activeWorkspaceId, sessionCount: allSessions.length, width });
   const hasKeyboard = useInputMode() === "mouse";
   const collapseHint = hasKeyboard ? withHint(t("common.close"), "toggleSidebar") : t("common.close");

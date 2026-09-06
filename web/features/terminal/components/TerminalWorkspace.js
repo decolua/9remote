@@ -32,6 +32,16 @@ const focusBorderClass = (isFocused, state) => {
   return "";
 };
 
+// Isolated per-pane status border so status updates only re-render the single pane's border
+const PaneStatusBorder = memo(function PaneStatusBorder({ sessionId, isFocused, hasMultiplePanes, children }) {
+  const sessionState = useNotificationStore((s) => s.sessionStatus[sessionId]?.state || "idle");
+  return (
+    <div className={`absolute inset-x-0 top-0 bottom-[37px] overflow-hidden p-px ${focusBorderClass(isFocused && hasMultiplePanes, sessionState)}`}>
+      {children}
+    </div>
+  );
+});
+
 // Terminal view shell: sidebar + header + multi-pane row + editor/tree panels + status bar.
 function TerminalWorkspace({
   bus, busRef, connected, carrier, platform, agentVersion,
@@ -59,11 +69,6 @@ function TerminalWorkspace({
   const isConnected = connected ?? storeConnected;
   const activeCarrier = carrier || storeCarrier;
   const activeFileBus = fileBus || useFileBusStore.getState();
-
-  const storeNotifications = useNotificationStore((s) => s.notifications);
-  const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
-  const activeNotifications = notifications || storeNotifications;
-  const activeSessionStatus = sessionStatus || storeSessionStatus;
   const handleClearNotification = clearNotification || useNotificationStore.getState().clearNotification;
 
   trackRender("TerminalWorkspace", {
@@ -268,7 +273,6 @@ function TerminalWorkspace({
       // keyed to it, not to whichever workspace currently owns the panel.
       workspacePath={session?.workspacePath}
       sessionName={session?.name}
-      sessionState={activeSessionStatus[sessionId]?.state || "idle"}
       bus={activeBus}
       connected={isConnected}
       sessionId={sessionId}
@@ -331,8 +335,6 @@ function TerminalWorkspace({
               workspaces={workspaces}
               activeSessionId={activeSessionId}
               activeWorkspaceId={activeWorkspaceId}
-              sessionStatus={activeSessionStatus}
-              notifications={activeNotifications}
               onSelectSession={nav.handleSelectSession}
               onSelectWorkspace={nav.handleSelectWorkspace}
               onCreateNamedSession={nav.handleCreateSession}
@@ -366,8 +368,6 @@ function TerminalWorkspace({
             activeSessionId={activeSessionId}
             isActive={isTerminalView}
             connected={isConnected}
-            notifications={activeNotifications}
-            sessionStatus={activeSessionStatus}
             onSwitchSession={nav.handleSelectSession}
             onCreateSession={nav.handleQuickCreateSession}
             onRenameSession={nav.handleRenameSession}
@@ -463,9 +463,13 @@ function TerminalWorkspace({
                   ) : isDesktop ? (
                     <>
                       {/* Focus ring is redundant when the workspace has a single pane */}
-                      <div className={`absolute inset-x-0 top-0 bottom-[37px] overflow-hidden p-px ${focusBorderClass(isFocused && workspaceOpenedSessions.length > 1, activeSessionStatus[sessionId]?.state || "idle")}`}>
+                      <PaneStatusBorder
+                        sessionId={sessionId}
+                        isFocused={isFocused}
+                        hasMultiplePanes={workspaceOpenedSessions.length > 1}
+                      >
                         {renderPane(sessionId, isVisible, isFocused, bgIndex)}
-                      </div>
+                      </PaneStatusBorder>
                       {/* Per-pane input slot — absolute, directly below the terminal */}
                       <div className="absolute inset-x-0 bottom-0 z-20 border-t border-border-subtle bg-surface">
                         {isFocused ? renderKeyboard(sessionId) : (

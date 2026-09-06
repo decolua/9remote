@@ -182,11 +182,9 @@ function TerminalPane({
     };
   }, [scrollCursorIntoView]);
 
-  // Mobile-only background image on the pane: veil + screen-lift layers dim it, the
-  // xterm canvas above stays fully transparent so padding can't create a bright frame
-  const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
-  // const bgActive = !!bgSrc && theme === "dark" && typeof window !== "undefined" && window.innerWidth < DESKTOP_BREAKPOINT;
+  // Mobile-only background image on the pane (disabled by default)
   const bgActive = false;
+  const bgSrc = bgActive ? backgroundSrc(paneBgKey, customBackgrounds) : null;
 
   const stripButtons = <PaneStripButtons onOpenRemote={onOpenRemote} onOpenMobile={onOpenMobile} />;
 
@@ -271,13 +269,13 @@ function TerminalPane({
     showFocusBorder && isFocused ? "terminal-focus-glow" : ""
   ].filter(Boolean).join(" ");
 
-  const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
-  const lift = `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})`;
+  const veil = bgActive ? `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})` : "";
+  const lift = bgActive ? `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})` : "";
 
   return (
     <div
       className={`h-full w-full flex flex-col overflow-hidden relative touch-none px-1.5 py-1.5 ${focusClass}${bgActive ? " terminal-has-bg" : ""}`}
-      style={bgActive ? {
+      style={bgActive && bgSrc ? {
         background: `linear-gradient(${veil},${veil}), linear-gradient(${lift},${lift}), center / cover no-repeat url("${bgSrc}")`,
         backgroundBlendMode: "normal, screen, normal"
       } : { background: currentTheme.background }}

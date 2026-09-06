@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { Folder, GitBranch, Terminal } from "@/shared/components/ui/Icon";
 import { useQuota } from "@/features/quota/hooks/useQuota";
 import QuotaSegments from "@/features/quota/components/QuotaSegments";
@@ -77,7 +77,7 @@ function useRotatingPage(pageCount, { pinnedIndex = -1, paused = false } = {}) {
 // Mobile strip above the keyboard input, shown only while the soft keyboard is closed.
 // Width is scarce: branch + changed stay pinned on the left, and the right slot
 // alternates between the cwd's leaf folder and the running CLI's 5h quota.
-export function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
+export const MobileStatusStrip = memo(function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
   const cwd = useTerminalStore((s) => s.cwdBySession[sessionId]) || "";
   trackRender(`MobileStatusStrip[${sessionId?.slice(0, 8)}]`, { cwd });
   const { branch, changedCount } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
@@ -152,11 +152,11 @@ export function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
       {pages.length > 0 && <FadeSlot pages={pages} activeKey={pages[pageIndex]?.key} />}
     </div>
   );
-}
+});
 
 // Desktop-only status bar content: session + cwd + git on the left, platform/version/
 // connection/state on the right. The shell comes from the shared StatusBar.
-export default function TerminalStatusBar({
+function TerminalStatusBar({
   cwd,
   sessionId,
   fileBus,
@@ -244,3 +244,5 @@ export default function TerminalStatusBar({
     />
   );
 }
+
+export default memo(TerminalStatusBar);

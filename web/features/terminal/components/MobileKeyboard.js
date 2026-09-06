@@ -32,6 +32,7 @@ import { generateCombination as generateCombo } from "@/features/terminal/lib/ke
 import PathSuggestion from "@/shared/components/ui/PathSuggestion";
 import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/utils/pathSuggest";
 import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
+import { isMac } from "@/features/terminal/constants/shortcuts";
 
 const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null, isDesktop = false }) => {
   const { t, locale } = useI18n();
@@ -505,49 +506,25 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
               onBlur={() => onInputFocusChange?.(false)}
               onPaste={handleAttachPaste}
               onKeyDown={(e) => {
-                if (hasPhysicalKeyboard && e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                  // Path suggest open → cycle it; else command suggest → cycle it; else switch session.
-                  if (pathItems.length > 0) {
-                    e.preventDefault();
-                    setPathActive((i) => (pathItems.length ? (((i + 1) % pathItems.length) + pathItems.length) % pathItems.length : -1));
-                    return;
-                  }
-                  if (cmdItems.length > 0) {
-                    e.preventDefault();
-                    setCmdActive((i) => (cmdItems.length ? (((i + 1) % cmdItems.length) + cmdItems.length) % cmdItems.length : -1));
-                    return;
-                  }
-                  e.preventDefault();
-                  onSwitchSession?.("next");
-                  return;
-                }
-                if (hasPhysicalKeyboard && e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                  // Shift+Tab → cycle suggest backwards, else switch to previous session.
-                  if (pathItems.length > 0) {
-                    e.preventDefault();
-                    setPathActive((i) => (pathItems.length ? (((i - 1) % pathItems.length) + pathItems.length) % pathItems.length : -1));
-                    return;
-                  }
-                  if (cmdItems.length > 0) {
-                    e.preventDefault();
-                    setCmdActive((i) => (cmdItems.length ? (((i - 1) % cmdItems.length) + cmdItems.length) % cmdItems.length : -1));
-                    return;
-                  }
-                  e.preventDefault();
-                  onSwitchSession?.("prev");
-                  return;
-                }
                 if (hasPhysicalKeyboard && e.key === "Tab") {
-                  // Any Tab combo (Shift/Ctrl/Alt/Meta+Tab) → send to terminal.
-                  if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) {
-                    e.preventDefault();
-                    const data = generateCombination("Tab", { ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey });
-                    onInput?.(sessionId);
-                    bus.emit("input", { sessionId, data });
-                    return;
+                  if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+                    if (pathItems.length > 0) {
+                      e.preventDefault();
+                      const step = e.shiftKey ? -1 : 1;
+                      setPathActive((i) => (pathItems.length ? (((i + step) % pathItems.length) + pathItems.length) % pathItems.length : -1));
+                      return;
+                    }
+                    if (cmdItems.length > 0) {
+                      e.preventDefault();
+                      const step = e.shiftKey ? -1 : 1;
+                      setCmdActive((i) => (cmdItems.length ? (((i + step) % cmdItems.length) + cmdItems.length) % cmdItems.length : -1));
+                      return;
+                    }
                   }
                   e.preventDefault();
-                  onSwitchSession?.("next");
+                  const data = generateCombination("Tab", { ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey });
+                  onInput?.(sessionId);
+                  bus.emit("input", { sessionId, data });
                   return;
                 }
                 if (hasPhysicalKeyboard && (e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
@@ -597,7 +574,7 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
                   bus.emit("input", { sessionId, data: cfg.data });
                 }
               }}
-              placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend") : t("mobileKeyboard.typeCommand")}
+              placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend", { shortcut: isMac() ? "⌘⇧→ | ⌘⇧1…9" : "Ctrl+Shift+→ | Ctrl+Shift+1…9" }) : t("mobileKeyboard.typeCommand")}
               rows={1}
               className="block w-full pl-9 pr-16 py-2 bg-transparent text-text text-sm placeholder-text-muted placeholder:text-[11px] placeholder:leading-[20px] focus:outline-none resize-none overflow-y-auto touch-none"
             />
@@ -714,4 +691,4 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
   );
 };
 
-export default MobileKeyboard;
+export default React.memo(MobileKeyboard);
