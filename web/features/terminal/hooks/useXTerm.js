@@ -20,6 +20,129 @@ import { useTermTouchGestures } from "@/features/terminal/hooks/useTermTouchGest
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 
+// Detect macOS WebKit (Safari / Tauri WKWebView) where xterm IME drop occurs
+const isMacWebKit = () => {
+  if (typeof navigator === "undefined") return false;
+  const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent) || navigator.platform === "MacIntel";
+  const isWebKit = /AppleWebKit/i.test(navigator.userAgent) && !/Chrome|Chromium|Edg/i.test(navigator.userAgent);
+  return isMac && isWebKit;
+};
+
+// Intercept IME input dropped by xterm on macOS WebKit (e.g. Vietnamese Simple Telex, OpenKey, EVKey)
+function setupMacImeFix(term, container) {
+  if (!isMacWebKit()) return () => {};
+  const textarea = term?.textarea;
+  const core = term?._core;
+  const compHelper = core?._compositionHelper;
+  if (!textarea || !core) return () => {};
+
+  // Disable xterm's fragile timer-based diff which drops/duplicates characters in WebKit
+  const origHandleChanges = compHelper?._handleAnyTextareaChanges;
+  const origFinalize = compHelper?._finalizeComposition;
+  const origInputEvent = core._inputEvent;
+
+  let pending229 = false;
+  let lastKeyDownKey = "";
+  let lastCompositionText = "";
+  const TELEX_TONE_KEYS = /^[sfrxj12345]$/i;
+
+  if (compHelper) {
+    compHelper._handleAnyTextareaChanges = () => {};
+    // Override _finalizeComposition: commit exact composed string directly instead of substring diffing
+    compHelper._finalizeComposition = function() {
+      this._compositionView?.classList.remove("active");
+      this._isComposing = false;
+      this._isSendingComposition = false;
+      if (lastCompositionText) {
+        this._coreService.triggerDataEvent(lastCompositionText, true);
+        lastCompositionText = "";
+      }
+      if (this._textarea) this._textarea.value = "";
+    };
+  }
+
+  const onKeyDown = (event) => {
+    if (event.target !== textarea) return;
+    lastKeyDownKey = event.key || "";
+    pending229 = (event.keyCode === 229 || event.which === 229 || event.key === "Process") && !event.isComposing;
+  };
+
+  const onKeyUp = (event) => {
+    if (event.target === textarea && (event.keyCode === 229 || event.which === 229)) {
+      setTimeout(() => { pending229 = false; }, 50);
+    }
+  };
+
+  const onCompositionStart = () => {
+    pending229 = false;
+    lastCompositionText = "";
+  };
+
+  const onCompositionUpdate = (event) => {
+    if (event.data) lastCompositionText = event.data;
+  };
+
+  const onCompositionEnd = (event) => {
+    pending229 = false;
+    if (event.data) lastCompositionText = event.data;
+  };
+
+  // Door 2: OpenKey / EVKey / 3rd-party IME (keyCode 229 or non-ASCII -> insertText)
+  core._inputEvent = function(e) {
+    const rawData = e.data || "";
+    const cleanData = rawData.replace(/[​-‍ ﻿]/g, "");
+    const isImeInput = pending229 || (cleanData && /[^\x00-\x7F]/.test(cleanData)) || e.inputType === "insertReplacementText";
+    pending229 = false;
+
+    if (isImeInput && cleanData && !compHelper?._isComposing && !this.optionsService.rawOptions.screenReaderMode) {
+      this._keyPressHandled = false;
+      this._unprocessedDeadKey = false;
+      this._keyDownSeen = false;
+
+      // When a non-tone letter is typed after a toned vowel (e.g. 'i' in 'rồ'->'rồi' or 'n' in 'bạ'->'bạn'),
+      // OpenKey sent only 1 Backspace to erase the new letter, leaving the previous vowel unerased.
+      // For tone keys (e.g. 'j' in 'được' or 's' in 'quá'), OpenKey already sent all Backspaces.
+      if (cleanData.length > 1 && !TELEX_TONE_KEYS.test(lastKeyDownKey)) {
+        this.coreService.triggerDataEvent("\x7f", true);
+      }
+
+      this.coreService.triggerDataEvent(cleanData, true);
+      this.cancel(e);
+      if (this.textarea) this.textarea.value = "";
+      return true;
+    }
+
+    return origInputEvent.call(this, e);
+  };
+
+  textarea.addEventListener("keydown", onKeyDown, { capture: true });
+  textarea.addEventListener("keyup", onKeyUp, { capture: true });
+  textarea.addEventListener("compositionstart", onCompositionStart, { capture: true });
+  textarea.addEventListener("compositionupdate", onCompositionUpdate, { capture: true });
+  textarea.addEventListener("compositionend", onCompositionEnd, { capture: true });
+  if (container) {
+    container.addEventListener("compositionupdate", onCompositionUpdate, { capture: true });
+    container.addEventListener("compositionend", onCompositionEnd, { capture: true });
+  }
+
+  return () => {
+    core._inputEvent = origInputEvent;
+    if (compHelper) {
+      if (origHandleChanges) compHelper._handleAnyTextareaChanges = origHandleChanges;
+      if (origFinalize) compHelper._finalizeComposition = origFinalize;
+    }
+    textarea.removeEventListener("keydown", onKeyDown, { capture: true });
+    textarea.removeEventListener("keyup", onKeyUp, { capture: true });
+    textarea.removeEventListener("compositionstart", onCompositionStart, { capture: true });
+    textarea.removeEventListener("compositionupdate", onCompositionUpdate, { capture: true });
+    textarea.removeEventListener("compositionend", onCompositionEnd, { capture: true });
+    if (container) {
+      container.removeEventListener("compositionupdate", onCompositionUpdate, { capture: true });
+      container.removeEventListener("compositionend", onCompositionEnd, { capture: true });
+    }
+  };
+}
+
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
 export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, bgKey = "none", onInput, onSelectionMade }) {
@@ -189,6 +312,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     fitAddonRef.current = fitAddon;
 
     term.open(containerRef.current);
+    const cleanupImeFix = setupMacImeFix(term, containerRef.current);
 
     // rAF write batcher — coalesce high-frequency output bursts into one write/frame so the
     // main thread isn't blocked parsing/rendering each 1KB chunk.
@@ -519,6 +643,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       if (peekDeadline) clearTimeout(peekDeadline);
       if (webglAddonRef.current) webglAddonRef.current.dispose();
       if (writeBatcherRef.current) writeBatcherRef.current.dispose();
+      cleanupImeFix();
       fitAddon.dispose();
       term.dispose();
       termRef.current = null;
