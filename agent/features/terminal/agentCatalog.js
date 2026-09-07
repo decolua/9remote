@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import os from "os";
 
 // TUI agent CLIs offered in the new-terminal modal.
 // cmd = binary name used for PATH detection AND the startup command typed into
@@ -170,7 +171,25 @@ const DETECT_CACHE_TTL_MS = 60 * 1000;
 let detectCache = { at: 0, result: [] };
 
 function pathDirs() {
-  return (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  const envDirs = (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  const home = os.homedir();
+  const commonDirs = process.platform === "win32" ? [
+    path.join(home, "AppData", "Roaming", "npm"),
+    path.join(home, "AppData", "Local", "Programs"),
+    path.join(home, ".cargo", "bin"),
+  ] : [
+    path.join(home, ".local", "bin"),
+    path.join(home, ".cargo", "bin"),
+    path.join(home, ".bun", "bin"),
+    path.join(home, ".deno", "bin"),
+    path.join(home, ".yarn", "bin"),
+    path.join(home, "bin"),
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/local/sbin",
+  ];
+  return Array.from(new Set([...envDirs, ...commonDirs]));
 }
 
 // Windows resolves bare names through PATHEXT permutations

@@ -53,7 +53,7 @@ export default function Footer() {
               <h3 className="text-xl font-bold" style={{ color: THEME.text }}>9Remote</h3>
             </div>
             <p className="text-sm max-w-md mb-4" style={{ color: THEME.textDim }}>
-              Secure remote terminal and desktop access. Connect to your machines from anywhere in the world.
+              Remote everything, everywhere. Remote IDE, 60fps desktop, files, emulator & vibe coding on any screen.
             </p>
             <p className="text-xs" style={{ color: THEME.textMuted }}>
               © {new Date().getFullYear()} 9Remote. All rights reserved.

@@ -55,14 +55,10 @@ export function useBus(config = {}) {
       // wins over any stored remote auth (a stale tunnel login). The key fetch
       // is loopback-only — /api/ui/state is a localhost-only endpoint.
       const isLoopback = isLoopbackOrigin();
-      console.log(`[diag] useBus start: host=${typeof window !== "undefined" ? window.location.hostname : "?"} ` +
-        `loopback=${isLoopback} lan=${isLocalAgentNetwork()} ` +
-        `storedAuth=${auth ? `key=${!!auth.apiKey} tunnelUrl=${auth.tunnelUrl} localIp=${auth.localIp}` : "none"}`); // TEMP DIAGNOSTIC
       if (isLoopback && auth?.tunnelUrl !== window.location.origin) {
         try {
           const res = await fetch("/api/ui/state");
           const data = res.ok ? await res.json() : null;
-          console.log(`[diag] ui/state: http=${res.status} permanentKey=${!!data?.permanentKey}`); // TEMP DIAGNOSTIC
           if (res.ok) {
             if (data?.permanentKey) {
               const fullKey = data.permanentKey;
@@ -79,14 +75,11 @@ export function useBus(config = {}) {
               setAuth(auth);
             }
           }
-        } catch (e) {
-          console.log(`[diag] ui/state fetch failed: ${e?.message || e}`); // TEMP DIAGNOSTIC
-        }
+        } catch {}
       }
 
       if (cancelled) return;
       if (!auth?.apiKey) {
-        console.log(`[diag] useBus: no apiKey → redirect ${redirectOnNoAuth}`); // TEMP DIAGNOSTIC
         router.push(redirectOnNoAuth);
         return;
       }
@@ -116,7 +109,6 @@ export function useBus(config = {}) {
             connectionMode: cMode,
             endpoint: auth.tunnelUrl
           });
-          console.log(`[diag] bus connected: mode=${cMode} endpoint=${auth.tunnelUrl}`); // TEMP DIAGNOSTIC — local vs tunnel
           debugLog("transport", "[transport] ws connected");
           onConnect?.(bus, auth);
         },
@@ -160,7 +152,6 @@ export function useBus(config = {}) {
       // The device proof is NOT built here: it expires in minutes and socket.io
       // reconnects on its own, so it is computed per connect attempt inside the
       // adapters (see adapters/freshAuth).
-      console.log(`[diag] useBus connect: tunnelUrl=${auth.tunnelUrl} wantRtc=${wantRtc} rtcEnabled=${REMOTE_CONFIG.enableWebRTC}`); // TEMP DIAGNOSTIC
       protocol = new ProtocolManager(wsConfig, rtcConfig);
       protocolRef.current = protocol;
       busRef.current = protocol.busRef.current;

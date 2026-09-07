@@ -21,12 +21,12 @@ export default function CTASection() {
               className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-5"
               style={{ color: THEME.text }}
             >
-              Leave your laptop at home.<br/>
-              Your dev machine is in your <span style={{ color: THEME.text }}>pocket</span>.
+              Remote everything.<br/>
+              On any screen, <span style={{ color: THEME.text }}>everywhere</span>.
             </h2>
 
             <p className="text-base sm:text-lg mb-8 max-w-2xl mx-auto" style={{ color: THEME.textDim }}>
-              Ultra-low latency WebRTC, persistent PTY daemon, and zero-trust security. Ready in 30 seconds.
+              IDE, 60fps desktop, files, emulator & 30+ AI vibe coding agents on PC, Web, iPad, and mobile. Ready in 30 seconds.
             </p>
 
             <div className="flex flex-row gap-2.5 sm:gap-3 justify-center items-center flex-wrap">

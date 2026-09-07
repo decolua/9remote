@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useI18n } from "@/shared/i18n";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { agentLaunchCommand, applySkipPermissions } from "@/features/terminal/constants/agentCli";
 
 // Session/workspace navigation: select, create, delete, rename, and the workspace-aware
@@ -57,16 +58,52 @@ export function useSessionNavigation({
     currentView, pushView, clearNotification, replaceTopWithSession
   ]);
 
-  // Deep-link from a push notification tap (SW postMessage): open the right terminal
+  // Deep-link from a push notification tap (SW postMessage) or OS Dock icon click
   useEffect(() => {
     const onMessage = (e) => {
       if (e.data?.type !== "NOTIFICATION_CLICK") return;
       const sid = new URLSearchParams(new URL(e.data.url || "", location.origin).search).get("t");
       if (sid) handleSelectSession(sid);
     };
+
+    const onDockClick = () => {
+      const activeNotifs = useNotificationStore.getState().notifications;
+      const entries = Object.values(activeNotifs || {});
+      if (!entries.length) return;
+
+      const inCurrentWorkspace = (sId) => {
+        const sess = sessions.find((s) => s.id === sId);
+        return sess && sessionWorkspaceId(sess) === (activeWorkspaceId ?? null);
+      };
+
+      const sorted = entries.sort((a, b) => {
+        // 1. Prioritize active/focused workspace first
+        const aCur = inCurrentWorkspace(a.sessionId);
+        const bCur = inCurrentWorkspace(b.sessionId);
+        if (aCur && !bCur) return -1;
+        if (!aCur && bCur) return 1;
+
+        // 2. Blocked (waiting approval) > done
+        if (a.type === "blocked" && b.type !== "blocked") return -1;
+        if (b.type === "blocked" && a.type !== "blocked") return 1;
+
+        // 3. Latest timestamp
+        return (b.timestamp || 0) - (a.timestamp || 0);
+      });
+
+      const target = sorted[0];
+      if (target?.sessionId) {
+        handleSelectSession(target.sessionId);
+      }
+    };
+
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [handleSelectSession]);
+    window.addEventListener("9remote:dock-click", onDockClick);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener("9remote:dock-click", onDockClick);
+    };
+  }, [handleSelectSession, sessions, activeWorkspaceId]);
 
   // Tab/Shift+Tab in the PC input bar cycles sessions within the active workspace (wrap-round)
   const switchSession = useCallback((direction) => {

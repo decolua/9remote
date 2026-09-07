@@ -4,51 +4,51 @@ import { THEME } from "../constants/landingConfig";
 
 const SUPERPOWERS = [
   {
-    title: "Full-Featured Remote IDE",
-    tag: "All-In-One",
-    desc: "Your entire desktop coding setup — multi-pane terminal, code editor, Git diffs, and live AI tools — right in your pocket.",
-    path: "M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+    title: "Remote Vibe Coding",
+    tag: "AI-Ready",
+    desc: "Run Claude Code, Cursor & 30+ AI agents on the go with live artifact previews.",
+    path: "M13 10V3L4 14h7v7l9-11h-7z"
   },
   {
-    title: "Code on Mobile, Web & Any Screen",
+    title: "Every Screen, Everywhere",
     tag: "Any Device",
-    desc: "The smoothest on-the-go dev experience. Touch-optimized with dedicated dev keys, tactile haptics, and zero lag.",
+    desc: "Seamless across PC, Web, iPad keyboard shortcuts, and mobile dev keys.",
     path: "M12 18h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
   },
   {
-    title: "Instant Remote Desktop",
-    tag: "Smooth & Fast",
-    desc: "Take full control of your PC or Mac from anywhere. Silky smooth 60fps, crystal clear, and battery friendly.",
+    title: "60fps Remote Desktop",
+    tag: "Encrypted P2P",
+    desc: "Ultra-smooth PC & Mac control over encrypted WebRTC with host approval.",
     path: "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
   },
   {
-    title: "Visual File Explorer",
-    tag: "Effortless",
-    desc: "Browse, search, and edit project files with simple taps — no more wrestling with terminal paths.",
-    path: "M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+    title: "Full Remote IDE",
+    tag: "All-in-One",
+    desc: "Multi-pane terminal, code editor, and Git diffs in your pocket.",
+    path: "M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
   },
   {
-    title: "Live Remote Emulator",
+    title: "Live Mobile Emulator",
     tag: "Mobile Dev",
-    desc: "Test and interact with your running iOS and Android mobile apps directly from your phone screen.",
+    desc: "Test and interact with Android & iOS emulators directly from your phone.",
     path: "M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
   },
   {
-    title: "Instant Localhost Preview",
-    tag: "One Click",
-    desc: "View your live web app on your phone browser the moment you hit save — zero configuration needed.",
+    title: "Zero-Config Localhost",
+    tag: "Zero-Exposure",
+    desc: "Preview localhost without opening ports, ngrok, or exposing to the public internet.",
     path: "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
   },
   {
-    title: "Unbreakable Sessions",
-    tag: "Never Stops",
-    desc: "Switch apps, take phone calls, or change Wi-Fi — your running builds and servers never get interrupted.",
-    path: "M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+    title: "Visual File Explorer",
+    tag: "Path-Jailed",
+    desc: "Fuzzy search files (⌘⇧P) and edit code inside a secure, jailed workspace.",
+    path: "M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
   },
   {
-    title: "100% Private & In Your Hands",
+    title: "Zero-Trust & 100% Private",
     tag: "Self-Hosted",
-    desc: "Your code never leaves your computer. No cloud servers, no subscriptions, and total privacy.",
+    desc: "Physical host approval, direct P2P, zero cloud storage. Your code never leaves your machine.",
     path: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
   }
 ];
@@ -56,6 +56,7 @@ const SUPERPOWERS = [
 const COMPARISON_FEATURES = [
   { name: "Zero Config", nine: true, claude: true, teamviewer: true, chrome: true, termius: false },
   { name: "Remote IDE", nine: true, claude: false, teamviewer: false, chrome: false, termius: false },
+  { name: "30+ AI Agents & Vibe Coding", nine: true, claude: true, teamviewer: false, chrome: false, termius: false },
   { name: "Terminal Access", nine: true, claude: true, teamviewer: false, chrome: false, termius: true },
   { name: "Persistent Daemon", nine: true, claude: true, teamviewer: false, chrome: false, termius: true },
   { name: "Remote Localhost Preview", nine: true, claude: false, teamviewer: false, chrome: false, termius: false },
@@ -65,7 +66,7 @@ const COMPARISON_FEATURES = [
   { name: "AI Agent Artifacts", nine: true, claude: true, teamviewer: false, chrome: false, termius: false },
   { name: "Physical Host Approval", nine: true, claude: false, teamviewer: true, chrome: false, termius: false },
   { name: "Git Integration", nine: true, claude: false, teamviewer: false, chrome: false, termius: false },
-  { name: "Mobile Optimized", nine: true, claude: true, teamviewer: false, chrome: false, termius: true },
+  { name: "Mobile & iPad Optimized", nine: true, claude: true, teamviewer: false, chrome: false, termius: true },
   { name: "Browser-Based", nine: true, claude: true, teamviewer: false, chrome: true, termius: false },
   { name: "QR Login", nine: true, claude: true, teamviewer: false, chrome: false, termius: false },
   { name: "Auto Tunnel", nine: true, claude: true, teamviewer: true, chrome: true, termius: false },
@@ -104,13 +105,13 @@ export default function FeaturesSection() {
             className="inline-flex items-center gap-2 px-3 py-1 mb-4 rounded-full border text-xs font-mono"
             style={{ borderColor: THEME.border, background: THEME.bgPanel, color: THEME.accent }}
           >
-            All-in-one Dev Suite
+            Remote Everything · Everywhere
           </div>
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4" style={{ color: THEME.text }}>
             Why Choose <span style={{ color: THEME.text }}>9Remote?</span>
           </h2>
           <p className="text-base sm:text-lg max-w-2xl mx-auto" style={{ color: THEME.textDim }}>
-            Code from anywhere on Earth. All your development superpowers, unified in one zero-config, ultra-low latency suite.
+            All your dev superpowers on any screen — zero config, zero lag, zero trust.
           </p>
         </div>
 
@@ -238,7 +239,7 @@ export default function FeaturesSection() {
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
               <span className="font-semibold" style={{ color: THEME.text }}>
-                9Remote: Complete 18/18 capabilities · 100% self-hosted & private
+                9Remote: Complete 19/19 capabilities · 100% self-hosted & private
               </span>
             </div>
           </div>

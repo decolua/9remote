@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "preact/hooks";
+import { createPortal } from "preact/compat";
 import { useI18n } from "../i18n";
 import { SUPPORTED_LOCALES } from "../i18n/config";
 
@@ -36,16 +37,16 @@ export default function SettingsMenu({ isStopped, onStop, onShutdown, logs = [],
         <span className="material-symbols-outlined text-xl">settings</span>
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-[80] rounded-lg shadow-lg py-1 min-w-[220px]" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-          <button onClick={() => run(() => setLangOpen(true))} className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act" style={{ color: "var(--text-main)" }}>
+        <div className="absolute right-0 top-full mt-1 z-[80] menu-popover p-1 min-w-[220px]">
+          <button onClick={() => run(() => setLangOpen(true))} className="w-full text-left px-2.5 py-1.5 text-xs flex items-center gap-2 card-act rounded-[6px]" style={{ color: "var(--text-main)" }}>
             <img src={`https://flagcdn.com/w40/${curLocale.country}.png`} alt={curLocale.label} className="w-[17px] h-[12px] object-cover rounded-[2px]" loading="lazy" />
             <span className="flex-1 truncate">{curLocale.label}</span>
           </button>
-          <button onClick={() => run(() => setLogsOpen(true))} className="w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 card-act" style={{ color: "var(--text-main)" }}>
+          <button onClick={() => run(() => setLogsOpen(true))} className="w-full text-left px-2.5 py-1.5 text-xs flex items-center gap-2 card-act rounded-[6px]" style={{ color: "var(--text-main)" }}>
             <span className="material-symbols-outlined text-base">description</span>
             <span className="flex-1">{t("menu.logs")}</span>
           </button>
-          <div className="my-0.5" style={{ borderTop: "1px solid var(--border)" }} />
+          <div className="my-1" style={{ borderTop: "1px solid var(--border)" }} />
           <MenuAction icon="menu_book" label={t("header.documentation")} onClick={() => run(() => window.open(HELP_URL, "_blank"))} />
           {!isStopped && <MenuAction icon="restart_alt" label={t("header.resetShort")} onClick={() => run(onStop)} />}
           <MenuAction icon="power_settings_new" label={t("header.shutdownShort")} danger onClick={() => run(onShutdown)} />
@@ -66,9 +67,9 @@ function LanguageModal({ onClose }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-      <div className="glass-card p-5 flex flex-col gap-4 w-full max-w-lg max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+  const content = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" onClick={onClose}>
+      <div className="glass-card p-5 flex flex-col gap-4 w-full max-w-lg max-h-[90vh] animate-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold" style={{ color: "var(--text-main)" }}>{t("header.language")}</h3>
           <button onClick={onClose} className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--text-muted)", cursor: "pointer" }}>close</button>
@@ -90,6 +91,7 @@ function LanguageModal({ onClose }) {
       </div>
     </div>
   );
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
 
 // Logs viewer modal — server activity stream
@@ -102,9 +104,9 @@ function LogsModal({ logs, onClear, onClose }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-      <div className="glass-card p-5 flex flex-col gap-3 w-full max-w-2xl max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
+  const content = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" onClick={onClose}>
+      <div className="glass-card p-5 flex flex-col gap-3 w-full max-w-2xl max-h-[85vh] animate-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold" style={{ color: "var(--text-main)" }}>{t("menu.logs")}</h3>
           <div className="flex items-center gap-2">
@@ -128,6 +130,7 @@ function LogsModal({ logs, onClear, onClose }) {
       </div>
     </div>
   );
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
 
 // Single dropdown action row

@@ -186,6 +186,18 @@ export default function WorkspaceLayout({ children }) {
         .catch(() => {});
     }
   }, [auth, setAuth]);
+
+  // Tauri shell has no browser reload accelerator — wire Cmd/Ctrl+R and F5.
+  // Browser builds skip this and keep native reload.
+  useEffect(() => {
+    if (!window.__TAURI__) return;
+    const onKey = (e) => {
+      const isReload = e.key === "F5" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r");
+      if (isReload) { e.preventDefault(); window.location.reload(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const { bus, busRef, protocolRef, connected, connectionMode, carrier, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   const [shells, setShells] = useState([]);
 
@@ -839,7 +851,6 @@ export default function WorkspaceLayout({ children }) {
         {/* Not admitted yet = the agent has not accepted this device: the
             carrier can be open while the key TAIL is still being proven, and
             the workspace must not show through that window. */}
-        {(!connected || !admitted) && console.log(`[diag] reconnect overlay: connected=${connected} admitted=${admitted} hydrated=${hydrated} bus=${!!bus}`)} {/* TEMP DIAGNOSTIC — tab-switch overlay */}
         {(!connected || !admitted) && <ReconnectScreen />}
         {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 

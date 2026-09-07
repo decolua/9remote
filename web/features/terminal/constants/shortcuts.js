@@ -5,8 +5,8 @@
 
 // `code` matches the physical key (layout-independent); `key` is for named keys.
 export const SHORTCUTS = [
-  { id: "sessionPrev", key: "ArrowLeft", label: "Previous terminal", mac: "⌘⇧←", pc: "Ctrl+Shift+←" },
-  { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "⌘⇧→", pc: "Ctrl+Shift+→" },
+  { id: "sessionPrev", key: "ArrowLeft", label: "Previous terminal", mac: "⌥←", pc: "Ctrl+Shift+←" },
+  { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "⌥→", pc: "Ctrl+Shift+→" },
   { id: "palette", code: "KeyP", label: "Search files", mac: "⌘⇧P", pc: "Ctrl+Shift+P" },
   { id: "newTerminal", key: "Enter", label: "New terminal", mac: "⌘⇧↵", pc: "Ctrl+Shift+Enter" },
   { id: "toggleSidebar", code: "KeyB", label: "Toggle sidebar", mac: "⌘⇧B", pc: "Ctrl+Shift+B" },
@@ -17,7 +17,7 @@ export const SHORTCUTS = [
 export const SESSION_INDEX_SHORTCUT = {
   id: "sessionIndex",
   label: "Go to terminal 1–9",
-  mac: "⌘⇧1…9",
+  mac: "⌥1…9",
   pc: "Ctrl+Shift+1…9"
 };
 
@@ -69,17 +69,32 @@ const isEditableTarget = (target) => {
   return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 };
 
-// Returns { id, index? } for a Mod+Shift chord, or null.
+// Returns { id, index? } for a Mod+Shift chord (or Option chord on macOS), or null.
 export function matchShortcut(event) {
+  const mac = isMac();
+
+  // On macOS, terminal tab switching uses Option (⌥1..9, ⌥←, ⌥→)
+  if (mac && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+    const digit = DIGIT_CODE.exec(event.code) || (/^[1-9]$/.test(event.key) ? [null, event.key] : null);
+    if (digit) return { id: SESSION_INDEX_SHORTCUT.id, index: Number(digit[1]) - 1 };
+    if (event.key === "ArrowLeft") return { id: "sessionPrev" };
+    if (event.key === "ArrowRight") return { id: "sessionNext" };
+    return null;
+  }
+
   if (!event.shiftKey || !(event.metaKey || event.ctrlKey) || event.altKey) return null;
   // On macOS Cmd is the modifier; elsewhere Ctrl — never both.
-  if (isMac() ? !event.metaKey : !event.ctrlKey) return null;
+  if (mac ? !event.metaKey : !event.ctrlKey) return null;
 
-  const digit = DIGIT_CODE.exec(event.code);
-  if (digit) return { id: SESSION_INDEX_SHORTCUT.id, index: Number(digit[1]) - 1 };
+  // On PC, digit chord is Ctrl+Shift+1..9
+  if (!mac) {
+    const digit = DIGIT_CODE.exec(event.code);
+    if (digit) return { id: SESSION_INDEX_SHORTCUT.id, index: Number(digit[1]) - 1 };
+  }
 
   const editable = isEditableTarget(event.target);
   for (const entry of SHORTCUTS) {
+    if (mac && (entry.id === "sessionPrev" || entry.id === "sessionNext")) continue;
     const hit = entry.code ? event.code === entry.code : event.key === entry.key;
     if (!hit) continue;
     if (entry.skipInInput && editable) return null;
@@ -99,5 +114,5 @@ export function withHint(label, shortcutId) {
 // Tooltip hint for the Nth terminal tab (0-based). Only 1-9 are reachable by chord.
 export function tabIndexHint(index) {
   if (index < 0 || index > 8) return null;
-  return isMac() ? `⌘⇧${index + 1}` : `Ctrl+Shift+${index + 1}`;
+  return isMac() ? `⌥${index + 1}` : `Ctrl+Shift+${index + 1}`;
 }

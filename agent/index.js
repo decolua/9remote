@@ -64,17 +64,6 @@ const WEB_DIST = [
   join(__dirname, "..", "web", "out"),
 ].find((d) => existsSync(d)) || UI_DIST;
 
-// TEMP DIAGNOSTIC — prove which web build is actually deployed
-try {
-  const probe = join(WEB_DIST, "workspace.html");
-  if (existsSync(probe)) {
-    const st = statSync(probe);
-    logger.info(`[web-dist] dir=${WEB_DIST} workspace.html mtime=${st.mtime.toISOString()} bytes=${st.size}`);
-  } else {
-    logger.info(`[web-dist] dir=${WEB_DIST} (no workspace.html — agent UI only)`);
-  }
-} catch {}
-
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -118,6 +107,9 @@ function serveStatic(res, filePath) {
     const ext = extname(filePath);
     const mime = MIME_TYPES[ext] || "application/octet-stream";
     res.setHeader("Content-Type", mime);
+    // The agent-served pages auto-log-in and can drive a shell — they must
+    // never be framable by another origin (clickjacking + keystroke injection).
+    if (ext === ".html") res.setHeader("X-Frame-Options", "SAMEORIGIN");
     // Hashed build assets are immutable; everything else (HTML, RSC .txt) must
     // revalidate or a stale bundle keeps running after an agent update.
     const immutable = filePath.includes(`${sep}_next${sep}static${sep}`);
@@ -393,6 +385,9 @@ export async function startServer() {
     }
 
     const cleanPath = pathname.replace(/^\//, "");
+    // Literal dot-dot segments escape the dist roots via join(); browsers
+    // normalize them away, so only a raw socket sends them — reject outright.
+    if (cleanPath.split(/[\\/]/).includes("..")) { jsonErr(res, 400, "Bad request"); return; }
 
     // ── 1. Serve any direct static asset in WEB_DIST (icons, agents, _next, etc.) ──
     if (existsSync(WEB_DIST) && cleanPath) {
@@ -428,7 +423,6 @@ export async function startServer() {
       // answer here makes the client router hard-reload the page (kills the WS).
       const isRsc = req.headers.rsc === "1" || cleanPath.endsWith(".txt");
       if (isRsc) {
-        logger.info(`[web-nav] rsc fallback for ${pathname}`); // TEMP DIAGNOSTIC — tab-switch reload
         if (cleanPath.startsWith("workspace/terminal/") && serveStatic(res, join(WEB_DIST, "workspace", "terminal", "default.txt"))) return;
         if (serveStatic(res, join(WEB_DIST, "workspace.txt"))) return;
       }

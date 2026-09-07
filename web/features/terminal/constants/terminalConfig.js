@@ -32,11 +32,11 @@ export const COMMON_COMMANDS = [
 export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
 // Desktop pane width: null = auto (panes split the row evenly down to min, then the row
 // scrolls); a dragged number pins every pane to that fixed width. Double-click returns to auto.
-export const PANE_WIDTH = { min: 370, max: Infinity };
-// Gap between desktop panes (px) — matches the gap-1 class on the panes row.
-export const PANE_GAP_PX = 4;
-// Horizontal padding of the panes row (px) — matches the px-1 class on that row.
-export const PANE_ROW_PADDING_PX = 8;
+export const PANE_WIDTH = { min: 400, max: Infinity };
+// Gap between desktop panes (px) — 2px divider between panes.
+export const PANE_GAP_PX = 2;
+// Horizontal padding of the panes row (px) — matches the px-0 class on that row.
+export const PANE_ROW_PADDING_PX = 0;
 export const MAX_LIVE_PANES = 12; // Max mounted XTerm panes kept alive (LRU); caps RAM
 
 // Left sidebar (workspace + terminal list)

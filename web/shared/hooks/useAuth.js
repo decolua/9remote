@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS, TUNNEL_VERIFY_TIMEOUT_MS, CONNECT_TIMEOUT_MS } from "@/shared/constants/API";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
+import { isLocalAgentNetwork } from "@/shared/utils/localOrigin";
 
 // Plain text, not a translation key: this hook has no i18n context, and the
 // login page swaps it for the localised string it already owns.
@@ -62,9 +63,9 @@ export function useAuth() {
     setError("");
 
     try {
-      const isDirectAgent = typeof window !== "undefined" &&
-        window.location.hostname !== "9remote.cc" &&
-        !window.location.hostname.endsWith(".9remote.cc");
+      // Only a page the agent itself serves (loopback/LAN) may receive the
+      // TAIL — never an arbitrary origin that happens to host this bundle.
+      const isDirectAgent = isLocalAgentNetwork();
 
       if (isDirectAgent) {
         const tail = credentials.tail || tailOf(credentials.apiKey || "");

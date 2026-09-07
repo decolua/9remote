@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2, ArrowUp, ArrowDown } from "@/shared/components/ui/Icon";
+import { Trash2, ArrowUp, ArrowDown, Terminal } from "@/shared/components/ui/Icon";
 import { SESSION_SORT_FIELDS, SESSION_ONLINE_THRESHOLD_MS, LOYALTY_TIERS } from "../constants";
 
 const COLUMNS = [
@@ -22,7 +22,17 @@ function isOnline(session) {
 
 function formatTime(value) {
   if (!value) return "-";
-  try { return new Date(value + "Z").toLocaleString(); } catch { return value; }
+  try {
+    const d = new Date(value + "Z");
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  } catch {
+    return value;
+  }
 }
 
 // Classify user loyalty by session age (lastAccessAt - createdAt)
@@ -49,10 +59,23 @@ function formatDuration(ms) {
 
 function LoyaltyBadge({ session }) {
   const { tier, ageMs } = getLoyalty(session);
+  const tierBg =
+    tier.key === "loyal"
+      ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+      : tier.key === "returning"
+      ? "bg-brand-500/10 text-brand-500 border-brand-500/20"
+      : tier.key === "active"
+      ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
+      : "bg-surface-2 text-text-muted border-border-subtle";
+
   return (
-    <div className="flex flex-col">
-      <span className={`font-medium ${tier.color}`}>{tier.label}</span>
-      <span className="text-text-subtle text-xs">{formatDuration(ageMs)}</span>
+    <div className="inline-flex items-center gap-1.5">
+      <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${tierBg}`}>
+        {tier.label}
+      </span>
+      {ageMs != null && (
+        <span className="text-text-subtle text-[11px] font-mono">{formatDuration(ageMs)}</span>
+      )}
     </div>
   );
 }
@@ -67,109 +90,189 @@ export default function SessionTable({ items, sortBy, order, onSortChange, onDel
   return (
     <>
       {/* Mobile sort selector */}
-      <div className="md:hidden flex items-center gap-2 mb-3 text-sm">
-        <span className="text-text-muted">Sort:</span>
-        <select
-          value={sortBy}
-          onChange={(e) => onSortChange(e.target.value, order)}
-          className="bg-surface-2 rounded-brand px-2 py-1 text-text"
-        >
-          {SORT_OPTIONS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-        </select>
+      <div className="md:hidden flex items-center justify-between mb-3 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-text-muted">Sort by:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => onSortChange(e.target.value, order)}
+            className="bg-surface-2 border border-border-subtle rounded-lg px-2.5 py-1.5 text-text focus:outline-none"
+          >
+            {SORT_OPTIONS.map((c) => (
+              <option key={c.key} value={c.key}>{c.label}</option>
+            ))}
+          </select>
+        </div>
         <button
           onClick={() => onSortChange(sortBy, order === "asc" ? "desc" : "asc")}
-          className="bg-surface-2 hover:bg-surface-3 rounded-brand p-1.5 text-text"
+          className="flex items-center gap-1 bg-surface-2 hover:bg-surface-3 border border-border-subtle rounded-lg px-2.5 py-1.5 text-text transition-colors"
           aria-label="Toggle order"
         >
-          {order === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+          <span className="font-mono uppercase">{order}</span>
+          {order === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
         </button>
       </div>
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-3">
         {items.length === 0 && (
-          <div className="card-soft p-6 text-center text-text-muted border border-border-subtle">No sessions</div>
-        )}
-        {items.map((s) => (
-          <div key={s.machineId} className="card-soft p-3 border border-border-subtle space-y-2 text-sm">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={`shrink-0 w-2 h-2 rounded-full ${isOnline(s) ? "bg-success" : "bg-text-subtle"}`}></span>
-                <span className="font-mono text-xs truncate">{s.machineId}</span>
-              </div>
-              {canDelete && (
-                <button
-                  onClick={() => onDelete(s.machineId)}
-                  className="text-text-muted hover:text-danger transition-colors shrink-0"
-                  title="Delete"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-              <div className="text-text-muted">Loyalty</div><div><LoyaltyBadge session={s} /></div>
-              <div className="text-text-muted">Public IP</div><div>{s.publicIp || "-"}</div>
-              <div className="text-text-muted">Local IP</div><div>{s.localIp || "-"}</div>
-              <div className="text-text-muted">Last Access</div><div>{formatTime(s.lastAccessAt)}</div>
-              <div className="text-text-muted">Created</div><div>{formatTime(s.createdAt)}</div>
-              <div className="text-text-muted">Expires</div><div>{formatTime(s.expiresAt)}</div>
-            </div>
+          <div className="card-glass p-8 text-center text-text-muted flex flex-col items-center justify-center">
+            <Terminal size={24} className="mb-2 text-text-subtle" />
+            <p className="text-sm">No active sessions found</p>
           </div>
-        ))}
+        )}
+        {items.map((s) => {
+          const online = isOnline(s);
+          return (
+            <div key={s.machineId} className="card-glass overflow-hidden text-sm">
+              {/* Card Mini Titlebar */}
+              <div className="flex items-center justify-between px-3.5 py-2.5 bg-surface-2/60 border-b border-border-subtle">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="relative flex h-2 w-2">
+                    {online ? (
+                      <>
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                      </>
+                    ) : (
+                      <span className="inline-block w-2 h-2 rounded-full bg-neutral-500/40" />
+                    )}
+                  </span>
+                  <span className="font-mono text-xs font-semibold tracking-tight text-text truncate">
+                    {s.machineId}
+                  </span>
+                </div>
+                {canDelete && (
+                  <button
+                    onClick={() => onDelete(s.machineId)}
+                    className="text-text-muted hover:text-danger p-1 rounded hover:bg-red-500/10 transition-colors"
+                    title="Delete session"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              </div>
+
+              {/* Card Details */}
+              <div className="p-3.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-text-muted">Loyalty</span>
+                  <LoyaltyBadge session={s} />
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border-subtle/40">
+                  <div>
+                    <span className="text-[10px] uppercase font-mono text-text-subtle block">Public IP</span>
+                    <span className="font-mono text-text truncate block">{s.publicIp || "-"}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-mono text-text-subtle block">Local IP</span>
+                    <span className="font-mono text-text truncate block">{s.localIp || "-"}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border-subtle/40 text-[11px] text-text-muted">
+                  <div>
+                    <span className="text-text-subtle block">Created</span>
+                    <span>{formatTime(s.createdAt)}</span>
+                  </div>
+                  <div>
+                    <span className="text-text-subtle block">Last Access</span>
+                    <span className="text-text">{formatTime(s.lastAccessAt)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Desktop table */}
-      <div className="hidden md:block card-soft border border-border-subtle overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-surface-2">
+      <div className="hidden md:block card-glass overflow-hidden">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-surface-2/60 border-b border-border-subtle text-[11px] font-mono uppercase tracking-wider text-text-muted">
             <tr>
-              <th className="px-3 py-2 text-left text-text-muted font-medium">Status</th>
-              <th className="px-3 py-2 text-left text-text-muted font-medium">Loyalty</th>
+              <th className="px-4 py-3 w-12 text-center">Live</th>
+              <th className="px-4 py-3">Loyalty</th>
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
                   onClick={() => col.sortable && handleSort(col.key)}
-                  className={`px-3 py-2 text-left text-text-muted font-medium ${col.sortable ? "cursor-pointer hover:text-text select-none" : ""}`}
+                  className={`px-4 py-3 ${
+                    col.sortable ? "cursor-pointer hover:text-text select-none group" : ""
+                  }`}
                 >
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex items-center gap-1.5">
                     {col.label}
-                    {col.sortable && sortBy === col.key && (order === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                    {col.sortable && (
+                      <span className={sortBy === col.key ? "text-brand-500" : "text-text-subtle opacity-40 group-hover:opacity-100"}>
+                        {sortBy === col.key && order === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+                      </span>
+                    )}
                   </span>
                 </th>
               ))}
-              {canDelete && <th className="px-3 py-2"></th>}
+              {canDelete && <th className="px-4 py-3 text-right">Action</th>}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-border-subtle/50">
             {items.length === 0 && (
-              <tr><td colSpan={COLUMNS.length + 3} className="px-3 py-8 text-center text-text-muted">No sessions</td></tr>
-            )}
-            {items.map((s) => (
-              <tr key={s.machineId} className="border-t border-border-subtle hover:bg-surface-2/50">
-                  <td className="px-3 py-2">
-                    <span className={`inline-block w-2 h-2 rounded-full ${isOnline(s) ? "bg-success" : "bg-text-subtle"}`}></span>
-                  </td>
-                  <td className="px-3 py-2"><LoyaltyBadge session={s} /></td>
-                  <td className="px-3 py-2 font-mono text-xs">{s.machineId}</td>
-                <td className="px-3 py-2">{s.publicIp || "-"}</td>
-                <td className="px-3 py-2">{s.localIp || "-"}</td>
-                <td className="px-3 py-2">{formatTime(s.createdAt)}</td>
-                <td className="px-3 py-2">{formatTime(s.lastAccessAt)}</td>
-                <td className="px-3 py-2">{formatTime(s.expiresAt)}</td>
-                {canDelete && (
-                  <td className="px-3 py-2">
-                    <button
-                      onClick={() => onDelete(s.machineId)}
-                      className="text-text-muted hover:text-danger transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </td>
-                )}
+              <tr>
+                <td colSpan={COLUMNS.length + 3} className="px-4 py-12 text-center text-text-muted">
+                  <Terminal size={28} className="mx-auto mb-2 text-text-subtle" />
+                  <p>No active sessions found</p>
+                </td>
               </tr>
-            ))}
+            )}
+            {items.map((s) => {
+              const online = isOnline(s);
+              return (
+                <tr key={s.machineId} className="hover:bg-surface-2/40 transition-colors">
+                  <td className="px-4 py-3 text-center">
+                    <span className="relative inline-flex h-2 w-2">
+                      {online ? (
+                        <>
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                        </>
+                      ) : (
+                        <span className="inline-block w-2 h-2 rounded-full bg-neutral-500/40" />
+                      )}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <LoyaltyBadge session={s} />
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs font-medium text-text">
+                    {s.machineId}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-text-muted">
+                    {s.publicIp || "-"}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-text-muted">
+                    {s.localIp || "-"}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-text-muted">
+                    {formatTime(s.createdAt)}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-text font-medium">
+                    {formatTime(s.lastAccessAt)}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-text-muted">
+                    {formatTime(s.expiresAt)}
+                  </td>
+                  {canDelete && (
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => onDelete(s.machineId)}
+                        className="text-text-muted hover:text-danger p-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
+                        title="Delete session"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

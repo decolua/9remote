@@ -57,9 +57,28 @@
   border-radius: var(--radius-brand-lg);
 }
 .card-elev {
-  background-color: var(--color-surface);
-  box-shadow: var(--shadow-elev);
-  border-radius: var(--radius-brand-lg);
+  background: var(--card-glass-bg);
+  backdrop-filter: blur(24px) saturate(190%);
+  -webkit-backdrop-filter: blur(24px) saturate(190%);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.55), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+}
+
+/* macOS-style frosted glass context menu & dropdown popover */
+.menu-popover {
+  background: var(--card-glass-bg);
+  backdrop-filter: blur(20px) saturate(190%);
+  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.5), inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+}
+
+.menu-popover button,
+.menu-popover a {
+  border-radius: 6px;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 /* Terminal-glass card: translucent surface + top-edge shine, meant to float on the
@@ -626,16 +645,28 @@ html.terminal-page body {
   50% { opacity: 0.3; }
 }
 
-/* Terminal tabs — translucent pill background on active/hover (parity with agent/ui/src/index.css) */
+/* Terminal tabs — style matching IDE tabs (dark surface, subtle divider, bottom highlight) */
 .term-tab {
   border-radius: 0;
   color: var(--text-muted);
+  border-right: 1px solid var(--border-subtle);
+  transition: background 0.15s ease-out, color 0.15s ease-out;
 }
-.term-tab:hover:not(.term-tab-active) { color: var(--text); background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.term-tab:hover:not(.term-tab-active) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-2) 40%, transparent);
+}
 .term-tab-active {
   color: var(--text);
   font-weight: 600;
-  background: color-mix(in srgb, var(--color-brand-500) 35%, transparent);
+  background: var(--surface-3);
+  box-shadow: inset 0 -2px 0 0 #ffffff;
+}
+:root.light .term-tab-active,
+html.light .term-tab-active,
+:root[data-theme="light"] .term-tab-active {
+  background: #ffffff;
+  box-shadow: inset 0 -2px 0 0 var(--text);
 }
 
 /* AI agent status dots — idle/working/blocked/done (see shared/utils/statusVisual.js) */
@@ -721,6 +752,25 @@ html.terminal-page body {
 button {
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* The workspace shell is an app, not a document — a light trackpad drag over
+   chrome (headers, sidebar, status bars) must not paint a native selection,
+   which in the macOS WKWebView shell happens constantly. Copyable surfaces
+   re-enable it below. */
+.terminal-container {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.terminal-container input,
+.terminal-container textarea,
+.terminal-container [contenteditable="true"],
+.terminal-container pre,
+.terminal-container code,
+.terminal-container .cm-content,
+.terminal-container .xterm .xterm-accessibility-tree {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* Pointer cursor for interactive elements (browser default is "default") */

@@ -143,6 +143,78 @@ function setupMacImeFix(term, container) {
   };
 }
 
+// WKWebView on macOS (Tauri) can miss mouseup after a trackpad tap / three-finger drag.
+// xterm listens on document while selecting, so when mousemove reports buttons === 0,
+// synthesize the release so xterm cleans up its document-level selection listeners.
+function setupMacMouseFix(term, container) {
+  if (!isMacWebKit() || !container) return () => {};
+
+  let primaryMouseDown = false;
+
+  const onMouseDown = (e) => {
+    if (e.button === 0) {
+      primaryMouseDown = true;
+    }
+  };
+
+  const onMouseUp = (e) => {
+    if (e.button === 0) {
+      primaryMouseDown = false;
+    }
+  };
+
+  const onMouseMove = (e) => {
+    if (!primaryMouseDown || e.buttons !== 0) return;
+    primaryMouseDown = false;
+    e.stopImmediatePropagation();
+
+    const syntheticMouseUp = new MouseEvent("mouseup", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 0,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      screenX: e.screenX,
+      screenY: e.screenY,
+      ctrlKey: e.ctrlKey,
+      metaKey: e.metaKey,
+      altKey: e.altKey,
+      shiftKey: e.shiftKey,
+    });
+    document.dispatchEvent(syntheticMouseUp);
+  };
+
+  const onCancelOrBlur = () => {
+    if (primaryMouseDown) {
+      primaryMouseDown = false;
+      const syntheticMouseUp = new MouseEvent("mouseup", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        buttons: 0,
+      });
+      document.dispatchEvent(syntheticMouseUp);
+    }
+  };
+
+  container.addEventListener("mousedown", onMouseDown);
+  container.addEventListener("mouseup", onMouseUp);
+  container.addEventListener("pointercancel", onCancelOrBlur);
+  container.addEventListener("mouseleave", onCancelOrBlur);
+  document.addEventListener("mousemove", onMouseMove, true);
+  window.addEventListener("blur", onCancelOrBlur);
+
+  return () => {
+    container.removeEventListener("mousedown", onMouseDown);
+    container.removeEventListener("mouseup", onMouseUp);
+    container.removeEventListener("pointercancel", onCancelOrBlur);
+    container.removeEventListener("mouseleave", onCancelOrBlur);
+    document.removeEventListener("mousemove", onMouseMove, true);
+    window.removeEventListener("blur", onCancelOrBlur);
+  };
+}
+
 // isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
 // isFocused: pane receives keyboard input (only one pane focused at a time)
 export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, bgKey = "none", onInput, onSelectionMade }) {
@@ -313,6 +385,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
 
     term.open(containerRef.current);
     const cleanupImeFix = setupMacImeFix(term, containerRef.current);
+    const cleanupMouseFix = setupMacMouseFix(term, containerRef.current);
 
     // rAF write batcher — coalesce high-frequency output bursts into one write/frame so the
     // main thread isn't blocked parsing/rendering each 1KB chunk.
@@ -647,6 +720,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       if (webglAddonRef.current) webglAddonRef.current.dispose();
       if (writeBatcherRef.current) writeBatcherRef.current.dispose();
       cleanupImeFix();
+      cleanupMouseFix();
       fitAddon.dispose();
       term.dispose();
       termRef.current = null;

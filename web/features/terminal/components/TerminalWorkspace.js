@@ -11,7 +11,7 @@ import { derivePaneLayout, mountDelayFor, sessionWorkspaceId } from "@/features/
 import { startWidthDrag } from "@/shared/utils/dragResize";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
-import { trackRender, trackScrollTrigger } from "@/shared/utils/renderDiag";
+import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 
 const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
 const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
@@ -24,20 +24,39 @@ const TerminalEditorPanel = dynamic(() => import("@/features/terminal/components
 const OverflowTip = dynamic(() => import("@/shared/components/ui/OverflowTip"), { ssr: false });
 const TerminalEmptyState = dynamic(() => import("@/features/terminal/components/TerminalEmptyState"), { ssr: false });
 
-const focusBorderClass = (isFocused, state) => {
-  if (isFocused) return "outline outline-1 -outline-offset-1 outline-brand-500";
-  if (state === "working") return "status-border-working";
-  if (state === "blocked") return "status-border-blocked";
-  if (state === "done") return "status-border-done";
-  return "";
-};
-
-// Isolated per-pane status border so status updates only re-render the single pane's border
-const PaneStatusBorder = memo(function PaneStatusBorder({ sessionId, isFocused, hasMultiplePanes, children }) {
-  const sessionState = useNotificationStore((s) => s.sessionStatus[sessionId]?.state || "idle");
+// Per-pane wrapper positioning terminal directly above the bottom input bar
+const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
   return (
-    <div className={`absolute inset-x-0 top-0 bottom-[37px] overflow-hidden p-px ${focusBorderClass(isFocused && hasMultiplePanes, sessionState)}`}>
+    <div className="absolute inset-x-0 top-0 bottom-[37px] overflow-hidden">
       {children}
+    </div>
+  );
+});
+
+// Isolated per-pane status dot: only shows when active (working / done / blocked), hides when idle
+const PaneStatusBadge = memo(function PaneStatusBadge({ sessionId }) {
+  const sessionStatus = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId] : null);
+  const state = sessionStatus?.state || "idle";
+  if (state === "idle") return null;
+
+  return (
+    <div className="absolute left-2.5 top-2.5 z-20 hidden sm:flex items-center justify-center p-1 rounded-full bg-surface/80 backdrop-blur-sm border border-border-subtle/60 shadow-sm select-none pointer-events-none">
+      {state === "working" ? (
+        <span
+          className="w-2.5 h-2.5 rounded-full bg-[#3b82f6] animate-[pulse_0.8s_ease-in-out_infinite]"
+          style={{ boxShadow: "0 0 6px rgba(59,130,246,0.6)" }}
+        />
+      ) : state === "done" ? (
+        <span
+          className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"
+          style={{ boxShadow: "0 0 6px rgba(245,158,11,0.5)" }}
+        />
+      ) : state === "blocked" ? (
+        <span
+          className="w-2.5 h-2.5 rounded-full bg-[#ef4444] animate-[pulse_0.8s_ease-in-out_infinite]"
+          style={{ boxShadow: "0 0 6px rgba(239,68,68,0.6)" }}
+        />
+      ) : null}
     </div>
   );
 });
@@ -70,10 +89,6 @@ function TerminalWorkspace({
   const activeCarrier = carrier || storeCarrier;
   const activeFileBus = fileBus || useFileBusStore.getState();
   const handleClearNotification = clearNotification || useNotificationStore.getState().clearNotification;
-
-  trackRender("TerminalWorkspace", {
-    activeSessionId, activeWorkspaceId, isConnected, isDesktop, isTerminalView, sidebarCollapsed
-  });
 
   const {
     panesContainerRef, registerPaneApi, registerPaneElement, registerKeyboardTextApi,
@@ -114,6 +129,9 @@ function TerminalWorkspace({
     reorderOpenedSessions(orderedIds);
     onReorderSession?.(orderedIds);
   }, [reorderOpenedSessions, onReorderSession]);
+  const handleSelectTab = useCallback((sessionId) => {
+    nav.handleSelectSession(sessionId);
+  }, [nav]);
   const filesRoot = rightPanelRoots[baseRoot] || baseRoot;
   // The right panel is memoized — these four would hand it a fresh closure per render.
   const handleRightPanelTabChange = useCallback(
@@ -235,7 +253,6 @@ function TerminalWorkspace({
     prevPanelStateRef.current = { editorFile: editorPanel?.filePath, rightOpen: rightPanel?.open };
     if (!panelChanged) return;
     const id = setTimeout(() => {
-      trackScrollTrigger("TerminalWorkspace.reCenterPaneTimeout", { activeSessionId });
       scrollPaneIntoView(activeSessionId);
     }, 260);
     return () => clearTimeout(id);
@@ -368,7 +385,7 @@ function TerminalWorkspace({
             activeSessionId={activeSessionId}
             isActive={isTerminalView}
             connected={isConnected}
-            onSwitchSession={nav.handleSelectSession}
+            onSwitchSession={handleSelectTab}
             onCreateSession={nav.handleQuickCreateSession}
             onRenameSession={nav.handleRenameSession}
             onDeleteSession={nav.handleDeleteSession}
@@ -421,7 +438,7 @@ function TerminalWorkspace({
           ) : (
           <div
             ref={panesContainerRef}
-            className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row gap-1 overflow-x-auto overflow-y-hidden px-1 pb-0 scrollbar-none" : "relative"}`}
+            className={`flex-1 min-h-0 ${isDesktop ? "flex flex-row overflow-x-auto overflow-y-hidden px-0 pb-0 scrollbar-none" : "relative"}`}
             {...bindSwipeTab({
               enabled: !isDesktop,
               sessionIds: workspaceOpenedSessions,
@@ -444,7 +461,7 @@ function TerminalWorkspace({
                     !inActiveWorkspace
                       ? "hidden"
                       : isDesktop
-                      ? `h-full relative ${isPaneResizing ? "" : "transition-[width] duration-200 ease-out"}`
+                      ? `h-full relative bg-bg border-r-2 border-border-subtle last:border-r-0 ${isPaneResizing ? "" : "transition-[width] duration-200 ease-out"}`
                       : `absolute inset-0 ${isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
                   }
                   // Explicit px width (pinned or computed auto) so every width change —
@@ -462,14 +479,10 @@ function TerminalWorkspace({
                     <div className="w-full h-full flex items-center justify-center text-text-muted text-xs" />
                   ) : isDesktop ? (
                     <>
-                      {/* Focus ring is redundant when the workspace has a single pane */}
-                      <PaneStatusBorder
-                        sessionId={sessionId}
-                        isFocused={isFocused}
-                        hasMultiplePanes={workspaceOpenedSessions.length > 1}
-                      >
+                      <PaneContentWrapper>
+                        <PaneStatusBadge sessionId={sessionId} />
                         {renderPane(sessionId, isVisible, isFocused, bgIndex)}
-                      </PaneStatusBorder>
+                      </PaneContentWrapper>
                       {/* Per-pane input slot — absolute, directly below the terminal */}
                       <div className="absolute inset-x-0 bottom-0 z-20 border-t border-border-subtle bg-surface">
                         {isFocused ? renderKeyboard(sessionId) : (

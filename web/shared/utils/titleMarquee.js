@@ -32,6 +32,8 @@ function setTitle(value) {
   const watching = observer;
   if (watching) watching.disconnect();
   document.title = value;
+  // Tauri shell: the native window title does not follow document.title — mirror it.
+  try { window.__TAURI__?.window?.getCurrentWindow?.().setTitle(value)?.catch?.(() => {}); } catch {}
   if (watching) watching.observe(document.head, { childList: true, subtree: true, characterData: true });
 }
 

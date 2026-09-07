@@ -32,6 +32,11 @@ export function startWidthDrag(event, { startWidth, axis = 1, onWidth, onEnd }) 
   };
 
   const onMove = (ev) => {
+    // If buttons is 0, mouse/trackpad was released but pointerup was dropped by WebKit
+    if (ev.buttons === 0) {
+      onUp();
+      return;
+    }
     pendingX = ev.clientX;
     if (rafId === null) rafId = requestAnimationFrame(commit);
   };
@@ -39,6 +44,7 @@ export function startWidthDrag(event, { startWidth, axis = 1, onWidth, onEnd }) 
   const onUp = () => {
     document.removeEventListener("pointermove", onMove);
     document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onUp);
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
     // A frame may still be queued with the last position — land it rather than
@@ -51,4 +57,5 @@ export function startWidthDrag(event, { startWidth, axis = 1, onWidth, onEnd }) 
   document.body.style.userSelect = "none";
   document.addEventListener("pointermove", onMove);
   document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onUp);
 }

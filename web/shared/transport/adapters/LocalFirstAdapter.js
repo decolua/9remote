@@ -41,10 +41,9 @@ export class LocalFirstAdapter {
       // page's own origin (agent-served workspace) IS the local carrier, even
       // though it rides this function rather than the localIp probe.
       const mode = this._tunnelUrl === window.location.origin ? "local" : "tunnel";
-      console.log(`[diag] ws adapter connect: url=${mkUrl(this._tunnelUrl)} localIp=${this._localIp} pageOrigin=${window.location.origin} mode=${mode}`); // TEMP DIAGNOSTIC
       const socket = io(mkUrl(this._tunnelUrl), mkOpts(mode));
       socket.once("connect", () => win(socket, mode));
-      socket.once("connect_error", (e) => { console.log(`[diag] ws adapter connect_error: ${e?.message || e}`); fail(); }); // TEMP DIAGNOSTIC
+      socket.once("connect_error", () => fail());
     };
 
     // HTTPS pages block ws:// (Mixed Content), and no localIp means no probe

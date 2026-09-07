@@ -700,7 +700,7 @@ export default function ExplorerPanel({
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed z-50 bg-surface-2 border border-border rounded-brand shadow-lg py-1 min-w-[150px]"
+          className="fixed z-50 menu-popover p-1 min-w-[150px] animate-in fade-in zoom-in-95 duration-100"
           style={{ left: contextMenuPos.left, top: contextMenuPos.top }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -712,7 +712,7 @@ export default function ExplorerPanel({
                 item.action();
                 setContextMenu(null);
               }}
-              className={`w-full flex items-center gap-1.5 px-2.5 py-1 text-xs text-left hover:bg-surface-3 transition-colors ${
+              className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-xs text-left hover:bg-surface-2/80 rounded-[6px] transition-colors ${
                 item.danger ? "text-red-400" : "text-text"
               }`}
             >
@@ -726,8 +726,8 @@ export default function ExplorerPanel({
       {/* New item modal — the plain name prompt, plus a way in for an OS file picker */}
       {newItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setNewItemModal(null)} />
-          <div className="relative bg-surface-2 border border-border rounded-brand p-4 w-full max-w-sm">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" onClick={() => setNewItemModal(null)} />
+          <div className="relative card-elev p-4 w-full max-w-sm animate-in zoom-in-95 duration-150">
             <h3 className="text-sm font-semibold text-text mb-2">
               {newItemModal.type === "folder" ? "New Folder" : "New File"}
             </h3>

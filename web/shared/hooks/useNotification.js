@@ -156,7 +156,18 @@ export function useNotification(busRef, connected) {
     // Preserve last-known tool for sessions the agent cleared (no longer in map)
     // so the agent icon persists when idle.
     const handleStatusState = (state) => useNotificationStore.getState().handleStatusState(state);
-    const handleStatusChange = (payload) => useNotificationStore.getState().handleStatusChange(payload);
+    const handleStatusChange = (payload) => {
+      useNotificationStore.getState().handleStatusChange(payload);
+      if (payload && (payload.state === "done" || payload.state === "blocked")) {
+        const isDone = payload.state === "done";
+        const label = payload.tool ? payload.tool.charAt(0).toUpperCase() + payload.tool.slice(1) : "Terminal";
+        const title = isDone ? `${label} Finished` : `${label} Needs Approval`;
+        const body = isDone ? "Task completed" : "Action required to proceed";
+        if (typeof window !== "undefined" && window.__9R_DESKTOP__?.showNotification) {
+          window.__9R_DESKTOP__.showNotification(title, body);
+        }
+      }
+    };
     const handleStatusCleared = (sessionId) => useNotificationStore.getState().handleStatusCleared(sessionId);
     const handleNotificationState = (state) => useNotificationStore.getState().handleNotificationState(state);
 
@@ -193,10 +204,13 @@ export function useNotification(busRef, connected) {
     };
   }, [busRef, connected]);
 
-  // Sync in-app notification count → PWA icon badge (Android/desktop Chrome/Edge/Brave; iOS ignores)
+  // Sync in-app notification count → PWA icon badge + desktop Dock badge
   useEffect(() => {
-    if (typeof navigator === "undefined" || !("setAppBadge" in navigator)) return;
     const count = Object.keys(notifications).length;
+    if (typeof window !== "undefined" && window.__9R_DESKTOP__?.setBadge) {
+      window.__9R_DESKTOP__.setBadge(count);
+    }
+    if (typeof navigator === "undefined" || !("setAppBadge" in navigator)) return;
     if (count > 0) {
       navigator.setAppBadge(count).catch(() => {});
     } else {

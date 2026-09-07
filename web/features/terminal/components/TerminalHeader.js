@@ -22,7 +22,7 @@ import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { useGithubStars } from "@/shared/hooks/useGithubStars";
 import { GITHUB_REPO_URL } from "@/shared/constants/github";
-import { trackRender, trackScrollTrigger } from "@/shared/utils/renderDiag";
+import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 
 function TerminalHeader({
   sessions = [],
@@ -74,7 +74,6 @@ function TerminalHeader({
   const notifications = propNotifications || storeNotifications;
   const sessionStatus = propStatus || storeSessionStatus;
 
-  trackRender("TerminalHeader", { activeSessionId, sessionCount: sessions.length, connected, sidebarCollapsed });
   const { formattedStars } = useGithubStars();
   // Chords only fire on desktop, so only a pointer device gets the hint.
   const hasKeyboard = useInputMode() === "mouse";
@@ -111,7 +110,6 @@ function TerminalHeader({
   useEffect(() => {
     if (!isActive) return;
     const onKey = (e) => {
-      // Shortcuts active only while a text input/textarea is focused
       const el = document.activeElement;
       if (!el || (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA")) return;
       if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
@@ -124,12 +122,12 @@ function TerminalHeader({
       else return;
       e.preventDefault();
       if (target && target.id !== activeSessionId) onSwitchSession?.(target.id);
-      // Double rAF keeps focus on input, beating pane focus
       requestAnimationFrame(() => requestAnimationFrame(() => el.focus()));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isActive, sessions, activeSessionId, onSwitchSession]);
+
   // Actions only (stable identities): this component WRITES context/callbacks, so
   // subscribing to the whole store would re-render it on its own every write.
   const openMenu = useSlideMenuStore((s) => s.open);
@@ -233,7 +231,6 @@ function TerminalHeader({
       const delta = tab.getBoundingClientRect().left - scroller.getBoundingClientRect().left;
       const centered = scroller.scrollLeft + delta - (scroller.clientWidth - tab.offsetWidth) / 2;
       const max = scroller.scrollWidth - scroller.clientWidth;
-      trackScrollTrigger("TerminalHeader.scrollTabIntoView", { activeSessionId, delta, centered });
       scroller.scrollTo({ left: Math.max(0, Math.min(centered, max)), behavior: "smooth" });
     });
     return () => cancelAnimationFrame(id);
@@ -270,12 +267,11 @@ function TerminalHeader({
   }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
-    // Desktop left inset matches the panes row (px-1) plus the pane's p-px border
-    <div className="px-2 sm:pl-[5px] sm:pr-2 py-0.5 sm:py-0 flex items-center gap-0 flex-shrink-0 bg-bg">
+    <div className={`h-9 ${PANEL_HEADER_H_CLASS} px-2 sm:pl-0 sm:pr-2 flex items-stretch gap-0 flex-shrink-0 bg-bg border-b border-border-subtle`}>
       {onToggleSidebar && sidebarCollapsed && (
         <button
           onClick={() => { vibrate(); onToggleSidebar(); }}
-          className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+          className="p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0 self-center"
           title={hint(t("common.open"), "toggleSidebar")}
         >
           <PanelLeft size={16} />
@@ -287,7 +283,7 @@ function TerminalHeader({
       {onBack && (
         <button
           onClick={() => { vibrate(); onBack(); }}
-          className="p-1 pl-1.5 pr-3.5 sm:p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+          className="p-1 pl-1.5 pr-3.5 sm:p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] flex-shrink-0 self-center"
           title={t("common.back")}
         >
           <ChevronLeft size={20} className="sm:hidden" />
@@ -296,8 +292,8 @@ function TerminalHeader({
       )}
 
       {/* overflow-auto whitelists this for mobile touchmove (see page.js preventScroll) */}
-      <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-dark-400 scrollbar-track-transparent">
-        <div className="flex gap-0 min-w-max items-center">
+      <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-none h-full">
+        <div className="flex gap-0 min-w-max items-stretch h-full">
           {sessions.map((session, tabIndex) => {
             const isActiveTab = session.id === activeSessionId;
             const st = sessionStatus[session.id]?.state || "idle";
@@ -329,7 +325,7 @@ function TerminalHeader({
                 onTouchStart={(e) => handleTabTouchStart(e, session)}
                 onTouchMove={clearTabLongPress}
                 onTouchEnd={clearTabLongPress}
-                className={`term-tab px-2 sm:px-2.5 py-1 text-xs font-medium duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
+                className={`term-tab px-2 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap h-full ${
                   isActiveTab ? "term-tab-active" : ""
                 } ${dragId === session.id ? "relative z-20 opacity-90 shadow-lg" : "transition"}`}
               >
@@ -339,7 +335,7 @@ function TerminalHeader({
             );
           })}
           {onCreateSession && (
-            <div className="sticky right-0 z-10 ml-1 pl-1 flex-shrink-0 bg-bg">
+            <div className="sticky right-0 z-10 ml-1 pl-1 flex items-center flex-shrink-0 bg-bg">
               <button
                 onClick={() => { vibrate(); setCreateModalOpen(true); }}
                 disabled={!connected}
@@ -353,7 +349,7 @@ function TerminalHeader({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-2 flex-shrink-0 self-center">
       {connected && onUpdate && canSelfUpdate && (isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || !!updateAvailable) && (
         <button
           onClick={() => { vibrate(); onUpdate(); }}
@@ -455,14 +451,14 @@ function TerminalHeader({
       {tabMenu.sessionId && (
         <div
           ref={tabMenuRef}
-          className="fixed z-[60] bg-surface-2 border border-border-subtle rounded-brand shadow-lg py-1 min-w-[140px]"
+          className="fixed z-[60] menu-popover p-1 min-w-[140px] animate-in fade-in zoom-in-95 duration-100"
           style={{ left: tabMenuPos.left, top: tabMenuPos.top }}
         >
           <button
             onClick={() => startTabRename(sessions.find((s) => s.id === tabMenu.sessionId))}
-            className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
+            className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
           >
-            <Pencil size={14} /> {t("sessions.editName")}
+            <Pencil size={13} /> {t("sessions.editName")}
           </button>
           {sessionStatus[tabMenu.sessionId]?.conversationId && (
             <button
@@ -471,16 +467,16 @@ function TerminalHeader({
                 busRef?.current?.emit("session-resume", { sessionId: tabMenu.sessionId });
                 setTabMenu({ sessionId: null, x: 0, y: 0 });
               }}
-              className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
+              className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
             >
-              <RotateCw size={14} /> {t("sessions.resumeSession")}
+              <RotateCw size={13} /> {t("sessions.resumeSession")}
             </button>
           )}
           <button
             onClick={() => openTabDeleteConfirm(sessions.find((s) => s.id === tabMenu.sessionId))}
-            className="w-full text-left px-3 py-1.5 text-sm text-red-500 hover:bg-red-500/10 flex items-center gap-2"
+            className="w-full text-left px-2.5 py-1.5 text-xs text-red-500 hover:bg-red-500/10 rounded-[6px] flex items-center gap-2"
           >
-            <Trash2 size={14} /> {t("sessions.deleteTitle")}
+            <Trash2 size={13} /> {t("sessions.deleteTitle")}
           </button>
         </div>
       )}

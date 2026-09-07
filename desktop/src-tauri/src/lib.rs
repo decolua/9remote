@@ -116,6 +116,222 @@ fn run_swift(script: &str) -> String {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[link(name = "AppKit", kind = "framework")]
+#[link(name = "objc")]
+extern "C" {
+    fn objc_getClass(name: *const u8) -> *mut std::ffi::c_void;
+    fn sel_registerName(name: *const u8) -> *mut std::ffi::c_void;
+    fn objc_msgSend();
+}
+
+#[cfg(target_os = "macos")]
+fn center_window_title(ns_window: *mut std::ffi::c_void) {
+    if ns_window.is_null() { return; }
+    unsafe {
+        let ns_color_class = objc_getClass(b"NSColor\0".as_ptr());
+
+        // 1. Force Dark Aqua appearance on macOS window
+        let ns_appearance_class = objc_getClass(b"NSAppearance\0".as_ptr());
+        let ns_string_class = objc_getClass(b"NSString\0".as_ptr());
+        let sel_str = sel_registerName(b"stringWithUTF8String:\0".as_ptr());
+        let dark_aqua_str: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *const u8) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(ns_string_class, sel_str, b"NSAppearanceNameDarkAqua\0".as_ptr())
+        };
+        if !dark_aqua_str.is_null() {
+            let sel_appearance_named = sel_registerName(b"appearanceNamed:\0".as_ptr());
+            let dark_appearance: *mut std::ffi::c_void = {
+                let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+                msg_send(ns_appearance_class, sel_appearance_named, dark_aqua_str)
+            };
+            if !dark_appearance.is_null() {
+                let sel_set_appearance = sel_registerName(b"setAppearance:\0".as_ptr());
+                let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) = std::mem::transmute(objc_msgSend as *const ());
+                msg_send(ns_window, sel_set_appearance, dark_appearance);
+            }
+        }
+
+        // 2. Set titlebar transparent & window background color to #2a2a2a (matches left/right panels)
+        let sel_set_titlebar_transparent = sel_registerName(b"setTitlebarAppearsTransparent:\0".as_ptr());
+        {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, bool) = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(ns_window, sel_set_titlebar_transparent, true);
+        }
+
+        let sel_color_rgba = sel_registerName(b"colorWithRed:green:blue:alpha:\0".as_ptr());
+        let bg_color: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, f64, f64, f64, f64) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(ns_color_class, sel_color_rgba, 42.0 / 255.0, 42.0 / 255.0, 42.0 / 255.0, 1.0)
+        };
+        if !bg_color.is_null() {
+            let sel_set_bg_color = sel_registerName(b"setBackgroundColor:\0".as_ptr());
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(ns_window, sel_set_bg_color, bg_color);
+        }
+
+        let sel_btn = sel_registerName(b"standardWindowButton:\0".as_ptr());
+        let close_btn: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, usize) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(ns_window, sel_btn, 0)
+        };
+        if close_btn.is_null() { return; }
+
+        let sel_superview = sel_registerName(b"superview\0".as_ptr());
+        let titlebar: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(close_btn, sel_superview)
+        };
+        if titlebar.is_null() { return; }
+
+        // Paint titlebar & its container layer with the exact #2a2a2a background color
+        let sel_cg_color = sel_registerName(b"CGColor\0".as_ptr());
+        let cg_bg: *mut std::ffi::c_void = if !bg_color.is_null() {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(bg_color, sel_cg_color)
+        } else {
+            std::ptr::null_mut()
+        };
+
+        if !cg_bg.is_null() {
+            let sel_set_wants_layer = sel_registerName(b"setWantsLayer:\0".as_ptr());
+            let sel_layer = sel_registerName(b"layer\0".as_ptr());
+            let sel_set_layer_bg = sel_registerName(b"setBackgroundColor:\0".as_ptr());
+
+            let msg_send_bool: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, bool) = std::mem::transmute(objc_msgSend as *const ());
+            let msg_send_layer: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            let msg_send_set_bg: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) = std::mem::transmute(objc_msgSend as *const ());
+
+            msg_send_bool(titlebar, sel_set_wants_layer, true);
+            let tb_layer = msg_send_layer(titlebar, sel_layer);
+            if !tb_layer.is_null() {
+                msg_send_set_bg(tb_layer, sel_set_layer_bg, cg_bg);
+            }
+
+            let titlebar_container: *mut std::ffi::c_void = {
+                let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+                msg_send(titlebar, sel_superview)
+            };
+            if !titlebar_container.is_null() {
+                msg_send_bool(titlebar_container, sel_set_wants_layer, true);
+                let tc_layer = msg_send_layer(titlebar_container, sel_layer);
+                if !tc_layer.is_null() {
+                    msg_send_set_bg(tc_layer, sel_set_layer_bg, cg_bg);
+                }
+            }
+        }
+
+        let sel_subviews = sel_registerName(b"subviews\0".as_ptr());
+        let subviews: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(titlebar, sel_subviews)
+        };
+        if subviews.is_null() { return; }
+
+        let sel_count = sel_registerName(b"count\0".as_ptr());
+        let count: usize = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> usize = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(subviews, sel_count)
+        };
+
+        let sel_object_at = sel_registerName(b"objectAtIndex:\0".as_ptr());
+        let text_field_class = objc_getClass(b"NSTextField\0".as_ptr());
+        let sel_is_kind_of = sel_registerName(b"isKindOfClass:\0".as_ptr());
+
+        let mut target_tf: *mut std::ffi::c_void = std::ptr::null_mut();
+        for i in 0..count {
+            let view: *mut std::ffi::c_void = {
+                let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, usize) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+                msg_send(subviews, sel_object_at, i)
+            };
+            let is_tf: bool = {
+                let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) -> bool = std::mem::transmute(objc_msgSend as *const ());
+                msg_send(view, sel_is_kind_of, text_field_class)
+            };
+            if is_tf {
+                target_tf = view;
+                break;
+            }
+        }
+
+        if target_tf.is_null() { return; }
+
+        let sel_translates = sel_registerName(b"translatesAutoresizingMaskIntoConstraints\0".as_ptr());
+        let translates: bool = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> bool = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(target_tf, sel_translates)
+        };
+        if !translates { return; }
+
+        let sel_set_translates = sel_registerName(b"setTranslatesAutoresizingMaskIntoConstraints:\0".as_ptr());
+        {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, bool) = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(target_tf, sel_set_translates, false);
+        }
+
+        let sel_set_alignment = sel_registerName(b"setAlignment:\0".as_ptr());
+        {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, isize) = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(target_tf, sel_set_alignment, 1);
+        }
+
+        // Set title text color to pure white in dark theme
+        let sel_white_color = sel_registerName(b"whiteColor\0".as_ptr());
+        let white_color: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(ns_color_class, sel_white_color)
+        };
+        if !white_color.is_null() {
+            let sel_set_text_color = sel_registerName(b"setTextColor:\0".as_ptr());
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(target_tf, sel_set_text_color, white_color);
+        }
+
+        let sel_center_x = sel_registerName(b"centerXAnchor\0".as_ptr());
+        let sel_constraint_eq = sel_registerName(b"constraintEqualToAnchor:\0".as_ptr());
+        let tf_center_x: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(target_tf, sel_center_x)
+        };
+        let tb_center_x: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(titlebar, sel_center_x)
+        };
+        let c1: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(tf_center_x, sel_constraint_eq, tb_center_x)
+        };
+
+        let sel_center_y = sel_registerName(b"centerYAnchor\0".as_ptr());
+        let tf_center_y: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(target_tf, sel_center_y)
+        };
+        let tb_center_y: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(titlebar, sel_center_y)
+        };
+        let c2: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(tf_center_y, sel_constraint_eq, tb_center_y)
+        };
+
+        let ns_layout_constraint_class = objc_getClass(b"NSLayoutConstraint\0".as_ptr());
+        let ns_array_class = objc_getClass(b"NSArray\0".as_ptr());
+        let sel_array_with_objects = sel_registerName(b"arrayWithObjects:count:\0".as_ptr());
+        let constraints = [c1, c2];
+        let arr: *mut std::ffi::c_void = {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *const *mut std::ffi::c_void, usize) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(ns_array_class, sel_array_with_objects, constraints.as_ptr(), 2)
+        };
+        let sel_activate = sel_registerName(b"activateConstraints:\0".as_ptr());
+        {
+            let msg_send: unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void) = std::mem::transmute(objc_msgSend as *const ());
+            msg_send(ns_layout_constraint_class, sel_activate, arr);
+        }
+    }
+}
+
 #[tauri::command]
 fn request_permission(#[allow(unused_variables)] permission_type: String) {
     #[cfg(target_os = "macos")]
@@ -837,6 +1053,16 @@ fn spawn_9remote_ui(app: AppHandle) {
         if let Some(dir) = std::path::Path::new(&node).parent() {
             let existing = std::env::var("PATH").unwrap_or_default();
             let sep = if cfg!(windows) { ";" } else { ":" };
+            #[cfg(unix)]
+            {
+                let home = home_dir();
+                let extra = format!(
+                    "{sep}{}/.local/bin{sep}/opt/homebrew/bin{sep}/usr/local/bin{sep}{}/.cargo/bin{sep}{}/.bun/bin",
+                    home, home, home
+                );
+                cmd.env("PATH", format!("{}{sep}{existing}{extra}", dir.display()));
+            }
+            #[cfg(not(unix))]
             cmd.env("PATH", format!("{}{sep}{existing}", dir.display()));
         }
 
@@ -950,11 +1176,31 @@ pub fn run() {
                         });
                         return { location: loc, close: function(){}, focus: function(){} };
                     };
+                    window.__9R_DESKTOP__ = {
+                        showNotification: function(title, body) {
+                            try { invoke('show_notif', { title: String(title || '9Remote'), body: String(body || '') }); } catch(e){}
+                        },
+                        setBadge: function(count) {
+                            try { invoke('set_badge', { count: Number(count || 0) }); } catch(e){}
+                        }
+                    };
                 })();
             "#;
             let _ = webview.eval(js);
+
+            #[cfg(target_os = "macos")]
+            if let Ok(ns_win) = webview.window().ns_window() {
+                center_window_title(ns_win);
+            }
         })
         .setup(move |app| {
+            #[cfg(target_os = "macos")]
+            if let Some(win) = app.get_webview_window("main") {
+                if let Ok(ns_win) = win.ns_window() {
+                    center_window_title(ns_win);
+                }
+            }
+
             // ── System tray ──
             let show = MenuItem::with_id(app, "show", "Show/Hide Window", true, Some("CmdOrCtrl+H"))?;
             let check_update = MenuItem::with_id(app, "check_update", "Check for Updates", true, None::<&str>)?;
@@ -1015,6 +1261,17 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app_handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(win) = app_handle.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.unminimize();
+                    let _ = win.set_focus();
+                    let _ = win.eval("window.dispatchEvent(new CustomEvent('9remote:dock-click'))");
+                }
+            }
+        });
 }

@@ -527,9 +527,10 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
                   bus.emit("input", { sessionId, data });
                   return;
                 }
-                if (hasPhysicalKeyboard && (e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
+                const isDigit = /^Digit([1-9])$/.exec(e.code) || (/^[1-9]$/.exec(e.key));
+                if (hasPhysicalKeyboard && ((isMac() ? (e.altKey && !e.ctrlKey && !e.metaKey) : (e.ctrlKey || e.metaKey)) && isDigit)) {
                   e.preventDefault();
-                  onSwitchToIndex?.(Number(e.key) - 1);
+                  onSwitchToIndex?.(Number(isDigit[1]) - 1);
                   return;
                 }
                 if (hasPhysicalKeyboard && e.key === "Enter" && !e.shiftKey) {
@@ -574,7 +575,7 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
                   bus.emit("input", { sessionId, data: cfg.data });
                 }
               }}
-              placeholder={hasPhysicalKeyboard ? t("mobileKeyboard.enterToSend", { shortcut: isMac() ? "⌘⇧→ | ⌘⇧1…9" : "Ctrl+Shift+→ | Ctrl+Shift+1…9" }) : t("mobileKeyboard.typeCommand")}
+              placeholder={hasPhysicalKeyboard ? (isMac() ? "⌥→ or ⌥1…9 to switch tab" : "Ctrl+Shift+→ or Ctrl+Shift+1…9 to switch tab") : t("mobileKeyboard.typeCommand")}
               rows={1}
               className="block w-full pl-9 pr-16 py-2 bg-transparent text-text text-sm placeholder-text-muted placeholder:text-[11px] placeholder:leading-[20px] focus:outline-none resize-none overflow-y-auto touch-none"
             />

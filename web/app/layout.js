@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "9Remote Terminal",
-  description: "Access your terminal from anywhere - secure remote terminal access",
+  title: "9Remote — Remote Everything, Everywhere",
+  description: "Remote IDE, desktop, files, emulator & vibe coding on PC, Web, iPad, and Mobile. Ultra-low latency WebRTC P2P dev suite.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

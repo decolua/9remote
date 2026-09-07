@@ -12,8 +12,8 @@ export default function PromptDialog({ title, value, onChange, onSubmit, onClose
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-black/60" />
-      <div className="relative card-elev w-full max-w-xs p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" />
+      <div className="relative card-elev w-full max-w-xs p-5 animate-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-[14px] font-semibold text-text mb-3">{title}</h3>
         <input
           autoFocus

@@ -22,6 +22,8 @@ import {
   isDevicePending,
   gateDevice,
   approveDevice,
+  approveDeviceSession,
+  isDeviceKicked,
   addPendingApproval,
   removePendingApproval,
   getPendingApproval,
@@ -942,15 +944,15 @@ export async function startTransportServer(server) {
     // The embedded web workspace (Terminal button on this host's agent UI)
     // connects over loopback presenting the permanent key's TAIL — same machine,
     // same secret the host itself minted. Holding it for host approval would
-    // flash the waiting modal on every page reload, so it is approved here.
-    // Gate 1 still ran: only a VERIFIED tail gets through, and a device the
-    // host rejected/kicked stays that way (unknown gate only).
-    if (!isTunnel && isLoopback && originOk && deviceId) {
+    // flash the waiting modal on every page reload, so it is admitted here —
+    // SESSION-scoped only (never persisted to approvedDevices.json), and never
+    // for a device the host kicked or removed (their verdict outranks this).
+    if (!isTunnel && isLoopback && originOk && deviceId && !isDeviceKicked(deviceId)) {
       const presentedLoopback = presentedTailOf(authOf(socket), openSealedTail);
       if (presentedLoopback && verifyKeyTail(presentedLoopback) && gateDevice(deviceId) === DEVICE_GATE.unknown) {
-        approveDevice(deviceId);
-        logger.info(`loopback workspace device auto-approved (key TAIL verified): ${deviceId.slice(0, 8)}`);
-        pushUiLogDebug(`Loopback workspace auto-approved: ${deviceId.slice(0, 8)} (key TAIL verified)`);
+        approveDeviceSession(deviceId);
+        logger.info(`loopback workspace device admitted for this session (key TAIL verified): ${deviceId.slice(0, 8)}`);
+        pushUiLogDebug(`Loopback workspace admitted (session): ${deviceId.slice(0, 8)} (key TAIL verified)`);
       }
     }
 

@@ -10,6 +10,14 @@ const applyClass = (theme) => {
   const root = document.documentElement;
   root.classList.remove("light", "dark");
   root.classList.add(theme);
+  root.style.colorScheme = theme;
+  try {
+    const win = window.__TAURI__?.window?.getCurrentWindow?.();
+    if (win) {
+      win.setTheme?.(theme)?.catch?.(() => {});
+      win.setBackgroundColor?.(theme === "light" ? "#e7e7e9" : "#2a2a2a")?.catch?.(() => {});
+    }
+  } catch {}
 };
 
 // Notify native shell (Expo WebView) so status bar / safe area match current theme
@@ -26,7 +34,7 @@ export function ThemeProvider({ children }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("9remote-theme");
     const initial = THEME_KEYS.includes(saved) ? saved : DEFAULT_THEME;
     setThemeState(initial);
     applyClass(initial);
@@ -38,7 +46,10 @@ export function ThemeProvider({ children }) {
     setThemeState(next);
     applyClass(next);
     notifyNative(next);
-    if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, next);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY, next);
+      localStorage.setItem("9remote-theme", next);
+    }
   }, []);
 
   const toggleTheme = useCallback(() => {

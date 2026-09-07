@@ -1,12 +1,14 @@
 import { useRef, useEffect } from "preact/hooks";
+import { createPortal } from "preact/compat";
 
 export default function ConfirmPopup({ message, confirmLabel = "Confirm", confirmDanger = false, inputValue, onInput, inputPlaceholder = "", onConfirm, onCancel }) {
   const hasInput = onInput !== undefined;
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onCancel}>
-      <div className="glass-card p-5 flex flex-col gap-4 w-72" onClick={(e) => e.stopPropagation()}>
+
+  const content = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" onClick={onCancel}>
+      <div className="glass-card p-5 flex flex-col gap-4 w-72 animate-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
         <p className="text-sm text-center" style={{ color: "var(--text-main)" }}>{message}</p>
         {hasInput && (
           <input
@@ -34,4 +36,9 @@ export default function ConfirmPopup({ message, confirmLabel = "Confirm", confir
       </div>
     </div>
   );
+
+  if (typeof document !== "undefined") {
+    return createPortal(content, document.body);
+  }
+  return content;
 }

@@ -34,8 +34,8 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
     >
       {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
+      <div
+        className="absolute inset-0 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150"
         onClick={onClose}
       />
       

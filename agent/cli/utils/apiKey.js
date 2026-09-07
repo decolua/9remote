@@ -1,8 +1,8 @@
 import crypto from "crypto";
 
-// v1-key CRC secret — must match web's API_KEY_SECRET. v2 keys carry no CRC,
+// v1-key CRC secret — must match web's API_KEY_SECRET or APP_SECRET. v2 keys carry no CRC,
 // so a missing value only affects legacy v1 generation/verification.
-const API_KEY_SECRET = process.env.API_KEY_SECRET;
+const API_KEY_SECRET = process.env.API_KEY_SECRET || process.env.APP_SECRET;
 
 /**
  * Generate 4-char random keyId

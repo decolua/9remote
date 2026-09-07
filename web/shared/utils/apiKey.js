@@ -56,15 +56,16 @@ export function normalizeApiKey(apiKey) {
 /**
  * Verify API key CRC using env-provided secret
  * @param {string} apiKey
- * @param {object} env - Cloudflare Workers env (must contain API_KEY_SECRET)
+ * @param {object} env - Cloudflare Workers env (contains API_KEY_SECRET or APP_SECRET)
  */
 export async function verifyApiKeyCrc(apiKey, env) {
-  if (!env?.API_KEY_SECRET) throw new Error("API_KEY_SECRET not configured");
+  const secret = env?.API_KEY_SECRET || env?.APP_SECRET;
+  if (!secret) throw new Error("API_KEY_SECRET or APP_SECRET not configured");
   const parsed = parseApiKey(apiKey);
   if (!parsed) return false;
   // v2 (full or HEAD) has no CRC — format check in parseApiKey is the whole validation
   if (parsed.version === 2) return true;
   const { machineId, keyId, crc } = parsed;
-  const hmac = await generateHmac(env.API_KEY_SECRET, machineId, keyId);
+  const hmac = await generateHmac(secret, machineId, keyId);
   return hmac.slice(0, crc.length) === crc;
 }

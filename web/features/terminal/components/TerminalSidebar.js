@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, PanelLeft, Settings, Download, RotateCw } from "@/shared/components/ui/Icon";
+import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { statusVisual } from "@/shared/utils/statusVisual";
@@ -23,7 +23,10 @@ import { useDragReorder } from "../hooks/useDragReorder";
 import BranchBadge from "./BranchBadge";
 import AgentHistoryPanel from "./AgentHistoryPanel";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
-import { trackRender } from "@/shared/utils/renderDiag";
+
+// Inside the Tauri shell the native bar already names the app — the sidebar's
+// brand row becomes a back-to-dashboard button instead (web keeps the brand).
+const IS_TAURI = typeof window !== "undefined" && !!window.__TAURI__;
 
 // Guess agent tool from session name when no live status tool is set — drives the icon.
 const TOOL_KEYWORDS = ["claude", "codex", "gemini", "opencode", "grok", "cursor", "copilot", "amp", "pi", "kiro", "qoder", "factory", "codebuddy", "rovodev", "hermes", "antigravity"];
@@ -156,7 +159,6 @@ function TerminalSidebar({
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
   const sessionStatus = propStatus || storeSessionStatus;
-  trackRender("TerminalSidebar", { activeSessionId, activeWorkspaceId, sessionCount: allSessions.length, width });
   const hasKeyboard = useInputMode() === "mouse";
   const collapseHint = hasKeyboard ? withHint(t("common.close"), "toggleSidebar") : t("common.close");
   // Which terminals actually exist right now — the history rows are a snapshot
@@ -305,12 +307,26 @@ function TerminalSidebar({
         className="px-3 flex items-center justify-between flex-shrink-0 border-b border-border-subtle"
       >
         <div className="flex items-center gap-2 min-w-0">
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
-            <span className="w-[10px] h-[10px] rounded-full bg-[#febc2e]" />
-            <span className="w-[10px] h-[10px] rounded-full bg-[#28c840]" />
-          </div>
-          <span className="text-[13px] font-semibold text-text truncate">9Remote</span>
+          {IS_TAURI ? (
+            <button
+              onClick={() => { window.location.href = "/"; }}
+              className="flex items-center gap-1.5 px-1.5 py-1 text-[12px] font-medium text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors flex-shrink-0"
+              title="Pair Device"
+            >
+              <ChevronLeft size={14} className="opacity-70" />
+              <QrCode size={13} className="opacity-80" />
+              <span className="truncate">Pair Device</span>
+            </button>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
+                <span className="w-[10px] h-[10px] rounded-full bg-[#febc2e]" />
+                <span className="w-[10px] h-[10px] rounded-full bg-[#28c840]" />
+              </div>
+              <span className="text-[13px] font-semibold text-text truncate">9Remote</span>
+            </>
+          )}
         </div>
         {onCollapse && (
           <button
@@ -513,14 +529,14 @@ function TerminalSidebar({
       {ctxMenu && (
         <div
           ref={ctxRef}
-          className="fixed z-[70] bg-surface-2 border border-border-subtle rounded-[3px] shadow-lg py-1 min-w-[160px]"
+          className="fixed z-[70] menu-popover p-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
           style={{ left: ctxPos.left, top: ctxPos.top }}
         >
           <button
             onClick={() => startRename(ctxMenu.sessionId)}
-            className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
+            className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
           >
-            <Pencil size={14} /> {t("sessions.editName")}
+            <Pencil size={13} /> {t("sessions.editName")}
           </button>
           {sessionStatus[ctxMenu.sessionId]?.conversationId && (
             <button
@@ -529,18 +545,18 @@ function TerminalSidebar({
                 busRef?.current?.emit("session-resume", { sessionId: ctxMenu.sessionId });
                 setCtxMenu(null);
               }}
-              className="w-full text-left px-3 py-1.5 text-sm text-text hover:bg-surface-3 flex items-center gap-2"
+              className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
             >
-              <RotateCw size={14} /> {t("sessions.resumeSession")}
+              <RotateCw size={13} /> {t("sessions.resumeSession")}
             </button>
           )}
 
           <div className="h-px bg-border-subtle my-1" />
           <button
             onClick={() => { setDelConfirm({ sessionId: ctxMenu.sessionId, name: ctxMenu.name }); setCtxMenu(null); }}
-            className="w-full text-left px-3 py-1.5 text-sm text-red-500 hover:bg-red-500/10 flex items-center gap-2"
+            className="w-full text-left px-2.5 py-1.5 text-xs text-red-500 hover:bg-red-500/10 rounded-[6px] flex items-center gap-2"
           >
-            <Trash2 size={14} /> {t("sessions.deleteTitle")}
+            <Trash2 size={13} /> {t("sessions.deleteTitle")}
           </button>
         </div>
       )}

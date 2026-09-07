@@ -48,14 +48,24 @@ export default function App() {
   const [unlockStatus, setUnlockStatus] = useState(null); // {supported, built, running}
   const [version, setVersion] = useState("");
   const [theme, setTheme] = useState(() => {
-    // Will be overridden by server state if provided
-    const saved = localStorage.getItem("9remote-theme");
+    const saved = localStorage.getItem("app_theme_v2") || localStorage.getItem("9remote-theme");
     return saved || "dark";
   });
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.classList.remove("light", "dark");
+    document.documentElement.classList.add(theme);
+    document.documentElement.style.colorScheme = theme;
     localStorage.setItem("9remote-theme", theme);
+    localStorage.setItem("app_theme_v2", theme);
+    try {
+      const win = window.__TAURI__?.window?.getCurrentWindow?.();
+      if (win) {
+        win.setTheme?.(theme)?.catch?.(() => {});
+        win.setBackgroundColor?.(theme === "light" ? "#e7e7e9" : "#2a2a2a")?.catch?.(() => {});
+      }
+    } catch {}
   }, [theme]);
 
   const toggleTheme = () => {
@@ -63,6 +73,17 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Tauri shell: reset the native window title leaving the workspace tab
+    try { window.__TAURI__?.window?.getCurrentWindow?.().setTitle("9Remote")?.catch?.(() => {}); } catch {}
+    // Tauri shell: no browser reload accelerator — wire Cmd/Ctrl+R and F5
+    let reloadKey = null;
+    if (window.__TAURI__) {
+      reloadKey = (e) => {
+        const isReload = e.key === "F5" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r");
+        if (isReload) { e.preventDefault(); window.location.reload(); }
+      };
+      window.addEventListener("keydown", reloadKey);
+    }
     fetch("/api/version").then((r) => r.json()).then((d) => setVersion(d.version ?? "")).catch(() => {});
     // Single fetch for all initial state (ui + permissions + desktop + theme)
     fetch("/api/ui/state")
@@ -191,7 +212,7 @@ export default function App() {
       } catch {}
     }, PENDING_POLL_MS);
 
-    return () => { es.close(); clearInterval(pollId); clearInterval(unlockPollId); };
+    return () => { es.close(); clearInterval(pollId); clearInterval(unlockPollId); if (reloadKey) window.removeEventListener("keydown", reloadKey); };
   }, []);
 
   // Keep ref in sync so interval closure sees latest value without re-subscribing

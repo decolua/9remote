@@ -21,7 +21,10 @@
         "center": true,
         "decorations": true,
         "visible": true,
-        "maximized": true
+        "maximized": true,
+        "theme": "Dark",
+        "titleBarStyle": "Transparent",
+        "backgroundColor": "#2a2a2a"
       }
     ],
     "security": {

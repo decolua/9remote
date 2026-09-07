@@ -354,7 +354,7 @@ export default function MenuItems({
       )}
 
       {/* Terminal background picker — standalone row (mobile, dark mode only) */}
-      {/* {appMode === "dark" && (
+      {appMode === "dark" && (
         <button
           onClick={() => { vibrate(); onOpenBackgroundPicker?.(); }}
           className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
@@ -373,7 +373,7 @@ export default function MenuItems({
           </span>
           <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
         </button>
-      )} */}
+      )}
 
       {/* Command Notes */}
       {onCommandNotes && (

@@ -592,7 +592,7 @@ export default {
   },
   mobileKeyboard: {
     pasteHere: "Dán vào đây (Cmd+V)",
-    enterToSend: "{shortcut} để chuyển tab",
+    enterToSend: "{shortcut} to switch tab",
     typeCommand: "Nhập lệnh và gửi...",
     send: "Gửi",
     toggleExtraKeys: "Bật/tắt phím mở rộng",

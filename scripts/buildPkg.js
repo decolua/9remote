@@ -119,17 +119,14 @@ function buildUi() {
 
 function buildWeb() {
   console.log("\n🌐 Building Web static export...");
-  try {
-    const outDir = buildWebStatic();
-    const destDir = path.join(DIST_DIR, "web");
-    if (fs.existsSync(outDir)) {
-      ensureDir(destDir);
-      fs.cpSync(outDir, destDir, { recursive: true });
-      console.log("✅ Web → agent/dist/web/");
-    }
-  } catch (err) {
-    console.warn(`⚠️  Web static build failed: ${err.message}`);
+  const outDir = buildWebStatic();
+  const destDir = path.join(DIST_DIR, "web");
+  if (!fs.existsSync(outDir)) {
+    throw new Error(`Web static export output directory not found: ${outDir}`);
   }
+  ensureDir(destDir);
+  fs.cpSync(outDir, destDir, { recursive: true });
+  console.log("✅ Web → agent/dist/web/");
 }
 
 function copyAssets() {

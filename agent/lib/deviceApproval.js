@@ -71,6 +71,7 @@ export function isDeviceApproved(deviceId) {
 // Disconnect must not be instantly undone.
 export function gateDevice(deviceId) {
   if (deviceId && kickedDevices.has(deviceId)) return DEVICE_GATE.unknown;
+  if (deviceId && sessionApproved.has(deviceId)) return DEVICE_GATE.approved;
   if (deviceId && isDeviceApproved(deviceId)) return DEVICE_GATE.approved;
   if (deviceId && isDeviceRejected(deviceId)) return DEVICE_GATE.rejected;
   if (isAutoApprove()) return DEVICE_GATE.auto;
@@ -80,6 +81,7 @@ export function gateDevice(deviceId) {
 export function kickDevice(deviceId) {
   if (!deviceId || deviceId === LOCAL_UI_DEVICE_ID) return;
   kickedDevices.add(deviceId);
+  sessionApproved.delete(deviceId);
 }
 
 export function isDeviceKicked(deviceId) {
@@ -96,8 +98,21 @@ export function approveDevice(deviceId) {
   saveApprovedDevices();
 }
 
+// Runtime-scoped admission (the loopback workspace auto-approve): admits for
+// this agent run only — never written to approvedDevices.json, so a stolen
+// (deviceId, tail) pair replayed from LAN/tunnel after a restart faces the
+// host-approval modal instead of silent standing admission.
+const sessionApproved = new Set();
+export function approveDeviceSession(deviceId) {
+  if (!deviceId || deviceId === LOCAL_UI_DEVICE_ID) return;
+  sessionApproved.add(deviceId);
+}
+
 export function removeDevice(deviceId) {
-  kickedDevices.delete(deviceId);
+  // Removal is the host saying "not this device" — keep it kicked for the
+  // session so the loopback auto-approve cannot silently re-admit it.
+  kickedDevices.add(deviceId);
+  sessionApproved.delete(deviceId);
   approvedDevices.delete(deviceId);
   saveApprovedDevices();
 }

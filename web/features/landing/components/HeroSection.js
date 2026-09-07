@@ -11,6 +11,10 @@ const SUPERPOWERS = [
     path: "M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
   },
   {
+    name: "Remote Vibe Coding",
+    path: "M13 10V3L4 14h7v7l9-11h-7z"
+  },
+  {
     name: "Remote Desktop",
     path: "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
   },
@@ -27,7 +31,7 @@ const SUPERPOWERS = [
     path: "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
   },
   {
-    name: "Mobile Full Feature",
+    name: "PC · Web · iPad · Mobile",
     path: "M12 18h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
   }
 ];
@@ -55,13 +59,13 @@ export default function HeroSection() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
               <span className="text-xs font-medium font-mono" style={{ color: THEME.textDim }}>
-                Ultra-Low Latency WebRTC · Built for Mobile
+                Remote Everything, Everywhere · PC · Web · iPad · Mobile
               </span>
             </div>
 
             <h1 className="mb-5 animate-fade-in-delay-1" style={{ fontWeight: 900, lineHeight: 1.1 }}>
               <span className="block text-3xl sm:text-4xl lg:text-5xl xl:text-6xl mb-2" style={{ color: THEME.text }}>
-                Code from anywhere
+                Remote everything.
               </span>
               <span
                 className="block text-3xl sm:text-4xl lg:text-5xl xl:text-6xl mb-3"
@@ -71,11 +75,11 @@ export default function HeroSection() {
                   WebkitTextFillColor: "transparent"
                 }}
               >
-                on Earth.
+                Everywhere.
               </span>
             </h1>
 
-            {/* 5 Superpower Pills */}
+            {/* Superpower Pills */}
             <div className="flex flex-wrap gap-2 mb-6 justify-center lg:justify-start animate-fade-in-delay-2">
               {SUPERPOWERS.map((badge) => (
                 <span
@@ -92,7 +96,7 @@ export default function HeroSection() {
             </div>
 
             <p className="text-base sm:text-lg mb-8 max-w-xl mx-auto lg:mx-0 animate-fade-in-delay-3" style={{ color: THEME.textDim }}>
-              Your dev machine stays home. Your entire workflow goes everywhere. Turn your PC or Mac into a personal remote dev suite — connect directly via WebRTC P2P for buttery-smooth mobile coding.
+              Leave your laptop behind. Your entire dev workstation goes wherever you go — remote IDE, 60fps desktop, visual file explorer, live mobile emulator, and remote vibe coding with 30+ AI agents on PC, Web, iPad, or phone.
             </p>
 
             <div className="flex flex-row gap-2.5 sm:gap-3 justify-center lg:justify-start items-center mb-8 animate-fade-in-delay-4 flex-wrap">
@@ -166,10 +170,11 @@ export default function HeroSection() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-6 max-w-md mx-auto lg:mx-0 mt-7 animate-fade-in-delay-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 max-w-lg mx-auto lg:mx-0 mt-7 animate-fade-in-delay-6">
               {[
                 { val: "Direct P2P", label: "WebRTC DataChannel" },
                 { val: "<20ms", label: "Ultra-Low Latency" },
+                { val: "30+ AI Agents", label: "Vibe Coding Ready" },
                 { val: "Persistent", label: "PTY Daemon Sessions" }
               ].map((s) => (
                 <div key={s.label} className="text-center lg:text-left">

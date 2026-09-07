@@ -18,9 +18,8 @@
 // Windows are per client IP. Limits are deliberately well above what a human hits
 // by mistake — the point is to stop automated search, not to punish typos.
 export const RATE_LIMITS = {
-  // Wrong password. A person fumbling their password a dozen times in a minute is
-  // already unusual; a brute-forcer needs millions.
-  adminLogin: { limit: 15, windowSec: 60 },
+  // Wrong password. Stricter threshold for admin authentication to prevent brute-force.
+  adminLogin: { limit: 5, windowSec: 60 },
   // Invalid or expired temp key. Shared/CGNAT mobile IPs make this the most likely
   // place for innocent collisions, so it is the most generous of the three.
   tempKeyVerify: { limit: 40, windowSec: 60 },

@@ -137,7 +137,7 @@ export default function NewTerminalModal({
   return (
     <>
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/70"
+      className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150"
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       onClick={onClose}
     >
@@ -145,7 +145,7 @@ export default function NewTerminalModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="newTerminalTitle"
-        className="bg-surface rounded-brand-lg w-[22rem] max-w-full shadow-elev overflow-hidden flex flex-col max-h-[85vh]"
+        className="card-elev w-[22rem] max-w-full overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => { if (e.key === "Escape") onClose?.(); }}
       >

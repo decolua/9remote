@@ -15,15 +15,12 @@ ZONE_ID="34ed092484851b44d0ede479b0288738"
 TURN_KEY_ID="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 TURN_KEY_SECRET="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
-# --- Auth secrets (generate: openssl rand -hex 32) ---
-# JWT cho admin session
-ADMIN_JWT_SECRET="REPLACE_WITH_openssl_rand_hex_32"
+# --- Master Auth Secret (generate: openssl rand -hex 32) ---
+# Dùng chung cho JWT admin, API key verification, mã hóa Token QR & cron cleanup.
+APP_SECRET="REPLACE_WITH_openssl_rand_hex_32"
 
-# HMAC cho apiKey verify (PHẢI cùng giá trị với agent .env API_KEY_SECRET)
-API_KEY_SECRET="REPLACE_WITH_openssl_rand_hex_32"
-
-# Bearer cho cron /api/cleanup
-CRON_SECRET="REPLACE_WITH_openssl_rand_hex_32"
-
-# Token QR encrypt (thay AES hardcoded)
-TOKEN_SECRET="REPLACE_WITH_openssl_rand_hex_32"
+# (Tùy chọn ghi đè - nếu để trống sẽ tự dùng APP_SECRET ở trên)
+# ADMIN_JWT_SECRET="REPLACE_WITH_openssl_rand_hex_32"
+# API_KEY_SECRET="REPLACE_WITH_openssl_rand_hex_32"
+# CRON_SECRET="REPLACE_WITH_openssl_rand_hex_32"
+# TOKEN_SECRET="REPLACE_WITH_openssl_rand_hex_32"

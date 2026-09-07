@@ -10,36 +10,28 @@
     "desktop"
   ],
   "scripts": {
-    "dev": "run-p agent:dev web:dev",
-    "agent:dev": "NODE_ENV=development node agent/cli/index.js",
-    "agent:dev:ui": "NODE_ENV=development node agent/cli/index.js ui",
-    "agent:dev:worker": "NREMOTE_WORKER_URL=https://dev.9remote.cc NODE_ENV=development node agent/cli/index.js",
-    "agent:dev:ui:worker": "NREMOTE_WORKER_URL=https://dev.9remote.cc NODE_ENV=development node agent/cli/index.js ui",
-    "dev:worker": "run-p agent:dev:worker web:dev",
+    "agent:dev": "NODE_ENV=development node agent/cli/index.js ui",
     "agent:build": "node scripts/syncVersion.js && node scripts/buildPkg.js",
     "agent:publish": "npm run agent:build && cd agent && npm publish",
-    "agent:build:beta": "NREMOTE_PKG=9remote-beta npm run agent:build",
-    "agent:publish:beta": "rm -f 9remote-beta-*.tgz && NREMOTE_PKG=9remote-beta npm run agent:build && npm publish --workspaces=false --access=public 9remote-beta-*.tgz",
+
     "web:dev": "npm run dev --workspace=web",
-    "web:build:static": "node scripts/buildWebStatic.mjs",
     "web:deploy": "npm run deploy --workspace=web",
-    "web:deploy:dev": "npm run secrets:sync:dev && npm run deploy:dev --workspace=web",
-    "secrets:sync": "node scripts/syncSecrets.mjs",
-    "secrets:sync:prod": "node scripts/syncSecrets.mjs --env=production",
-    "secrets:sync:dev": "node scripts/syncSecrets.mjs --env=dev",
+
+    "pc:dev": "run-p _agent:start _pc:tauri",
+    "pc:build": "npm run agent:build && npx --prefix desktop tauri build --bundles dmg --no-sign && cp desktop/src-tauri/target/release/bundle/dmg/*.dmg desktop/release/macos/",
+    "pc:build:release": "bash desktop/scripts/build-macos-signed.sh --target universal-apple-darwin",
+    "pc:build:win": "bash desktop/scripts/build-windows.sh",
+
     "expo:dev": "npm start --prefix expo",
     "expo:ios": "npm run ios --prefix expo",
     "expo:android": "npm run android --prefix expo",
+    "expo:ota": "npm run update --prefix expo",
+
     "docs:dev": "npm run dev --workspace=gitbook",
     "docs:deploy": "npm run build --workspace=gitbook && cd gitbook && npx wrangler pages deploy out --project-name=9remote-docs",
-    "pc:dev": "run-p agent:dev:ui:start pc:tauri",
-    "pc:tauri": "NINEREMOTE_ENV=development npm run tauri dev --prefix desktop",
-    "pc:build": "bash desktop/scripts/build-macos-signed.sh --target universal-apple-darwin",
-    "agent:dev:ui:start": "npm run dev:ui:start --prefix agent",
-    "pc:build:win": "bash desktop/scripts/build-windows.sh",
-    "pc:build:linux": "bash desktop/scripts/build-linux.sh",
-    "pc:build:linux:amd64": "bash desktop/scripts/build-linux.sh --amd64",
-    "web:pc:build": "node desktop/chromeShell/build.mjs"
+
+    "_pc:tauri": "NINEREMOTE_ENV=development npm run tauri dev --prefix desktop",
+    "_agent:start": "npm run dev:ui:start --prefix agent"
   },
   "devDependencies": {
     "@napi-rs/image": "^1.12.0",

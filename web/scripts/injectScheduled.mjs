@@ -34,10 +34,11 @@ src += `
 export default workerDefault;
 
 export async function scheduled(controller, env, ctx) {
-  if (!env.CRON_SECRET) return;
+  const secret = env.CRON_SECRET || env.APP_SECRET;
+  if (!secret) return;
   ctx.waitUntil(workerDefault.fetch(
     new Request("https://cron.internal/api/cleanup", {
-      headers: { Authorization: \`Bearer \${env.CRON_SECRET}\` },
+      headers: { Authorization: \`Bearer \${secret}\` },
     }),
     env,
     ctx,

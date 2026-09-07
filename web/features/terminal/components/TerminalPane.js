@@ -18,7 +18,6 @@ import { useTheme } from "@/shared/theme/ThemeProvider";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
 import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, paneBackgroundKey, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
-import { trackRender, trackScrollTrigger } from "@/shared/utils/renderDiag";
 
 // Floating quick-action circles at the pane's top-right: thumb-sized on touch,
 // slimmer on desktop where the hover bg need not carry the whole tap target.
@@ -105,14 +104,9 @@ function TerminalPane({
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
 
-  trackRender(`TerminalPane[${sessionId?.slice(0, 8)}]`, {
-    isVisible, isFocused, showFocusBorder, sessionState, cwd, showScrollButton, paneCwd
-  });
-
 // Scroll wrapper so the cursor/content stays visible after a viewport shrink (soft KB).
 // Short content pinned to top; long content scrolls the cursor row into the visible rect.
   const scrollCursorIntoView = useCallback(() => {
-    trackScrollTrigger(`TerminalPane.scrollCursorIntoView[${sessionIdRef.current}]`);
     const el = scrollRef.current;
     const term = termRef.current;
     if (!el || !term) return;
@@ -249,7 +243,6 @@ function TerminalPane({
   const badgeLabel = shownCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : shownCount;
 
   const handleScrollToBottom = () => {
-    trackScrollTrigger(`TerminalPane.handleScrollToBottom[${sessionId}]`);
     vibrate();
     stopMomentum();
     const el = scrollRef.current;

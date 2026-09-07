@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useCallback, useEffect, useMemo } from "react";
-import { trackScrollTrigger } from "@/shared/utils/renderDiag";
 
 // Registries of per-pane APIs and DOM elements, plus the focus/scroll side effects that
 // depend on them (scroll the focused pane into view, preserve input focus across switches).
@@ -59,10 +58,9 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
   }, []);
 
   // Smooth-scroll a pane to the center of the panes row (desktop split-view only)
-  const scrollPaneIntoView = useCallback((sessionId, reason = "direct") => {
+  const scrollPaneIntoView = useCallback((sessionId) => {
     if (!isDesktop) return;
     const el = paneElementsRef.current[sessionId];
-    trackScrollTrigger("usePaneRegistry.scrollPaneIntoView", { sessionId, hasEl: !!el, reason });
     if (el) el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, [isDesktop]);
 
@@ -72,17 +70,21 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
     if (!isDesktop || currentView?.type !== "terminal" || !currentView?.sessionId) return;
     if (prevFocusedSessionRef.current === currentView.sessionId) return;
     prevFocusedSessionRef.current = currentView.sessionId;
-    trackScrollTrigger("usePaneRegistry.currentViewEffect", { sessionId: currentView.sessionId });
-    const id = requestAnimationFrame(() => scrollPaneIntoView(currentView.sessionId, "sessionChanged"));
+    const id = requestAnimationFrame(() => scrollPaneIntoView(currentView.sessionId));
     return () => cancelAnimationFrame(id);
   }, [currentView?.type, currentView?.sessionId, isDesktop, scrollPaneIntoView]);
 
   // With per-pane inputs, switching tabs unmounts the focused input — refocus the new pane's
-  // input only if the previous one was focused, so we don't yank focus from the terminal body.
+  // input if it was focused, otherwise focus the terminal body.
   useEffect(() => {
-    if (!isDesktop || !isTerminalView) return;
-    if (!inputFocusedRef.current) return;
-    const id = setTimeout(() => keyboardTextApiRef.current?.focus?.(), 60);
+    if (!isDesktop || !isTerminalView || !activeSessionId) return;
+    const id = setTimeout(() => {
+      if (inputFocusedRef.current) {
+        keyboardTextApiRef.current?.focus?.();
+      } else {
+        paneApisRef.current[activeSessionId]?.focus?.();
+      }
+    }, 60);
     return () => clearTimeout(id);
   }, [activeSessionId, isDesktop, isTerminalView]);
 
