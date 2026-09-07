@@ -197,7 +197,7 @@ export class ProtocolManager {
       if (!a.ready) continue;
       try { if (a.send(CHANNELS.control, { event, args })) sent++; } catch {}
     }
-    logger.info(`[diag] emitEverywhere ${event} → sent on ${sent} carrier(s)`); // TEMP DIAGNOSTIC
+    logger.debug(`[diag] emitEverywhere ${event} → sent on ${sent} carrier(s)`);
     return sent > 0;
   }
 
@@ -602,7 +602,7 @@ export class ProtocolManager {
 
   _sendAck(ackId, resp) {
     const adapter = this._adapters.get("rtc");
-    logger.info(`[diag] _sendAck id=${ackId} via=${adapter?.ready ? "rtc" : "ws?"}`); // TEMP DIAGNOSTIC
+    logger.debug(`[diag] _sendAck id=${ackId} via=${adapter?.ready ? "rtc" : "ws?"}`);
     if (adapter?.ready && adapter.send(CHANNELS.control, { event: "__ack", args: resp, ackId })) return;
     // RTC dead/unavailable → ack rides WS so the client request doesn't hang.
     const ws = this._adapters.get("ws");

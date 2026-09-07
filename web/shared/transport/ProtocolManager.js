@@ -394,7 +394,7 @@ export class ProtocolManager {
     if (adapterId === "rtc" && state === ADAPTER_STATE.open) {
       // RTC-first has no handshake to carry the TAIL, so the agent admits the
       // session on a deadline and waits for this instead.
-      console.log("[seal] rtc OPEN → sending proof"); // TEMP DIAGNOSTIC
+      debugLog("auth", "[seal] rtc OPEN → sending proof");
       maybeSendTailProof(this);
     }
 

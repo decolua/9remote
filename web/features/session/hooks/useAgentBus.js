@@ -7,6 +7,7 @@ import { WORKER_API } from "@/shared/constants/API";
 import { TAIL_REJECT_REASON, LOGIN_ERROR_KEY, APPROVAL_STATUS } from "@/shared/constants/transport";
 import { sameList } from "@/shared/utils/shallowEqual";
 import { termLog } from "@/shared/utils/termLog";
+import { debugLog } from "@/shared/utils/debugLog";
 
 // Resume on mobile triggers several list-refresh paths within a few ms; this
 // window collapses them into one round-trip.
@@ -195,8 +196,8 @@ export function useAgentBus() {
 
     // Listen for device approval flow
     bus.on("device:pendingApproval", () => {
-      termLog("diag", "EVENT device:pendingApproval arrived"); // TEMP DIAGNOSTIC
-      console.log("[auth] agent says: waiting for host approval"); // TEMP DIAGNOSTIC
+      termLog("diag", "EVENT device:pendingApproval arrived");
+      debugLog("auth", "[auth] agent says: waiting for host approval");
       applyApproval(APPROVAL_STATUS.pending);
     });
 
@@ -216,7 +217,7 @@ export function useAgentBus() {
     // still inside its proof window, so this fires for a device that may yet be
     // refused. Only device:approved says the agent accepted us.
     bus.on("terminal:ready", () => {
-      console.log("[auth] terminal:ready (NOT an admission signal)"); // TEMP DIAGNOSTIC
+      debugLog("auth", "[auth] terminal:ready (NOT an admission signal)");
       fetchLists(bus);
     });
 

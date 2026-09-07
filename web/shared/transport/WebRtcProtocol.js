@@ -630,8 +630,7 @@ export class WebRtcProtocol extends BaseProtocol {
     // against a value that can never match.
     const pinned = trust?.hostPubKey ? trust : null;
     const fp2Usable = !!trust?.hostSealKey;
-    // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
-    console.log("[seal] verify answer:", {
+    debugLog("auth", "[seal] verify answer:", {
       agentSentXpub: !!msg.xpub,
       pinned: !!pinned,
       stalePin: !!(trust?.hostPubKey && !fp2Usable),
@@ -648,14 +647,14 @@ export class WebRtcProtocol extends BaseProtocol {
           debugLog("transport", "[rtc] host key re-pinned via fresh pairing fp2");
           return true;
         }
-        console.log("[seal] REJECT answer — pinned pub differs (host key rotated?) and no fresh fp2 to re-pin");
+        debugLog("auth", "[seal] REJECT answer — pinned pub differs (host key rotated?) and no fresh fp2 to re-pin");
         return false;
       }
       // Same key as pinned: the signature is the check, and it works whatever
       // scheme the stored fingerprint used.
       const sig = await verifySdpSignature(msg.pub, msg.sdp, msg.sig);
       if (sig === false) {
-        console.log("[seal] REJECT answer — signature invalid (relay tampering?)");
+        debugLog("auth", "[seal] REJECT answer — signature invalid (relay tampering?)");
         return false;
       }
       if (sig === null) {
@@ -663,11 +662,11 @@ export class WebRtcProtocol extends BaseProtocol {
         // left, and a pre-sealing one cannot be recomputed. Refuse rather than
         // accept unverified: the user re-pairs and gets a fingerprint that works.
         if (!fp2Usable) {
-          console.log("[seal] REJECT answer — no Ed25519 in browser and pinned fp2 predates sealing");
+          debugLog("auth", "[seal] REJECT answer — no Ed25519 in browser and pinned fp2 predates sealing");
           return false;
         }
         const fp2ok = (await hostFingerprint(msg.pub, msg.xpub)) === pinned.fp2;
-        if (!fp2ok) console.log("[seal] REJECT answer — fp2 fallback mismatch vs pinned", pinned.fp2);
+        if (!fp2ok) debugLog("auth", "[seal] REJECT answer — fp2 fallback mismatch vs pinned", pinned.fp2);
         return fp2ok;
       }
       return true;
@@ -676,7 +675,7 @@ export class WebRtcProtocol extends BaseProtocol {
     if (pendingFp2) {
       const fp2 = await hostFingerprint(msg.pub, msg.xpub);
       if (fp2 !== pendingFp2) {
-        console.log("[seal] REJECTED — fp2", fp2, "!= code", pendingFp2,
+        debugLog("auth", "[seal] REJECTED — fp2", fp2, "!= code", pendingFp2,
           msg.xpub ? "" : "(agent sent no sealing key — needs the source build)");
         // Single-shot: a mismatch burns the pending fp2 so a stale one (wrong
         // code, expired pairing of another agent) can't reject the right agent
@@ -685,7 +684,7 @@ export class WebRtcProtocol extends BaseProtocol {
         return false;
       }
       setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub, fp2 });
-      console.log("[seal] pinned via RTC — fp2", fp2, "sealing key stored");
+      debugLog("auth", "[seal] pinned via RTC — fp2", fp2, "sealing key stored");
       debugLog("transport", "[rtc] host key pinned via pairing fp2");
       return true;
     }

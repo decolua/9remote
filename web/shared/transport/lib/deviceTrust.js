@@ -5,6 +5,7 @@
 // TAIL travels only to the agent itself (see adapters/freshAuth).
 
 import { CHANNELS, TAIL_REJECT_REASON, PENDING_SAVE_KEY, WANTS_SAVE_KEY } from "@/shared/constants/transport";
+import { debugLog } from "@/shared/utils/debugLog";
 import { hostFp2Of } from "./tailSeal";
 
 const TRUST_KEY = "9remote_device_trust";
@@ -72,10 +73,9 @@ export async function hostFingerprint(edPubB64, xPubB64) {
 }
 
 export async function pinHostKeysWithFp2(apiKey, hostKeys) {
-  // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
-  console.log("[seal] pin?", { hasEd: !!hostKeys?.ed, hasX: !!hostKeys?.x, pending: getPendingFp2() });
+  debugLog("auth", "[seal] pin?", { hasEd: !!hostKeys?.ed, hasX: !!hostKeys?.x, pending: getPendingFp2() });
   if (!apiKey || !hostKeys?.ed || !hostKeys?.x) {
-    console.log("[seal] pin SKIPPED — agent sent no sealing key (old agent?)");
+    debugLog("auth", "[seal] pin SKIPPED — agent sent no sealing key (old agent?)");
     return false;
   }
   // Anchored already — unless the pin predates sealing, in which case it holds
@@ -83,21 +83,21 @@ export async function pinHostKeysWithFp2(apiKey, hostKeys) {
   // the device from ever pairing again.
   const trust = getTrust(apiKey);
   if (trust?.hostPubKey && trust?.hostSealKey) {
-    console.log("[seal] pin SKIPPED — already anchored");
+    debugLog("auth", "[seal] pin SKIPPED — already anchored");
     return false;
   }
   const pending = getPendingFp2();
   if (!pending) {
-    console.log("[seal] pin SKIPPED — no pending fp2 (logged in without scanning a code)");
+    debugLog("auth", "[seal] pin SKIPPED — no pending fp2 (logged in without scanning a code)");
     return false;
   }
   const fp2 = await hostFingerprint(hostKeys.ed, hostKeys.x);
   if (fp2 !== pending) {
-    console.log("[seal] pin REFUSED — fp2 mismatch", { computed: fp2, expected: pending });
+    debugLog("auth", "[seal] pin REFUSED — fp2 mismatch", { computed: fp2, expected: pending });
     return false;
   }
   setTrust(apiKey, { hostPubKey: hostKeys.ed, hostSealKey: hostKeys.x, fp2 });
-  console.log("[seal] pin OK — fp2", fp2, "sealing key stored");
+  debugLog("auth", "[seal] pin OK — fp2", fp2, "sealing key stored");
   return true;
 }
 

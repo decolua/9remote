@@ -313,7 +313,7 @@ async function attachTransportBus(socket) {
   // AgentBus (RTC-first) session: RTC dying with no WS fallback means it is over.
   if (socket.defersWsAdapter) {
     pm._onDead = () => {
-      logger.info(`[diag] _onDead fired peer=${(socket.peerId || "").slice(0, 12)} — rtc never returned in grace`); // TEMP DIAGNOSTIC — stale-connected bug
+      logger.debug(`[diag] _onDead fired peer=${(socket.peerId || "").slice(0, 12)} — rtc never returned in grace`);
       pushUiLogDebug(`RTC session closed: ${authOf(socket)?.deviceId?.slice(0, 8)}...`);
       try { pm.close(); } catch {}
       unregisterProtocol(pm);
@@ -600,7 +600,7 @@ async function releaseDevice(deviceId) {
  * cuts the channel before the client learns why.
  */
 function rejectDeviceTail(socket, deviceId, reason) {
-  logger.info(`[diag] rejectDeviceTail device=${deviceId?.slice(0, 8)} reason=${reason}`); // TEMP DIAGNOSTIC
+  logger.debug(`[diag] rejectDeviceTail device=${deviceId?.slice(0, 8)} reason=${reason}`);
   socket.data.tailReject = socket.data.tailReject || { reason, penaltyMs: 0 };
   const why = socket.data.tailReject.reason;
   logger.warn(`tail rejected (${why}): device=${deviceId?.slice(0, 8) ?? "none"} carrier=${carrierOf(socket).id}`);
@@ -623,7 +623,7 @@ function rejectDeviceTail(socket, deviceId, reason) {
  *  the tunnel and the data channel are two paths to one session, and leaving
  *  either up would keep an unproven device connected. */
 function revokeDevice(deviceId, reason) {
-  logger.info(`[diag] revokeDevice device=${deviceId?.slice(0, 8)} reason=${reason}`); // TEMP DIAGNOSTIC — kick trace
+  logger.debug(`[diag] revokeDevice device=${deviceId?.slice(0, 8)} reason=${reason}`);
   if (!deviceId) return;
   clearProofWaiters(deviceId); // nothing is waiting to ask the host any more
   removePendingApproval(getPendingSocketId(deviceId) || "");
@@ -698,7 +698,7 @@ async function buildRtcSession(peerId, deviceId) {
   rtcSessions.set(peerId, socket);
   trackConnection(socket.id, "rtc", deviceId, "rtc");
   socket.on("disconnect", () => {
-    logger.info(`[diag] AgentBus disconnect peer=${(peerId || "").slice(0, 12)} → untrack + conn.close`); // TEMP DIAGNOSTIC — stale-connected bug
+    logger.debug(`[diag] AgentBus disconnect peer=${(peerId || "").slice(0, 12)} → untrack + conn.close`);
     if (rtcSessions.get(peerId) === socket) rtcSessions.delete(peerId);
     untrackConnection(socket.id);
     // The connection dies with its last carrier. Leaving it open kept a closed
@@ -777,7 +777,7 @@ export function approveRejectedDevice(deviceId) {
 
 /** Disconnect all active sockets belonging to a deviceId (device stays approved) */
 export function disconnectDeviceSockets(deviceId) {
-  logger.info(`[diag] disconnectDeviceSockets device=${deviceId?.slice(0, 8)} — stack hint: ${new Error().stack.split("\n")[2]?.trim()?.slice(0, 90)}`); // TEMP DIAGNOSTIC — who kicks whom
+  logger.debug(`[diag] disconnectDeviceSockets device=${deviceId?.slice(0, 8)} — stack hint: ${new Error().stack.split("\n")[2]?.trim()?.slice(0, 90)}`);
   const io = ioInstance;
   if (!io || !deviceId) return 0;
   let count = 0;
