@@ -5,8 +5,8 @@
 
 // `code` matches the physical key (layout-independent); `key` is for named keys.
 export const SHORTCUTS = [
-  { id: "sessionPrev", key: "ArrowLeft", label: "Previous terminal", mac: "⌥←", pc: "Ctrl+Shift+←" },
-  { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "⌥→", pc: "Ctrl+Shift+→" },
+  { id: "sessionPrev", key: "ArrowLeft", label: "Previous terminal", mac: "Opt ←", pc: "Ctrl+Shift+←" },
+  { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "Opt →", pc: "Ctrl+Shift+→" },
   { id: "palette", code: "KeyP", label: "Search files", mac: "⌘⇧P", pc: "Ctrl+Shift+P" },
   { id: "newTerminal", key: "Enter", label: "New terminal", mac: "⌘⇧↵", pc: "Ctrl+Shift+Enter" },
   { id: "toggleSidebar", code: "KeyB", label: "Toggle sidebar", mac: "⌘⇧B", pc: "Ctrl+Shift+B" },
@@ -17,7 +17,7 @@ export const SHORTCUTS = [
 export const SESSION_INDEX_SHORTCUT = {
   id: "sessionIndex",
   label: "Go to terminal 1–9",
-  mac: "⌥1…9",
+  mac: "Opt 1…9",
   pc: "Ctrl+Shift+1…9"
 };
 
@@ -51,14 +51,16 @@ export const SHORTCUT_KEY_CLS = "inline-flex h-6 min-w-6 items-center justify-ce
 
 const MAC_MODIFIERS = new Set(["⌘", "⌥", "⇧", "⌃"]);
 
-// "⌘⇧P" → ["⌘","⇧","P"]; "Ctrl+Shift+P" → ["Ctrl","Shift","P"] — one keycap each.
+// "⌘⇧P" → ["⌘","⇧","P"]; "Opt ←" → ["Opt","←"]; "Ctrl+Shift+P" → ["Ctrl","Shift","P"] — one keycap each.
 export function shortcutKeys(entry) {
   const label = shortcutLabel(entry);
   if (label.includes("+")) return label.split("+");
   const keys = [];
+  let rest = label;
+  if (rest.startsWith("Opt ")) { keys.push("Opt"); rest = rest.slice(4); }
   let i = 0;
-  while (i < label.length && MAC_MODIFIERS.has(label[i])) { keys.push(label[i]); i++; }
-  if (i < label.length) keys.push(label.slice(i));
+  while (i < rest.length && MAC_MODIFIERS.has(rest[i])) { keys.push(rest[i]); i++; }
+  if (i < rest.length) keys.push(rest.slice(i));
   return keys;
 }
 
@@ -114,5 +116,5 @@ export function withHint(label, shortcutId) {
 // Tooltip hint for the Nth terminal tab (0-based). Only 1-9 are reachable by chord.
 export function tabIndexHint(index) {
   if (index < 0 || index > 8) return null;
-  return isMac() ? `⌥${index + 1}` : `Ctrl+Shift+${index + 1}`;
+  return isMac() ? `Opt ${index + 1}` : `Ctrl+Shift+${index + 1}`;
 }
