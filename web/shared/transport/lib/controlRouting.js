@@ -63,12 +63,20 @@ export function pickAdapter(adapters, profile, channel) {
   const candidates = [...adapters.values()]
     .filter((a) => a.supports(channel) && a.ready);
 
-  if (cfg.prefer) {
-    const preferred = candidates.find((a) => a.constructor.id === cfg.prefer);
-    if (preferred) return preferred;
-  }
-  candidates.sort((a, b) =>
-    (b.constructor.priority[channel] ?? 0) - (a.constructor.priority[channel] ?? 0)
-  );
+  if (!candidates.length) return null;
+
+  // Dynamic priority resolution — highest score wins, extensible for any future protocol
+  candidates.sort((a, b) => {
+    const pB = b.getPriority ? b.getPriority(channel) : (b.constructor.priority[channel] ?? 0);
+    const pA = a.getPriority ? a.getPriority(channel) : (a.constructor.priority[channel] ?? 0);
+    if (pB !== pA) return pB - pA;
+    // Tie-breaker: if scores are identical, use the profile preference
+    if (cfg.prefer) {
+      if (b.constructor.id === cfg.prefer) return 1;
+      if (a.constructor.id === cfg.prefer) return -1;
+    }
+    return 0;
+  });
+
   return candidates[0] || null;
 }

@@ -25,6 +25,10 @@ export class BaseProtocol {
     return Boolean(this.constructor.capabilities[channel]);
   }
 
+  getPriority(channel) {
+    return this.constructor.priority[channel] ?? 0;
+  }
+
   on(event, handler) {
     if (!this._listeners.has(event)) this._listeners.set(event, new Set());
     this._listeners.get(event).add(handler);

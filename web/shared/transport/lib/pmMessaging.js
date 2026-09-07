@@ -126,7 +126,7 @@ export function dispatch(pm, event, payload, source) {
       // The carrier IS the page's own origin (agent-served workspace): the
       // agent's tunnel URL is someone else's road — adopting it would tear down
       // a healthy loopback connection and reroute data through Cloudflare.
-      if (pm._auth.tunnelUrl === window.location.origin) {
+      if (typeof window !== "undefined" && pm._auth.tunnelUrl === window.location?.origin) {
         termLog("switch", `tunnel:updated ignored (carrier is the page origin; got url=${tunnelUrl || "none"})`);
         return;
       }

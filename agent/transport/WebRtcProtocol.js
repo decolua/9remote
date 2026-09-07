@@ -39,11 +39,18 @@ const DEFAULT_ICE = [
 // Suppress repeated TURN fetch errors — endpoint fails non-fatally (STUN-only fallback),
 // but each new connection retried the fetch, spamming identical errors.
 let _lastTurnError = "";
+// Module-level 23h cache across instances: all connections share the same credentials
+let _cachedTurnServers = null;
+let _cachedTurnExpiresAt = 0;
+const TURN_CACHE_TTL_MS = 23 * 60 * 60 * 1000;
 // The first peer waits on this fetch, so an unreachable endpoint must not stall
 // the connection — a 502 was observed taking ~14s. STUN-only is the fallback.
 const TURN_FETCH_TIMEOUT_MS = 3000;
 
 async function fetchTurnIceServers(turnApiUrl, apiKey) {
+  if (_cachedTurnServers && Date.now() < _cachedTurnExpiresAt) {
+    return _cachedTurnServers;
+  }
   try {
     const resp = await fetch(turnApiUrl, {
       headers: { "X-API-Key": apiKey },
@@ -70,6 +77,8 @@ async function fetchTurnIceServers(turnApiUrl, apiKey) {
         }
       }
     }
+    _cachedTurnServers = result;
+    _cachedTurnExpiresAt = Date.now() + TURN_CACHE_TTL_MS;
     return result;
   } catch (err) {
     // Non-fatal: STUN-only fallback. Log once per distinct error to avoid spam.
@@ -109,6 +118,14 @@ export class WebRtcProtocol extends BaseProtocol {
     this._peerEnv2 = false; // peer announced caps.env2 — send the binary frame form
     this._v2RxSeen = false; // first decoded v2 frame (one-shot diagnostic)
     this._closed = false;
+    this.typeDetail = "dc-stun";
+    this._turnPromise = null;
+  }
+
+  getPriority(channel) {
+    // Demote TURN relay below free carriers (Tunnel WS) to eliminate bandwidth cost
+    if (this.typeDetail === "dc-turn") return 5;
+    return 150;
   }
 
   /**
@@ -129,7 +146,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._signaling?.on?.((msg) => this._handleSignal(msg, rtcCfg));
 
     if (rtcCfg.enableTurn && ctx.auth?.apiKey && rtcCfg.turnApiUrl) {
-      await this._refreshTurn(rtcCfg);
+      this._turnPromise = this._refreshTurn(rtcCfg);
     }
   }
 
@@ -195,8 +212,11 @@ export class WebRtcProtocol extends BaseProtocol {
 
   // ─── Signaling ─────────────────────────────────────────────────────────────
 
-  _handleSignal(msg, rtcCfg) {
+  async _handleSignal(msg, rtcCfg) {
     if (msg.type === "offer") {
+      if (this._turnPromise) {
+        try { await this._turnPromise; } catch {}
+      }
       this._processOffer(msg.sdp, rtcCfg);
     } else if (msg.type === "ice") {
       if (!this._remoteSet || !this._pc) {
@@ -231,6 +251,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcFile = null;
     this._remoteSet = false;
     this._lastMid = null;
+    this.typeDetail = "dc-stun";
     // NOTE: do NOT clear _pendingCandidates here — _processOffer flushes them
     // after setRemoteDescription. Wiping them drops early ICE (pre-offer) silently,
     // which stalls ICE during a network-flap storm → Answer timeout pile-up.
@@ -307,6 +328,11 @@ export class WebRtcProtocol extends BaseProtocol {
         }
         catch (err) { logger.error(`control parse: ${err.message}`); return; }
         if (parsed.event === "__pong") { this._hbLastPong = Date.now(); return; }
+        if (parsed.event === "rtc:linkType") {
+          this.typeDetail = parsed.args?.[0] || "dc-stun";
+          logger.info(`[rtc] linkType from client: ${this.typeDetail}`);
+          return;
+        }
         try { this._emit("message", { event: parsed.event, data: parsed, source: "rtc" }); }
         catch (err) { logger.error(`handler error event=${parsed.event}: ${err.message}`); }
       });
@@ -386,6 +412,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcControl = null;
     this._dcBinary = null;
     this._dcFile = null;
+    this.typeDetail = "dc-stun";
   }
 
   /** PM forwards the peer's caps announcement. Heartbeat pings only peers that

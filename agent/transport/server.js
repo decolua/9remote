@@ -287,8 +287,9 @@ async function attachTransportBus(socket) {
   const { webrtc, streaming } = REMOTE_CONFIG;
   const pm = new ProtocolManager(socket, {
     enableWebRTC: webrtc.enableWebRTC,
-    apiKey: webrtc.enableTurn ? headOf(loadApiKey()) : null,
-    turnApiUrl: webrtc.enableTurn ? webrtc.turnApiUrl : null,
+    enableTurn: webrtc.enableTurn ?? false,
+    apiKey: headOf(loadApiKey()),
+    turnApiUrl: webrtc.turnApiUrl || null,
     turnRefreshInterval: webrtc.turnRefreshInterval,
     dcMaxMessageSize: webrtc.dcMaxMessageSize,
     dcChunkSize: webrtc.dcChunkSize,

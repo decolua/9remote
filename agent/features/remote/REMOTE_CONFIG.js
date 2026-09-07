@@ -72,10 +72,10 @@ export const REMOTE_CONFIG = {
 
   // WebRTC transport config
   // enableWebRTC: true  → init WebRTC manager, handle offer/answer signaling
-  // enableTurn: false   → STUN P2P only, skip TURN credential fetch
+  // enableTurn: true    → load TURN credentials for relay fallback (routed via STUN -> Tunnel -> TURN)
   webrtc: {
     enableWebRTC: true,
-    enableTurn: false,
+    enableTurn: true,
     turnApiUrl: "https://9remote.cc/api/webrtc/turn-credentials",
     // DO signaling relay — fallback RTC signaling carrier when tunnel WS is down.
     // apiKey-gated; room = client deviceId. Derives from WORKER_URL so dev mode

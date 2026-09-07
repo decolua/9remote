@@ -20,6 +20,46 @@ const WORKER_DECODE_TIMEOUT_MS = 8000;
 const MAX_WORKER_RESPAWNS = 3;
 let _workerFailures = 0;
 
+const TURN_CACHE_KEY = "9remote_turn_cache";
+const TURN_CACHE_TTL_MS = 23 * 60 * 60 * 1000;
+
+async function getCachedTurnServers(turnApiUrl, apiKey) {
+  const cacheKey = `${TURN_CACHE_KEY}_${apiKey?.slice(0, 12) || "anon"}`;
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(cacheKey) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.expiresAt > Date.now() && Array.isArray(parsed.iceServers) && parsed.iceServers.length) {
+        return parsed.iceServers;
+      }
+    }
+  } catch {}
+
+  try {
+    const resp = await fetch(turnApiUrl, {
+      headers: { "X-API-Key": apiKey },
+      signal: AbortSignal.timeout(4000)
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data?.iceServers?.length) {
+        try {
+          if (typeof localStorage !== "undefined") {
+            localStorage.setItem(cacheKey, JSON.stringify({
+              iceServers: data.iceServers,
+              expiresAt: Date.now() + TURN_CACHE_TTL_MS
+            }));
+          }
+        } catch {}
+        return data.iceServers;
+      }
+    }
+  } catch (err) {
+    console.warn("[WebRtcProtocol] TURN fetch failed:", err.message);
+  }
+  return null;
+}
+
 function getWorker() {
   if (_worker === false) return null; // previously failed (CSP / unsupported)
   if (_worker) return _worker;
@@ -114,9 +154,16 @@ export class WebRtcProtocol extends BaseProtocol {
 
     this._signalingHandlers = {};
     this._signaling = null;
+    this._useTurn = false;
   }
 
   get lastInboundAt() { return this._lastInboundAt; }
+
+  getPriority(channel) {
+    // Demote TURN relay below free carriers (Tunnel WS) to eliminate bandwidth cost
+    if (this._typeDetail === "dc-turn") return 5;
+    return 150;
+  }
 
   /**
    * @param {object} ctx
@@ -137,6 +184,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._iceReachedChecking = false;
     this._everOpened = false;
     this._isLoopback = false;
+    this._typeDetail = "dc-stun";
     this._lastMid = null;
     this._remoteGatheringDone = false;
     this._setState(ADAPTER_STATE.connecting);
@@ -173,13 +221,12 @@ export class WebRtcProtocol extends BaseProtocol {
       { urls: "stun:global.stun.twilio.com:3478" },
       { urls: "stun:stun.cloudflare.com:3478" }
     ];
-    if (ctx.profile?.rtc?.enableTurn) {
-      try {
-        const resp = await fetch(API_ENDPOINTS.turnCredentials, { headers: { "X-API-Key": ctx.auth.apiKey } });
-        if (resp.ok) iceServers = (await resp.json()).iceServers;
-      } catch (err) {
-        console.warn("[WebRtcProtocol] TURN fetch failed:", err.message);
-      }
+    this._useTurn = !!(ctx.useTurn || ctx.profile?.rtc?.enableTurn);
+    if (ctx.iceServers?.length) {
+      iceServers = ctx.iceServers;
+    } else if (this._useTurn) {
+      const turnServers = await getCachedTurnServers(API_ENDPOINTS.turnCredentials, ctx.auth?.apiKey);
+      if (turnServers?.length) iceServers = turnServers;
     }
 
     const pc = new RTCPeerConnection({
@@ -210,7 +257,7 @@ export class WebRtcProtocol extends BaseProtocol {
           if (s.type === "candidate-pair" && s.state === "succeeded") {
             const local = [...stats.values()].find((c) => c.id === s.localCandidateId);
             const remote = [...stats.values()].find((c) => c.id === s.remoteCandidateId);
-            if (local?.candidateType === "relay") this._typeDetail = "dc-turn";
+            if (local?.candidateType === "relay" || remote?.candidateType === "relay") this._typeDetail = "dc-turn";
             const lAddr = local?.address || local?.ip || "";
             const rAddr = remote?.address || remote?.ip || "";
             if (lAddr === "127.0.0.1" || lAddr === "::1" || rAddr === "127.0.0.1" || rAddr === "::1") {
@@ -220,6 +267,7 @@ export class WebRtcProtocol extends BaseProtocol {
           }
         });
       } catch {}
+      this.send(CHANNELS.control, { event: "rtc:linkType", args: [this._typeDetail] });
       debugLog("transport", `[rtc] dc OPEN type=${this._typeDetail} ${pairInfo}`);
       termLog("switch", `rtc dc OPEN (${this._typeDetail} ${pairInfo})`);
       clearTimeout(this._connectTimer);
@@ -336,7 +384,7 @@ export class WebRtcProtocol extends BaseProtocol {
       await pc.setLocalDescription(offer);
       debugLog("transport", "[rtc] offer sent");
       termLog("switch", "rtc offer sent");
-      this._sendSignaling({ type: "offer", sdp: offer.sdp });
+      this._sendSignaling({ type: "offer", sdp: offer.sdp, useTurn: this._useTurn });
     } catch (err) {
       console.error("[rtc] createOffer error:", err.message);
       this._closePeer(`create-offer:${err.message}`);
@@ -684,6 +732,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcBinary = null;
     this._dcFile = null;
     this._isLoopback = false;
+    this._typeDetail = "dc-stun";
     if (this._pc) {
       this._pc.onicecandidate = null;
       this._pc.oniceconnectionstatechange = null;

@@ -192,7 +192,7 @@ export const TRANSPORT_PROFILES = {
       binary: { strategy: "priority", prefer: "rtc" },
       file: { strategy: "priority", prefer: "rtc" }
     },
-    rtc: { enableTurn: false, dcControl: { ordered: true } }
+    rtc: { enableTurn: true, dcControl: { ordered: true } }
   },
   remoteDesktop: {
     enabled: ["ws", "rtc"],
@@ -202,6 +202,6 @@ export const TRANSPORT_PROFILES = {
       binary: { strategy: "priority", prefer: "rtc" },
       file: { strategy: "priority", prefer: "rtc" }
     },
-    rtc: { enableTurn: false, dcControl: { ordered: true } }
+    rtc: { enableTurn: true, dcControl: { ordered: true } }
   }
 };
