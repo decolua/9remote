@@ -16,6 +16,7 @@ import { setupFileExplorerHandlers } from "../features/fileExplorer/fileExplorer
 import { setupClipboardHandlers } from "../features/clipboard/clipboardSocket.js";
 import { setupQuotaTrackerHandlers } from "../features/quotaTracker/quotaTrackerSocket.js";
 import { setupBackgroundHandlers } from "../features/terminal/backgroundSocket.js";
+import { setupAiHandlers } from "../features/ai/aiSocket.js";
 import { trackConnection, untrackConnection, pushUiLog, pushUiLogDebug, clearOneTimeKey, pushUiEvent, setRemoteAvailable, pushTransportState, getTunnelPayload } from "../api/ui.js";
 import {
   loadApprovedDevices,
@@ -274,6 +275,7 @@ async function setupSessionFeatures(socket) {
   setupClipboardHandlers(socket);
   setupQuotaTrackerHandlers(socket);
   setupBackgroundHandlers(socket);
+  setupAiHandlers(socket, ioInstance);
   await setupTerminalHandlers(socket, ioInstance, loadApiKey());
   syncClientSession(socket);
   socket.emit("terminal:ready");

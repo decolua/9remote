@@ -12,6 +12,7 @@ import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
 import { currentSeq, getGap, clearSession } from "../seqStore.js";
+import { globalAiManager } from "../../ai/aiManager.js";
 import fs from "fs";
 import path from "path";
 
@@ -582,6 +583,9 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   socket.on("deleteSession", async (sessionId, callback) => {
     const session = sessions.get(sessionId);
     if (!session) return callback({ success: false, error: "Session not found" });
+
+    // Clean up any active AI session process for this sessionId
+    globalAiManager.destroySession(sessionId);
 
     if (session.daemon && daemonClient.isConnected()) {
       try {
