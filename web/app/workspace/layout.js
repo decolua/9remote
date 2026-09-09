@@ -188,15 +188,24 @@ export default function WorkspaceLayout({ children }) {
   }, [auth, setAuth]);
 
   // Tauri shell has no browser reload accelerator — wire Cmd/Ctrl+R and F5.
-  // Browser builds skip this and keep native reload.
+  // Suppress native browser contextmenu in desktop app except for editable text inputs.
   useEffect(() => {
     if (!window.__TAURI__) return;
     const onKey = (e) => {
       const isReload = e.key === "F5" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r");
       if (isReload) { e.preventDefault(); window.location.reload(); }
     };
+    const onContextMenu = (e) => {
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
+      e.preventDefault();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("contextmenu", onContextMenu);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("contextmenu", onContextMenu);
+    };
   }, []);
   const { bus, busRef, protocolRef, connected, connectionMode, carrier, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   const [shells, setShells] = useState([]);
@@ -204,6 +213,8 @@ export default function WorkspaceLayout({ children }) {
   const { updating, updateMode, resumeGrace, doUpdate, doRestart } = useAgentUpdate({
     connected, triggerUpdate, triggerRestart
   });
+
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null, confirmText: null });
 
   // Ask for confirmation before self-update (restarts connection, ~1 min)
   const handleUpdate = useCallback(() => {
@@ -245,7 +256,6 @@ export default function WorkspaceLayout({ children }) {
   useClipboardBus(busRef, connected);
   const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(busRef, connected);
 
-  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null });
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen);
 
   // Desktop split-view detection
@@ -347,15 +357,47 @@ export default function WorkspaceLayout({ children }) {
     nav.handleCreateSession(name, activeWorkspaceId, agent ? null : shellId, null, agent, yolo, true);
   }, [agentClis, sessions, activeWorkspaceId, nav]);
 
+  const handleSwitchWorkspace = useCallback((direction) => {
+    const ids = workspaces.map((w) => w.id);
+    const hasUngrouped = sessions.some((s) => sessionWorkspaceId(s) === null);
+    if (hasUngrouped) ids.push(null);
+    if (ids.length < 2) return;
+
+    const currentIdx = ids.indexOf(activeWorkspaceId ?? null);
+    const idx = currentIdx === -1 ? 0 : currentIdx;
+    const nextIdx = direction === "prev"
+      ? (idx - 1 + ids.length) % ids.length
+      : (idx + 1) % ids.length;
+    nav.handleSelectWorkspace(ids[nextIdx]);
+  }, [workspaces, sessions, activeWorkspaceId, nav]);
+
+  const handleCloseActiveTerminal = useCallback(() => {
+    if (currentView?.type !== "terminal" || !currentView.sessionId) return;
+    const session = sessions.find((s) => s.id === currentView.sessionId);
+    if (!session) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: t("sessions.deleteTitle"),
+      message: t("sessions.deleteMessage", { name: session.name || t("terminal.defaultName") }),
+      confirmText: t("common.delete"),
+      onConfirm: () => nav.handleDeleteSession(session.id)
+    });
+  }, [currentView, sessions, nav, t]);
+
   // Gated on the terminal view too: remote desktop forwards every keystroke to the host
   // machine, and the full-screen file explorer runs its own chord set — neither may be
   // shadowed by a capture-phase listener sitting above them.
   useGlobalShortcuts({
     sessionPrev: () => nav.switchSession("prev"),
     sessionNext: () => nav.switchSession("next"),
+    workspacePrev: () => handleSwitchWorkspace("prev"),
+    workspaceNext: () => handleSwitchWorkspace("next"),
     sessionIndex: (index) => nav.switchToIndex(index),
+    closeTerminal: handleCloseActiveTerminal,
+    fitPanes: () => window.dispatchEvent(new CustomEvent("terminal:fitPanes")),
     newTerminal: createTerminalFromPrefs,
     toggleSidebar,
+    toggleRightPanel,
     palette: () => { if (paletteWorkspace) setQuickOpen(true); },
     help: openShortcutsModal
   }, isDesktop && isTerminalView);
@@ -879,6 +921,7 @@ export default function WorkspaceLayout({ children }) {
           onConfirm={confirmDialog.onConfirm}
           title={confirmDialog.title}
           message={confirmDialog.message}
+          confirmText={confirmDialog.confirmText}
         />
       </div>
       {/* Child routes are URL markers only (render nothing) */}

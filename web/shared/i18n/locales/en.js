@@ -991,12 +991,21 @@ export default {
   shortcuts: {
     title: "Keyboard shortcuts",
     menuLabel: "Keyboard shortcuts",
+    switchTerminal: "Switch terminal",
+    switchWorkspace: "Switch workspace",
+    terminalActions: "New / Close terminal",
+    togglePanels: "Toggle side panels",
+    palette: "Search files",
+    help: "Keyboard shortcuts",
     sessionPrev: "Previous terminal",
     sessionNext: "Next terminal",
+    workspacePrev: "Previous workspace",
+    workspaceNext: "Next workspace",
     sessionIndex: "Go to terminal 1-9",
-    palette: "Search files",
+    closeTerminal: "Close terminal",
+    fitPanes: "Auto-fit panes",
     newTerminal: "New terminal",
     toggleSidebar: "Toggle sidebar",
-    help: "Keyboard shortcuts"
+    toggleRightPanel: "Toggle side panel"
   }
 };

@@ -12,6 +12,8 @@ import { startWidthDrag } from "@/shared/utils/dragResize";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
+import { withHint } from "@/features/terminal/constants/shortcuts";
+import { useInputMode } from "@/shared/hooks/useInputMode";
 
 const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
 const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
@@ -33,28 +35,57 @@ const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
   );
 });
 
-// Isolated per-pane status dot: only shows when active (working / done / blocked), hides when idle
-const PaneStatusBadge = memo(function PaneStatusBadge({ sessionId }) {
+// Isolated per-pane bottom status bar: shows constant-speed light sweep when working, static when done/blocked, hides when idle
+const PaneStatusBar = memo(function PaneStatusBar({ sessionId }) {
   const sessionStatus = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId] : null);
   const state = sessionStatus?.state || "idle";
+  const ref = useRef(null);
+  const [paneWidth, setPaneWidth] = useState(0);
+
+  useEffect(() => {
+    if (state !== "working" || !ref.current) return;
+    const el = ref.current;
+    const ro = new ResizeObserver(([entry]) => {
+      const w = entry?.contentRect?.width || el.offsetWidth;
+      if (w > 0) setPaneWidth(Math.round(w));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [state]);
+
   if (state === "idle") return null;
 
+  const speed = 250;
+  const beamWidth = 140;
+  const w = paneWidth || 600;
+  const duration = Math.max(1.8, (w + beamWidth) / speed);
+  const delay = duration / 2;
+
   return (
-    <div className="absolute left-2.5 top-2.5 z-20 hidden sm:flex items-center justify-center p-1 rounded-full bg-surface/80 backdrop-blur-sm border border-border-subtle/60 shadow-sm select-none pointer-events-none">
+    <div
+      ref={ref}
+      className="absolute inset-x-0 bottom-0 z-20 h-[1px] overflow-hidden pointer-events-none hidden sm:block"
+      style={{
+        "--pane-w": `${w}px`,
+        "--beam-w": `${beamWidth}px`,
+        "--beam-dur": `${duration.toFixed(2)}s`,
+        "--beam-delay": `${delay.toFixed(2)}s`,
+      }}
+    >
       {state === "working" ? (
-        <span
-          className="w-2.5 h-2.5 rounded-full bg-[#3b82f6] animate-[pulse_0.8s_ease-in-out_infinite]"
-          style={{ boxShadow: "0 0 6px rgba(59,130,246,0.6)" }}
-        />
+        <div className="relative w-full h-full bg-blue-500/10">
+          <div className="pane-light-beam" />
+          <div className="pane-light-beam pane-light-beam-2" />
+        </div>
       ) : state === "done" ? (
-        <span
-          className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"
-          style={{ boxShadow: "0 0 6px rgba(245,158,11,0.5)" }}
+        <div
+          className="w-full h-full bg-[#f59e0b]"
+          style={{ boxShadow: "0 0 4px rgba(245,158,11,0.6)" }}
         />
       ) : state === "blocked" ? (
-        <span
-          className="w-2.5 h-2.5 rounded-full bg-[#ef4444] animate-[pulse_0.8s_ease-in-out_infinite]"
-          style={{ boxShadow: "0 0 6px rgba(239,68,68,0.6)" }}
+        <div
+          className="w-full h-full bg-[#ef4444] animate-pulse"
+          style={{ boxShadow: "0 0 4px rgba(239,68,68,0.7)" }}
         />
       ) : null}
     </div>
@@ -79,6 +110,7 @@ function TerminalWorkspace({
   subscribeToPush, unsubscribeFromPush, updateAvailable, canSelfUpdate
 }) {
   const { t } = useI18n();
+  const hasKeyboard = useInputMode() === "mouse";
   const storeBus = useConnectionStore((s) => s.bus);
   const storeBusRef = useConnectionStore((s) => s.busRef);
   const storeConnected = useConnectionStore((s) => s.connected);
@@ -271,16 +303,22 @@ function TerminalWorkspace({
     });
   };
 
-  // Deliberate re-fit (double-click): unlike a panel toggle, this one measures the space
+  // Deliberate re-fit (double-click or shortcut): unlike a panel toggle, this one measures the space
   // actually left between the sidebar and whatever side panels are currently open.
-  const fitPaneWidth = () => {
+  const fitPaneWidth = useCallback(() => {
     if (!rowWidth || !paneCount) return;
     const taken = (sidebarCollapsed ? 0 : sidebarWidth)
       + (rightPanel?.open ? rightPanel.width : 0)
       + (editorPanel?.filePath ? editorPanel.width : 0);
     const base = rowWidth - taken - PANE_ROW_PADDING_PX;
     setPaneWidth?.(Math.max(PANE_WIDTH.min, Math.floor((base - (paneCount - 1) * PANE_GAP_PX) / paneCount)));
-  };
+  }, [rowWidth, paneCount, sidebarCollapsed, sidebarWidth, rightPanel, editorPanel, setPaneWidth]);
+
+  useEffect(() => {
+    const onFit = () => fitPaneWidth();
+    window.addEventListener("terminal:fitPanes", onFit);
+    return () => window.removeEventListener("terminal:fitPanes", onFit);
+  }, [fitPaneWidth]);
 
   const renderPane = (sessionId, isVisible, isFocused, bgIndex = 0) => {
     const session = sessions.find((s) => s.id === sessionId);
@@ -480,8 +518,8 @@ function TerminalWorkspace({
                   ) : isDesktop ? (
                     <>
                       <PaneContentWrapper>
-                        <PaneStatusBadge sessionId={sessionId} />
                         {renderPane(sessionId, isVisible, isFocused, bgIndex)}
+                        <PaneStatusBar sessionId={sessionId} />
                       </PaneContentWrapper>
                       {/* Per-pane input slot — absolute, directly below the terminal */}
                       <div className="absolute inset-x-0 bottom-0 z-20 border-t border-border-subtle bg-surface">
@@ -511,6 +549,7 @@ function TerminalWorkspace({
                       onPointerDown={startPaneResize}
                       onDoubleClick={fitPaneWidth}
                       className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-500/40 transition-colors z-30"
+                      title={hasKeyboard ? withHint(t("shortcuts.fitPanes") || "Auto-fit panes", "fitPanes") : undefined}
                     />
                   )}
                 </div>

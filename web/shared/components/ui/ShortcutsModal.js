@@ -35,9 +35,9 @@ export default function ShortcutsModal({ isOpen, onClose }) {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto modal-scrollable px-5 pb-5">
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col divide-y divide-border-subtle/40">
             {SHORTCUT_ROWS.map((entry) => (
-              <li key={entry.id} className="flex items-center justify-between gap-4 py-2">
+              <li key={entry.id} className="flex items-center justify-between gap-4 py-2 first:pt-1">
                 <span className="text-sm text-text min-w-0 truncate">{t(`shortcuts.${entry.id}`)}</span>
                 <span className="inline-flex items-center gap-1 flex-shrink-0">
                   {shortcutKeys(entry).map((key) => (

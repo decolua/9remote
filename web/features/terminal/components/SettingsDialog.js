@@ -328,11 +328,11 @@ export default function SettingsDialog({
               </div>
             )}
             {section === "shortcuts" && (
-              <ul className="flex flex-col">
+              <ul className="flex flex-col divide-y divide-border-subtle/40">
                 {SHORTCUT_ROWS.map((entry) => (
                   <li
                     key={entry.id}
-                    className="flex items-center justify-between gap-4 px-3 py-2.5 rounded-brand hover:bg-surface-2"
+                    className="flex items-center justify-between gap-4 px-3 py-2 rounded-brand hover:bg-surface-2 first:pt-1"
                   >
                     <span className="text-sm text-text min-w-0 truncate">{t(`shortcuts.${entry.id}`)}</span>
                     <span className="inline-flex items-center gap-1 flex-shrink-0">

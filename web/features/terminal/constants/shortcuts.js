@@ -7,9 +7,14 @@
 export const SHORTCUTS = [
   { id: "sessionPrev", key: "ArrowLeft", label: "Previous terminal", mac: "Opt ←", pc: "Ctrl+Shift+←" },
   { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "Opt →", pc: "Ctrl+Shift+→" },
-  { id: "palette", code: "KeyP", label: "Search files", mac: "⌘⇧P", pc: "Ctrl+Shift+P" },
+  { id: "workspacePrev", key: "ArrowUp", label: "Previous workspace", mac: "Opt ↑", pc: "Ctrl+Shift+↑" },
+  { id: "workspaceNext", key: "ArrowDown", label: "Next workspace", mac: "Opt ↓", pc: "Ctrl+Shift+↓" },
+  { id: "closeTerminal", code: "KeyW", label: "Close terminal", mac: "Opt W", pc: "Alt+W" },
+  { id: "fitPanes", key: "=", code: "Equal", label: "Auto-fit panes", mac: "Opt =", pc: "Alt+=" },
   { id: "newTerminal", key: "Enter", label: "New terminal", mac: "⌘⇧↵", pc: "Ctrl+Shift+Enter" },
+  { id: "palette", code: "KeyP", label: "Search files", mac: "⌘⇧P", pc: "Ctrl+Shift+P" },
   { id: "toggleSidebar", code: "KeyB", label: "Toggle sidebar", mac: "⌘⇧B", pc: "Ctrl+Shift+B" },
+  { id: "toggleRightPanel", code: "KeyJ", label: "Toggle side panel", mac: "⌘⇧J", pc: "Ctrl+Shift+J" },
   { id: "help", code: "Slash", label: "Keyboard shortcuts", mac: "⌘⇧/", pc: "Ctrl+Shift+/" }
 ];
 
@@ -21,10 +26,19 @@ export const SESSION_INDEX_SHORTCUT = {
   pc: "Ctrl+Shift+1…9"
 };
 
-// Display order: session index sits after the prev/next pair — the three are one group.
+// 1 row per distinct action: clear, readable, no visual clutter
 export const SHORTCUT_ROWS = [
-  SHORTCUTS[0], SHORTCUTS[1], SESSION_INDEX_SHORTCUT, ...SHORTCUTS.slice(2)
-];
+  { id: "switchTerminal", label: "Switch terminal", mac: "Opt ← / →", pc: "Ctrl+Shift+← / →" },
+  SESSION_INDEX_SHORTCUT,
+  { id: "switchWorkspace", label: "Switch workspace", mac: "Opt ↑ / ↓", pc: "Ctrl+Shift+↑ / ↓" },
+  SHORTCUTS.find((s) => s.id === "newTerminal"),
+  SHORTCUTS.find((s) => s.id === "closeTerminal"),
+  SHORTCUTS.find((s) => s.id === "fitPanes"),
+  SHORTCUTS.find((s) => s.id === "toggleSidebar"),
+  SHORTCUTS.find((s) => s.id === "toggleRightPanel"),
+  SHORTCUTS.find((s) => s.id === "palette"),
+  SHORTCUTS.find((s) => s.id === "help")
+].filter(Boolean);
 
 const DIGIT_CODE = /^Digit([1-9])$/;
 
@@ -64,6 +78,12 @@ export function shortcutKeys(entry) {
   return keys;
 }
 
+// Checks if target is inside a modal dialog (so typing in dialog fields does not trigger global shortcuts)
+const isModalInput = (target) => {
+  if (!target || typeof target.closest !== "function") return false;
+  return Boolean(target.closest("[role=dialog]") || target.closest(".modal-overlay") || target.closest(".card-elev"));
+};
+
 // Editable target — but xterm's hidden helper textarea is the terminal itself, not a form field.
 const isEditableTarget = (target) => {
   if (!target || typeof target.closest !== "function") return false;
@@ -75,13 +95,34 @@ const isEditableTarget = (target) => {
 export function matchShortcut(event) {
   const mac = isMac();
 
-  // On macOS, terminal tab switching uses Option (⌥1..9, ⌥←, ⌥→)
+  // On macOS, terminal tab switching uses Option (⌥1..9, ⌥←, ⌥→, ⌥↑, ⌥↓), ⌥W closes active terminal, ⌥= auto-fits panes
+  // Note: Option+W produces "∑" and Option+= produces "≠" on macOS keyboard layout, so check both code and character
   if (mac && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
     const digit = DIGIT_CODE.exec(event.code) || (/^[1-9]$/.test(event.key) ? [null, event.key] : null);
     if (digit) return { id: SESSION_INDEX_SHORTCUT.id, index: Number(digit[1]) - 1 };
     if (event.key === "ArrowLeft") return { id: "sessionPrev" };
     if (event.key === "ArrowRight") return { id: "sessionNext" };
+    if (event.key === "ArrowUp") return { id: "workspacePrev" };
+    if (event.key === "ArrowDown") return { id: "workspaceNext" };
+    if (isModalInput(event.target)) return null;
+    if (event.code === "Equal" || event.key === "=" || event.key === "≠" || event.key === "+") {
+      return { id: "fitPanes" };
+    }
+    if (event.code === "KeyW" || event.key === "∑" || event.key?.toLowerCase() === "w") {
+      return { id: "closeTerminal" };
+    }
     return null;
+  }
+
+  // On PC, Alt chords (Alt+W closes terminal, Alt+= auto-fits panes)
+  if (!mac && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+    if (isModalInput(event.target)) return null;
+    if (event.code === "Equal" || event.key === "=" || event.key === "+") {
+      return { id: "fitPanes" };
+    }
+    if (event.code === "KeyW" || event.key?.toLowerCase() === "w") {
+      return { id: "closeTerminal" };
+    }
   }
 
   if (!event.shiftKey || !(event.metaKey || event.ctrlKey) || event.altKey) return null;
@@ -96,7 +137,8 @@ export function matchShortcut(event) {
 
   const editable = isEditableTarget(event.target);
   for (const entry of SHORTCUTS) {
-    if (mac && (entry.id === "sessionPrev" || entry.id === "sessionNext")) continue;
+    if (mac && (entry.id === "sessionPrev" || entry.id === "sessionNext" || entry.id === "workspacePrev" || entry.id === "workspaceNext" || entry.id === "closeTerminal")) continue;
+    if (!mac && entry.id === "closeTerminal") continue;
     const hit = entry.code ? event.code === entry.code : event.key === entry.key;
     if (!hit) continue;
     if (entry.skipInInput && editable) return null;
