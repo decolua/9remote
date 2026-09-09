@@ -223,7 +223,8 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       shellLabel: shellConfig.label,
       zdotDir,
       pending: null,          // coalesced output (concat of same-tick chunks)
-      flushScheduled: false   // setImmediate flush guard
+      flushScheduled: false,  // setImmediate flush guard
+      foregroundProcess: getSessionForegroundProcess({ pty: ptyProcess }) || shellConfig.id
     };
 
     // Coalesce same-tick onData chunks into one output packet. setImmediate runs after
@@ -290,6 +291,39 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
   }
 }
 
+// Poll foreground processes to detect when an agent starts or exits (Ctrl+C / exit)
+const PROCESS_POLL_INTERVAL_MS = 500;
+
+function getSessionForegroundProcess(session) {
+  if (!session?.pty) return null;
+  try {
+    const raw = session.pty.process;
+    return raw ? path.basename(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function checkForegroundProcesses() {
+  if (!sessions.size || !clients.size) return;
+  for (const [sessionId, session] of sessions) {
+    if (!session.pty) continue;
+    const proc = getSessionForegroundProcess(session);
+    if (proc && proc !== session.foregroundProcess) {
+      const prev = session.foregroundProcess;
+      session.foregroundProcess = proc;
+      if (prev !== null) {
+        broadcast({
+          type: "processChange",
+          sessionId,
+          process: proc,
+          prevProcess: prev
+        });
+      }
+    }
+  }
+}
+
 /**
  * Handle client messages
  */
@@ -308,7 +342,8 @@ function handleMessage(client, message) {
         createdAt: s.createdAt,
         shellId: s.shellId,
         shellLabel: s.shellLabel,
-        cwd: s.cwd
+        cwd: s.cwd,
+        foregroundProcess: s.foregroundProcess || getSessionForegroundProcess(s)
       }));
       send(client, { type: "sessionList", sessions: list, requestId: payload.requestId });
       break;
@@ -502,6 +537,9 @@ function startDaemon() {
     }
   });
 
+  const processPollTimer = setInterval(checkForegroundProcesses, PROCESS_POLL_INTERVAL_MS);
+  if (processPollTimer.unref) processPollTimer.unref();
+
   // Write own PID so the updater / app can kill us by PID only. Kill-by-image
   // (taskkill /IM node.exe) would nuke unrelated node processes on the machine.
   try {
@@ -510,6 +548,7 @@ function startDaemon() {
   } catch {}
 
   const cleanupAndExit = () => {
+    if (processPollTimer) clearInterval(processPollTimer);
     for (const [, session] of sessions) {
       if (session.pty) {
         try { session.pty.kill(); } catch {}

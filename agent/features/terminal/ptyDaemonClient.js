@@ -285,6 +285,14 @@ function handleMessage(message) {
       emit("cwdChange", { sessionId: data.sessionId, cwd: data.cwd });
       break;
 
+    case "processChange":
+      emit("processChange", {
+        sessionId: data.sessionId,
+        process: data.process,
+        prevProcess: data.prevProcess
+      });
+      break;
+
     case "pong":
       // Heartbeat response
       break;

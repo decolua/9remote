@@ -16,7 +16,7 @@ process.env.HOME = home;
 process.env.USERPROFILE = home;
 mkdirSync(join(home, ".9remote"), { recursive: true });
 
-const { sessionIdFromHookPayload, hookSessionIdKeys } = await import("../features/terminal/agentCatalog.js");
+const { sessionIdFromHookPayload, hookSessionIdKeys, agentIdFromTitle, isShellProcess, agentIdFromProcess } = await import("../features/terminal/agentCatalog.js");
 const { setConversationId, getConversation, clearConversation, getStatuses, setSessionAgent, getLiveConversations, clearSessionAgent, getSessionAgent, forgetSession, conversationMetadata, restoreConversation, setConversationPersister, claimResumedConversation } =
   await import("../features/terminal/statusManager.js");
 const { matchLiveSessions, resumeCommand } = await import("../features/terminal/agentHistory.js");
@@ -476,3 +476,37 @@ test("a claimed id is validated like any other", () => {
   claimResumedConversation("hostile", { agent: "claude", sessionId: "a; rm -rf /" });
   assert.equal(getConversation("hostile"), null);
 });
+
+test("claude title prefixes take precedence and ignore agent mentions in task text", () => {
+  assert.equal(agentIdFromTitle("✳ Fix antigravity issue"), "claude");
+  assert.equal(agentIdFromTitle("⠋ Claude Code researching antigravity"), "claude");
+  assert.equal(agentIdFromTitle("⠋ Codex - writing tests"), "codex");
+  assert.equal(agentIdFromTitle("Codex - CLAUDE.md"), "codex");
+  assert.equal(agentIdFromTitle("CLAUDE.md"), null);
+  assert.equal(agentIdFromTitle("⠋ CLAUDE.md"), null);
+  assert.equal(agentIdFromTitle("⠋ Checking for updates..."), null);
+  assert.equal(agentIdFromTitle("* Skip update"), null);
+  assert.equal(agentIdFromTitle("Claude Code - building app"), "claude");
+  assert.equal(agentIdFromTitle("Antigravity - test"), "antigravity");
+  assert.equal(agentIdFromTitle("agy: working"), "antigravity");
+  assert.equal(agentIdFromTitle("Grok - building feature"), "grok");
+  assert.equal(agentIdFromTitle("Hermes - agent"), "hermes");
+  assert.equal(agentIdFromTitle("Random text mentioning antigravity"), null);
+});
+
+test("isShellProcess identifies shells vs agent binaries", () => {
+  assert.equal(isShellProcess("zsh"), true);
+  assert.equal(isShellProcess("bash"), true);
+  assert.equal(isShellProcess("pwsh.exe"), true);
+  assert.equal(isShellProcess("cmd.exe"), true);
+  assert.equal(isShellProcess("claude"), false);
+  assert.equal(isShellProcess("node"), false);
+});
+
+test("agentIdFromProcess maps known agent binaries", () => {
+  assert.equal(agentIdFromProcess("claude"), "claude");
+  assert.equal(agentIdFromProcess("codex"), "codex");
+  assert.equal(agentIdFromProcess("agy"), "antigravity");
+  assert.equal(agentIdFromProcess("zsh"), null);
+});
+

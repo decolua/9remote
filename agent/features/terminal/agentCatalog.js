@@ -148,23 +148,56 @@ export function agentIdFromLaunchLine(line = "") {
   return CMD_TOKEN_TO_ID.get(token.split("/").pop().replace(/\.(exe|cmd|bat|ps1)$/i, "")) || null;
 }
 
-const isWordChar = (c) => /[a-z0-9]/.test(c);
+// Claude Code exclusive title prefix: ✳ (✳)
+const CLAUDE_EXCLUSIVE_PREFIX_RE = /^\s*✳/;
+const BRAILLE_SPINNER_PREFIX_RE = /^\s*[⠀-⣿]\s*/;
 
-// Match an OSC 0/2 title against known agent names (label/short/cmd), whole-word.
+// Precompiled whole-token matchers rejecting path separators, file extensions (.md), and hyphen compounds
+const AGENT_TOKEN_MATCHERS = [];
+for (const { id, label, short, cmd } of AGENT_CLIS) {
+  const tokens = new Set([label, ...(short ? [short] : []), cmd]);
+  for (const token of tokens) {
+    const re = new RegExp(`(?<![\\w./\\\\-])${token.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}(?![\\w./\\\\-])`, "i");
+    AGENT_TOKEN_MATCHERS.push({ id, re });
+  }
+}
+
+// Match an OSC 0/2 title against known agent names (label/short/cmd).
+// Boundary checks reject file names (CLAUDE.md) and paths. Chooses the agent at the start of the title.
 export function agentIdFromTitle(title = "") {
-  const t = title.toLowerCase();
-  if (!t) return null;
-  for (const { id, label, short, cmd } of AGENT_CLIS) {
-    const tokens = new Set([label.toLowerCase(), ...(short ? [short.toLowerCase()] : []), cmd]);
-    for (const token of tokens) {
-      const i = t.indexOf(token);
-      if (i === -1) continue;
-      const before = i > 0 ? t[i - 1] : "";
-      const after = i + token.length < t.length ? t[i + token.length] : "";
-      if (!isWordChar(before) && !isWordChar(after)) return id;
+  if (!title) return null;
+  if (CLAUDE_EXCLUSIVE_PREFIX_RE.test(title)) return "claude";
+  const t = title.trim();
+  let earliest = null;
+  for (const { id, re } of AGENT_TOKEN_MATCHERS) {
+    const match = re.exec(t);
+    if (!match) continue;
+    const index = match.index;
+    const prefix = t.slice(0, index).replace(BRAILLE_SPINNER_PREFIX_RE, "").trim();
+    if (!prefix || /[-:|/]$/.test(prefix)) {
+      if (!earliest || index < earliest.index) {
+        earliest = { id, index };
+      }
     }
   }
-  return null;
+  return earliest ? earliest.id : null;
+}
+
+export const SHELL_PROCESSES = new Set([
+  "zsh", "bash", "sh", "dash", "fish", "csh", "tcsh", "ksh",
+  "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "login"
+]);
+
+export function isShellProcess(procName) {
+  if (!procName) return false;
+  const base = procName.toLowerCase().replace(/\.(exe|cmd|bat)$/i, "");
+  return SHELL_PROCESSES.has(base) || SHELL_PROCESSES.has(procName.toLowerCase());
+}
+
+export function agentIdFromProcess(procName) {
+  if (!procName) return null;
+  const base = procName.toLowerCase().replace(/\.(exe|cmd|bat)$/i, "");
+  return CMD_TOKEN_TO_ID.get(base) || (AGENT_BY_ID.has(base) ? base : null);
 }
 
 const DETECT_CACHE_TTL_MS = 60 * 1000;

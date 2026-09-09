@@ -9,7 +9,9 @@
 // v46: PowerShell OSC 7 injected via `-NoExit -Command` arg instead of stdin write (no echo, no race).
 // v47: join replay + history chunk 128KB → 256KB (deeper rejoin/load-more).
 // v48: strip NODE_ENV from shell env — dev-mode agent leaked NODE_ENV=development into user terminals.
-export const DAEMON_VERSION = "48";
+// v49: track foreground process changes and broadcast to agent (detect agent CLI exit/Ctrl+C).
+// v50: foreground process polling and auto-clear session agent on exit.
+export const DAEMON_VERSION = "50";
 
 // PowerShell prompt function emitting OSC 7 so the client can track cwd. Passed via
 // `-NoExit -Command` at spawn — running it pre-REPL avoids PSReadLine echoing the line.

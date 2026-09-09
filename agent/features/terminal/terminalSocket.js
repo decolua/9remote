@@ -18,8 +18,8 @@ import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { isMcpEnabled, syncMcpConfig, MCP_CLIENTS } from "../../mcp/mcpConfig.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
-import { touchWorking, startReaper, getStatuses, setSessionAgent, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest } from "./statusManager.js";
-import { agentIdFromTitle } from "./agentCatalog.js";
+import { touchWorking, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest } from "./statusManager.js";
+import { agentIdFromTitle, isShellProcess, agentIdFromProcess } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
 import { AUTO_NAME_DEBOUNCE_MS, OUTPUT_SLICE_BYTES } from "./constants.js";
@@ -307,6 +307,23 @@ export function setupTerminalSocket(io, apiKey) {
       const session = sessions.get(sessionId);
       if (session && cwd && session.cwd !== cwd) { session.cwd = cwd; saveSessionMetadata(sessions); }
       broadcast(io, "cwdChange", { sessionId, cwd });
+    });
+    daemonClient.on("processChange", ({ sessionId, process: procName }) => {
+      if (!sessionId || !procName) return;
+      if (isShellProcess(procName)) {
+        const current = getSessionAgent(sessionId) || getStatus(sessionId)?.tool || getConversation(sessionId)?.agent;
+        if (current) {
+          clearSessionAgent(sessionId);
+          clearStatus(sessionId);
+          broadcast(io, "statusChange", { sessionId, state: "idle", tool: null, conversationId: null });
+          broadcast(io, "statusState", getStatuses());
+        }
+      } else {
+        const agentId = agentIdFromProcess(procName);
+        if (agentId) {
+          setSessionAgent(sessionId, agentId);
+        }
+      }
     });
     daemonClient.on("sessionClosed", (sessionId) => {
       sessions.delete(sessionId);

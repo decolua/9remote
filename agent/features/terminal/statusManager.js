@@ -131,6 +131,7 @@ export function clearSessionAgent(sessionId) {
   sessionAgents.delete(sessionId);
   conversations.delete(sessionId);
   lastPrompts.delete(sessionId);
+  sessionStatus.delete(sessionId);
 }
 
 /**
