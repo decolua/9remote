@@ -693,6 +693,53 @@ html.light .term-tab-active,
 .status-border-blocked { outline: 1px dashed #ef4444; outline-offset: -1px; }
 .status-border-done { outline: 1px dashed #f59e0b; outline-offset: -1px; }
 
+/* Terminal pane bottom status beam animation (constant speed via CSS vars) */
+@keyframes paneLightSweep {
+  0% {
+    transform: translateX(calc(-1 * var(--beam-w, 140px)));
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(var(--pane-w, 1000px));
+    opacity: 0;
+  }
+}
+.pane-light-beam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--beam-w, 140px);
+  opacity: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(59,130,246,0.3) 25%, #3b82f6 50%, #93c5fd 75%, #ffffff 85%, #60a5fa 95%, transparent 100%);
+  box-shadow: 0 0 6px rgba(59,130,246,0.8), 0 0 1px rgba(255,255,255,0.9);
+  animation: paneLightSweep var(--beam-dur, 3s) linear infinite;
+  animation-fill-mode: both;
+}
+.pane-light-beam-2 {
+  animation-delay: var(--beam-delay, 1.5s);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pane-light-beam { animation: none; transform: none; width: 100%; opacity: 0.8; }
+  .pane-light-beam-2 { display: none; }
+}
+
+/* Terminal workspace panels & header background — surface-3 ground with subtle dot pattern */
+.terminal-sidebar-bg {
+  background-color: var(--surface-3);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.038) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+:root.light .terminal-sidebar-bg {
+  background-image: radial-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+}
+
 
 /* XTerm - lock native pan so JS handler fully controls gesture (no container drag) */
 .terminal-wrapper .xterm-screen {

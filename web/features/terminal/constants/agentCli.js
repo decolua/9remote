@@ -5,7 +5,7 @@ const SVG_ICON_IDS = new Set(["claude", "codex", "aider", "pi", "omp"]);
 export const AGENT_ICON_BASE = "/agent-icons";
 
 export function agentIconUrl(agentId) {
-  if (!agentId) return null;
+  if (!agentId || agentId === "null" || agentId === "undefined") return null;
   return `${AGENT_ICON_BASE}/${agentId}.${SVG_ICON_IDS.has(agentId) ? "svg" : "png"}`;
 }
 

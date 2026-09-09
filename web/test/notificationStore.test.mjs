@@ -79,5 +79,24 @@ await test("clearNotification clears badge, resets state to idle (preserving too
   assert.equal(emits.length, 2, "must not double emit");
 });
 
+await test("handleStatusChange with tool: null clears the tool", () => {
+  useNotificationStore.getState().reset();
+  useNotificationStore.getState().handleStatusChange({
+    sessionId: "s1",
+    state: "working",
+    tool: "claude",
+    since: 1000
+  });
+  assert.equal(useNotificationStore.getState().sessionStatus.s1?.tool, "claude");
+
+  useNotificationStore.getState().handleStatusChange({
+    sessionId: "s1",
+    state: "idle",
+    tool: null,
+    since: 1050
+  });
+  assert.equal(useNotificationStore.getState().sessionStatus.s1?.tool, null, "tool should be cleared to null");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

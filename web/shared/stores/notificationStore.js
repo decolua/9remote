@@ -15,15 +15,7 @@ export const useNotificationStore = create((set, get) => ({
 
   handleStatusState: (state) => set((prev) => {
     const incoming = state || {};
-    const merged = { ...incoming };
-    for (const [id, s] of Object.entries(prev.sessionStatus)) {
-      if (!merged[id] && s.tool) {
-        merged[id] = { state: "idle", tool: s.tool, since: s.since };
-      } else if (merged[id] && !merged[id].tool && s.tool) {
-        merged[id] = { ...merged[id], tool: s.tool };
-      }
-    }
-    return sameMap(prev.sessionStatus, merged) ? prev : { sessionStatus: merged };
+    return sameMap(prev.sessionStatus, incoming) ? prev : { sessionStatus: incoming };
   }),
 
   handleStatusChange: ({ sessionId, state, tool, since, conversationId }) => {
@@ -32,7 +24,7 @@ export const useNotificationStore = create((set, get) => ({
       const prevStatus = prev.sessionStatus[sessionId];
       const nextStatus = {
         state,
-        tool: tool || prevStatus?.tool,
+        tool: tool !== undefined ? tool : prevStatus?.tool,
         since,
         ...(conversationId || prevStatus?.conversationId ? { conversationId: conversationId || prevStatus?.conversationId } : {})
       };

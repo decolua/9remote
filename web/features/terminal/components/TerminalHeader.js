@@ -12,11 +12,12 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
-import { withHint, tabIndexHint } from "@/features/terminal/constants/shortcuts";
+import { withHint } from "@/features/terminal/constants/shortcuts";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { isAgentOutdated } from "./AgentOutdatedBanner";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
@@ -205,7 +206,7 @@ function TerminalHeader({
   };
 
   const openTabDeleteConfirm = (session) => {
-    setTabDeleteConfirm({ isOpen: true, sessionId: session.id, sessionName: session.name || "" });
+    setTabDeleteConfirm({ isOpen: true, sessionId: session.id, sessionName: session?.name || t("terminal.defaultName") });
     setTabMenu({ sessionId: null, x: 0, y: 0 });
   };
 
@@ -235,7 +236,6 @@ function TerminalHeader({
     });
     return () => cancelAnimationFrame(id);
     // Identity-only `sessions` churn (cwd/status ticks) must not re-scroll the strip
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, sessions.length]);
 
   useEffect(() => {
@@ -294,16 +294,16 @@ function TerminalHeader({
       {/* overflow-auto whitelists this for mobile touchmove (see page.js preventScroll) */}
       <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-none h-full">
         <div className="flex gap-0 min-w-max items-stretch h-full">
-          {sessions.map((session, tabIndex) => {
+          {sessions.map((session) => {
             const isActiveTab = session.id === activeSessionId;
             const st = sessionStatus[session.id]?.state || "idle";
             const v = statusVisual(st);
             const tabName = session.name || t("terminal.defaultName");
-            const chord = hasKeyboard ? tabIndexHint(tabIndex) : null;
             return (
-              <button
+              <div
                 key={session.id}
-                title={chord || undefined}
+                role="button"
+                tabIndex={0}
                 ref={(el) => {
                   registerEl(session.id)(el);
                   if (isActiveTab) activeTabRef.current = el;
@@ -321,17 +321,46 @@ function TerminalHeader({
                   vibrate();
                   onSwitchSession?.(session.id);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSwitchSession?.(session.id);
+                  }
+                }}
                 onContextMenu={(e) => handleTabContextMenu(e, session)}
                 onTouchStart={(e) => handleTabTouchStart(e, session)}
                 onTouchMove={clearTabLongPress}
                 onTouchEnd={clearTabLongPress}
-                className={`term-tab px-2 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap h-full ${
+                className={`term-tab group relative px-2 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1.5 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none ${
                   isActiveTab ? "term-tab-active" : ""
-                } ${dragId === session.id ? "relative z-20 opacity-90 shadow-lg" : "transition"}`}
+                } ${dragId === session.id ? "z-20 opacity-90 shadow-lg" : "transition"}`}
               >
-                <span className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} title={t(v.label)} />
-                <span className="truncate max-w-[80px] sm:max-w-[120px]" data-tip={tabName}>{tabName}</span>
-              </button>
+                <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
+                    style={{ background: v.dot }}
+                    title={t(v.label)}
+                  />
+                  {onDeleteSession && (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        vibrate();
+                        openTabDeleteConfirm(session);
+                      }}
+                      className="hidden sm:group-hover:flex w-full h-full p-0.5 rounded text-text hover:bg-text/15 items-center justify-center transition-colors"
+                      title={hint(t("sessions.deleteTitle"), "closeTerminal")}
+                    >
+                      <X size={11} strokeWidth={2.4} />
+                    </button>
+                  )}
+                </div>
+                <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={tabName}>{tabName}</span>
+              </div>
             );
           })}
           {onCreateSession && (
@@ -431,7 +460,7 @@ function TerminalHeader({
           className={`hidden sm:block p-1.5 rounded-brand transition duration-150 ease-out active:scale-[0.94] hover:bg-surface-2 ${
             rightPanelOpen ? "text-brand-500" : "text-text hover:text-text"
           }`}
-          title={t("workspaces.tabFiles")}
+          title={hint(t("workspaces.tabFiles"), "toggleRightPanel")}
         >
           <PanelRight size={16} />
         </button>
@@ -514,35 +543,16 @@ function TerminalHeader({
       )}
 
       {/* Tab delete confirm */}
-      {tabDeleteConfirm.isOpen && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70"
-          onClick={() => setTabDeleteConfirm({ isOpen: false, sessionId: null, sessionName: "" })}
-        >
-          <div className="bg-surface rounded-brand-lg p-5 w-80 shadow-elev" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm text-text mb-4">
-              {t("sessions.deleteMessage", { name: tabDeleteConfirm.sessionName })}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  if (tabDeleteConfirm.sessionId) onDeleteSession?.(tabDeleteConfirm.sessionId);
-                  setTabDeleteConfirm({ isOpen: false, sessionId: null, sessionName: "" });
-                }}
-                className="flex-1 py-2 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-brand transition-colors"
-              >
-                {t("common.delete")}
-              </button>
-              <button
-                onClick={() => setTabDeleteConfirm({ isOpen: false, sessionId: null, sessionName: "" })}
-                className="flex-1 py-2 text-sm text-text-muted bg-surface-2 hover:bg-surface-3 rounded-brand transition-colors"
-              >
-                {t("common.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={tabDeleteConfirm.isOpen}
+        onClose={() => setTabDeleteConfirm({ isOpen: false, sessionId: null, sessionName: "" })}
+        onConfirm={() => {
+          if (tabDeleteConfirm.sessionId) onDeleteSession?.(tabDeleteConfirm.sessionId);
+        }}
+        title={t("sessions.deleteTitle")}
+        message={t("sessions.deleteMessage", { name: tabDeleteConfirm.sessionName })}
+        confirmText={t("common.delete")}
+      />
 
       <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} busRef={busRef} isOpen={sitesOpen} onClose={closeSites} />
     </div>

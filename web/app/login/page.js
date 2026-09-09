@@ -137,7 +137,11 @@ function LoginContent() {
         .then((data) => {
           if (data?.permanentKey) {
             setLocalServerKey(data.permanentKey);
-            const manualDisconnect = sessionStorage.getItem("9remote_manual_disconnect") === "1";
+            const isRemoteMode = searchParams.get("mode") === "remote";
+            if (isRemoteMode) {
+              try { sessionStorage.setItem("9remote_manual_disconnect", "1"); } catch {}
+            }
+            const manualDisconnect = isRemoteMode || sessionStorage.getItem("9remote_manual_disconnect") === "1";
             if (!manualDisconnect) {
               const fullKey = data.permanentKey;
               const head = headOf(fullKey);
@@ -156,7 +160,7 @@ function LoginContent() {
         })
         .catch(() => {});
     }
-  }, [loadKeys, githubToken, router, setAuth]);
+  }, [loadKeys, githubToken, router, setAuth, searchParams]);
 
   const handleConnectLocalServer = () => {
     if (!localServerKey) return;
@@ -416,6 +420,17 @@ function LoginContent() {
   return (
     <>
       <AnimatedBackground />
+      {isHydrated && isLoopbackOrigin() && (
+        <a
+          href="/"
+          className="fixed top-4 left-4 z-50 inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text hover:text-white bg-surface-2/90 hover:bg-surface-3 border border-border-subtle rounded-brand-lg backdrop-blur-md transition-all shadow-sm active:scale-[0.97]"
+          title="Back to Host QR"
+        >
+          <Icon name="ChevronLeft" size={15} className="opacity-70" />
+          <Icon name="QrCode" size={15} className="text-brand-500" />
+          <span>Host QR</span>
+        </a>
+      )}
       <div className="min-h-screen grid lg:grid-cols-2">
         {/* HERO — hidden on mobile */}
         <section className="hidden lg:flex flex-col justify-between px-12 xl:px-20 py-12 relative overflow-hidden">

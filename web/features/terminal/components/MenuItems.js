@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap } from "@/shared/components/ui/Icon";
+import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, QrCode } from "@/shared/components/ui/Icon";
+import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { BUTTON_GROUPS } from "@/features/terminal/constants/terminalConfig";
@@ -471,6 +472,17 @@ export default function MenuItems({
         </div>
       )}
       */}
+
+      {/* Back to Host / Pair Device (Agent integrated only) */}
+      {(isLoopbackOrigin() || (typeof window !== "undefined" && window.__TAURI__)) && (
+        <button
+          onClick={() => { vibrate(); window.location.href = "/"; }}
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+        >
+          <QrCode className="text-brand-500" size={16} />
+          <span className="text-sm">Pair Device</span>
+        </button>
+      )}
 
       {/* Logout */}
       {onLogout && (

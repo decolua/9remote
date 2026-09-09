@@ -575,7 +575,7 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
                   bus.emit("input", { sessionId, data: cfg.data });
                 }
               }}
-              placeholder={hasPhysicalKeyboard ? (isMac() ? "Opt → or Opt 1…9 to switch tab" : "Ctrl+Shift+→ or Ctrl+Shift+1…9 to switch tab") : t("mobileKeyboard.typeCommand")}
+              placeholder={hasPhysicalKeyboard ? (isMac() ? "Opt ←/→ · Opt 1…9 to switch tab" : "Ctrl+Shift+←/→ · 1…9 to switch tab") : t("mobileKeyboard.typeCommand")}
               rows={1}
               className="block w-full pl-9 pr-16 py-2 bg-transparent text-text text-sm placeholder-text-muted placeholder:text-[11px] placeholder:leading-[20px] focus:outline-none resize-none overflow-y-auto touch-none"
             />

@@ -14,9 +14,16 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
   const pendingFocusSessionRef = useRef(null);
 
   const registerPaneApi = useCallback((sessionId, api) => {
-    if (api) paneApisRef.current[sessionId] = api;
-    else delete paneApisRef.current[sessionId];
-  }, []);
+    if (api) {
+      paneApisRef.current[sessionId] = api;
+      if (pendingFocusSessionRef.current === sessionId && isDesktop && !inputFocusedRef.current) {
+        pendingFocusSessionRef.current = null;
+        setTimeout(() => api.focus?.(), 50);
+      }
+    } else {
+      delete paneApisRef.current[sessionId];
+    }
+  }, [isDesktop]);
 
   // Pure node registration — never trigger scroll on ref attach/detach
   const registerPaneElement = useCallback((sessionId, el) => {
@@ -26,9 +33,8 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
 
   const registerKeyboardTextApi = useCallback((api) => {
     keyboardTextApiRef.current = api;
-    if (api && pendingFocusSessionRef.current && isDesktop) {
+    if (api && pendingFocusSessionRef.current && isDesktop && inputFocusedRef.current) {
       pendingFocusSessionRef.current = null;
-      inputFocusedRef.current = true;
       setTimeout(() => api.focus?.(), 50);
     }
   }, [isDesktop]);
@@ -36,12 +42,14 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
   const requestFocus = useCallback((sessionId) => {
     if (!isDesktop) return;
     pendingFocusSessionRef.current = sessionId;
-    inputFocusedRef.current = true;
     setTimeout(() => {
-      if (keyboardTextApiRef.current?.focus) {
-        keyboardTextApiRef.current.focus();
-      } else {
-        paneApisRef.current[sessionId]?.focus?.();
+      if (pendingFocusSessionRef.current === sessionId) {
+        pendingFocusSessionRef.current = null;
+        if (inputFocusedRef.current && keyboardTextApiRef.current?.focus) {
+          keyboardTextApiRef.current.focus();
+        } else {
+          paneApisRef.current[sessionId]?.focus?.();
+        }
       }
     }, 60);
   }, [isDesktop]);

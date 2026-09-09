@@ -23,18 +23,11 @@ import { useDragReorder } from "../hooks/useDragReorder";
 import BranchBadge from "./BranchBadge";
 import AgentHistoryPanel from "./AgentHistoryPanel";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 
-// Inside the Tauri shell the native bar already names the app — the sidebar's
-// brand row becomes a back-to-dashboard button instead (web keeps the brand).
-const IS_TAURI = typeof window !== "undefined" && !!window.__TAURI__;
-
-// Guess agent tool from session name when no live status tool is set — drives the icon.
-const TOOL_KEYWORDS = ["claude", "codex", "gemini", "opencode", "grok", "cursor", "copilot", "amp", "pi", "kiro", "qoder", "factory", "codebuddy", "rovodev", "hermes", "antigravity"];
-function guessTool(name = "") {
-  const lower = String(name).toLowerCase();
-  for (const k of TOOL_KEYWORDS) if (lower.includes(k)) return k;
-  return null;
-}
+// Inside the Tauri shell or on loopback agent, the sidebar's brand row
+// becomes a back-to-dashboard button instead (standalone web keeps the brand).
+const SHOW_PAIR_DEVICE = typeof window !== "undefined" && (!!window.__TAURI__ || isLoopbackOrigin());
 
 // Second line of a terminal item: the branch of its live checkout, plus the state
 // when something is happening. The agent's name is not repeated — the icon in the row
@@ -299,15 +292,15 @@ function TerminalSidebar({
 
   return (
     <div
-      className="flex-shrink-0 h-full hidden sm:flex flex-col bg-surface-3 border-r border-border-subtle relative"
+      className="flex-shrink-0 h-full hidden sm:flex flex-col terminal-sidebar-bg border-r border-border-subtle relative"
       style={{ width }}
     >
       <div
         style={{ height: PANEL_HEADER_HEIGHT }}
-        className="px-3 flex items-center justify-between flex-shrink-0 border-b border-border-subtle"
+        className="px-3 flex items-center justify-between flex-shrink-0 border-b border-border-subtle relative z-10"
       >
         <div className="flex items-center gap-2 min-w-0">
-          {IS_TAURI ? (
+          {SHOW_PAIR_DEVICE ? (
             <button
               onClick={() => { window.location.href = "/"; }}
               className="flex items-center gap-1.5 px-1.5 py-1 text-[12px] font-medium text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors flex-shrink-0"
@@ -339,7 +332,7 @@ function TerminalSidebar({
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable pt-1">
+      <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable pt-1 relative z-10">
         {!grouped.length ? (
           <p className="px-3 py-6 text-center text-xs text-text-muted">{t("workspaces.emptyWorkspace")}</p>
         ) : (
@@ -366,7 +359,7 @@ function TerminalSidebar({
                   const v = statusVisual(st);
                   const isActive = s.id === activeSessionId;
                   const hasNotif = !!notifications[s.id];
-                  const tool = sessionStatus[s.id]?.tool || guessTool(s.name);
+                  const tool = sessionStatus[s.id]?.tool;
                   const isDragging = dragId === s.id;
                   return (
                     <div
@@ -400,7 +393,7 @@ function TerminalSidebar({
                       <span className="flex-1 min-w-0 flex flex-col">
                         <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
                           {AGENT_ICONS[tool] ? (
-                            <img src={AGENT_ICONS[tool]} alt={tool} className="w-3 h-3 flex-shrink-0" />
+                            <img src={AGENT_ICONS[tool]} alt={tool} className="w-3 h-3 flex-shrink-0 object-contain" />
                           ) : (
                             <Terminal size={12} className="flex-shrink-0" />
                           )}
@@ -463,7 +456,7 @@ function TerminalSidebar({
       )}
 
       {(showInstall || onOpenSettings) && (
-        <div className="p-1.5 border-t border-border-subtle flex-shrink-0">
+        <div className="p-1.5 border-t border-border-subtle flex-shrink-0 relative z-10">
           {showInstall && (
             <button
               onClick={() => { vibrate(); install(); }}
@@ -573,31 +566,17 @@ function TerminalSidebar({
         />
       )}
 
-      {/* Delete confirm */}
-      {delConfirm && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70"
-          onClick={() => setDelConfirm(null)}
-        >
-          <div className="bg-surface rounded-[3px] p-5 w-80 shadow-elev" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm text-text mb-4">{t("sessions.deleteMessage", { name: delConfirm.name })}</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => { if (delConfirm.sessionId) onDeleteSession?.(delConfirm.sessionId); setDelConfirm(null); }}
-                className="flex-1 py-2 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-[3px] transition-colors"
-              >
-                {t("common.delete")}
-              </button>
-              <button
-                onClick={() => setDelConfirm(null)}
-                className="flex-1 py-2 text-sm text-text-muted bg-surface-2 hover:bg-surface-3 rounded-[3px] transition-colors"
-              >
-                {t("common.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Delete session confirm */}
+      <ConfirmDialog
+        isOpen={Boolean(delConfirm)}
+        onClose={() => setDelConfirm(null)}
+        onConfirm={() => {
+          if (delConfirm?.sessionId) onDeleteSession?.(delConfirm.sessionId);
+        }}
+        title={t("sessions.deleteTitle")}
+        message={t("sessions.deleteMessage", { name: delConfirm?.name || "" })}
+        confirmText={t("common.delete")}
+      />
     </div>
   );
 }
