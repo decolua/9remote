@@ -55,6 +55,7 @@ const baseConfig = {
     "import.meta.url": "__importMetaUrl",
     "__CLI_VERSION__": JSON.stringify(VERSION),
     "__PKG_NAME__": JSON.stringify(PKG_NAME),
+    "__DEFAULT_WORKER_URL__": JSON.stringify(process.env.NREMOTE_WORKER_URL || "https://9remote.cc"),
   },
 };
 
@@ -192,28 +193,30 @@ async function build() {
   // obfuscateFile(path.join(DIST_DIR, "ptyDaemon.cjs"));
   // obfuscateFile(path.join(DIST_DIR, "install.cjs"));
 
-  console.log("\n📦 Creating npm package...");
-  // Temporarily rewrite name + bin for beta/test builds, restore after pack
-  const pkgPath = path.join(SERVER_DIR, "package.json");
-  const pkgRaw = fs.readFileSync(pkgPath, "utf-8");
-  if (PKG_NAME !== "9remote") {
-    const pkg = JSON.parse(pkgRaw);
-    pkg.name = PKG_NAME;
-    pkg.bin = { [PKG_NAME]: "./dist/cli.cjs" };
-    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-    console.log(`📛 Package name → ${PKG_NAME}`);
-  }
-  try {
-    run("npm pack", SERVER_DIR);
-  } finally {
-    if (PKG_NAME !== "9remote") fs.writeFileSync(pkgPath, pkgRaw);
-  }
+  if (!process.env.NO_PACK) {
+    console.log("\n📦 Creating npm package...");
+    // Temporarily rewrite name + bin for beta/test builds, restore after pack
+    const pkgPath = path.join(SERVER_DIR, "package.json");
+    const pkgRaw = fs.readFileSync(pkgPath, "utf-8");
+    if (PKG_NAME !== "9remote") {
+      const pkg = JSON.parse(pkgRaw);
+      pkg.name = PKG_NAME;
+      pkg.bin = { [PKG_NAME]: "./dist/cli.cjs" };
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+      console.log(`📛 Package name → ${PKG_NAME}`);
+    }
+    try {
+      run("npm pack", SERVER_DIR);
+    } finally {
+      if (PKG_NAME !== "9remote") fs.writeFileSync(pkgPath, pkgRaw);
+    }
 
-  // Move .tgz to root
-  const tgzFiles = fs.readdirSync(SERVER_DIR).filter((f) => f.endsWith(".tgz"));
-  for (const tgz of tgzFiles) {
-    fs.renameSync(path.join(SERVER_DIR, tgz), path.join(ROOT, tgz));
-    console.log(`📦 Package: ${tgz}`);
+    // Move .tgz to root
+    const tgzFiles = fs.readdirSync(SERVER_DIR).filter((f) => f.endsWith(".tgz"));
+    for (const tgz of tgzFiles) {
+      fs.renameSync(path.join(SERVER_DIR, tgz), path.join(ROOT, tgz));
+      console.log(`📦 Package: ${tgz}`);
+    }
   }
 
   console.log("\n✅ Package build complete!");

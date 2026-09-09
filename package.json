@@ -10,15 +10,18 @@
     "desktop"
   ],
   "scripts": {
-    "agent:dev": "NODE_ENV=development node agent/cli/index.js ui",
+    "agent:dev": "NODE_ENV=development node agent/cli/index.js",
+    "agent:dev:ui": "NODE_ENV=development node agent/cli/index.js ui",
     "agent:build": "node scripts/syncVersion.js && node scripts/buildPkg.js",
+    "agent:sync": "node scripts/syncVersion.js && NO_PACK=1 node scripts/buildPkg.js && node scripts/syncLocalAgent.mjs",
     "agent:publish": "npm run agent:build && cd agent && npm publish",
 
     "web:dev": "npm run dev --workspace=web",
     "web:deploy": "npm run deploy --workspace=web",
 
     "pc:dev": "run-p _agent:start _pc:tauri",
-    "pc:build": "npm run agent:build && npx --prefix desktop tauri build --bundles dmg --no-sign && cp desktop/src-tauri/target/release/bundle/dmg/*.dmg desktop/release/macos/",
+    "pc:build": "npm run agent:build && node scripts/syncLocalAgent.mjs && npx --prefix desktop tauri build --bundles dmg --no-sign && cp desktop/src-tauri/target/release/bundle/dmg/*.dmg desktop/release/macos/",
+    "pc:build:dev": "NREMOTE_WORKER_URL=https://dev.9remote.cc npm run agent:build && node scripts/syncLocalAgent.mjs && npx --prefix desktop tauri build --bundles dmg --no-sign && cp desktop/src-tauri/target/release/bundle/dmg/*.dmg desktop/release/macos/",
     "pc:build:release": "bash desktop/scripts/build-macos-signed.sh --target universal-apple-darwin",
     "pc:build:win": "bash desktop/scripts/build-windows.sh",
 

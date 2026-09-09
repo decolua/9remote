@@ -1184,6 +1184,11 @@ pub fn run() {
                             try { invoke('set_badge', { count: Number(count || 0) }); } catch(e){}
                         }
                     };
+                    window.addEventListener('contextmenu', function(e) {
+                        var tag = e.target && e.target.tagName;
+                        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+                        e.preventDefault();
+                    }, false);
                 })();
             "#;
             let _ = webview.eval(js);
