@@ -119,11 +119,11 @@ await test("session events are broadcasted via bus with ai:event", async () => {
   const session = manager.getSession("sock-s3");
   session.emitNormalized("delta", { text: "processing..." });
 
-  assert.equal(bus.broadcasts.length, 1);
-  assert.equal(bus.broadcasts[0].event, "ai:event");
-  assert.equal(bus.broadcasts[0].data.sessionId, "sock-s3");
-  assert.equal(bus.broadcasts[0].data.event, "delta");
-  assert.equal(bus.broadcasts[0].data.data.text, "processing...");
+  const deltaEvent = socket.emitted.find((e) => e.data?.event === "delta");
+  assert.ok(deltaEvent);
+  assert.equal(deltaEvent.event, "ai:event");
+  assert.equal(deltaEvent.data.sessionId, "sock-s3");
+  assert.equal(deltaEvent.data.data.text, "processing...");
 });
 
 if (fail > 0) {

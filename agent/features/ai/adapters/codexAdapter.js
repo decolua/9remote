@@ -1,6 +1,28 @@
 // Adapter for OpenAI Codex CLI using exec --json
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import os from "node:os";
+import path from "node:path";
+
+function getExtendedEnv() {
+  const home = os.homedir();
+  const extraPaths = process.platform === "win32" ? [
+    path.join(home, "AppData", "Roaming", "npm"),
+    path.join(home, "AppData", "Local", "Programs"),
+    path.join(home, ".cargo", "bin"),
+  ] : [
+    path.join(home, ".local", "bin"),
+    path.join(home, ".cargo", "bin"),
+    path.join(home, ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/local/sbin",
+  ];
+  const envPath = (process.env.PATH || "").split(path.delimiter);
+  const combinedPath = Array.from(new Set([...extraPaths, ...envPath])).join(path.delimiter);
+  return { ...process.env, PATH: combinedPath, FORCE_COLOR: "1" };
+}
 
 export class CodexAdapter {
   constructor({ cwd, onEvent }) {
@@ -55,7 +77,7 @@ export class CodexAdapter {
     const child = spawn("codex", args, {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, FORCE_COLOR: "1" }
+      env: getExtendedEnv()
     });
     this.activeChild = child;
 

@@ -1,6 +1,28 @@
 // Adapter for Claude Code CLI using --input-format=stream-json
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import os from "node:os";
+import path from "node:path";
+
+function getExtendedEnv() {
+  const home = os.homedir();
+  const extraPaths = process.platform === "win32" ? [
+    path.join(home, "AppData", "Roaming", "npm"),
+    path.join(home, "AppData", "Local", "Programs"),
+    path.join(home, ".cargo", "bin"),
+  ] : [
+    path.join(home, ".local", "bin"),
+    path.join(home, ".cargo", "bin"),
+    path.join(home, ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/local/sbin",
+  ];
+  const envPath = (process.env.PATH || "").split(path.delimiter);
+  const combinedPath = Array.from(new Set([...extraPaths, ...envPath])).join(path.delimiter);
+  return { ...process.env, PATH: combinedPath, FORCE_COLOR: "1" };
+}
 
 export class ClaudeAdapter {
   constructor({ cwd, onEvent }) {
@@ -11,8 +33,20 @@ export class ClaudeAdapter {
     this.isTurnRunning = false;
     this.currentMode = "default";
     this.pendingRequests = new Map();
+    this.turnStreamedText = "";
     this.stats = { totalCost: 0, inputTokens: 0, outputTokens: 0 };
     this.metadata = { model: "", sessionId: "", tools: [], skills: [], slashCommands: [] };
+  }
+
+  setOptions({ mode, model }) {
+    if (model) {
+      this.metadata.model = model;
+    }
+    if (mode && mode !== this.currentMode) {
+      this.currentMode = mode;
+      this.start(mode, this.metadata.sessionId || null);
+    }
+    this.onEvent?.("init", { ...this.metadata, permissionMode: this.currentMode });
   }
 
   start(mode = "default", resumeSessionId = null) {
@@ -38,7 +72,7 @@ export class ClaudeAdapter {
     this.claude = spawn("claude", args, {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, FORCE_COLOR: "1" }
+      env: getExtendedEnv()
     });
 
     this.rl = readline.createInterface({ input: this.claude.stdout });
@@ -84,7 +118,9 @@ export class ClaudeAdapter {
     if (data.type === "stream_event") {
       const event = data.event;
       if (event?.type === "content_block_delta" && event.delta?.type === "text_delta") {
-        this.onEvent?.("delta", { text: event.delta.text });
+        const text = event.delta.text || "";
+        this.turnStreamedText += text;
+        this.onEvent?.("delta", { text });
       } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
         this.onEvent?.("thinking", { text: event.delta.thinking });
       }
@@ -116,10 +152,11 @@ export class ClaudeAdapter {
       }
 
       // If no delta text was streamed yet, use data.result as output (e.g. from /cost, /compact)
-      if (typeof data.result === "string" && data.result.trim()) {
+      if (!this.turnStreamedText && typeof data.result === "string" && data.result.trim()) {
         this.onEvent?.("delta", { text: data.result });
       }
 
+      this.turnStreamedText = "";
       this.onEvent?.("turn_complete", { stats: this.stats, result: data.result });
       return;
     }
@@ -141,7 +178,15 @@ export class ClaudeAdapter {
             input: item.input
           });
         } else if (item.type === "text" && item.text) {
-          this.onEvent?.("delta", { text: item.text });
+          // Fallback only if text was not streamed already
+          if (!this.turnStreamedText) {
+            this.turnStreamedText = item.text;
+            this.onEvent?.("delta", { text: item.text });
+          } else if (item.text.length > this.turnStreamedText.length && item.text.startsWith(this.turnStreamedText)) {
+            const remaining = item.text.slice(this.turnStreamedText.length);
+            this.turnStreamedText = item.text;
+            this.onEvent?.("delta", { text: remaining });
+          }
         }
       }
       return;
@@ -170,6 +215,7 @@ export class ClaudeAdapter {
       this.start(this.currentMode);
     }
     this.isTurnRunning = true;
+    this.turnStreamedText = "";
     const payload = JSON.stringify({
       type: "user",
       message: { role: "user", content: [{ type: "text", text: prompt }] },
