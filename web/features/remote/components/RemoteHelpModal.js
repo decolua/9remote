@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 
@@ -75,6 +76,19 @@ function buildSections(t, inputMode, pointerMode) {
 
 export default function RemoteHelpModal({ onClose, inputMode = "touch", pointerMode = "direct" }) {
   const { t } = useI18n();
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose?.();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
   const sections = buildSections(t, inputMode, pointerMode);
   const modeLabel = inputMode === "mouse"
     ? t("remoteHelp.modePc")

@@ -1,12 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, ClipboardPaste, Check } from "@/shared/components/ui/Icon";
 
 // Modal showing the host's current clipboard. Copy button = user gesture so
 // navigator.clipboard.writeText succeeds (background/no-gesture writes are rejected).
 export default function ClipboardModal({ text, onClose }) {
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose?.();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
 
   const copy = async () => {
     try {

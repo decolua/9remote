@@ -76,6 +76,12 @@ export default function GitActionsModal({ workspace, fileBus, branch, changedCou
             <textarea
               value={msg}
               onChange={(e) => setMsg(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  handleCommitAndPush();
+                }
+              }}
               rows={2}
               placeholder={t("git.commitPlaceholder")}
               disabled={busy}
@@ -90,7 +96,8 @@ export default function GitActionsModal({ workspace, fileBus, branch, changedCou
             className="w-full px-4 py-2.5 text-sm bg-brand-500 hover:bg-brand-500/80 text-white font-medium rounded-brand transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <><Check size={16} /><ArrowUp size={16} /></>}
-            {t("git.commitAndPush")}
+            <span>{t("git.commitAndPush")}</span>
+            <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/20 text-white leading-none">⌘↵</kbd>
           </button>
 
           <div className="flex gap-2">

@@ -238,6 +238,22 @@ export default function SitesList({ tunnelUrl, apiKey, busRef, onSelectSite, isO
     setNewPort("");
   };
 
+  // Close modal on Escape key when not editing port label
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape" && editingPort === null) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (externalOnClose) externalOnClose();
+        else setShowModal(false);
+        setNewPort("");
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [isModalOpen, editingPort, externalOnClose]);
+
   // Add custom port
   const handleAddPort = () => {
     const port = parseInt(newPort, 10);

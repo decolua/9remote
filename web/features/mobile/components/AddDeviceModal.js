@@ -4,7 +4,7 @@
 // the agent works out everything else (missing tools, image, AVD name);
 // the only feedback is a single progress line with cancel.
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { X, Smartphone, Monitor, Check, Loader2, Download } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
@@ -32,12 +32,26 @@ export default function AddDeviceModal({ isOpen, onClose, presets, sdkJob, onPro
   const [busyId, setBusyId] = useState(null);
   const [lastPreset, setLastPreset] = useState(null);
 
-  if (!isOpen || typeof document === "undefined") return null;
-
-  const close = () => { setBusyId(null); setLastPreset(null); onClose?.(); };
-
   const job = sdkJob && sdkJob.phase !== "done" && sdkJob.phase !== "error" ? sdkJob : null;
   const jobError = sdkJob?.phase === "error" && sdkJob.error !== "cancelled" ? sdkJob.error : null;
+
+  const close = useCallback(() => { setBusyId(null); setLastPreset(null); onClose?.(); }, [onClose]);
+
+  // Close on Escape when not actively provisioning
+  useEffect(() => {
+    if (!isOpen || job) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [isOpen, job, close]);
+
+  if (!isOpen || typeof document === "undefined") return null;
 
   const pick = async (preset) => {
     if (busyId || job) return;

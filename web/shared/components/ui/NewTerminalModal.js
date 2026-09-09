@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Terminal, Bot, Check, History } from "@/shared/components/ui/Icon";
+import { X, Terminal, Bot, Check, History, CornerDownLeft } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
@@ -134,6 +134,38 @@ export default function NewTerminalModal({
     onClose?.();
   };
 
+  const submitRef = useRef(submit);
+  useEffect(() => {
+    submitRef.current = submit;
+  });
+
+  // Keyboard navigation: Enter to create, Escape to close
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (browsing) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose?.();
+      } else if (e.key === "Enter" && tab === "new") {
+        if (e.target?.tagName === "BUTTON") {
+          if (e.target?.getAttribute("role") === "radio") {
+            e.preventDefault();
+            e.stopPropagation();
+            submitRef.current();
+          }
+          return;
+        }
+        if (e.target?.tagName === "SELECT") return;
+        e.preventDefault();
+        e.stopPropagation();
+        submitRef.current();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [browsing, tab, onClose]);
+
   return (
     <>
     <div
@@ -147,7 +179,6 @@ export default function NewTerminalModal({
         aria-labelledby="newTerminalTitle"
         className="card-elev w-[22rem] max-w-full overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => { if (e.key === "Escape") onClose?.(); }}
       >
         {/* Title, then where the terminal will start — context before choices */}
         <div className={`px-4 pt-4 space-y-2.5 ${showHistory ? "pb-0" : "pb-3"}`}>
@@ -284,7 +315,6 @@ export default function NewTerminalModal({
               value={name}
               placeholder={defaultName}
               onInput={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
               className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
             />
           </div>
@@ -292,15 +322,19 @@ export default function NewTerminalModal({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="flex-1 py-2 text-sm text-text-muted bg-surface-2 hover:bg-surface-3 rounded-brand transition-colors"
+              className="flex-1 py-2 text-sm text-text-muted bg-surface-2 hover:bg-surface-3 rounded-brand transition-colors flex items-center justify-center gap-1.5"
             >
-              {t("common.cancel")}
+              <span>{t("common.cancel")}</span>
+              <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1 py-0.5 rounded bg-surface-3 text-text-muted leading-none">Esc</kbd>
             </button>
             <button
               onClick={() => submit()}
-              className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-brand transition-colors"
+              className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-brand transition-colors flex items-center justify-center gap-1.5"
             >
-              {t("common.create")}
+              <span>{t("common.create")}</span>
+              <kbd className="hidden sm:inline-flex items-center justify-center w-4 h-4 rounded bg-white/20 text-white">
+                <CornerDownLeft size={10} strokeWidth={2.5} />
+              </kbd>
             </button>
           </div>
         </div>

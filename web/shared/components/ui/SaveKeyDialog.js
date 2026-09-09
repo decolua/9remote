@@ -1,8 +1,26 @@
 "use client";
 
+import { useEffect } from "react";
 import Button from "./Button";
 
 export default function SaveKeyDialog({ isOpen, onClose }) {
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose?.(false);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose?.(true);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (

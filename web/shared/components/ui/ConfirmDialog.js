@@ -1,27 +1,55 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import { CornerDownLeft } from "@/shared/components/ui/Icon";
 
 export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmText, cancelText }) {
   const { t } = useI18n();
+  const cancelBtnRef = useRef(null);
+  const confirmBtnRef = useRef(null);
   const finalConfirm = confirmText ?? t("common.confirm");
   const finalCancel = cancelText ?? t("common.cancel");
-  // Close on Escape key
+
+  // Steal focus from whatever element had it (e.g. xterm's hidden textarea)
   useEffect(() => {
     if (!isOpen) return;
-    
-    const handleEscape = (e) => {
+    const timer = requestAnimationFrame(() => {
+      confirmBtnRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(timer);
+  }, [isOpen]);
+
+  // Keyboard navigation: Enter to confirm, Escape to cancel.
+  // Use capture: true so xterm or other child handlers cannot swallow the keystrokes.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e) => {
       if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      } else if (e.key === "Enter") {
+        if (cancelBtnRef.current && document.activeElement === cancelBtnRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        vibrate();
+        onConfirm?.();
         onClose();
       }
     };
-    
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [isOpen, onClose]);
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [isOpen, onClose, onConfirm]);
 
   if (!isOpen || typeof document === "undefined") return null;
 
@@ -54,20 +82,26 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
         {/* Footer */}
         <div className="px-6 py-4 flex justify-end gap-3">
           <button
+            ref={cancelBtnRef}
             onClick={() => { vibrate(); onClose(); }}
-            className="px-4 py-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.98] font-medium"
+            className="px-4 py-2 bg-surface-2 hover:bg-surface-3 text-text rounded-brand transition-all duration-150 ease-out active:scale-[0.98] font-medium flex items-center gap-1.5"
           >
-            {finalCancel}
+            <span>{finalCancel}</span>
+            <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1 py-0.5 rounded bg-surface-3 text-text-muted leading-none">Esc</kbd>
           </button>
           <button
+            ref={confirmBtnRef}
             onClick={() => {
               vibrate();
-              onConfirm();
+              onConfirm?.();
               onClose();
             }}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-brand transition-all duration-150 ease-out active:scale-[0.98] font-medium"
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-brand transition-all duration-150 ease-out active:scale-[0.98] font-medium flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-red-500/50"
           >
-            {finalConfirm}
+            <span>{finalConfirm}</span>
+            <kbd className="hidden sm:inline-flex items-center justify-center w-4 h-4 rounded bg-white/20 text-white">
+              <CornerDownLeft size={10} strokeWidth={2.5} />
+            </kbd>
           </button>
         </div>
       </div>

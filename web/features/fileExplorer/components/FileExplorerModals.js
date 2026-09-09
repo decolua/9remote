@@ -1,9 +1,9 @@
 "use client";
 
-import { X, File, Folder, Loader2, Search, Upload } from "@/shared/components/ui/Icon";
+import { X, File, Folder, Loader2, Search, Upload, CornerDownLeft } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // Modal + banner layer for the mobile FileExplorer: new item, rename, copy
 // conflict, and the transfer/error banners. Extracted verbatim from FileExplorer.
@@ -83,6 +83,19 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
   // Folder picking needs webkitdirectory — hide the button where the browser lacks it.
   const [dirPickerOk] = useState(() => typeof document !== "undefined" && "webkitdirectory" in document.createElement("input"));
   const isUpload = type === "upload";
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
   return (
     <div className={MODAL_WRAP}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
@@ -121,7 +134,10 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
                   <Folder size={16} /> {t("files.pickFolder")}
                 </button>
               )}
-              <button onClick={() => { vibrate(); onClose(); }} className={BTN_MUTED}>{t("common.cancel")}</button>
+              <button onClick={() => { vibrate(); onClose(); }} className={`${BTN_MUTED} flex items-center justify-center gap-1.5`}>
+                <span>{t("common.cancel")}</span>
+                <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1 py-0.5 rounded bg-surface-3 text-text-muted leading-none">Esc</kbd>
+              </button>
             </>
           ) : (
             <>
@@ -135,8 +151,16 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
                 autoFocus
               />
               <div className="flex gap-2">
-                <button onClick={() => { vibrate(); onClose(); }} className={BTN_MUTED}>{t("common.cancel")}</button>
-                <button onClick={() => { vibrate(); onSubmit(); }} className={BTN_BRAND}>{t("common.create")}</button>
+                <button onClick={() => { vibrate(); onClose(); }} className={`${BTN_MUTED} flex items-center justify-center gap-1.5`}>
+                  <span>{t("common.cancel")}</span>
+                  <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1 py-0.5 rounded bg-surface-3 text-text-muted leading-none">Esc</kbd>
+                </button>
+                <button onClick={() => { vibrate(); onSubmit(); }} className={`${BTN_BRAND} flex items-center justify-center gap-1.5`}>
+                  <span>{t("common.create")}</span>
+                  <kbd className="hidden sm:inline-flex items-center justify-center w-4 h-4 rounded bg-white/20 text-white">
+                    <CornerDownLeft size={10} strokeWidth={2.5} />
+                  </kbd>
+                </button>
               </div>
             </>
           )}
@@ -148,6 +172,19 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
 
 export function RenameModal({ value, onChange, onSubmit, onClose }) {
   const { t } = useI18n();
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
   return (
     <div className={MODAL_WRAP}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
@@ -165,8 +202,16 @@ export function RenameModal({ value, onChange, onSubmit, onClose }) {
             autoFocus
           />
           <div className="flex gap-2">
-            <button onClick={() => { vibrate(); onClose(); }} className={BTN_MUTED}>{t("common.cancel")}</button>
-            <button onClick={() => { vibrate(); onSubmit(); }} className={BTN_BRAND}>{t("files.rename")}</button>
+            <button onClick={() => { vibrate(); onClose(); }} className={`${BTN_MUTED} flex items-center justify-center gap-1.5`}>
+              <span>{t("common.cancel")}</span>
+              <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1 py-0.5 rounded bg-surface-3 text-text-muted leading-none">Esc</kbd>
+            </button>
+            <button onClick={() => { vibrate(); onSubmit(); }} className={`${BTN_BRAND} flex items-center justify-center gap-1.5`}>
+              <span>{t("files.rename")}</span>
+              <kbd className="hidden sm:inline-flex items-center justify-center w-4 h-4 rounded bg-white/20 text-white">
+                <CornerDownLeft size={10} strokeWidth={2.5} />
+              </kbd>
+            </button>
           </div>
         </div>
       </div>
@@ -178,15 +223,31 @@ export function RenameModal({ value, onChange, onSubmit, onClose }) {
  *  `menu.*` — the `files.*` ones this used to read do not exist. */
 export function ConflictModal({ name, onResolve }) {
   const { t } = useI18n();
-  const choice = (key, cls) => (
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onResolve?.("skip");
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onResolve]);
+
+  const choice = (key, cls, hasEsc = false) => (
     <button
       onClick={() => { vibrate(); onResolve(key); }}
-      className={`py-2 rounded-brand text-sm ${cls}`}
-    >{t(`menu.${key}`)}</button>
+      className={`py-2 rounded-brand text-sm flex items-center justify-center gap-1.5 ${cls}`}
+    >
+      <span>{t(`menu.${key}`)}</span>
+      {hasEsc && <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1 py-0.5 rounded bg-surface-3 text-text-muted leading-none">Esc</kbd>}
+    </button>
   );
   return (
     <div className={MODAL_WRAP}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => onResolve?.("skip")} />
       <div className="relative card-elev w-full max-w-sm">
         <div className="px-4 py-3">
           <h3 className="text-text font-semibold">{t("menu.conflictTitle")}</h3>
@@ -195,7 +256,7 @@ export function ConflictModal({ name, onResolve }) {
           {t("menu.conflictMessage", { name })}
         </div>
         <div className="p-4 grid grid-cols-2 gap-2">
-          {choice("skip", "bg-surface-2 text-text hover:bg-surface-3")}
+          {choice("skip", "bg-surface-2 text-text hover:bg-surface-3", true)}
           {choice("skipAll", "bg-surface-2 text-text hover:bg-surface-3")}
           {choice("replace", "bg-brand-500 text-white hover:bg-brand-600")}
           {choice("replaceAll", "bg-brand-500 text-white hover:bg-brand-600")}

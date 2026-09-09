@@ -25,6 +25,20 @@ export default function CreateCodespaceModal({ isOpen, onClose, onCreated }) {
       .finally(() => setLoading(false));
   }, [isOpen, listRepos]);
 
+  // Close on Escape unless creation is in progress
+  useEffect(() => {
+    if (!isOpen || creating) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose?.();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [isOpen, creating, onClose]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return repos;
