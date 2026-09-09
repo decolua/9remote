@@ -30,6 +30,9 @@ export default {
     deleteGroupConfirm: "Xóa nhóm {name}? Tất cả terminal bên trong sẽ bị đóng.",
   },
   menu: {
+    general: "Chung",
+    system: "Hệ thống",
+    maintenance: "Bảo trì",
     connection: "Kết nối",
     connectionDesc: "Ghép nối thiết bị và quản lý tunnel bảo mật",
     terminals: "Terminal",

@@ -26,4 +26,4 @@ export const SUPPORTED_LOCALES = [
 ];
 
 export const DEFAULT_LOCALE = "en";
-export const STORAGE_KEY = "agentLocale";
+export const STORAGE_KEY = "9remote_locale";

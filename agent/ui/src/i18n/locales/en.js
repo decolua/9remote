@@ -122,6 +122,9 @@ export default {
     deleteGroupConfirm: "Delete group {name}? All terminals inside will be closed.",
   },
   menu: {
+    general: "General",
+    system: "System",
+    maintenance: "Maintenance",
     connection: "Connection",
     connectionDesc: "Pair devices and manage your secure tunnel",
     terminals: "Terminal",

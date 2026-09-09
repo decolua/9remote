@@ -1,4 +1,4 @@
-import { useState, useEffect } from "preact/hooks";
+import { useState, useEffect, useRef } from "preact/hooks";
 import QRCard from "../components/QRCard";
 import ConfirmPopup from "../components/ConfirmPopup";
 import SettingsMenu from "../components/SettingsMenu";
@@ -42,34 +42,78 @@ function PermChip({ granted, label, onRequest }) {
   );
 }
 
-const getSleepModeLabels = (t) => ({
-  "30m":   t("remote.sleepModes.30m"),
-  "1h":    t("remote.sleepModes.1h"),
-  "2h":    t("remote.sleepModes.2h"),
-  "4h":    t("remote.sleepModes.4h"),
-  "24h":   t("remote.sleepModes.24h"),
-  "never": t("remote.sleepModes.never"),
-});
+/** Remote Desktop card — prominent permission status + toggle */
+function RemoteDesktopCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, t }) {
+  const permEntries = Object.entries(getPermissionMeta(t));
+  const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
+  const toggleDisabled = !canEnableDesktop && !desktopEnabled;
 
-/** Flat list row — icon + body + right control, hover groups it (no divider lines) */
-function SrvRow({ icon, active, name, desc, children, extra }) {
   return (
-    <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
-      <div
-        className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0"
-        style={{
-          background: active ? "rgba(var(--brand-rgb),0.08)" : "var(--row-bg)",
-          border: `1px solid ${active ? "rgba(var(--brand-rgb),0.3)" : "var(--border-subtle)"}`,
-        }}
-      >
-        <span className="material-symbols-outlined" style={{ fontSize: 18, color: active ? "var(--brand-400)" : "var(--text-muted)" }}>{icon}</span>
+    <div
+      className="p-4 rounded-2xl transition-all mb-8"
+      style={{
+        background: !canEnableDesktop ? "rgba(var(--warn-rgb), 0.05)" : "var(--row-bg)",
+        border: !canEnableDesktop ? "1px solid rgba(var(--warn-rgb), 0.25)" : "1px solid var(--border-subtle)",
+      }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background: !canEnableDesktop ? "rgba(var(--warn-rgb), 0.15)" : "var(--surface-2)",
+              color: !canEnableDesktop ? "var(--warn)" : "var(--text-main)",
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>
+              {!canEnableDesktop ? "warning" : "desktop_windows"}
+            </span>
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[13.5px] font-semibold" style={{ color: "var(--text-main)" }}>
+                {t("remote.remoteDesktop")}
+              </span>
+              {!canEnableDesktop ? (
+                <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: "rgba(var(--warn-rgb), 0.15)", color: "var(--warn)" }}>
+                  Permission needed
+                </span>
+              ) : desktopEnabled ? (
+                <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: "rgba(var(--success-rgb), 0.15)", color: "var(--success)" }}>
+                  Active
+                </span>
+              ) : null}
+            </div>
+            <p className="text-xs truncate mt-0.5" style={{ color: "var(--text-muted)" }}>
+              {!canEnableDesktop
+                ? "Grant screen & accessibility permissions to control this machine"
+                : t("remote.controlScreen") || "Control screen, mouse & keyboard"}
+            </p>
+          </div>
+        </div>
+        <Toggle
+          on={desktopEnabled}
+          onClick={onDesktopToggle}
+          disabled={toggleDisabled}
+          title={toggleDisabled ? t("dialogs.grantPermissions") : ""}
+        />
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[13.5px] font-semibold" style={{ color: "var(--text-main)" }}>{name}</p>
-        {desc && <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>{desc}</p>}
-        {extra}
-      </div>
-      {children}
+
+      {permEntries.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+          <span className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
+            Permissions:
+          </span>
+          {permEntries.map(([type, meta]) => (
+            <PermChip
+              key={type}
+              granted={!!permissions?.[type]}
+              label={meta.label}
+              onRequest={() => onRequestPermission(type)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -89,75 +133,6 @@ function Section({ title, count, first, children }) {
       </div>
       {children}
     </div>
-  );
-}
-
-/** Services rows — Desktop (always on) + startup + sleep + unlock */
-function Services({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, autoStart, onAutoStartToggle, sleepInhibitMode, sleepInhibitPresets, onSleepInhibitChange, unlockStatus, onRequestUnlockInstall, onRequestUnlockUninstall, t }) {
-  const permEntries = Object.entries(getPermissionMeta(t));
-  // Desktop toggle requires all permissions granted
-  const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
-  const toggleDisabled = !canEnableDesktop && !desktopEnabled;
-  const sleepLabels = getSleepModeLabels(t);
-  return (
-    <>
-      <SrvRow
-        icon="desktop_windows"
-        active={desktopEnabled}
-        name={t("remote.remoteDesktop")}
-        extra={
-          <div className="flex flex-wrap gap-2 mt-2">
-            {permEntries.map(([type, meta]) => (
-              <PermChip key={type} granted={!!permissions?.[type]} label={meta.label} onRequest={() => onRequestPermission(type)} />
-            ))}
-          </div>
-        }
-      >
-        <Toggle on={desktopEnabled} onClick={onDesktopToggle} disabled={toggleDisabled} title={toggleDisabled ? t("dialogs.grantPermissions") : ""} />
-      </SrvRow>
-
-      <SrvRow icon="rocket_launch" active={!!autoStart} name={t("remote.launchOnStartup")}>
-        <Toggle on={!!autoStart} onClick={onAutoStartToggle} />
-      </SrvRow>
-
-      <SrvRow icon="coffee" active={(sleepInhibitMode || "never") !== "never"} name={t("remote.preventSleep")}>
-        <select
-          value={sleepInhibitMode || "never"}
-          onChange={(e) => onSleepInhibitChange?.(e.target.value)}
-          className="flex-shrink-0 text-[12.5px] px-3 py-2 rounded-lg"
-          style={{ background: "var(--row-bg)", color: "var(--text-main)", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
-        >
-          {(sleepInhibitPresets || []).map((m) => (
-            <option key={m} value={m}>{sleepLabels[m] || m}</option>
-          ))}
-        </select>
-      </SrvRow>
-
-      {/* Remote unlock — toggle the Windows login-screen bridge. On = worker
-          runs as SYSTEM + boot task; Off = stop worker + remove task (exe kept).
-          Hidden on non-Windows. */}
-      {unlockStatus?.supported && (
-        <SrvRow
-          icon="lock_open"
-          active={!!unlockStatus.running}
-          name={t("remote.remoteUnlock")}
-          desc={
-            unlockStatus.stale
-              ? t("remote.remoteUnlockStale")
-              : unlockStatus.running ? t("remote.remoteUnlockReady") : t("remote.remoteUnlockDesc")
-          }
-        >
-          {/* Toggle follows `enabled` (persisted intent), not `running`: the worker
-              can be briefly down (reboot, rebuild) without the switch flipping itself
-              off. `active`/`desc` still show real liveness. */}
-          <Toggle
-            on={!!unlockStatus.enabled}
-            disabled={!!unlockStatus.busy}
-            onClick={() => (unlockStatus.enabled ? onRequestUnlockUninstall?.() : onRequestUnlockInstall?.())}
-          />
-        </SrvRow>
-      )}
-    </>
   );
 }
 
@@ -349,21 +324,6 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
   );
 }
 
-/** Brand-row icon button */
-function HeaderIconBtn({ icon, title, onClick, danger, disabled, spin }) {
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      title={title}
-      className="hdr-icon w-10 h-10 rounded-[9px] grid place-items-center flex-shrink-0"
-      style={danger ? { color: "var(--danger)" } : undefined}
-    >
-      <span className={`material-symbols-outlined ${spin ? "animate-spin" : ""}`} style={{ fontSize: 19 }}>{icon}</span>
-    </button>
-  );
-}
-
 /** Tunnel status chip — the single spot where tunnel state is visible. */
 function TunnelChip({ step, onRestart }) {
   // STEP enum: STOPPED=0, PREPARING=1 … READY=5
@@ -461,6 +421,7 @@ export default function MainScreen({
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [deviceToLabel, setDeviceToLabel] = useState(null);
   const [labelInput, setLabelInput] = useState("");
+  const rejectBtnRef = useRef(null);
 
   // Open the embedded web terminal workspace directly on localhost.
   // No key in the URL: the loopback bootstrap fetches it from /api/ui/state
@@ -475,8 +436,32 @@ export default function MainScreen({
     window.open(targetUrl, "_blank");
   };
 
+  const openRemoteConnect = () => {
+    try { sessionStorage.setItem("9remote_manual_disconnect", "1"); } catch {}
+    const targetUrl = window.location.port === "5173"
+      ? `${window.location.protocol}//${window.location.hostname}:2208/login?mode=remote`
+      : "/login?mode=remote";
+    if (window.__TAURI__) { window.location.href = targetUrl; return; }
+    window.open(targetUrl, "_blank");
+  };
+
   // Refresh devices list whenever connections update (so offline/online stays in sync)
   useEffect(() => { onFetchDevices?.(); }, [connections.length]);
+
+  // Keyboard navigation for pending device modal: Enter to approve, Escape to reject
+  useEffect(() => {
+    if (!pendingDevice) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); onDeviceReject?.(); }
+      else if (e.key === "Enter") {
+        if (rejectBtnRef.current && document.activeElement === rejectBtnRef.current) return;
+        e.preventDefault();
+        onDeviceApprove?.();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pendingDevice, onDeviceReject, onDeviceApprove]);
 
   const clients = mergeClients(approvedDevices, connections, rejectedDevices);
   const onlineCount = clients.filter((c) => c.status === "online").length;
@@ -528,7 +513,7 @@ export default function MainScreen({
           style={{ background: "var(--pane-right-bg)" }}
         >
           {/* Brand row — logo + actions (login header parity) */}
-          <div className="flex items-center gap-3 mb-10">
+          <div className="flex items-center gap-3 mb-8">
             <div className="logo-glass w-10 h-10 rounded-[11px] grid place-items-center flex-shrink-0">
               <span className="material-symbols-outlined" style={{ fontSize: 21, color: "var(--text-main)" }}>terminal</span>
             </div>
@@ -537,24 +522,15 @@ export default function MainScreen({
               {version && <span className="font-mono text-[11px] mt-[5px]" style={{ color: "var(--text-subtle)" }}>v{version}</span>}
             </div>
             <div className="flex-1" />
-            <HeaderIconBtn icon="open_in_new" title={t("menu.terminals")} onClick={openWebTerminal} />
-            <HeaderIconBtn
-              icon={theme === "dark" ? "light_mode" : "dark_mode"}
-              title={theme === "dark" ? t("header.lightMode") : t("header.darkMode")}
-              onClick={onToggleTheme}
-            />
-            <SettingsMenu variant="hdr" isStopped={step === 0} onStop={() => setShowDisconnectConfirm(true)} onShutdown={() => setShowShutdownConfirm(true)} logs={logs} onClearLogs={onClearLogs} />
-          </div>
-
-          <UpdateBanner version={updateVersion} />
-
-          {/* Services */}
-          <Section title="Services" first>
-            <Services
-              desktopEnabled={desktopEnabled}
-              onDesktopToggle={onDesktopToggle}
-              permissions={permissions}
-              onRequestPermission={onRequestPermission}
+            <SettingsMenu
+              variant="hdr"
+              theme={theme}
+              onToggleTheme={onToggleTheme}
+              isStopped={step === 0}
+              onStop={() => setShowDisconnectConfirm(true)}
+              onShutdown={() => setShowShutdownConfirm(true)}
+              logs={logs}
+              onClearLogs={onClearLogs}
               autoStart={autoStart}
               onAutoStartToggle={onAutoStartToggle}
               sleepInhibitMode={sleepInhibitMode}
@@ -563,9 +539,86 @@ export default function MainScreen({
               unlockStatus={unlockStatus}
               onRequestUnlockInstall={onRequestUnlockInstall}
               onRequestUnlockUninstall={onRequestUnlockUninstall}
-              t={t}
+              version={version}
             />
-          </Section>
+          </div>
+
+          <UpdateBanner version={updateVersion} />
+
+          {/* Hero Workspace Cards — primary user actions */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mb-6">
+            {/* This Workspace - Local */}
+            <button
+              onClick={openWebTerminal}
+              className="group text-left p-4 rounded-2xl flex flex-col justify-between transition-all duration-200 relative overflow-hidden"
+              style={{
+                background: "var(--row-bg)",
+                border: "1px solid rgba(var(--brand-rgb), 0.35)",
+                boxShadow: "0 2px 12px -2px rgba(var(--brand-rgb), 0.08)",
+              }}
+              title="This Workspace (Local)"
+            >
+              <div className="flex items-start justify-between w-full mb-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105"
+                  style={{ background: "linear-gradient(135deg, var(--brand-500), var(--brand-600))", color: "#ffffff" }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>terminal</span>
+                </div>
+                <span className="material-symbols-outlined text-text-muted opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" style={{ fontSize: 16 }}>
+                  open_in_new
+                </span>
+              </div>
+              <div>
+                <h3 className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>
+                  This Workspace
+                </h3>
+                <p className="text-xs mt-0.5 font-normal line-clamp-1" style={{ color: "var(--text-muted)" }}>
+                  Terminal & files on this machine
+                </p>
+              </div>
+            </button>
+
+            {/* Remote Workspace */}
+            <button
+              onClick={openRemoteConnect}
+              className="group text-left p-4 rounded-2xl flex flex-col justify-between transition-all duration-200 relative overflow-hidden"
+              style={{
+                background: "var(--row-bg)",
+                border: "1px solid var(--border-subtle)",
+              }}
+              title="Remote Workspace"
+            >
+              <div className="flex items-start justify-between w-full mb-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105"
+                  style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border-subtle)" }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>public</span>
+                </div>
+                <span className="material-symbols-outlined text-text-muted opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" style={{ fontSize: 16 }}>
+                  open_in_new
+                </span>
+              </div>
+              <div>
+                <h3 className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>
+                  Remote Workspace
+                </h3>
+                <p className="text-xs mt-0.5 font-normal line-clamp-1" style={{ color: "var(--text-muted)" }}>
+                  Connect to a remote agent
+                </p>
+              </div>
+            </button>
+          </div>
+
+          {/* Remote Desktop Card */}
+          <RemoteDesktopCard
+            desktopEnabled={desktopEnabled}
+            onDesktopToggle={onDesktopToggle}
+            permissions={permissions}
+            onRequestPermission={onRequestPermission}
+            t={t}
+          />
 
           {/* Clients */}
           <Section title="Clients" count={clients.length > 0 ? `${onlineCount}/${clients.length}` : null}>
@@ -653,15 +706,17 @@ export default function MainScreen({
               <span>IP: <span style={{ color: "var(--text-main)" }}>{pendingDevice.ip}</span></span>
             </div>
             <div className="flex gap-2">
-              <button onClick={onDeviceReject} className="glass-btn flex-1 py-2 text-sm" style={{ color: "var(--text-muted)" }}>
-                Reject
+              <button ref={rejectBtnRef} onClick={onDeviceReject} className="glass-btn flex-1 py-2 text-sm flex items-center justify-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+                <span>Reject</span>
+                <kbd className="text-[10px] font-mono px-1 py-0.5 rounded opacity-70 leading-none" style={{ background: "var(--glass-bg)" }}>Esc</kbd>
               </button>
               <button
                 onClick={onDeviceApprove}
-                className="flex-1 py-2 text-sm font-semibold rounded-lg"
+                className="flex-1 py-2 text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5"
                 style={{ background: "var(--brand-500)", color: "#fff" }}
               >
-                Approve
+                <span>Approve</span>
+                <kbd className="text-[10px] font-mono px-1 py-0.5 rounded bg-white/20 text-white leading-none">↵</kbd>
               </button>
             </div>
           </div>
