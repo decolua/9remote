@@ -76,6 +76,15 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   // Assistant message
+  const visibleTools = (tools || []).filter((t) => {
+    if (t.name === "AskUserQuestion") return false;
+    const path = t.input?.file_path || t.input?.path || "";
+    if ((t.name === "Edit" || t.name === "Write") && path && diffs.some((d) => d.file === path)) {
+      return false;
+    }
+    return true;
+  });
+
   return (
     <div className="group relative flex justify-start my-3">
       <div className="w-full text-text text-sm leading-relaxed min-w-0">
@@ -83,9 +92,9 @@ export const MessageBubble = memo(function MessageBubble({
         {thinking && <AiThinkingBlock text={thinking} isLive={isLive && !content} />}
 
         {/* Tools executions & Plan Mode cards */}
-        {tools && tools.length > 0 && (
+        {visibleTools.length > 0 && (
           <div className="my-1.5 space-y-1.5">
-            {tools.map((t, idx) => {
+            {visibleTools.map((t, idx) => {
               if (t.name === "EnterPlanMode" || t.name === "ExitPlanMode") {
                 return <AiPlanModeCard key={t.id || idx} toolName={t.name} input={t.input} />;
               }
@@ -110,8 +119,15 @@ export const MessageBubble = memo(function MessageBubble({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  code({ inline, className, children, ...props }) {
-                    if (inline) {
+                  // react-markdown v10 dropped the `inline` prop — detect block code
+                  // by language class or multiline content instead
+                  pre({ children }) {
+                    return <>{children}</>;
+                  },
+                  code({ className, children, ...props }) {
+                    const raw = String(children ?? "");
+                    const isBlock = /language-/.test(className || "") || raw.includes("\n");
+                    if (!isBlock) {
                       return (
                         <code className="px-1.5 py-0.5 rounded bg-surface-2 font-mono text-[12px] text-text" {...props}>
                           {children}
@@ -148,6 +164,7 @@ export const MessageBubble = memo(function MessageBubble({
               >
                 {content}
               </ReactMarkdown>
+              {isLive && <span className="inline-block w-1.5 h-3.5 bg-brand-500 animate-pulse ml-1 align-middle" />}
             </div>
 
             {/* Quick action bar on message hover */}
@@ -166,9 +183,8 @@ export const MessageBubble = memo(function MessageBubble({
             )}
           </div>
         ) : isLive && !thinking && tools.length === 0 ? (
-          <div className="flex items-center gap-2 text-text-muted text-xs py-2">
-            <span className="w-2 h-2 rounded-full bg-brand-500 animate-ping" />
-            <span>Generating response...</span>
+          <div className="py-2">
+            <span className="inline-block w-1.5 h-4 bg-brand-500 animate-pulse" />
           </div>
         ) : null}
 

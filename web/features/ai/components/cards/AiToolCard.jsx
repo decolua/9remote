@@ -26,8 +26,10 @@ export const AiToolCard = memo(function AiToolCard({
     if (isError) setExpanded(true);
   }, [isError]);
 
-  const displayCmd = command || (typeof input === "string" ? input : input?.command || input?.path || input?.file || "");
-  const filePath = input?.path || input?.file || "";
+  const displayCmd = command || (typeof input === "string"
+    ? input
+    : input?.command || input?.file_path || input?.notebook_path || input?.path || input?.file || input?.pattern || input?.query || "");
+  const filePath = input?.file_path || input?.path || input?.file || "";
 
   const handleCopy = (e) => {
     e.stopPropagation();

@@ -5,6 +5,7 @@ import { Send, Square, Terminal, FileCode, Bot, Sparkles, Zap, ChevronUp, Corner
 import { SLASH_COMMANDS, ENGINE_INFO } from "../constants";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 
 export const Composer = memo(function Composer({
   sessionId = "",
@@ -19,6 +20,7 @@ export const Composer = memo(function Composer({
 }) {
   const storeTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const storeModel = useAiStore((s) => s.bySession[sessionId]?.metadata?.model);
+  const storeSkills = useAiStore((s) => s.bySession[sessionId]?.metadata?.skills || []);
   const isTurnRunning = storeTurnRunning !== undefined ? storeTurnRunning : propTurnRunning;
   const model = storeModel !== undefined ? storeModel : propModel;
 
@@ -83,11 +85,30 @@ export const Composer = memo(function Composer({
     setSelectedIdx(0);
 
     if (trigger === "/") {
-      const filtered = SLASH_COMMANDS.filter((cmd) => cmd.name.toLowerCase().includes(filter));
+      const skillCmds = storeSkills.map((s) => ({
+        name: `/${s.name || s.id}`,
+        description: s.description || `Skill: ${s.name || s.id}`,
+        isSkill: true
+      }));
+      const allCommands = [...SLASH_COMMANDS, ...skillCmds];
+      const filtered = allCommands.filter((cmd) => cmd.name.toLowerCase().includes(filter));
       setMenuItems(filtered);
       setMenuOpen(filtered.length > 0);
     } else if (trigger === "@") {
-      if (fileBus?.searchFiles && workspacePath) {
+      const b = useConnectionStore.getState().bus;
+      if (b?.emit) {
+        b.emit("ai:files", { workspace: workspacePath, query: filter }, (res) => {
+          if (res?.ok && Array.isArray(res.files)) {
+            setMenuItems(
+              res.files.map((f) => ({
+                name: f.path || f,
+                description: f.isModified ? `${f.dir ? f.dir + " · " : ""}modified` : (f.dir || "")
+              }))
+            );
+            setMenuOpen(res.files.length > 0);
+          }
+        });
+      } else if (fileBus?.searchFiles && workspacePath) {
         fileBus.searchFiles(workspacePath, filter).then((res) => {
           if (res?.success && Array.isArray(res.files)) {
             setMenuItems(res.files.slice(0, 10).map((f) => ({ name: f.path || f, description: f.relPath || f })));
@@ -99,7 +120,7 @@ export const Composer = memo(function Composer({
         setMenuOpen(false);
       }
     }
-  }, [text, fileBus, workspacePath]);
+  }, [text, fileBus, workspacePath, storeSkills]);
 
   const executeSend = useCallback(() => {
     const trimmed = text.trim();
@@ -193,28 +214,39 @@ export const Composer = memo(function Composer({
   };
 
   return (
-    <div className="relative p-3 border-t border-border-subtle bg-surface select-none">
+    <div className="relative px-3 py-2 border-t border-border-subtle bg-surface select-none">
       {/* Autocomplete Menu popup */}
       {menuOpen && menuItems.length > 0 && (
-        <div className="absolute left-3 right-3 bottom-[calc(100%+8px)] max-h-56 bg-surface border border-border-subtle rounded-brand-lg shadow-lg overflow-y-auto z-50 p-1">
-          <div className="px-2 py-1 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1">
-            {menuType === "/" ? "Slash Commands" : "Files in repo (@)"}
+        <div className="absolute left-3 right-3 bottom-[calc(100%+6px)] max-h-52 bg-surface border border-border-subtle rounded-brand shadow-lg overflow-y-auto z-50 p-1">
+          <div className="px-2 py-0.5 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1">
+            {menuType === "/" ? "Slash Commands & Skills" : "Files in repo (@)"}
           </div>
           {menuItems.map((item, idx) => (
             <div
               key={item.name}
               onClick={() => selectMenuItem(item)}
               onMouseEnter={() => setSelectedIdx(idx)}
-              className={`px-2.5 py-1.5 rounded-brand flex items-center justify-between text-xs cursor-pointer ${
+              className={`px-2 py-1 rounded-brand flex items-center justify-between text-xs cursor-pointer ${
                 idx === selectedIdx ? "bg-surface-2 text-text font-medium" : "text-text-muted hover:text-text"
               }`}
             >
               <div className="flex items-center gap-2 truncate">
-                {menuType === "/" ? <Terminal size={13} className="text-brand-500 shrink-0" /> : <FileCode size={13} className="text-brand-500 shrink-0" />}
-                <span className="font-mono text-text">{item.name}</span>
+                {item.isSkill ? (
+                  <Zap size={12} className="text-purple-400 shrink-0" />
+                ) : menuType === "/" ? (
+                  <Terminal size={12} className="text-brand-500 shrink-0" />
+                ) : (
+                  <FileCode size={12} className="text-brand-500 shrink-0" />
+                )}
+                <span className="font-mono text-xs text-text">{item.name}</span>
+                {item.isSkill && (
+                  <span className="text-[9px] px-1 rounded bg-purple-500/15 text-purple-300 font-mono">
+                    skill
+                  </span>
+                )}
               </div>
               {item.description && (
-                <span className="text-[11px] text-text-muted truncate ml-2 max-w-[50%]">
+                <span className="text-[10px] text-text-muted truncate ml-2 max-w-[50%]">
                   {item.description}
                 </span>
               )}
@@ -224,7 +256,7 @@ export const Composer = memo(function Composer({
       )}
 
       {/* Main Composer Box */}
-      <div className="rounded-brand-lg border border-border-subtle bg-bg focus-within:border-brand-500 transition-colors p-2 flex flex-col gap-2">
+      <div className="rounded-brand border border-border-subtle bg-bg focus-within:border-brand-500 transition-colors px-2.5 py-1.5 flex flex-col gap-1.5">
         <textarea
           ref={textareaRef}
           value={text}
@@ -232,25 +264,19 @@ export const Composer = memo(function Composer({
           onKeyDown={handleKeyDown}
           placeholder={`Ask ${engineMeta.label} (/ command, @ file, ! shell)...`}
           rows={1}
-          className="w-full bg-transparent resize-none text-sm text-text placeholder-text-muted focus:outline-none custom-scrollbar leading-relaxed"
+          className="w-full bg-transparent resize-none text-xs text-text placeholder-text-muted focus:outline-none custom-scrollbar leading-relaxed"
         />
 
         {/* Action strip */}
-        <div className="flex items-center justify-between text-xs pt-1 border-t border-border-subtle/50">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between text-xs pt-1 border-t border-border-subtle/40">
+          <div className="flex items-center gap-1.5">
             <span
-              className="px-2 py-0.5 rounded-full text-[10px] font-medium flex items-center gap-1"
-              style={{ backgroundColor: `${engineMeta.color}20`, color: engineMeta.color }}
+              className="px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 font-mono"
+              style={{ backgroundColor: `${engineMeta.color}15`, color: engineMeta.color }}
             >
               <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: engineMeta.color }} />
               <span>{model || engineMeta.badge}</span>
             </span>
-
-            {!text && (
-              <span className="text-[11px] text-text-muted hidden sm:inline">
-                Type <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[10px] font-mono">@</kbd> files · <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[10px] font-mono">/</kbd> commands · <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[10px] font-mono">!</kbd> shell
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -258,10 +284,10 @@ export const Composer = memo(function Composer({
               <button
                 type="button"
                 onClick={() => { vibrate(); onStop?.(); }}
-                className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 flex items-center gap-1 text-xs font-medium transition-colors"
+                className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 flex items-center gap-1 text-[11px] font-medium transition-colors"
                 title="Stop generation"
               >
-                <Square size={12} className="fill-current" />
+                <Square size={11} className="fill-current" />
                 <span>Stop</span>
               </button>
             ) : (
@@ -269,14 +295,14 @@ export const Composer = memo(function Composer({
                 type="button"
                 onClick={executeSend}
                 disabled={!text.trim()}
-                className={`p-1.5 rounded-brand transition-colors flex items-center justify-center ${
+                className={`p-1 rounded transition-colors flex items-center justify-center ${
                   text.trim()
                     ? "bg-brand-500 hover:bg-brand-600 text-white shadow-sm"
-                    : "text-text-muted bg-surface-2 cursor-not-allowed opacity-50"
+                    : "text-text-muted bg-surface-2 cursor-not-allowed opacity-40"
                 }`}
                 title="Send (Enter)"
               >
-                <Send size={14} />
+                <Send size={12} />
               </button>
             )}
           </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 
 export function useAiSession({
   sessionId,
@@ -107,25 +108,30 @@ export function useAiSession({
     (text) => {
       if (!text || isTurnRunning) return;
       addUserMessage(sessionId, text);
-      busRef.current?.emit("ai:prompt", { sessionId, message: text });
+      const b = busRef.current || useConnectionStore.getState().bus;
+      // Auto-ensure session exists on host
+      b?.emit("ai:create", { sessionId, engine, cwd: workspacePath });
+      b?.emit("ai:prompt", { sessionId, message: text });
     },
-    [sessionId, isTurnRunning, addUserMessage]
+    [sessionId, engine, workspacePath, isTurnRunning, addUserMessage]
   );
 
   const resolvePermission = useCallback(
     (requestId, behavior, message = "", answers = null) => {
       clearPermission(sessionId, requestId);
+      const b = busRef.current || useConnectionStore.getState().bus;
       if (answers) {
-        busRef.current?.emit("ai:question", { sessionId, requestId, answers });
+        b?.emit("ai:question", { sessionId, requestId, answers });
       } else {
-        busRef.current?.emit("ai:permission", { sessionId, requestId, behavior, message });
+        b?.emit("ai:permission", { sessionId, requestId, behavior, message });
       }
     },
     [sessionId, clearPermission]
   );
 
   const stop = useCallback(() => {
-    busRef.current?.emit("ai:stop", { sessionId });
+    const b = busRef.current || useConnectionStore.getState().bus;
+    b?.emit("ai:stop", { sessionId });
     setTurnRunning(sessionId, false);
   }, [sessionId, setTurnRunning]);
 
