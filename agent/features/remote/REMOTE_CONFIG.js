@@ -76,7 +76,7 @@ export const REMOTE_CONFIG = {
   webrtc: {
     enableWebRTC: true,
     enableTurn: true,
-    turnApiUrl: "https://9remote.cc/api/webrtc/turn-credentials",
+    turnApiUrl: `${WORKER_URL}/api/webrtc/turn-credentials`,
     // DO signaling relay — fallback RTC signaling carrier when tunnel WS is down.
     // apiKey-gated; room = client deviceId. Derives from WORKER_URL so dev mode
     // (npm run agent:dev) auto-targets the dev DO. Explicit override wins.

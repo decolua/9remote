@@ -26,7 +26,7 @@ function parseNotifyParams(body, query) {
     return {
       type: query.type || "stop",
       sessionId: query.sessionId || "",
-      tool: query.tool || "claude",
+      tool: query.tool || "",
       csid: query.csid || "",
       ...query,
     };
@@ -35,7 +35,7 @@ function parseNotifyParams(body, query) {
   return {
     type: data.type || "stop",
     sessionId: data.sessionId || "",
-    tool: data.tool || "claude",
+    tool: data.tool || "",
     csid: data.csid || "",
     ...data,
   };

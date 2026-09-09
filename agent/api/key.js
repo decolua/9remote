@@ -10,10 +10,11 @@ import { getUiState, updateUiState } from "./ui.js";
 import { createTempKey, connectUrlOf, registerSession } from "../cli/utils/token.js";
 import { initSignalingGlobal } from "../lib/signalingGlobal.js";
 import { headOf } from "../cli/utils/apiKey.js";
+import { WORKER_URL } from "../cli/config.js";
 
 export async function handleOneTimeKey(req, res) {
   const state = getUiState();
-  const workerUrl = state.workerUrl || "https://9remote.cc";
+  const workerUrl = state.workerUrl || WORKER_URL;
   if (!state.permanentKey) { jsonErr(res, 400, "No permanent key set"); return; }
   const data = await createTempKey(state.permanentKey, workerUrl);
   if (!data) { jsonErr(res, 500, "Temp key creation failed"); return; }
@@ -25,7 +26,7 @@ export async function handleOneTimeKey(req, res) {
 export async function handleRegenerate(req, res) {
   try {
     const state = getUiState();
-    const workerUrl = state.workerUrl || "https://9remote.cc";
+    const workerUrl = state.workerUrl || WORKER_URL;
     const machineId = await getConsistentMachineId();
     const key = generateApiKeyV2(machineId);
     const existing = loadKey();

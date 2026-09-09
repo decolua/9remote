@@ -4,7 +4,8 @@ import chalk from "chalk";
 // target zone stays prod. Override with NREMOTE_WORKER_URL=https://dev.9remote.cc.
 const IS_DEV = process.env.NODE_ENV === "development";
 export const IS_DEV_ENV = IS_DEV;
-export const WORKER_URL = process.env.NREMOTE_WORKER_URL || "https://9remote.cc";
+export const WORKER_URL = process.env.NREMOTE_WORKER_URL
+  || (typeof __DEFAULT_WORKER_URL__ !== "undefined" ? __DEFAULT_WORKER_URL__ : "https://9remote.cc");
 export const SERVER_HEALTHY_RESET_MS = 30000;
 export const SHUTDOWN_EXIT_DELAY_MS = 500;
 export const SHUTDOWN_CRASH_DELAY_MS = 300;
