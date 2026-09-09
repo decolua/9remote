@@ -6,7 +6,7 @@ import { createLogger } from "../../../lib/logger.js";
 
 const capsLogger = createLogger("terminal");
 import { detectAgentClis } from "../agentCatalog.js";
-import { listAgentSessions, matchLiveSessions, conversationTitle } from "../agentHistory.js";
+import { listAgentSessions, matchLiveSessions, conversationTitle, deleteAgentSession } from "../agentHistory.js";
 import { getLiveConversations, forgetSession, claimResumedConversation, getConversation } from "../statusManager.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
@@ -359,6 +359,15 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     // terminal can carry its name from the moment it opens.
     syncAutoNames(io, sessions, sessionId);
     callback?.({ success: true });
+  });
+
+  socket.on("deleteAgentSession", async ({ agent, sessionId, cwd } = {}, callback) => {
+    try {
+      const ok = await deleteAgentSession({ agent, sessionId, cwd });
+      callback?.({ success: ok });
+    } catch (err) {
+      callback?.({ success: false, error: err?.message });
+    }
   });
 
   socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd, nameIsAuto }, callback) => {

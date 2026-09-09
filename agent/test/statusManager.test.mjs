@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   STATES, TYPE_TO_STATE, applyEvent, getStatus, getStatuses,
   clearStatus, setStatus, onClearStatus, getNotifications,
+  onProcessChange, getSessionAgent,
 } from "../features/terminal/statusManager.js";
 
 let pass = 0, fail = 0;
@@ -153,6 +154,43 @@ await test("TYPE_TO_STATE covers all legacy + new types", () => {
   assert.equal(TYPE_TO_STATE.done, STATES.DONE);
   assert.equal(TYPE_TO_STATE.blocked, STATES.BLOCKED);
   assert.equal(TYPE_TO_STATE.idle, STATES.IDLE);
+});
+
+await test("onProcessChange preserves DONE state and badge when returning to shell", () => {
+  reset();
+  applyEvent({ type: "working", sessionId: "s1", tool: "claude" });
+  applyEvent({ type: "done", sessionId: "s1", tool: "claude" });
+  assert.equal(getStatus("s1")?.state, STATES.DONE);
+
+  // Return to shell after task completed
+  const res = onProcessChange("s1", "zsh");
+  assert.equal(res, null, "must not return idle when state is DONE");
+  assert.equal(getStatus("s1")?.state, STATES.DONE, "DONE state preserved");
+  assert.equal(getStatus("s1")?.tool, "claude", "tool preserved for badge");
+});
+
+await test("onProcessChange preserves BLOCKED state when returning to shell", () => {
+  reset();
+  applyEvent({ type: "working", sessionId: "s1", tool: "claude" });
+  applyEvent({ type: "blocked", sessionId: "s1", tool: "claude" });
+  const res = onProcessChange("s1", "bash");
+  assert.equal(res, null, "must not return idle when state is BLOCKED");
+  assert.equal(getStatus("s1")?.state, STATES.BLOCKED);
+});
+
+await test("onProcessChange resets WORKING to idle when interrupted/exited to shell", () => {
+  reset();
+  applyEvent({ type: "working", sessionId: "s1", tool: "claude" });
+  const res = onProcessChange("s1", "zsh");
+  assert.deepEqual(res, { state: STATES.IDLE, tool: null, conversationId: null });
+  assert.equal(getStatus("s1"), null, "status cleared");
+});
+
+await test("onProcessChange sets agent when process is an agent binary", () => {
+  reset();
+  const res = onProcessChange("s1", "claude");
+  assert.deepEqual(res, { agentId: "claude" });
+  assert.equal(getSessionAgent("s1"), "claude");
 });
 
 console.log(`\n${fail ? `❌ ${fail} failed` : "✅ all passed"}, ${pass} passed`);

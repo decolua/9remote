@@ -42,78 +42,61 @@ function PermChip({ granted, label, onRequest }) {
   );
 }
 
-/** Remote Desktop card — prominent permission status + toggle */
-function RemoteDesktopCard({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, t }) {
+/** Remote Desktop row — flat setting row inside Services section */
+function RemoteDesktopRow({ desktopEnabled, onDesktopToggle, permissions, onRequestPermission, t }) {
   const permEntries = Object.entries(getPermissionMeta(t));
   const canEnableDesktop = permEntries.every(([type]) => !!permissions?.[type]);
   const toggleDisabled = !canEnableDesktop && !desktopEnabled;
 
   return (
-    <div
-      className="p-4 rounded-2xl transition-all mb-8"
-      style={{
-        background: !canEnableDesktop ? "rgba(var(--warn-rgb), 0.05)" : "var(--row-bg)",
-        border: !canEnableDesktop ? "1px solid rgba(var(--warn-rgb), 0.25)" : "1px solid var(--border-subtle)",
-      }}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{
-              background: !canEnableDesktop ? "rgba(var(--warn-rgb), 0.15)" : "var(--surface-2)",
-              color: !canEnableDesktop ? "var(--warn)" : "var(--text-main)",
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>
-              {!canEnableDesktop ? "warning" : "desktop_windows"}
-            </span>
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[13.5px] font-semibold" style={{ color: "var(--text-main)" }}>
-                {t("remote.remoteDesktop")}
-              </span>
-              {!canEnableDesktop ? (
-                <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: "rgba(var(--warn-rgb), 0.15)", color: "var(--warn)" }}>
-                  Permission needed
-                </span>
-              ) : desktopEnabled ? (
-                <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: "rgba(var(--success-rgb), 0.15)", color: "var(--success)" }}>
-                  Active
-                </span>
-              ) : null}
-            </div>
-            <p className="text-xs truncate mt-0.5" style={{ color: "var(--text-muted)" }}>
-              {!canEnableDesktop
-                ? "Grant screen & accessibility permissions to control this machine"
-                : t("remote.controlScreen") || "Control screen, mouse & keyboard"}
-            </p>
-          </div>
-        </div>
-        <Toggle
-          on={desktopEnabled}
-          onClick={onDesktopToggle}
-          disabled={toggleDisabled}
-          title={toggleDisabled ? t("dialogs.grantPermissions") : ""}
-        />
+    <div className="row-hover flex items-start gap-4 py-3.5 px-3 -mx-3 rounded-xl">
+      <div
+        className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0 mt-0.5"
+        style={{
+          background: !canEnableDesktop ? "rgba(var(--warn-rgb),0.12)" : desktopEnabled ? "rgba(var(--brand-rgb),0.08)" : "var(--row-bg)",
+          border: `1px solid ${!canEnableDesktop ? "rgba(var(--warn-rgb),0.3)" : desktopEnabled ? "rgba(var(--brand-rgb),0.25)" : "var(--border-subtle)"}`,
+          color: !canEnableDesktop ? "var(--warn)" : desktopEnabled ? "var(--brand-400)" : "var(--text-muted)",
+        }}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+          {!canEnableDesktop ? "warning" : "desktop_windows"}
+        </span>
       </div>
-
-      {permEntries.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
-          <span className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
-            Permissions:
-          </span>
-          {permEntries.map(([type, meta]) => (
-            <PermChip
-              key={type}
-              granted={!!permissions?.[type]}
-              label={meta.label}
-              onRequest={() => onRequestPermission(type)}
-            />
-          ))}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-[13.5px] font-semibold" style={{ color: "var(--text-main)" }}>
+            {t("remote.remoteDesktop")}
+          </p>
+          {!canEnableDesktop ? (
+            <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: "rgba(var(--warn-rgb), 0.15)", color: "var(--warn)" }}>
+              Permission needed
+            </span>
+          ) : null}
         </div>
-      )}
+        <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+          {!canEnableDesktop
+            ? "Grant permissions to allow screen & control access"
+            : t("remote.controlScreen") || "Control screen, mouse & keyboard"}
+        </p>
+        {permEntries.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mt-2.5">
+            {permEntries.map(([type, meta]) => (
+              <PermChip
+                key={type}
+                granted={!!permissions?.[type]}
+                label={meta.label}
+                onRequest={() => onRequestPermission(type)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      <Toggle
+        on={desktopEnabled}
+        onClick={onDesktopToggle}
+        disabled={toggleDisabled}
+        title={toggleDisabled ? t("dialogs.grantPermissions") : ""}
+      />
     </div>
   );
 }
@@ -546,30 +529,24 @@ export default function MainScreen({
           <UpdateBanner version={updateVersion} />
 
           {/* Hero Workspace Cards — primary user actions */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mb-8">
             {/* This Workspace - Local */}
             <button
               onClick={openWebTerminal}
-              className="group text-left p-4 rounded-2xl flex flex-col justify-between transition-all duration-200 relative overflow-hidden"
-              style={{
-                background: "var(--row-bg)",
-                border: "1px solid rgba(var(--brand-rgb), 0.35)",
-                boxShadow: "0 2px 12px -2px rgba(var(--brand-rgb), 0.08)",
-              }}
-              title="This Workspace (Local)"
+              className="hero-card group text-left p-4 flex flex-col justify-between"
             >
-              <div className="flex items-start justify-between w-full mb-3">
+              <div className="flex items-start justify-between w-full mb-3 relative z-[1]">
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105"
-                  style={{ background: "linear-gradient(135deg, var(--brand-500), var(--brand-600))", color: "#ffffff" }}
+                  style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border-subtle)" }}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>terminal</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>computer</span>
                 </div>
                 <span className="material-symbols-outlined text-text-muted opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" style={{ fontSize: 16 }}>
                   open_in_new
                 </span>
               </div>
-              <div>
+              <div className="relative z-[1]">
                 <h3 className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>
                   This Workspace
                 </h3>
@@ -582,25 +559,20 @@ export default function MainScreen({
             {/* Remote Workspace */}
             <button
               onClick={openRemoteConnect}
-              className="group text-left p-4 rounded-2xl flex flex-col justify-between transition-all duration-200 relative overflow-hidden"
-              style={{
-                background: "var(--row-bg)",
-                border: "1px solid var(--border-subtle)",
-              }}
-              title="Remote Workspace"
+              className="hero-card group text-left p-4 flex flex-col justify-between"
             >
-              <div className="flex items-start justify-between w-full mb-3">
+              <div className="flex items-start justify-between w-full mb-3 relative z-[1]">
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105"
                   style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border-subtle)" }}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>public</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>hub</span>
                 </div>
                 <span className="material-symbols-outlined text-text-muted opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" style={{ fontSize: 16 }}>
                   open_in_new
                 </span>
               </div>
-              <div>
+              <div className="relative z-[1]">
                 <h3 className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>
                   Remote Workspace
                 </h3>
@@ -611,14 +583,16 @@ export default function MainScreen({
             </button>
           </div>
 
-          {/* Remote Desktop Card */}
-          <RemoteDesktopCard
-            desktopEnabled={desktopEnabled}
-            onDesktopToggle={onDesktopToggle}
-            permissions={permissions}
-            onRequestPermission={onRequestPermission}
-            t={t}
-          />
+          {/* Services - Remote Desktop */}
+          <Section title="Services" first>
+            <RemoteDesktopRow
+              desktopEnabled={desktopEnabled}
+              onDesktopToggle={onDesktopToggle}
+              permissions={permissions}
+              onRequestPermission={onRequestPermission}
+              t={t}
+            />
+          </Section>
 
           {/* Clients */}
           <Section title="Clients" count={clients.length > 0 ? `${onlineCount}/${clients.length}` : null}>

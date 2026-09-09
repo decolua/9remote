@@ -5,7 +5,7 @@
 // outlives the agent (it lives in the daemon), so the link to it is persisted
 // alongside the session metadata and replayed on boot.
 
-import { SESSION_ID_RE } from "./agentCatalog.js";
+import { SESSION_ID_RE, isShellProcess, agentIdFromProcess } from "./agentCatalog.js";
 
 export const STATES = Object.freeze({
   IDLE: "idle",
@@ -132,6 +132,35 @@ export function clearSessionAgent(sessionId) {
   conversations.delete(sessionId);
   lastPrompts.delete(sessionId);
   sessionStatus.delete(sessionId);
+}
+
+/**
+ * Handle foreground process change for a session.
+ * Preserves DONE or BLOCKED state so completion badges are not wiped when returning to shell.
+ */
+export function onProcessChange(sessionId, procName) {
+  if (!sessionId || !procName) return null;
+  if (isShellProcess(procName)) {
+    const status = getStatus(sessionId);
+    // Preserving DONE or BLOCKED: when a task finishes and returns to shell,
+    // the completion badge must remain until the user focuses or inputs.
+    if (status && (status.state === STATES.DONE || status.state === STATES.BLOCKED)) {
+      return null;
+    }
+    const current = getSessionAgent(sessionId) || status?.tool || getConversation(sessionId)?.agent;
+    if (current || (status && status.state === STATES.WORKING)) {
+      clearSessionAgent(sessionId);
+      clearStatus(sessionId);
+      return { state: STATES.IDLE, tool: null, conversationId: null };
+    }
+    return null;
+  }
+  const agentId = agentIdFromProcess(procName);
+  if (agentId) {
+    setSessionAgent(sessionId, agentId);
+    return { agentId };
+  }
+  return null;
 }
 
 /**

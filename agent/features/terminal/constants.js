@@ -11,7 +11,8 @@
 // v48: strip NODE_ENV from shell env — dev-mode agent leaked NODE_ENV=development into user terminals.
 // v49: track foreground process changes and broadcast to agent (detect agent CLI exit/Ctrl+C).
 // v50: foreground process polling and auto-clear session agent on exit.
-export const DAEMON_VERSION = "50";
+// v51: event-driven process check on output settle/input (no 500ms polling); preserve completion badges.
+export const DAEMON_VERSION = "51";
 
 // PowerShell prompt function emitting OSC 7 so the client can track cwd. Passed via
 // `-NoExit -Command` at spawn — running it pre-REPL avoids PSReadLine echoing the line.
@@ -113,7 +114,7 @@ export const HISTORY = {
   // so a machine with thousands of transcripts still answers in one readdir pass.
   SCAN_FILE_CAP: 200,
   SCAN_DEPTH: 4,
-  PER_AGENT_LIMIT: 30,
-  DEFAULT_LIMIT: 60,
+  PER_AGENT_LIMIT: 50,
+  DEFAULT_LIMIT: 100,
   CACHE_TTL_MS: 30 * 1000
 };

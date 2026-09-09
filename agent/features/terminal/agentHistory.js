@@ -89,6 +89,10 @@ function mtimeMs(filePath) {
   try { return fs.statSync(filePath).mtimeMs; } catch { return 0; }
 }
 
+function fileSizeBytes(filePath) {
+  try { return fs.statSync(filePath).size; } catch { return 0; }
+}
+
 function listDir(dir) {
   try { return fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
 }
@@ -410,7 +414,9 @@ function byNewest(rows, source, cwd) {
       title: row.title || "",
       cwd: row.cwd || cwd,
       updatedAt: row.updatedAt || mtimeMs(row.filePath),
-      resume: resumeCommand(source.id, row.sessionId)
+      size: row.size ?? (row.filePath ? fileSizeBytes(row.filePath) : 0),
+      resume: resumeCommand(source.id, row.sessionId),
+      filePath: row.filePath
     }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
@@ -455,4 +461,108 @@ export async function listAgentSessions({ cwd, limit = HISTORY.DEFAULT_LIMIT, fr
 
   cache.set(cwd, { at: Date.now(), rows });
   return rows.slice(0, limit);
+}
+
+/**
+ * Permanently delete one past conversation transcript and its companion files/records.
+ */
+export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
+  if (!agent || !sessionId) return false;
+  const source = SOURCE_BY_ID.get(agent);
+  if (!source) return false;
+
+  let deleted = false;
+
+  // 1. Remove from SQLite store if agent is opencode
+  if (agent === "opencode") {
+    const sqlite = loadSqlite();
+    if (sqlite) {
+      const dbPath = path.join(home(), ".local", "share", "opencode", "opencode.db");
+      if (fs.existsSync(dbPath)) {
+        let db;
+        try {
+          db = new sqlite.DatabaseSync(dbPath);
+          db.prepare("DELETE FROM session WHERE id = ?").run(sessionId);
+          deleted = true;
+        } catch {} finally {
+          try { db?.close(); } catch {}
+        }
+      }
+    }
+  }
+
+  // 2. Resolve transcript file path
+  const cached = cwd ? cache.get(cwd) : null;
+  const cachedRow = cached?.rows?.find((r) => r.agent === agent && r.sessionId === sessionId);
+  let filePath = cachedRow?.filePath;
+
+  const rootDir = source.root();
+  if (!filePath) {
+    if (source.layout === "cwdDir" && cwd && source.encode) {
+      const base = path.join(rootDir, source.encode(cwd), source.sub || "");
+      if (source.file) {
+        filePath = path.join(base, sessionId, source.file);
+      } else {
+        filePath = path.join(base, `${sessionId}${source.ext}`);
+      }
+    } else if (source.layout === "opencode") {
+      filePath = path.join(rootDir, `${sessionId}${source.ext}`);
+    } else if (source.layout === "scan") {
+      const direct = path.join(rootDir, `${sessionId}${source.ext}`);
+      if (fs.existsSync(direct)) {
+        filePath = direct;
+      } else {
+        const files = filesUnder(rootDir, HISTORY.SCAN_DEPTH, source.ext, source.file);
+        for (const f of files) {
+          if (source.parse(f)?.sessionId === sessionId) {
+            filePath = f;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Delete file and companion directory / settings safely
+  const isInside = (target, root) => target === root || target.startsWith(root + path.sep);
+  if (filePath && fs.existsSync(filePath)) {
+    const resolvedPath = path.resolve(filePath);
+    const resolvedRoot = path.resolve(rootDir);
+    if (isInside(resolvedPath, resolvedRoot)) {
+      try {
+        fs.rmSync(filePath, { force: true });
+        deleted = true;
+      } catch {}
+
+      try {
+        if (source.file) {
+          const parentDir = path.dirname(filePath);
+          if (parentDir !== resolvedRoot && isInside(parentDir, resolvedRoot)) {
+            fs.rmSync(parentDir, { recursive: true, force: true });
+          }
+        } else {
+          const companionDir = filePath.slice(0, -source.ext.length);
+          if (fs.existsSync(companionDir) && isInside(companionDir, resolvedRoot)) {
+            fs.rmSync(companionDir, { recursive: true, force: true });
+          }
+          const settingsFile = `${filePath.slice(0, -source.ext.length)}.settings${source.ext}`;
+          if (fs.existsSync(settingsFile) && isInside(settingsFile, resolvedRoot)) {
+            fs.rmSync(settingsFile, { force: true });
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // 4. Invalidate / update cache
+  if (cwd && cache.has(cwd)) {
+    const entry = cache.get(cwd);
+    const before = entry.rows.length;
+    entry.rows = entry.rows.filter((r) => !(r.agent === agent && r.sessionId === sessionId));
+    if (entry.rows.length !== before) deleted = true;
+  } else {
+    cache.clear();
+  }
+
+  return deleted;
 }

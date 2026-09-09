@@ -5,7 +5,7 @@
 // Run: node --test agent/test/agentHistory.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync, existsSync } from "fs";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 import { tmpdir } from "os";
@@ -17,7 +17,7 @@ process.env.HOME = home;
 process.env.USERPROFILE = home;
 delete process.env.CODEX_HOME;
 
-const { listAgentSessions, encodeCwdForAgent, resumeCommand, clearHistoryCache } =
+const { listAgentSessions, encodeCwdForAgent, resumeCommand, clearHistoryCache, deleteAgentSession } =
   await import("../features/terminal/agentHistory.js");
 
 const CWD = "/Users/Working/9remote";
@@ -345,3 +345,21 @@ test("a missing, empty or corrupt db falls back to the files instead of throwing
   clearHistoryCache();
   assert.deepEqual((await listOpencode(CWD)).map((s) => s.sessionId), ["ses_old", "ses_a"]);
 });
+
+test("deleteAgentSession deletes Claude session file and updates cache", async () => {
+  const filePath = write(".claude/projects/-Users-Working-9remote/to_delete.jsonl", jsonl(
+    { type: "user", message: { content: "Test query to delete" } }
+  ), 5000);
+  clearHistoryCache();
+
+  let rows = await listAgentSessions({ cwd: CWD });
+  assert.ok(rows.some((r) => r.sessionId === "to_delete"));
+
+  const deleted = await deleteAgentSession({ agent: "claude", sessionId: "to_delete", cwd: CWD });
+  assert.equal(deleted, true);
+  assert.equal(existsSync(filePath), false);
+
+  rows = await listAgentSessions({ cwd: CWD });
+  assert.equal(rows.some((r) => r.sessionId === "to_delete"), false);
+});
+

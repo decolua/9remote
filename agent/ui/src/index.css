@@ -288,6 +288,71 @@
     transition: all 0.2s ease;
   }
 
+  /* Hero workspace cards — mirror sheen animation on hover */
+  .hero-card {
+    position: relative;
+    overflow: hidden;
+    background: var(--row-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    transition: transform 0.2s ease;
+  }
+
+  .hero-card:hover {
+    transform: translateY(-1px);
+  }
+
+  .hero-card::before {
+    content: "";
+    position: absolute;
+    top: -50%;
+    left: -65%;
+    width: 60%;
+    height: 200%;
+    background: linear-gradient(
+      115deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.02) 20%,
+      rgba(255, 255, 255, 0.22) 50%,
+      rgba(255, 255, 255, 0.02) 80%,
+      transparent 100%
+    );
+    transform: rotate(25deg);
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  [data-theme="light"] .hero-card::before {
+    background: linear-gradient(
+      115deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.1) 20%,
+      rgba(255, 255, 255, 0.5) 50%,
+      rgba(255, 255, 255, 0.1) 80%,
+      transparent 100%
+    );
+  }
+
+  .hero-card:hover::before {
+    opacity: 1;
+    animation: mirror-sheen 1.5s linear infinite;
+  }
+
+  @keyframes mirror-sheen {
+    0% {
+      left: -65%;
+    }
+    100% {
+      left: 110%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero-card:hover::before {
+      animation: none;
+    }
+  }
+
   /* macOS frosted glass menu popover */
   .menu-popover {
     background: var(--glass-bg);
