@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Terminal, Bot, Check, History, CornerDownLeft } from "@/shared/components/ui/Icon";
+import { X, Terminal, Bot, Sparkles, Zap, Check, History, CornerDownLeft } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
@@ -10,6 +10,7 @@ import { SHORTCUTS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/c
 import LocationPicker from "@/features/terminal/components/LocationPicker";
 import AgentHistoryPanel from "@/features/terminal/components/AgentHistoryPanel";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
+import { AI_UI_OPTIONS } from "@/features/ai/constants";
 
 // The quick-create chord (create from last prefs, no modal) hinted at in the title bar
 const NEW_TERMINAL_SHORTCUT = SHORTCUTS.find((s) => s.id === "newTerminal");
@@ -27,6 +28,9 @@ const TAB_DEFS = [
 function AgentAvatar({ agent }) {
   const [broken, setBroken] = useState(false);
   if (!agent) return <Terminal size={16} className="text-text-muted" />;
+  if (agent.id === "claude-ui") return <Bot size={16} className="text-amber-400" />;
+  if (agent.id === "codex-ui") return <Sparkles size={16} className="text-emerald-400" />;
+  if (agent.id === "opencode-ui") return <Zap size={16} className="text-purple-400" />;
   if (broken) return <Bot size={16} className="text-text-muted" />;
   return (
     <img
@@ -84,10 +88,11 @@ export default function NewTerminalModal({
     listRef.current?.querySelector("[data-picked=true]")?.scrollIntoView({ block: "nearest" });
   }, [agentClis, agentId]);
 
-  // A saved id the host no longer has (CLI uninstalled) falls back to plain terminal
-  const agent = (agentId && agentClis?.find((a) => a.id === agentId)) || null;
-  const options = [null, ...(agentClis || [])];
-  const canSkip = canSkipPermissions(agent);
+  // Combine built-in AI UI options with detected agent CLIs
+  const allAgents = [...AI_UI_OPTIONS, ...(agentClis || [])];
+  const agent = (agentId && allAgents.find((a) => a.id === agentId)) || null;
+  const options = [null, ...allAgents];
+  const canSkip = !agent?.isAiUi && canSkipPermissions(agent);
   // The agent's own skip-mode token, e.g. --yolo / GOOSE_MODE=auto — null for plain shells
   const skipFlag = agent?.yolo
     || (agent?.yoloEnv ? Object.entries(agent.yoloEnv).map(([k, v]) => `${k}=${v}`).join(" ") : null);

@@ -25,6 +25,7 @@ const TerminalRightPanel = dynamic(() => import("@/features/terminal/components/
 const TerminalEditorPanel = dynamic(() => import("@/features/terminal/components/TerminalEditorPanel"), { ssr: false });
 const OverflowTip = dynamic(() => import("@/shared/components/ui/OverflowTip"), { ssr: false });
 const TerminalEmptyState = dynamic(() => import("@/features/terminal/components/TerminalEmptyState"), { ssr: false });
+const AiPaneView = dynamic(() => import("@/features/ai/components/AiPaneView").then((m) => m.AiPaneView), { ssr: false });
 
 // Per-pane wrapper positioning terminal directly above the bottom input bar
 const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
@@ -152,6 +153,7 @@ function TerminalWorkspace({
   // A pane's folder button reveals its live cwd into the files tab only — git/worktrees
   // tabs keep the workspace root, so a deep cwd must not blank their repo scan.
   const rightPanelRoots = useTerminalStore((s) => s.rightPanelRoots);
+  const agentBySession = useTerminalStore((s) => s.agentBySession);
   const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
   const openRightPanel = useTerminalStore((s) => s.openRightPanel);
   const reorderOpenedSessions = useTerminalStore((s) => s.reorderOpenedSessions);
@@ -322,6 +324,21 @@ function TerminalWorkspace({
 
   const renderPane = (sessionId, isVisible, isFocused, bgIndex = 0) => {
     const session = sessions.find((s) => s.id === sessionId);
+    const sessionAgent = agentBySession[sessionId];
+    const isAiUi = sessionAgent === "claude-ui" || sessionAgent === "codex-ui" || sessionAgent === "opencode-ui";
+    if (isAiUi) {
+      const engine = sessionAgent === "codex-ui" ? "codex" : sessionAgent === "opencode-ui" ? "opencode" : "claude";
+      return (
+        <AiPaneView
+          sessionId={sessionId}
+          engine={engine}
+          workspacePath={session?.workspacePath || activeWorkspace?.path}
+          bus={activeBus}
+          fileBus={activeFileBus}
+          isFocused={isFocused}
+        />
+      );
+    }
     return (
     <TerminalPane
       // Session's own workspace — the folder button opens the right panel's files tab
@@ -515,6 +532,10 @@ function TerminalWorkspace({
                   {!mountedSet.has(sessionId) ? (
                     // Placeholder — workspace not yet visited; mounts on first entry
                     <div className="w-full h-full flex items-center justify-center text-text-muted text-xs" />
+                  ) : agentBySession[sessionId]?.endsWith("-ui") ? (
+                    <div className="w-full h-full flex flex-col relative overflow-hidden">
+                      {renderPane(sessionId, isVisible, isFocused, bgIndex)}
+                    </div>
                   ) : isDesktop ? (
                     <>
                       <PaneContentWrapper>
@@ -559,7 +580,7 @@ function TerminalWorkspace({
           )}
 
           {/* Mobile: one shared keyboard below the active pane (desktop renders its own per pane) */}
-          {!isDesktop && activeSessionId && renderKeyboard(activeSessionId)}
+          {!isDesktop && activeSessionId && !agentBySession[activeSessionId]?.endsWith("-ui") && renderKeyboard(activeSessionId)}
 
         </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Sparkles, Zap } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
 import SitesList from "./SitesList";
@@ -70,6 +70,7 @@ function TerminalHeader({
   homeDir = null,
 }) {
   const { t } = useI18n();
+  const agentBySession = useTerminalStore((s) => s.agentBySession);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
@@ -336,11 +337,21 @@ function TerminalHeader({
                 } ${dragId === session.id ? "z-20 opacity-90 shadow-lg" : "transition"}`}
               >
                 <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
-                    style={{ background: v.dot }}
-                    title={t(v.label)}
-                  />
+                  {agentBySession[session.id]?.endsWith("-ui") ? (
+                    agentBySession[session.id] === "codex-ui" ? (
+                      <Sparkles size={13} className={`text-emerald-400 ${onDeleteSession ? "sm:group-hover:hidden" : ""}`} />
+                    ) : agentBySession[session.id] === "opencode-ui" ? (
+                      <Zap size={13} className={`text-purple-400 ${onDeleteSession ? "sm:group-hover:hidden" : ""}`} />
+                    ) : (
+                      <Bot size={13} className={`text-amber-400 ${onDeleteSession ? "sm:group-hover:hidden" : ""}`} />
+                    )
+                  ) : (
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
+                      style={{ background: v.dot }}
+                      title={t(v.label)}
+                    />
+                  )}
                   {onDeleteSession && (
                     <button
                       type="button"

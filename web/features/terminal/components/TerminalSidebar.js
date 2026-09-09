@@ -2,7 +2,8 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw } from "@/shared/components/ui/Icon";
+import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap } from "@/shared/components/ui/Icon";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { statusVisual } from "@/shared/utils/statusVisual";
@@ -148,6 +149,7 @@ function TerminalSidebar({
   onResumeAgentSession,
 }) {
   const { t } = useI18n();
+  const agentBySession = useTerminalStore((s) => s.agentBySession);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
@@ -392,7 +394,13 @@ function TerminalSidebar({
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
                       <span className="flex-1 min-w-0 flex flex-col">
                         <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
-                          {AGENT_ICONS[tool] ? (
+                          {agentBySession[s.id] === "claude-ui" ? (
+                            <Bot size={12} className="text-amber-400 flex-shrink-0" />
+                          ) : agentBySession[s.id] === "codex-ui" ? (
+                            <Sparkles size={12} className="text-emerald-400 flex-shrink-0" />
+                          ) : agentBySession[s.id] === "opencode-ui" ? (
+                            <Zap size={12} className="text-purple-400 flex-shrink-0" />
+                          ) : AGENT_ICONS[tool] ? (
                             <img src={AGENT_ICONS[tool]} alt={tool} className="w-3 h-3 flex-shrink-0 object-contain" />
                           ) : (
                             <Terminal size={12} className="flex-shrink-0" />
