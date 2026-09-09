@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenCode Web Harness (Dual-View)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* xterm.js minimal styles */
+    .xterm { font-feature-settings: "liga" 0; position: relative; user-select: none; }
+    .xterm.focus, .xterm:focus { outline: none; }
+    .xterm .xterm-helpers { position: absolute; top: 0; z-index: 5; }
+    .xterm .xterm-helper-textarea { padding: 0; border: 0; margin: 0; position: absolute; opacity: 0; width: 0; height: 0; z-index: -5; }
+    .xterm .xterm-viewport { background-color: #070a13; overflow-y: scroll; cursor: default; position: absolute; right: 0; left: 0; top: 0; bottom: 0; }
+    .xterm .xterm-screen { position: relative; }
+    .xterm .xterm-rows { line-height: 1.4; }
+
+    /* Tool Card Styles */
+    .tool-card { border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.08); background: #090e1a; overflow: hidden; margin: 6px 0; width: 100%; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.35); }
+    .tool-card-header { background: rgba(255, 255, 255, 0.03); padding: 8px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); display: flex; align-items: center; justify-content: space-between; }
+    .mac-dots { display: flex; gap: 5px; }
+    .mac-dots .dot { width: 9px; height: 9px; border-radius: 50%; }
+    .mac-dots .dot.red { background: #ef4444; }
+    .mac-dots .dot.yellow { background: #f59e0b; }
+    .mac-dots .dot.green { background: #10b981; }
+  </style>
+</head>
+<body class="bg-[#07090e] text-slate-100 overflow-hidden select-none">
+  <div id="root"></div>
+  <script src="/dist/bundle.js?v=latest"></script>
+</body>
+</html>
