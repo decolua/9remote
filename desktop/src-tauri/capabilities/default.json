@@ -9,7 +9,8 @@
       "clipboard-manager:allow-write-text",
       "clipboard-manager:allow-read-text",
       "opener:default",
-      "notification:default"
+      "notification:default",
+      "updater:default"
     ]
   },
   {

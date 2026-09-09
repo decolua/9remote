@@ -1,2 +1,5 @@
-# Local Apple signing credentials — never commit
+# Local Apple signing credentials & updater keys — never commit
 .sign.env
+.sign.key*
+*.key
+*.key.pub

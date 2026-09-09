@@ -1,7 +1,7 @@
 use tauri::{
     AppHandle, Emitter, Manager,
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
 const SERVER_PORT: u16 = 2208;
@@ -1030,6 +1030,56 @@ fn spawn_background_update(app: AppHandle) {
     });
 }
 
+// Check and install native shell updates via tauri-plugin-updater
+fn check_desktop_update(app: AppHandle, notify_if_latest: bool) {
+    use tauri_plugin_updater::UpdaterExt;
+    tauri::async_runtime::spawn(async move {
+        match app.updater() {
+            Ok(updater) => {
+                match updater.check().await {
+                    Ok(Some(update)) => {
+                        eprintln!("[Desktop] Native update available: {}", update.version);
+                        let _ = app.emit("native_update_available", &update.version);
+                        use tauri_plugin_notification::NotificationExt;
+                        let _ = app.notification()
+                            .builder()
+                            .title("9Remote Update Available")
+                            .body(format!("Version {} is available. Downloading...", update.version))
+                            .show();
+                        if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
+                            eprintln!("[Desktop] Failed to download/install update: {e}");
+                        } else {
+                            eprintln!("[Desktop] Native update installed successfully");
+                            let _ = app.notification()
+                                .builder()
+                                .title("9Remote Update Ready")
+                                .body("Update installed. Restart the app to apply.")
+                                .show();
+                        }
+                    }
+                    Ok(None) => {
+                        eprintln!("[Desktop] Native app is up to date");
+                        if notify_if_latest {
+                            use tauri_plugin_notification::NotificationExt;
+                            let _ = app.notification()
+                                .builder()
+                                .title("9Remote")
+                                .body("You are using the latest version.")
+                                .show();
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[Desktop] Failed to check native update: {e}");
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[Desktop] Updater error: {e}");
+            }
+        }
+    });
+}
+
 // Spawn agent directly via node (skip npm exec overhead) + new process group
 fn spawn_9remote_ui(app: AppHandle) {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1124,6 +1174,7 @@ fn spawn_9remote_ui(app: AppHandle) {
                     }
                     // Update only once the agent is serving — never overwrite files it is reading
                     spawn_background_update(app.clone());
+                    check_desktop_update(app.clone(), false);
                     break;
                 }
             }
@@ -1138,6 +1189,16 @@ fn spawn_9remote_ui(app: AppHandle) {
     });
 }
 
+// Navigate webview window to url and bring window to front
+fn navigate_and_show(app: &AppHandle, url: &str) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+        let _ = win.eval(&format!("window.location.href = '{url}'"));
+    }
+}
+
 // ── Main run ───────────────────────────────────────────────────────────────
 
 pub fn run() {
@@ -1149,6 +1210,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_page_load(|webview, payload| {
             // The agent UI opens login/docs links via window.open + target="_blank", which
             // Tauri's webview swallows. Reroute them to the OS browser. Only act inside the
@@ -1207,10 +1269,32 @@ pub fn run() {
             }
 
             // ── System tray ──
-            let show = MenuItem::with_id(app, "show", "Show/Hide Window", true, Some("CmdOrCtrl+H"))?;
+            let version = env!("CARGO_PKG_VERSION");
+            let header = MenuItem::with_id(app, "header", format!("● 9Remote v{version}"), false, None::<&str>)?;
+            let sep1 = PredefinedMenuItem::separator(app)?;
+            let pair = MenuItem::with_id(app, "pair_device", "📱 Pair Device (QR Code)", true, None::<&str>)?;
+            let local_ws = MenuItem::with_id(app, "local_workspace", "💻 Local Workspace", true, None::<&str>)?;
+            let remote_ws = MenuItem::with_id(app, "remote_workspace", "🌐 Remote Workspace", true, None::<&str>)?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
+            let restart = MenuItem::with_id(app, "restart_agent", "🔄 Restart Agent", true, None::<&str>)?;
             let check_update = MenuItem::with_id(app, "check_update", "Check for Updates", true, None::<&str>)?;
+            let sep3 = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit 9Remote", true, Some("CmdOrCtrl+Q"))?;
-            let menu = Menu::with_items(app, &[&show, &check_update, &quit])?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &header,
+                    &sep1,
+                    &pair,
+                    &local_ws,
+                    &remote_ws,
+                    &sep2,
+                    &restart,
+                    &check_update,
+                    &sep3,
+                    &quit,
+                ],
+            )?;
 
             // Embedded agent tray PNG (terminal glyph) — same icon as CLI tray
             let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/trayIcon.png"))?;
@@ -1218,16 +1302,54 @@ pub fn run() {
                 .icon(tray_icon)
                 .icon_as_template(false)
                 .menu(&menu)
-                .show_menu_on_left_click(true)
-                .on_tray_icon_event(|_tray, _event| { /* menu opens on left click */ })
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
                         if let Some(win) = app.get_webview_window("main") {
-                            if win.is_visible().unwrap_or(false) { let _ = win.hide(); }
-                            else { let _ = win.show(); let _ = win.set_focus(); }
+                            if win.is_visible().unwrap_or(false) {
+                                let _ = win.hide();
+                            } else {
+                                let _ = win.show();
+                                let _ = win.unminimize();
+                                let _ = win.set_focus();
+                            }
                         }
                     }
-                    "check_update" => { spawn_background_update(app.clone()); }
+                })
+                .on_menu_event(move |app, event| match event.id.as_ref() {
+                    "pair_device" => {
+                        let url = if is_dev {
+                            format!("http://localhost:{VITE_PORT}")
+                        } else {
+                            format!("http://localhost:{SERVER_PORT}")
+                        };
+                        navigate_and_show(app, &url);
+                    }
+                    "local_workspace" => {
+                        let url = format!("http://localhost:{SERVER_PORT}/workspace");
+                        navigate_and_show(app, &url);
+                    }
+                    "remote_workspace" => {
+                        let url = format!("http://localhost:{SERVER_PORT}/login?mode=remote");
+                        navigate_and_show(app, &url);
+                    }
+                    "restart_agent" => {
+                        kill_agent_tree();
+                        let app_handle = app.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            spawn_9remote_ui(app_handle);
+                        });
+                    }
+                    "check_update" => {
+                        spawn_background_update(app.clone());
+                        check_desktop_update(app.clone(), true);
+                    }
                     "quit" => { kill_agent_tree(); app.exit(0); }
                     _ => {}
                 })

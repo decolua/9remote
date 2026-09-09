@@ -18,6 +18,12 @@ for tool in cargo-xwin makensis llvm-lib; do
   command -v "$tool" >/dev/null || { echo "[Desktop] Missing $tool — see setup notes in this script"; exit 1; }
 done
 
+# Auto-load Tauri updater signing key if present and not set
+if [ -f ".sign.key" ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]; then
+  export TAURI_SIGNING_PRIVATE_KEY_PATH="$(pwd)/.sign.key"
+  echo "[Desktop] Loaded Tauri updater signing key from .sign.key"
+fi
+
 npx tauri build --runner cargo-xwin --target "$TARGET" --bundles nsis
 
 OUT="src-tauri/target/$TARGET/release"

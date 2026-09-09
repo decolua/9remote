@@ -41,6 +41,12 @@ fi
 echo "[Desktop] Signing identity: $APPLE_SIGNING_IDENTITY"
 echo "[Desktop] Team ID: $APPLE_TEAM_ID"
 
+# Auto-load Tauri updater signing key if present and not set
+if [ -f ".sign.key" ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]; then
+  export TAURI_SIGNING_PRIVATE_KEY_PATH="$(pwd)/.sign.key"
+  echo "[Desktop] Loaded Tauri updater signing key from .sign.key"
+fi
+
 # Extra args pass through, e.g. --target universal-apple-darwin for Intel + Apple Silicon
 npx tauri build "$@"
 
