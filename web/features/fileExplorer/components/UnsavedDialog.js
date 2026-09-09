@@ -53,7 +53,13 @@ export default function UnsavedDialog({ isOpen, fileName, onSave, onDiscard, onC
       onClick={onCancel}
     >
       <div className="absolute inset-0 bg-black/60" />
-      <div className="relative card-elev w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative card-elev w-full max-w-sm p-5"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
         <h3 className="text-[15px] font-semibold text-text mb-1.5">
           {t("editor.unsavedTitle", { name: fileName || "" })}
         </h3>

@@ -79,14 +79,21 @@ export default function SettingsDialog({
   const activeCategory = categories.find((c) => c.id === section);
 
   useEffect(() => {
+    document.activeElement?.blur?.();
     // The language modal listens on window and this listens on document, so a
     // single Escape would reach both and close the dialog underneath it. The
     // innermost layer wins: skip while a child modal is up.
-    const onKey = (e) => { if (e.key === "Escape" && !languageOpen) onClose(); };
-    document.addEventListener("keydown", onKey);
+    const onKey = (e) => {
+      if (e.key === "Escape" && !languageOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = "";
     };
   }, [onClose, languageOpen]);
@@ -103,6 +110,8 @@ export default function SettingsDialog({
         role="dialog"
         aria-modal="true"
         aria-label={t("menu.settings")}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
       >
         {/* Category nav */}
         <nav className="w-52 flex-shrink-0 bg-bg/40 border-r border-border flex flex-col">

@@ -65,6 +65,14 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
     keyboardTextApiRef.current?.focus?.();
   }, []);
 
+  const toggleInputFocus = useCallback((sessionId) => {
+    if (inputFocusedRef.current) {
+      paneApisRef.current[sessionId]?.focus?.();
+    } else {
+      keyboardTextApiRef.current?.focus?.();
+    }
+  }, []);
+
   // Smooth-scroll a pane to the center of the panes row (desktop split-view only)
   const scrollPaneIntoView = useCallback((sessionId) => {
     if (!isDesktop) return;
@@ -105,6 +113,7 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
     handleInputFocusChange,
     focusPane,
     focusKeyboardInput,
+    toggleInputFocus,
     scrollPaneIntoView,
     requestFocus
   }), [
@@ -115,6 +124,7 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
     handleInputFocusChange,
     focusPane,
     focusKeyboardInput,
+    toggleInputFocus,
     scrollPaneIntoView,
     requestFocus
   ]);

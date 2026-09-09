@@ -394,6 +394,7 @@ export default function WorkspaceLayout({ children }) {
     workspaceNext: () => handleSwitchWorkspace("next"),
     sessionIndex: (index) => nav.switchToIndex(index),
     closeTerminal: handleCloseActiveTerminal,
+    toggleFocus: () => paneRegistry.toggleInputFocus(activeSessionId),
     fitPanes: () => window.dispatchEvent(new CustomEvent("terminal:fitPanes")),
     newTerminal: createTerminalFromPrefs,
     toggleSidebar,

@@ -13,6 +13,8 @@ export function useGlobalShortcuts(handlers, enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e) => {
+      // Skip global workspace shortcuts if a modal dialog is active in the foreground
+      if (document.querySelector('[role="dialog"], [aria-modal="true"], .modal-overlay')) return;
       const match = matchShortcut(e);
       if (!match) return;
       const fn = ref.current?.[match.id];

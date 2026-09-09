@@ -1,39 +1,40 @@
 // Global shortcuts for the workspace shell (desktop browsers only).
-// Mod+Shift is the one namespace the browser mostly leaves free and the terminal never
-// claims. Mod+Shift+T/N/W are reserved by every browser (preventDefault cannot stop them)
-// so they stay out of this table.
+// Mac: Option (⌥) for tabs/navigation, Option+Shift (⌥⇧) for shell actions, Ctrl+` for focus.
+// PC: Ctrl+Shift for tabs/navigation/shell, Alt+W for close terminal, Ctrl+` for focus.
 
 // `code` matches the physical key (layout-independent); `key` is for named keys.
 export const SHORTCUTS = [
-  { id: "sessionPrev", key: "ArrowLeft", label: "Previous terminal", mac: "Opt ←", pc: "Ctrl+Shift+←" },
-  { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "Opt →", pc: "Ctrl+Shift+→" },
-  { id: "workspacePrev", key: "ArrowUp", label: "Previous workspace", mac: "Opt ↑", pc: "Ctrl+Shift+↑" },
-  { id: "workspaceNext", key: "ArrowDown", label: "Next workspace", mac: "Opt ↓", pc: "Ctrl+Shift+↓" },
-  { id: "closeTerminal", code: "KeyW", label: "Close terminal", mac: "Opt W", pc: "Alt+W" },
-  { id: "fitPanes", key: "=", code: "Equal", label: "Auto-fit panes", mac: "Opt =", pc: "Alt+=" },
-  { id: "newTerminal", key: "Enter", label: "New terminal", mac: "⌘⇧↵", pc: "Ctrl+Shift+Enter" },
-  { id: "palette", code: "KeyP", label: "Search files", mac: "⌘⇧P", pc: "Ctrl+Shift+P" },
-  { id: "toggleSidebar", code: "KeyB", label: "Toggle sidebar", mac: "⌘⇧B", pc: "Ctrl+Shift+B" },
-  { id: "toggleRightPanel", code: "KeyJ", label: "Toggle side panel", mac: "⌘⇧J", pc: "Ctrl+Shift+J" },
-  { id: "help", code: "Slash", label: "Keyboard shortcuts", mac: "⌘⇧/", pc: "Ctrl+Shift+/" }
+  { id: "sessionPrev", key: "ArrowLeft", label: "Previous terminal", mac: "⌥←", pc: "Ctrl+Shift+←" },
+  { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "⌥→", pc: "Ctrl+Shift+→" },
+  { id: "workspacePrev", key: "ArrowUp", label: "Previous workspace", mac: "⌥↑", pc: "Ctrl+Shift+↑" },
+  { id: "workspaceNext", key: "ArrowDown", label: "Next workspace", mac: "⌥↓", pc: "Ctrl+Shift+↓" },
+  { id: "closeTerminal", code: "KeyW", label: "Close terminal", mac: "⌥W", pc: "Alt+W" },
+  { id: "fitPanes", key: "=", code: "Equal", label: "Auto-fit panes", mac: "⌥=", pc: "Ctrl+Shift+=" },
+  { id: "toggleFocus", code: "Backquote", label: "Toggle terminal / input focus", mac: "⌃`", pc: "Ctrl+`" },
+  { id: "newTerminal", key: "Enter", label: "New terminal", mac: "⌥⇧↵", pc: "Ctrl+Shift+Enter" },
+  { id: "palette", code: "KeyP", label: "Search files", mac: "⌥⇧P", pc: "Ctrl+Shift+P" },
+  { id: "toggleSidebar", code: "KeyB", label: "Toggle sidebar", mac: "⌥⇧B", pc: "Ctrl+Shift+B" },
+  { id: "toggleRightPanel", code: "KeyJ", label: "Toggle side panel", mac: "⌥⇧J", pc: "Ctrl+Shift+J" },
+  { id: "help", code: "Slash", label: "Keyboard shortcuts", mac: "⌥⇧/", pc: "Ctrl+Shift+/" }
 ];
 
-// Mod+Shift+1..9 jumps to the Nth terminal of the active workspace.
+// 1..9 jumps to the Nth terminal of the active workspace.
 export const SESSION_INDEX_SHORTCUT = {
   id: "sessionIndex",
   label: "Go to terminal 1–9",
-  mac: "Opt 1…9",
+  mac: "⌥1…9",
   pc: "Ctrl+Shift+1…9"
 };
 
 // 1 row per distinct action: clear, readable, no visual clutter
 export const SHORTCUT_ROWS = [
-  { id: "switchTerminal", label: "Switch terminal", mac: "Opt ← / →", pc: "Ctrl+Shift+← / →" },
+  { id: "switchTerminal", label: "Switch terminal", mac: "⌥← / →", pc: "Ctrl+Shift+← / →" },
   SESSION_INDEX_SHORTCUT,
-  { id: "switchWorkspace", label: "Switch workspace", mac: "Opt ↑ / ↓", pc: "Ctrl+Shift+↑ / ↓" },
+  { id: "switchWorkspace", label: "Switch workspace", mac: "⌥↑ / ↓", pc: "Ctrl+Shift+↑ / ↓" },
   SHORTCUTS.find((s) => s.id === "newTerminal"),
   SHORTCUTS.find((s) => s.id === "closeTerminal"),
   SHORTCUTS.find((s) => s.id === "fitPanes"),
+  SHORTCUTS.find((s) => s.id === "toggleFocus"),
   SHORTCUTS.find((s) => s.id === "toggleSidebar"),
   SHORTCUTS.find((s) => s.id === "toggleRightPanel"),
   SHORTCUTS.find((s) => s.id === "palette"),
@@ -91,12 +92,13 @@ const isEditableTarget = (target) => {
   return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 };
 
-// Returns { id, index? } for a Mod+Shift chord (or Option chord on macOS), or null.
+// Returns { id, index? } for a shortcut event, or null.
 export function matchShortcut(event) {
   const mac = isMac();
 
-  // On macOS, terminal tab switching uses Option (⌥1..9, ⌥←, ⌥→, ⌥↑, ⌥↓), ⌥W closes active terminal, ⌥= auto-fits panes
-  // Note: Option+W produces "∑" and Option+= produces "≠" on macOS keyboard layout, so check both code and character
+  // On macOS:
+  // 1. Single Option: tabs, navigation, panes (⌥1..9, ⌥←, ⌥→, ⌥↑, ⌥↓, ⌥W, ⌥=, ⌥`)
+  // Note: Option+W produces "∑" and Option+= produces "≠" on macOS keyboard layout
   if (mac && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
     const digit = DIGIT_CODE.exec(event.code) || (/^[1-9]$/.test(event.key) ? [null, event.key] : null);
     if (digit) return { id: SESSION_INDEX_SHORTCUT.id, index: Number(digit[1]) - 1 };
@@ -105,6 +107,9 @@ export function matchShortcut(event) {
     if (event.key === "ArrowUp") return { id: "workspacePrev" };
     if (event.key === "ArrowDown") return { id: "workspaceNext" };
     if (isModalInput(event.target)) return null;
+    if (event.code === "Backquote" || event.key === "`") {
+      return { id: "toggleFocus" };
+    }
     if (event.code === "Equal" || event.key === "=" || event.key === "≠" || event.key === "+") {
       return { id: "fitPanes" };
     }
@@ -112,6 +117,35 @@ export function matchShortcut(event) {
       return { id: "closeTerminal" };
     }
     return null;
+  }
+
+  // 2. Option+Shift on macOS: shell actions (⌥⇧↵ new terminal, ⌥⇧P palette, ⌥⇧B sidebar, ⌥⇧J side panel, ⌥⇧/ help)
+  // Note: Option+Shift produces special characters (∏, ı, Ô, ¿) on macOS, so check both code and characters
+  if (mac && event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey) {
+    if (isModalInput(event.target)) return null;
+    const editable = isEditableTarget(event.target);
+    if (event.key === "Enter" || event.code === "Enter") return { id: "newTerminal" };
+    if (editable) return null;
+    if (event.code === "KeyP" || event.key === "π" || event.key === "∏" || event.key?.toLowerCase() === "p") {
+      return { id: "palette" };
+    }
+    if (event.code === "KeyB" || event.key === "ı" || event.key === "∫" || event.key?.toLowerCase() === "b") {
+      return { id: "toggleSidebar" };
+    }
+    if (event.code === "KeyJ" || event.key === "Ô" || event.key === "∆" || event.key?.toLowerCase() === "j") {
+      return { id: "toggleRightPanel" };
+    }
+    if (event.code === "Slash" || event.key === "?" || event.key === "¿" || event.key === "/") {
+      return { id: "help" };
+    }
+    return null;
+  }
+
+  // Ctrl+` toggles focus between terminal and command input (cross-platform)
+  if (event.ctrlKey && !event.shiftKey && !event.metaKey && !event.altKey) {
+    if (event.code === "Backquote" || event.key === "`") {
+      if (!isModalInput(event.target)) return { id: "toggleFocus" };
+    }
   }
 
   // On PC, Alt chords (Alt+W closes terminal, Alt+= auto-fits panes)
@@ -125,29 +159,29 @@ export function matchShortcut(event) {
     }
   }
 
-  if (!event.shiftKey || !(event.metaKey || event.ctrlKey) || event.altKey) return null;
-  // On macOS Cmd is the modifier; elsewhere Ctrl — never both.
-  if (mac ? !event.metaKey : !event.ctrlKey) return null;
-
-  // On PC, digit chord is Ctrl+Shift+1..9
-  if (!mac) {
+  // On PC, Ctrl+Shift chords for tabs, navigation, and shell actions
+  if (!mac && event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
     const digit = DIGIT_CODE.exec(event.code);
     if (digit) return { id: SESSION_INDEX_SHORTCUT.id, index: Number(digit[1]) - 1 };
+    if (event.key === "ArrowLeft") return { id: "sessionPrev" };
+    if (event.key === "ArrowRight") return { id: "sessionNext" };
+    if (event.key === "ArrowUp") return { id: "workspacePrev" };
+    if (event.key === "ArrowDown") return { id: "workspaceNext" };
+    if (event.code === "Equal" || event.key === "=" || event.key === "+") return { id: "fitPanes" };
+
+    const editable = isEditableTarget(event.target);
+    if (event.key === "Enter" || event.code === "Enter") return { id: "newTerminal" };
+    if (editable) return null;
+    if (event.code === "KeyP" || event.key?.toLowerCase() === "p") return { id: "palette" };
+    if (event.code === "KeyB" || event.key?.toLowerCase() === "b") return { id: "toggleSidebar" };
+    if (event.code === "KeyJ" || event.key?.toLowerCase() === "j") return { id: "toggleRightPanel" };
+    if (event.code === "Slash" || event.key === "/" || event.key === "?") return { id: "help" };
   }
 
-  const editable = isEditableTarget(event.target);
-  for (const entry of SHORTCUTS) {
-    if (mac && (entry.id === "sessionPrev" || entry.id === "sessionNext" || entry.id === "workspacePrev" || entry.id === "workspaceNext" || entry.id === "closeTerminal")) continue;
-    if (!mac && entry.id === "closeTerminal") continue;
-    const hit = entry.code ? event.code === entry.code : event.key === entry.key;
-    if (!hit) continue;
-    if (entry.skipInInput && editable) return null;
-    return { id: entry.id };
-  }
   return null;
 }
 
-// "New terminal · ⌘⇧↵" for a button tooltip. Falls back to the bare label when the
+// "New terminal · ⌥⇧↵" for a button tooltip. Falls back to the bare label when the
 // action has no chord, so callers never have to branch.
 export function withHint(label, shortcutId) {
   const entry = SHORTCUTS.find((s) => s.id === shortcutId);
@@ -158,5 +192,5 @@ export function withHint(label, shortcutId) {
 // Tooltip hint for the Nth terminal tab (0-based). Only 1-9 are reachable by chord.
 export function tabIndexHint(index) {
   if (index < 0 || index > 8) return null;
-  return isMac() ? `Opt ${index + 1}` : `Ctrl+Shift+${index + 1}`;
+  return isMac() ? `⌥${index + 1}` : `Ctrl+Shift+${index + 1}`;
 }

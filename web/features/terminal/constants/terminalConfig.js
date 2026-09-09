@@ -295,7 +295,7 @@ export const AGENT_HISTORY_TTL_MS = 30000;
 // lets the cap decide how many are on screen — a short "show more" list wastes
 // the scroll it already has. Height is a share of the sidebar, keeping the
 // session list above it the larger half.
-export const AGENT_HISTORY_ROWS = 30;
+export const AGENT_HISTORY_ROWS = 40;
 export const AGENT_HISTORY_MAX_HEIGHT = "28%";
 
 // Delay before typing a queued agent-CLI startup command after the join ack —

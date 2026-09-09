@@ -243,6 +243,13 @@ export default {
     minutesAgo: "{n}m",
     hoursAgo: "{n}h",
     daysAgo: "{n}d",
+    showAll: "View all history",
+    searchPlaceholder: "Search conversations…",
+    allAgents: "All agents",
+    delete: "Delete session",
+    deleteTitle: "Delete conversation",
+    deleteMessage: "Delete \"{title}\"? This permanently deletes the conversation transcript.",
+    noResults: "No matching conversations",
   },
   workspaces: {
     title: "Workspaces",
@@ -1004,6 +1011,7 @@ export default {
     sessionIndex: "Go to terminal 1-9",
     closeTerminal: "Close terminal",
     fitPanes: "Auto-fit panes",
+    toggleFocus: "Toggle terminal / input focus",
     newTerminal: "New terminal",
     toggleSidebar: "Toggle sidebar",
     toggleRightPanel: "Toggle side panel"

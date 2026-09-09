@@ -28,7 +28,13 @@ export default function PromptDialog({ title, value, onChange, onSubmit, onClose
       onClick={onClose}
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" />
-      <div className="relative card-elev w-full max-w-xs p-5 animate-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative card-elev w-full max-w-xs p-5 animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
         <h3 className="text-[14px] font-semibold text-text mb-3">{title}</h3>
         <input
           autoFocus

@@ -68,7 +68,13 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
       />
       
       {/* Dialog */}
-      <div className="relative card-elev max-w-md w-full animate-in zoom-in-95 duration-200">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative card-elev max-w-md w-full animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="px-6 py-4">
           <h3 className="text-lg font-semibold text-text">{title}</h3>
