@@ -23,6 +23,8 @@ import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { useGithubStars } from "@/shared/hooks/useGithubStars";
 import { GITHUB_REPO_URL } from "@/shared/constants/github";
+import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { useAiStore } from "@/shared/stores/aiStore";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 
 function TerminalHeader({
@@ -70,7 +72,8 @@ function TerminalHeader({
   homeDir = null,
 }) {
   const { t } = useI18n();
-  const agentBySession = useTerminalStore((s) => s.agentBySession);
+  const agentBySession = useTerminalStore((s) => s.agentBySession || {});
+  const aiSessions = useAiStore((s) => s.bySession);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
@@ -299,7 +302,8 @@ function TerminalHeader({
             const isActiveTab = session.id === activeSessionId;
             const st = sessionStatus[session.id]?.state || "idle";
             const v = statusVisual(st);
-            const tabName = session.name || t("terminal.defaultName");
+            const aiPrompt = aiSessions?.[session.id]?.messages?.find((m) => m.role === "user")?.content;
+            const tabName = (agentBySession[session.id]?.endsWith("-ui") && aiPrompt ? aiPrompt.slice(0, 22) : null) || session.name || t("terminal.defaultName");
             return (
               <div
                 key={session.id}
@@ -338,13 +342,11 @@ function TerminalHeader({
               >
                 <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
                   {agentBySession[session.id]?.endsWith("-ui") ? (
-                    agentBySession[session.id] === "codex-ui" ? (
-                      <Sparkles size={13} className={`text-emerald-400 ${onDeleteSession ? "sm:group-hover:hidden" : ""}`} />
-                    ) : agentBySession[session.id] === "opencode-ui" ? (
-                      <Zap size={13} className={`text-purple-400 ${onDeleteSession ? "sm:group-hover:hidden" : ""}`} />
-                    ) : (
-                      <Bot size={13} className={`text-amber-400 ${onDeleteSession ? "sm:group-hover:hidden" : ""}`} />
-                    )
+                    <img
+                      src={agentIconUrl(agentBySession[session.id].replace("-ui", ""))}
+                      alt=""
+                      className={`w-3.5 h-3.5 object-contain ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
+                    />
                   ) : (
                     <span
                       className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}

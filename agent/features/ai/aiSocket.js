@@ -6,6 +6,7 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
+import { renameSessionTitle, broadcastAiStatus } from "../terminal/terminalSocket.js";
 
 const logger = createLogger("ai");
 let broadcastAttached = false;
@@ -17,6 +18,15 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     manager.onEvent((sessionId, event, data) => {
       logger.debug(`[ai] event: ${event} session: ${sessionId}`);
       broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data });
+
+      // Mirror AI state transitions into 9remote status manager
+      const sess = manager.getSession(sessionId);
+      const engine = sess?.engine || "claude";
+      if (event === "permission_request") {
+        broadcastAiStatus?.(sessionId, "blocked", engine);
+      } else if (event === "turn_complete") {
+        broadcastAiStatus?.(sessionId, "done", engine);
+      }
     });
   }
 
@@ -57,6 +67,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       }
       logger.info(`[ai] prompt: ${sessionId} (engine: ${session.engine}): ${message?.slice(0, 60)}`);
       session.sendPrompt(message);
+      renameSessionTitle?.(sessionId, message);
+      broadcastAiStatus?.(sessionId, "working", session.engine);
       cb?.({ ok: true });
     } catch (err) {
       logger.error(`[ai] prompt failed: ${err.message}`);
@@ -91,7 +103,10 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   socket.on(AI_SOCKET_EVENTS.STOP, ({ sessionId }, cb) => {
     try {
       const session = manager.getSession(sessionId);
-      if (session) session.stop();
+      if (session) {
+        session.stop();
+        broadcastAiStatus?.(sessionId, "idle", session.engine);
+      }
       cb?.({ ok: true });
     } catch (err) {
       cb?.({ ok: false, error: err.message });

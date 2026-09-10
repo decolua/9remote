@@ -302,6 +302,29 @@ export const useAiStore = create(
         });
       },
 
+      rewindToMessage: (sessionId, messageId, newText) => {
+        set((state) => {
+          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const idx = curr.messages.findIndex((m) => m.id === messageId);
+          if (idx === -1) return state;
+          const messages = curr.messages.slice(0, idx);
+          if (newText) {
+            messages.push({ id: `u-${Date.now()}`, role: "user", content: newText });
+          }
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: {
+                ...curr,
+                messages,
+                isTurnRunning: false,
+                activePermission: null
+              }
+            }
+          };
+        });
+      },
+
       removeSession: (sessionId) => {
         set((state) => {
           const { [sessionId]: _, ...rest } = state.bySession;
@@ -313,13 +336,13 @@ export const useAiStore = create(
       name: "9remote-ai-store",
       partialize: (state) => ({
         bySession: Object.fromEntries(
-          Object.entries(state.bySession).map(([sid, sess]) => [
+          Object.entries(state?.bySession || {}).map(([sid, sess]) => [
             sid,
             {
-              ...sess,
+              ...(sess || {}),
               isTurnRunning: false,
               activePermission: null,
-              messages: (sess.messages || []).map((m) => ({ ...m, isLive: false }))
+              messages: Array.isArray(sess?.messages) ? sess.messages.map((m) => ({ ...m, isLive: false })) : []
             }
           ])
         )

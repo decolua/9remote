@@ -18,11 +18,11 @@ import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { isMcpEnabled, syncMcpConfig, MCP_CLIENTS } from "../../mcp/mcpConfig.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
-import { touchWorking, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange } from "./statusManager.js";
+import { touchWorking, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, applyEvent } from "./statusManager.js";
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
-import { AUTO_NAME_DEBOUNCE_MS, OUTPUT_SLICE_BYTES } from "./constants.js";
+import { AUTO_NAME_DEBOUNCE_MS, OUTPUT_SLICE_BYTES, SESSION_NAME_MAX } from "./constants.js";
 import { createLogger } from "../../lib/logger.js";
 
 const termLogger = createLogger("terminal");
@@ -117,8 +117,10 @@ async function _syncDaemonSessions() {
       // inherits the real terminal size instead of falling back to 80×24.
       lastCols: meta.cols ?? null,
       lastRows: meta.rows ?? null,
-      needsRespawn: !live
+      needsRespawn: !live,
+      agent: meta.agent || null
     });
+    if (meta.agent) setSessionAgent(id, meta.agent);
     // The PTY outlived this agent process; the chat running inside it did too,
     // so replay the link rather than let a restart silently unlink them.
     restoreConversation(id, meta);
@@ -366,6 +368,31 @@ export function setupTerminalSocket(io, apiKey) {
 // Broadcast serverInfo to all approved clients (e.g. when an update is detected).
 export function broadcastServerInfo() {
   setupTerminalSocket._emitServerInfo?.();
+}
+
+// Auto-name session and broadcast rename across clients (powers AI UI chat naming)
+export function renameSessionTitle(sessionId, title) {
+  const session = sessions.get(sessionId);
+  if (!session || !autoNameIo) return false;
+  if (session.autoNamed === false) return false;
+  const raw = String(title || "").trim();
+  if (!raw) return false;
+  const name = raw.length > SESSION_NAME_MAX ? `${raw.slice(0, SESSION_NAME_MAX - 1)}…` : raw;
+  if (name === session.name) return false;
+  session.name = name;
+  session.autoNamed = true;
+  broadcast(autoNameIo, "session-renamed", { sessionId, name });
+  saveSessionMetadata(sessions);
+  return true;
+}
+
+// Broadcast agent working/blocked/done state transitions for AI UI sessions
+export function broadcastAiStatus(sessionId, state, tool) {
+  if (!autoNameIo) return null;
+  const entry = applyEvent({ type: state, sessionId, tool });
+  broadcast(autoNameIo, "statusChange", { sessionId, state, tool });
+  broadcast(autoNameIo, "statusState", getStatuses());
+  return entry;
 }
 
 // Registered by index.js — invoked on each web connect to re-check for updates (debounced there)

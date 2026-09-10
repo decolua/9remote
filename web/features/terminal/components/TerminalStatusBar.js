@@ -20,6 +20,8 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
+import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
+import { useAiStore } from "@/shared/stores/aiStore";
 
 const PLATFORM_LABEL = { darwin: "mac", win32: "win", linux: "linux" };
 
@@ -165,6 +167,7 @@ function TerminalStatusBar({
   sessionName = "",
   agentVersion = "",
   platform = "",
+  homeDir = null,
 }) {
   const { t } = useI18n();
   const storeConnected = useConnectionStore((s) => s.connected);
@@ -179,6 +182,12 @@ function TerminalStatusBar({
   const sessionState = propState || storeState || "idle";
   const quota = useQuota(busRef);
 
+  const agentId = useTerminalStore((s) => (s.agentBySession || {})[sessionId]) || "";
+  const aiFirstMsg = useAiStore((s) => s.bySession[sessionId]?.messages?.find((m) => m.role === "user")?.content);
+  const displayTitle = (aiFirstMsg ? aiFirstMsg.slice(0, 28) : null) || sessionName || "—";
+  const agentKey = agentId ? agentId.replace("-ui", "") : null;
+  const agentIcon = agentKey ? agentIconUrl(agentKey) : null;
+
   // Branch + changed come from the shared ref-counted poll — one round-trip per unique
   // path, shared with the mobile strip, instead of two parallel pollers here.
   const { branch, changedCount: changed } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
@@ -192,27 +201,31 @@ function TerminalStatusBar({
         ? t("common.statusDone")
         : t("common.statusIdle");
 
-  const cwdDisplay = cwd ? cwd.replace(/\\/g, "/") : "";
+  const cwdDisplay = cwd ? shortenHomePath(cwd.replace(/\\/g, "/"), homeDir) : "";
   const changedLabel = changed > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changed;
 
   return (
     <StatusBar
       className="hidden sm:flex"
       left={<>
-      <span className="flex items-center gap-1.5 flex-shrink-0 max-w-[180px]">
-        <Terminal size={12} className="opacity-60 flex-shrink-0" />
-        <span className="truncate font-medium text-text-muted" title={sessionName}>{sessionName || "—"}</span>
+      <span className="flex items-center gap-1.5 flex-shrink-0 max-w-[200px]">
+        {agentIcon ? (
+          <img src={agentIcon} alt="" className="w-3.5 h-3.5 object-contain flex-shrink-0" />
+        ) : (
+          <Terminal size={12} className="opacity-60 flex-shrink-0" />
+        )}
+        <span className="truncate font-medium text-text" title={displayTitle}>{displayTitle}</span>
       </span>
       <span className="text-text-subtle flex-shrink-0">›</span>
       <span className="flex items-center gap-1.5 min-w-0 flex-shrink">
         <Folder size={12} className="opacity-60 flex-shrink-0" />
-        <span className="truncate" title={cwdDisplay || ""}>{cwdDisplay || t("common.loading")}</span>
+        <span className="truncate" title={cwd || ""}>{cwdDisplay || t("common.loading")}</span>
       </span>
 
       {/* Center-left: git branch + changed count */}
       {cwd && branch && (
         <span className="flex items-center gap-1.5 flex-shrink-0">
-          <GitBranch size={12} className="opacity-60" />
+          <GitBranch size={12} className="opacity-60 text-brand-500" />
           <span className="truncate max-w-[160px]" title={branch}>{branch}</span>
           {changed > 0 && (
             <span className="px-1 leading-tight bg-brand-500/15 text-brand-400 rounded-[2px] font-medium">

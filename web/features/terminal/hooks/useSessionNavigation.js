@@ -148,7 +148,7 @@ export function useSessionNavigation({
         pushView({ type: "terminal", sessionId: result.sessionId });
       }
       requestFocus?.(result.sessionId);
-    }, nameIsAuto);
+    }, nameIsAuto, agent);
   }, [createSession, workspaceSessionIds, addOpenedSession, touchLivePane, alertCreateFailed, currentView, replaceTopWithSession, pushView, setActiveWorkspaceId, requestFocus]);
 
   // Re-enter one past agent-CLI conversation: a fresh terminal parked in the
@@ -191,6 +191,7 @@ export function useSessionNavigation({
       if (!result.sessionId) return;
       const startupCmd = agentLaunchCommand(agent, yolo);
       if (startupCmd) useTerminalStore.getState().queueStartup(result.sessionId, startupCmd);
+      if (agent?.id) useTerminalStore.getState().setSessionAgent(result.sessionId, agent.id);
       addOpenedSession(result.sessionId);
       touchLivePane(result.sessionId);
       if (currentView.type === "terminal") {
@@ -199,7 +200,7 @@ export function useSessionNavigation({
         pushView({ type: "terminal", sessionId: result.sessionId });
       }
       requestFocus?.(result.sessionId);
-    }, nameIsAuto);
+    }, nameIsAuto, agent);
   }, [createSession, activeWorkspaceId, addOpenedSession, touchLivePane, alertCreateFailed, replaceTopWithSession, pushView, currentView, requestFocus]);
 
   // Create from the FileExplorer bottom panel — stay in the current view

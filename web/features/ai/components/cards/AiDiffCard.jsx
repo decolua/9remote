@@ -33,16 +33,13 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
   };
 
   return (
-    <div className="my-1.5 rounded-brand border border-border-subtle bg-surface overflow-hidden text-xs">
-      {/* 1-Line Compact Header (9cowork style) */}
+    <div className="my-1 text-xs">
+      {/* Clean borderless 1-line diff row flush with left margin */}
       <div
         onClick={() => setExpanded(!expanded)}
-        className="h-8 px-2.5 bg-surface-2/40 hover:bg-surface-2 flex items-center justify-between cursor-pointer select-none transition-colors"
+        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group"
       >
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-text-muted shrink-0">
-            {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          </span>
           <FileCode size={13} className="text-brand-500 shrink-0" />
           <span className="font-mono font-medium text-text text-[11px] truncate" title={file}>
             {fileName}
@@ -53,35 +50,38 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
               {deletions > 0 && <span className="text-rose-400">-{deletions}</span>}
             </span>
           )}
+          <span className="text-text-muted/50 shrink-0">
+            {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0 ml-2">
+        <div className="flex items-center gap-1 shrink-0 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
           {file && (
             <button
               type="button"
               onClick={handleOpenFile}
-              className="p-1 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors flex items-center gap-1 text-[11px]"
+              className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors flex items-center gap-1 text-[10px]"
               title="Open file in editor"
             >
-              <ExternalLink size={12} />
-              <span className="hidden sm:inline text-[10px]">Open</span>
+              <ExternalLink size={11} />
+              <span className="hidden sm:inline">Open</span>
             </button>
           )}
 
           <button
             type="button"
             onClick={handleCopy}
-            className="p-1 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors"
+            className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors"
             title="Copy diff"
           >
-            {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+            {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
           </button>
         </div>
       </div>
 
-      {/* Expandable Diff Content */}
+      {/* Indented Diff Content */}
       {expanded && (
-        <div className="p-2 border-t border-border-subtle overflow-x-auto max-h-[320px] overflow-y-auto font-mono text-[11px] leading-relaxed bg-bg select-text">
+        <div className="mt-1 ml-3.5 pl-3 border-l-2 border-border-subtle/80 bg-surface-2/20 rounded-r-brand p-2 overflow-x-auto max-h-[300px] overflow-y-auto font-mono text-[11px] leading-relaxed select-text">
           {lines.length === 0 ? (
             <div className="text-text-muted italic py-1 px-2">No changes</div>
           ) : (

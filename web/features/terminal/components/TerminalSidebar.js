@@ -8,6 +8,7 @@ import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { AGENT_ICONS } from "../constants/agentLabels";
+import { agentIconUrl } from "../constants/agentCli";
 import { vibrate } from "@/shared/utils/vibration";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -25,6 +26,7 @@ import BranchBadge from "./BranchBadge";
 import AgentHistoryPanel from "./AgentHistoryPanel";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
+import { useAiStore } from "@/shared/stores/aiStore";
 
 // Inside the Tauri shell or on loopback agent, the sidebar's brand row
 // becomes a back-to-dashboard button instead (standalone web keeps the brand).
@@ -149,7 +151,8 @@ function TerminalSidebar({
   onResumeAgentSession,
 }) {
   const { t } = useI18n();
-  const agentBySession = useTerminalStore((s) => s.agentBySession);
+  const agentBySession = useTerminalStore((s) => s.agentBySession || {});
+  const aiSessions = useAiStore((s) => s.bySession);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
@@ -394,18 +397,22 @@ function TerminalSidebar({
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
                       <span className="flex-1 min-w-0 flex flex-col">
                         <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
-                          {agentBySession[s.id] === "claude-ui" ? (
-                            <Bot size={12} className="text-amber-400 flex-shrink-0" />
-                          ) : agentBySession[s.id] === "codex-ui" ? (
-                            <Sparkles size={12} className="text-emerald-400 flex-shrink-0" />
-                          ) : agentBySession[s.id] === "opencode-ui" ? (
-                            <Zap size={12} className="text-purple-400 flex-shrink-0" />
+                          {agentBySession[s.id]?.endsWith("-ui") ? (
+                            <img
+                              src={agentIconUrl(agentBySession[s.id].replace("-ui", ""))}
+                              alt=""
+                              className="w-3.5 h-3.5 flex-shrink-0 object-contain"
+                            />
                           ) : AGENT_ICONS[tool] ? (
                             <img src={AGENT_ICONS[tool]} alt={tool} className="w-3 h-3 flex-shrink-0 object-contain" />
                           ) : (
                             <Terminal size={12} className="flex-shrink-0" />
                           )}
-                          <span className="text-[11px] truncate" data-tip={s.name || t("terminal.defaultName")}>{s.name || t("terminal.defaultName")}</span>
+                          {(() => {
+                            const aiPrompt = aiSessions?.[s.id]?.messages?.find((m) => m.role === "user")?.content;
+                            const title = (agentBySession[s.id]?.endsWith("-ui") && aiPrompt ? aiPrompt.slice(0, 28) : null) || s.name || t("terminal.defaultName");
+                            return <span className="text-[11px] truncate" data-tip={title}>{title}</span>;
+                          })()}
                         </span>
                         <SessionMeta
                           fileBus={fileBus}

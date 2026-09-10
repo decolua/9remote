@@ -25,7 +25,7 @@ const TerminalRightPanel = dynamic(() => import("@/features/terminal/components/
 const TerminalEditorPanel = dynamic(() => import("@/features/terminal/components/TerminalEditorPanel"), { ssr: false });
 const OverflowTip = dynamic(() => import("@/shared/components/ui/OverflowTip"), { ssr: false });
 const TerminalEmptyState = dynamic(() => import("@/features/terminal/components/TerminalEmptyState"), { ssr: false });
-const AiPaneView = dynamic(() => import("@/features/ai/components/AiPaneView").then((m) => m.AiPaneView), { ssr: false });
+const AiPaneView = dynamic(() => import("@/features/ai/components/AiPaneView"), { ssr: false });
 
 // Per-pane wrapper positioning terminal directly above the bottom input bar
 const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
@@ -333,9 +333,11 @@ function TerminalWorkspace({
           sessionId={sessionId}
           engine={engine}
           workspacePath={session?.workspacePath || activeWorkspace?.path}
+          sessionName={session?.name}
           bus={activeBus}
           fileBus={activeFileBus}
           isFocused={isFocused}
+          onActivate={() => nav.handleSelectSession(sessionId)}
         />
       );
     }
@@ -533,7 +535,11 @@ function TerminalWorkspace({
                     // Placeholder — workspace not yet visited; mounts on first entry
                     <div className="w-full h-full flex items-center justify-center text-text-muted text-xs" />
                   ) : agentBySession[sessionId]?.endsWith("-ui") ? (
-                    <div className="w-full h-full flex flex-col relative overflow-hidden">
+                    <div
+                      onMouseDown={() => { if (!isFocused) nav.handleSelectSession(sessionId); }}
+                      onTouchStart={() => { if (!isFocused) nav.handleSelectSession(sessionId); }}
+                      className="w-full h-full flex flex-col relative overflow-hidden"
+                    >
                       {renderPane(sessionId, isVisible, isFocused, bgIndex)}
                     </div>
                   ) : isDesktop ? (
@@ -683,14 +689,16 @@ function TerminalWorkspace({
       {/* One status bar for the whole view, spanning sidebar + panes + side panels */}
       {isDesktop && !showEmptyState && (
         <TerminalStatusBar
-          cwd={activeSessionId ? cwdBySession[activeSessionId] || "" : ""}
+          cwd={activeSessionId ? (cwdBySession[activeSessionId] || activeSession?.workspacePath || activeWorkspace?.path || "") : ""}
           sessionId={activeSessionId}
           busRef={activeBusRef}
+          fileBus={activeFileBus}
           connected={isConnected}
           carrier={activeCarrier}
           sessionName={activeSession ? activeSession?.name : ""}
           agentVersion={agentVersion}
           platform={platform}
+          homeDir={homeDir}
         />
       )}
     </div>

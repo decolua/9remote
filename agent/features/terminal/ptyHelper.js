@@ -2,7 +2,7 @@
 import os from "os";
 import fs from "fs";
 import path from "path";
-import { conversationMetadata } from "./statusManager.js";
+import { conversationMetadata, getSessionAgent } from "./statusManager.js";
 import { PATHS } from "../../lib/constants.js";
 
 const BUFFER_DIR = PATHS.BUFFERS;
@@ -149,6 +149,7 @@ export function buildSessionMetadata(session, sessionId) {
     workspacePath: session.workspacePath ?? null,
     cols: session.lastCols ?? session.cols ?? null,
     rows: session.lastRows ?? session.rows ?? null,
+    agent: session.agent || (sessionId ? getSessionAgent(sessionId) : null) || null,
     // The agent CLI and conversation this terminal is running: the PTY survives
     // an agent restart, so the link to its chat has to survive with it.
     ...(sessionId ? conversationMetadata(sessionId) || {} : {}),

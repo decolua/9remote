@@ -7,7 +7,7 @@ import { createLogger } from "../../../lib/logger.js";
 const capsLogger = createLogger("terminal");
 import { detectAgentClis } from "../agentCatalog.js";
 import { listAgentSessions, matchLiveSessions, conversationTitle, deleteAgentSession } from "../agentHistory.js";
-import { getLiveConversations, forgetSession, claimResumedConversation, getConversation } from "../statusManager.js";
+import { getLiveConversations, forgetSession, claimResumedConversation, getConversation, getSessionAgent, setSessionAgent } from "../statusManager.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
@@ -183,7 +183,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
           // workspacePath is fixed at creation: a `cd` must not move a terminal to another
           // workspace. cwd above is the live one, for display only.
           workspacePath: session.workspacePath || workspaces.get(workspaceId)?.path || null,
-          groupId: workspaceId // legacy field, drop at 2.6
+          groupId: workspaceId, // legacy field, drop at 2.6
+          agent: session.agent || getSessionAgent(id) || null
         });
       }
       // Sort by persisted order; unranked ids (new sessions) fall to the end, stable
@@ -371,10 +372,11 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     }
   });
 
-  socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd, nameIsAuto }, callback) => {
+  socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd, nameIsAuto, agent }, callback) => {
     const sessionId = `session-${Date.now()}`;
     const wsId = workspaceId ?? groupId;
     const workspace = wsId ? workspaces.get(wsId) : null;
+    const agentId = typeof agent === "string" ? agent : agent?.id || null;
 
     try {
       const shellConfig = resolveShell(shellId);
@@ -404,7 +406,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
         const result = await daemonClient.createSession(autoName, 80, 24, shellId, sessionId, resolvedCwd);
         if (result.success) {
-          sessions.set(result.sessionId, { daemon: true, name: autoName, autoNamed, createdAt: Date.now(), cwd: result.cwd, workspacePath, shellId: result.shellId, shellLabel: result.shellLabel });
+          if (agentId) setSessionAgent(result.sessionId, agentId);
+          sessions.set(result.sessionId, { daemon: true, name: autoName, autoNamed, createdAt: Date.now(), cwd: result.cwd, workspacePath, shellId: result.shellId, shellLabel: result.shellLabel, agent: agentId });
           if (workspace) { sessionWorkspaces[result.sessionId] = workspace.id; persist(); }
           saveSessionMetadata(sessions);
           callback({ success: true, sessionId: result.sessionId, shellLabel: result.shellLabel });
@@ -416,7 +419,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
 
       // Buffer mode PTY
       const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, { name: "xterm-256color", cols: 80, rows: 24, cwd: resolvedCwd, env: shellEnv, useConpty: false });
-      const sessionData = { pty: ptyProcess, name: autoName, autoNamed, createdAt: Date.now(), buffer: [], cwd: resolvedCwd, workspacePath, shellId: shellConfig.id, shellLabel: shellConfig.label };
+      if (agentId) setSessionAgent(sessionId, agentId);
+      const sessionData = { pty: ptyProcess, name: autoName, autoNamed, createdAt: Date.now(), buffer: [], cwd: resolvedCwd, workspacePath, shellId: shellConfig.id, shellLabel: shellConfig.label, agent: agentId };
 
       attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions);
       sessions.set(sessionId, sessionData);

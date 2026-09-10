@@ -31,6 +31,7 @@ import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { useMobileDeviceWatch } from "@/features/mobile/hooks/useMobileDeviceWatch";
 import { loadTerminalPrefs } from "@/features/terminal/constants/agentCli";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
+import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import TerminalWorkspace from "@/features/terminal/components/TerminalWorkspace";
 import ReconnectScreen from "@/features/session/components/ReconnectScreen";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
@@ -351,7 +352,8 @@ export default function WorkspaceLayout({ children }) {
   // left the host's PATH falls back to a plain terminal, same as the modal does.
   const createTerminalFromPrefs = useCallback(() => {
     const { agentId, shellId, yolo } = loadTerminalPrefs();
-    const agent = (agentId && agentClis?.find((a) => a.id === agentId)) || null;
+    const allAgents = [...AI_UI_OPTIONS, ...(agentClis || [])];
+    const agent = (agentId && allAgents.find((a) => a.id === agentId)) || null;
     const index = sessions.filter((s) => sessionWorkspaceId(s) === (activeWorkspaceId ?? null)).length + 1;
     const name = agent ? `${agent.short || agent.label} ${index}` : null;
     nav.handleCreateSession(name, activeWorkspaceId, agent ? null : shellId, null, agent, yolo, true);

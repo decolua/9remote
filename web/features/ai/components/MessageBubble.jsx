@@ -1,9 +1,9 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useState, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Copy, Check, ExternalLink } from "@/shared/components/ui/Icon";
+import { Copy, Check, ExternalLink, Pencil } from "@/shared/components/ui/Icon";
 import { AiDiffCard } from "./cards/AiDiffCard";
 import { AiToolCard } from "./cards/AiToolCard";
 import { AiPermissionCard } from "./cards/AiPermissionCard";
@@ -13,49 +13,48 @@ import { AiThinkingBlock } from "./cards/AiThinkingBlock";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
 
-function CodeBlock({ className, children, ...props }) {
+function CodePre({ children }) {
   const [copied, setCopied] = useState(false);
-  const match = /language-(\w+)/.exec(className || "");
-  const lang = match ? match[1] : "";
-  const codeString = String(children).replace(/\n$/, "");
+  const ref = useRef(null);
 
   const handleCopy = () => {
     vibrate();
-    navigator.clipboard.writeText(codeString);
+    const text = ref.current?.textContent || "";
+    navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="relative my-2 rounded-brand overflow-hidden border border-border-subtle bg-bg font-mono text-xs">
-      <div className="px-3 py-1 bg-surface-2/60 flex items-center justify-between text-[11px] text-text-muted select-none border-b border-border-subtle">
-        <span>{lang || "code"}</span>
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="p-1 hover:text-text rounded flex items-center gap-1 transition-colors"
-          title="Copy code"
-        >
-          {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-          <span>{copied ? "Copied" : "Copy"}</span>
-        </button>
-      </div>
-      <div className="p-3 overflow-x-auto text-[12px] leading-relaxed text-text select-text">
-        <code className={className} {...props}>
-          {children}
-        </code>
-      </div>
+    <div className="relative group/code my-2.5">
+      <pre
+        ref={ref}
+        className="bg-surface-2/50 border border-border-subtle/70 rounded-brand p-3 overflow-x-auto font-mono text-[12px] leading-relaxed text-text select-text"
+      >
+        {children}
+      </pre>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="absolute top-2 right-2 p-1 rounded bg-surface-3/80 hover:bg-surface-3 text-text-muted hover:text-text opacity-0 group-hover/code:opacity-100 transition-opacity backdrop-blur-sm"
+        title="Copy code"
+      >
+        {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+      </button>
     </div>
   );
 }
 
 export const MessageBubble = memo(function MessageBubble({
   message,
-  onResolvePermission
+  onResolvePermission,
+  onRewind
 }) {
   const [copiedMsg, setCopiedMsg] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
-  const { role, content, thinking, diffs = [], tools = [], permission = null, isLive = false } = message;
+  const { id, role, content, thinking, diffs = [], tools = [], permission = null, isLive = false } = message;
 
   const handleCopyAll = () => {
     vibrate();
@@ -66,11 +65,47 @@ export const MessageBubble = memo(function MessageBubble({
   };
 
   if (role === "user") {
+    if (editing) {
+      return (
+        <div className="flex justify-end my-3">
+          <div className="max-w-[85%] sm:max-w-[75%] w-full">
+            <textarea
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (editValue.trim()) {
+                    onRewind?.(message.id, editValue.trim());
+                    setEditing(false);
+                  }
+                }
+                if (e.key === "Escape") setEditing(false);
+              }}
+              rows={Math.min(10, editValue.split("\n").length + 1)}
+              className="w-full resize-none overflow-hidden rounded-brand-lg bg-surface-2 px-4 py-2.5 text-sm text-text focus:outline-none focus:ring-1 focus:ring-brand-500 leading-relaxed"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-1.5 text-[11px] text-text-muted">
+              <span>Enter to save & rewind, Esc to cancel</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="flex justify-end my-3">
+      <div className="group flex justify-end my-3">
         <div className="max-w-[85%] sm:max-w-[75%] px-4 py-2.5 rounded-brand-lg bg-surface-2 text-text text-sm whitespace-pre-wrap break-words shadow-sm">
           {content}
         </div>
+        <button
+          type="button"
+          onClick={() => { vibrate(); setEditValue(content || ""); setEditing(true); }}
+          className="opacity-0 group-hover:opacity-100 p-1.5 text-text-muted hover:text-text rounded transition-all self-start mt-1"
+          title="Edit & rewind"
+        >
+          <Pencil size={12} />
+        </button>
       </div>
     );
   }
@@ -119,22 +154,21 @@ export const MessageBubble = memo(function MessageBubble({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  // react-markdown v10 dropped the `inline` prop — detect block code
-                  // by language class or multiline content instead
-                  pre({ children }) {
-                    return <>{children}</>;
-                  },
+                  pre: CodePre,
                   code({ className, children, ...props }) {
-                    const raw = String(children ?? "");
-                    const isBlock = /language-/.test(className || "") || raw.includes("\n");
-                    if (!isBlock) {
+                    const isBlock = /language-/.test(className || "");
+                    if (isBlock) {
                       return (
-                        <code className="px-1.5 py-0.5 rounded bg-surface-2 font-mono text-[12px] text-text" {...props}>
+                        <code className={className} {...props}>
                           {children}
                         </code>
                       );
                     }
-                    return <CodeBlock className={className} {...props}>{children}</CodeBlock>;
+                    return (
+                      <code className="px-1.5 py-0.5 rounded bg-surface-2 font-mono text-[12px] text-text" {...props}>
+                        {children}
+                      </code>
+                    );
                   },
                   a({ href, children, ...props }) {
                     const isRelativeFile = href && !href.startsWith("http://") && !href.startsWith("https://");
@@ -183,8 +217,13 @@ export const MessageBubble = memo(function MessageBubble({
             )}
           </div>
         ) : isLive && !thinking && tools.length === 0 ? (
-          <div className="py-2">
-            <span className="inline-block w-1.5 h-4 bg-brand-500 animate-pulse" />
+          <div className="flex items-center gap-2 py-2 select-none">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-2/60 border border-border-subtle/50 backdrop-blur-sm shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-bounce [animation-delay:-0.3s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-bounce [animation-delay:-0.15s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-bounce" />
+              <span className="text-[11px] font-mono text-text-muted ml-1">AI is thinking...</span>
+            </div>
           </div>
         ) : null}
 

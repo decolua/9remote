@@ -1,8 +1,9 @@
 "use client";
 
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useMemo } from "react";
 import { useAiSession } from "../hooks/useAiSession";
 import { useAiStore } from "@/shared/stores/aiStore";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { AiMessagesList } from "./AiMessagesList";
 import { Composer } from "./Composer";
 import { AiStatusBar } from "./AiStatusBar";
@@ -13,6 +14,15 @@ import { AiPermissionCard } from "./cards/AiPermissionCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { Loader2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import {
+  backgroundSrc,
+  paneBackgroundKey,
+  resolvableBackgroundKeys,
+  TERMINAL_BG_ALPHA,
+  TERMINAL_BG_VEIL_RGB,
+  TERMINAL_BG_LIFT_RGB,
+  TERMINAL_BG_LIFT
+} from "@/features/terminal/constants/terminalConfig";
 
 const StepLogStrip = memo(function StepLogStrip({ sessionId }) {
   const isTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
@@ -47,13 +57,15 @@ export const AiPaneView = memo(function AiPaneView({
   sessionId,
   engine = "claude",
   workspacePath = "",
+  sessionName = "",
   bus = null,
   fileBus = null,
-  isFocused = false
+  isFocused = false,
+  onActivate = null
 }) {
   const [activeModal, setActiveModal] = useState(null); // 'skills' | 'mcp' | 'model'
 
-  const { sendPrompt, resolvePermission, stop, runShell } = useAiSession({
+  const { sendPrompt, resolvePermission, stop, runShell, rewindToMessage } = useAiSession({
     sessionId,
     engine,
     workspacePath,
@@ -65,7 +77,29 @@ export const AiPaneView = memo(function AiPaneView({
   const clearMessages = useAiStore((s) => s.clearMessages);
   const setPermissionMode = useAiStore((s) => s.setPermissionMode);
 
-  const branch = workspacePath ? workspacePath.split("/").pop() : "main";
+  const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
+  const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
+  const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
+
+  // Background styling: prioritize custom terminal background image, else render subtle dot-grid
+  const bgStyle = useMemo(() => {
+    const paneBgKey = paneBackgroundKey(resolvableBackgroundKeys(terminalBackgrounds, customBackgrounds), 0);
+    const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
+    if (bgSrc) {
+      const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
+      const lift = `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})`;
+      return {
+        background: `linear-gradient(${veil},${veil}), linear-gradient(${lift},${lift}), center / cover no-repeat url("${bgSrc}")`,
+        backgroundBlendMode: "normal, screen, normal"
+      };
+    }
+    return {
+      backgroundImage: "radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px)",
+      backgroundSize: "18px 18px",
+      backgroundPosition: "center center"
+    };
+  }, [terminalBackgrounds, customBackgrounds, terminalBackgroundOpacity]);
+
   const skills = metadata.skills || [];
   const mcpServers = metadata.mcpServers || [];
 
@@ -89,13 +123,18 @@ export const AiPaneView = memo(function AiPaneView({
   }, [sessionId, setPermissionMode, bus]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-bg overflow-hidden relative select-text">
+    <div
+      onMouseDown={() => { if (!isFocused) onActivate?.(); }}
+      className="w-full h-full flex flex-col bg-bg overflow-hidden relative select-text"
+      style={bgStyle}
+    >
       {/* Scrollable Message List */}
       <AiMessagesList
         sessionId={sessionId}
         engine={engine}
         onSendPrompt={sendPrompt}
         onResolvePermission={resolvePermission}
+        onRewind={rewindToMessage}
       />
 
       {/* Pinned Active Permission or Question Gate directly above composer */}
@@ -121,25 +160,27 @@ export const AiPaneView = memo(function AiPaneView({
       {/* Step log strip when running */}
       <StepLogStrip sessionId={sessionId} />
 
-      {/* Composer Input Box */}
+      {/* Composer Input Box with integrated Model and Mode pickers */}
       <Composer
         sessionId={sessionId}
         engine={engine}
         onSend={sendPrompt}
         onStop={stop}
         onRunShell={runShell}
+        onSelectModel={handleSelectModel}
+        onModeChange={handleModeChange}
+        onActivate={onActivate}
         fileBus={fileBus}
         workspacePath={workspacePath}
       />
 
-      {/* Status Bar with Mode Selector & Quick Actions */}
+      {/* Status Bar with Session Name, Skills, MCP & Actions */}
       <AiStatusBar
         sessionId={sessionId}
-        branch={branch}
+        sessionName={sessionName}
         onOpenSkills={() => setActiveModal("skills")}
         onOpenMcp={() => setActiveModal("mcp")}
         onClear={handleClear}
-        onModeChange={handleModeChange}
       />
 
       {/* Modals */}
@@ -168,3 +209,5 @@ export const AiPaneView = memo(function AiPaneView({
     </div>
   );
 });
+
+export default AiPaneView;

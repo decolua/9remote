@@ -39,12 +39,17 @@ export class ClaudeAdapter {
   }
 
   setOptions({ mode, model }) {
-    if (model) {
+    let restartNeeded = false;
+    if (model && model !== this.metadata.model) {
       this.metadata.model = model;
+      restartNeeded = true;
     }
     if (mode && mode !== this.currentMode) {
       this.currentMode = mode;
-      this.start(mode, this.metadata.sessionId || null);
+      restartNeeded = true;
+    }
+    if (restartNeeded) {
+      this.start(this.currentMode, this.metadata.sessionId || null);
     }
     this.onEvent?.("init", { ...this.metadata, permissionMode: this.currentMode });
   }
@@ -64,6 +69,16 @@ export class ClaudeAdapter {
       "--include-partial-messages",
       "--prompt-suggestions", "true",
     ];
+
+    if (mode === "bypassPermissions") {
+      args.push("--dangerously-skip-permissions");
+    } else {
+      args.push("--allow-dangerously-skip-permissions");
+    }
+
+    if (this.metadata.model) {
+      args.push("--model", this.metadata.model);
+    }
 
     if (resumeSessionId) {
       args.push("--resume", resumeSessionId);

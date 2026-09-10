@@ -17,7 +17,6 @@ export const AiToolCard = memo(function AiToolCard({
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
 
-  // Default collapsed like 9cowork; only auto-expand on error
   const [expanded, setExpanded] = useState(isError);
   const [copied, setCopied] = useState(false);
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
@@ -48,17 +47,13 @@ export const AiToolCard = memo(function AiToolCard({
   };
 
   return (
-    <div className="my-1.5 rounded-brand border border-border-subtle bg-surface overflow-hidden text-xs">
-      {/* 1-Line Compact Header (9cowork style) */}
+    <div className="my-1 text-xs">
+      {/* Clean borderless 1-line tool row flush with left margin */}
       <div
         onClick={() => setExpanded(!expanded)}
-        className="h-8 px-2.5 bg-surface-2/30 hover:bg-surface-2 flex items-center justify-between cursor-pointer select-none transition-colors"
+        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="text-text-muted shrink-0">
-            {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          </span>
-
           {isRunning ? (
             <Loader2 size={13} className="animate-spin text-brand-500 shrink-0" />
           ) : isError ? (
@@ -67,45 +62,47 @@ export const AiToolCard = memo(function AiToolCard({
             <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
           )}
 
-          <span className="font-mono font-medium text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-text uppercase tracking-wider shrink-0">
+          <span className="font-mono text-[10px] font-semibold text-text uppercase tracking-wider shrink-0 px-1 py-0.5 rounded bg-surface-2/80">
             {name}
           </span>
 
           <span className="font-mono text-[11px] text-text-muted truncate min-w-0" title={displayCmd}>
             {displayCmd}
           </span>
+
+          <span className="text-text-muted/50 shrink-0">
+            {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0 ml-2">
+        <div className="flex items-center gap-1 shrink-0 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
           {filePath && (
             <button
               type="button"
               onClick={handleOpenFile}
-              className="p-1 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors flex items-center gap-1"
-              title="Open file"
+              className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors flex items-center gap-1"
+              title="Open file in editor"
             >
-              <ExternalLink size={12} />
+              <ExternalLink size={11} />
             </button>
           )}
 
           <button
             type="button"
             onClick={handleCopy}
-            className="p-1 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors"
+            className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors"
             title="Copy output"
           >
-            {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+            {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
           </button>
         </div>
       </div>
 
-      {/* Expandable Content */}
+      {/* Expanded Output with subtle left accent line */}
       {expanded && (
-        <div className="p-2.5 bg-bg border-t border-border-subtle overflow-x-auto max-h-[260px] overflow-y-auto font-mono text-[11px] select-text">
+        <div className="mt-1 ml-3.5 pl-3 border-l-2 border-border-subtle/80 bg-surface-2/20 rounded-r-brand p-2 overflow-x-auto max-h-[260px] overflow-y-auto font-mono text-[11px] select-text">
           {error && (
-            <div className="text-rose-400 mb-1.5 whitespace-pre-wrap">
-              {error}
-            </div>
+            <div className="text-rose-400 mb-1.5 whitespace-pre-wrap">{error}</div>
           )}
           {output ? (
             <div className="text-text whitespace-pre-wrap leading-relaxed">

@@ -142,6 +142,23 @@ export function useAiSession({
     [sendPrompt]
   );
 
+  const rewindToMessage = useCallback(
+    (messageId, newText) => {
+      // Truncate to message; optionally re-submit the edited text as a new prompt
+      useAiStore.getState().rewindToMessage(sessionId, messageId, newText);
+      if (newText) {
+        busRef.current || useConnectionStore.getState().bus;
+        const b = busRef.current || useConnectionStore.getState().bus;
+        // Host auto-creates on prompt; no explicit ai:create needed since session
+        // metadata may already exist. Send only if newText supplied.
+        b?.emit("ai:prompt", { sessionId, message: newText });
+        useAiStore.getState().setTurnRunning(sessionId, true);
+        useAiStore.getState().addUserMessage(sessionId, newText);
+      }
+    },
+    [sessionId]
+  );
+
   return {
     messages,
     isTurnRunning,
@@ -150,6 +167,7 @@ export function useAiSession({
     sendPrompt,
     resolvePermission,
     stop,
-    runShell
+    runShell,
+    rewindToMessage
   };
 }

@@ -4,8 +4,9 @@ import { memo, useRef, useEffect, useState, useCallback } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { MessageBubble } from "./MessageBubble";
 import { ENGINE_INFO } from "../constants";
-import { Bot, Sparkles, Zap, ArrowDown } from "@/shared/components/ui/Icon";
+import { ArrowDown, Pencil } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { agentIconUrl } from "@/features/terminal/constants/agentCli";
 
 const EMPTY_MESSAGES = [];
 
@@ -13,7 +14,8 @@ export const AiMessagesList = memo(function AiMessagesList({
   sessionId,
   engine = "claude",
   onSendPrompt,
-  onResolvePermission
+  onResolvePermission,
+  onRewind
 }) {
   const scrollRef = useRef(null);
   const isAtBottomRef = useRef(true);
@@ -54,6 +56,11 @@ export const AiMessagesList = memo(function AiMessagesList({
     setShowScrollBottom(false);
   }, []);
 
+  const handleRewind = useCallback((messageId, newText) => {
+    vibrate();
+    onRewind?.(messageId, newText);
+  }, [onRewind]);
+
   return (
     <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
       <div
@@ -64,10 +71,14 @@ export const AiMessagesList = memo(function AiMessagesList({
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
             <div
-              className="w-12 h-12 rounded-full flex items-center justify-center mb-3 shadow-md"
-              style={{ backgroundColor: `${engineMeta.color}20`, color: engineMeta.color }}
+              className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-md border border-border-subtle/40 backdrop-blur-sm"
+              style={{ backgroundColor: `${engineMeta.color}15` }}
             >
-              {engine === "codex" ? <Sparkles size={24} /> : engine === "opencode" ? <Zap size={24} /> : <Bot size={24} />}
+              <img
+                src={agentIconUrl(engine)}
+                alt={engineMeta.label}
+                className="w-7 h-7 object-contain"
+              />
             </div>
             <h3 className="text-base font-semibold text-text mb-1">
               {engineMeta.label}
@@ -105,6 +116,7 @@ export const AiMessagesList = memo(function AiMessagesList({
               key={msg.id}
               message={msg}
               onResolvePermission={onResolvePermission}
+              onRewind={onRewind}
             />
           ))
         )}
