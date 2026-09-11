@@ -175,6 +175,75 @@ test("host permission mode is applied on hydrate and on other clients' changes",
   assert.match(HOOK, /case "options_changed":/);
 });
 
+// A resume/clear starts a NEW host log whose seqs begin at 1. Leaving the old
+// watermark in place would drop every replayed event as "already applied", so the
+// pane would come back empty after a /resume.
+test("a reset clears the seq watermark before the new log replays", () => {
+  assert.match(HOOK, /if \(payload\.event === "conversation_reset"\) \{\s*appliedSeqRef\.current = 0;/);
+  // The held-event drain needs the same rule
+  assert.match(HOOK, /if \(p\.event === "conversation_reset"\) \{\s*appliedSeqRef\.current = 0;/);
+  // The hydrate watermark must follow the snapshot, not stay at the old maximum
+  assert.match(HOOK, /appliedSeqRef\.current = snapshotSeq;/);
+  assert.doesNotMatch(HOOK, /appliedSeqRef\.current = Math\.max\(appliedSeqRef\.current, snapshotSeq\)/);
+});
+
+test("a resume rebinds the daemon session and replays the new transcript", () => {
+  assert.match(DAEMON, /CLAUDE_SESSION_ID_RE\.test\(resume\)/);
+  assert.match(DAEMON, /optSession\.cliSessionId = resume;/);
+  assert.match(DAEMON, /recoverFromClaudeTranscript\(optSession\.cwd, resume\)/);
+  assert.match(DAEMON, /broadcastAiEvent\(sessionId, "conversation_reset", \{\}\);/);
+});
+
+// codex/opencode run on the in-agent path, so their resume has to rebuild the log
+// from their own stores — otherwise the pane comes back empty after a resume.
+test("codex and opencode resume rebuild their history from the CLI store", () => {
+  const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
+  const TRANSCRIPT = fs.readFileSync(path.join(root, "agent/features/ai/transcript.js"), "utf8");
+  assert.match(SESSION, /recoverFromTranscript\(this\.engine, this\.cwd, resume\)/);
+  assert.match(SESSION, /this\.history = recovered \|\| \[\]/);
+  assert.match(TRANSCRIPT, /export function recoverFromCodexTranscript/);
+  assert.match(TRANSCRIPT, /export function recoverFromOpencodeTranscript/);
+  // A resumed log starts at seq 1, so it cannot inherit the previous watermark
+  assert.match(TRANSCRIPT, /return slice\.map\(\(e, i\) => \(\{ \.\.\.e, seq: i \+ 1 \}\)\)/);
+  // Codex/opencode write harness turns (environment block, aborted-turn note) as if
+  // the user typed them. Replaying one opens a bubble that never closes, so they are
+  // filtered. Asserted via the shared helper both readers call.
+  assert.match(TRANSCRIPT, /const HARNESS_TURN_RE = \/\^\\s\*<\(environment_context\|turn_aborted\)>/);
+  assert.match(TRANSCRIPT, /if \(isHarnessTurn\(text\)\) continue;/);
+  assert.match(TRANSCRIPT, /if \(isHarnessTurn\(pd\.text\)\) continue;/);
+  // A codex rollout is matched by its exact filename tail, never a substring
+  assert.match(TRANSCRIPT, /const suffix = `-\$\{sessionId\}\.jsonl`/);
+  assert.match(TRANSCRIPT, /if \(!name\.endsWith\(suffix\)\) continue;/);
+  // opencode sessions are scoped to the directory they ran in
+  assert.match(TRANSCRIPT, /session\.directory && path\.resolve\(session\.directory\) !== path\.resolve\(cwd\)/);
+});
+
+test("codex resume does not pass -s, which `codex exec resume` rejects", () => {
+  const CODEX = fs.readFileSync(path.join(root, "agent/features/ai/adapters/codexAdapter.js"), "utf8");
+  const resumeBranch = CODEX.slice(CODEX.indexOf('args.push("resume", "--json")'), CODEX.indexOf("} else {"));
+  assert.doesNotMatch(resumeBranch, /args\.push\("-s"/);
+  // The sandbox policy goes through a config override on the resume path instead
+  assert.match(resumeBranch, /-c", `sandbox_mode=/);
+});
+
+test("a client-supplied resume id cannot escape the projects dir or argv", () => {
+  const ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
+  for (const bad of ["--dangerously-bypass-approvals-and-sandbox", "-s", "../../etc/passwd", "a/b", "a b", ""]) {
+    assert.equal(ID_RE.test(bad), false, `must reject ${JSON.stringify(bad)}`);
+  }
+  for (const ok of ["01a090c7-4f5f-7722-ab9d-596d795b2d29", "ses_2f9a1b", "abc"]) {
+    assert.equal(ID_RE.test(ok), true, `must accept ${ok}`);
+  }
+  // Both the daemon and the in-agent path validate before using the id
+  assert.match(DAEMON, /const CLAUDE_SESSION_ID_RE = \/\^\[A-Za-z0-9_\]/);
+  assert.match(fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8"), /const RESUME_ID_RE = \/\^\[A-Za-z0-9_\]/);
+});
+
+test("the transcript read is confined to the projects directory", () => {
+  assert.match(DAEMON, /const resolved = path\.resolve\(p\);/);
+  assert.match(DAEMON, /if \(!resolved\.startsWith\(path\.resolve\(projectsDir\) \+ path\.sep\)\) return null;/);
+});
+
 test("a lost ack cannot leave the hydrate gate shut forever", () => {
   assert.match(HOOK, /HYDRATE_TIMEOUT_MS = \d+/);
   assert.match(HOOK, /const releaseTimer = setTimeout\(\(\) => \{/);

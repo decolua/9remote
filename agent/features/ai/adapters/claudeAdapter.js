@@ -1,28 +1,7 @@
 // Adapter for Claude Code CLI using --input-format=stream-json
+import { getExtendedEnv } from "./env.js";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
-import os from "node:os";
-import path from "node:path";
-
-function getExtendedEnv() {
-  const home = os.homedir();
-  const extraPaths = process.platform === "win32" ? [
-    path.join(home, "AppData", "Roaming", "npm"),
-    path.join(home, "AppData", "Local", "Programs"),
-    path.join(home, ".cargo", "bin"),
-  ] : [
-    path.join(home, ".local", "bin"),
-    path.join(home, ".cargo", "bin"),
-    path.join(home, ".bun", "bin"),
-    "/opt/homebrew/bin",
-    "/opt/homebrew/sbin",
-    "/usr/local/bin",
-    "/usr/local/sbin",
-  ];
-  const envPath = (process.env.PATH || "").split(path.delimiter);
-  const combinedPath = Array.from(new Set([...extraPaths, ...envPath])).join(path.delimiter);
-  return { ...process.env, PATH: combinedPath, FORCE_COLOR: "1" };
-}
 
 export class ClaudeAdapter {
   constructor({ cwd, onEvent }) {
@@ -32,13 +11,15 @@ export class ClaudeAdapter {
     this.rl = null;
     this.isTurnRunning = false;
     this.currentMode = "default";
+    // Reasoning effort (--effort); empty means the CLI default.
+    this.effort = "";
     this.pendingRequests = new Map();
     this.turnStreamedText = "";
     this.stats = { totalCost: 0, inputTokens: 0, outputTokens: 0 };
     this.metadata = { model: "", sessionId: "", tools: [], skills: [], slashCommands: [] };
   }
 
-  setOptions({ mode, model }) {
+  setOptions({ mode, model, resume, effort }) {
     let restartNeeded = false;
     if (model && model !== this.metadata.model) {
       this.metadata.model = model;
@@ -48,10 +29,25 @@ export class ClaudeAdapter {
       this.currentMode = mode;
       restartNeeded = true;
     }
+    // Reasoning effort is a spawn-time flag, so changing it needs a restart.
+    if (effort && effort !== this.effort) {
+      this.effort = effort;
+      restartNeeded = true;
+    }
+    // Resume a past conversation: restart the CLI bound to that session id.
+    if (resume && resume !== this.metadata.sessionId) {
+      this.metadata.sessionId = resume;
+      restartNeeded = true;
+    }
     if (restartNeeded) {
       this.start(this.currentMode, this.metadata.sessionId || null);
     }
-    this.onEvent?.("init", { ...this.metadata, permissionMode: this.currentMode });
+    this.onEvent?.("init", { ...this.metadata, permissionMode: this.currentMode, effort: this.effort });
+  }
+
+  // The CLI's own health command. Static so it resolves without spawning a process.
+  static doctorSpec() {
+    return { command: "claude", args: ["doctor"] };
   }
 
   start(mode = "default", resumeSessionId = null) {
@@ -78,6 +74,10 @@ export class ClaudeAdapter {
 
     if (this.metadata.model) {
       args.push("--model", this.metadata.model);
+    }
+
+    if (this.effort) {
+      args.push("--effort", this.effort);
     }
 
     if (resumeSessionId) {
@@ -126,7 +126,7 @@ export class ClaudeAdapter {
         skills: data.skills || [],
         slashCommands: data.slash_commands || [],
       };
-      this.onEvent?.("init", this.metadata);
+      this.onEvent?.("init", { ...this.metadata, effort: this.effort });
       return;
     }
 

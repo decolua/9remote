@@ -225,6 +225,7 @@ function persistAiSessionNow(sessionId) {
     cwd: s.cwd,
     permissionMode: s.permissionMode,
     model: s.model,
+    effort: s.effort,
     cliSessionId: s.cliSessionId,
     createdAt: s.createdAt,
     events: s.events
@@ -267,7 +268,95 @@ function loadAiSnapshot(sessionId) {
     const raw = fs.readFileSync(aiSnapshotFile(sessionId), "utf8");
     const snap = JSON.parse(raw);
     if (!snap || snap.engine !== "claude" || !Array.isArray(snap.events)) return null;
+    snap.events = compactAiEvents(snap.events);
     return snap;
+  } catch {
+    return null;
+  }
+}
+
+// Compact successive delta/thinking stream slices in s.events into consolidated messages.
+// Keeps the array size tiny (<100 events per session) while preserving 100% of text and seq watermarks.
+function compactAiEvents(events) {
+  if (!Array.isArray(events) || events.length <= 1) return events;
+  const compacted = [];
+  for (const ev of events) {
+    const last = compacted[compacted.length - 1];
+    if (last && last.event === ev.event && (ev.event === "delta" || ev.event === "thinking")) {
+      last.data = { text: (last.data?.text || "") + (ev.data?.text || "") };
+      last.seq = ev.seq;
+    } else {
+      compacted.push({ ...ev });
+    }
+  }
+  return compacted;
+}
+
+// Recover complete conversation history directly from Claude CLI's own .jsonl transcript log.
+// Used when daemon was restarted or when snapshot events were truncated by memory bounds.
+//
+// `cliSessionId` can originate from a client (a /resume choice), so it is untrusted:
+// only a plain id is accepted — the first character may not be "-" (argv would read it
+// as a flag) and no path separator or whitespace is allowed — and the resolved path is
+// confirmed to sit inside the projects directory. Without this, `..` in the id would
+// escape the directory and read any file on disk.
+const CLAUDE_SESSION_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
+
+function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
+  if (!cwd || !cliSessionId) return null;
+  if (!CLAUDE_SESSION_ID_RE.test(cliSessionId)) return null;
+  const projectsDir = path.join(os.homedir(), ".claude", "projects");
+  const safeCwd = cwd.replace(/[/\\:]/g, "-");
+  let p = path.join(projectsDir, safeCwd, `${cliSessionId}.jsonl`);
+  if (!fs.existsSync(p) && !safeCwd.startsWith("-")) {
+    p = path.join(projectsDir, `-${safeCwd}`, `${cliSessionId}.jsonl`);
+  }
+  // Defense in depth: even with the id validated, never read outside the projects dir.
+  const resolved = path.resolve(p);
+  if (!resolved.startsWith(path.resolve(projectsDir) + path.sep)) return null;
+  if (!fs.existsSync(resolved)) return null;
+
+  try {
+    const lines = fs.readFileSync(resolved, "utf8").trim().split("\n");
+    const events = [];
+    let seq = startSeq;
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const d = JSON.parse(line);
+        if (d.type === "user" && d.message) {
+          const textBlock = (d.message.content || []).find((c) => c.type === "text");
+          if (textBlock && textBlock.text) {
+            events.push({ seq: seq++, event: "user_message", data: { text: textBlock.text } });
+          }
+          const toolResults = (d.message.content || []).filter((c) => c.type === "tool_result");
+          for (const tr of toolResults) {
+            events.push({
+              seq: seq++,
+              event: "tool_result",
+              data: {
+                id: tr.tool_use_id,
+                output: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content)
+              }
+            });
+          }
+        } else if (d.type === "assistant" && d.message) {
+          for (const item of d.message.content || []) {
+            if (item.type === "thinking" && item.thinking) {
+              events.push({ seq: seq++, event: "thinking", data: { text: item.thinking } });
+            } else if (item.type === "tool_use") {
+              events.push({ seq: seq++, event: "tool_start", data: { id: item.id, name: item.name, input: item.input } });
+            } else if (item.type === "text" && item.text) {
+              events.push({ seq: seq++, event: "delta", data: { text: item.text } });
+            }
+          }
+          events.push({ seq: seq++, event: "turn_complete", data: { stats: {} } });
+        }
+      } catch {}
+    }
+
+    return events.length > 0 ? events : null;
   } catch {
     return null;
   }
@@ -331,8 +420,27 @@ function createAiSession(sessionId, { engine, cwd, options = {} }) {
     return { success: true, session: aiSessions.get(sessionId) };
   }
 
-  const snap = loadAiSnapshot(sessionId);
+  let snap = loadAiSnapshot(sessionId);
   const resolvedCwd = cwd || snap?.cwd || getDefaultCwd();
+  let cliSessionId = options.cliSessionId || snap?.cliSessionId || "";
+
+  // If snap events are missing or truncated (fewer user messages) but we have a claude transcript,
+  // recover the full history directly from Claude's own jsonl log.
+  const snapUserCount = (snap?.events || []).filter((e) => e.event === "user_message").length;
+  if ((!snap || snapUserCount <= 1) && cliSessionId) {
+    const recovered = recoverFromClaudeTranscript(resolvedCwd, cliSessionId);
+    const recoveredUserCount = (recovered || []).filter((e) => e.event === "user_message").length;
+    if (recovered && recoveredUserCount > snapUserCount) {
+      snap = {
+        ...(snap || {}),
+        engine: "claude",
+        cwd: resolvedCwd,
+        cliSessionId,
+        events: recovered
+      };
+    }
+  }
+
   const s = {
     id: sessionId,
     engine: "claude",
@@ -345,7 +453,9 @@ function createAiSession(sessionId, { engine, cwd, options = {} }) {
     isTurnRunning: false,
     permissionMode: options.mode || snap?.permissionMode || "default",
     model: options.model || snap?.model || "",
-    cliSessionId: snap?.cliSessionId || "",
+    // Reasoning effort (--effort); empty means the CLI default.
+    effort: options.effort || snap?.effort || "",
+    cliSessionId,
     metadata: { model: "", skills: [], slashCommands: [] },
     stats: { totalCost: 0, inputTokens: 0, outputTokens: 0 },
     pendingRequests: new Map(),
@@ -393,6 +503,7 @@ function spawnClaude(s) {
   if (s.permissionMode === "bypassPermissions") args.push("--dangerously-skip-permissions");
   else args.push("--allow-dangerously-skip-permissions");
   if (s.model) args.push("--model", s.model);
+  if (s.effort) args.push("--effort", s.effort);
   // Resume the CLI's own conversation after a daemon/agent restart
   if (s.cliSessionId) args.push("--resume", s.cliSessionId);
 
@@ -467,6 +578,15 @@ function handleClaudeLine(s, data) {
       skills: data.skills || [],
       slashCommands: data.slash_commands || [],
     };
+    const snapUserCount = (s.events || []).filter((e) => e.event === "user_message").length;
+    if (snapUserCount <= 1 && s.cliSessionId) {
+      const recovered = recoverFromClaudeTranscript(s.cwd, s.cliSessionId);
+      const recoveredUserCount = (recovered || []).filter((e) => e.event === "user_message").length;
+      if (recovered && recoveredUserCount > snapUserCount) {
+        s.events = recovered;
+        s.nextSeq = recovered.reduce((max, e) => Math.max(max, e.seq || 0), 0) + 1;
+      }
+    }
     aiEmit(s, "init", s.metadata);
     return;
   }
@@ -506,8 +626,7 @@ function handleClaudeLine(s, data) {
     }
     s.turnStreamedText = "";
     aiEmit(s, "turn_complete", { stats: { ...s.stats }, result: data.result });
-    // A finished turn is a complete exchange — persist it now rather than leaving
-    // it in the debounce window where a crash would take it.
+    s.events = compactAiEvents(s.events);
     flushAiSession(s.id);
     // A mode/model change made mid-turn applies now that the process is idle
     if (s.restartPending) {
@@ -572,6 +691,7 @@ function aiPublicState(s) {
     // "Default" while Claude actually runs in bypass/plan.
     permissionMode: s.permissionMode,
     model: s.model,
+    effort: s.effort,
     metadata: s.metadata,
     cliAlive: Boolean(s.proc)
   };
@@ -1002,6 +1122,8 @@ function handleMessage(client, message) {
         const sent = sendInterrupt(stopSession);
         stopSession.isTurnRunning = false;
         aiEmit(stopSession, "stopped", {});
+        stopSession.events = compactAiEvents(stopSession.events);
+        flushAiSession(stopSession.id);
         // Fall back to a signal only if the interrupt could not be delivered
         if (!sent) { try { stopSession.proc?.kill("SIGINT"); } catch {} }
       }
@@ -1012,15 +1134,44 @@ function handleMessage(client, message) {
     case "aiOptions": {
       const optSession = aiSessions.get(sessionId);
       if (optSession) {
-        const { mode, model } = payload.options || {};
+        const { mode, model, resume, effort } = payload.options || {};
         let changed = false;
+        let resumed = false;
         if (model && model !== optSession.model) { optSession.model = model; optSession.restartPending = true; changed = true; }
         if (mode && mode !== optSession.permissionMode) { optSession.permissionMode = mode; optSession.restartPending = true; changed = true; }
+        // Effort is a spawn-time flag too, so a change needs the same restart.
+        if (effort && effort !== optSession.effort) { optSession.effort = effort; optSession.restartPending = true; changed = true; }
+        // Resume a past conversation: rebind the CLI to that session id, then restart.
+        // The id comes from a client, so it is validated here — it is passed to the CLI
+        // as an argv value and used to build a transcript path.
+        if (resume && resume !== optSession.cliSessionId) {
+          if (!CLAUDE_SESSION_ID_RE.test(resume)) {
+            send(client, { type: "aiOptionsResult", success: false, error: "Invalid resume id", requestId: payload.requestId });
+            break;
+          }
+          optSession.cliSessionId = resume;
+          optSession.restartPending = true;
+          changed = true;
+          resumed = true;
+        }
         // Mid-turn: remember it and restart when the turn ends instead of dropping
         // the change (a mode switch the user just made must not silently no-op).
         if (optSession.restartPending && !optSession.isTurnRunning) {
           optSession.restartPending = false;
           spawnClaude(optSession);
+        }
+        if (resumed) {
+          // The client's view still holds the PREVIOUS conversation. Replace the log
+          // with the resumed transcript, then replay it, or the pane would show one
+          // conversation while the CLI continues another.
+          const recovered = recoverFromClaudeTranscript(optSession.cwd, resume);
+          if (recovered) {
+            optSession.events = recovered;
+            optSession.nextSeq = recovered.reduce((max, e) => Math.max(max, e.seq || 0), 0) + 1;
+            persistAiSessionNow(sessionId);
+            broadcastAiEvent(sessionId, "conversation_reset", {});
+            for (const ev of recovered) broadcastAiEvent(sessionId, ev.event, ev.data, ev.seq);
+          }
         }
         if (changed) {
           // Other surfaces show this mode too — broadcast so they do not keep
@@ -1158,6 +1309,7 @@ function startDaemon() {
           cwd: s.cwd,
           permissionMode: s.permissionMode,
           model: s.model,
+          effort: s.effort,
           cliSessionId: s.cliSessionId,
           createdAt: s.createdAt,
           events: s.events

@@ -6,6 +6,7 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
+import { runEngineDoctor } from "./aiSession.js";
 import { renameSessionTitle, broadcastAiStatus } from "../terminal/terminalSocket.js";
 import * as daemonClient from "../terminal/ptyDaemonClient.js";
 
@@ -80,8 +81,25 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       const session = manager.createSession(sessionId, engine, cwd, { ...options, mock });
       const skills = listSkills(engine, cwd);
       const mcpServers = listMcpServers(engine);
-      session.emitNormalized("init", { skills, mcpServers });
-      cb?.({ ok: true, sessionId: session.id, engine: session.engine, cwd: session.cwd, skills, mcpServers });
+      // Kept on the session so a Clear can re-seed the log with the same metadata
+      session.skills = skills;
+      // Already-hydrated sessions skip the append: this runs on every connect (F5,
+      // extra tab), and a log that grew an `init` per connect would never stop growing.
+      // The event is still broadcast so the joining client sees the current metadata.
+      session.emitNormalized("init", { skills, mcpServers }, !session.hasRecordedInit());
+      cb?.({
+        ok: true,
+        sessionId: session.id,
+        engine: session.engine,
+        cwd: session.cwd,
+        skills,
+        mcpServers,
+        session: {
+          events: session.history,
+          isTurnRunning: session.isTurnRunning,
+          seq: session.history.length
+        }
+      });
     } catch (err) {
       logger.error(`[ai] create failed: ${err.message}`);
       cb?.({ ok: false, error: err.message });
@@ -103,8 +121,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         session = manager.createSession(sessionId, "claude", process.cwd());
       }
       logger.info(`[ai] prompt: ${sessionId} (engine: ${session.engine}): ${message?.slice(0, 60)}`);
-      // Echo the user message like the daemon does, so clients never add it optimistically
-      broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event: "user_message", data: { text: message } });
+      // User message is emitted via session.sendPrompt -> emitNormalized -> broadcast
       session.sendPrompt(message);
       renameSessionTitle?.(sessionId, message);
       broadcastAiStatus?.(sessionId, "working", session.engine);
@@ -191,6 +208,19 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       cb?.({ ok: true, files });
     } catch (err) {
       cb?.({ ok: false, error: err.message, files: [] });
+    }
+  });
+
+  // Run the engine CLI's health command on the host. Uses the static doctor spec,
+  // so a session is neither required nor created (constructing one would spawn a
+  // real CLI process just to read a command name).
+  socket.on("ai:doctor", async ({ sessionId, engine = "claude", cwd }, cb) => {
+    try {
+      const res = await runEngineDoctor(engine, cwd || process.cwd());
+      cb?.(res);
+    } catch (err) {
+      logger.error(`[ai] doctor failed: ${err.message}`);
+      cb?.({ ok: false, error: err.message });
     }
   });
 

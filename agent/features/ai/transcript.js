@@ -1,0 +1,198 @@
+// Rebuild a recent slice of a past codex/opencode conversation from the CLI's own
+// store, so resuming one shows its history instead of an empty pane.
+//
+// Claude has the same job done in ptyDaemon (recoverFromClaudeTranscript) — it reads
+// `~/.claude/projects/<cwd>/<id>.jsonl`. The other two keep their transcripts in
+// different places, which is why this lives beside agentHistory's parsers.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { stripHarnessWrapping } from "../terminal/agentHistory.js";
+
+const require = createRequire(import.meta.url);
+
+// Only the tail is replayed: a resumed chat needs enough context to read, not the
+// whole transcript (which can run to thousands of events).
+const MAX_EVENTS = 200;
+
+// node:sqlite ships with Node 22.5+; an older runtime simply yields nothing.
+let sqliteModule;
+function loadSqlite() {
+  if (sqliteModule === undefined) {
+    try { sqliteModule = require("node:sqlite"); } catch { sqliteModule = null; }
+  }
+  return sqliteModule;
+}
+
+// Turns the harness writes into the transcript as if the user had typed them: the
+// environment block, and an aborted turn's note. Replaying one as a real prompt would
+// open a bubble that never gets closed, leaving a spinner stuck on the pane.
+const HARNESS_TURN_RE = /^\s*<(environment_context|turn_aborted)>/;
+const isHarnessTurn = (text) => HARNESS_TURN_RE.test(text);
+
+// ── Codex: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl ──
+
+function findCodexRollout(sessionId, cwd) {
+  const root = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+  const sessionsDir = path.join(root, "sessions");
+  if (!fs.existsSync(sessionsDir)) return null;
+
+  // The id is the filename's tail: rollout-<timestamp>-<id>.jsonl. Match the exact
+  // tail rather than a substring, or a short id would resolve to another session.
+  const suffix = `-${sessionId}.jsonl`;
+  const years = fs.readdirSync(sessionsDir).filter((y) => /^\d{4}$/.test(y)).sort().reverse();
+  for (const year of years) {
+    const months = safeReadDir(path.join(sessionsDir, year)).sort().reverse();
+    for (const month of months) {
+      const days = safeReadDir(path.join(sessionsDir, year, month)).sort().reverse();
+      for (const day of days) {
+        const dir = path.join(sessionsDir, year, month, day);
+        for (const name of safeReadDir(dir)) {
+          if (!name.endsWith(suffix)) continue;
+          const file = path.join(dir, name);
+          if (cwd && !rolloutMatchesCwd(file, cwd)) continue;
+          return file;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function safeReadDir(dir) {
+  try { return fs.readdirSync(dir); } catch { return []; }
+}
+
+// session_meta carries the cwd the conversation ran in; a same-named id from
+// another project must not be resumed into this one.
+function rolloutMatchesCwd(file, cwd) {
+  try {
+    const first = fs.readFileSync(file, "utf8").split("\n", 1)[0];
+    const rec = JSON.parse(first);
+    return !rec?.payload?.cwd || path.resolve(rec.payload.cwd) === path.resolve(cwd);
+  } catch {
+    return true;
+  }
+}
+
+export function recoverFromCodexTranscript(cwd, sessionId) {
+  if (!cwd || !sessionId) return null;
+  const file = findCodexRollout(sessionId, cwd);
+  if (!file) return null;
+
+  let lines;
+  try {
+    lines = fs.readFileSync(file, "utf8").trim().split("\n");
+  } catch {
+    return null;
+  }
+
+  const events = [];
+  let seq = 1;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    if (rec.type !== "response_item") continue;
+
+    const p = rec.payload || {};
+    if (p.type === "message") {
+      const text = (p.content || [])
+        .map((c) => c?.text || (typeof c === "string" ? c : ""))
+        .join("");
+      if (!text.trim()) continue;
+      if (p.role === "user") {
+        if (isHarnessTurn(text)) continue;
+        const clean = stripHarnessWrapping(text);
+        if (!clean) continue;
+        events.push({ seq: seq++, event: "user_message", data: { text: clean } });
+      } else if (p.role === "assistant") {
+        // The body is not a title: unwrap it, but never collapse or truncate it.
+        const clean = stripHarnessWrapping(text);
+        if (!clean) continue;
+        events.push({ seq: seq++, event: "delta", data: { text: clean } });
+        events.push({ seq: seq++, event: "turn_complete", data: { stats: {} } });
+      }
+    } else if (p.type === "reasoning" && p.summary) {
+      const text = p.summary.map((s) => s?.text || "").join("");
+      if (text.trim()) events.push({ seq: seq++, event: "thinking", data: { text } });
+    }
+  }
+
+  if (events.length === 0) return null;
+  return tailFromLastUser(events);
+}
+
+// ── OpenCode: ~/.local/share/opencode/opencode.db (message + part tables) ──
+
+export function recoverFromOpencodeTranscript(cwd, sessionId) {
+  if (!cwd || !sessionId) return null;
+  const sqlite = loadSqlite();
+  if (!sqlite) return null;
+
+  const dbPath = path.join(os.homedir(), ".local", "share", "opencode", "opencode.db");
+  if (!fs.existsSync(dbPath)) return null;
+
+  let db;
+  try {
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    // A session belongs to the directory it ran in; resuming one from another project
+    // would splice an unrelated conversation into this pane.
+    const session = db.prepare("SELECT directory FROM session WHERE id = ?").get(sessionId);
+    if (!session) return null;
+    if (cwd && session.directory && path.resolve(session.directory) !== path.resolve(cwd)) return null;
+
+    const parts = db.prepare(
+      "SELECT p.message_id AS mid, p.data AS pdata, m.data AS mdata " +
+      "FROM part p JOIN message m ON m.id = p.message_id " +
+      "WHERE p.session_id = ? ORDER BY p.rowid"
+    ).all(sessionId);
+    if (!parts.length) return null;
+
+    const events = [];
+    let seq = 1;
+    for (const row of parts) {
+      let pd, md;
+      try { pd = JSON.parse(row.pdata); md = JSON.parse(row.mdata); } catch { continue; }
+      const role = md?.role;
+      if (pd.type === "text" && typeof pd.text === "string" && pd.text.trim()) {
+        if (role === "user") {
+          if (isHarnessTurn(pd.text)) continue;
+          const clean = stripHarnessWrapping(pd.text);
+          if (!clean) continue;
+          events.push({ seq: seq++, event: "user_message", data: { text: clean } });
+        } else if (role === "assistant") {
+          // The body is not a title: unwrap it, but never collapse or truncate it.
+          const clean = stripHarnessWrapping(pd.text);
+          if (!clean) continue;
+          events.push({ seq: seq++, event: "delta", data: { text: clean } });
+          events.push({ seq: seq++, event: "turn_complete", data: { stats: {} } });
+        }
+      } else if (pd.type === "reasoning" && typeof pd.text === "string" && pd.text.trim()) {
+        events.push({ seq: seq++, event: "thinking", data: { text: pd.text } });
+      }
+    }
+    if (events.length === 0) return null;
+    return tailFromLastUser(events);
+  } catch {
+    return null;
+  } finally {
+    try { db?.close(); } catch {}
+  }
+}
+
+// Keep the tail only, and start it at a user turn so a replay never opens mid-reply.
+function tailFromLastUser(events) {
+  let slice = events.slice(-MAX_EVENTS);
+  const firstUser = slice.findIndex((e) => e.event === "user_message");
+  if (firstUser > 0) slice = slice.slice(firstUser);
+  return slice.map((e, i) => ({ ...e, seq: i + 1 }));
+}
+
+/** Engine-dispatched transcript reader; null when the store has nothing for this id. */
+export function recoverFromTranscript(engine, cwd, sessionId) {
+  if (engine === "codex") return recoverFromCodexTranscript(cwd, sessionId);
+  if (engine === "opencode") return recoverFromOpencodeTranscript(cwd, sessionId);
+  return null;
+}

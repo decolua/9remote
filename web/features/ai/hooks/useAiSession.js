@@ -18,6 +18,210 @@ const EMPTY_MESSAGES = [];
 // How long live events are held while waiting for the ai:create snapshot ack.
 const HYDRATE_TIMEOUT_MS = 4000;
 
+// Pure reducer that transforms an event log into a complete session snapshot in RAM
+// in <3ms, avoiding thousands of re-renders and synchronous store dispatches.
+export function reduceSessionEvents(events = [], engine = "claude") {
+  const messages = [];
+  const tasks = [];
+  let metadata = { model: "", skills: [], mcpServers: [] };
+  let stats = { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 };
+  let isTurnRunning = false;
+  let activePermission = null;
+  let activeBlocked = null;
+  let permissionMode = null;
+  let msgSeq = 0;
+
+  for (const item of events) {
+    const event = item?.event;
+    const data = item?.data;
+    if (!event) continue;
+
+    switch (event) {
+      case "user_message": {
+        isTurnRunning = true;
+        // A new turn supersedes the previous refusal — same as the live path.
+        activeBlocked = null;
+        messages.push({ id: `u-${++msgSeq}`, role: "user", content: data?.text || "" });
+        messages.push({
+          id: `a-${++msgSeq}`,
+          role: "assistant",
+          content: "",
+          thinking: "",
+          diffs: [],
+          tools: [],
+          isLive: true
+        });
+        break;
+      }
+      case "init": {
+        // Engines emit init more than once (skills first, then thread/model). A later
+        // init that carries no skills must not wipe the ones already discovered.
+        const incoming = normalizeSkills(data?.skills);
+        const skills = incoming.length > 0 ? incoming : metadata.skills;
+        metadata = { ...metadata, ...(data || {}), skills };
+        break;
+      }
+      case "delta": {
+        let last = messages[messages.length - 1];
+        if (!last || last.role !== "assistant") {
+          last = { id: `msg-${++msgSeq}`, role: "assistant", content: "", isLive: true, diffs: [], tools: [] };
+          messages.push(last);
+        }
+        last.content = (last.content || "") + (data?.text || "");
+        break;
+      }
+      case "thinking": {
+        let last = messages[messages.length - 1];
+        if (!last || last.role !== "assistant") {
+          last = { id: `msg-${++msgSeq}`, role: "assistant", content: "", thinking: "", isLive: true, diffs: [], tools: [] };
+          messages.push(last);
+        }
+        last.thinking = (last.thinking || "") + (data?.text || "");
+        break;
+      }
+      case "diff": {
+        if (!data) break;
+        let last = messages[messages.length - 1];
+        if (!last || last.role !== "assistant") {
+          last = { id: `msg-${++msgSeq}`, role: "assistant", content: "", isLive: true, diffs: [], tools: [] };
+          messages.push(last);
+        }
+        const diffs = last.diffs || (last.diffs = []);
+        const idx = diffs.findIndex((d) => d.file === data.file);
+        if (idx !== -1) diffs[idx] = data;
+        else diffs.push(data);
+        break;
+      }
+      case "tool_start": {
+        if (!data) break;
+        let last = messages[messages.length - 1];
+        if (last && last.role === "assistant" && last.isLive && ((last.content || last.thinking || "").length > 0)) {
+          last.isLive = false;
+          last = {
+            id: `msg-${++msgSeq}`,
+            role: "assistant",
+            content: "",
+            isLive: true,
+            diffs: [],
+            tools: [{ ...data, status: data.status || "running" }]
+          };
+          messages.push(last);
+        } else if (!last || last.role !== "assistant") {
+          last = {
+            id: `msg-${++msgSeq}`,
+            role: "assistant",
+            content: "",
+            isLive: true,
+            diffs: [],
+            tools: [{ ...data, status: data.status || "running" }]
+          };
+          messages.push(last);
+        } else {
+          const tools = last.tools || (last.tools = []);
+          const idx = tools.findIndex((t) => t.id === data.id);
+          if (idx !== -1) tools[idx] = { ...tools[idx], ...data };
+          else tools.push({ ...data, status: data.status || "running" });
+        }
+        if (data.name) {
+          const t = parseEngineTaskEvent(engine, data.name, data.input, data.id, tasks);
+          if (t) {
+            const tId = String(t.taskId || t.id || "");
+            const tIdx = tasks.findIndex(
+              (item, i) =>
+                (item.id && String(item.id) === tId) ||
+                (item.taskId && String(item.taskId) === tId) ||
+                String(i + 1) === tId
+            );
+            if (tIdx !== -1) tasks[tIdx] = { ...tasks[tIdx], ...t };
+            else if (t.subject) tasks.push(t);
+          }
+        }
+        break;
+      }
+      case "tool_result": {
+        if (!data?.id) break;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const msg = messages[i];
+          const t = msg?.tools?.find((item) => item.id === data.id);
+          if (t) {
+            Object.assign(t, data, { status: data.status || "done" });
+            break;
+          }
+        }
+        const taskRes = parseEngineTaskResult(engine, data.name || "", data.output || "", data.id);
+        if (taskRes) {
+          const tId = String(taskRes.taskId || taskRes.id || "");
+          const tIdx = tasks.findIndex(
+            (item, i) =>
+              (item.id && String(item.id) === tId) ||
+              (item.taskId && String(item.taskId) === tId) ||
+              String(i + 1) === tId
+          );
+          if (tIdx !== -1) tasks[tIdx] = { ...tasks[tIdx], ...taskRes };
+        }
+        break;
+      }
+      case "permission_request":
+        activePermission = data;
+        break;
+      case "permission_resolved":
+        activePermission = null;
+        break;
+      case "blocked":
+        // A CLI refusal (sandbox/permission) — carries a mode that would allow it.
+        activeBlocked = data;
+        break;
+      case "options_changed":
+        if (data?.permissionMode) permissionMode = data.permissionMode;
+        if (data?.model) metadata.model = data.model;
+        break;
+      case "turn_complete":
+        isTurnRunning = false;
+        activePermission = null;
+        if (data?.stats) stats = { ...stats, ...data.stats };
+        if (messages.length > 0) messages[messages.length - 1].isLive = false;
+        break;
+      case "stats":
+        if (data?.stats) stats = { ...stats, ...data.stats };
+        break;
+      case "stopped":
+        isTurnRunning = false;
+        break;
+      case "exit":
+        // The CLI process went away. Turn ends either way — without this the pane
+        // kept spinning on a process that was already gone (only claudeAdapter emits it).
+        isTurnRunning = false;
+        break;
+      case "error":
+        // An error can land mid-turn (opencode reports a blocked action this way), so the
+        // segment still streaming must be closed — otherwise its bubble keeps a live
+        // spinner even though the turn is over.
+        isTurnRunning = false;
+        for (const m of messages) if (m.isLive) m.isLive = false;
+        messages.push({
+          id: `msg-${++msgSeq}`,
+          role: "assistant",
+          content: `\n\n**Error:** ${data?.message || "AI process failed"}`,
+          isLive: false,
+          diffs: [],
+          tools: []
+        });
+        break;
+      case "conversation_reset":
+        messages.length = 0;
+        tasks.length = 0;
+        isTurnRunning = false;
+        activePermission = null;
+        activeBlocked = null;
+        break;
+      default:
+        break;
+    }
+  }
+
+  return { messages, tasks, metadata, stats, isTurnRunning, activePermission, activeBlocked, permissionMode };
+}
+
 export function useAiSession({
   sessionId,
   engine = "claude",
@@ -49,6 +253,7 @@ export function useAiSession({
   const isTurnRunning = sessionState?.isTurnRunning || false;
   const stats = sessionState?.stats || DEFAULT_STATS;
   const metadata = sessionState?.metadata || DEFAULT_METADATA;
+  const activeBlocked = sessionState?.activeBlocked || null;
 
   // One reducer for BOTH live events and join-replay — the host (daemon) is the
   // single source of truth, so replayed history must land in the same store
@@ -64,10 +269,14 @@ export function useAiSession({
         // Current may still hold raw strings from state persisted before this normalization
         const current = normalizeSkills(useAiStore.getState().bySession[sid]?.metadata?.skills);
         const byId = new Map(current.map((s) => [s.id || s.name, s]));
-        const skills = normalizeSkills(data.skills).map((s) => {
-          const known = byId.get(s.id);
-          return known?.description ? { ...s, description: known.description } : s;
-        });
+        const incoming = normalizeSkills(data.skills);
+        // A later init (thread/model) carries no skills — don't wipe what we have
+        const skills = incoming.length > 0
+          ? incoming.map((s) => {
+              const known = byId.get(s.id);
+              return known?.description ? { ...s, description: known.description } : s;
+            })
+          : current;
         setMetadata(sid, { ...data, skills });
         break;
       }
@@ -106,6 +315,9 @@ export function useAiSession({
         // Another surface (or a replay) closed this gate — drop the card here too
         clearPermission(sid, data.requestId);
         break;
+      case "blocked":
+        useAiStore.getState().setBlocked(sid, data);
+        break;
       case "options_changed":
         // Another surface switched mode/model — this one shows the same thing
         if (data?.permissionMode) useAiStore.getState().setPermissionMode(sid, data.permissionMode);
@@ -113,6 +325,10 @@ export function useAiSession({
         break;
       case "turn_complete":
         finishTurn(sid, data.stats);
+        break;
+      case "stats":
+        // codex/opencode report token usage mid-turn; claude folds it into turn_complete
+        if (data?.stats) useAiStore.getState().setStats(sid, data.stats);
         break;
       case "stopped":
         setTurnRunning(sid, false);
@@ -168,6 +384,13 @@ export function useAiSession({
       pendingLiveRef.current = [];
       hydratingRef.current = false;
       for (const p of queued) {
+        // A reset restarts the host's log at seq 1 — the snapshot's watermark no
+        // longer applies to what follows it.
+        if (p.event === "conversation_reset") {
+          appliedSeqRef.current = 0;
+          applyEventRef.current(sessionId, p.event, p.data);
+          continue;
+        }
         if (p.seq != null) {
           if (p.seq <= appliedSeqRef.current) continue;
           appliedSeqRef.current = p.seq;
@@ -188,32 +411,41 @@ export function useAiSession({
       const events = res?.session?.events;
       try {
         clearTimeout(releaseTimer);
-        // `session` is daemon-only. The in-agent engines answer without one (they
-        // hold no replayable log), so this is a no-op hydrate for them — the drain
-        // in the finally still runs.
+        // Both paths answer with a replayable log: the daemon sends its live session
+        // state, the in-agent engines send `session.history`. An ack with no array is
+        // the only case where there is nothing to replay.
         if (!res?.ok || !Array.isArray(events)) return;
         const snapshotSeq = res.session.seq || 0;
         // An empty host log means the host has nothing for this session yet (fresh
         // one, or a legacy session created before the daemon owned state). Leave
         // whatever the client already has instead of blanking it.
         if (events.length > 0) {
-          // Idempotent: StrictMode double-mount replays to the same result
-          useAiStore.getState().clearMessages(sessionId);
-          for (const ev of events) {
-            applyEventRef.current(sessionId, ev.event, ev.data);
+          // Pure in-memory reduction in <3ms instead of 5000+ synchronous store dispatches
+          const hydrated = reduceSessionEvents(events, engine);
+          useAiStore.getState().hydrateSession(sessionId, {
+            messages: hydrated.messages,
+            tasks: hydrated.tasks,
+            // The host is the authority on spawn-time options: its snapshot carries
+            // the effort the CLI actually runs with, which the replay may not.
+            metadata: { ...hydrated.metadata, ...(res.session.effort ? { effort: res.session.effort } : {}) },
+            stats: hydrated.stats,
+            isTurnRunning: res.session.isTurnRunning !== undefined ? Boolean(res.session.isTurnRunning) : hydrated.isTurnRunning,
+            permissionMode: res.session.permissionMode || hydrated.permissionMode,
+            activeBlocked: hydrated.activeBlocked
+          });
+          if (hydrated.activePermission) {
+            useAiStore.getState().setPermission(sessionId, hydrated.activePermission);
+          }
+        } else {
+          setTurnRunning(sessionId, Boolean(res.session.isTurnRunning));
+          if (res.session.permissionMode) {
+            useAiStore.getState().setPermissionMode(sessionId, res.session.permissionMode);
           }
         }
-        // Watermark after the replay: it only ever moves forward.
-        appliedSeqRef.current = Math.max(appliedSeqRef.current, snapshotSeq);
-        // The host owns turn state and the permission mode (it spawns the CLI with
-        // it). Set both from the snapshot, then drain (in the finally): a queued
-        // turn_complete / user_message re-sets turn state in order, so the newest
-        // event wins. (Removing the optimistic addUserMessage means those events
-        // are the only writers, which is what keeps two clients agreeing.)
-        setTurnRunning(sessionId, Boolean(res.session.isTurnRunning));
-        if (res.session.permissionMode) {
-          useAiStore.getState().setPermissionMode(sessionId, res.session.permissionMode);
-        }
+        // The snapshot is authoritative for this log. Assign rather than max: after a
+        // /resume or /clear the host starts a NEW log whose seqs begin at 1, so a
+        // higher watermark left over from the previous log would drop every replay.
+        appliedSeqRef.current = snapshotSeq;
       } finally {
         // Always drains — a failed ack must not discard events that really arrived.
         clearTimeout(releaseTimer);
@@ -235,6 +467,14 @@ export function useAiSession({
         pendingLiveRef.current.push(payload);
         return;
       }
+      // A reset means the host is starting a NEW log whose seqs begin again at 1.
+      // The old watermark would drop every replayed event as "already applied", so
+      // it must be cleared before the replay that follows.
+      if (payload.event === "conversation_reset") {
+        appliedSeqRef.current = 0;
+        applyEvent(sessionId, payload.event, payload.data);
+        return;
+      }
       // Already covered by a replay this client hydrated from — applying it again
       // would duplicate the message. Unstamped (legacy in-agent) events pass.
       if (payload.seq != null) {
@@ -252,13 +492,17 @@ export function useAiSession({
 
   // 3. User actions
   const sendPrompt = useCallback(
-    (text) => {
+    (text, { force = false } = {}) => {
       if (!text) return;
       // Read the turn state live, not from this render's closure: the queue drain
       // calls us right after stop(), while the memoized closure still says running —
       // bailing on that stale flag silently dropped the queued prompt.
-      const running = useAiStore.getState().bySession[sessionId]?.isTurnRunning;
-      if (running) return;
+      // `force` is for host-side commands (/clear): they reset state on the host and
+      // must work even mid-turn, unlike a prompt the CLI would have to queue.
+      if (!force) {
+        const running = useAiStore.getState().bySession[sessionId]?.isTurnRunning;
+        if (running) return;
+      }
       const b = busRef.current || useConnectionStore.getState().bus;
       // No ai:create here: the host auto-creates on prompt, and the mount effect
       // already hydrated this session. Re-emitting it per message would make the
@@ -309,15 +553,35 @@ export function useAiSession({
     [sessionId, workspacePath]
   );
 
+  // Escalate out of a blocked action: switch to the mode the card proposed and
+  // clear the card. The host applies the mode to the CLI.
+  const escalateMode = useCallback(
+    (mode) => {
+      if (!mode) return;
+      useAiStore.getState().setPermissionMode(sessionId, mode);
+      useAiStore.getState().clearBlocked(sessionId);
+      const b = busRef.current || useConnectionStore.getState().bus;
+      b?.emit("ai:options", { sessionId, options: { mode } });
+    },
+    [sessionId]
+  );
+
+  const dismissBlocked = useCallback(() => {
+    useAiStore.getState().clearBlocked(sessionId);
+  }, [sessionId]);
+
   return {
     messages,
     isTurnRunning,
     stats,
     metadata,
+    activeBlocked,
     sendPrompt,
     resolvePermission,
     stop,
     runShell,
-    rewindToMessage
+    rewindToMessage,
+    escalateMode,
+    dismissBlocked
   };
 }

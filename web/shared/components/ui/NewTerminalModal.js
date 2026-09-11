@@ -87,7 +87,11 @@ export default function NewTerminalModal({
   }, [agentClis, agentId]);
 
   // Combine built-in AI UI options with detected agent CLIs
-  const allAgents = [...AI_UI_OPTIONS, ...(agentClis || [])];
+  const allAgents = (agentClis || []).flatMap((a) => {
+    const ui = AI_UI_OPTIONS.find((u) => u.aiEngine === a.id);
+    return ui ? [a, ui] : a;
+  });
+  for (const u of AI_UI_OPTIONS) if (!allAgents.includes(u)) allAgents.push(u);
   const agent = (agentId && allAgents.find((a) => a.id === agentId)) || null;
   const options = [null, ...allAgents];
   const canSkip = !agent?.isAiUi && canSkipPermissions(agent);
@@ -180,7 +184,7 @@ export default function NewTerminalModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="newTerminalTitle"
-        className="card-elev w-[22rem] max-w-full overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
+        className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Title, then where the terminal will start — context before choices */}

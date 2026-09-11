@@ -7,6 +7,9 @@ const INITIAL_SESSION_STATE = {
   messages: [],
   isTurnRunning: false,
   activePermission: null,
+  // A blocked action (sandbox/permission refusal) the CLI reported. Unlike
+  // activePermission this has nothing to resolve — it offers a mode escalation.
+  activeBlocked: null,
   permissionMode: "default",
   stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 },
   metadata: { model: "", skills: [], mcpServers: [] },
@@ -95,6 +98,7 @@ export const useAiStore = create(
               [sessionId]: {
                 ...curr,
                 isTurnRunning: true,
+                activeBlocked: null,
                 messages: [...curr.messages, userMsg, assistantPlaceholder]
               }
             }
@@ -266,6 +270,31 @@ export const useAiStore = create(
         });
       },
 
+      // A blocked action: show a card until the turn ends or the user escalates.
+      setBlocked: (sessionId, blocked) => {
+        set((state) => {
+          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, activeBlocked: blocked }
+            }
+          };
+        });
+      },
+
+      clearBlocked: (sessionId) => {
+        set((state) => {
+          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, activeBlocked: null }
+            }
+          };
+        });
+      },
+
       finishTurn: (sessionId, stats) => {
         set((state) => {
           const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
@@ -300,6 +329,7 @@ export const useAiStore = create(
                 tasks: [],
                 isTurnRunning: false,
                 activePermission: null,
+                activeBlocked: null,
                 stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 }
               }
             }
@@ -364,6 +394,31 @@ export const useAiStore = create(
         });
       },
 
+      // Batch hydration: replaces the entire message history and task checklist in ONE
+      // state update instead of dispatching 5000+ individual actions on join/reconnect.
+      hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null }) => {
+        set((state) => {
+          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: {
+                ...curr,
+                messages,
+                tasks,
+                isTurnRunning,
+                metadata: { ...curr.metadata, ...metadata },
+                stats: stats ? { ...curr.stats, ...stats } : curr.stats,
+                // Authoritative from the replay: a blocked card with no matching event
+                // in the log is stale and must not survive the reload.
+                activeBlocked,
+                ...(permissionMode ? { permissionMode } : {})
+              }
+            }
+          };
+        });
+      },
+
       removeSession: (sessionId) => {
         set((state) => {
           const { [sessionId]: _, ...rest } = state.bySession;
@@ -373,15 +428,16 @@ export const useAiStore = create(
     }),
     {
       name: "9remote-ai-store",
+      // Only persist user preferences per session. Messages and tasks are authoritative
+      // on the host daemon and re-hydrated on connect — persisting thousands of messages
+      // to synchronous localStorage triggers severe main-thread freezing and V8 OOM crashes.
       partialize: (state) => ({
         bySession: Object.fromEntries(
           Object.entries(state?.bySession || {}).map(([sid, sess]) => [
             sid,
             {
-              ...(sess || {}),
-              isTurnRunning: false,
-              activePermission: null,
-              messages: Array.isArray(sess?.messages) ? sess.messages.map((m) => ({ ...m, isLive: false })) : []
+              permissionMode: sess?.permissionMode || "default",
+              metadata: { model: sess?.metadata?.model || "" }
             }
           ])
         )

@@ -16,7 +16,11 @@
 //      tool-output cap, permission_resolved broadcast, deferred mode/model restart.
 // v54: AI stop interrupts the turn instead of killing the CLI; turn-boundary snapshot
 //      flush (150ms debounce); stale-process guard; zombie-snapshot guard on destroy.
-export const DAEMON_VERSION = "54";
+// v55: compact AI streaming events on turn complete; recover history from jsonl transcripts;
+//      in-memory pure hydration batching to eliminate freeze/crash.
+// v56: aiOptions accepts `resume` so /resume rebinds the claude session id and restarts.
+// v57: aiOptions accepts `effort` (--effort) and persists it with the session snapshot.
+export const DAEMON_VERSION = "57";
 
 // PowerShell prompt function emitting OSC 7 so the client can track cwd. Passed via
 // `-NoExit -Command` at spawn — running it pre-REPL avoids PSReadLine echoing the line.

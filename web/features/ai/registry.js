@@ -1,10 +1,16 @@
-// AI engine registry — base config + per-engine overrides.
-// Adding a new AI = add an entry to ENGINE_OVERRIDES with only what differs.
+// AI engine registry — config-driven, with OOP for behavior.
+//
+// One shared DEFAULT_CONFIG holds every default. An engine declares ONLY the
+// keys it overrides; the base class merges them. Behavior that genuinely
+// differs (task parsing) is a polymorphic method on the engine subclass.
+//
+// Adding a new AI: subclass AiEngine, pass a `meta` block and an `overrides`
+// object with just the differing keys, then register it. Nothing else in the
+// app branches on an engine id — consumers read the resolved config.
 
-// ── Tool category mapping ──
-// Maps tool names to UI categories. Category determines which card component renders.
-// Unknown tools fall back to "generic".
-const BASE_TOOL_MAP = {
+// ── The one shared default config ──
+// Tool name → UI category. Category decides which card component renders.
+const DEFAULT_TOOL_MAP = Object.freeze({
   Bash: "bash",
   BashOutput: "bash", // reads a background shell's output
   KillShell: "bash",
@@ -24,29 +30,24 @@ const BASE_TOOL_MAP = {
   EnterPlanMode: "plan",
   ExitPlanMode: "plan",
   AskUserQuestion: "question",
-  // Agent/subagent tools
   Agent: "agent",
   Task: "agent",
   Workflow: "agent",
   SendMessage: "agent",
-  // Search / web — generic row is fine, but tagged for future
   WebSearch: "search",
   WebFetch: "search",
   Grep: "search",
   Glob: "search",
-  // Everything else → "generic" (handled by fallback)
-};
+});
 
-// ── Permission modes ──
-const BASE_PERMISSION_MODES = [
+const DEFAULT_PERMISSION_MODES = Object.freeze([
   { id: "default", label: "Default", desc: "Ask before executing commands & editing files" },
   { id: "acceptEdits", label: "Accept Edits", desc: "Automatically approve file changes" },
   { id: "plan", label: "Plan Mode", desc: "Explore and plan without modifying code" },
   { id: "bypassPermissions", label: "Bypass (YOLO)", desc: "Bypass all confirmation prompts" },
-];
+]);
 
-// ── Models ──
-const BASE_MODELS = [
+const DEFAULT_MODELS = Object.freeze([
   { id: "ag/gemini-3.8-flash-high", label: "ag/gemini-3.8-flash-high", short: "ag/gemini-3.8-flash-high", desc: "Fast hybrid reasoning custom model" },
   { id: "ag/claude-opus-4-6-thinking", label: "ag/claude-opus-4-6-thinking", short: "ag/claude-opus-4-6-thinking", desc: "Opus deep thinking custom model" },
   { id: "ollama/glm-5.3-flash:cloud", label: "ollama/glm-5.3-flash:cloud", short: "ollama/glm-5.3-flash:cloud", desc: "Sonnet cloud custom model" },
@@ -54,152 +55,198 @@ const BASE_MODELS = [
   { id: "haiku", label: "Claude Haiku", short: "haiku", desc: "Claude Haiku CLI alias" },
   { id: "sonnet", label: "Claude Sonnet", short: "sonnet", desc: "Claude Sonnet CLI alias" },
   { id: "opus", label: "Claude Opus", short: "opus", desc: "Claude Opus CLI alias" },
-];
+]);
 
-// ── Feature flags ──
-const BASE_FEATURES = {
+const DEFAULT_FEATURES = Object.freeze({
   thinking: true,
   planMode: true,
   tasks: true,
   skills: true,
   mcp: true,
   rewind: true,
-};
+});
 
-// ── Slash commands ──
-const BASE_SLASH_COMMANDS = [
-  { name: "/clear", description: "Clear conversation context and history" },
-  { name: "/compact", description: "Compact conversation context summary" },
-  { name: "/cost", description: "Show token usage and cost metrics" },
-  { name: "/context", description: "Show context window size and loaded files" },
-  { name: "/doctor", description: "Check agent system health and environment" },
-  { name: "/help", description: "Show help and available commands" },
-  { name: "/model", description: "Select or change active AI model" },
-  { name: "/mcp", description: "List and manage MCP servers" },
-  { name: "/skills", description: "List available agent skills" },
-];
+// Reusable submenu value lists, shared by any engine that exposes the option.
+const EFFORT_OPTIONS = Object.freeze([
+  { value: "low", label: "low", desc: "Fastest, least reasoning" },
+  { value: "medium", label: "medium", desc: "Balanced default" },
+  { value: "high", label: "high", desc: "Deeper reasoning for hard tasks" },
+]);
 
-// ── Base config (shared by all engines) ──
-const BASE_CONFIG = {
-  tools: BASE_TOOL_MAP,
-  permissionModes: BASE_PERMISSION_MODES,
-  models: BASE_MODELS,
-  features: BASE_FEATURES,
-  slashCommands: BASE_SLASH_COMMANDS,
-};
-
-// ── Per-engine overrides (only what differs) ──
-const ENGINE_OVERRIDES = {
-  claude: {
-    // Claude uses base config as-is
-  },
-  codex: {
-    tools: {
-      // Codex adapter normalizes JSON item types to these names
-      command_execution: "bash",
-      file_change: "diff",
-      // Legacy/mock item names
-      shell: "bash",
-      patch: "diff",
-      apply: "diff",
-      read_file: "file",
-      todo_list: "task",
-      web_search: "search",
-    },
-    models: [
-      { id: "o3", label: "o3", short: "o3" },
-      { id: "o4-mini", label: "o4-mini", short: "o4-mini" },
-      { id: "gpt-4.1", label: "GPT-4.1", short: "GPT-4.1" },
-    ],
-    features: { thinking: false, planMode: false, tasks: false, skills: false, mcp: false, rewind: true },
-    permissionModes: [
-      { id: "suggest", label: "Suggest", desc: "Suggest changes without applying" },
-      { id: "autoEdit", label: "Auto Edit", desc: "Automatically apply file edits" },
-      { id: "fullAuto", label: "Full Auto", desc: "Execute all actions without confirmation" },
-    ],
-    slashCommands: [
-      { name: "/clear", description: "Clear conversation" },
-      { name: "/help", description: "Show help" },
-    ],
-  },
-  opencode: {
-    tools: {
-      bash: "bash",
-      edit: "diff",
-      write: "diff",
-      patch: "diff",
-      read: "file",
-      task: "agent",
-      todowrite: "task",
-      webfetch: "search",
-      glob: "search",
-      grep: "search",
-      list: "search",
-      view: "file",
-    },
-    models: [
-      { id: "claude-3-7-sonnet-latest", label: "Sonnet 3.7", short: "Sonnet 3.7" },
-      { id: "gpt-4o", label: "GPT-4o", short: "GPT-4o" },
-    ],
-    features: { thinking: true, planMode: false, tasks: false, skills: false, mcp: false, rewind: true },
-    permissionModes: [
-      { id: "default", label: "Default", desc: "Ask before executing" },
-      { id: "auto", label: "Auto", desc: "Auto-approve all actions" },
-    ],
-    slashCommands: [
-      { name: "/clear", description: "Clear conversation" },
-      { name: "/compact", description: "Compact context" },
-      { name: "/help", description: "Show help" },
-    ],
-  },
-};
-
-// ── Resolved config cache ──
-const _cache = {};
+// Claude's --effort accepts two extra levels beyond the shared three.
+const CLAUDE_EFFORT_OPTIONS = Object.freeze([
+  ...EFFORT_OPTIONS,
+  { value: "xhigh", label: "xhigh", desc: "Extra-high reasoning" },
+  { value: "max", label: "max", desc: "Maximum reasoning" },
+]);
 
 /**
- * Get resolved config for an engine. Merges base + overrides.
- * @param {string} engine - "claude" | "codex" | "opencode"
+ * Slash commands. `action` decides what picking an entry does:
+ *   "send"        → forward the literal command to the CLI (the CLI owns it and
+ *                   returns its output as the turn's result)
+ *   "clear"       → host-side conversation reset
+ *   "modal:<id>"  → open a UI modal (model | mcp | skills | sessions | config | doctor | tasks)
+ *   "submenu"     → open a second-level list from `subOptions`, applied as `optionKey`
+ *
+ * Verified against the real CLIs in headless mode (`claude -p`, `codex exec`,
+ * `opencode run`). Some interactive slash commands DO work there and return their
+ * output as the turn's result (/compact, /cost, /context, /fast, skills like
+ * /init and /simplify) — those use action "send". Others are refused headless
+ * (/help answers "isn't available in this environment", /review returns nothing),
+ * so they are left out rather than offered as a dead entry.
  */
-export function getEngineConfig(engine = "claude") {
-  if (_cache[engine]) return _cache[engine];
+const DEFAULT_SLASH_COMMANDS = Object.freeze([
+  { name: "/clear", description: "Clear conversation context and history", action: "clear" },
+  { name: "/model", description: "Select or change active AI model", action: "modal:model" },
+  { name: "/mcp", description: "List and manage MCP servers", action: "modal:mcp" },
+  { name: "/skills", description: "List available agent skills", action: "modal:skills" },
+  { name: "/tasks", description: "View background tasks and checklist", action: "modal:tasks" },
+  { name: "/resume", description: "Resume a previous conversation in this project", action: "modal:sessions" },
+  { name: "/config", description: "Adjust CLI runtime flags", action: "modal:config" },
+  { name: "/doctor", description: "Check the CLI installation and environment", action: "modal:doctor" },
+  { name: "/compact", description: "Compact the conversation context", action: "send" },
+  { name: "/cost", description: "Show token usage and cost for this session", action: "send" },
+  { name: "/context", description: "Show context window usage and loaded files", action: "send" },
+  { name: "/effort", description: "Reasoning effort level (--effort)", action: "submenu", optionKey: "effort", subOptions: CLAUDE_EFFORT_OPTIONS },
+  { name: "/fast", description: "Toggle fast response mode", action: "send" },
+  { name: "/init", description: "Create or update the project guide file", action: "send" },
+  { name: "/simplify", description: "Simplify and optimize recently changed code", action: "send" },
+]);
 
-  const overrides = ENGINE_OVERRIDES[engine] || {};
+/** The single shared default. Engines override only what differs. */
+export const DEFAULT_CONFIG = Object.freeze({
+  tools: DEFAULT_TOOL_MAP,
+  models: DEFAULT_MODELS,
+  permissionModes: DEFAULT_PERMISSION_MODES,
+  features: DEFAULT_FEATURES,
+  slashCommands: DEFAULT_SLASH_COMMANDS,
+});
 
-  const config = {
-    // Tools: merge base + engine-specific (engine tools override base for same name)
-    tools: { ...BASE_CONFIG.tools, ...(overrides.tools || {}) },
-    // Arrays: override replaces entirely (models, modes, commands are engine-specific sets)
-    permissionModes: overrides.permissionModes || BASE_CONFIG.permissionModes,
-    models: overrides.models || BASE_CONFIG.models,
-    features: overrides.features ? { ...BASE_CONFIG.features, ...overrides.features } : { ...BASE_CONFIG.features },
-    slashCommands: overrides.slashCommands || BASE_CONFIG.slashCommands,
-  };
 
-  _cache[engine] = config;
-  return config;
+const VARIANT_OPTIONS = Object.freeze([
+  { value: "minimal", label: "minimal", desc: "Fastest, least reasoning" },
+  { value: "medium", label: "medium", desc: "Balanced default" },
+  { value: "high", label: "high", desc: "Deeper reasoning" },
+  { value: "max", label: "max", desc: "Maximum reasoning" },
+]);
+
+// Mirrors the codex adapter's mode → sandbox mapping.
+const SANDBOX_OPTIONS = Object.freeze([
+  { value: "read-only", label: "read-only", desc: "Never write anything" },
+  { value: "workspace-write", label: "workspace-write", desc: "Write inside the workspace only" },
+  { value: "danger-full-access", label: "danger-full-access", desc: "Write anywhere (unrestricted)" },
+]);
+
+// ── Base class ──
+
+/**
+ * One AI CLI backend. Data comes from DEFAULT_CONFIG merged with this engine's
+ * `overrides`; behavior is a method a subclass may override.
+ */
+export class AiEngine {
+  /**
+   * @param {object} params
+   * @param {object} params.meta       Display metadata: {id,label,desc,badge,icon,color}
+   * @param {object} [params.ui]       "New tab" entry: {id,label,short}
+   * @param {object} [params.overrides] Only the config keys that differ from DEFAULT_CONFIG
+   */
+  constructor({ meta, ui = null, overrides = {} }) {
+    if (!meta?.id) throw new Error("AiEngine requires meta.id");
+    this.meta = meta;
+    this.ui = ui;
+    this.overrides = overrides;
+    this._config = null;
+  }
+
+  /** Engine id, e.g. "claude". */
+  get id() {
+    return this.meta.id;
+  }
+
+  /**
+   * Resolved, memoized config: DEFAULT_CONFIG with this engine's overrides.
+   * Object-valued keys (tools, features) merge; list-valued keys (models,
+   * permissionModes, slashCommands) are replaced wholesale when overridden.
+   */
+  get config() {
+    if (this._config) return this._config;
+    const o = this.overrides;
+    this._config = Object.freeze({
+      tools: { ...DEFAULT_CONFIG.tools, ...(o.tools || {}) },
+      models: o.models || DEFAULT_CONFIG.models,
+      permissionModes: o.permissionModes || DEFAULT_CONFIG.permissionModes,
+      features: { ...DEFAULT_CONFIG.features, ...(o.features || {}) },
+      slashCommands: o.slashCommands || DEFAULT_CONFIG.slashCommands,
+    });
+    return this._config;
+  }
+
+  /** UI category for a tool name; unknown tools fall back to "generic". */
+  getToolCategory(toolName) {
+    // Own-property check: a tool named like an Object.prototype member
+    // ("constructor", "toString") must fall back, not resolve to a function.
+    const cat = Object.prototype.hasOwnProperty.call(this.config.tools, toolName)
+      ? this.config.tools[toolName]
+      : null;
+    return typeof cat === "string" ? cat : "generic";
+  }
+
+  /**
+   * Map a tool event into a normalized task shape (or null).
+   * Default: no task events — engines that report tasks override this.
+   */
+  parseTaskEvent(toolName, input, toolCallId, currentTasks = []) {
+    return null;
+  }
+
+  /** Extract an updated taskId/state from a completed tool result (or null). */
+  parseTaskResult(toolName, output, toolCallId) {
+    return null;
+  }
+
+  /** Shared helper: a tool call that replaces the whole todo list. */
+  _parseReplaceAllTodos(input, toolCallId) {
+    if (!Array.isArray(input?.todos)) return null;
+    return {
+      id: toolCallId,
+      replaceAll: true,
+      todos: input.todos
+        .filter((t) => t && String(t.content || "").trim())
+        .map((t, i) => ({
+          id: `${toolCallId}-${i}`,
+          taskId: String(i + 1),
+          subject: String(t.content).trim(),
+          activeForm: t.activeForm || "",
+          status: t.status || "pending",
+        })),
+    };
+  }
 }
 
-/**
- * Get tool category for rendering.
- * @returns {"bash"|"diff"|"file"|"task"|"plan"|"question"|"agent"|"search"|"generic"}
- */
-export function getToolCategory(engine, toolName) {
-  const config = getEngineConfig(engine);
-  return config.tools[toolName] || "generic";
-}
+// ── Concrete engines (only the differences) ──
 
-/**
- * Pluggable task event parser per AI engine.
- * Maps engine-specific tool events into a normalized task shape.
- */
-export function parseEngineTaskEvent(engine, toolName, input, toolCallId, currentTasks = []) {
-  if (engine === "claude") {
-    if (toolName === "TaskCreate" && input && input.subject) {
-      const nextSeq = String(currentTasks.length + 1);
+/** Claude Code CLI — uses DEFAULT_CONFIG as-is; only task parsing differs. */
+export class ClaudeEngine extends AiEngine {
+  constructor() {
+    super({
+      meta: {
+        id: "claude",
+        label: "Claude Code",
+        desc: "Anthropic Claude Code CLI (stream-json)",
+        badge: "Claude",
+        icon: "Bot",
+        color: "#d97706",
+      },
+      ui: { id: "claude-ui", label: "Claude UI", short: "Claude UI" },
+      overrides: {},
+    });
+  }
+
+  parseTaskEvent(toolName, input, toolCallId, currentTasks = []) {
+    if (toolName === "TaskCreate" && input?.subject) {
       return {
         id: toolCallId,
-        taskId: nextSeq,
+        taskId: String(currentTasks.length + 1),
         subject: String(input.subject).trim(),
         activeForm: input.activeForm || "",
         status: "pending",
@@ -215,45 +262,197 @@ export function parseEngineTaskEvent(engine, toolName, input, toolCallId, curren
       };
     }
     // TodoWrite replaces the whole list — one event carrying every item
-    if (toolName === "TodoWrite" && Array.isArray(input?.todos)) {
-      return { id: toolCallId, replaceAll: true, todos: todoListToTasks(toolCallId, input.todos) };
-    }
+    if (toolName === "TodoWrite") return this._parseReplaceAllTodos(input, toolCallId);
+    return null;
   }
 
-  if (engine === "opencode" && toolName === "todowrite" && Array.isArray(input?.todos)) {
-    return { id: toolCallId, replaceAll: true, todos: todoListToTasks(toolCallId, input.todos) };
-  }
-
-  if (engine === "codex" && toolName === "todo_list" && Array.isArray(input?.todos)) {
-    return { id: toolCallId, replaceAll: true, todos: todoListToTasks(toolCallId, input.todos) };
-  }
-
-  // Future engine extensions: add codex / opencode / custom agent task formats here
-  return null;
-}
-
-function todoListToTasks(toolCallId, todos) {
-  return todos
-    .filter((t) => t && String(t.content || "").trim())
-    .map((t, i) => ({
-      id: `${toolCallId}-${i}`,
-      taskId: String(i + 1),
-      subject: String(t.content).trim(),
-      activeForm: t.activeForm || "",
-      status: t.status || "pending",
-    }));
-}
-
-/**
- * Pluggable task result parser per AI engine.
- * Extracts updated taskId or state from completed tool results.
- */
-export function parseEngineTaskResult(engine, toolName, output, toolCallId) {
-  if (engine === "claude" && output && typeof output === "string") {
+  parseTaskResult(toolName, output, toolCallId) {
+    if (typeof output !== "string") return null;
     const match = /Task #(\d+) created/i.exec(output);
-    if (match) {
-      return { id: toolCallId, taskId: match[1] };
-    }
+    return match ? { id: toolCallId, taskId: match[1] } : null;
   }
-  return null;
+}
+
+/** OpenAI Codex CLI — sandbox permissions, todo_list task shape. */
+export class CodexEngine extends AiEngine {
+  constructor() {
+    super({
+      meta: {
+        id: "codex",
+        label: "OpenAI Codex",
+        desc: "OpenAI Codex CLI (exec --json)",
+        badge: "Codex",
+        icon: "Sparkles",
+        color: "#10b981",
+      },
+      ui: { id: "codex-ui", label: "Codex UI", short: "Codex UI" },
+      overrides: {
+        // Codex adapter normalizes JSON item types to these names
+        tools: {
+          command_execution: "bash",
+          file_change: "diff",
+          shell: "bash",
+          patch: "diff",
+          apply: "diff",
+          read_file: "file",
+          todo_list: "task",
+          web_search: "search",
+        },
+        models: [
+          { id: "o3", label: "o3", short: "o3" },
+          { id: "o4-mini", label: "o4-mini", short: "o4-mini" },
+          { id: "gpt-4.1", label: "GPT-4.1", short: "GPT-4.1" },
+        ],
+        permissionModes: [
+          { id: "suggest", label: "Suggest", desc: "Suggest changes without applying" },
+          { id: "autoEdit", label: "Auto Edit", desc: "Automatically apply file edits" },
+          { id: "fullAuto", label: "Full Auto", desc: "Execute all actions without confirmation" },
+        ],
+        features: { thinking: false, planMode: false, tasks: false, skills: false, mcp: false, rewind: true },
+        slashCommands: [
+          { name: "/model", description: "Choose the Codex model", action: "modal:model" },
+          { name: "/effort", description: "Reasoning effort (model_reasoning_effort)", action: "submenu", optionKey: "effort", subOptions: EFFORT_OPTIONS },
+          { name: "/sandbox", description: "Sandbox policy for command execution", action: "submenu", optionKey: "sandbox", subOptions: SANDBOX_OPTIONS },
+          { name: "/skills", description: "Browse installed Codex skills", action: "modal:skills" },
+          { name: "/mcp", description: "View and manage Codex MCP servers", action: "modal:mcp" },
+          { name: "/config", description: "Configure Codex execution flags", action: "modal:config" },
+          // Verified: `codex exec "/review"` really runs a review of the repo.
+          { name: "/review", description: "Run a code review on this repository", action: "send" },
+          { name: "/resume", description: "Resume a previous Codex session", action: "modal:sessions" },
+          { name: "/clear", description: "Start a fresh Codex session", action: "clear" },
+          { name: "/doctor", description: "Diagnose the Codex installation", action: "modal:doctor" },
+          { name: "/tasks", description: "View the task checklist", action: "modal:tasks" },
+        ],
+      },
+    });
+  }
+
+  parseTaskEvent(toolName, input, toolCallId) {
+    if (toolName === "todo_list") return this._parseReplaceAllTodos(input, toolCallId);
+    return null;
+  }
+}
+
+/** OpenCode CLI — auto-approve permissions, todowrite task shape. */
+export class OpenCodeEngine extends AiEngine {
+  constructor() {
+    super({
+      meta: {
+        id: "opencode",
+        label: "OpenCode",
+        desc: "OpenCode CLI (json stream)",
+        badge: "OpenCode",
+        icon: "Zap",
+        color: "#8b5cf6",
+      },
+      ui: { id: "opencode-ui", label: "OpenCode UI", short: "OpenCode UI" },
+      overrides: {
+        tools: {
+          bash: "bash",
+          edit: "diff",
+          write: "diff",
+          patch: "diff",
+          read: "file",
+          task: "agent",
+          todowrite: "task",
+          webfetch: "search",
+          glob: "search",
+          grep: "search",
+          list: "search",
+          view: "file",
+        },
+        models: [
+          { id: "claude-3-7-sonnet-latest", label: "Sonnet 3.7", short: "Sonnet 3.7" },
+          { id: "gpt-4o", label: "GPT-4o", short: "GPT-4o" },
+        ],
+        permissionModes: [
+          { id: "default", label: "Default", desc: "Ask before executing" },
+          { id: "auto", label: "Auto", desc: "Auto-approve all actions" },
+        ],
+        features: { thinking: true, planMode: false, tasks: false, skills: false, mcp: false, rewind: true },
+        slashCommands: [
+          { name: "/model", description: "Choose the OpenCode model", action: "modal:model" },
+          { name: "/variant", description: "Model variant / reasoning effort", action: "submenu", optionKey: "variant", subOptions: VARIANT_OPTIONS },
+          { name: "/mcp", description: "View and manage OpenCode MCP servers", action: "modal:mcp" },
+          { name: "/resume", description: "Resume a previous OpenCode session", action: "modal:sessions" },
+          { name: "/clear", description: "Start a fresh OpenCode session", action: "clear" },
+          // Verified: `opencode run "/help"` answers with its own help text.
+          { name: "/help", description: "Show OpenCode help and usage", action: "send" },
+          { name: "/doctor", description: "Check the OpenCode installation", action: "modal:doctor" },
+          { name: "/tasks", description: "View the task checklist", action: "modal:tasks" },
+        ],
+      },
+    });
+  }
+
+  parseTaskEvent(toolName, input, toolCallId) {
+    if (toolName === "todowrite") return this._parseReplaceAllTodos(input, toolCallId);
+    return null;
+  }
+}
+
+// ── Registry ──
+
+export const DEFAULT_ENGINE_ID = "claude";
+
+/** @type {Map<string, AiEngine>} insertion order = menu order */
+const registry = new Map();
+
+/** Register an engine. A later registration with the same id replaces the earlier one. */
+export function registerEngine(engine) {
+  if (!(engine instanceof AiEngine)) throw new Error("registerEngine expects an AiEngine");
+  registry.set(engine.id, engine);
+  return engine;
+}
+
+/** Look up an engine by id, falling back to the default. */
+export function getEngine(engineId) {
+  return registry.get(engineId) || registry.get(DEFAULT_ENGINE_ID);
+}
+
+/** All registered engines, in registration order. */
+export function listEngineInstances() {
+  return [...registry.values()];
+}
+
+// Built-in engines.
+registerEngine(new ClaudeEngine());
+registerEngine(new CodexEngine());
+registerEngine(new OpenCodeEngine());
+
+// ── Function-style API (thin wrappers over the registry) ──
+
+/** Resolved config for an engine. */
+export function getEngineConfig(engineId = DEFAULT_ENGINE_ID) {
+  return getEngine(engineId).config;
+}
+
+/** Display metadata for an engine (label, icon, color, badge). */
+export function getEngineInfo(engineId = DEFAULT_ENGINE_ID) {
+  return getEngine(engineId).meta;
+}
+
+/** Engines as a list of display metadata, for menus and pickers. */
+export function listEngines() {
+  return listEngineInstances().map((e) => e.meta);
+}
+
+/** "New tab" entries for the AI UIs, derived from the engine descriptors. */
+export function listAiUiOptions() {
+  return listEngineInstances().map((e) => ({ ...e.ui, isAiUi: true, aiEngine: e.id }));
+}
+
+/** UI category for a tool name. */
+export function getToolCategory(engineId, toolName) {
+  return getEngine(engineId).getToolCategory(toolName);
+}
+
+/** Map an engine-specific tool event into a normalized task shape. */
+export function parseEngineTaskEvent(engineId, toolName, input, toolCallId, currentTasks = []) {
+  return getEngine(engineId).parseTaskEvent(toolName, input, toolCallId, currentTasks);
+}
+
+/** Extract an updated taskId/state from a completed tool result. */
+export function parseEngineTaskResult(engineId, toolName, output, toolCallId) {
+  return getEngine(engineId).parseTaskResult(toolName, output, toolCallId);
 }

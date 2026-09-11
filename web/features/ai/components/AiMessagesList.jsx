@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useRef, useEffect, useState, useCallback } from "react";
+import { memo, useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { MessageBubble } from "./MessageBubble";
 import { ENGINE_INFO } from "../constants";
@@ -9,12 +9,38 @@ import { vibrate } from "@/shared/utils/vibration";
 import { agentIconUrl } from "@/features/terminal/constants/agentCli";
 
 const EMPTY_MESSAGES = [];
-// Long histories get expensive to render: only the newest slice is mounted, the rest
-// paged in on demand. The data is already client-side (the hydrate replays the whole
-// event log) — this trims DOM, it does not fetch from the host.
-const PAGE_SIZE = 30;
-// Reveal the next page this far from the top, so older turns are there before you land
+// Dynamic byte budget per slice: adapts flexibly to message sizes. Long turns (diffs/code)
+// stop early to keep DOM light; short turns ("ok", "yes") pack multiple exchanges.
+const PAGE_BUDGET_BYTES = 32 * 1024; // 32 KB per load slice
 const LOAD_MORE_THRESHOLD_PX = 120;
+
+function estimateMessageBytes(msg) {
+  if (!msg) return 0;
+  let bytes = (msg.content?.length || 0) + (msg.thinking?.length || 0);
+  if (Array.isArray(msg.tools)) {
+    for (const t of msg.tools) {
+      bytes += (t.command?.length || 0) + (t.output?.length || 0) + 120;
+    }
+  }
+  if (Array.isArray(msg.diffs)) {
+    for (const d of msg.diffs) {
+      bytes += (d.diff?.length || 0) + (d.file?.length || 0) + 80;
+    }
+  }
+  return Math.max(bytes, 100);
+}
+
+function countMessagesByBudget(messages, budgetBytes, minCount = 2) {
+  if (!Array.isArray(messages) || messages.length === 0) return 0;
+  let accumulated = 0;
+  let count = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    accumulated += estimateMessageBytes(messages[i]);
+    count++;
+    if (accumulated >= budgetBytes && count >= minCount) break;
+  }
+  return count;
+}
 
 export const AiMessagesList = memo(function AiMessagesList({
   sessionId,
@@ -30,14 +56,19 @@ export const AiMessagesList = memo(function AiMessagesList({
   const isAtBottomRef = useRef(true);
   const scrollTimerRef = useRef(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [visibleBytes, setVisibleBytes] = useState(PAGE_BUDGET_BYTES);
 
   // Subscribe ONLY to messages of this session
   const messages = useAiStore((s) => s.bySession[sessionId]?.messages) || EMPTY_MESSAGES;
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
 
   // A history rebuilt from the host log is a different list — start from the tail again
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [sessionId]);
+  useEffect(() => { setVisibleBytes(PAGE_BUDGET_BYTES); }, [sessionId]);
+
+  const visibleCount = useMemo(
+    () => countMessagesByBudget(messages, visibleBytes),
+    [messages, visibleBytes]
+  );
 
   const hiddenCount = Math.max(0, messages.length - visibleCount);
   const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
@@ -48,12 +79,12 @@ export const AiMessagesList = memo(function AiMessagesList({
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     const prevTop = el?.scrollTop ?? 0;
-    setVisibleCount((c) => Math.min(c + PAGE_SIZE, messages.length));
+    setVisibleBytes((b) => b + PAGE_BUDGET_BYTES);
     if (!el) return;
     requestAnimationFrame(() => {
       el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
     });
-  }, [messages.length]);
+  }, []);
 
   // Optimized scroll handler using requestAnimationFrame
   const handleScroll = useCallback(() => {
@@ -66,24 +97,30 @@ export const AiMessagesList = memo(function AiMessagesList({
       const atBottom = distanceToBottom < 80;
       isAtBottomRef.current = atBottom;
       setShowScrollBottom(!atBottom && distanceToBottom > 140);
+      // Auto-load older turns as user scrolls near top
+      if (el.scrollTop < LOAD_MORE_THRESHOLD_PX && hiddenCount > 0) {
+        handleLoadMore();
+      }
     });
-  }, []);
+  }, [handleLoadMore, hiddenCount]);
 
-  // Paging on approach, not on gesture: the sentinel sits at the top of the mounted
-  // window, so an intersection covers first paint, resize, and scroll alike. rootMargin
-  // preloads a page before it is reached. Re-armed whenever the window grows, so a
-  // container still shorter than the viewport keeps advancing instead of stalling.
+  // Paging sentinel observer — fires when user scrolls up into the threshold.
+  // Gated on !isAtBottomRef to prevent an infinite loop on initial paint when scrollTop is 0.
   useEffect(() => {
     const root = scrollRef.current;
     const sentinel = sentinelRef.current;
     if (!root || !sentinel) return;
     const io = new IntersectionObserver(
-      (entries) => { if (entries.some((e) => e.isIntersecting)) handleLoadMore(); },
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && !isAtBottomRef.current) {
+          handleLoadMore();
+        }
+      },
       { root, rootMargin: `${LOAD_MORE_THRESHOLD_PX}px` }
     );
     io.observe(sentinel);
     return () => io.disconnect();
-  }, [handleLoadMore, visibleCount, messages.length]);
+  }, [handleLoadMore]);
 
   // Smart auto-scroll: only scroll if user hasn't scrolled up
   useEffect(() => {

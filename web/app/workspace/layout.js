@@ -350,7 +350,11 @@ export default function WorkspaceLayout({ children }) {
   // left the host's PATH falls back to a plain terminal, same as the modal does.
   const createTerminalFromPrefs = useCallback(() => {
     const { agentId, shellId, yolo } = loadTerminalPrefs();
-    const allAgents = [...AI_UI_OPTIONS, ...(agentClis || [])];
+    const allAgents = (agentClis || []).flatMap((a) => {
+      const ui = AI_UI_OPTIONS.find((u) => u.aiEngine === a.id);
+      return ui ? [a, ui] : a;
+    });
+    for (const u of AI_UI_OPTIONS) if (!allAgents.includes(u)) allAgents.push(u);
     const agent = (agentId && allAgents.find((a) => a.id === agentId)) || null;
     const index = sessions.filter((s) => sessionWorkspaceId(s) === (activeWorkspaceId ?? null)).length + 1;
     const name = agent ? `${agent.short || agent.label} ${index}` : null;

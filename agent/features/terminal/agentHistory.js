@@ -35,13 +35,21 @@ const INJECTED_TURN_RES = [
 const isInjectedTurn = (text) => INJECTED_TURN_RES.some((re) => re.test(text));
 
 // One transcript line's text, minus the harness wrapping, collapsed to one line.
-function cleanTitle(text) {
+export function cleanTitle(text) {
+  const out = stripHarnessWrapping(text);
+  // A title is one line: collapse runs of whitespace and cap the length.
+  const oneLine = out.replace(/\s+/g, " ");
+  return oneLine.length > HISTORY.TITLE_MAX ? `${oneLine.slice(0, HISTORY.TITLE_MAX)}…` : oneLine;
+}
+
+// The same unwrapping without the title treatment: newlines and length are preserved,
+// so a message body (a code block, a long answer) survives a replay intact.
+export function stripHarnessWrapping(text) {
   if (typeof text !== "string") return "";
   const query = text.match(USER_QUERY_RE);
   let out = query ? query[1] : text;
   for (const re of WRAPPER_PATTERNS) out = out.replace(re, "");
-  out = out.replace(/\s+/g, " ").trim();
-  return out.length > HISTORY.TITLE_MAX ? `${out.slice(0, HISTORY.TITLE_MAX)}…` : out;
+  return out.trim();
 }
 
 // Message content is a bare string in some stores and a content-part array in others.

@@ -21,6 +21,8 @@ export const Composer = memo(function Composer({
   onRunShell,
   onSelectModel,
   onModeChange,
+  onOpenModal,
+  onOptionChange,
   onActivate,
   fileBus = null,
   workspacePath = "",
@@ -47,6 +49,8 @@ export const Composer = memo(function Composer({
   const [menuFilter, setMenuFilter] = useState("");
   const [menuItems, setMenuItems] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  // The slash command whose second-level option list is open (e.g. /effort)
+  const [submenuCmd, setSubmenuCmd] = useState(null);
 
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
@@ -120,6 +124,16 @@ export const Composer = memo(function Composer({
 
   // Check trigger token for Autocomplete menu
   useEffect(() => {
+    // While a submenu is open it owns the popup. Picking a command sets the text to
+    // "/effort ", which would otherwise re-enter this effect and close the submenu
+    // before the user can pick — so keep it open as long as the text still ends in
+    // that command, and close it once the user types something else.
+    if (submenuCmd) {
+      const escaped = submenuCmd.name.replace(/[/@]/g, "\\$&");
+      if (new RegExp(`(?:^|\\s)${escaped}\\s*$`).test(text)) return;
+      setSubmenuCmd(null);
+    }
+
     const lastWordMatch = /(?:^|\s)([/@][\w\d_.-]*)$/.exec(text);
     if (!lastWordMatch) {
       setMenuOpen(false);
@@ -172,7 +186,7 @@ export const Composer = memo(function Composer({
         setMenuOpen(false);
       }
     }
-  }, [text, fileBus, workspacePath, storeSkills, SLASH_COMMANDS]);
+  }, [text, fileBus, workspacePath, storeSkills, SLASH_COMMANDS, submenuCmd]);
 
   const executeSend = useCallback(() => {
     const raw = textareaRef.current ? textareaRef.current.value : text;
@@ -239,6 +253,39 @@ export const Composer = memo(function Composer({
     }
   }, [onStop, queuedText, onSend, onRunShell]);
 
+  // Dispatch a picked slash command by its declared action. The action lives in
+  // the engine registry, so this switch never needs an engine-specific branch.
+  const runSlashAction = useCallback((item) => {
+    const action = item.action || "send";
+    const [kind, arg] = action.split(":");
+
+    if (kind === "modal") {
+      onOpenModal?.(arg);
+      setText("");
+      return;
+    }
+    if (kind === "clear") {
+      // Host-side reset — works mid-turn, so it is not dropped by the running guard.
+      onSend?.("/clear", { force: true });
+      setText("");
+      return;
+    }
+    if (kind === "send" || action === "send") {
+      // CLI-owned command (e.g. /compact, /review). Mid-turn it would be dropped by
+      // the running guard, so queue it the same way a normal prompt is queued.
+      if (isTurnRunning) {
+        setQueuedText(item.name);
+        setText("");
+        return;
+      }
+      onSend?.(item.name);
+      setText("");
+      return;
+    }
+    // Unknown/local action → leave the token in the box for the user to complete.
+    textareaRef.current?.focus();
+  }, [onOpenModal, onSend, isTurnRunning]);
+
   const selectMenuItem = useCallback((item) => {
     vibrate();
     const lastWordMatch = /(?:^|\s)([/@][\w\d_.-]*)$/.exec(text);
@@ -250,13 +297,30 @@ export const Composer = memo(function Composer({
     setText(`${prefix}${replacement}`);
     setMenuOpen(false);
 
-    if (menuType === "/" && ["/clear", "/compact", "/cost", "/context", "/doctor", "/help"].includes(item.name)) {
-      onSend?.(item.name);
-      setText("");
-    } else {
+    if (menuType !== "/") {
       textareaRef.current?.focus();
+      return;
     }
-  }, [text, menuType, onSend]);
+    // A submenu command opens a second-level list instead of dispatching.
+    if (item.action === "submenu" && Array.isArray(item.subOptions) && item.subOptions.length > 0) {
+      setSubmenuCmd(item);
+      setSelectedIdx(0);
+      setMenuOpen(true);
+      return;
+    }
+    runSlashAction(item);
+  }, [text, menuType, runSlashAction]);
+
+  // Pick a value from a submenu (e.g. an effort level) and apply it to the session.
+  const selectSubOption = useCallback((option) => {
+    vibrate();
+    const cmd = submenuCmd;
+    if (!cmd) return;
+    onOptionChange?.(cmd.optionKey, option.value);
+    setSubmenuCmd(null);
+    setMenuOpen(false);
+    setText("");
+  }, [submenuCmd, onOptionChange]);
 
   const handleKeyDown = (e) => {
     // Shift+Tab: cycle permission modes (matching Claude Code CLI)
@@ -273,8 +337,15 @@ export const Composer = memo(function Composer({
       return;
     }
 
-    // Escape: cancel autocomplete menu, or stop active stream (& send queue), or clear queue
+    // Escape: cancel submenu, then autocomplete menu, then stop stream / clear queue
     if (e.key === "Escape") {
+      if (submenuCmd) {
+        e.preventDefault();
+        setSubmenuCmd(null);
+        setMenuOpen(false);
+        setText("");
+        return;
+      }
       if (menuOpen) {
         e.preventDefault();
         setMenuOpen(false);
@@ -288,6 +359,26 @@ export const Composer = memo(function Composer({
       if (queuedText) {
         e.preventDefault();
         setQueuedText("");
+        return;
+      }
+    }
+
+    // Submenu option navigation
+    if (submenuCmd) {
+      const opts = submenuCmd.subOptions || [];
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIdx((prev) => (prev + 1) % opts.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIdx((prev) => (prev - 1 + opts.length) % opts.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        selectSubOption(opts[selectedIdx]);
         return;
       }
     }
@@ -373,8 +464,43 @@ export const Composer = memo(function Composer({
 
   return (
     <div className="relative px-3 py-1.5 bg-transparent border-t border-border-subtle/40 select-none">
+      {/* Autocomplete Menu popup — second-level option list when a submenu is open */}
+      {menuOpen && submenuCmd && (
+        <div
+          ref={menuContainerRef}
+          className="absolute left-3 right-3 bottom-[calc(100%+6px)] max-h-52 bg-surface border border-border-subtle rounded-brand shadow-lg overflow-y-auto z-50 p-1 custom-scrollbar"
+        >
+          <div className="px-2 py-0.5 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1 flex items-center justify-between">
+            <span>{submenuCmd.name} — {submenuCmd.optionKey}</span>
+            <button
+              type="button"
+              onClick={() => { setSubmenuCmd(null); setMenuOpen(false); setText(""); }}
+              className="text-text-muted hover:text-text"
+            >
+              <X size={11} />
+            </button>
+          </div>
+          {(submenuCmd.subOptions || []).map((opt, idx) => (
+            <div
+              key={opt.value}
+              data-menu-item="true"
+              onClick={() => selectSubOption(opt)}
+              onMouseEnter={() => setSelectedIdx(idx)}
+              className={`px-2 py-1 rounded-brand flex items-center justify-between text-xs cursor-pointer ${
+                idx === selectedIdx ? "bg-surface-2 text-text font-medium" : "text-text-muted hover:text-text"
+              }`}
+            >
+              <span className="font-mono text-xs text-text">{opt.label}</span>
+              {opt.desc && (
+                <span className="text-[10px] text-text-muted truncate ml-2 max-w-[55%]">{opt.desc}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Autocomplete Menu popup */}
-      {menuOpen && menuItems.length > 0 && (
+      {menuOpen && !submenuCmd && menuItems.length > 0 && (
         <div
           ref={menuContainerRef}
           className="absolute left-3 right-3 bottom-[calc(100%+6px)] max-h-52 bg-surface border border-border-subtle rounded-brand shadow-lg overflow-y-auto z-50 p-1 custom-scrollbar"
@@ -405,6 +531,9 @@ export const Composer = memo(function Composer({
                   <span className="text-[9px] px-1 rounded bg-warning/15 text-warning font-mono">
                     skill
                   </span>
+                )}
+                {item.action === "submenu" && (
+                  <ChevronUp size={11} className="text-text-muted shrink-0 rotate-90" />
                 )}
               </div>
               {item.description && (
