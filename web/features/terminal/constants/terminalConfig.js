@@ -30,6 +30,7 @@ export const COMMON_COMMANDS = [
 
 // Layout breakpoints and sizing
 export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
+export const MOBILE_FONT_BREAKPOINT = 768; // < this: mobile font default (matches the CSS sm: breakpoint)
 // Desktop pane width: null = auto (panes split the row evenly down to min, then the row
 // scrolls); a dragged number pins every pane to that fixed width. Double-click returns to auto.
 export const PANE_WIDTH = { min: 400, max: Infinity };
@@ -157,6 +158,14 @@ export const TERMINAL_OPTIONS = {
   minimumContrastRatio: 4.5,
   macOptionIsMeta: true
 };
+
+// The font size the terminal actually renders at — settings value, else the
+// breakpoint default. Shared so the AI pane can match the terminal exactly.
+export function effectiveFontSize(fontSizeSetting) {
+  if (fontSizeSetting != null) return fontSizeSetting;
+  const mobile = typeof window !== "undefined" && window.innerWidth < MOBILE_FONT_BREAKPOINT;
+  return mobile ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize;
+}
 
 // Mobile terminal background presets (image behind a semi-transparent terminal)
 export const TERMINAL_BG_ALPHA = 0.8;

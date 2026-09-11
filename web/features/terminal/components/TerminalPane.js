@@ -96,10 +96,14 @@ function TerminalPane({
     else useNotificationStore.getState().clearNotification(sessionId);
   }, [clearNotification, sessionId]);
 
+  // Background image on the pane (empty pool falls back to theme background). The
+  // key is published to useXTerm only when the image actually renders — otherwise
+  // the canvas would go transparent over nothing and paint black.
+  const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
+
   const { termRef, cwdRef, cwd, termReady, joining, doResize, reload, focus, stopMomentum, historyFetching } = useXTerm({
-    // Effective key — the canvas goes transparent only when the image actually renders,
-    // so a pool key without a resolvable item (deleted/raced) falls back to opaque, not black
-    bus: activeBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay, bgKey: "none",
+    bus: activeBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay,
+    bgKey: bgSrc ? paneBgKey : "none",
     onInput: handleClear,
     onSelectionMade: (text, pos) => setSelection({ text, x: pos.x, y: pos.y }),
   });
@@ -175,10 +179,6 @@ function TerminalPane({
       window.removeEventListener("orientationchange", update);
     };
   }, [scrollCursorIntoView]);
-
-  // Background image on the pane (empty pool falls back to theme background)
-  const bgActive = true;
-  const bgSrc = bgActive ? backgroundSrc(paneBgKey, customBackgrounds) : null;
 
   const stripButtons = <PaneStripButtons onOpenRemote={onOpenRemote} onOpenMobile={onOpenMobile} />;
 
@@ -262,13 +262,13 @@ function TerminalPane({
     showFocusBorder && isFocused ? "terminal-focus-glow" : ""
   ].filter(Boolean).join(" ");
 
-  const veil = bgActive ? `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})` : "";
-  const lift = bgActive ? `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})` : "";
+  const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
+  const lift = `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})`;
 
   return (
     <div
-      className={`h-full w-full flex flex-col overflow-hidden relative touch-none px-1.5 py-1.5 ${focusClass}${bgActive ? " terminal-has-bg" : ""}`}
-      style={bgActive && bgSrc ? {
+      className={`h-full w-full flex flex-col overflow-hidden relative touch-none px-1.5 py-1.5 ${focusClass}${bgSrc ? " terminal-has-bg" : ""}`}
+      style={bgSrc ? {
         background: `linear-gradient(${veil},${veil}), linear-gradient(${lift},${lift}), center / cover no-repeat url("${bgSrc}")`,
         backgroundBlendMode: "normal, screen, normal"
       } : { background: currentTheme.background }}

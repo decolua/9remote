@@ -9,7 +9,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { termLog } from "@/shared/utils/termLog";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS, HISTORY_FETCH, applyTerminalBackground, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS, HISTORY_FETCH, applyTerminalBackground, effectiveFontSize } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState, recoveryBusy } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { createGapFetch } from "@/features/terminal/lib/gapFetch";
@@ -369,9 +369,10 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
 
     const term = new XTerm({
       ...TERMINAL_OPTIONS,
-      fontSize: fontSizeSetting ?? (window.innerWidth < 768 ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize),
-      // Mobile-only background image feature — must be set before open(), immutable after
-      allowTransparency: window.innerWidth < DESKTOP_BREAKPOINT,
+      fontSize: effectiveFontSize(fontSizeSetting),
+      // Immutable after open(), so it must be on for every viewport the feature can
+      // reach — the canvas goes transparent only while a background actually renders.
+      allowTransparency: true,
       theme: applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, theme === "dark" ? bgKey : "none")
     });
 
@@ -817,8 +818,8 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    // Alpha bg only valid on a mobile terminal while the app is in dark mode
-    const effKey = term.options.allowTransparency && theme === "dark" ? bgKey : "none";
+    // The veil is tuned for dark mode, so a background never renders in light mode
+    const effKey = theme === "dark" ? bgKey : "none";
     term.options.theme = applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, effKey);
     // Force a full repaint — stale transparent pixels must not survive a bg switch
     term.refresh(0, term.rows - 1);
