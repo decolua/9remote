@@ -18,8 +18,6 @@ function detectLocale() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("agentLocale");
     if (saved && LOCALES[saved]) return saved;
-    const nav = (navigator.language || "").slice(0, 2);
-    if (LOCALES[nav]) return nav;
   } catch {}
   return DEFAULT_LOCALE;
 }

@@ -342,11 +342,20 @@ function TerminalHeader({
               >
                 <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
                   {agentBySession[session.id]?.endsWith("-ui") ? (
-                    <img
-                      src={agentIconUrl(agentBySession[session.id].replace("-ui", ""))}
-                      alt=""
-                      className={`w-3.5 h-3.5 object-contain ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
-                    />
+                    // Busy AI tab trades its engine icon for the state dot, same as a terminal tab
+                    st !== "idle" ? (
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
+                        style={{ background: v.dot }}
+                        title={t(v.label)}
+                      />
+                    ) : (
+                      <img
+                        src={agentIconUrl(agentBySession[session.id].replace("-ui", ""))}
+                        alt=""
+                        className={`w-3.5 h-3.5 object-contain ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
+                      />
+                    )
                   ) : (
                     <span
                       className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}

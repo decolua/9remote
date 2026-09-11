@@ -12,7 +12,11 @@
 // v49: track foreground process changes and broadcast to agent (detect agent CLI exit/Ctrl+C).
 // v50: foreground process polling and auto-clear session agent on exit.
 // v51: event-driven process check on output settle/input (no 500ms polling); preserve completion badges.
-export const DAEMON_VERSION = "51";
+// v53: persistent AI sessions (claude process + chat log) with seq-stamped replay,
+//      tool-output cap, permission_resolved broadcast, deferred mode/model restart.
+// v54: AI stop interrupts the turn instead of killing the CLI; turn-boundary snapshot
+//      flush (150ms debounce); stale-process guard; zombie-snapshot guard on destroy.
+export const DAEMON_VERSION = "54";
 
 // PowerShell prompt function emitting OSC 7 so the client can track cwd. Passed via
 // `-NoExit -Command` at spawn — running it pre-REPL avoids PSReadLine echoing the line.

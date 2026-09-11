@@ -1,19 +1,24 @@
 "use client";
 
 import { memo, useState, useRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Copy, Check, ExternalLink, Pencil } from "@/shared/components/ui/Icon";
+import MarkdownBody from "@/shared/components/ui/MarkdownBody";
+import { Copy, Check, ExternalLink, Pencil, Loader2 } from "@/shared/components/ui/Icon";
 import { AiDiffCard } from "./cards/AiDiffCard";
 import { AiToolCard } from "./cards/AiToolCard";
+import { AiBashCard } from "./cards/AiBashCard";
 import { AiPermissionCard } from "./cards/AiPermissionCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { AiPlanModeCard } from "./cards/AiPlanModeCard";
 import { AiThinkingBlock } from "./cards/AiThinkingBlock";
+import { getToolCategory } from "../registry";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
 
-function CodePre({ children }) {
+// Tools whose whole effect is the pinned checklist strip (AiTaskCard) — inline they
+// would only repeat it. The rest of the "task" category is a plain row (see below).
+const TASK_STRIP_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "todowrite"]);
+
+function CodePre({ children, node: _node, ...props }) {
   const [copied, setCopied] = useState(false);
   const ref = useRef(null);
 
@@ -29,7 +34,8 @@ function CodePre({ children }) {
     <div className="relative group/code my-2.5">
       <pre
         ref={ref}
-        className="bg-surface-2/50 border border-border-subtle/70 rounded-brand p-3 overflow-x-auto font-mono text-[12px] leading-relaxed text-text select-text"
+        className="bg-surface-2/50 border border-border-subtle/70 rounded-brand p-3 overflow-x-auto max-w-full font-mono text-[12px] leading-relaxed text-text select-text [&_code]:bg-transparent [&_code]:p-0 [&_code]:border-0"
+        {...props}
       >
         {children}
       </pre>
@@ -47,6 +53,7 @@ function CodePre({ children }) {
 
 export const MessageBubble = memo(function MessageBubble({
   message,
+  engine = "claude",
   onResolvePermission,
   onRewind
 }) {
@@ -55,6 +62,9 @@ export const MessageBubble = memo(function MessageBubble({
   const [editValue, setEditValue] = useState("");
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
   const { id, role, content, thinking, diffs = [], tools = [], permission = null, isLive = false } = message;
+  // Same blank-run test AiThinkingBlock uses — a whitespace-only streak renders nothing,
+  // so it must not count as content when deciding whether the live spinner shows either.
+  const hasThinking = Boolean(thinking?.trim());
 
   const handleCopyAll = () => {
     vibrate();
@@ -74,6 +84,7 @@ export const MessageBubble = memo(function MessageBubble({
               onChange={(e) => setEditValue(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                   e.preventDefault();
                   if (editValue.trim()) {
                     onRewind?.(message.id, editValue.trim());
@@ -94,14 +105,14 @@ export const MessageBubble = memo(function MessageBubble({
       );
     }
     return (
-      <div className="group flex justify-end my-3">
-        <div className="max-w-[85%] sm:max-w-[75%] px-4 py-2.5 rounded-brand-lg bg-surface-2 text-text text-sm whitespace-pre-wrap break-words shadow-sm">
+      <div className="group/msg flex justify-end my-3">
+        <div className="max-w-[85%] sm:max-w-[75%] px-4 py-2.5 rounded-brand-lg bg-surface-2/70 text-text text-sm whitespace-pre-wrap break-words">
           {content}
         </div>
         <button
           type="button"
           onClick={() => { vibrate(); setEditValue(content || ""); setEditing(true); }}
-          className="opacity-0 group-hover:opacity-100 p-1.5 text-text-muted hover:text-text rounded transition-all self-start mt-1"
+          className="opacity-0 group-hover/msg:opacity-100 p-1.5 text-text-muted hover:text-text rounded transition-all self-start mt-1"
           title="Edit & rewind"
         >
           <Pencil size={12} />
@@ -110,18 +121,44 @@ export const MessageBubble = memo(function MessageBubble({
     );
   }
 
-  // Assistant message
+  // Assistant message — route tools through registry
   const visibleTools = (tools || []).filter((t) => {
-    if (t.name === "AskUserQuestion") return false;
+    if (!t || !t.name) return false;
     const path = t.input?.file_path || t.input?.path || "";
     if ((t.name === "Edit" || t.name === "Write") && path && diffs.some((d) => d.file === path)) {
       return false;
     }
+    // Task checklist renders in the pinned strip, not inline — except TaskList/TaskGet,
+    // which the strip has no equivalent of (they read the list rather than change it).
+    if (getToolCategory(engine, t.name) === "task" && TASK_STRIP_TOOLS.has(t.name)) return false;
     return true;
   });
 
+  const renderTool = (t, idx) => {
+    const cat = getToolCategory(engine, t.name);
+    switch (cat) {
+      case "plan":
+        return <AiPlanModeCard key={t.id || idx} toolName={t.name} input={t.input} />;
+      case "bash":
+        return <AiBashCard key={t.id || idx} {...t} />;
+      // Answered question — the host's tool output is the only record of the choice.
+      // While still running the pinned card above the composer owns the interaction.
+      case "question":
+        return t.status === "running" ? null : (
+          <AiQuestionCard
+            key={t.id || idx}
+            questions={t.input?.questions || []}
+            answers={t.output || t.error || ""}
+          />
+        );
+      // diff/file/search/agent/task/generic → all use compact AiToolCard
+      default:
+        return <AiToolCard key={t.id || idx} {...t} />;
+    }
+  };
+
   return (
-    <div className="group relative flex justify-start my-3">
+    <div className="relative flex justify-start my-3">
       <div className="w-full text-text text-sm leading-relaxed min-w-0">
         {/* Thinking stream block */}
         {thinking && <AiThinkingBlock text={thinking} isLive={isLive && !content} />}
@@ -129,12 +166,7 @@ export const MessageBubble = memo(function MessageBubble({
         {/* Tools executions & Plan Mode cards */}
         {visibleTools.length > 0 && (
           <div className="my-1.5 space-y-1.5">
-            {visibleTools.map((t, idx) => {
-              if (t.name === "EnterPlanMode" || t.name === "ExitPlanMode") {
-                return <AiPlanModeCard key={t.id || idx} toolName={t.name} input={t.input} />;
-              }
-              return <AiToolCard key={t.id || idx} {...t} />;
-            })}
+            {visibleTools.map((t, idx) => renderTool(t, idx))}
           </div>
         )}
 
@@ -149,28 +181,15 @@ export const MessageBubble = memo(function MessageBubble({
 
         {/* Text Content */}
         {content ? (
-          <div className="relative">
-            <div className="prose prose-invert max-w-none text-sm break-words overflow-x-auto leading-relaxed">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+          // Own group: hovering the prose reveals the copy bar, and nothing else
+          <div className="group/msg relative">
+            <div className="max-w-none min-w-0 text-sm break-words leading-relaxed">
+              <MarkdownBody
+                content={content}
                 components={{
                   pre: CodePre,
-                  code({ className, children, ...props }) {
-                    const isBlock = /language-/.test(className || "");
-                    if (isBlock) {
-                      return (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      );
-                    }
-                    return (
-                      <code className="px-1.5 py-0.5 rounded bg-surface-2 font-mono text-[12px] text-text" {...props}>
-                        {children}
-                      </code>
-                    );
-                  },
-                  a({ href, children, ...props }) {
+                  // Relative links open in the editor; `node` must not reach the DOM
+                  a({ href, children, className, node: _node, ...props }) {
                     const isRelativeFile = href && !href.startsWith("http://") && !href.startsWith("https://");
                     if (isRelativeFile) {
                       return (
@@ -189,21 +208,25 @@ export const MessageBubble = memo(function MessageBubble({
                       );
                     }
                     return (
-                      <a href={href} target="_blank" rel="noopener noreferrer" className="text-brand-500 hover:underline" {...props}>
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`text-brand-500 hover:underline${className ? ` ${className}` : ""}`}
+                        {...props}
+                      >
                         {children}
                       </a>
                     );
                   }
                 }}
-              >
-                {content}
-              </ReactMarkdown>
+              />
               {isLive && <span className="inline-block w-1.5 h-3.5 bg-brand-500 animate-pulse ml-1 align-middle" />}
             </div>
 
             {/* Quick action bar on message hover */}
             {!isLive && (
-              <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1 mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
                 <button
                   type="button"
                   onClick={handleCopyAll}
@@ -216,13 +239,10 @@ export const MessageBubble = memo(function MessageBubble({
               </div>
             )}
           </div>
-        ) : isLive && !thinking && tools.length === 0 ? (
+        ) : isLive && !hasThinking && tools.length === 0 ? (
           <div className="flex items-center gap-2 py-2 select-none">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-2/60 border border-border-subtle/50 backdrop-blur-sm shadow-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-bounce [animation-delay:-0.3s]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-bounce [animation-delay:-0.15s]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-bounce" />
-              <span className="text-[11px] font-mono text-text-muted ml-1">AI is thinking...</span>
+            <div className="w-7 h-7 rounded-full flex items-center justify-center bg-surface-2/70 border border-border-subtle/60 shadow-sm backdrop-blur-sm">
+              <Loader2 size={14} className="animate-spin text-brand-500" />
             </div>
           </div>
         ) : null}

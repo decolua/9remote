@@ -110,6 +110,11 @@ export function useAgentBus() {
   const applySessions = useCallback((list) => {
     if (!Array.isArray(list)) return;
     markLoaded("sessions");
+    for (const s of list) {
+      if (s?.id && s?.agent) {
+        useTerminalStore.getState().setSessionAgent(s.id, s.agent);
+      }
+    }
     // Four sources refetch this list, one of them on every return to the tab, and the
     // answer is nearly always what we already have. Keeping the old array keeps every
     // consumer's identity check true instead of re-rendering the whole workspace.
@@ -324,7 +329,9 @@ export function useAgentBus() {
   });
 
   // Keep ref in sync so event handlers registered above can call disconnect
-  disconnectRef.current = disconnect;
+  useEffect(() => {
+    disconnectRef.current = disconnect;
+  }, [disconnect]);
 
   // The one public refresh (mount, visibility, retry). Both lists always travel together —
   // every caller wanted both, and asking separately cost two round-trips for one answer.
@@ -378,16 +385,18 @@ export function useAgentBus() {
   // inherited from the last session in the workspace.
   // `nameIsAuto` marks a name the UI filled in rather than the user typing it —
   // the agent keeps renaming such a terminal after the conversation it runs.
-  const createSession = useCallback((name, shellId, workspaceId, cwd, callback, nameIsAuto = false) => {
+  const createSession = useCallback((name, shellId, workspaceId, cwd, callback, nameIsAuto = false, agent = null) => {
     if (!busRef.current) return;
     // Backward compat: createSession(name, callback) / createSession(name, shellId, callback)
     if (typeof shellId === "function") { callback = shellId; shellId = null; workspaceId = null; cwd = null; }
     else if (typeof workspaceId === "function") { callback = workspaceId; workspaceId = null; cwd = null; }
     else if (typeof cwd === "function") { callback = cwd; cwd = null; }
 
-    busRef.current.emit("createSession", { name, shellId, workspaceId, cwd, nameIsAuto }, (result) => {
+    const agentId = typeof agent === "string" ? agent : agent?.id || null;
+    busRef.current.emit("createSession", { name, shellId, workspaceId, cwd, nameIsAuto, agent: agentId }, (result) => {
       if (result?.success) {
         if (result.sessionId) {
+          if (agentId) useTerminalStore.getState().setSessionAgent(result.sessionId, agentId);
           const wsPath = workspaces.find((w) => w.id === workspaceId)?.path || null;
           setSessions((prev) => [
             ...prev.filter((s) => s.id !== result.sessionId),
@@ -400,7 +409,8 @@ export function useAgentBus() {
               groupId: workspaceId || null,
               workspacePath: wsPath,
               shellId: result.shellId || shellId || null,
-              shellLabel: result.shellLabel || null
+              shellLabel: result.shellLabel || null,
+              agent: agentId || null
             }
           ]);
         }

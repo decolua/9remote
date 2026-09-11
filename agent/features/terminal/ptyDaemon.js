@@ -9,6 +9,8 @@ import net from "net";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { spawn } from "child_process";
+import readline from "readline";
 import pty from "node-pty";
 import { resolveShell, buildShellArgs, DAEMON_VERSION } from "./constants.js";
 import { takeBufferTail, takeBufferRange, bufferTotal } from "./bufferSlice.js";
@@ -182,6 +184,468 @@ function send(client, message) {
   } catch (e) {
     // Client disconnected
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AI sessions — same persistence model as PTY sessions: the daemon is
+// the single source of truth, the agent is a proxy, clients are viewers.
+// ponytail: claude engine only; codex/opencode stay on the in-agent path
+// until their stream protocols move here too.
+// ═══════════════════════════════════════════════════════════════════
+const AI_SESSIONS_DIR = path.join(SOCKET_DIR, "ai-sessions");
+const AI_MAX_EVENTS = 5000;
+// Measured on a streaming turn: ~53 events/s, 48 B/event, so a 500ms debounce
+// keeps only ~37% of the stream across an unclean death (SIGKILL / power loss;
+// the agent's own restart path uses SIGTERM and flushes synchronously). 150ms
+// holds ~85% for ~130 KB/s of writes, and turn boundaries flush immediately.
+const AI_PERSIST_DEBOUNCE_MS = 150;
+// Tool results (a Read of a huge log, a verbose Bash) are re-serialized into the
+// snapshot on every debounce tick and replayed to every joiner. Cap what we keep.
+const AI_MAX_TOOL_OUTPUT = 64 * 1024;
+const aiSessions = new Map(); // sessionId -> session object
+const aiPersistTimers = new Map();
+
+try { if (!fs.existsSync(AI_SESSIONS_DIR)) fs.mkdirSync(AI_SESSIONS_DIR, { recursive: true }); } catch {}
+
+function aiSnapshotFile(sessionId) {
+  // sessionId comes from the agent over the local socket; sanitize for a filename anyway
+  const safe = String(sessionId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return path.join(AI_SESSIONS_DIR, `${safe}.json`);
+}
+
+// Async write — a sync one on the streaming hot path would stall the daemon's
+// PTY flush (setImmediate) and make terminals stutter.
+function persistAiSessionNow(sessionId) {
+  const s = aiSessions.get(sessionId);
+  if (!s) return;
+  if (s.persisting) { s.persistAgain = true; return; }
+  s.persisting = true;
+  const payload = JSON.stringify({
+    engine: s.engine,
+    cwd: s.cwd,
+    permissionMode: s.permissionMode,
+    model: s.model,
+    cliSessionId: s.cliSessionId,
+    createdAt: s.createdAt,
+    events: s.events
+  });
+  fs.writeFile(aiSnapshotFile(sessionId), payload, (e) => {
+    s.persisting = false;
+    if (e) logError(`Failed to persist AI session ${sessionId}`, e);
+    const current = aiSessions.get(sessionId);
+    // Destroyed while this write was in flight: it just put the file back, and
+    // the next daemon would resurrect a session with no terminal behind it.
+    if (!current) {
+      try { fs.unlink(aiSnapshotFile(sessionId), () => {}); } catch {}
+      return;
+    }
+    // A different session now owns this id — its own persist owns this file, so
+    // leave it alone rather than unlinking or writing over it with stale events.
+    if (current !== s) return;
+    if (s.persistAgain) { s.persistAgain = false; persistAiSessionNow(sessionId); }
+  });
+}
+
+function schedulePersistAiSession(sessionId) {
+  if (aiPersistTimers.has(sessionId)) return;
+  aiPersistTimers.set(sessionId, setTimeout(() => {
+    aiPersistTimers.delete(sessionId);
+    persistAiSessionNow(sessionId);
+  }, AI_PERSIST_DEBOUNCE_MS));
+}
+
+// Turn boundaries (and user input) are the points worth paying a write for: a
+// crash right after them leaves a whole exchange intact, not a half-stream.
+function flushAiSession(sessionId) {
+  const timer = aiPersistTimers.get(sessionId);
+  if (timer) { clearTimeout(timer); aiPersistTimers.delete(sessionId); }
+  persistAiSessionNow(sessionId);
+}
+
+function loadAiSnapshot(sessionId) {
+  try {
+    const raw = fs.readFileSync(aiSnapshotFile(sessionId), "utf8");
+    const snap = JSON.parse(raw);
+    if (!snap || snap.engine !== "claude" || !Array.isArray(snap.events)) return null;
+    return snap;
+  } catch {
+    return null;
+  }
+}
+
+// seq stamps every event (live AND replayed) so a hydrating client can drop the
+// live events it already folded in from the replay. Without it, a prompt sent in
+// the same tick as ai:create reaches the browser before the create ack resolves,
+// and the ack's clear+replay wipes the message that just arrived.
+function broadcastAiEvent(sessionId, event, data, seq) {
+  broadcast({ type: "aiEvent", sessionId, event, data, seq });
+}
+
+// Truncate tool output before it enters the log: the snapshot is re-serialized
+// whole on every debounce tick and replayed to every joining client.
+function capToolOutput(data) {
+  if (!data) return data;
+  const cut = (v) => (typeof v === "string" && v.length > AI_MAX_TOOL_OUTPUT
+    ? `${v.slice(0, AI_MAX_TOOL_OUTPUT)}\n… [truncated]`
+    : v);
+  return { ...data, output: cut(data.output), error: cut(data.error) };
+}
+
+// Record + broadcast one normalized event; clients replay these through the
+// same reducers they use for live events, so history and live share one shape.
+function aiEmit(s, event, data) {
+  if (event === "tool_result") data = capToolOutput(data);
+  const seq = s.nextSeq++;
+  s.events.push({ seq, event, data });
+  if (s.events.length > AI_MAX_EVENTS) s.events.splice(0, s.events.length - AI_MAX_EVENTS);
+  broadcastAiEvent(s.id, event, data, seq);
+  schedulePersistAiSession(s.id);
+}
+
+function aiExtendedEnv() {
+  const home = os.homedir();
+  const extraPaths = process.platform === "win32" ? [
+    path.join(home, "AppData", "Roaming", "npm"),
+    path.join(home, ".cargo", "bin"),
+  ] : [
+    path.join(home, ".local", "bin"),
+    path.join(home, ".cargo", "bin"),
+    path.join(home, ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/local/sbin",
+  ];
+  const envPath = (process.env.PATH || "").split(path.delimiter);
+  return { ...process.env, PATH: Array.from(new Set([...extraPaths, ...envPath])).join(path.delimiter) };
+}
+
+function createAiSession(sessionId, { engine, cwd, options = {} }) {
+  if (!sessionId || engine !== "claude") {
+    return { success: false, error: engine !== "claude" ? `Unsupported AI engine in daemon: ${engine}` : "Missing sessionId" };
+  }
+  // A session already live here is reused as-is. A client that reports a different
+  // cwd (a stale pane, a moved workspace) must NOT be able to tear down a running
+  // conversation — only the explicit aiDestroy path does that.
+  if (aiSessions.has(sessionId)) {
+    return { success: true, session: aiSessions.get(sessionId) };
+  }
+
+  const snap = loadAiSnapshot(sessionId);
+  const resolvedCwd = cwd || snap?.cwd || getDefaultCwd();
+  const s = {
+    id: sessionId,
+    engine: "claude",
+    cwd: resolvedCwd,
+    proc: null,
+    rl: null,
+    events: snap ? [...snap.events] : [],
+    // Continues past the loaded log so replayed seqs stay unique per session
+    nextSeq: (snap?.events?.reduce((max, e) => Math.max(max, e.seq || 0), 0) || 0) + 1,
+    isTurnRunning: false,
+    permissionMode: options.mode || snap?.permissionMode || "default",
+    model: options.model || snap?.model || "",
+    cliSessionId: snap?.cliSessionId || "",
+    metadata: { model: "", skills: [], slashCommands: [] },
+    stats: { totalCost: 0, inputTokens: 0, outputTokens: 0 },
+    pendingRequests: new Map(),
+    turnStreamedText: "",
+    createdAt: snap?.createdAt || Date.now()
+  };
+  aiSessions.set(sessionId, s);
+  spawnClaude(s);
+  return { success: true, session: s };
+}
+
+function destroyAiSession(sessionId) {
+  const s = aiSessions.get(sessionId);
+  if (!s) return false;
+  const timer = aiPersistTimers.get(sessionId);
+  if (timer) { clearTimeout(timer); aiPersistTimers.delete(sessionId); }
+  try { s.proc?.kill("SIGINT"); } catch {}
+  try { fs.unlinkSync(aiSnapshotFile(sessionId)); } catch {}
+  aiSessions.delete(sessionId);
+  return true;
+}
+
+function spawnClaude(s) {
+  try { s.proc?.kill("SIGINT"); } catch {}
+  try { s.rl?.close(); } catch {}
+  s.proc = null;
+  s.rl = null;
+  s.isTurnRunning = false;
+  s.pendingRequests.clear();
+  s.turnStreamedText = "";
+  let initializedThisSpawn = false;
+  // stderr is where a failed CLI start explains itself (bad auth, bad config) —
+  // keep the tail so a silent death can be reported instead of just going quiet.
+  let stderrTail = "";
+
+  const args = [
+    "-p",
+    "--verbose",
+    "--permission-prompt-tool", "stdio",
+    "--permission-mode", s.permissionMode,
+    "--input-format=stream-json",
+    "--output-format=stream-json",
+    "--include-partial-messages",
+  ];
+  if (s.permissionMode === "bypassPermissions") args.push("--dangerously-skip-permissions");
+  else args.push("--allow-dangerously-skip-permissions");
+  if (s.model) args.push("--model", s.model);
+  // Resume the CLI's own conversation after a daemon/agent restart
+  if (s.cliSessionId) args.push("--resume", s.cliSessionId);
+
+  const proc = spawn("claude", args, {
+    cwd: s.cwd,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: aiExtendedEnv()
+  });
+  s.proc = proc;
+
+  // Handlers bind to THIS process, and stand down the moment a newer one replaces
+  // it. spawnClaude can be re-entered from inside these very handlers (a mid-turn
+  // mode change restarts on turn_complete), and without the guard the outgoing
+  // process's close would null out s.proc — orphaning the fresh one's state.
+  const isCurrent = () => s.proc === proc;
+
+  s.rl = readline.createInterface({ input: proc.stdout });
+  s.rl.on("line", (line) => {
+    if (!isCurrent() || !line.trim()) return;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.type === "system" && parsed.subtype === "init") initializedThisSpawn = true;
+      handleClaudeLine(s, parsed);
+    } catch {
+      aiEmit(s, "ansi", { chunk: line + "\r\n" });
+    }
+  });
+  proc.stderr?.on("data", (chunk) => {
+    if (!isCurrent()) return;
+    const text = chunk.toString();
+    stderrTail = (stderrTail + text).slice(-2000);
+    aiEmit(s, "ansi", { chunk: text });
+  });
+  proc.on("error", (err) => {
+    if (!isCurrent()) return;
+    s.proc = null;
+    aiEmit(s, "error", { message: err.message });
+  });
+  proc.on("close", (code) => {
+    if (!isCurrent()) return;
+    s.proc = null;
+    s.rl = null;
+    // The CLI does NOT emit `init` until the first prompt arrives, so a process
+    // that exits before init proves nothing about the resume id — it may simply
+    // never have been used. Only a non-zero exit is evidence the CLI refused the
+    // id (verified: bad --resume exits 1 with "No conversation found"). Treating
+    // every pre-init exit as a bad id would discard a perfectly good conversation.
+    if (s.cliSessionId && !initializedThisSpawn && code !== 0) {
+      s.cliSessionId = "";
+      aiEmit(s, "ansi", { chunk: "\r\n[9remote] Không resume được phiên cũ — bắt đầu phiên mới.\r\n" });
+    }
+    if (s.isTurnRunning) {
+      s.isTurnRunning = false;
+      aiEmit(s, "stopped", {});
+    } else if (!initializedThisSpawn && code !== 0) {
+      // Died before init while idle: the chat would show nothing at all, so
+      // surface what the CLI said on stderr.
+      const why = stderrTail.trim() || "claude CLI exited before starting";
+      aiEmit(s, "error", { message: why.slice(-600) });
+    }
+  });
+}
+
+// Mirror of the agent-side claudeAdapter.handleMessage, emitting normalized events
+function handleClaudeLine(s, data) {
+  if (data.type === "system" && data.subtype === "init") {
+    s.cliSessionId = data.session_id || s.cliSessionId;
+    s.metadata = {
+      sessionId: data.session_id || "",
+      model: data.model || "",
+      tools: data.tools || [],
+      skills: data.skills || [],
+      slashCommands: data.slash_commands || [],
+    };
+    aiEmit(s, "init", s.metadata);
+    return;
+  }
+
+  if (data.type === "stream_event") {
+    const event = data.event;
+    if (event?.type === "content_block_delta" && event.delta?.type === "text_delta") {
+      const text = event.delta.text || "";
+      s.turnStreamedText += text;
+      aiEmit(s, "delta", { text });
+    } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
+      aiEmit(s, "thinking", { text: event.delta.thinking });
+    }
+    return;
+  }
+
+  if (data.type === "control_request") {
+    const { request_id, request = {} } = data;
+    const toolName = request.tool_name || "";
+    const toolInput = request.input || request.tool_input || {};
+    s.pendingRequests.set(request_id, { toolName, input: toolInput });
+    aiEmit(s, "permission_request", {
+      requestId: request_id,
+      tool: toolName,
+      input: toolInput,
+      type: request.subtype || "permission"
+    });
+    return;
+  }
+
+  if (data.type === "result") {
+    s.isTurnRunning = false;
+    if (data.total_cost_usd) s.stats.totalCost += Number(data.total_cost_usd) || 0;
+    // Slash-command answers (/cost, /compact...) arrive only here — emit as text
+    if (!s.turnStreamedText && typeof data.result === "string" && data.result.trim()) {
+      aiEmit(s, "delta", { text: data.result });
+    }
+    s.turnStreamedText = "";
+    aiEmit(s, "turn_complete", { stats: { ...s.stats }, result: data.result });
+    // A finished turn is a complete exchange — persist it now rather than leaving
+    // it in the debounce window where a crash would take it.
+    flushAiSession(s.id);
+    // A mode/model change made mid-turn applies now that the process is idle
+    if (s.restartPending) {
+      s.restartPending = false;
+      spawnClaude(s);
+    }
+    return;
+  }
+
+  if (data.type === "assistant" && data.message) {
+    const msg = data.message;
+    if (msg.usage) {
+      s.stats.inputTokens += msg.usage.input_tokens || 0;
+      s.stats.outputTokens += msg.usage.output_tokens || 0;
+    }
+    for (const item of msg.content || []) {
+      if (item.type === "tool_use") {
+        aiEmit(s, "tool_start", { id: item.id, name: item.name, input: item.input });
+      } else if (item.type === "text" && item.text) {
+        // Fallback only if text was not streamed already
+        if (!s.turnStreamedText) {
+          s.turnStreamedText = item.text;
+          aiEmit(s, "delta", { text: item.text });
+        } else if (item.text.length > s.turnStreamedText.length && item.text.startsWith(s.turnStreamedText)) {
+          const remaining = item.text.slice(s.turnStreamedText.length);
+          s.turnStreamedText = item.text;
+          aiEmit(s, "delta", { text: remaining });
+        }
+      }
+    }
+    return;
+  }
+
+  if (data.type === "user" && data.message) {
+    for (const item of data.message.content || []) {
+      if (item.type === "tool_result") {
+        const isError = Boolean(item.is_error);
+        const output = typeof item.content === "string" ? item.content : JSON.stringify(item.content);
+        aiEmit(s, "tool_result", {
+          id: item.tool_use_id,
+          error: isError ? output : "",
+          output: !isError ? output : "",
+          status: isError ? "error" : "done"
+        });
+      }
+    }
+  }
+}
+
+function aiPublicState(s) {
+  return {
+    sessionId: s.id,
+    engine: s.engine,
+    cwd: s.cwd,
+    events: s.events,
+    // Highest seq included in `events` — the hydrating client ignores any live
+    // event at or below it, so nothing is applied twice or lost to the reset.
+    seq: s.nextSeq - 1,
+    isTurnRunning: s.isTurnRunning,
+    // The daemon spawns the CLI with this mode, so it is the only authority on
+    // it. Without it in the snapshot a second client (or a reload) would show
+    // "Default" while Claude actually runs in bypass/plan.
+    permissionMode: s.permissionMode,
+    model: s.model,
+    metadata: s.metadata,
+    cliAlive: Boolean(s.proc)
+  };
+}
+
+function aiPrompt(sessionId, message, cwd = null) {
+  // A prompt can race the create that precedes it (or arrive with no pane state
+  // at all) — auto-create so the message is never dropped. cwd rides along so
+  // the raced session still lands in the right directory, not $HOME.
+  let s = aiSessions.get(sessionId);
+  if (!s) {
+    const created = createAiSession(sessionId, { engine: "claude", cwd, options: {} });
+    if (!created.success) return { success: false, error: created.error };
+    s = created.session;
+  }
+  if (typeof message !== "string" || !message.trim()) return { success: false, error: "Missing message" };
+  if (message === "/clear") {
+    s.events = [];
+    persistAiSessionNow(sessionId);
+    broadcastAiEvent(sessionId, "conversation_reset", {});
+    return { success: true };
+  }
+  // A process on its way out can still report stdin as writable, and writing there
+  // loses the message — so respawn whenever the child is already gone or closing.
+  if (!s.proc || s.proc.exitCode !== null || !s.proc.stdin.writable) spawnClaude(s);
+  const proc = s.proc;
+  if (!proc?.stdin.writable) return { success: false, error: "claude CLI is not accepting input" };
+  s.isTurnRunning = true;
+  s.turnStreamedText = "";
+  // The daemon echoes the user message to every client (single source of truth)
+  aiEmit(s, "user_message", { text: message });
+  try {
+    proc.stdin.write(JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: message }] }
+    }) + "\n");
+    // The user's own message is the other thing worth a synchronous write: if the
+    // daemon dies before the reply lands, at least what was asked is on disk.
+    flushAiSession(sessionId);
+  } catch (err) {
+    s.isTurnRunning = false;
+    return { success: false, error: err.message };
+  }
+  return { success: true };
+}
+
+// Ask the CLI to abort the current turn. cancel_queued drops anything it had
+// already taken in, so Stop means stop. Returns false when the request could not
+// be written (dead pipe), letting the caller fall back to a signal.
+function sendInterrupt(s) {
+  if (!s.proc || !s.proc.stdin.writable) return false;
+  try {
+    s.proc.stdin.write(JSON.stringify({
+      type: "control_request",
+      request_id: `int-${s.nextSeq}-${Date.now()}`,
+      request: { subtype: "interrupt", cancel_queued: true }
+    }) + "\n");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function aiControlResponse(s, requestId, response, resolvedBy = "") {
+  if (!s.proc || !s.proc.stdin.writable) return false;
+  s.pendingRequests.delete(requestId);
+  s.proc.stdin.write(JSON.stringify({
+    type: "control_response",
+    response: { subtype: "success", request_id: requestId, response }
+  }) + "\n");
+  // Every other client watching this session must drop its permission card too —
+  // otherwise the second surface keeps showing a gate nobody is waiting on.
+  aiEmit(s, "permission_resolved", { requestId, behavior: response.behavior, resolvedBy });
+  return true;
 }
 
 /**
@@ -470,6 +934,123 @@ function handleMessage(client, message) {
       send(client, { type: "cwdResult", cwd: cwdSession?.cwd || null, requestId: payload.requestId });
       break;
 
+    // ── AI sessions (persistent, daemon-owned) ──
+    case "createAiSession": {
+      const created = createAiSession(sessionId, { engine: payload.engine, cwd: payload.cwd, options: payload.options });
+      send(client, {
+        type: "aiCreateResult",
+        success: created.success,
+        error: created.error,
+        session: created.session ? aiPublicState(created.session) : null,
+        requestId: payload.requestId
+      });
+      break;
+    }
+
+    case "joinAiSession": {
+      const aiSession = aiSessions.get(sessionId);
+      if (!aiSession) {
+        send(client, { type: "aiJoinResult", success: false, error: "AI session not found", requestId: payload.requestId });
+        break;
+      }
+      send(client, { type: "aiJoinResult", success: true, session: aiPublicState(aiSession), requestId: payload.requestId });
+      break;
+    }
+
+    case "aiPrompt":
+      send(client, { type: "aiPromptResult", ...aiPrompt(sessionId, payload.message, payload.cwd), requestId: payload.requestId });
+      break;
+
+    // controlRequestId (Claude's control-request id) is distinct from requestId
+    // (the IPC correlation id request() stamps on) — mixing them strands the wait.
+    case "aiPermission": {
+      const permSession = aiSessions.get(sessionId);
+      if (!permSession) {
+        send(client, { type: "aiPermissionResult", success: false, error: "AI session not found", requestId: payload.requestId });
+        break;
+      }
+      const pending = permSession.pendingRequests.get(payload.controlRequestId);
+      const ok = aiControlResponse(permSession, payload.controlRequestId, payload.behavior === "allow"
+        ? { behavior: "allow", updatedInput: pending?.input || {} }
+        : { behavior: "deny", message: payload.message || "Permission denied." });
+      send(client, { type: "aiPermissionResult", success: ok, requestId: payload.requestId });
+      break;
+    }
+
+    case "aiQuestion": {
+      const qSession = aiSessions.get(sessionId);
+      if (!qSession) {
+        send(client, { type: "aiQuestionResult", success: false, error: "AI session not found", requestId: payload.requestId });
+        break;
+      }
+      const qPending = qSession.pendingRequests.get(payload.controlRequestId);
+      const qOk = aiControlResponse(qSession, payload.controlRequestId, {
+        behavior: "allow",
+        updatedInput: { questions: qPending?.input?.questions || [], answers: payload.answers || {} }
+      });
+      send(client, { type: "aiQuestionResult", success: qOk, requestId: payload.requestId });
+      break;
+    }
+
+    case "aiStop": {
+      const stopSession = aiSessions.get(sessionId);
+      if (stopSession) {
+        // Interrupt the TURN, not the process: a control_request keeps the CLI and
+        // its conversation alive, so the next prompt resumes the same context.
+        // SIGINT would kill it mid-turn — the transcript stays but the live session
+        // (and everything queued in it) is gone.
+        const sent = sendInterrupt(stopSession);
+        stopSession.isTurnRunning = false;
+        aiEmit(stopSession, "stopped", {});
+        // Fall back to a signal only if the interrupt could not be delivered
+        if (!sent) { try { stopSession.proc?.kill("SIGINT"); } catch {} }
+      }
+      send(client, { type: "aiStopResult", success: Boolean(stopSession), requestId: payload.requestId });
+      break;
+    }
+
+    case "aiOptions": {
+      const optSession = aiSessions.get(sessionId);
+      if (optSession) {
+        const { mode, model } = payload.options || {};
+        let changed = false;
+        if (model && model !== optSession.model) { optSession.model = model; optSession.restartPending = true; changed = true; }
+        if (mode && mode !== optSession.permissionMode) { optSession.permissionMode = mode; optSession.restartPending = true; changed = true; }
+        // Mid-turn: remember it and restart when the turn ends instead of dropping
+        // the change (a mode switch the user just made must not silently no-op).
+        if (optSession.restartPending && !optSession.isTurnRunning) {
+          optSession.restartPending = false;
+          spawnClaude(optSession);
+        }
+        if (changed) {
+          // Other surfaces show this mode too — broadcast so they do not keep
+          // displaying a mode the CLI is no longer running in.
+          aiEmit(optSession, "options_changed", {
+            permissionMode: optSession.permissionMode,
+            model: optSession.model
+          });
+          schedulePersistAiSession(sessionId);
+        }
+      }
+      send(client, { type: "aiOptionsResult", success: Boolean(optSession), requestId: payload.requestId });
+      break;
+    }
+
+    case "aiDestroy":
+      destroyAiSession(sessionId);
+      send(client, { type: "aiDestroyResult", success: true, requestId: payload.requestId });
+      break;
+
+    case "listAiSessions":
+      send(client, {
+        type: "aiSessionList",
+        sessions: Array.from(aiSessions.values()).map((s) => ({
+          id: s.id, engine: s.engine, cwd: s.cwd, createdAt: s.createdAt
+        })),
+        requestId: payload.requestId
+      });
+      break;
+
     default:
       logError(`Unknown message type: ${type}`);
   }
@@ -559,6 +1140,29 @@ function startDaemon() {
       if (session.pty) {
         try { session.pty.kill(); } catch {}
       }
+    }
+    // Flush pending AI snapshots synchronously — the debounced async write would
+    // not land before exit, losing the last turns of a conversation.
+    for (const [id, s] of aiSessions) {
+      const timer = aiPersistTimers.get(id);
+      if (timer) { clearTimeout(timer); aiPersistTimers.delete(id); }
+      // Take the claude child down with us, the same way the PTYs above are taken
+      // down. Exiting without this orphans it: its pipes close but the process
+      // lingers, and the next daemon resumes the same conversation as a second
+      // writer to one transcript.
+      try { s.proc?.kill("SIGINT"); } catch {}
+      try { s.rl?.close(); } catch {}
+      try {
+        fs.writeFileSync(aiSnapshotFile(id), JSON.stringify({
+          engine: s.engine,
+          cwd: s.cwd,
+          permissionMode: s.permissionMode,
+          model: s.model,
+          cliSessionId: s.cliSessionId,
+          createdAt: s.createdAt,
+          events: s.events
+        }));
+      } catch {}
     }
     try { server.close(); } catch {}
     if (process.platform !== "win32" && fs.existsSync(SOCKET_PATH)) {

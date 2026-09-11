@@ -45,6 +45,10 @@ export default function DevTermLog() {
   const onPointerMove = (e) => {
     const d = dragRef.current;
     if (!d.dragging) return;
+    if (e.pointerType === "mouse" && e.buttons === 0) {
+      onPointerUp(e);
+      return;
+    }
     const dx = e.clientX - d.startX;
     const dy = e.clientY - d.startY;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) d.moved = true;
@@ -64,6 +68,14 @@ export default function DevTermLog() {
       try { localStorage.setItem("9remote:termLogBtn", JSON.stringify(pos)); } catch {}
     }
   };
+
+  useEffect(() => {
+    const onBlur = () => {
+      if (dragRef.current.dragging) dragRef.current.dragging = false;
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, []);
 
   useEffect(() => {
     if (!isTermLogEnabled()) return;

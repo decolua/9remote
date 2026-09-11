@@ -48,18 +48,20 @@ export const AiToolCard = memo(function AiToolCard({
 
   return (
     <div className="my-1 text-xs">
-      {/* Clean borderless 1-line tool row flush with left margin */}
+      {/* Clean borderless 1-line tool row flush with left margin.
+          Named group: a bare `group` here nests inside the message's own, so hovering
+          the message lit up every tool's actions at once. */}
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group"
+        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group/tool"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {isRunning ? (
-            <Loader2 size={13} className="animate-spin text-brand-500 shrink-0" />
+            <Loader2 size={13} className="animate-spin text-accent shrink-0" />
           ) : isError ? (
-            <AlertCircle size={13} className="text-rose-400 shrink-0" />
+            <AlertCircle size={13} className="text-danger shrink-0" />
           ) : (
-            <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+            <CheckCircle2 size={13} className="text-success shrink-0" />
           )}
 
           <span className="font-mono text-[10px] font-semibold text-text uppercase tracking-wider shrink-0 px-1 py-0.5 rounded bg-surface-2/80">
@@ -75,7 +77,7 @@ export const AiToolCard = memo(function AiToolCard({
           </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 shrink-0 ml-2 opacity-0 group-hover/tool:opacity-100 transition-opacity">
           {filePath && (
             <button
               type="button"
@@ -93,7 +95,7 @@ export const AiToolCard = memo(function AiToolCard({
             className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors"
             title="Copy output"
           >
-            {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+            {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
           </button>
         </div>
       </div>
@@ -102,7 +104,7 @@ export const AiToolCard = memo(function AiToolCard({
       {expanded && (
         <div className="mt-1 ml-3.5 pl-3 border-l-2 border-border-subtle/80 bg-surface-2/20 rounded-r-brand p-2 overflow-x-auto max-h-[260px] overflow-y-auto font-mono text-[11px] select-text">
           {error && (
-            <div className="text-rose-400 mb-1.5 whitespace-pre-wrap">{error}</div>
+            <div className="text-danger mb-1.5 whitespace-pre-wrap">{error}</div>
           )}
           {output ? (
             <div className="text-text whitespace-pre-wrap leading-relaxed">

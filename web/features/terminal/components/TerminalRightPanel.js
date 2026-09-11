@@ -2,7 +2,6 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import dynamic from "next/dynamic";
 import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, Loader2, Package, Plus, RefreshCw, Search, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
@@ -13,10 +12,9 @@ import { useWorkspaceRoots } from "../hooks/useWorkspaceRoots";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { GIT_REFRESH_EVENT } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
-
-const ExplorerPanel = dynamic(() => import("@/features/fileExplorer/components/ExplorerPanel"), { ssr: false });
-const ScmPanel = dynamic(() => import("@/features/fileExplorer/components/ScmPanel"), { ssr: false });
-const WorktreePanel = dynamic(() => import("./WorktreePanel"), { ssr: false });
+import ExplorerPanel from "@/features/fileExplorer/components/ExplorerPanel";
+import ScmPanel from "@/features/fileExplorer/components/ScmPanel";
+import WorktreePanel from "./WorktreePanel";
 
 const TABS = [
   { key: "files", icon: Files, labelKey: "workspaces.tabFiles" },

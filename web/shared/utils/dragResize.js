@@ -45,6 +45,7 @@ export function startWidthDrag(event, { startWidth, axis = 1, onWidth, onEnd }) 
     document.removeEventListener("pointermove", onMove);
     document.removeEventListener("pointerup", onUp);
     document.removeEventListener("pointercancel", onUp);
+    window.removeEventListener("blur", onUp);
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
     // A frame may still be queued with the last position — land it rather than
@@ -58,4 +59,5 @@ export function startWidthDrag(event, { startWidth, axis = 1, onWidth, onEnd }) 
   document.addEventListener("pointermove", onMove);
   document.addEventListener("pointerup", onUp);
   document.addEventListener("pointercancel", onUp);
+  window.addEventListener("blur", onUp);
 }

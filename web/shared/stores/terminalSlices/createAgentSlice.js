@@ -40,9 +40,12 @@ export const createAgentSlice = (set, get) => ({
 
   // Session agent mapping
   agentBySession: {},
-  setSessionAgent: (sessionId, agentId) => set((state) => ({
-    agentBySession: { ...state.agentBySession, [sessionId]: agentId }
-  })),
+  setSessionAgent: (sessionId, agentId) => set((state) => {
+    if (state.agentBySession[sessionId] === agentId) return state;
+    return {
+      agentBySession: { ...state.agentBySession, [sessionId]: agentId }
+    };
+  }),
 
   // Startup commands
   pendingStartup: {},

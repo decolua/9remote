@@ -14,8 +14,9 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
   const [dragId, setDragId] = useState(null);
   const elsRef = useRef(new Map()); // item id -> element
   const movedRef = useRef(false);
-  const activeRef = useRef(false);
   const clearMovedRef = useRef(null);
+  const captureRef = useRef(null); // { el, pointerId } held for the current drag
+  const finishRef = useRef(null); // teardown of the current drag, null when idle
 
   const registerEl = useCallback((id) => (el) => {
     if (el) elsRef.current.set(id, el);
@@ -34,7 +35,15 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
 
   const startDrag = useCallback((e, id, ids) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    if (activeRef.current || !ids || ids.length < 2) return;
+    // WebKit drops the pointerup of a release captured on another element, which would
+    // otherwise leave the previous drag active — and its swallow-next-click flag set, so
+    // the next tab click needs a second press. That drag never ended, so drop it without
+    // committing. The flag resets here too: a click always fires right after its own
+    // pointerup, never after a later press, so by this point any pending swallow is stale.
+    finishRef.current?.(false);
+    movedRef.current = false;
+    if (clearMovedRef.current) { clearTimeout(clearMovedRef.current); clearMovedRef.current = null; }
+    if (!ids || ids.length < 2) return;
     const fromIdx = ids.indexOf(id);
     if (fromIdx < 0) return;
 
@@ -47,7 +56,7 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
 
     e.preventDefault();
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    activeRef.current = true;
+    captureRef.current = { el: e.currentTarget, pointerId: e.pointerId };
     movedRef.current = false;
     if (clearMovedRef.current) { clearTimeout(clearMovedRef.current); clearMovedRef.current = null; }
 
@@ -73,6 +82,10 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
     };
 
     const onMove = (ev) => {
+      if (ev.pointerType === "mouse" && ev.buttons === 0) {
+        onUp();
+        return;
+      }
       const delta = ev[a.pos] - startPos;
       if (!movedRef.current) {
         if (Math.abs(delta) < threshold) return;
@@ -89,15 +102,21 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
       frame = requestAnimationFrame(() => paint(delta));
     };
 
-    const onUp = () => {
+    // Tears the drag down. `commit` is false when the release was never seen (a newer
+    // drag superseding this one), so a half-finished drag never reorders the list.
+    const finish = (commit) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", onUp);
+      finishRef.current = null;
+      const capture = captureRef.current;
+      captureRef.current = null;
+      try { capture?.el.releasePointerCapture?.(capture.pointerId); } catch {}
       if (frame) { cancelAnimationFrame(frame); frame = null; }
       for (const el of elsRef.current.values()) if (el) el.style.transform = "";
-      activeRef.current = false;
       setDragId(null);
-      if (!movedRef.current) return;
+      if (!commit || !movedRef.current) return;
       // The click (if any) lands synchronously right after this — a timeout out-lives it.
       clearMovedRef.current = setTimeout(() => { clearMovedRef.current = null; movedRef.current = false; }, 0);
       if (toIdx === fromIdx) return;
@@ -107,9 +126,13 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
       onCommit?.(next);
     };
 
+    const onUp = () => finish(true);
+    finishRef.current = finish;
+
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+    window.addEventListener("blur", onUp);
   }, [axis, threshold, onCommit]);
 
   return { dragId, registerEl, startDrag, consumeClick };

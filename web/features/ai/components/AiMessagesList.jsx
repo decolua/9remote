@@ -9,6 +9,12 @@ import { vibrate } from "@/shared/utils/vibration";
 import { agentIconUrl } from "@/features/terminal/constants/agentCli";
 
 const EMPTY_MESSAGES = [];
+// Long histories get expensive to render: only the newest slice is mounted, the rest
+// paged in on demand. The data is already client-side (the hydrate replays the whole
+// event log) — this trims DOM, it does not fetch from the host.
+const PAGE_SIZE = 30;
+// Reveal the next page this far from the top, so older turns are there before you land
+const LOAD_MORE_THRESHOLD_PX = 120;
 
 export const AiMessagesList = memo(function AiMessagesList({
   sessionId,
@@ -18,13 +24,36 @@ export const AiMessagesList = memo(function AiMessagesList({
   onRewind
 }) {
   const scrollRef = useRef(null);
+  // Marks the top of the mounted window — watched so paging also fires on first paint
+  // (a tap on the header, a resize) and not only on a scroll gesture.
+  const sentinelRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const scrollTimerRef = useRef(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // Subscribe ONLY to messages of this session
-  const messages = useAiStore((s) => s.bySession[sessionId]?.messages || EMPTY_MESSAGES);
+  const messages = useAiStore((s) => s.bySession[sessionId]?.messages) || EMPTY_MESSAGES;
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
+
+  // A history rebuilt from the host log is a different list — start from the tail again
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [sessionId]);
+
+  const hiddenCount = Math.max(0, messages.length - visibleCount);
+  const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+
+  // Prepending shifts everything down; anchor on the old scrollHeight so the turn the
+  // user was reading stays put.
+  const handleLoadMore = useCallback(() => {
+    const el = scrollRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    const prevTop = el?.scrollTop ?? 0;
+    setVisibleCount((c) => Math.min(c + PAGE_SIZE, messages.length));
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
+    });
+  }, [messages.length]);
 
   // Optimized scroll handler using requestAnimationFrame
   const handleScroll = useCallback(() => {
@@ -39,6 +68,22 @@ export const AiMessagesList = memo(function AiMessagesList({
       setShowScrollBottom(!atBottom && distanceToBottom > 140);
     });
   }, []);
+
+  // Paging on approach, not on gesture: the sentinel sits at the top of the mounted
+  // window, so an intersection covers first paint, resize, and scroll alike. rootMargin
+  // preloads a page before it is reached. Re-armed whenever the window grows, so a
+  // container still shorter than the viewport keeps advancing instead of stalling.
+  useEffect(() => {
+    const root = scrollRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel) return;
+    const io = new IntersectionObserver(
+      (entries) => { if (entries.some((e) => e.isIntersecting)) handleLoadMore(); },
+      { root, rootMargin: `${LOAD_MORE_THRESHOLD_PX}px` }
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [handleLoadMore, visibleCount, messages.length]);
 
   // Smart auto-scroll: only scroll if user hasn't scrolled up
   useEffect(() => {
@@ -68,6 +113,7 @@ export const AiMessagesList = memo(function AiMessagesList({
         onScroll={handleScroll}
         className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 custom-scrollbar relative"
       >
+        {hiddenCount > 0 && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
             <div
@@ -111,14 +157,26 @@ export const AiMessagesList = memo(function AiMessagesList({
             </div>
           </div>
         ) : (
-          messages.map((msg) => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              onResolvePermission={onResolvePermission}
-              onRewind={onRewind}
-            />
-          ))
+          <>
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={() => { vibrate(); handleLoadMore(); }}
+                className="w-full py-1.5 text-[11px] font-mono text-text-muted hover:text-text bg-surface-2/50 hover:bg-surface-2 border border-border-subtle/60 rounded-brand transition-colors"
+              >
+                Load older · {hiddenCount} more
+              </button>
+            )}
+            {visibleMessages.map((msg) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                engine={engine}
+                onResolvePermission={onResolvePermission}
+                onRewind={onRewind}
+              />
+            ))}
+          </>
         )}
       </div>
 

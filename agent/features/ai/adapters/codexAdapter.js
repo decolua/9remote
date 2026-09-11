@@ -24,6 +24,11 @@ function getExtendedEnv() {
   return { ...process.env, PATH: combinedPath, FORCE_COLOR: "1" };
 }
 
+// Codex reports file_change either as {changes:[{path}]} or a bare path/paths field
+function firstPath(item) {
+  return item?.changes?.[0]?.path || item?.path || item?.paths?.[0] || "";
+}
+
 export class CodexAdapter {
   constructor({ cwd, onEvent }) {
     this.cwd = cwd || process.cwd();
@@ -118,6 +123,42 @@ export class CodexAdapter {
       return;
     }
 
+    if (type === "item.started") {
+      const item = event.item;
+      // Announce the tool now; item.completed later fills in the output for the
+      // same id. Without this the result has nothing to attach to and is dropped.
+      if (item.type === "command_execution") {
+        this.onEvent?.("tool_start", {
+          id: item.id,
+          name: "command",
+          input: { command: item.command },
+          status: "running"
+        });
+      } else if (item.type === "file_change") {
+        this.onEvent?.("tool_start", {
+          id: item.id,
+          name: "file_change",
+          input: { file_path: firstPath(item), path: firstPath(item) },
+          status: "running"
+        });
+      } else if (item.type === "mcp_tool_call") {
+        this.onEvent?.("tool_start", {
+          id: item.id,
+          name: item.tool || item.name || "mcp_tool_call",
+          input: item.arguments || item.input || {},
+          status: "running"
+        });
+      } else if (item.type === "todo_list") {
+        this.onEvent?.("tool_start", {
+          id: item.id,
+          name: "todo_list",
+          input: { todos: item.items || [] },
+          status: "running"
+        });
+      }
+      return;
+    }
+
     if (type === "item.completed") {
       const item = event.item;
       if (item.type === "reasoning") {
@@ -125,18 +166,33 @@ export class CodexAdapter {
       } else if (item.type === "agent_message") {
         this.onEvent?.("delta", { text: item.text || "" });
       } else if (item.type === "command_execution") {
-        this.onEvent?.("tool_result", {
-          id: item.id,
-          name: "command",
-          command: item.command,
-          exitCode: item.exit_code,
-          output: item.output
-        });
+        const output = item.aggregated_output ?? item.output ?? "";
+        // Exit code rides along in the output — the card only shows error when set
+        if (item.exit_code) {
+          this.onEvent?.("tool_result", {
+            id: item.id,
+            name: "command",
+            error: `${output}\n(exit ${item.exit_code})`.trim(),
+            status: "error"
+          });
+        } else {
+          this.onEvent?.("tool_result", { id: item.id, name: "command", output, status: "done" });
+        }
       } else if (item.type === "file_change") {
-        this.onEvent?.("diff", {
-          file: item.path,
-          patch: item.patch || item.diff || ""
-        });
+        for (const change of item.changes || []) {
+          this.onEvent?.("diff", {
+            file: change.path,
+            patch: change.diff || change.patch || "",
+            content: change.kind === "add" ? change.content : ""
+          });
+        }
+        this.onEvent?.("tool_result", { id: item.id, name: "file_change", output: "", status: "done" });
+      } else if (item.type === "todo_list") {
+        this.onEvent?.("tool_result", { id: item.id, name: "todo_list", output: "", status: "done" });
+      } else if (item.type === "mcp_tool_call") {
+        this.onEvent?.("tool_result", { id: item.id, name: item.tool || "mcp_tool_call", output: item.result || "", status: "done" });
+      } else if (item.type === "web_search") {
+        this.onEvent?.("tool_result", { id: item.id, name: "web_search", output: item.query || "", status: "done" });
       }
       return;
     }

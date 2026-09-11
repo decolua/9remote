@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -14,18 +13,17 @@ import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { withHint } from "@/features/terminal/constants/shortcuts";
 import { useInputMode } from "@/shared/hooks/useInputMode";
-
-const TerminalHeader = dynamic(() => import("@/features/terminal/components/TerminalHeader"), { ssr: false });
-const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
-const TerminalSidebar = dynamic(() => import("@/features/terminal/components/TerminalSidebar"), { ssr: false });
-const TerminalStatusBar = dynamic(() => import("@/features/terminal/components/TerminalStatusBar"), { ssr: false });
-const MobileDock = dynamic(() => import("@/features/mobile/components/MobileDock"), { ssr: false });
-const MobileStatusStrip = dynamic(() => import("@/features/terminal/components/TerminalStatusBar").then((m) => m.MobileStatusStrip), { ssr: false });
-const TerminalRightPanel = dynamic(() => import("@/features/terminal/components/TerminalRightPanel"), { ssr: false });
-const TerminalEditorPanel = dynamic(() => import("@/features/terminal/components/TerminalEditorPanel"), { ssr: false });
-const OverflowTip = dynamic(() => import("@/shared/components/ui/OverflowTip"), { ssr: false });
-const TerminalEmptyState = dynamic(() => import("@/features/terminal/components/TerminalEmptyState"), { ssr: false });
-const AiPaneView = dynamic(() => import("@/features/ai/components/AiPaneView"), { ssr: false });
+import TerminalHeader from "@/features/terminal/components/TerminalHeader";
+import TerminalPane from "@/features/terminal/components/TerminalPane";
+import TerminalSidebar from "@/features/terminal/components/TerminalSidebar";
+import TerminalStatusBar, { MobileStatusStrip } from "@/features/terminal/components/TerminalStatusBar";
+import MobileDock from "@/features/mobile/components/MobileDock";
+import TerminalRightPanel from "@/features/terminal/components/TerminalRightPanel";
+import TerminalEditorPanel from "@/features/terminal/components/TerminalEditorPanel";
+import OverflowTip from "@/shared/components/ui/OverflowTip";
+import TerminalEmptyState from "@/features/terminal/components/TerminalEmptyState";
+import AiPaneView from "@/features/ai/components/AiPaneView";
+import ErrorBoundary from "@/shared/components/ui/ErrorBoundary";
 
 // Per-pane wrapper positioning terminal directly above the bottom input bar
 const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
@@ -305,16 +303,9 @@ function TerminalWorkspace({
     });
   };
 
-  // Deliberate re-fit (double-click or shortcut): unlike a panel toggle, this one measures the space
-  // actually left between the sidebar and whatever side panels are currently open.
-  const fitPaneWidth = useCallback(() => {
-    if (!rowWidth || !paneCount) return;
-    const taken = (sidebarCollapsed ? 0 : sidebarWidth)
-      + (rightPanel?.open ? rightPanel.width : 0)
-      + (editorPanel?.filePath ? editorPanel.width : 0);
-    const base = rowWidth - taken - PANE_ROW_PADDING_PX;
-    setPaneWidth?.(Math.max(PANE_WIDTH.min, Math.floor((base - (paneCount - 1) * PANE_GAP_PX) / paneCount)));
-  }, [rowWidth, paneCount, sidebarCollapsed, sidebarWidth, rightPanel, editorPanel, setPaneWidth]);
+  // Double-click or shortcut: hand the row back to auto mode (null), so panes keep
+  // dividing whatever space is left as panels open and close.
+  const fitPaneWidth = useCallback(() => setPaneWidth?.(null), [setPaneWidth]);
 
   useEffect(() => {
     const onFit = () => fitPaneWidth();
@@ -329,16 +320,18 @@ function TerminalWorkspace({
     if (isAiUi) {
       const engine = sessionAgent === "codex-ui" ? "codex" : sessionAgent === "opencode-ui" ? "opencode" : "claude";
       return (
-        <AiPaneView
-          sessionId={sessionId}
-          engine={engine}
-          workspacePath={session?.workspacePath || activeWorkspace?.path}
-          sessionName={session?.name}
-          bus={activeBus}
-          fileBus={activeFileBus}
-          isFocused={isFocused}
-          onActivate={() => nav.handleSelectSession(sessionId)}
-        />
+        <ErrorBoundary key={sessionId} title="AI Chat Pane">
+          <AiPaneView
+            sessionId={sessionId}
+            engine={engine}
+            workspacePath={session?.workspacePath || activeWorkspace?.path}
+            sessionName={session?.name}
+            bus={activeBus}
+            fileBus={activeFileBus}
+            isFocused={isFocused}
+            onActivate={() => nav.handleSelectSession(sessionId)}
+          />
+        </ErrorBoundary>
       );
     }
     return (

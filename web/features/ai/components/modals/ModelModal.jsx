@@ -1,23 +1,34 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Bot, Check, X, Sparkles } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
-const AVAILABLE_MODELS = [
-  { id: "claude-3-7-sonnet-latest", label: "Claude 3.7 Sonnet (Default)", desc: "Fast hybrid reasoning & smart coding" },
-  { id: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", desc: "Proven coding performance & stability" },
-  { id: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku", desc: "Ultra-fast response for lightweight tasks" },
-  { id: "claude-3-opus-latest", label: "Claude 3 Opus", desc: "Deep complex reasoning & architecture" },
-  { id: "ag/gemini-3.8-flash-high", label: "Gemini 3.8 Flash High", desc: "High reasoning effort model" },
-  { id: "gpt-4o", label: "GPT-4o", desc: "OpenAI flagship multi-modal model" },
+const DEFAULT_CLAUDE_MODELS = [
+  { id: "ag/gemini-3.8-flash-high", label: "ag/gemini-3.8-flash-high", desc: "Fast hybrid reasoning custom model" },
+  { id: "ag/claude-opus-4-6-thinking", label: "ag/claude-opus-4-6-thinking", desc: "Opus deep thinking custom model" },
+  { id: "ollama/glm-5.3-flash:cloud", label: "ollama/glm-5.3-flash:cloud", desc: "Sonnet cloud custom model" },
+  { id: "glm/glm-5.3", label: "glm/glm-5.3", desc: "GLM 5.3 custom model" },
+  { id: "haiku", label: "Claude Haiku", desc: "Claude Haiku CLI alias" },
+  { id: "sonnet", label: "Claude Sonnet", desc: "Claude Sonnet CLI alias" },
+  { id: "opus", label: "Claude Opus", desc: "Claude Opus CLI alias" },
 ];
 
 export const ModelModal = memo(function ModelModal({
   currentModel = "",
+  models = null,
   onClose,
   onSelectModel
 }) {
+  const cleanCurrent = (currentModel || "").replace(/\[1m\]$/i, "");
+  const modelList = useMemo(() => {
+    const list = Array.isArray(models) && models.length > 0 ? [...models] : [...DEFAULT_CLAUDE_MODELS];
+    if (cleanCurrent && !list.some((m) => m.id === cleanCurrent || m.id === currentModel)) {
+      list.unshift({ id: cleanCurrent, label: cleanCurrent, desc: "Active CLI model" });
+    }
+    return list;
+  }, [models, cleanCurrent, currentModel]);
+
   const handlePick = (modelId) => {
     vibrate();
     onSelectModel?.(modelId);
@@ -49,8 +60,12 @@ export const ModelModal = memo(function ModelModal({
 
         {/* List */}
         <div className="p-3 flex-1 overflow-y-auto space-y-1.5 custom-scrollbar">
-          {AVAILABLE_MODELS.map((m) => {
-            const isSelected = currentModel === m.id || (!currentModel && m.id.includes("3-7-sonnet"));
+          {modelList.map((m) => {
+            const isSelected =
+              cleanCurrent === m.id ||
+              currentModel === m.id ||
+              (cleanCurrent && cleanCurrent.startsWith(m.id)) ||
+              (m.id && cleanCurrent.includes(m.id));
             return (
               <div
                 key={m.id}
@@ -65,9 +80,11 @@ export const ModelModal = memo(function ModelModal({
                   <div className="text-xs font-semibold text-text flex items-center gap-1.5">
                     <span>{m.label}</span>
                   </div>
-                  <div className="text-[11px] text-text-muted mt-0.5">
-                    {m.desc}
-                  </div>
+                  {m.desc && (
+                    <div className="text-[11px] text-text-muted mt-0.5">
+                      {m.desc}
+                    </div>
+                  )}
                 </div>
 
                 {isSelected && (

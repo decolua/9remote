@@ -2,6 +2,7 @@
 // Run: node web/test/aiIntegration.test.mjs
 import assert from "node:assert/strict";
 import { AI_ENGINES, ENGINE_INFO, AI_UI_OPTIONS, SLASH_COMMANDS } from "../features/ai/constants.js";
+import { getToolCategory, parseEngineTaskEvent } from "../features/ai/registry.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -77,6 +78,33 @@ await test("Simulated AI Event stream parser aggregates deltas and tools", () =>
   assert.equal(currentMsg.diffs[0].file, "test.js");
   assert.equal(currentMsg.permission.requestId, "req-1");
   assert.equal(currentMsg.isLive, false);
+});
+
+await test("tool map covers every engine's real tool names", () => {
+  // Claude names verified against the CLI binary; codex/opencode against theirs.
+  assert.equal(getToolCategory("claude", "TodoWrite"), "task");
+  assert.equal(getToolCategory("claude", "TaskList"), "task");
+  assert.equal(getToolCategory("claude", "MultiEdit"), "diff");
+  assert.equal(getToolCategory("claude", "NotebookEdit"), "diff");
+  assert.equal(getToolCategory("claude", "BashOutput"), "bash");
+  assert.equal(getToolCategory("codex", "command_execution"), "bash");
+  assert.equal(getToolCategory("codex", "file_change"), "diff");
+  assert.equal(getToolCategory("codex", "todo_list"), "task");
+  assert.equal(getToolCategory("opencode", "patch"), "diff");
+  assert.equal(getToolCategory("opencode", "todowrite"), "task");
+  assert.equal(getToolCategory("opencode", "task"), "agent");
+});
+
+await test("TodoWrite-style events replace the whole task list", () => {
+  for (const [engine, name] of [["claude", "TodoWrite"], ["opencode", "todowrite"], ["codex", "todo_list"]]) {
+    const ev = parseEngineTaskEvent(engine, name, { todos: [{ content: "a", status: "completed" }, { content: "  " }] }, "t1", []);
+    assert.equal(ev.replaceAll, true);
+    assert.equal(ev.todos.length, 1, `${engine}: blank todo should be dropped`);
+    assert.equal(ev.todos[0].subject, "a");
+    assert.equal(ev.todos[0].status, "completed");
+  }
+  // Incremental tools still upsert one item at a time
+  assert.equal(parseEngineTaskEvent("claude", "TaskCreate", { subject: "z" }, "t2", []).replaceAll, undefined);
 });
 
 if (fail > 0) {

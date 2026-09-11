@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import dynamic from "next/dynamic";
 import { useAgentBus } from "@/features/session/hooks/useAgentBus";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -39,18 +38,18 @@ import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 
-const SessionList = dynamic(() => import("@/features/session/components/SessionList"), { ssr: false });
-const RemoteDesktop = dynamic(() => import("@/features/remote/components/RemoteDesktop"), { ssr: false });
-const MobileMirror = dynamic(() => import("@/features/mobile/components/MobileMirror"), { ssr: false });
-const BrowserView = dynamic(() => import("@/features/browser/components/BrowserView"), { ssr: false });
-const WorkspaceList = dynamic(() => import("@/features/fileExplorer/components/WorkspaceList"), { ssr: false });
-const FileExplorer = dynamic(() => import("@/features/fileExplorer/components/FileExplorer"), { ssr: false });
-const FileEditor = dynamic(() => import("@/features/fileExplorer/components/FileEditor"), { ssr: false });
-const GitPanel = dynamic(() => import("@/features/fileExplorer/components/GitPanel"), { ssr: false });
-const FileWorkspaceDesktop = dynamic(() => import("@/features/fileExplorer/components/FileWorkspaceDesktop"), { ssr: false });
-const FolderPickerModal = dynamic(() => import("@/features/terminal/components/FolderPickerModal"), { ssr: false });
-const CommandPalette = dynamic(() => import("@/features/fileExplorer/components/CommandPalette"), { ssr: false });
-const ShortcutsModal = dynamic(() => import("@/shared/components/ui/ShortcutsModal"), { ssr: false });
+import SessionList from "@/features/session/components/SessionList";
+import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
+import MobileMirror from "@/features/mobile/components/MobileMirror";
+import BrowserView from "@/features/browser/components/BrowserView";
+import WorkspaceList from "@/features/fileExplorer/components/WorkspaceList";
+import FileExplorer from "@/features/fileExplorer/components/FileExplorer";
+import FileEditor from "@/features/fileExplorer/components/FileEditor";
+import GitPanel from "@/features/fileExplorer/components/GitPanel";
+import FileWorkspaceDesktop from "@/features/fileExplorer/components/FileWorkspaceDesktop";
+import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
+import CommandPalette from "@/features/fileExplorer/components/CommandPalette";
+import ShortcutsModal from "@/shared/components/ui/ShortcutsModal";
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import UpdateModal from "@/shared/components/ui/UpdateModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -304,7 +303,6 @@ export default function WorkspaceLayout({ children }) {
     handleOpenWorkspaceList, handleOpenFiles, handleSelectWorkspace, handleBrowseFolder,
     handlePathChange, handleOpenFile, handleOpenGit, handleSetWorkspace
   } = useWorkspaceFileNav({ pushView, viewStack, setViewStack, currentView, cwdBySession, isDesktop, fileBus });
-
 
   // Folder picker → create a workspace rooted there, then offer its first terminal.
   const [folderPicker, setFolderPicker] = useState(null); // { initialPath } | null

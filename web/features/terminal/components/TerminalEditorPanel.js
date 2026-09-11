@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import dynamic from "next/dynamic";
 import { Save, X, ExternalLink, Eye, FileCode } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -15,11 +14,10 @@ import { useFileDocument } from "@/features/fileExplorer/hooks/useFileDocument";
 import { useUnsavedGuard } from "@/features/fileExplorer/hooks/useUnsavedGuard";
 import { useDirWatch, usePageVisible } from "@/features/fileExplorer/hooks/useDirWatch";
 import UnsavedDialog from "@/features/fileExplorer/components/UnsavedDialog";
-
-const CodeEditor = dynamic(() => import("@/features/fileExplorer/components/CodeEditor"), { ssr: false });
-const FilePreview = dynamic(() => import("@/features/fileExplorer/components/FilePreview"), { ssr: false });
-const TextPreview = dynamic(() => import("@/features/fileExplorer/components/TextPreview"), { ssr: false });
-const DiffView = dynamic(() => import("@/features/fileExplorer/components/DiffView"), { ssr: false });
+import CodeEditor from "@/features/fileExplorer/components/CodeEditor";
+import FilePreview from "@/features/fileExplorer/components/FilePreview";
+import TextPreview from "@/features/fileExplorer/components/TextPreview";
+import DiffView from "@/features/fileExplorer/components/DiffView";
 
 // A file opened from the tree, edited without leaving the terminal. Narrow on purpose —
 // this is for a quick read or fix, not a replacement for the full editor view.

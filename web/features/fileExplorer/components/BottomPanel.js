@@ -3,10 +3,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { X, Terminal, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
-import dynamic from "next/dynamic";
 import { BOTTOM_PANEL_MIN_HEIGHT, BOTTOM_PANEL_MAX_HEIGHT } from "../constants/fileExplorer.js";
-
-const TerminalPane = dynamic(() => import("@/features/terminal/components/TerminalPane"), { ssr: false });
+import TerminalPane from "@/features/terminal/components/TerminalPane";
 
 export default function BottomPanel({
   height,
@@ -58,6 +56,10 @@ export default function BottomPanel({
     if (!parent) return;
     const rect = parent.getBoundingClientRect();
     const onMove = (ev) => {
+      if (ev.buttons === 0) {
+        onUp();
+        return;
+      }
       const pct = ((rect.bottom - ev.clientY) / rect.height) * 100;
       const clamped = Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.min(BOTTOM_PANEL_MAX_HEIGHT, pct));
       onResize(clamped);
@@ -65,6 +67,7 @@ export default function BottomPanel({
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("blur", onUp);
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
     };
@@ -72,6 +75,7 @@ export default function BottomPanel({
     document.body.style.cursor = "row-resize";
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
+    window.addEventListener("blur", onUp);
   }, [onResize]);
 
   return (

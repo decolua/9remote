@@ -5,12 +5,14 @@ import { FileCode, ChevronDown, ChevronRight, Copy, Check, ExternalLink } from "
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
 
-export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff = "" }) {
+export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff = "", content = "" }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
 
-  const rawDiff = patch || diff || "";
+  // A whole-file add has no patch text, only the new content — show it all as additions
+  const isNewFile = !patch && !diff && Boolean(content);
+  const rawDiff = patch || diff || (isNewFile ? String(content).split("\n").map((l) => `+${l}`).join("\n") : "");
   const lines = rawDiff ? rawDiff.split("\n") : [];
   const fileName = file ? file.split("/").pop() : "diff";
 
@@ -34,10 +36,12 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
 
   return (
     <div className="my-1 text-xs">
-      {/* Clean borderless 1-line diff row flush with left margin */}
+      {/* Clean borderless 1-line diff row flush with left margin.
+          Named group — see AiToolCard: a bare `group` nested in the message's own
+          made every tool's actions appear on message hover. */}
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group"
+        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group/tool"
       >
         <div className="flex items-center gap-2 min-w-0">
           <FileCode size={13} className="text-brand-500 shrink-0" />
@@ -45,9 +49,9 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
             {fileName}
           </span>
           {(additions > 0 || deletions > 0) && (
-            <span className="flex items-center gap-1 font-mono text-[10px] shrink-0">
-              {additions > 0 && <span className="text-emerald-400">+{additions}</span>}
-              {deletions > 0 && <span className="text-rose-400">-{deletions}</span>}
+            <span className="flex items-center gap-1 font-mono text-[10px] shrink-0 text-text-muted">
+              {additions > 0 && <span className="text-success">+{additions}</span>}
+              {deletions > 0 && <span className="text-danger">-{deletions}</span>}
             </span>
           )}
           <span className="text-text-muted/50 shrink-0">
@@ -55,7 +59,7 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
           </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 shrink-0 ml-2 opacity-0 group-hover/tool:opacity-100 transition-opacity">
           {file && (
             <button
               type="button"
@@ -74,7 +78,7 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
             className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors"
             title="Copy diff"
           >
-            {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+            {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
           </button>
         </div>
       </div>
@@ -93,11 +97,11 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
               let cls = "text-text";
               let bgCls = "";
               if (isAdd) {
-                cls = "text-emerald-400";
-                bgCls = "bg-emerald-500/10";
+                cls = "text-success";
+                bgCls = "bg-success/10";
               } else if (isDel) {
-                cls = "text-rose-400";
-                bgCls = "bg-rose-500/10";
+                cls = "text-danger";
+                bgCls = "bg-danger/10";
               } else if (isHunk) {
                 cls = "text-text-muted";
                 bgCls = "bg-surface-2/40";

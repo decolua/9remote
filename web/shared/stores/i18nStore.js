@@ -6,14 +6,12 @@ import en from "../i18n/locales/en.js";
 
 const supportedCodes = SUPPORTED_LOCALES.map((l) => l.code);
 
-// Detect initial locale: localStorage > navigator.language > DEFAULT_LOCALE
+// Detect initial locale: localStorage > DEFAULT_LOCALE
 function detectLocale() {
   if (typeof window === "undefined") return DEFAULT_LOCALE;
   try {
     const saved = window.localStorage.getItem(LOCALE_STORAGE_KEY);
     if (saved && supportedCodes.includes(saved)) return saved;
-    const nav = (navigator.language || "").slice(0, 2).toLowerCase();
-    if (supportedCodes.includes(nav)) return nav;
   } catch {}
   return DEFAULT_LOCALE;
 }

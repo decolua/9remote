@@ -60,6 +60,10 @@ export default function FileWorkspaceDesktop({
     const rect = container.getBoundingClientRect();
     setResizing(true);
     const onMove = (ev) => {
+      if (ev.buttons === 0) {
+        onUp();
+        return;
+      }
       const pct = ((ev.clientX - rect.left) / rect.width) * 100;
       const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, pct));
       setSidebarWidth(clamped);
@@ -67,6 +71,7 @@ export default function FileWorkspaceDesktop({
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("blur", onUp);
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
       setResizing(false);
@@ -75,6 +80,7 @@ export default function FileWorkspaceDesktop({
     document.body.style.cursor = "col-resize";
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
+    window.addEventListener("blur", onUp);
   }, [setSidebarWidth]);
 
   // Tabs state - lifted here so ActivityBar/Sidebar/Editor share

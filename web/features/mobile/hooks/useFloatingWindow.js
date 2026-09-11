@@ -83,6 +83,10 @@ export function useFloatingWindow({ rect, onChange, enabled }) {
   const move = useCallback((event) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.pointerType === "mouse" && event.buttons === 0) {
+      end(event);
+      return;
+    }
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
 
@@ -132,6 +136,17 @@ export function useFloatingWindow({ rect, onChange, enabled }) {
     // mid-render of another component.
     if (liveRef.current) onChange?.(liveRef.current);
   }, [onChange]);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onBlur = () => {
+      dragRef.current = null;
+      setDragging(false);
+      if (liveRef.current) onChange?.(liveRef.current);
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [dragging, onChange]);
 
   return {
     rect: live,

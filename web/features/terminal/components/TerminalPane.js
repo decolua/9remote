@@ -176,8 +176,8 @@ function TerminalPane({
     };
   }, [scrollCursorIntoView]);
 
-  // Mobile-only background image on the pane (disabled by default)
-  const bgActive = false;
+  // Background image on the pane (empty pool falls back to theme background)
+  const bgActive = true;
   const bgSrc = bgActive ? backgroundSrc(paneBgKey, customBackgrounds) : null;
 
   const stripButtons = <PaneStripButtons onOpenRemote={onOpenRemote} onOpenMobile={onOpenMobile} />;

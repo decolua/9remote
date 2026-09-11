@@ -6,7 +6,8 @@ import { Sparkles, ChevronDown, ChevronRight } from "@/shared/components/ui/Icon
 export const AiThinkingBlock = memo(function AiThinkingBlock({ text = "", isLive = false }) {
   const [expanded, setExpanded] = useState(false);
 
-  if (!text) return null;
+  // Whitespace-only runs carry nothing — don't render an empty "Thought process" toggle
+  if (!text?.trim()) return null;
 
   return (
     <div className="my-1.5 text-xs select-none">

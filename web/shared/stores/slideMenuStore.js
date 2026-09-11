@@ -2,7 +2,19 @@
 
 import { create } from "zustand";
 
-export const useSlideMenuStore = create((set) => ({
+const isShallowEqual = (a, b) => {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+};
+
+export const useSlideMenuStore = create((set, get) => ({
   isOpen: false,
   activePanel: "menu",
 
@@ -40,37 +52,32 @@ export const useSlideMenuStore = create((set) => ({
   close: () => set({ isOpen: false, activePanel: "menu" }),
   setActivePanel: (panel) => set({ activePanel: panel }),
 
-  setContext: (context) => set({
-    context: {
-      connected: false,
-      remoteAvailable: false,
-      codespaceInfo: null,
-      showTheme: false,
-      theme: "default",
-      busRef: null,
-      tunnelUrl: null,
-      apiKey: null,
-      hideActions: [],
-      connectionMode: "tunnel",
-      agentVersion: null,
-      transport: "ws",
-      ...context
+  setContext: (context) => set((state) => {
+    const nextContext = { ...state.context, ...context };
+    let changed = false;
+    for (const key of Object.keys(nextContext)) {
+      if (!isShallowEqual(state.context[key], nextContext[key])) {
+        changed = true;
+        break;
+      }
     }
+    if (!changed) return state;
+    return { context: nextContext };
   }),
 
-  setCallbacks: (callbacks) => set({
-    callbacks: {
-      onRemote: null,
-      onFiles: null,
-      onCodespace: null,
-      onLogout: null,
-      onThemeChange: null,
-      onStopCodespace: null,
-      onUpdate: null,
-      onRestart: null,
-      ...callbacks
+  setCallbacks: (callbacks) => {
+    const curr = get().callbacks;
+    let presenceChanged = false;
+    for (const key of Object.keys(callbacks)) {
+      if (Boolean(curr[key]) !== Boolean(callbacks[key])) {
+        presenceChanged = true;
+      }
+      curr[key] = callbacks[key];
     }
-  }),
+    if (presenceChanged) {
+      set({ callbacks: { ...curr } });
+    }
+  },
 
   setCachedSites: (sites) => set({ cachedSites: sites }),
   setCurrentSites: (sites) => set({ currentSites: sites }),

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type,
-  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap
+  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -25,6 +25,7 @@ import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
+import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPickerSheet";
 
 const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight };
 
@@ -43,6 +44,7 @@ export default function SettingsDialog({
   const [reloading, setReloading] = useState(false);
 
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [bgPickerOpen, setBgPickerOpen] = useState(false);
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
@@ -84,7 +86,7 @@ export default function SettingsDialog({
     // single Escape would reach both and close the dialog underneath it. The
     // innermost layer wins: skip while a child modal is up.
     const onKey = (e) => {
-      if (e.key === "Escape" && !languageOpen) {
+      if (e.key === "Escape" && !languageOpen && !bgPickerOpen) {
         e.preventDefault();
         e.stopPropagation();
         onClose();
@@ -96,7 +98,7 @@ export default function SettingsDialog({
       window.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = "";
     };
-  }, [onClose, languageOpen]);
+  }, [onClose, languageOpen, bgPickerOpen]);
 
   // Actions that navigate away close the dialog first
   const run = useCallback((fn) => { vibrate(); onClose(); setTimeout(() => fn?.(), 50); }, [onClose]);
@@ -282,6 +284,11 @@ export default function SettingsDialog({
                     </select>
                   </SelectRow>
                   <ToggleRow icon={Monitor} label={t("menu.webgl")} hint={t("menu.webglHint")} value={webglEnabled} onChange={setWebglEnabled} />
+                  <ActionRow
+                    icon={Image}
+                    label={t("menu.terminalBackground")}
+                    onClick={() => { vibrate(); setBgPickerOpen(true); }}
+                  />
                 </Group>
               </div>
             )}
@@ -368,6 +375,7 @@ export default function SettingsDialog({
       </div>
 
       <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
+      <BackgroundPickerSheet isOpen={bgPickerOpen} onClose={() => setBgPickerOpen(false)} busRef={context.busRef} />
     </div>
   );
 }

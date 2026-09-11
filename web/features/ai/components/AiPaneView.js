@@ -4,6 +4,7 @@ import { memo, useState, useCallback, useMemo } from "react";
 import { useAiSession } from "../hooks/useAiSession";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useTheme } from "@/shared/theme/ThemeProvider";
 import { AiMessagesList } from "./AiMessagesList";
 import { Composer } from "./Composer";
 import { AiStatusBar } from "./AiStatusBar";
@@ -12,6 +13,8 @@ import { McpModal } from "./modals/McpModal";
 import { ModelModal } from "./modals/ModelModal";
 import { AiPermissionCard } from "./cards/AiPermissionCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
+import { AiTaskCard } from "./cards/AiTaskCard";
+import { getEngineConfig } from "../registry";
 import { Loader2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import {
@@ -24,6 +27,8 @@ import {
   TERMINAL_BG_LIFT
 } from "@/features/terminal/constants/terminalConfig";
 
+const DEFAULT_METADATA = { model: "", skills: [], mcpServers: [] };
+
 const StepLogStrip = memo(function StepLogStrip({ sessionId }) {
   const isTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const lastMsg = useAiStore((s) => {
@@ -34,20 +39,15 @@ const StepLogStrip = memo(function StepLogStrip({ sessionId }) {
   if (!isTurnRunning) return null;
 
   const activeTool = lastMsg?.tools?.find((t) => t.status === "running");
-  const hasThinking = Boolean(lastMsg?.thinking && !lastMsg?.content);
 
-  // Only show strip if active tool or thinking is running
-  if (!activeTool && !hasThinking) return null;
+  // Tool activity only — "thinking" already renders in the message bubble above
+  if (!activeTool) return null;
 
   return (
     <div className="px-3 py-1 flex items-center gap-2 text-xs text-text-muted bg-surface-2/30 border-t border-border-subtle/50 select-none">
       <Loader2 size={12} className="animate-spin text-brand-500 shrink-0" />
       <span className="truncate font-mono text-[11px]">
-        {activeTool ? (
-          <>Running <span className="text-text font-semibold">{activeTool.name}</span>: {activeTool.command || activeTool.path || ""}</>
-        ) : (
-          "Reasoning..."
-        )}
+        Running <span className="text-text font-semibold">{activeTool.name}</span>: {activeTool.command || activeTool.path || ""}
       </span>
     </div>
   );
@@ -73,16 +73,19 @@ export const AiPaneView = memo(function AiPaneView({
   });
 
   const activePermission = useAiStore((s) => s.bySession[sessionId]?.activePermission);
-  const metadata = useAiStore((s) => s.bySession[sessionId]?.metadata || { model: "", skills: [], mcpServers: [] });
+  const metadata = useAiStore((s) => s.bySession[sessionId]?.metadata) || DEFAULT_METADATA;
   const clearMessages = useAiStore((s) => s.clearMessages);
   const setPermissionMode = useAiStore((s) => s.setPermissionMode);
 
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
   const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
+  const { theme } = useTheme();
 
-  // Background styling: prioritize custom terminal background image, else render subtle dot-grid
+  // Background styling: prioritize custom terminal background image, else render subtle dot-grid.
+  // Light theme skips the image entirely (veil is tuned for dark, washes out on light).
   const bgStyle = useMemo(() => {
+    if (theme === "light") return {};
     const paneBgKey = paneBackgroundKey(resolvableBackgroundKeys(terminalBackgrounds, customBackgrounds), 0);
     const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
     if (bgSrc) {
@@ -98,7 +101,7 @@ export const AiPaneView = memo(function AiPaneView({
       backgroundSize: "18px 18px",
       backgroundPosition: "center center"
     };
-  }, [terminalBackgrounds, customBackgrounds, terminalBackgroundOpacity]);
+  }, [terminalBackgrounds, customBackgrounds, terminalBackgroundOpacity, theme]);
 
   const skills = metadata.skills || [];
   const mcpServers = metadata.mcpServers || [];
@@ -117,17 +120,37 @@ export const AiPaneView = memo(function AiPaneView({
     sendPrompt(`/model ${modelId}`);
   }, [sendPrompt]);
 
+  const engineConfig = getEngineConfig(engine);
+
   const handleModeChange = useCallback((mode) => {
     setPermissionMode(sessionId, mode);
     bus?.emit?.("ai:options", { sessionId, options: { mode } });
   }, [sessionId, setPermissionMode, bus]);
 
+  // Container-level fallback for Shift+Tab when focused outside composer
+  const handleKeyDown = useCallback((e) => {
+    if (e.shiftKey && e.key === "Tab") {
+      e.preventDefault();
+      vibrate();
+      const modes = engineConfig.permissionModes || [];
+      const currentMode = useAiStore.getState().bySession[sessionId]?.permissionMode || "default";
+      const currentIdx = modes.findIndex((m) => m.id === currentMode);
+      const nextIdx = currentIdx === -1 ? 0 : (currentIdx + 1) % modes.length;
+      const nextMode = modes[nextIdx]?.id;
+      if (nextMode) handleModeChange(nextMode);
+    }
+  }, [sessionId, engineConfig.permissionModes, handleModeChange]);
+
   return (
     <div
       onMouseDown={() => { if (!isFocused) onActivate?.(); }}
+      onKeyDown={handleKeyDown}
       className="w-full h-full flex flex-col bg-bg overflow-hidden relative select-text"
       style={bgStyle}
     >
+      {/* Pinned Task Checklist Strip at the Top */}
+      <AiTaskCard sessionId={sessionId} />
+
       {/* Scrollable Message List */}
       <AiMessagesList
         sessionId={sessionId}
@@ -170,6 +193,7 @@ export const AiPaneView = memo(function AiPaneView({
         onSelectModel={handleSelectModel}
         onModeChange={handleModeChange}
         onActivate={onActivate}
+        isFocused={isFocused}
         fileBus={fileBus}
         workspacePath={workspacePath}
       />
@@ -202,6 +226,7 @@ export const AiPaneView = memo(function AiPaneView({
       {activeModal === "model" && (
         <ModelModal
           currentModel={metadata.model}
+          models={engineConfig.models}
           onClose={() => setActiveModal(null)}
           onSelectModel={handleSelectModel}
         />

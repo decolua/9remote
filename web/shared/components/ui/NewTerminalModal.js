@@ -28,13 +28,11 @@ const TAB_DEFS = [
 function AgentAvatar({ agent }) {
   const [broken, setBroken] = useState(false);
   if (!agent) return <Terminal size={16} className="text-text-muted" />;
-  if (agent.id === "claude-ui") return <Bot size={16} className="text-amber-400" />;
-  if (agent.id === "codex-ui") return <Sparkles size={16} className="text-emerald-400" />;
-  if (agent.id === "opencode-ui") return <Zap size={16} className="text-purple-400" />;
+  const agentKey = agent.isAiUi ? agent.aiEngine : agent.id;
   if (broken) return <Bot size={16} className="text-text-muted" />;
   return (
     <img
-      src={agentIconUrl(agent.id)}
+      src={agentIconUrl(agentKey)}
       alt=""
       width={16}
       height={16}

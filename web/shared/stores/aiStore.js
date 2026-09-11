@@ -10,6 +10,7 @@ const INITIAL_SESSION_STATE = {
   permissionMode: "default",
   stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 },
   metadata: { model: "", skills: [], mcpServers: [] },
+  tasks: [], // TaskCreate/TaskUpdate checklist
 };
 
 export const useAiStore = create(
@@ -284,6 +285,9 @@ export const useAiStore = create(
         });
       },
 
+      // Full reset for a session whose view is rebuilt from the host's event log.
+      // tasks goes too: the checklist is re-derived from the replayed TaskCreate /
+      // TaskUpdate events, so keeping the old list would double every entry.
       clearMessages: (sessionId) => {
         set((state) => {
           const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
@@ -293,6 +297,7 @@ export const useAiStore = create(
               [sessionId]: {
                 ...curr,
                 messages: [],
+                tasks: [],
                 isTurnRunning: false,
                 activePermission: null,
                 stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 }
@@ -307,10 +312,9 @@ export const useAiStore = create(
           const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
           const idx = curr.messages.findIndex((m) => m.id === messageId);
           if (idx === -1) return state;
+          // Truncate only: the host echoes the resubmitted text back as `user_message`,
+          // so adding it here too would render the same prompt twice.
           const messages = curr.messages.slice(0, idx);
-          if (newText) {
-            messages.push({ id: `u-${Date.now()}`, role: "user", content: newText });
-          }
           return {
             bySession: {
               ...state.bySession,
@@ -320,6 +324,41 @@ export const useAiStore = create(
                 isTurnRunning: false,
                 activePermission: null
               }
+            }
+          };
+        });
+      },
+
+      // TaskCreate/TaskUpdate → upsert into session tasks list
+      upsertTask: (sessionId, taskData) => {
+        set((state) => {
+          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          // TodoWrite carries the whole list — it replaces, never appends
+          if (taskData.replaceAll) {
+            return {
+              bySession: {
+                ...state.bySession,
+                [sessionId]: { ...curr, tasks: taskData.todos || [] }
+              }
+            };
+          }
+          const tasks = [...(curr.tasks || [])];
+          const targetId = String(taskData.taskId || taskData.id || "");
+          const idx = tasks.findIndex(
+            (t, i) =>
+              (t.id && String(t.id) === targetId) ||
+              (t.taskId && String(t.taskId) === targetId) ||
+              String(i + 1) === targetId
+          );
+          if (idx !== -1) {
+            tasks[idx] = { ...tasks[idx], ...taskData };
+          } else if (taskData.subject) {
+            tasks.push(taskData);
+          }
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, tasks }
             }
           };
         });

@@ -255,12 +255,17 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       const targetIds = Object.keys(sessionWorkspaces).filter((sid) => sessionWorkspaces[sid] === id);
       for (const sid of targetIds) {
         const session = sessions.get(sid);
+        // Its AI process and snapshot go with the terminal, on both branches —
+        // otherwise the claude child keeps running with no terminal behind it.
+        globalAiManager.destroySession(sid);
         if (session) {
           if (session.daemon && daemonClient.isConnected()) {
+            try { await daemonClient.destroyAiSession(sid); } catch {}
             try { await daemonClient.deleteSession(sid); } catch {}
           } else if (session.pty) {
             session.pty.kill();
             deleteSessionBuffer(sid);
+            if (daemonClient.isConnected()) { try { await daemonClient.destroyAiSession(sid); } catch {} }
           }
           sessions.delete(sid);
           clearSession(sid); // drop seq counter + gap ring
@@ -593,6 +598,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
 
     if (session.daemon && daemonClient.isConnected()) {
       try {
+        // Daemon-owned AI process + its snapshot go with the terminal
+        await daemonClient.destroyAiSession(sessionId).catch(() => {});
         await daemonClient.deleteSession(sessionId);
         sessions.delete(sessionId);
         clearSession(sessionId); // drop seq counter + gap ring

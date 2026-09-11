@@ -107,6 +107,9 @@ export const useTerminalStore = create(
         if (state.terminalBackground && state.terminalBackground !== "none" && state.terminalBackgrounds.length === 0) {
           state.terminalBackgrounds = [state.terminalBackground];
         }
+        if (!state.agentBySession || typeof state.agentBySession !== "object") {
+          state.agentBySession = {};
+        }
         if (window.innerWidth < DESKTOP_BREAKPOINT) state.rightPanelOpen = false;
         if (!state.hiddenHeaderButtonsMigrated) {
           state.hiddenHeaderButtonsMigrated = true;

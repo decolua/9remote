@@ -11,13 +11,13 @@ export const AiPlanModeCard = memo(function AiPlanModeCard({ toolName = "EnterPl
     <div
       className={`p-3.5 rounded-brand-lg border flex flex-col gap-2 my-2 text-xs ${
         isEnter
-          ? "bg-purple-500/10 border-purple-500/30 text-purple-200"
-          : "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
+          ? "bg-brand-500/10 border-brand-500/30 text-text"
+          : "bg-success/10 border-success/30 text-success"
       }`}
     >
       <div className="flex items-center justify-between font-semibold">
         <div className="flex items-center gap-2">
-          {isEnter ? <ListChecks size={16} className="text-purple-400" /> : <CheckCircle2 size={16} className="text-emerald-400" />}
+          {isEnter ? <ListChecks size={16} className="text-brand-500" /> : <CheckCircle2 size={16} className="text-success" />}
           <span>{isEnter ? "Plan Mode Activated" : "Plan Mode Completed"}</span>
         </div>
         <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-surface-2 text-text-muted">
@@ -31,7 +31,7 @@ export const AiPlanModeCard = memo(function AiPlanModeCard({ toolName = "EnterPl
       </div>
 
       {isEnter && (
-        <div className="text-[11px] text-purple-300/80 italic pl-6 select-none">
+        <div className="text-[11px] text-text-muted/80 italic pl-6 select-none">
           In Plan Mode, Claude only reads files and drafts architecture. No code changes will be applied without your review.
         </div>
       )}

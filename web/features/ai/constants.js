@@ -1,4 +1,5 @@
 // AI Feature constants for 9remote
+// ponytail: engine-specific config (models, modes, tools) lives in registry.js — upgrade path: add engine there
 
 export const AI_ENGINES = {
   CLAUDE: "claude",
@@ -39,6 +40,8 @@ export const AI_UI_OPTIONS = [
   { id: "opencode-ui", label: "OpenCode (UI)", short: "OpenCode UI", isAiUi: true, aiEngine: "opencode" },
 ];
 
+// Re-export for backward compat — canonical source is registry.js
+export { getEngineConfig } from "./registry.js";
 export const SLASH_COMMANDS = [
   { name: "/clear", description: "Clear conversation context and history" },
   { name: "/compact", description: "Compact conversation context summary" },

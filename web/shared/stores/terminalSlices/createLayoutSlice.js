@@ -45,9 +45,12 @@ export const createLayoutSlice = (set, get) => ({
   rightPanelRoots: {},
   setRightPanelRoot: (workspacePath, rootPath) => set((state) => {
     if (workspacePath == null) return state;
+    const current = state.rightPanelRoots[workspacePath];
+    const target = (!rootPath || rootPath === workspacePath) ? undefined : rootPath;
+    if (current === target) return state;
     const next = { ...state.rightPanelRoots };
-    if (!rootPath || rootPath === workspacePath) delete next[workspacePath];
-    else next[workspacePath] = rootPath;
+    if (!target) delete next[workspacePath];
+    else next[workspacePath] = target;
     return { rightPanelRoots: next };
   }),
   setRightPanelWidth: (w) => set({ rightPanelWidth: clampWidth(w, RIGHT_PANEL_WIDTH) }),

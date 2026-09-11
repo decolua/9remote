@@ -26,11 +26,11 @@ export const AiPermissionCard = memo(function AiPermissionCard({
   };
 
   return (
-    <div className="my-3 p-3 rounded-brand-lg border border-amber-500/30 bg-surface shadow-sm text-xs">
-      <div className="flex items-center gap-2 mb-2 text-amber-400 font-medium">
+    <div className="my-3 p-3 rounded-brand-lg border border-warning/30 bg-surface shadow-sm text-xs">
+      <div className="flex items-center gap-2 mb-2 text-warning font-medium">
         <Shield size={16} />
         <span>Permission Request</span>
-        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 uppercase">
+        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning uppercase">
           {tool || "Action"}
         </span>
       </div>
@@ -74,7 +74,7 @@ export const AiPermissionCard = memo(function AiPermissionCard({
         <button
           type="button"
           onClick={handleDeny}
-          className="px-3 py-1.5 rounded bg-surface-2 hover:bg-rose-500/20 text-rose-300 flex items-center gap-1 font-medium transition-colors"
+          className="px-3 py-1.5 rounded bg-surface-2 hover:bg-danger/20 text-danger flex items-center gap-1 font-medium transition-colors"
         >
           <X size={14} />
           <span>Deny</span>

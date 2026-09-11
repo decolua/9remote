@@ -293,6 +293,10 @@ function handleMessage(message) {
       });
       break;
 
+    case "aiEvent":
+      emit("aiEvent", { sessionId: data.sessionId, event: data.event, data: data.data, seq: data.seq });
+      break;
+
     case "pong":
       // Heartbeat response
       break;
@@ -659,4 +663,40 @@ export function resizeSession(sessionId, cols, rows) {
 export async function deleteSession(sessionId) {
   const result = await request({ type: "deleteSession", sessionId });
   return result;
+}
+
+// ── AI sessions (daemon-owned, agent proxies) ──
+
+export async function createAiSession(sessionId, engine, cwd, options = {}) {
+  return request({ type: "createAiSession", sessionId, engine, cwd, options });
+}
+
+export async function joinAiSession(sessionId) {
+  return request({ type: "joinAiSession", sessionId });
+}
+
+export async function aiPrompt(sessionId, message, cwd = null) {
+  return request({ type: "aiPrompt", sessionId, message, cwd });
+}
+
+// requestId is reserved by request() for IPC correlation — Claude's control-request
+// id rides as `controlRequestId` so the two never collide.
+export async function aiPermission(sessionId, requestId, behavior, message) {
+  return request({ type: "aiPermission", sessionId, controlRequestId: requestId, behavior, message });
+}
+
+export async function aiQuestion(sessionId, requestId, answers) {
+  return request({ type: "aiQuestion", sessionId, controlRequestId: requestId, answers });
+}
+
+export async function aiStop(sessionId) {
+  return request({ type: "aiStop", sessionId });
+}
+
+export async function aiOptions(sessionId, options) {
+  return request({ type: "aiOptions", sessionId, options });
+}
+
+export async function destroyAiSession(sessionId) {
+  return request({ type: "aiDestroy", sessionId });
 }

@@ -223,6 +223,10 @@ export default function NotePanel({ bus, sessionId, appendOnOpen, onClose, varia
     };
 
     const onMove = (ev) => {
+      if (ev.pointerType === "mouse" && ev.buttons === 0) {
+        onUp();
+        return;
+      }
       const dy = ev.clientY - startY;
       // Index the pointer has travelled to, in whole rows — no hit-testing needed
       const moved = rowH ? Math.round(dy / rowH) : 0;
@@ -240,6 +244,7 @@ export default function NotePanel({ bus, sessionId, appendOnOpen, onClose, varia
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", onUp);
       clearTransforms();
       dragIdRef.current = null;
       setDragId(null);
@@ -256,6 +261,7 @@ export default function NotePanel({ bus, sessionId, appendOnOpen, onClose, varia
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+    window.addEventListener("blur", onUp);
   };
 
   const startEdit = (item) => {
