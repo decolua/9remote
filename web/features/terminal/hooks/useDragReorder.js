@@ -54,14 +54,13 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
     });
     if (boxes.some((b) => !b)) return;
 
-    e.preventDefault();
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    captureRef.current = { el: e.currentTarget, pointerId: e.pointerId };
     movedRef.current = false;
     if (clearMovedRef.current) { clearTimeout(clearMovedRef.current); clearMovedRef.current = null; }
 
     const self = boxes[fromIdx];
     const startPos = e[a.pos];
+    const captureTarget = e.currentTarget;
+    const pointerId = e.pointerId;
     let toIdx = fromIdx;
     let frame = null;
 
@@ -92,6 +91,11 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
         movedRef.current = true;
         vibrate();
         setDragId(id);
+        // Captured only once the drag is real: WebKit drops the pointerdown that
+        // follows ANY captured press, so a plain click must never capture — it would
+        // cost the user the next click. A genuine drag already eats its own release.
+        try { captureTarget.setPointerCapture?.(pointerId); } catch {}
+        captureRef.current = { el: captureTarget, pointerId };
       }
       // Slot the dragged item's centre now sits over — the last box it has reached
       const centre = self.start + self.size / 2 + delta;

@@ -47,8 +47,8 @@ const fire = (type, ev) => [...(listeners.get(type) || [])].forEach((fn) => fn(e
 
 // Two fixed-width tabs side by side.
 const els = new Map([
-  ["a", { getBoundingClientRect: () => ({ left: 0, width: 100 }), style: {}, releasePointerCapture() { this.released = true; } }],
-  ["b", { getBoundingClientRect: () => ({ left: 100, width: 100 }), style: {}, releasePointerCapture() { this.released = true; } }]
+  ["a", { getBoundingClientRect: () => ({ left: 0, width: 100 }), style: {}, setPointerCapture() { this.captured = true; }, releasePointerCapture() { this.released = true; } }],
+  ["b", { getBoundingClientRect: () => ({ left: 100, width: 100 }), style: {}, setPointerCapture() { this.captured = true; }, releasePointerCapture() { this.released = true; } }]
 ]);
 const IDS = ["a", "b"];
 const down = (id, x) => ({ pointerType: "mouse", button: 0, pointerId: 7, clientX: x, preventDefault() {}, currentTarget: els.get(id) });
@@ -69,7 +69,7 @@ const test = (name, fn) => {
   catch (e) { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); }
   finally {
     listeners.clear();
-    els.forEach((el) => { el.style = {}; el.released = false; });
+    els.forEach((el) => { el.style = {}; el.released = false; el.captured = false; });
     globalThis.__state.length = 0;
   }
 };
@@ -107,6 +107,23 @@ test("a drag that DID end still swallows its own release click", () => {
 test("a click with no drags at all is never eaten", () => {
   const hook = newHook(() => {});
   assert.equal(hook.consumeClick(), false, "a plain click after an ended drag was swallowed");
+});
+
+// The capture is what triggers WebKit bug 202287, so it must be taken on movement only:
+// capturing on pointerdown costs the user the NEXT click, even when they never dragged.
+test("a press that never moves takes no pointer capture", () => {
+  const hook = newHook(() => {});
+  hook.startDrag(down("a", 10), "a", IDS);
+  fire("pointerup", {});
+  assert.equal(els.get("a").captured, false, "a plain click captured the pointer and will eat the next one");
+});
+
+test("a moved drag takes pointer capture", () => {
+  const hook = newHook(() => {});
+  hook.startDrag(down("a", 10), "a", IDS);
+  fire("pointermove", move(120));
+  assert.equal(els.get("a").captured, true, "a live drag did not capture — pointerup outside the element would be lost");
+  fire("pointerup", {});
 });
 
 test("a plain click is never eaten", () => {
