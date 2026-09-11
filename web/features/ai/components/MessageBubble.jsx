@@ -54,6 +54,7 @@ function CodePre({ children, node: _node, ...props }) {
 export const MessageBubble = memo(function MessageBubble({
   message,
   engine = "claude",
+  workspacePath = "",
   onResolvePermission,
   onRewind
 }) {
@@ -153,7 +154,7 @@ export const MessageBubble = memo(function MessageBubble({
         );
       // diff/file/search/agent/task/generic → all use compact AiToolCard
       default:
-        return <AiToolCard key={t.id || idx} {...t} />;
+        return <AiToolCard key={t.id || idx} {...t} workspacePath={workspacePath} />;
     }
   };
 
@@ -174,7 +175,7 @@ export const MessageBubble = memo(function MessageBubble({
         {diffs && diffs.length > 0 && (
           <div className="my-1.5 space-y-1.5">
             {diffs.map((d, idx) => (
-              <AiDiffCard key={d.file || idx} {...d} />
+              <AiDiffCard key={d.file || idx} {...d} workspacePath={workspacePath} />
             ))}
           </div>
         )}

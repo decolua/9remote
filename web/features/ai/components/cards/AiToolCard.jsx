@@ -4,6 +4,7 @@ import { memo, useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, Copy, Check, Loader2, CheckCircle2, AlertCircle, ExternalLink } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
+import { splitPath } from "../../lib/shortenPath";
 
 export const AiToolCard = memo(function AiToolCard({
   id = "",
@@ -12,7 +13,8 @@ export const AiToolCard = memo(function AiToolCard({
   input = null,
   output = "",
   error = "",
-  status = "done"
+  status = "done",
+  workspacePath = ""
 }) {
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
@@ -25,9 +27,14 @@ export const AiToolCard = memo(function AiToolCard({
     if (isError) setExpanded(true);
   }, [isError]);
 
-  const displayCmd = command || (typeof input === "string"
+  const rawCmd = command || (typeof input === "string"
     ? input
     : input?.command || input?.file_path || input?.notebook_path || input?.path || input?.file || input?.pattern || input?.query || "");
+  // A bare path is shown relative to the terminal's workspace; a command line is not
+  // (its arguments are the CLI's own text and must stay verbatim).
+  const isCommand = Boolean(command) || typeof input !== "string" && Boolean(input?.command);
+  const pathParts = isCommand || !rawCmd ? null : splitPath(rawCmd, workspacePath);
+  const displayCmd = pathParts ? (pathParts.dir ? `${pathParts.dir}/${pathParts.name}` : pathParts.name) : rawCmd;
   const filePath = input?.file_path || input?.path || input?.file || "";
 
   const handleCopy = (e) => {
@@ -68,9 +75,19 @@ export const AiToolCard = memo(function AiToolCard({
             {name}
           </span>
 
-          <span className="font-mono text-[11px] text-text-muted truncate min-w-0" title={displayCmd}>
-            {displayCmd}
-          </span>
+          {/* The directory may clip; the file name never does. The split happens here so
+              the name is its own element, and `.path-head` puts the ellipsis at the head
+              of the directory rather than at the join, which would read as a cut middle. */}
+          {isCommand ? (
+            <span className="font-mono text-[11px] text-text-muted truncate min-w-0" title={displayCmd}>
+              {displayCmd}
+            </span>
+          ) : (
+            <span className="flex items-baseline min-w-0 font-mono text-[11px] text-text-muted" title={displayCmd}>
+              {pathParts.dir && <span className="path-head min-w-0">{pathParts.dir}/</span>}
+              <span className="shrink-0">{pathParts.name}</span>
+            </span>
+          )}
 
           <span className="text-text-muted/50 shrink-0">
             {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}

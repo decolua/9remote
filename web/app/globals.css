@@ -110,6 +110,20 @@
   unicode-bidi: plaintext;
 }
 
+/* Same head-ellipsis, for a path whose tail is a sibling element that must stay
+   whole. `plaintext` would drop the rtl direction the trick relies on, and a path's
+   punctuation reorders under rtl — the LRM after it pins the trailing "/" in place. */
+.path-head {
+  direction: rtl;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.path-head::after {
+  content: "\200E";
+}
+
 /* Empty session list: borderless poster stage — content sits naked on a cinematic
    backdrop (same white light as login), split in two by a hairline + brand dot. */
 .empty-stage {
@@ -566,6 +580,31 @@ html.terminal-page body {
    caret showed) on WebKit IMEs like the macOS Vietnamese one. */
 .terminal-has-bg .xterm .xterm-viewport {
   background-color: transparent !important;
+}
+
+/* AI pane tracks the terminal's font size. Only the conversation layer is sized —
+   buttons, badges and modals keep their compact chrome sizing. Tailwind's `text-*`
+   utilities pair a px size with a px line-height, so both are set here. */
+.ai-pane .ai-conversation p,
+.ai-pane .ai-conversation li,
+.ai-pane .ai-conversation th,
+.ai-pane .ai-conversation td,
+.ai-pane .ai-conversation pre,
+.ai-pane .ai-conversation pre code,
+.ai-pane .ai-conversation .text-sm,
+.ai-pane .ai-conversation .text-xs {
+  font-size: var(--ai-fs, 12px);
+  line-height: 1.6;
+}
+
+/* Tool output, thinking and detail rows sit a step below chat text — keep that
+   ratio, but follow the setting instead of a fixed px. */
+.ai-pane .ai-conversation .text-\[11px\] { font-size: calc(var(--ai-fs, 12px) - 2px); }
+.ai-pane .ai-conversation .text-\[10px\] { font-size: calc(var(--ai-fs, 12px) - 3px); }
+
+.ai-pane .ai-conversation .ai-composer-input {
+  font-size: var(--ai-fs, 12px);
+  line-height: 1.45;
 }
 
 /* Terminal wrapper — default clip; .is-scrollable unlocks pan when soft-KB shrinks viewport */

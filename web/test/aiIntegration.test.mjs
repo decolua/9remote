@@ -1,8 +1,9 @@
 // End-to-end integration test for Web AI Session & Components
 // Run: node web/test/aiIntegration.test.mjs
 import assert from "node:assert/strict";
-import { AI_ENGINES, ENGINE_INFO, AI_UI_OPTIONS, SLASH_COMMANDS } from "../features/ai/constants.js";
-import { getToolCategory, parseEngineTaskEvent } from "../features/ai/registry.js";
+import { ENGINE_INFO, AI_UI_OPTIONS } from "../features/ai/constants.js";
+import { getToolCategory, parseEngineTaskEvent, getEngineConfig, listEngines } from "../features/ai/registry.js";
+import { splitPath } from "../features/ai/lib/shortenPath.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -34,13 +35,41 @@ await test("AI_UI_OPTIONS contains 3 UI options matching expected structure", ()
   }
 });
 
-await test("SLASH_COMMANDS has primary developer commands", () => {
-  const names = SLASH_COMMANDS.map((c) => c.name);
-  assert.ok(names.includes("/clear"));
-  assert.ok(names.includes("/compact"));
-  assert.ok(names.includes("/cost"));
-  assert.ok(names.includes("/context"));
-  assert.ok(names.includes("/model"));
+await test("each engine exposes slash commands through its resolved config", () => {
+  // The canonical source is the registry — constants no longer exports a flat list.
+  const claude = getEngineConfig("claude").slashCommands.map((c) => c.name);
+  assert.ok(claude.includes("/clear"));
+  assert.ok(claude.includes("/compact"));
+  assert.ok(claude.includes("/cost"));
+  assert.ok(claude.includes("/context"));
+  assert.ok(claude.includes("/model"));
+
+  for (const engine of listEngines()) {
+    const cmds = getEngineConfig(engine.id).slashCommands;
+    assert.ok(cmds.length > 0, `${engine.id} has no slash commands`);
+    // Every entry must declare what picking it does, or the composer cannot route it.
+    for (const c of cmds) assert.ok(c.action, `${engine.id} ${c.name} has no action`);
+  }
+});
+
+await test("splitPath trims the workspace prefix and separates the name", () => {
+  const ws = "/Users/Working/9remote";
+  assert.deepEqual(splitPath(`${ws}/web/features/ai/registry.js`, ws), {
+    dir: "web/features/ai",
+    name: "registry.js"
+  });
+  // A bare file name has no directory part
+  assert.deepEqual(splitPath(`${ws}/package.json`, ws), { dir: "", name: "package.json" });
+  // Outside the workspace the tail is kept and the dropped front is marked
+  const outside = splitPath("/Users/other/project/a/b/c/deep/file.js", ws);
+  assert.equal(outside.name, "file.js");
+  assert.ok(outside.dir.startsWith("…"), outside.dir);
+  // Whatever happens, the name is never truncated — that is what the UI relies on.
+  assert.equal(splitPath("/a/very/deeply/nested/path/that/keeps/going/important.js", "").name, "important.js");
+  assert.deepEqual(splitPath("", ws), { dir: "", name: "" });
+  assert.deepEqual(splitPath(null, ws), { dir: "", name: "" });
+  // Windows separators normalize before comparing
+  assert.deepEqual(splitPath("C:\\repo\\src\\a.js", "C:\\repo"), { dir: "src", name: "a.js" });
 });
 
 await test("Simulated AI Event stream parser aggregates deltas and tools", () => {

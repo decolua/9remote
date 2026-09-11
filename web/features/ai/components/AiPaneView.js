@@ -20,6 +20,7 @@ import { AiBlockedCard } from "./cards/AiBlockedCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { AiTaskCard } from "./cards/AiTaskCard";
 import { getEngineConfig } from "../registry";
+import { AI_FONT_SIZE_BOOST, AI_DOT_GRID } from "../constants";
 import { Loader2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
@@ -27,11 +28,13 @@ import {
   backgroundSrc,
   paneBackgroundKey,
   resolvableBackgroundKeys,
+  effectiveFontSize,
   TERMINAL_BG_ALPHA,
   TERMINAL_BG_VEIL_RGB,
   TERMINAL_BG_LIFT_RGB,
   TERMINAL_BG_LIFT
 } from "@/features/terminal/constants/terminalConfig";
+import { resolveTerminalTheme } from "@/shared/theme/themeConfig";
 
 const DEFAULT_METADATA = { model: "", skills: [], mcpServers: [] };
 const EMPTY_TASKS = [];
@@ -89,28 +92,34 @@ export const AiPaneView = memo(function AiPaneView({
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
   const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
+  const terminalTheme = useTerminalStore((s) => s.terminalTheme);
+  const fontSize = useTerminalStore((s) => s.fontSize);
   const { theme } = useTheme();
 
-  // Background styling: prioritize custom terminal background image, else render subtle dot-grid.
-  // Light theme skips the image entirely (veil is tuned for dark, washes out on light).
+  // Chat text is plain prose, not terminal output — take only fg/bg from the
+  // terminal palette so a theme switch keeps the two panes in step. Surfaces stay
+  // on the app theme; the theme menu only offers palettes of the current mode.
+  const palette = useMemo(() => resolveTerminalTheme(theme, terminalTheme), [theme, terminalTheme]);
+  const fontPx = useMemo(() => effectiveFontSize(fontSize) + AI_FONT_SIZE_BOOST, [fontSize]);
+
+  // Background styling: a picked terminal wallpaper wins over the palette colour,
+  // mirroring TerminalPane — including its dark-mode-only rule, since the veil is
+  // tuned for a dark ground. The dot grid sits on top either way.
   const bgStyle = useMemo(() => {
-    if (theme === "light") return {};
+    const { alpha, size } = AI_DOT_GRID;
+    const dotGrid = `radial-gradient(color-mix(in srgb, ${palette.foreground} ${alpha}%, transparent) 1px, transparent 1px) 0 0 / ${size}px ${size}px`;
     const paneBgKey = paneBackgroundKey(resolvableBackgroundKeys(terminalBackgrounds, customBackgrounds), 0);
-    const bgSrc = backgroundSrc(paneBgKey, customBackgrounds);
+    const bgSrc = theme === "dark" ? backgroundSrc(paneBgKey, customBackgrounds) : null;
     if (bgSrc) {
       const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
       const lift = `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})`;
       return {
-        background: `linear-gradient(${veil},${veil}), linear-gradient(${lift},${lift}), center / cover no-repeat url("${bgSrc}")`,
-        backgroundBlendMode: "normal, screen, normal"
+        background: `${dotGrid}, linear-gradient(${veil},${veil}), linear-gradient(${lift},${lift}), center / cover no-repeat url("${bgSrc}")`,
+        backgroundBlendMode: "luminosity, normal, screen, normal"
       };
     }
-    return {
-      backgroundImage: "radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px)",
-      backgroundSize: "18px 18px",
-      backgroundPosition: "center center"
-    };
-  }, [terminalBackgrounds, customBackgrounds, terminalBackgroundOpacity, theme]);
+    return { background: `${dotGrid}, ${palette.background}` };
+  }, [terminalBackgrounds, customBackgrounds, terminalBackgroundOpacity, palette, theme]);
 
   const skills = metadata.skills || [];
   const mcpServers = metadata.mcpServers || [];
@@ -178,8 +187,13 @@ export const AiPaneView = memo(function AiPaneView({
     <div
       onMouseDown={() => { if (!isFocused) onActivate?.(); }}
       onKeyDown={handleKeyDown}
-      className="w-full h-full flex flex-col bg-bg overflow-hidden relative select-text"
-      style={bgStyle}
+      className="ai-pane w-full h-full flex flex-col bg-bg overflow-hidden relative select-text"
+      style={{
+        ...bgStyle,
+        // Palette text colour wins over the app theme's for the whole pane
+        "--color-text": palette.foreground,
+        "--ai-fs": `${fontPx}px`
+      }}
     >
       {/* Pinned Task Checklist Strip at the Top */}
       <AiTaskCard sessionId={sessionId} />
@@ -188,6 +202,7 @@ export const AiPaneView = memo(function AiPaneView({
       <AiMessagesList
         sessionId={sessionId}
         engine={engine}
+        workspacePath={workspacePath}
         onSendPrompt={sendPrompt}
         onResolvePermission={resolvePermission}
         onRewind={rewindToMessage}

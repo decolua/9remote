@@ -45,6 +45,7 @@ function countMessagesByBudget(messages, budgetBytes, minCount = 2) {
 export const AiMessagesList = memo(function AiMessagesList({
   sessionId,
   engine = "claude",
+  workspacePath = "",
   onSendPrompt,
   onResolvePermission,
   onRewind
@@ -148,7 +149,7 @@ export const AiMessagesList = memo(function AiMessagesList({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 custom-scrollbar relative"
+        className="ai-conversation flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 custom-scrollbar relative"
       >
         {hiddenCount > 0 && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {messages.length === 0 ? (
@@ -209,6 +210,7 @@ export const AiMessagesList = memo(function AiMessagesList({
                 key={msg.id}
                 message={msg}
                 engine={engine}
+                workspacePath={workspacePath}
                 onResolvePermission={onResolvePermission}
                 onRewind={onRewind}
               />

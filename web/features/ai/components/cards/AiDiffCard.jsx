@@ -4,8 +4,9 @@ import { memo, useState } from "react";
 import { FileCode, ChevronDown, ChevronRight, Copy, Check, ExternalLink } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
+import { splitPath } from "../../lib/shortenPath";
 
-export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff = "", content = "" }) {
+export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff = "", content = "", workspacePath = "" }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
@@ -14,7 +15,9 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
   const isNewFile = !patch && !diff && Boolean(content);
   const rawDiff = patch || diff || (isNewFile ? String(content).split("\n").map((l) => `+${l}`).join("\n") : "");
   const lines = rawDiff ? rawDiff.split("\n") : [];
-  const fileName = file ? file.split("/").pop() : "diff";
+  // Relative to the terminal's workspace, so the folder context survives while the
+  // path stays short. `file` itself is kept for opening the editor.
+  const pathParts = splitPath(file, workspacePath);
 
   const additions = lines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
   const deletions = lines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
@@ -45,8 +48,10 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
       >
         <div className="flex items-center gap-2 min-w-0">
           <FileCode size={13} className="text-brand-500 shrink-0" />
-          <span className="font-mono font-medium text-text text-[11px] truncate" title={file}>
-            {fileName}
+          {/* Directory clips at its head, file name never does — see AiToolCard */}
+          <span className="flex items-baseline min-w-0 font-mono font-medium text-text text-[11px]" title={file}>
+            {pathParts.dir && <span className="path-head min-w-0">{pathParts.dir}/</span>}
+            <span className="shrink-0">{pathParts.name || "diff"}</span>
           </span>
           {(additions > 0 || deletions > 0) && (
             <span className="flex items-center gap-1 font-mono text-[10px] shrink-0 text-text-muted">

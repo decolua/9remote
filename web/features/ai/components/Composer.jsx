@@ -594,7 +594,7 @@ export const Composer = memo(function Composer({
           }}
           placeholder={isTurnRunning ? "Type command · Enter to queue · Esc to stop" : "Type command"}
           rows={1}
-          className="w-full bg-transparent resize-none text-xs text-text placeholder-text-muted focus:outline-none custom-scrollbar leading-snug min-h-[24px]"
+          className="ai-conversation ai-composer-input w-full bg-transparent resize-none text-xs text-text placeholder-text-muted focus:outline-none custom-scrollbar leading-snug min-h-[24px]"
         />
 
         {/* Action strip: Model selector, Mode selector & Send button */}
