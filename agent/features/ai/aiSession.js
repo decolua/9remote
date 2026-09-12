@@ -9,6 +9,7 @@ import { recoverFromTranscript } from "./transcript.js";
 import { ClaudeAdapter } from "./adapters/claudeAdapter.js";
 import { CodexAdapter } from "./adapters/codexAdapter.js";
 import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
+import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\[[0-9;]*m/g;
@@ -22,7 +23,8 @@ const DOCTOR_SPECS = new Map(
   Object.entries({
     [AI_ENGINES.CLAUDE]: ClaudeAdapter,
     [AI_ENGINES.CODEX]: CodexAdapter,
-    [AI_ENGINES.OPENCODE]: OpenCodeAdapter
+    [AI_ENGINES.OPENCODE]: OpenCodeAdapter,
+    [AI_ENGINES.ANTIGRAVITY]: AntigravityAdapter
   }).map(([engine, Adapter]) => [engine, Adapter.doctorSpec?.() || null])
 );
 
@@ -188,6 +190,18 @@ export class AiSession {
           mine.setOptions({ ...this.options, mode: this.permissionMode || this.options.mode });
         }
         break;
+      case AI_ENGINES.ANTIGRAVITY:
+        mine = new AntigravityAdapter({
+          cwd: this.cwd,
+          onEvent,
+          conversationId: this.cliSessionId,
+          model: this.model || this.options.model
+        });
+        this.adapter = mine;
+        if (this.permissionMode || this.options.model || this.options.flags) {
+          mine.setOptions({ ...this.options, mode: this.permissionMode || this.options.mode });
+        }
+        break;
       default:
         throw new Error(`Unsupported engine: ${this.engine}`);
     }
@@ -270,7 +284,7 @@ export class AiSession {
     } catch {}
   }
 
-  sendPrompt(prompt) {
+  sendPrompt(prompt, attachments = null) {
     // Clear is a host-side reset, not a message. Without this the old log survived a
     // Clear and came back on the next F5 — and the literal "/clear" was recorded as a
     // prompt on top of it.
@@ -307,7 +321,7 @@ export class AiSession {
       this.emitNormalized("turn_complete", { stats: {} });
       return;
     }
-    this.adapter?.sendPrompt(prompt);
+    this.adapter?.sendPrompt(prompt, attachments);
   }
 
   // Metadata carried in `init`, restored from disk so a cleared session still names its
@@ -339,8 +353,13 @@ export class AiSession {
     // Resuming a past conversation moves the thread/session id this session holds,
     // so a reload keeps talking to the resumed one.
     if (resume) {
-      if (this.engine === AI_ENGINES.CODEX) this.threadId = resume;
+      if (this.engine === AI_ENGINES.CLAUDE) this.cliSessionId = resume;
+      else if (this.engine === AI_ENGINES.CODEX) this.threadId = resume;
       else if (this.engine === AI_ENGINES.OPENCODE) this.cliSessionId = resume;
+      // Antigravity's conversation id lives on cliSessionId too, and its transcript
+      // reader is not written yet — the CLI keeps talking to the resumed conversation,
+      // but the pane replays nothing.
+      else if (this.engine === AI_ENGINES.ANTIGRAVITY) this.cliSessionId = resume;
       // Replace the replay log with the resumed conversation's tail, or the pane would
       // show one conversation while the CLI continues another. The readers pull from
       // each CLI's own store (codex rollouts, opencode db).

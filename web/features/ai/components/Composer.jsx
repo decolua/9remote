@@ -1,13 +1,17 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Send, Square, Terminal, FileCode, Zap, ChevronUp, Check, Shield, Sparkles, X } from "@/shared/components/ui/Icon";
+import { Send, Square, Terminal, FileCode, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff } from "@/shared/components/ui/Icon";
 import { ENGINE_INFO } from "../constants";
 import { getEngineConfig } from "../registry";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
+import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
+import { useI18n } from "@/shared/i18n";
+import { useAttachments } from "@/features/terminal/hooks/useAttachments";
 
 const EMPTY_ARRAY = [];
 
@@ -28,12 +32,16 @@ export const Composer = memo(function Composer({
   workspacePath = "",
   model: propModel = ""
 }) {
+  const { t, locale } = useI18n();
   const engineConfig = getEngineConfig(engine);
-  const MODELS = engineConfig.models;
   const CLAUDE_MODES = engineConfig.permissionModes;
   const SLASH_COMMANDS = engineConfig.slashCommands;
   const storeTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const storeModel = useAiStore((s) => s.bySession[sessionId]?.metadata?.model);
+  // Models the host actually offers (its own CLI settings). The registry list is only
+  // a fallback for engines whose models are not host-specific.
+  const hostModels = useAiStore((s) => s.bySession[sessionId]?.metadata?.modelOptions);
+  const MODELS = hostModels?.length ? hostModels : engineConfig.models;
   const storeSkills = useAiStore((s) => s.bySession[sessionId]?.metadata?.skills) || EMPTY_ARRAY;
   const permissionMode = useAiStore((s) => s.bySession[sessionId]?.permissionMode || "default");
 
@@ -53,11 +61,43 @@ export const Composer = memo(function Composer({
   const [submenuCmd, setSubmenuCmd] = useState(null);
 
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modelMenuRef = useRef(null);
-  const modeMenuRef = useRef(null);
+
+  // Staged files/images, held as base64 until send then handed to the host, which
+  // writes them where the CLI can read them. `bus` is unused by the hook on this
+  // path (that is the terminal's clipboard route) but it is what it is built around.
+  const {
+    attachments, setAttachments,
+    removeAttachment, handleFileUpload, handleAttachPaste
+  } = useAttachments({ bus: useConnectionStore((s) => s.bus), sessionId });
+
+  // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
+  const [voiceLang, setVoiceLang] = useVoiceLang(locale);
+  const [voiceLangOpen, setVoiceLangOpen] = useState(false);
+  const voice = useVoiceInput({
+    lang: localeToSpeechLang(voiceLang),
+    onText: (txt) => setText(txt),
+  });
+  const toggleVoice = useCallback(() => {
+    if (voice.listening) { voice.stop(); return; }
+    document.activeElement?.blur(); // hide soft keyboard while dictating
+    voice.start(text);
+  }, [voice, text]);
+
+  const clearText = useCallback(() => {
+    vibrate();
+    setText("");
+    if (textareaRef.current) {
+      textareaRef.current.value = "";
+      textareaRef.current.style.height = "26px";
+    }
+    try { localStorage.removeItem(`9remote_draft_${sessionId}`); } catch {}
+    textareaRef.current?.focus();
+  }, [sessionId]);
 
   const textareaRef = useRef(null);
+  const attachmentsRef = useRef(attachments);
+  useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
   const menuContainerRef = useRef(null);
   const isComposingRef = useRef(false);
   const lastCompositionEndRef = useRef(0);
@@ -72,11 +112,10 @@ export const Composer = memo(function Composer({
     }
   }, [isFocused, isTurnRunning]);
 
-  // Auto-close popover menus on outside click
+  // Auto-close the model popover on outside click
   useEffect(() => {
     const onClick = (e) => {
       if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) setModelMenuOpen(false);
-      if (modeMenuRef.current && !modeMenuRef.current.contains(e.target)) setModeMenuOpen(false);
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
@@ -191,14 +230,19 @@ export const Composer = memo(function Composer({
   const executeSend = useCallback(() => {
     const raw = textareaRef.current ? textareaRef.current.value : text;
     const trimmed = (raw || text).trim();
-    if (!trimmed) return;
+    // Read the staged files live, not from this render's closure: the send button's
+    // own re-render does not update a memoized callback, so a file picked right
+    // before Send was silently dropped.
+    const pending = attachmentsRef.current;
+    // An attachment with no caption is still a message — a picture needs no words.
+    if (!trimmed && pending.length === 0) return;
     const now = Date.now();
     if (now - lastSendTimeRef.current < 250) return;
     lastSendTimeRef.current = now;
     justSentRef.current = now;
 
     vibrate();
-    setHistory((prev) => [...prev.filter((h) => h !== trimmed), trimmed].slice(-50));
+    if (trimmed) setHistory((prev) => [...prev.filter((h) => h !== trimmed), trimmed].slice(-50));
     setHistoryIdx(-1);
     setText("");
     if (textareaRef.current) {
@@ -207,19 +251,27 @@ export const Composer = memo(function Composer({
     }
     try { localStorage.removeItem(`9remote_draft_${sessionId}`); } catch {}
 
-    // If turn is already streaming, enqueue the prompt
-    if (isTurnRunning) {
+    // A shell command is text-only — attachments would have nowhere to go, and the
+    // box must not be cleared for one the user is still composing.
+    if (trimmed.startsWith("!")) {
+      if (!pending.length) onRunShell?.(trimmed.slice(1).trim());
+      return;
+    }
+
+    // Turn state read live, not from this render's closure — a memoized callback
+    // would otherwise queue a prompt for a turn that has already ended.
+    if (useAiStore.getState().bySession[sessionId]?.isTurnRunning) {
       setQueuedText(trimmed);
       return;
     }
 
-    if (trimmed.startsWith("!")) {
-      onRunShell?.(trimmed.slice(1).trim());
-      return;
-    }
-
-    onSend?.(trimmed);
-  }, [text, sessionId, isTurnRunning, onSend, onRunShell]);
+    if (pending.length) setAttachments([]);
+    // Send only what the host needs; the terminal's `name`/`size` fields are for its
+    // own chips, and the resume path never sees them.
+    onSend?.(trimmed, {
+      attachments: pending.map(({ name, type, content }) => ({ filename: name, type, content }))
+    });
+  }, [text, sessionId, onSend, onRunShell, setAttachments]);
 
   // When stream finishes normally, automatically drain and send queued prompt
   const prevRunningRef = useRef(isTurnRunning);
@@ -430,40 +482,26 @@ export const Composer = memo(function Composer({
     }
   };
 
-  const cleanRawModel = useMemo(() => {
-    if (!rawModel) return "";
-    return rawModel.replace(/\[1m\]$/i, "");
-  }, [rawModel]);
+  // The raw id is what the CLI reports and what `--model` must receive — `[1m]` picks
+  // the 1M-context variant, so it is never stripped from the value that goes back.
+  const matchedModel = useMemo(
+    () => (rawModel ? (MODELS || []).find((m) => m.id === rawModel) : null),
+    [rawModel, MODELS]
+  );
 
-  const matchedModel = useMemo(() => {
-    if (!cleanRawModel) return null;
-    return (MODELS || []).find(
-      (m) =>
-        m.id === cleanRawModel ||
-        m.id === rawModel ||
-        m.short.toLowerCase() === cleanRawModel.toLowerCase() ||
-        cleanRawModel.startsWith(m.id) ||
-        m.id.startsWith(cleanRawModel)
-    );
-  }, [cleanRawModel, rawModel, MODELS]);
+  const displayModel = matchedModel?.label || rawModel || "Model";
 
-  const displayModel = matchedModel?.short || cleanRawModel || rawModel || "Model";
-
+  // The running model may not be in the host's list (set from another surface, or a
+  // settings change since) — show it anyway rather than pretending another is active.
   const allModels = useMemo(() => {
     const list = [...(MODELS || [])];
-    if (cleanRawModel) {
-      const exists = list.some((m) => m.id === cleanRawModel || m.id === rawModel);
-      if (!exists) {
-        list.unshift({ id: cleanRawModel, label: cleanRawModel, short: cleanRawModel });
-      }
+    if (rawModel && !list.some((m) => m.id === rawModel)) {
+      list.unshift({ id: rawModel, label: rawModel, short: rawModel });
     }
     return list;
-  }, [MODELS, cleanRawModel, rawModel]);
+  }, [MODELS, rawModel]);
 
-  const activeModeObj = CLAUDE_MODES.find((m) => m.id === permissionMode) || CLAUDE_MODES[0];
-
-  return (
-    <div className="relative px-3 py-1.5 bg-transparent border-t border-border-subtle/40 select-none">
+  return (    <div className="relative px-3 py-1.5 bg-transparent border-t border-border-subtle/40 select-none">
       {/* Autocomplete Menu popup — second-level option list when a submenu is open */}
       {menuOpen && submenuCmd && (
         <div
@@ -569,11 +607,56 @@ export const Composer = memo(function Composer({
         </div>
       )}
 
+      {/* While dictating, the language is one tap away — same affordance as the terminal */}
+      {voice.supported && voice.listening && (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setVoiceLangOpen(true)}
+          title={t("voice.language")}
+          className="mb-1 px-2 py-0.5 rounded bg-surface-2 shadow text-[10px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
+        >
+          {voiceLang}
+        </button>
+      )}
+
       {/* Main Composer Box — Transparent, compact height */}
       <div className="rounded-brand border border-border-subtle/80 bg-transparent focus-within:border-brand-500 transition-colors px-2.5 py-1 flex flex-col gap-1">
+        {/* Staged attachments — image thumbnails, or a name chip for other files */}
+        {attachments.length > 0 && (
+          <div className="flex gap-1.5 overflow-x-auto scroll-thin-x pt-0.5">
+            {attachments.map((att) => (
+              <div key={att.id} className="relative flex-shrink-0 group">
+                {att.isImage ? (
+                  <img
+                    src={`data:${att.type};base64,${att.content}`}
+                    alt={att.name}
+                    className="w-10 h-10 object-cover rounded border border-border-subtle"
+                  />
+                ) : (
+                  <div className="w-10 h-10 flex flex-col items-center justify-center rounded border border-border-subtle bg-surface-2 px-1">
+                    <Paperclip size={12} className="text-text-muted" />
+                    <span className="text-[8px] text-text-muted truncate w-full text-center">{att.name}</span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => removeAttachment(att.id)}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center bg-surface-3 rounded-full text-text-muted hover:text-text border border-border-subtle"
+                  aria-label="Remove attachment"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <textarea
           ref={textareaRef}
           value={text}
+          onPaste={handleAttachPaste}
           onChange={(e) => {
             if (Date.now() - justSentRef.current < 200) {
               if (textareaRef.current) textareaRef.current.value = "";
@@ -604,8 +687,8 @@ export const Composer = memo(function Composer({
             <div ref={modelMenuRef} className="relative">
               <button
                 type="button"
-                onClick={() => { setModelMenuOpen((v) => !v); setModeMenuOpen(false); }}
-                className="px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono bg-surface-2/60 hover:bg-surface-2 text-text transition-colors border border-border-subtle/60 cursor-pointer"
+                onClick={() => setModelMenuOpen((v) => !v)}
+                className="px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
                 title="Select model (/model)"
               >
                 <img src={agentIconUrl(engine)} alt="" className="w-3.5 h-3.5 object-contain shrink-0" />
@@ -618,10 +701,7 @@ export const Composer = memo(function Composer({
                     Select Model
                   </div>
                   {allModels.map((m) => {
-                    const isSelected =
-                      cleanRawModel === m.id ||
-                      rawModel === m.id ||
-                      (matchedModel && matchedModel.id === m.id);
+                    const isSelected = rawModel === m.id;
                     return (
                       <button
                         key={m.id}
@@ -631,15 +711,20 @@ export const Composer = memo(function Composer({
                           onSelectModel?.(m.id);
                           setModelMenuOpen(false);
                         }}
-                        className={`w-full px-2 py-1.5 rounded text-left text-xs flex items-center justify-between transition-colors ${
+                        className={`w-full px-2 py-1.5 rounded text-left text-xs flex flex-col gap-0.5 transition-colors ${
                           isSelected
                             ? "bg-brand-500/15 text-brand-400 font-semibold"
                             : "text-text-muted hover:text-text hover:bg-surface-2"
                         }`}
                       >
-                        <span className="truncate font-mono text-[11px]">{m.label}</span>
-                        {isSelected && (
-                          <Check size={12} className="text-brand-400 shrink-0 ml-1" />
+                        <span className="w-full flex items-center justify-between">
+                          <span className="truncate">{m.label}</span>
+                          {isSelected && (
+                            <Check size={12} className="text-brand-400 shrink-0 ml-1" />
+                          )}
+                        </span>
+                        {m.label !== m.id && (
+                          <span className="truncate font-mono text-[10px] opacity-70">{m.id}</span>
                         )}
                       </button>
                     );
@@ -647,63 +732,49 @@ export const Composer = memo(function Composer({
                 </div>
               )}
             </div>
-
-            {/* Mode Selector Dropdown (Chế độ) */}
-            <div ref={modeMenuRef} className="relative">
-              <button
-                type="button"
-                onClick={() => { setModeMenuOpen((v) => !v); setModelMenuOpen(false); }}
-                className="px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono bg-surface-2/60 hover:bg-surface-2 text-text transition-colors border border-border-subtle/60 cursor-pointer"
-                title="Change permission mode"
-              >
-                {permissionMode === "bypassPermissions" || permissionMode === "auto" ? (
-                  <Sparkles size={11} className="text-warning shrink-0" />
-                ) : permissionMode === "plan" ? (
-                  <Zap size={11} className="text-accent shrink-0" />
-                ) : (
-                  <Shield size={11} className="text-text-muted shrink-0" />
-                )}
-                <span>{activeModeObj.label}</span>
-                <ChevronUp size={11} className={`text-text-muted transition-transform ${modeMenuOpen ? "" : "rotate-180"}`} />
-              </button>
-              {modeMenuOpen && (
-                <div className="absolute left-0 bottom-[calc(100%+6px)] min-w-[220px] max-h-56 bg-surface border border-border-subtle rounded-brand shadow-xl overflow-y-auto z-50 p-1 custom-scrollbar">
-                  <div className="px-2 py-0.5 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1">
-                    Permission Mode
-                  </div>
-                  {CLAUDE_MODES.map((cm) => (
-                    <button
-                      key={cm.id}
-                      type="button"
-                      onClick={() => {
-                        vibrate();
-                        onModeChange?.(cm.id);
-                        setModeMenuOpen(false);
-                      }}
-                      className={`w-full px-2 py-1.5 rounded text-left text-xs flex flex-col gap-0.5 transition-colors ${
-                        permissionMode === cm.id
-                          ? "bg-brand-500/15 text-brand-400 font-semibold"
-                          : "text-text-muted hover:text-text hover:bg-surface-2"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between w-full">
-                        <span>{cm.label}</span>
-                        {permissionMode === cm.id && <Check size={12} className="text-brand-400 shrink-0" />}
-                      </div>
-                      <span className="text-[10px] text-text-muted/70 font-normal font-sans leading-tight">
-                        {cm.desc}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Attach a file or image — the host stages it where the CLI can read it */}
+            <label
+              className="p-1 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer flex items-center justify-center"
+              title="Attach file or image"
+            >
+              <Paperclip size={12} />
+              <input type="file" multiple onChange={handleFileUpload} className="hidden" accept="*/*" />
+            </label>
+
+            {/* Dictate into the box, same engine the terminal input uses */}
+            {voice.supported && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={toggleVoice}
+                title={voice.error === "not-allowed" || voice.error === "service-not-allowed" ? t("voice.denied") : t("voice.dictate")}
+                aria-label={t("voice.dictate")}
+                className={`p-1 rounded flex items-center justify-center transition-colors ${
+                  voice.listening ? "bg-red-500/90 text-white animate-pulse" : voice.error ? "text-red-400" : "text-text-muted hover:text-text hover:bg-surface-2"
+                }`}
+              >
+                {voice.listening ? <MicOff size={12} /> : <Mic size={12} />}
+              </button>
+            )}
+
+            {/* Wipe the draft without sending it */}
+            {text.trim().length > 0 && (
+              <button
+                type="button"
+                onClick={clearText}
+                className="p-1 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center justify-center"
+                title="Clear input"
+              >
+                <X size={12} />
+              </button>
+            )}
+
             {isTurnRunning ? (
               <>
-                {text.trim() && (
+                {(text.trim() || attachments.length > 0) && (
                   <button
                     type="button"
                     onClick={executeSend}
@@ -727,9 +798,9 @@ export const Composer = memo(function Composer({
               <button
                 type="button"
                 onClick={executeSend}
-                disabled={!text.trim()}
+                disabled={!text.trim() && attachments.length === 0}
                 className={`p-1 rounded transition-colors flex items-center justify-center ${
-                  text.trim()
+                  text.trim() || attachments.length > 0
                     ? "bg-brand-500 hover:bg-brand-600 text-white shadow-sm cursor-pointer"
                     : "text-text-muted bg-surface-2 cursor-not-allowed opacity-40"
                 }`}
@@ -741,6 +812,14 @@ export const Composer = memo(function Composer({
           </div>
         </div>
       </div>
+
+      {/* Dictation language picker — only reachable while dictating, like the terminal */}
+      <VoiceLangModal
+        isOpen={voiceLangOpen}
+        value={voiceLang}
+        onSelect={setVoiceLang}
+        onClose={() => setVoiceLangOpen(false)}
+      />
     </div>
   );
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { parseEngineTaskEvent, parseEngineTaskResult } from "../registry";
@@ -17,10 +17,14 @@ const normalizeSkills = (skills) =>
 const EMPTY_MESSAGES = [];
 // How long live events are held while waiting for the ai:create snapshot ack.
 const HYDRATE_TIMEOUT_MS = 4000;
+// An ack wait budget for the scroll-up fetch. A carrier that dies mid-flight never
+// calls back, and the same guard is what keeps the terminal's history fetch alive
+// (see features/terminal/lib/reconnectState.js).
+const HISTORY_TIMEOUT_MS = 4000;
 
 // Pure reducer that transforms an event log into a complete session snapshot in RAM
 // in <3ms, avoiding thousands of re-renders and synchronous store dispatches.
-export function reduceSessionEvents(events = [], engine = "claude") {
+export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) {
   const messages = [];
   const tasks = [];
   let metadata = { model: "", skills: [], mcpServers: [] };
@@ -29,7 +33,7 @@ export function reduceSessionEvents(events = [], engine = "claude") {
   let activePermission = null;
   let activeBlocked = null;
   let permissionMode = null;
-  let msgSeq = 0;
+  let msgSeq = idBase;
 
   for (const item of events) {
     const event = item?.event;
@@ -247,6 +251,12 @@ export function useAiSession({
   const setTurnRunning = useAiStore((s) => s.setTurnRunning);
   const addUserMessage = useAiStore((s) => s.addUserMessage);
 
+  // Host events older than the replayed tail, still unfetched. The pane pages the
+  // in-RAM window first; only when it runs out does a scroll-up hit the host.
+  const [hasOlder, setHasOlder] = useState(false);
+  const olderSeqRef = useRef(0);
+  const loadingOlderRef = useRef(false);
+
   // Read session-specific state from Zustand
   const sessionState = useAiStore((s) => s.bySession[sessionId]);
   const messages = sessionState?.messages || EMPTY_MESSAGES;
@@ -378,6 +388,7 @@ export function useAiSession({
     const gen = ++hydrateSeqRef.current;
     hydratingRef.current = true;
     pendingLiveRef.current = [];
+    olderSeqRef.current = 0;
     // Drains the held events in arrival order, skipping any the snapshot covers.
     const releaseHeld = () => {
       const queued = pendingLiveRef.current;
@@ -388,6 +399,8 @@ export function useAiSession({
         // longer applies to what follows it.
         if (p.event === "conversation_reset") {
           appliedSeqRef.current = 0;
+          olderSeqRef.current = p.data?.fromSeq ?? 0;
+          setHasOlder(Boolean(p.data?.hasMore));
           applyEventRef.current(sessionId, p.event, p.data);
           continue;
         }
@@ -414,8 +427,14 @@ export function useAiSession({
         // Both paths answer with a replayable log: the daemon sends its live session
         // state, the in-agent engines send `session.history`. An ack with no array is
         // the only case where there is nothing to replay.
-        if (!res?.ok || !Array.isArray(events)) return;
+        if (!res?.ok || !Array.isArray(events)) {
+          setHasOlder(false);
+          return;
+        }
         const snapshotSeq = res.session.seq || 0;
+        // The host replays only the tail of a long log; the rest is fetched on scroll-up.
+        olderSeqRef.current = events[0]?.seq ?? 0;
+        setHasOlder(Boolean(res.session.hasMore) && events.length > 0);
         // An empty host log means the host has nothing for this session yet (fresh
         // one, or a legacy session created before the daemon owned state). Leave
         // whatever the client already has instead of blanking it.
@@ -472,6 +491,11 @@ export function useAiSession({
       // it must be cleared before the replay that follows.
       if (payload.event === "conversation_reset") {
         appliedSeqRef.current = 0;
+        // The window belongs to the log that just ended. Keeping it would make the next
+        // scroll-up fetch seqs the fresh log already replays — every turn rendered twice.
+        // The host replays a tail only, so the reset states where that tail starts.
+        olderSeqRef.current = payload.data?.fromSeq ?? 0;
+        setHasOlder(Boolean(payload.data?.hasMore));
         applyEvent(sessionId, payload.event, payload.data);
         return;
       }
@@ -492,8 +516,8 @@ export function useAiSession({
 
   // 3. User actions
   const sendPrompt = useCallback(
-    (text, { force = false } = {}) => {
-      if (!text) return;
+    (text, { force = false, attachments = null } = {}) => {
+      if (!text && !attachments?.length) return;
       // Read the turn state live, not from this render's closure: the queue drain
       // calls us right after stop(), while the memoized closure still says running —
       // bailing on that stale flag silently dropped the queued prompt.
@@ -509,7 +533,15 @@ export function useAiSession({
       // host serialize and ship the entire event log back on every keystroke-send.
       // No optimistic user message either: the host echoes "user_message" to every
       // client (including us), which is what keeps surfaces in lockstep.
-      b?.emit("ai:prompt", { sessionId, message: text, cwd: workspacePath });
+      // Staged images/files ride with the prompt: the host writes them where the CLI
+      // can read them. `message` stays the user's own words so the echoed bubble is
+      // the text they typed, not a path list.
+      b?.emit("ai:prompt", {
+        sessionId,
+        message: text,
+        cwd: workspacePath,
+        ...(attachments?.length ? { attachments } : {})
+      });
     },
     [sessionId, workspacePath]
   );
@@ -570,12 +602,52 @@ export function useAiSession({
     useAiStore.getState().clearBlocked(sessionId);
   }, [sessionId]);
 
+  // Older turns live on the host, not in RAM. Fetch the next chunk, then prepend the
+  // messages it reduces to; the ids continue past the window already held so they
+  // stay unique as React keys.
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current) return false;
+    const b = busRef.current || useConnectionStore.getState().bus;
+    if (!b) return false;
+    loadingOlderRef.current = true;
+    // The log may be replaced while this is in flight (/resume, /clear). The chunk is
+    // older events of a conversation that is no longer shown, so its ack stands down
+    // instead of prepending one log's turns onto another's.
+    const logSeq = olderSeqRef.current;
+    try {
+      const res = await new Promise((resolve) => {
+        let settled = false;
+        const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
+        const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
+        b.emit("aiHistory", { sessionId, before: logSeq }, done);
+      });
+      if (olderSeqRef.current !== logSeq) return false;
+      // A timed-out ack is not an answer — keep the door open so the next scroll retries.
+      // Only the host saying "no such session" closes it.
+      if (res == null) return false;
+      if (!res.success || !res.events?.length) {
+        setHasOlder(false);
+        return false;
+      }
+      olderSeqRef.current = res.events[0].seq ?? olderSeqRef.current;
+      setHasOlder(Boolean(res.hasMore));
+      const curr = useAiStore.getState().bySession[sessionId];
+      const older = reduceSessionEvents(res.events, engine, (curr?.messages?.length || 0) + 1);
+      useAiStore.getState().prependMessages(sessionId, older.messages);
+      return true;
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  }, [sessionId, engine]);
+
   return {
     messages,
     isTurnRunning,
     stats,
     metadata,
     activeBlocked,
+    hasOlder,
+    loadOlder,
     sendPrompt,
     resolvePermission,
     stop,

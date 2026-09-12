@@ -2,6 +2,22 @@
 import { getExtendedEnv } from "./env.js";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { stageAttachment } from "../../terminal/aiAttachment.js";
+
+// Images ride as content blocks; other files are staged to disk and named in the
+// text. Same shape the daemon writes, so both paths read identically to the CLI.
+function buildContent(prompt, attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return [{ type: "text", text: prompt }];
+  }
+  const staged = attachments.map(stageAttachment);
+  const images = staged.filter((a) => a.kind === "image");
+  const paths = staged.filter((a) => a.kind === "file").map((a) => a.path).join(" ");
+  return [
+    ...images.map((a) => ({ type: "image", source: { type: "base64", media_type: a.mediaType, data: a.data } })),
+    { type: "text", text: [paths, prompt].filter(Boolean).join(" ") },
+  ];
+}
 
 export class ClaudeAdapter {
   constructor({ cwd, onEvent }) {
@@ -225,7 +241,7 @@ export class ClaudeAdapter {
     }
   }
 
-  sendPrompt(prompt) {
+  sendPrompt(prompt, attachments = null) {
     if (!this.claude || !this.claude.stdin.writable) {
       this.start(this.currentMode);
     }
@@ -233,7 +249,7 @@ export class ClaudeAdapter {
     this.turnStreamedText = "";
     const payload = JSON.stringify({
       type: "user",
-      message: { role: "user", content: [{ type: "text", text: prompt }] },
+      message: { role: "user", content: buildContent(prompt, attachments) },
     }) + "\n";
 
     this.claude.stdin.write(payload);

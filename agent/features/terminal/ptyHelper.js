@@ -4,14 +4,18 @@ import fs from "fs";
 import path from "path";
 import { conversationMetadata, getSessionAgent } from "./statusManager.js";
 import { PATHS } from "../../lib/constants.js";
+// Definition lives in constants.js — the daemon needs it without this module's
+// agent-side deps. Imported rather than bare-re-exported: the mkdir below needs the
+// binding in scope, and `export ... from` creates none.
+import { UPLOAD_DIR } from "./constants.js";
+
+export { UPLOAD_DIR };
 
 const BUFFER_DIR = PATHS.BUFFERS;
 const SESSION_METADATA_FILE = path.join(PATHS.STATE, "sessions.json");
 const GROUPS_FILE = path.join(PATHS.STATE, "terminalGroups.json");
 const WORKSPACES_FILE = path.join(PATHS.STATE, "terminalWorkspaces.json");
 const NOTES_DIR = path.join(PATHS.STATE, "notes");
-
-export const UPLOAD_DIR = "/tmp/9remote-uploads";
 
 // Ensure upload dir exists on import
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });

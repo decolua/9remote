@@ -6,6 +6,9 @@ import { persist } from "zustand/middleware";
 const INITIAL_SESSION_STATE = {
   messages: [],
   isTurnRunning: false,
+  // Client clock at the moment the turn started — drives the AI pane's turn status
+  // line. The host sends no timestamp, so a reconnect mid-turn restarts the count.
+  turnStartedAt: 0,
   activePermission: null,
   // A blocked action (sandbox/permission refusal) the CLI reported. Unlike
   // activePermission this has nothing to resolve — it offers a mode escalation.
@@ -98,6 +101,7 @@ export const useAiStore = create(
               [sessionId]: {
                 ...curr,
                 isTurnRunning: true,
+                turnStartedAt: Date.now(),
                 activeBlocked: null,
                 messages: [...curr.messages, userMsg, assistantPlaceholder]
               }
@@ -305,6 +309,8 @@ export const useAiStore = create(
               [sessionId]: {
                 ...curr,
                 isTurnRunning: false,
+                // turnStartedAt is kept: the pane's summary line needs the start mark
+                // to print the span. A new turn overwrites it.
                 activePermission: null,
                 stats: stats ? { ...curr.stats, ...stats } : curr.stats,
                 messages
@@ -328,6 +334,7 @@ export const useAiStore = create(
                 messages: [],
                 tasks: [],
                 isTurnRunning: false,
+                turnStartedAt: 0,
                 activePermission: null,
                 activeBlocked: null,
                 stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 }
@@ -352,6 +359,7 @@ export const useAiStore = create(
                 ...curr,
                 messages,
                 isTurnRunning: false,
+                turnStartedAt: 0,
                 activePermission: null
               }
             }
@@ -407,6 +415,8 @@ export const useAiStore = create(
                 messages,
                 tasks,
                 isTurnRunning,
+                // Replay has no start time — a turn rejoined mid-flight counts from now.
+                turnStartedAt: isTurnRunning ? Date.now() : 0,
                 metadata: { ...curr.metadata, ...metadata },
                 stats: stats ? { ...curr.stats, ...stats } : curr.stats,
                 // Authoritative from the replay: a blocked card with no matching event
@@ -414,6 +424,22 @@ export const useAiStore = create(
                 activeBlocked,
                 ...(permissionMode ? { permissionMode } : {})
               }
+            }
+          };
+        });
+      },
+
+      // Scroll-up history fetch: older turns reduced on the client, dropped in front
+      // of the window already mounted. Tasks are left alone — a checklist is state,
+      // not timeline, and re-deriving it here would duplicate what is already shown.
+      prependMessages: (sessionId, older) => {
+        if (!older?.length) return;
+        set((state) => {
+          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, messages: [...older, ...curr.messages] }
             }
           };
         });

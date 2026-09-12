@@ -30,7 +30,9 @@ export const AiPermissionCard = memo(function AiPermissionCard({
       <div className="flex items-center gap-2 mb-2 text-warning font-medium">
         <Shield size={16} />
         <span>Permission Request</span>
-        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning uppercase">
+        {/* MCP tools are named mcp__<server>__<tool> — one unbreakable word. Without wrapping
+            it runs past the card and scrolls the pane sideways; the full name stays in title. */}
+        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning uppercase min-w-0 break-all" title={tool}>
           {tool || "Action"}
         </span>
       </div>

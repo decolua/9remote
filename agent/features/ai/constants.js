@@ -3,7 +3,8 @@
 export const AI_ENGINES = {
   CLAUDE: "claude",
   CODEX: "codex",
-  OPENCODE: "opencode"
+  OPENCODE: "opencode",
+  ANTIGRAVITY: "antigravity"
 };
 
 export const AI_SOCKET_EVENTS = {

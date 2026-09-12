@@ -770,31 +770,38 @@ html.light .term-tab-active,
 .pane-light-beam-2 {
   animation-delay: var(--beam-delay, 1.5s);
 }
+/* CLI-style working glyph: steady mark that fades in and out, no rotation */
+@keyframes cliGlyphPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.animate-cli-glyph { display: inline-block; animation: cliGlyphPulse 1.4s ease-in-out infinite; }
+
+/* Mirror sheen across the live status text: a band of full-strength text colour
+   travels over a dimmed copy. Both stops come from the pane's own text tokens, so
+   it reads correctly on light, dark, and any terminal palette. */
+@keyframes aiSheenSweep {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+.ai-sheen-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-text-muted) 38%,
+    var(--color-text) 50%,
+    var(--color-text-muted) 62%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: aiSheenSweep 2.6s linear infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   .pane-light-beam { animation: none; transform: none; width: 100%; opacity: 0.8; }
   .pane-light-beam-2 { display: none; }
-}
-
-/* AI composer idle sweep — sits on the action-strip hairline, % translate so it
-   scales with any pane width (no JS measurement) */
-.composer-beam {
-  position: absolute;
-  top: -1px;
-  left: 0;
-  width: 22%;
-  height: 1px;
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent 0%, rgba(59,130,246,0.5) 35%, #93c5fd 70%, transparent 100%);
-  animation: composerSweep 2.4s linear infinite;
-}
-@keyframes composerSweep {
-  0% { transform: translateX(-100%); opacity: 0; }
-  12% { opacity: 1; }
-  88% { opacity: 1; }
-  100% { transform: translateX(455%); opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .composer-beam { animation: none; width: 100%; opacity: 0.4; }
+  .animate-cli-glyph { animation: none; }
+  .ai-sheen-text { animation: none; -webkit-text-fill-color: var(--color-text-muted); }
 }
 
 /* Terminal workspace panels & header background — surface-3 ground with subtle dot pattern */

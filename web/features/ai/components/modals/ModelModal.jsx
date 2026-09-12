@@ -1,33 +1,24 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import { Bot, Check, X, Sparkles } from "@/shared/components/ui/Icon";
+import { Bot, Check, X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
-
-const DEFAULT_CLAUDE_MODELS = [
-  { id: "ag/gemini-3.8-flash-high", label: "ag/gemini-3.8-flash-high", desc: "Fast hybrid reasoning custom model" },
-  { id: "ag/claude-opus-4-6-thinking", label: "ag/claude-opus-4-6-thinking", desc: "Opus deep thinking custom model" },
-  { id: "ollama/glm-5.3-flash:cloud", label: "ollama/glm-5.3-flash:cloud", desc: "Sonnet cloud custom model" },
-  { id: "glm/glm-5.3", label: "glm/glm-5.3", desc: "GLM 5.3 custom model" },
-  { id: "haiku", label: "Claude Haiku", desc: "Claude Haiku CLI alias" },
-  { id: "sonnet", label: "Claude Sonnet", desc: "Claude Sonnet CLI alias" },
-  { id: "opus", label: "Claude Opus", desc: "Claude Opus CLI alias" },
-];
 
 export const ModelModal = memo(function ModelModal({
   currentModel = "",
-  models = null,
+  models = [],
   onClose,
   onSelectModel
 }) {
-  const cleanCurrent = (currentModel || "").replace(/\[1m\]$/i, "");
   const modelList = useMemo(() => {
-    const list = Array.isArray(models) && models.length > 0 ? [...models] : [...DEFAULT_CLAUDE_MODELS];
-    if (cleanCurrent && !list.some((m) => m.id === cleanCurrent || m.id === currentModel)) {
-      list.unshift({ id: cleanCurrent, label: cleanCurrent, desc: "Active CLI model" });
+    const list = [...(models || [])];
+    // The running model may not be in the host's list — set from another surface, or
+    // the CLI picked it on its own. Show it so the active one is never missing.
+    if (currentModel && !list.some((m) => m.id === currentModel)) {
+      list.unshift({ id: currentModel, label: currentModel, desc: "Active CLI model" });
     }
     return list;
-  }, [models, cleanCurrent, currentModel]);
+  }, [models, currentModel]);
 
   const handlePick = (modelId) => {
     vibrate();
@@ -61,11 +52,7 @@ export const ModelModal = memo(function ModelModal({
         {/* List */}
         <div className="p-3 flex-1 overflow-y-auto space-y-1.5 custom-scrollbar">
           {modelList.map((m) => {
-            const isSelected =
-              cleanCurrent === m.id ||
-              currentModel === m.id ||
-              (cleanCurrent && cleanCurrent.startsWith(m.id)) ||
-              (m.id && cleanCurrent.includes(m.id));
+            const isSelected = currentModel === m.id;
             return (
               <div
                 key={m.id}
@@ -78,13 +65,11 @@ export const ModelModal = memo(function ModelModal({
               >
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold text-text flex items-center gap-1.5">
-                    <span>{m.label}</span>
+                    <span className="truncate">{m.label}</span>
                   </div>
-                  {m.desc && (
-                    <div className="text-[11px] text-text-muted mt-0.5">
-                      {m.desc}
-                    </div>
-                  )}
+                  <div className="text-[10px] font-mono text-text-muted truncate mt-0.5">
+                    {m.desc || m.id}
+                  </div>
                 </div>
 
                 {isSelected && (

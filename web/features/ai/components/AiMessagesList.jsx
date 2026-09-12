@@ -48,7 +48,9 @@ export const AiMessagesList = memo(function AiMessagesList({
   workspacePath = "",
   onSendPrompt,
   onResolvePermission,
-  onRewind
+  onRewind,
+  hasOlder = false,
+  onLoadOlder
 }) {
   const scrollRef = useRef(null);
   // Marks the top of the mounted window — watched so paging also fires on first paint
@@ -76,16 +78,19 @@ export const AiMessagesList = memo(function AiMessagesList({
 
   // Prepending shifts everything down; anchor on the old scrollHeight so the turn the
   // user was reading stays put.
-  const handleLoadMore = useCallback(() => {
+  const handleLoadMore = useCallback(async () => {
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     const prevTop = el?.scrollTop ?? 0;
+    // The in-RAM window grows first; past its end the older turns still live on the host.
+    // The byte budget is measured from the END, so a freshly prepended chunk is hidden by
+    // the same pagination that was showing the tail until the budget moves too.
+    if (hiddenCount === 0 && hasOlder) await onLoadOlder?.();
     setVisibleBytes((b) => b + PAGE_BUDGET_BYTES);
-    if (!el) return;
     requestAnimationFrame(() => {
-      el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
+      if (el) el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
     });
-  }, []);
+  }, [hiddenCount, hasOlder, onLoadOlder]);
 
   // Optimized scroll handler using requestAnimationFrame
   const handleScroll = useCallback(() => {
@@ -99,11 +104,11 @@ export const AiMessagesList = memo(function AiMessagesList({
       isAtBottomRef.current = atBottom;
       setShowScrollBottom(!atBottom && distanceToBottom > 140);
       // Auto-load older turns as user scrolls near top
-      if (el.scrollTop < LOAD_MORE_THRESHOLD_PX && hiddenCount > 0) {
+      if (el.scrollTop < LOAD_MORE_THRESHOLD_PX && (hiddenCount > 0 || hasOlder)) {
         handleLoadMore();
       }
     });
-  }, [handleLoadMore, hiddenCount]);
+  }, [handleLoadMore, hiddenCount, hasOlder]);
 
   // Paging sentinel observer — fires when user scrolls up into the threshold.
   // Gated on !isAtBottomRef to prevent an infinite loop on initial paint when scrollTop is 0.
@@ -151,7 +156,7 @@ export const AiMessagesList = memo(function AiMessagesList({
         onScroll={handleScroll}
         className="ai-conversation flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 custom-scrollbar relative"
       >
-        {hiddenCount > 0 && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
+        {(hiddenCount > 0 || hasOlder) && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
             <div
@@ -196,13 +201,13 @@ export const AiMessagesList = memo(function AiMessagesList({
           </div>
         ) : (
           <>
-            {hiddenCount > 0 && (
+            {(hiddenCount > 0 || hasOlder) && (
               <button
                 type="button"
                 onClick={() => { vibrate(); handleLoadMore(); }}
                 className="w-full py-1.5 text-[11px] font-mono text-text-muted hover:text-text bg-surface-2/50 hover:bg-surface-2 border border-border-subtle/60 rounded-brand transition-colors"
               >
-                Load older · {hiddenCount} more
+                {hiddenCount > 0 ? `Load older · ${hiddenCount} more` : "Load older turns"}
               </button>
             )}
             {visibleMessages.map((msg) => (

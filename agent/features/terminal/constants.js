@@ -20,7 +20,20 @@
 //      in-memory pure hydration batching to eliminate freeze/crash.
 // v56: aiOptions accepts `resume` so /resume rebinds the claude session id and restarts.
 // v57: aiOptions accepts `effort` (--effort) and persists it with the session snapshot.
-export const DAEMON_VERSION = "57";
+// v59: recoverFromClaudeTranscript finds the transcript by id, not by the terminal's
+//      current cwd — a terminal that `cd`'d away still reopens its chat with history.
+// v60: aiPrompt accepts attachments — images as content blocks, other files staged
+//      to the upload dir and named in the text.
+// v61: aiPublicState exposes cliSessionId — the agent records which conversation a
+//      chat-UI terminal is showing, so the history list reopens it the same way.
+// v62: AI joins replay only the last 128KB (aiPublicState.hasMore); older events
+//      fetched on scroll-up via aiHistory.
+export const DAEMON_VERSION = "62";
+
+// Where pasted/attached files are staged before being handed to a CLI. Lives here,
+// not in ptyHelper, because the daemon needs it too — ptyHelper pulls in agent-side
+// modules (statusManager, conversationModes) the daemon must not drag along.
+export const UPLOAD_DIR = "/tmp/9remote-uploads";
 
 // PowerShell prompt function emitting OSC 7 so the client can track cwd. Passed via
 // `-NoExit -Command` at spawn — running it pre-REPL avoids PSReadLine echoing the line.

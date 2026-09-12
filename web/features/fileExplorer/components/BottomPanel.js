@@ -130,7 +130,7 @@ export default function BottomPanel({
         </button>
       </div>
       <div className="flex-1 min-h-0 relative">
-        {sessions.map((s) => (
+        {sessions.map((s, i) => (
           <div
             key={s.id}
             className="absolute inset-0"
@@ -143,6 +143,7 @@ export default function BottomPanel({
               isVisible={s.id === activeId}
               isFocused={s.id === activeId}
               showFocusBorder={false}
+              bgIndex={i}
             />
           </div>
         ))}

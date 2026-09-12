@@ -14,6 +14,9 @@ import readline from "readline";
 import pty from "node-pty";
 import { resolveShell, buildShellArgs, DAEMON_VERSION } from "./constants.js";
 import { takeBufferTail, takeBufferRange, bufferTotal } from "./bufferSlice.js";
+import { aiTailStart, aiHistoryChunk } from "./aiEventSlice.js";
+import { recoverFromClaudeTranscript, CLAUDE_SESSION_ID_RE } from "./claudeTranscript.js";
+import { stageAttachment, buildAttachedMessage } from "./aiAttachment.js";
 
 // Socket path
 const SOCKET_DIR = path.join(os.homedir(), ".9remote");
@@ -194,6 +197,10 @@ function send(client, message) {
 // ═══════════════════════════════════════════════════════════════════
 const AI_SESSIONS_DIR = path.join(SOCKET_DIR, "ai-sessions");
 const AI_MAX_EVENTS = 5000;
+// Tail shipped on connect, mirroring the PTY JOIN_REPLAY_SIZE — the scroll-up fetch
+// pulls the same size per chunk. Measured on a real conversation: 6.9 MB of events for
+// one long chat, enough to stall a phone on F5.
+const AI_REPLAY_BYTES = 128 * 1024;
 // Measured on a streaming turn: ~53 events/s, 48 B/event, so a 500ms debounce
 // keeps only ~37% of the stream across an unclean death (SIGKILL / power loss;
 // the agent's own restart path uses SIGTERM and flushes synchronously). 150ms
@@ -293,75 +300,6 @@ function compactAiEvents(events) {
 }
 
 // Recover complete conversation history directly from Claude CLI's own .jsonl transcript log.
-// Used when daemon was restarted or when snapshot events were truncated by memory bounds.
-//
-// `cliSessionId` can originate from a client (a /resume choice), so it is untrusted:
-// only a plain id is accepted — the first character may not be "-" (argv would read it
-// as a flag) and no path separator or whitespace is allowed — and the resolved path is
-// confirmed to sit inside the projects directory. Without this, `..` in the id would
-// escape the directory and read any file on disk.
-const CLAUDE_SESSION_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
-
-function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
-  if (!cwd || !cliSessionId) return null;
-  if (!CLAUDE_SESSION_ID_RE.test(cliSessionId)) return null;
-  const projectsDir = path.join(os.homedir(), ".claude", "projects");
-  const safeCwd = cwd.replace(/[/\\:]/g, "-");
-  let p = path.join(projectsDir, safeCwd, `${cliSessionId}.jsonl`);
-  if (!fs.existsSync(p) && !safeCwd.startsWith("-")) {
-    p = path.join(projectsDir, `-${safeCwd}`, `${cliSessionId}.jsonl`);
-  }
-  // Defense in depth: even with the id validated, never read outside the projects dir.
-  const resolved = path.resolve(p);
-  if (!resolved.startsWith(path.resolve(projectsDir) + path.sep)) return null;
-  if (!fs.existsSync(resolved)) return null;
-
-  try {
-    const lines = fs.readFileSync(resolved, "utf8").trim().split("\n");
-    const events = [];
-    let seq = startSeq;
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const d = JSON.parse(line);
-        if (d.type === "user" && d.message) {
-          const textBlock = (d.message.content || []).find((c) => c.type === "text");
-          if (textBlock && textBlock.text) {
-            events.push({ seq: seq++, event: "user_message", data: { text: textBlock.text } });
-          }
-          const toolResults = (d.message.content || []).filter((c) => c.type === "tool_result");
-          for (const tr of toolResults) {
-            events.push({
-              seq: seq++,
-              event: "tool_result",
-              data: {
-                id: tr.tool_use_id,
-                output: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content)
-              }
-            });
-          }
-        } else if (d.type === "assistant" && d.message) {
-          for (const item of d.message.content || []) {
-            if (item.type === "thinking" && item.thinking) {
-              events.push({ seq: seq++, event: "thinking", data: { text: item.thinking } });
-            } else if (item.type === "tool_use") {
-              events.push({ seq: seq++, event: "tool_start", data: { id: item.id, name: item.name, input: item.input } });
-            } else if (item.type === "text" && item.text) {
-              events.push({ seq: seq++, event: "delta", data: { text: item.text } });
-            }
-          }
-          events.push({ seq: seq++, event: "turn_complete", data: { stats: {} } });
-        }
-      } catch {}
-    }
-
-    return events.length > 0 ? events : null;
-  } catch {
-    return null;
-  }
-}
-
 // seq stamps every event (live AND replayed) so a hydrating client can drop the
 // live events it already folded in from the replay. Without it, a prompt sent in
 // the same tick as ai:create reaches the browser before the create ack resolves,
@@ -677,11 +615,15 @@ function handleClaudeLine(s, data) {
 }
 
 function aiPublicState(s) {
+  const from = aiTailStart(s.events, AI_REPLAY_BYTES);
   return {
     sessionId: s.id,
     engine: s.engine,
     cwd: s.cwd,
-    events: s.events,
+    // Only the tail ships on connect — a long conversation is MBs, and the browser
+    // re-renders the windowed list anyway. The rest arrives on scroll-up (aiHistory).
+    events: from > 0 ? s.events.slice(from) : s.events,
+    hasMore: from > 0,
     // Highest seq included in `events` — the hydrating client ignores any live
     // event at or below it, so nothing is applied twice or lost to the reset.
     seq: s.nextSeq - 1,
@@ -693,11 +635,15 @@ function aiPublicState(s) {
     model: s.model,
     effort: s.effort,
     metadata: s.metadata,
+    // The CLI's own conversation id. The host records it from here, so a terminal
+    // switched into the chat UI knows which conversation the pane is showing even
+    // before the CLI's init event lands — and can re-record it after a restart.
+    cliSessionId: s.cliSessionId,
     cliAlive: Boolean(s.proc)
   };
 }
 
-function aiPrompt(sessionId, message, cwd = null) {
+function aiPrompt(sessionId, message, cwd = null, attachments = null) {
   // A prompt can race the create that precedes it (or arrive with no pane state
   // at all) — auto-create so the message is never dropped. cwd rides along so
   // the raced session still lands in the right directory, not $HOME.
@@ -707,7 +653,18 @@ function aiPrompt(sessionId, message, cwd = null) {
     if (!created.success) return { success: false, error: created.error };
     s = created.session;
   }
-  if (typeof message !== "string" || !message.trim()) return { success: false, error: "Missing message" };
+  // Attachments alone are a valid prompt (an image needs no caption). Stage them
+  // before the guard so a bare image is not rejected as "missing message".
+  let staged = null;
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    try {
+      staged = attachments.map(stageAttachment);
+    } catch (err) {
+      return { success: false, error: `Attachment failed: ${err.message}` };
+    }
+  }
+  if (typeof message !== "string") message = "";
+  if (!message.trim() && !staged) return { success: false, error: "Missing message" };
   if (message === "/clear") {
     s.events = [];
     persistAiSessionNow(sessionId);
@@ -724,10 +681,13 @@ function aiPrompt(sessionId, message, cwd = null) {
   // The daemon echoes the user message to every client (single source of truth)
   aiEmit(s, "user_message", { text: message });
   try {
-    proc.stdin.write(JSON.stringify({
+    // An attached message carries image blocks and/or file paths; plain text falls
+    // back to the ordinary shape.
+    const payload = buildAttachedMessage(message, staged) || {
       type: "user",
       message: { role: "user", content: [{ type: "text", text: message }] }
-    }) + "\n");
+    };
+    proc.stdin.write(JSON.stringify(payload) + "\n");
     // The user's own message is the other thing worth a synchronous write: if the
     // daemon dies before the reply lands, at least what was asked is on disk.
     flushAiSession(sessionId);
@@ -1077,8 +1037,21 @@ function handleMessage(client, message) {
       break;
     }
 
+    // Client scrolled to the top of the chat → the chunk of events older than the
+    // oldest seq it holds. The client prepends it and replays through the same reducer.
+    case "aiHistory": {
+      const hSession = aiSessions.get(sessionId);
+      if (!hSession) {
+        send(client, { type: "aiHistoryResult", success: false, error: "AI session not found", requestId: payload.requestId });
+        break;
+      }
+      const { events, hasMore } = aiHistoryChunk(hSession.events, payload.before, AI_REPLAY_BYTES);
+      send(client, { type: "aiHistoryResult", success: true, events, hasMore, requestId: payload.requestId });
+      break;
+    }
+
     case "aiPrompt":
-      send(client, { type: "aiPromptResult", ...aiPrompt(sessionId, payload.message, payload.cwd), requestId: payload.requestId });
+      send(client, { type: "aiPromptResult", ...aiPrompt(sessionId, payload.message, payload.cwd, payload.attachments), requestId: payload.requestId });
       break;
 
     // controlRequestId (Claude's control-request id) is distinct from requestId
@@ -1169,8 +1142,15 @@ function handleMessage(client, message) {
             optSession.events = recovered;
             optSession.nextSeq = recovered.reduce((max, e) => Math.max(max, e.seq || 0), 0) + 1;
             persistAiSessionNow(sessionId);
-            broadcastAiEvent(sessionId, "conversation_reset", {});
-            for (const ev of recovered) broadcastAiEvent(sessionId, ev.event, ev.data, ev.seq);
+            // Only the tail is replayed — the rest is fetched on scroll-up. The reset
+            // event states where the window begins and whether anything precedes it, or
+            // the client would guess the wrong seq and lock its scroll-up shut.
+            const keepFrom = aiTailStart(recovered, AI_REPLAY_BYTES);
+            broadcastAiEvent(sessionId, "conversation_reset", {
+              hasMore: keepFrom > 0,
+              fromSeq: recovered[keepFrom]?.seq ?? 0
+            });
+            for (const ev of recovered.slice(keepFrom)) broadcastAiEvent(sessionId, ev.event, ev.data, ev.seq);
           }
         }
         if (changed) {

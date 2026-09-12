@@ -1,14 +1,15 @@
 // Rebuild a recent slice of a past codex/opencode conversation from the CLI's own
 // store, so resuming one shows its history instead of an empty pane.
 //
-// Claude has the same job done in ptyDaemon (recoverFromClaudeTranscript) — it reads
-// `~/.claude/projects/<cwd>/<id>.jsonl`. The other two keep their transcripts in
-// different places, which is why this lives beside agentHistory's parsers.
+// Claude's reader lives in ptyDaemon's own module (claudeTranscript.js) — it reads
+// `~/.claude/projects/<cwd>/<id>.jsonl`, and is imported rather than duplicated so
+// the in-agent path honours a resume exactly like the daemon does.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { stripHarnessWrapping } from "../terminal/agentHistory.js";
+import { recoverFromClaudeTranscript } from "../terminal/claudeTranscript.js";
 
 const require = createRequire(import.meta.url);
 
@@ -192,6 +193,7 @@ function tailFromLastUser(events) {
 
 /** Engine-dispatched transcript reader; null when the store has nothing for this id. */
 export function recoverFromTranscript(engine, cwd, sessionId) {
+  if (engine === "claude") return recoverFromClaudeTranscript(cwd, sessionId);
   if (engine === "codex") return recoverFromCodexTranscript(cwd, sessionId);
   if (engine === "opencode") return recoverFromOpencodeTranscript(cwd, sessionId);
   return null;

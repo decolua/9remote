@@ -6,8 +6,12 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
+import { listModelOptions } from "./models.js";
 import { runEngineDoctor } from "./aiSession.js";
 import { renameSessionTitle, broadcastAiStatus } from "../terminal/terminalSocket.js";
+import { getConversation, getSessionAgent, setConversationId } from "../terminal/statusManager.js";
+import { engineFromAgent } from "../terminal/conversationModes.js";
+import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
 import * as daemonClient from "../terminal/ptyDaemonClient.js";
 
 const logger = createLogger("ai");
@@ -27,6 +31,18 @@ function mirrorAiStatus(sessionId, event, engine) {
   else if (event === "user_message") broadcastAiStatus?.(sessionId, "working", engine);
 }
 
+// A chat UI session runs its CLI without the PTY's session env, so no hook ever
+// reports its conversation id — the init event is the only place it surfaces.
+// Recording it is what lets the history list reopen this chat as a chat.
+// The surface is the session's, not the engine's: persisted metadata takes the
+// conversation's agent over the session's own, so "claude" here would restore a
+// chat as a plain terminal on the next boot.
+function mirrorAiConversation(sessionId, event, data, engine) {
+  if (event !== "init" || !data?.sessionId) return;
+  if (!SESSION_ID_RE.test(data.sessionId)) return;
+  setConversationId(sessionId, getSessionAgent(sessionId) || engine, data.sessionId, "hook");
+}
+
 export function setupAiHandlers(socket, io, manager = globalAiManager) {
   // 1. Forward events from AiManager to clients exactly ONCE via global broadcast
   if (io && !broadcastAttached) {
@@ -34,7 +50,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     manager.onEvent((sessionId, event, data) => {
       logger.debug(`[ai] event: ${event} session: ${sessionId}`);
       broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data });
-      mirrorAiStatus(sessionId, event, manager.getSession(sessionId)?.engine || "claude");
+      const engine = manager.getSession(sessionId)?.engine || "claude";
+      mirrorAiStatus(sessionId, event, engine);
+      mirrorAiConversation(sessionId, event, data, engine);
     });
   }
 
@@ -46,6 +64,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       // seq rides along so a hydrating client can drop events it already replayed
       broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq });
       mirrorAiStatus(sessionId, event, "claude");
+      mirrorAiConversation(sessionId, event, data, "claude");
     });
   }
 
@@ -66,19 +85,34 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     try {
       if (!sessionId || !engine) throw new Error("Missing sessionId or engine");
       logger.info(`[ai] create session: ${sessionId} engine: ${engine} cwd: ${cwd}`);
+      // A terminal holding a CLI conversation that is now opening as a chat: bind the
+      // chat to that conversation, so the pane shows it rather than an empty one. The
+      // client is not asked to know this — the host records which chat each terminal runs.
+      const conv = getConversation(sessionId);
+      const resumeId = options.cliSessionId || (engineFromAgent(conv?.agent) === engine ? conv.id : null);
+      const spawnOptions = resumeId ? { ...options, cliSessionId: resumeId } : options;
       if (aiUsesDaemon(engine, mock)) {
-        const res = await daemonClient.createAiSession(sessionId, engine, cwd, options);
+        const res = await daemonClient.createAiSession(sessionId, engine, cwd, spawnOptions);
         if (!res.success) throw new Error(res.error || "Daemon AI create failed");
+        // A daemon session can already exist with no conversation bound to it (the pane
+        // mounts before the switch lands). createAiSession reuses it as-is, so the id has
+        // to be bound here — aiOptions rebinds the CLI, restarts it against the resumed
+        // transcript and replays that log to the client.
+        if (resumeId && !res.session?.cliSessionId) {
+          await daemonClient.aiOptions(sessionId, { resume: resumeId });
+        }
         // Skills/MCP are discovered agent-side (filesystem), not by the CLI — merge
         // them into the state the client hydrates so the modals aren't empty.
         const skills = listSkills(engine, cwd);
         const mcpServers = listMcpServers(engine);
-        broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event: "init", data: { skills, mcpServers } });
+        // Host-specific model ids — only Claude's come from the machine's own CLI config.
+        const modelOptions = engine === "claude" ? listModelOptions() : null;
+        broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event: "init", data: { skills, mcpServers, modelOptions } });
         // Full state back so any client (web/agent UI/mobile) hydrates the same history
         cb?.({ ok: true, sessionId, engine, cwd, session: res.session });
         return;
       }
-      const session = manager.createSession(sessionId, engine, cwd, { ...options, mock });
+      const session = manager.createSession(sessionId, engine, cwd, { ...spawnOptions, mock });
       const skills = listSkills(engine, cwd);
       const mcpServers = listMcpServers(engine);
       // Kept on the session so a Clear can re-seed the log with the same metadata
@@ -106,10 +140,10 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     }
   });
 
-  socket.on(AI_SOCKET_EVENTS.PROMPT, async ({ sessionId, message, cwd }, cb) => {
+  socket.on(AI_SOCKET_EVENTS.PROMPT, async ({ sessionId, message, cwd, attachments }, cb) => {
     try {
       if (aiUsesDaemon("claude") && !manager.getSession(sessionId)) {
-        const res = await daemonClient.aiPrompt(sessionId, message, cwd || null);
+        const res = await daemonClient.aiPrompt(sessionId, message, cwd || null, attachments);
         if (!res.success) throw new Error(res.error || "Daemon AI prompt failed");
         renameSessionTitle?.(sessionId, message);
         cb?.({ ok: true });
@@ -122,7 +156,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       }
       logger.info(`[ai] prompt: ${sessionId} (engine: ${session.engine}): ${message?.slice(0, 60)}`);
       // User message is emitted via session.sendPrompt -> emitNormalized -> broadcast
-      session.sendPrompt(message);
+      session.sendPrompt(message, attachments);
       renameSessionTitle?.(sessionId, message);
       broadcastAiStatus?.(sessionId, "working", session.engine);
       cb?.({ ok: true });

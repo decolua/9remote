@@ -26,6 +26,11 @@ const SOCKET_PATH = process.platform === "win32"
 const DAEMON_SCRIPT_SOURCE = path.join(__dirname, "ptyDaemon.js");
 const DAEMON_SCRIPT_DIST = path.join(__dirname, "ptyDaemon.cjs");
 
+// Local modules the daemon imports by relative path. The dev-mode runtime copy has
+// to carry every one of them: a missing file is not a degraded daemon, it is one
+// that dies at import — and the AI chat silently falls back to a separate session.
+const DAEMON_LOCAL_MODULES = ["constants.js", "bufferSlice.js", "aiEventSlice.js", "claudeTranscript.js", "aiAttachment.js"];
+
 // Runtime copy location — daemon runs from here so it never locks files
 // inside node_modules/9remote. That lock is what makes `npm i -g 9remote@latest`
 // fail with EBUSY on Windows when the daemon is still alive.
@@ -119,8 +124,14 @@ function prepareDaemonCopy(sourceScript) {
   const copiedScript = path.join(scriptDir, path.basename(sourceScript));
   const copiedPtyDir = path.join(scriptDir, "node_modules", "node-pty");
 
-  // Already prepared — skip work
-  if (fs.existsSync(copiedScript) && fs.existsSync(copiedPtyDir)) {
+  // Already prepared — skip work. Every local module is part of that test: a folder
+  // copied before one of them joined the list would otherwise stay permanently
+  // broken, since the script and node-pty it does check are already there.
+  const copiedModules = () => DAEMON_LOCAL_MODULES.map((n) => path.join(scriptDir, n));
+  const isPrepared = () => !isDev
+    ? fs.existsSync(copiedScript) && fs.existsSync(copiedPtyDir)
+    : fs.existsSync(copiedScript) && fs.existsSync(copiedPtyDir) && copiedModules().every((p) => fs.existsSync(p));
+  if (isPrepared()) {
     return { script: copiedScript, cwd: scriptDir };
   }
 
@@ -130,11 +141,15 @@ function prepareDaemonCopy(sourceScript) {
     // Copy daemon script
     fs.copyFileSync(sourceScript, copiedScript);
 
-    // Dev mode: copy the local constants the daemon imports, preserving relative layout
+    // Dev mode: copy the local modules the daemon imports, preserving relative
+    // layout. This is an allowlist on purpose — the rest of features/terminal pulls
+    // in agent-side deps the daemon must not drag along. A missing entry is not a
+    // failed copy but a daemon that dies at import, so it is asserted in the tests.
     if (isDev) {
       const srcDir = path.dirname(sourceScript);
-      fs.copyFileSync(path.join(srcDir, "constants.js"), path.join(scriptDir, "constants.js"));
-      fs.copyFileSync(path.join(srcDir, "bufferSlice.js"), path.join(scriptDir, "bufferSlice.js"));
+      for (const name of DAEMON_LOCAL_MODULES) {
+        fs.copyFileSync(path.join(srcDir, name), path.join(scriptDir, name));
+      }
       const libDest = path.join(runtimeDir, "lib");
       fs.mkdirSync(libDest, { recursive: true });
       fs.copyFileSync(path.resolve(srcDir, "..", "..", "lib", "constants.js"), path.join(libDest, "constants.js"));
@@ -675,8 +690,8 @@ export async function joinAiSession(sessionId) {
   return request({ type: "joinAiSession", sessionId });
 }
 
-export async function aiPrompt(sessionId, message, cwd = null) {
-  return request({ type: "aiPrompt", sessionId, message, cwd });
+export async function aiPrompt(sessionId, message, cwd = null, attachments = null) {
+  return request({ type: "aiPrompt", sessionId, message, cwd, attachments });
 }
 
 // requestId is reserved by request() for IPC correlation — Claude's control-request
@@ -695,6 +710,10 @@ export async function aiStop(sessionId) {
 
 export async function aiOptions(sessionId, options) {
   return request({ type: "aiOptions", sessionId, options });
+}
+
+export async function aiHistory(sessionId, before) {
+  return request({ type: "aiHistory", sessionId, before });
 }
 
 export async function destroyAiSession(sessionId) {

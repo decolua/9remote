@@ -391,6 +391,117 @@ export class OpenCodeEngine extends AiEngine {
   }
 }
 
+/** Antigravity CLI (`agy`) — stream-json steps, no separate effort flag. */
+export class AntigravityEngine extends AiEngine {
+  constructor() {
+    super({
+      meta: {
+        id: "antigravity",
+        label: "Antigravity",
+        desc: "Google Antigravity CLI (agy, stream-json)",
+        badge: "Antigravity",
+        icon: "Globe",
+        color: "#4285f4",
+      },
+      ui: { id: "antigravity-ui", label: "Antigravity UI", short: "Antigravity UI" },
+      overrides: {
+        // `agy` tool names, as reported in step_update.tool_name.
+        tools: {
+          run_command: "bash",
+          command_status: "bash",
+          send_command_input: "bash",
+          view_file: "file",
+          list_dir: "file",
+          read_resource: "file",
+          write_to_file: "diff",
+          replace_file_content: "diff",
+          multi_replace_file_content: "diff",
+          sed_file: "diff",
+          notebook_edit: "diff",
+          notebook_execution: "diff",
+          find_by_name: "search",
+          grep_search: "search",
+          search_web: "search",
+          read_url_content: "search",
+          open_browser_url: "search",
+          browser_get_dom: "search",
+          browser_get_network_request: "search",
+          browser_list_network_requests: "search",
+          browser_refresh_page: "search",
+          browser_subagent: "agent",
+          invoke_subagent: "agent",
+          define_subagent: "agent",
+          manage_subagents: "agent",
+          manage_task: "task",
+          manage_inbox: "task",
+          schedule: "task",
+          ask_question: "question",
+          ask_permission: "question",
+          ask_custom_permission: "question",
+          call_mcp_tool: "generic",
+          generate_image: "generic",
+          execute_browser_javascript: "generic",
+          browser_click_element: "generic",
+          browser_input: "generic",
+          browser_press_key: "generic",
+          browser_scroll: "generic",
+          browser_scroll_dom: "generic",
+          browser_select_option: "generic",
+          browser_resize_window: "generic",
+          browser_move_mouse: "generic",
+          browser_mouse_down: "generic",
+          browser_mouse_up: "generic",
+          browser_drag_pixel_to_pixel: "generic",
+          click_browser_pixel: "generic",
+          capture_browser_screenshot: "generic",
+          capture_browser_console_logs: "generic",
+          list_browser_pages: "generic",
+          read_browser_page: "generic",
+          delete_knowledge: "generic",
+          list_permissions: "generic",
+          list_resources: "generic",
+          wait: "generic",
+          wait_5_seconds: "generic",
+          send_message: "generic",
+          finish: "generic",
+        },
+        // The model id already carries its reasoning tier (gemini-3.8-flash-low), so
+        // there is no separate effort flag — the CLI rejects the combination.
+        models: [
+          { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", short: "3.8 Flash H" },
+          { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)", short: "3.8 Flash M" },
+          { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)", short: "3.8 Flash L" },
+          { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)", short: "3.7 Flash H" },
+          { id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)", short: "3.7 Flash M" },
+          { id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)", short: "3.7 Flash L" },
+          { id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)", short: "3.6 Flash H" },
+          { id: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)", short: "3.6 Flash M" },
+          { id: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)", short: "3.6 Flash L" },
+          { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)", short: "3.1 Pro H" },
+          { id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)", short: "3.1 Pro L" },
+          { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", short: "Sonnet 4.6" },
+          { id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)", short: "Opus 4.6" },
+          { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)", short: "GPT-OSS 120B" },
+        ],
+        // Headless mode cannot raise a permission prompt, so only the two extremes
+        // exist: the CLI's own read-only plan mode, or bypassing the gate entirely.
+        permissionModes: [
+          { id: "plan", label: "Plan", desc: "Explore and plan without modifying code" },
+          { id: "accept-edits", label: "Accept Edits", desc: "Auto-approve every tool the agent calls" },
+        ],
+        features: { thinking: true, planMode: true, tasks: false, skills: false, mcp: false, rewind: false },
+        slashCommands: [
+          { name: "/model", description: "Choose the Antigravity model", action: "modal:model" },
+          { name: "/resume", description: "Resume a previous Antigravity conversation", action: "modal:sessions" },
+          { name: "/clear", description: "Start a fresh Antigravity conversation", action: "clear" },
+          { name: "/doctor", description: "Check the Antigravity CLI installation", action: "modal:doctor" },
+          { name: "/plan", description: "Switch the session into read-only plan mode", action: "send" },
+        ],
+      },
+    });
+  }
+}
+
 // ── Registry ──
 
 export const DEFAULT_ENGINE_ID = "claude";
@@ -419,6 +530,7 @@ export function listEngineInstances() {
 registerEngine(new ClaudeEngine());
 registerEngine(new CodexEngine());
 registerEngine(new OpenCodeEngine());
+registerEngine(new AntigravityEngine());
 
 // ── Function-style API (thin wrappers over the registry) ──
 

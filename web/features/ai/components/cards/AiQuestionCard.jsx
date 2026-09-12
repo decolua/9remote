@@ -121,7 +121,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
                       key={optIdx}
                       type="button"
                       onClick={() => handleSelect(q.question, opt.label, q.multiSelect)}
-                      className={`px-2.5 py-1.5 rounded-brand border text-left flex items-center gap-2 transition-all text-[11px] ${
+                      className={`px-2.5 py-1.5 rounded-brand border text-left flex items-start gap-2 transition-all text-[11px] ${
                         isSelected
                           ? "border-brand-500 bg-brand-500/15 text-text"
                           : "border-border-subtle bg-bg hover:bg-surface-2 text-text-muted hover:text-text"
@@ -130,11 +130,14 @@ export const AiQuestionCard = memo(function AiQuestionCard({
                       <span className="font-mono text-[10px] px-1 py-0 rounded bg-surface-2 text-text-muted font-bold shrink-0">
                         {optIdx + 1}
                       </span>
-                      <span className="font-medium text-text truncate">{opt.label}</span>
-                      {opt.description && (
-                        <span className="text-[10px] text-text-muted truncate ml-auto">{opt.description}</span>
-                      )}
-                      {isSelected && <Check size={12} className="text-brand-500 shrink-0 ml-auto" />}
+                      {/* Label owns its line; the description drops below it so neither truncates. */}
+                      <span className="flex flex-col gap-0.5 min-w-0 flex-1">
+                        <span className="font-medium text-text">{opt.label}</span>
+                        {opt.description && (
+                          <span className="text-[10px] text-text-muted leading-snug">{opt.description}</span>
+                        )}
+                      </span>
+                      {isSelected && <Check size={12} className="text-brand-500 shrink-0 mt-0.5" />}
                     </button>
                   );
                 })}
