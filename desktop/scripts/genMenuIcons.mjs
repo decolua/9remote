@@ -6,8 +6,12 @@ import sharp from "sharp";
 
 const OUT_DIR = fileURLToPath(new URL("../src-tauri/icons/menu/", import.meta.url));
 const LUCIDE_DIR = fileURLToPath(new URL("../../node_modules/lucide-react/dist/esm/icons/", import.meta.url));
-const COLOR = "#FF570A";
-const SIZE = 36; // 2x of the 18pt macOS menu icon
+// Neutral gray: muda renders menu icons in full color (it never sets the AppKit
+// template flag), so a template image isn't available — this is the one value
+// that stays legible on both the light and dark system menu.
+const COLOR = "#8E8E93";
+const SIZE = 36; // 2x of the 18pt box macOS renders menu icons into
+const PAD = 4; // viewBox units of margin — shrinks the glyph to ~13.5pt apparent
 
 const ICONS = {
   pair: "qr-code",
@@ -45,7 +49,7 @@ function buildSvg(node) {
       return `<${tag} ${geom}/>`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${COLOR}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${shapes}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-PAD} ${-PAD} ${24 + PAD * 2} ${24 + PAD * 2}" fill="none" stroke="${COLOR}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${shapes}</svg>`;
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
