@@ -70,13 +70,14 @@ await test("clearNotification clears badge, resets state to idle (preserving too
   assert.equal(sessionStatus.s1?.state, "idle", "status should become idle");
   assert.equal(sessionStatus.s1?.tool, "bash", "tool icon must be preserved");
 
-  assert.equal(emits.length, 2);
-  assert.deepEqual(emits[0], { event: "clearNotification", arg: "s1" });
-  assert.deepEqual(emits[1], { event: "clearStatus", arg: "s1" });
+  // One emit only: clearStatus is the single door (the agent's own broadcast covers the
+  // notification side), so this does not fetch state twice per clear.
+  assert.equal(emits.length, 1);
+  assert.deepEqual(emits[0], { event: "clearStatus", arg: "s1" });
 
   // Calling again immediately is a no-op (no duplicate emits)
   useNotificationStore.getState().clearNotification("s1");
-  assert.equal(emits.length, 2, "must not double emit");
+  assert.equal(emits.length, 1, "must not double emit");
 });
 
 await test("clearNotification leaves a blocked session alone (a pending approval is still pending)", () => {

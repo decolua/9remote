@@ -85,7 +85,9 @@ export const useNotificationStore = create((set, get) => ({
     });
 
     const bus = useConnectionStore.getState().busRef?.current || useConnectionStore.getState().bus;
-    bus?.emit("clearNotification", sessionId);
+    // One event, not two: the agent's clearStatus broadcasts BOTH statusCleared and
+    // notificationCleared, and this client refetches on each — two emits meant two
+    // round-trips for one clear.
     bus?.emit("clearStatus", sessionId);
   },
 

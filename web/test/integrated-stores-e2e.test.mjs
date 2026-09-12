@@ -93,7 +93,7 @@ await test("Full cycle: connect -> notifications -> files -> carrier drop -> rec
   assert.equal(useNotificationStore.getState().notifications["session-1"], undefined);
   assert.equal(useNotificationStore.getState().sessionStatus["session-1"]?.state, "idle");
   assert.equal(useNotificationStore.getState().sessionStatus["session-1"]?.tool, "bash"); // icon stays
-  assert.equal(reconnectBusEmits.some((e) => e.event === "clearNotification" && e.payload === "session-1"), true);
+  assert.equal(reconnectBusEmits.some((e) => e.event === "clearStatus" && e.payload === "session-1"), true);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
