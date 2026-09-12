@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      The local-sites view serves a browsed dev server from http://sites.localhost
+      inside an iframe. App Transport Security blocks plain HTTP by default, and
+      unlike `localhost` a name *under* it is not exempt — the load dies with
+      "requires the use of a secure connection", the iframe stays empty, and the
+      service worker that serves the page is never registered.
+
+      Only this one name is listed. Apple exempts `localhost` itself, so the app's
+      own origin needs no entry here, and `NSAllowsLocalNetworking` was not needed
+      either — dropping both still loads both origins. Kept minimal on purpose:
+      this is the one place in the app that frames plain HTTP.
+    -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>sites.localhost</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+            </dict>
+        </dict>
+    </dict>
+</dict>
+</plist>
