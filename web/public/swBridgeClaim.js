@@ -27,26 +27,31 @@ function canBeBridge(clientUrl, expectedOrigin) {
   return url.pathname === "/proxy.html";
 }
 
-// The one app origin that may sit above a browsed site. frame-ancestors is
-// checked against EVERY ancestor, not just the parent, so a site framed by the
-// shell is also framed by the app — naming only the shell blocks the load.
+// The app origins that may sit above a browsed site. frame-ancestors is checked
+// against EVERY ancestor, not just the parent, so a site framed by the shell is
+// also framed by the app — naming only the shell blocks the load.
 //
 // The loopback entry is the agent's own deploy: there the app and the sites host
-// are two names on one server, so the app's origin is the sibling name at the
-// same port rather than a fixed subdomain.
-const APP_HOST_BY_SITES_HOST = {
-  "sites.9remote.cc": "https://9remote.cc",
-  "sites-dev.9remote.cc": "https://dev.9remote.cc",
-  "sites.localhost": "http://localhost",
-  "sites.127.0.0.1": "http://127.0.0.1"
+// are two names on one server, and the app answers on any loopback name, so all
+// of them have to be listed. A single fixed name leaves the site unframable for
+// whichever spelling the app was not opened on.
+const APP_HOSTS_BY_SITES_HOST = {
+  "sites.9remote.cc": ["https://9remote.cc"],
+  "sites-dev.9remote.cc": ["https://dev.9remote.cc"],
+  // No [::1]: CSP's frame-ancestors rejects an IPv6 literal as a source
+  // expression — Chrome drops the whole directive over it — so a page opened on
+  // that spelling cannot be named, and is left unsupported rather than silently
+  // unframable. localhost and 127.0.0.1 are what the agent is actually reached on.
+  "sites.localhost": ["http://localhost", "http://127.0.0.1"],
+  "sites.127.0.0.1": ["http://127.0.0.1"]
 };
 
 // "" for an unknown host: the policy then names the shell alone, which is the
 // safe direction — a load fails rather than an unknown origin being allowed.
 // `port` is the sites origin's own port, and the app answers on the same one.
-function appOriginFor(hostname, port) {
+function appOriginsFor(hostname, port) {
   const host = String(hostname || "").toLowerCase();
-  if (!(host in APP_HOST_BY_SITES_HOST)) return "";
-  const base = APP_HOST_BY_SITES_HOST[host];
-  return port ? `${base}:${port}` : base;
+  const bases = APP_HOSTS_BY_SITES_HOST[host];
+  if (!bases) return "";
+  return bases.map((b) => (port ? `${b}:${port}` : b)).join(" ");
 }

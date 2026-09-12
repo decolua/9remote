@@ -845,7 +845,14 @@ export default {
     empty: "No active sites",
     emptyHint: "Run a local server to see it here",
     open: "Open",
-    refresh: "Refresh"
+    refresh: "Refresh",
+    newTabTitle: "Open local site",
+    errorSwBlocked: "This browser blocked the service worker the site view needs",
+    errorNoBridge: "Connect to your agent first",
+    errorNoSession: "Port {port} is no longer open — reopen the site",
+    errorTimeout: "The site did not answer in time",
+    errorNoReply: "No reply from the agent",
+    errorGeneric: "The site could not be loaded"
   },
   commandNotes: {
     title: "Command Notes",

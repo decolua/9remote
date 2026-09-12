@@ -25,13 +25,23 @@
 
   // Only the app may drive this page, and only this page's opener is told
   // anything. An opaque origin sends the literal "null" — never a match.
-  var APP_ORIGIN = (function () {
+  //
+  // The agent serves its workspace on every loopback name, so this has to accept
+  // the app whichever one it was opened on — a single hardcoded "localhost"
+  // leaves the frame unable to talk to a page opened on 127.0.0.1, and it shows
+  // as a shell that never loads anything.
+  var APP_ORIGINS = (function () {
     var h = location.hostname;
-    if (h === "sites.9remote.cc") return "https://9remote.cc";
-    if (h === "sites-dev.9remote.cc") return "https://dev.9remote.cc";
-    if (h === "sites.localhost") return location.protocol + "//localhost" + (location.port ? ":" + location.port : "");
-    return null;
+    var port = location.port ? ":" + location.port : "";
+    if (h === "sites.9remote.cc") return ["https://9remote.cc"];
+    if (h === "sites-dev.9remote.cc") return ["https://dev.9remote.cc"];
+    if (h === "sites.localhost") return ["http://localhost" + port, "http://127.0.0.1" + port, "http://[::1]" + port];
+    return [];
   })();
+
+  function isAppOrigin(origin) {
+    return APP_ORIGINS.indexOf(origin) !== -1;
+  }
 
   var status = document.getElementById("status");
   var frame = null;
@@ -71,6 +81,13 @@
       return;
     }
 
+    // The worker could not serve a page at all. Its own reply is plain text that
+    // the frame renders as a bare white page, so relay the reason upward.
+    if (msg.type === "site-error") {
+      post({ type: "site-error", message: msg.message, port: msg.port });
+      return;
+    }
+
     // The worker restarted and lost its bridge pointer — re-announce.
     if (msg.type === "sw-hello") {
       helloTo(event.source);
@@ -83,15 +100,20 @@
 
   // ── App side ──────────────────────────────────────────────────────────────
 
+  // The shell speaks first (site:ready, and requests relayed from the worker),
+  // so it cannot wait to learn the parent's origin from a message. Posting to
+  // every allowed origin is enough: the browser delivers to the parent only for
+  // the one that matches it, and a parent outside the list receives nothing.
   function post(message) {
-    if (!APP_ORIGIN) return;
-    parent.postMessage(message, APP_ORIGIN);
+    for (var i = 0; i < APP_ORIGINS.length; i++) {
+      try { parent.postMessage(message, APP_ORIGINS[i]); } catch (e) { /* shell gone */ }
+    }
   }
 
   window.addEventListener("message", function (event) {
     // Everything below acts on the app's word; an unchecked origin here would
     // let any page that frames us speak for it.
-    if (!APP_ORIGIN || event.origin !== APP_ORIGIN || event.source !== parent) return;
+    if (!isAppOrigin(event.origin) || event.source !== parent) return;
     var msg = event.data;
     if (!msg || typeof msg !== "object") return;
 
@@ -118,7 +140,7 @@
     frame.src = src;
   }
 
-  if (!APP_ORIGIN) {
+  if (!APP_ORIGINS.length) {
     fail("9Remote: unknown host");
     return;
   }

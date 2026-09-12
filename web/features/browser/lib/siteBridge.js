@@ -4,7 +4,7 @@
 // bus (ClientBus facade: emit routes RTC-first, on/off survive carrier changes).
 // One instance per page; initSiteBridge is idempotent.
 
-import { SITE_NAV_EVENT, SITE_REPLY_TIMEOUT_MS, SITES_FETCH_TIMEOUT_MS, isSitesOrigin, SITES_ORIGIN } from "../constants/browserConfig";
+import { SITE_NAV_EVENT, SITE_ERROR_EVENT, SITE_REPLY_TIMEOUT_MS, SITES_FETCH_TIMEOUT_MS, isSitesOrigin, SITES_ORIGIN } from "../constants/browserConfig";
 
 // The proxy shell on the sites origin owns the service worker now — this page
 // cannot reach that worker directly, which is the point: the worker serves the
@@ -87,6 +87,19 @@ function onProxyMessage(event) {
   }
   // Noted but unused: the shell is addressed by its src, not by messages.
   if (msg.type === "site:ready") return;
+
+  // The shell reports what the worker could not do. Its own document shows a
+  // one-line status, but the failure is about the frame's content — the view
+  // is what can say it in the app's own chrome.
+  if (msg.type === "site:swBlocked") {
+    window.dispatchEvent(new CustomEvent(SITE_ERROR_EVENT, { detail: { message: "service-worker-blocked" } }));
+    return;
+  }
+  // The worker reporting why a page could not be served at all.
+  if (msg.type === "site-error") {
+    window.dispatchEvent(new CustomEvent(SITE_ERROR_EVENT, { detail: { message: msg.message, port: msg.port } }));
+    return;
+  }
 }
 
 export async function initSiteBridge(sock) {

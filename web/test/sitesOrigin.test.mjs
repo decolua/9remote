@@ -8,7 +8,7 @@
 // Run: node --import ./test/loader-alias.mjs web/test/sitesOrigin.test.mjs
 import assert from "node:assert/strict";
 import { isSitesHost, routeSitesRequest, SITES_ALLOWED_PATHS } from "../shared/utils/sitesHost.js";
-import { SITES_ORIGIN, siteProxySrc, isSitesOrigin } from "../features/browser/constants/browserConfig.js";
+import { SITES_ORIGIN, siteProxySrc, isSitesOrigin, resolveSitesOrigin } from "../features/browser/constants/browserConfig.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -211,6 +211,39 @@ test("the address still rides in the fragment", () => {
   const [beforeHash] = src.split("#");
   assert.ok(!beforeHash.includes("secret"), "path leaked into the request URL");
   assert.ok(!beforeHash.includes("3000"), "port leaked into the request URL");
+});
+
+// ── The loopback names the agent is reached on ──────────────────────────────
+
+console.log("Suite 6: every name the agent answers on gets a sites origin");
+
+const at = (hostname, protocol = "http:", port = "2208") => resolveSitesOrigin({ hostname, protocol, port });
+
+test("localhost and 127.0.0.1 reach a sites name, neither falls back to itself", () => {
+  // The reported bug: 127.0.0.1 was not in the map, so the fallback dropped the
+  // port and aimed the iframe at http://127.0.0.1 — the app's own origin on :80.
+  assert.equal(at("localhost"), "http://sites.localhost:2208");
+  assert.equal(at("127.0.0.1"), "http://sites.localhost:2208");
+  // sites.127.0.0.1 is not a name a browser resolves; sites.localhost is.
+  assert.equal(at("::1"), "http://sites.localhost:2208");
+});
+
+test("the port the app was opened on is kept", () => {
+  // A sites name without the port points at :80, where nothing is listening.
+  assert.equal(at("localhost", "http:", "3000"), "http://sites.localhost:3000");
+  assert.equal(at("localhost", "http:", ""), "http://sites.localhost");
+});
+
+test("the hosted deploys map to their own subdomain, over https", () => {
+  assert.equal(at("9remote.cc", "https:", ""), "https://sites.9remote.cc");
+  assert.equal(at("dev.9remote.cc", "https:", ""), "https://sites-dev.9remote.cc");
+});
+
+test("an unknown deploy gets no sites origin rather than the app's own", () => {
+  // Pointing the frame at the current host would load the app origin, which
+  // serves no shell — a blank frame with nothing to explain it.
+  assert.equal(at("some-preview.example", "https:", ""), null);
+  assert.equal(at("192.168.1.5", "http:", "2208"), null);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

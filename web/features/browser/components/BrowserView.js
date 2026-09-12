@@ -4,8 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Globe, Home, Loader2, Plus, RotateCw, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
-import { initSiteBridge, fetchLocalSites, parseSiteAddress } from "../lib/siteBridge";
-import { SITE_NAV_EVENT, siteProxySrc } from "../constants/browserConfig";
+import { initSiteBridge, parseSiteAddress } from "../lib/siteBridge";
+import { SITE_ERROR_EVENT, SITE_NAV_EVENT, siteProxySrc } from "../constants/browserConfig";
+import NewSiteTabModal from "./NewSiteTabModal";
 
 let tabKeySeq = 0;
 // Each tab carries its own history stack — the iframe's real history piles onto
@@ -21,6 +22,17 @@ const tabAddress = (tab) => (tab ? `localhost:${tab.port}${tab.path || "/"}` : "
 // navigate rather than resolve to the same URL it already has.
 const srcOf = (tab) => siteProxySrc(tab.port, tab.path, tab.srcTick);
 
+// The worker's own wording → the key that says it to a user. Anything unmatched
+// is shown as it came: an unexpected message is still the best clue there is.
+const ERROR_KEYS = {
+  "service-worker-blocked": "sites.errorSwBlocked",
+  "bridge not connected — open the 9Remote app": "sites.errorNoBridge",
+  "no-session": "sites.errorNoSession",
+  "timeout": "sites.errorTimeout",
+  "no reply from the agent": "sites.errorNoReply"
+};
+const siteErrorKey = (message) => ERROR_KEYS[message] || "sites.errorGeneric";
+
 export default function BrowserView({ busRef, connected = false, initialPort, initialPath, onBack }) {
   const { t } = useI18n();
   // One state object — tab list, active tab and address bar travel together
@@ -29,9 +41,12 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
     const tab = newTab(initialPort, initialPath);
     return { tabs: [tab], activeKey: tab.key, address: tabAddress(tab) };
   });
-  const [sites, setSites] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [portInput, setPortInput] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // What the worker said when it could not serve the page: the message it
+  // rendered inside the frame is a bare text response on a white ground, so
+  // without this the failure is an unreadable blank tab.
+  const [siteError, setSiteError] = useState(null);
 
   const { tabs, activeKey, address } = state;
   const activeTab = tabs.find((tab) => tab.key === activeKey) || null;
@@ -52,15 +67,21 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
     initSiteBridge(busRef?.current);
   }, [busRef]);
 
-  // Detected sites for the new-tab picker
+  // A page that never loaded leaves no trace on this side: the worker answers the
+  // frame with a plain-text error and the iframe happily renders it. Report it,
+  // translated — the raw string is the agent's own vocabulary, not the user's.
   useEffect(() => {
-    if (!connected || sites) return;
-    let cancelled = false;
-    fetchLocalSites(busRef?.current).then((result) => {
-      if (!cancelled) setSites(result || []);
-    });
-    return () => { cancelled = true; };
-  }, [connected, sites, busRef]);
+    const onError = (e) => {
+      const { message, port } = e.detail || {};
+      if (!message) return;
+      setLoading(false);
+      // The message already carries the port it happened on; no need to guess
+      // which tab is showing.
+      setSiteError({ message: t(siteErrorKey(message), { port }) });
+    };
+    window.addEventListener(SITE_ERROR_EVENT, onError);
+    return () => window.removeEventListener(SITE_ERROR_EVENT, onError);
+  }, [t]);
 
   // Address bar follows in-iframe navigations reported by the SW; a genuinely
   // new address (e.g. a redirect) becomes a history entry
@@ -104,6 +125,7 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
     vibrate();
     startSession(port);
     setLoading(true);
+    setSiteError(null);
     setState((prev) => {
       const existing = prev.tabs.find((tab) => tab.key === prev.activeKey);
       if (existing) {
@@ -148,6 +170,7 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
     if (!activeTab) return;
     vibrate();
     setLoading(true);
+    setSiteError(null);
     setState((prev) => ({
       ...prev,
       tabs: prev.tabs.map((tab) => (tab.key === prev.activeKey ? { ...tab, srcTick: tab.srcTick + 1 } : tab))
@@ -182,7 +205,7 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
 
   const showPicker = () => {
     vibrate();
-    setState((prev) => ({ ...prev, activeKey: "", address: "" }));
+    setPickerOpen(true);
   };
 
   return (
@@ -289,58 +312,44 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
           />
         ))}
         {!activeTab && (
-          <div className="absolute inset-0 overflow-y-auto modal-scrollable p-4 max-w-md mx-auto bg-surface">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-text-muted text-sm shrink-0">http://localhost:</span>
-              <input
-                type="number"
-                value={portInput}
-                onChange={(e) => setPortInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && portInput) navigate(Number(portInput)); }}
-                placeholder={t("sites.portPlaceholder")}
-                min="1"
-                max="65535"
-                className="flex-1 min-w-0 px-3 py-2 bg-surface-2 rounded-brand text-text text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-              />
-              <button
-                onClick={() => portInput && navigate(Number(portInput))}
-                disabled={!portInput}
-                className="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-surface-2 disabled:cursor-not-allowed text-white text-sm font-medium rounded-brand transition-colors"
-              >
-                {t("sites.open")}
-              </button>
-            </div>
-            {sites === null ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-brand-500 text-sm">
-                <Loader2 size={16} className="animate-spin" />
-                <span>{t("sites.loadingSites")}</span>
-              </div>
-            ) : sites.length === 0 ? (
-              <div className="text-center py-8">
-                <Globe size={24} className="text-text-muted mx-auto mb-2" />
-                <p className="text-text text-sm font-medium">{t("sites.noSitesFound")}</p>
-                <p className="text-text-muted text-xs mt-1">{t("sites.startServerHint")}</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {sites.map((site) => (
-                  <button
-                    key={site.port}
-                    onClick={() => navigate(site.port)}
-                    className="w-full px-4 py-3 bg-surface-2 hover:bg-surface-3 rounded-brand-lg transition-colors flex items-center gap-3 text-left"
-                  >
-                    <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shrink-0" />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-text font-medium truncate">{site.name}</span>
-                      <span className="block text-xs text-text-muted mt-0.5">Port {site.port}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center bg-surface">
+            <Globe size={28} className="text-text-muted" />
+            <p className="text-text text-sm font-medium">{t("sites.noSitesFound")}</p>
+            <button
+              onClick={showPicker}
+              className="flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-brand transition-colors"
+            >
+              <Plus size={16} />
+              {t("sites.newTabTitle")}
+            </button>
+          </div>
+        )}
+
+        {/* A failed load lands here rather than as the worker's bare text inside
+            the frame — which renders as an unreadable page and hides the reason. */}
+        {siteError && activeTab && (
+          <div className="absolute inset-x-0 top-0 z-20 flex items-start gap-3 px-4 py-3 bg-red-500/90 text-white text-sm">
+            <span className="flex-1 min-w-0 break-words">{siteError.message}</span>
+            <button
+              onClick={reload}
+              className="px-2 py-1 rounded bg-white/20 hover:bg-white/30 shrink-0 font-medium"
+            >
+              {t("sites.refresh")}
+            </button>
+            <button onClick={() => setSiteError(null)} className="p-1 shrink-0 opacity-80 hover:opacity-100" title={t("common.close")}>
+              <X size={14} />
+            </button>
           </div>
         )}
       </div>
+
+      <NewSiteTabModal
+        isOpen={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onOpenSite={(port) => navigate(port)}
+        busRef={busRef}
+        connected={connected}
+      />
     </div>
   );
 }

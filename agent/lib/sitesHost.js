@@ -52,12 +52,19 @@ export function isSitesHost(hostname) {
   return SITES_HOSTNAMES.has(bareHost(hostname));
 }
 
-/** The app origin that may frame the shell, e.g. "http://localhost:2208". */
-export function appOriginFor(hostname, protocol = "http:") {
+/** Every app origin that may frame the shell for this sites host. */
+export function appOriginsFor(hostname, protocol = "http:") {
   const appHost = SITES_HOSTNAMES.get(bareHost(hostname));
-  if (!appHost) return "";
+  if (!appHost) return [];
   const port = portSuffix(hostname) || `:${SERVER_PORT}`;
-  return `${protocol === "https:" ? "https:" : "http:"}//${appHost}${port}`;
+  const scheme = protocol === "https:" ? "https:" : "http:";
+  // The agent answers on any loopback name, and the shell cannot know which one
+  // the app was opened on — so all of them are named. A single fixed name would
+  // leave a page opened on another loopback spelling unable to frame the shell.
+  // No [::1]: frame-ancestors rejects an IPv6 literal as a source expression,
+  // and Chrome then drops the whole directive.
+  const names = appHost === "localhost" ? ["localhost", "127.0.0.1"] : [appHost];
+  return names.map((n) => `${scheme}//${n}${port}`);
 }
 
 /**
@@ -83,7 +90,7 @@ export function routeSitesLocalRequest(pathname, hostname) {
     // origin here, unlike the hosted deploy, so the app has to be named or the
     // load fails. Never a wildcard: the shell relays requests that end at the
     // user's own localhost.
-    "Content-Security-Policy": `frame-ancestors 'self' ${appOriginFor(hostname)}`
+    "Content-Security-Policy": `frame-ancestors 'self' ${appOriginsFor(hostname).join(" ")}`
   };
 
   if (path.startsWith(BROWSE_PREFIX)) return { kind: "browse", path: "/proxy.html", headers };

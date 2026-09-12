@@ -23,7 +23,7 @@ const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
 const SITE_CSP = [
   "connect-src 'self'",
   "form-action 'self'",
-  `frame-ancestors 'self' ${appOriginFor(self.location.hostname, self.location.port)}`.trim(),
+  `frame-ancestors 'self' ${appOriginsFor(self.location.hostname, self.location.port)}`.trim(),
   "base-uri 'self'"
 ].join("; ");
 
@@ -203,9 +203,24 @@ function requestViaBridge(reqId, port, method, target, headers, bodyB64) {
   });
 }
 
+// Every failure below answers the frame with plain text, which the browser
+// renders as a bare white page with nothing on it to explain the problem. For a
+// navigation that is the only thing the user sees, so the shell is told too and
+// the app can say it in its own chrome.
+function fail(message, status, port) {
+  if (port) {
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (canBeBridge(client.url, self.location.origin)) client.postMessage({ type: "site-error", message, port });
+      }
+    }).catch(() => {});
+  }
+  return new Response(`9Remote: ${message}`, { status });
+}
+
 async function handle(request, url, inScope) {
   const port = inScope ? Number(inScope[1]) : await portFromReferrer(request);
-  if (!port) return new Response("9Remote: no site context for this request", { status: 503 });
+  if (!port) return fail("no site context for this request", 503, null);
 
   // Every site shares this origin, so nothing in the browser stops one from
   // fetching another's paths — normally a different port is a different origin
@@ -220,7 +235,7 @@ async function handle(request, url, inScope) {
   }
 
   await discoverBridge();
-  if (!bridgeClient) return new Response("9Remote: bridge not connected — open the 9Remote app", { status: 503 });
+  if (!bridgeClient) return fail("bridge not connected — open the 9Remote app", 503, port);
 
   // Drop the iframe cache-buster param before forwarding to the agent
   url.searchParams.delete("r");
@@ -251,9 +266,11 @@ async function handle(request, url, inScope) {
   try {
     msg = await requestViaBridge(reqId, port, request.method, target, headers, bodyB64);
   } catch {
-    return new Response("9Remote: request timed out", { status: 504 });
+    return fail("request timed out", 504, port);
   }
-  if (!msg || msg.error) return new Response(`9Remote: ${msg?.error || "no reply"}`, { status: 502 });
+  // The agent's own reason: no-session (the viewing session ended), bad-port,
+  // and so on. Worth showing verbatim — it names what to fix.
+  if (!msg || msg.error) return fail(msg?.error || "no reply from the agent", 502, port);
 
   const resHeaders = new Headers(msg.headers || {});
 

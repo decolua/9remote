@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 // ever stops being loadable that way.
 const src = readFileSync(new URL("../public/swBridgeClaim.js", import.meta.url), "utf8");
 const canBeBridge = new Function(`${src}; return canBeBridge;`)();
+const appOriginsFor = new Function(`${src}; return appOriginsFor;`)();
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -71,6 +72,39 @@ test("the root path is refused", () => {
   // The worker serves the shell at "/" too, but the shell itself always loads
   // /proxy.html — accepting "/" would widen the surface for nothing.
   assert.equal(canBeBridge(`${ORIGIN}/`, ORIGIN), false);
+});
+
+// ── frame-ancestors names every loopback spelling ───────────────────────────
+
+test("the agent's shell is framable through any loopback name", () => {
+  // The agent serves its workspace on localhost and 127.0.0.1 alike, and the
+  // policy is checked against the ancestor actually used. Naming only one leaves
+  // the site unframable for the other — which renders as a blank frame.
+  const csp = appOriginsFor("sites.localhost", "2208");
+  assert.equal(csp, "http://localhost:2208 http://127.0.0.1:2208");
+  assert.ok(!csp.includes("*"), "wildcard in the ancestor list");
+  // An IPv6 literal is not a valid source expression: Chrome rejects the whole
+  // directive over it, which would leave the shell unframable everywhere.
+  assert.ok(!csp.includes("[::1]"), "IPv6 literal in the ancestor list");
+});
+
+test("the port is kept for every named ancestor", () => {
+  // A sites name without the port points at :80, where nothing is listening.
+  assert.equal(appOriginsFor("sites.localhost", ""), "http://localhost http://127.0.0.1");
+  assert.equal(appOriginsFor("sites.localhost", "3000"), "http://localhost:3000 http://127.0.0.1:3000");
+});
+
+test("the hosted deploys name one ancestor each, over https", () => {
+  assert.equal(appOriginsFor("sites.9remote.cc", ""), "https://9remote.cc");
+  assert.equal(appOriginsFor("sites-dev.9remote.cc", ""), "https://dev.9remote.cc");
+  assert.equal(appOriginsFor("sites.9remote.cc", "443"), "https://9remote.cc:443");
+});
+
+test("an unknown host gets no ancestor at all", () => {
+  // Then frame-ancestors is 'self' alone, and a load fails rather than any
+  // origin being given the benefit of the doubt.
+  assert.equal(appOriginsFor("sites.evil.tld", "2208"), "");
+  assert.equal(appOriginsFor("", "2208"), "");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
