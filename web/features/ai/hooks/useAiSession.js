@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
 
@@ -602,6 +603,9 @@ export function useAiSession({
         if (running) return;
       }
       const b = busRef.current || useConnectionStore.getState().bus;
+      // Sending is what marks the previous turn read (the terminal side clears on typing) —
+      // focusing the composer is not. The store emits clearStatus down to the host itself.
+      useNotificationStore.getState().clearNotification(sessionId);
       // No ai:create here: the host auto-creates on prompt, and the mount effect
       // already hydrated this session. Re-emitting it per message would make the
       // host serialize and ship the entire event log back on every keystroke-send.
