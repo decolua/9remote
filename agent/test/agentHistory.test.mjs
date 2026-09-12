@@ -361,3 +361,55 @@ test("deleteAgentSession deletes Claude session file and updates cache", async (
   assert.equal(rows.some((r) => r.sessionId === "to_delete"), false);
 });
 
+
+// --- antigravity (a single index, not a transcript tree) ---
+
+function writeAntigravityIndex(conversations) {
+  write(".gemini/antigravity-cli/cache/conversation_metadata.json",
+    JSON.stringify({ conversations }, null, 2));
+}
+
+const agEntry = (id, cwd, preview, updatedAt) => [id, {
+  summary: { ID: id, Title: "", Preview: preview, NumSteps: 3, UpdatedAt: updatedAt,
+    WorkspaceURIs: [cwd ? `file://${cwd}` : null].filter(Boolean), ProjectID: "p1" },
+  is_internal: false,
+  last_modified_time: updatedAt
+}];
+
+const listAntigravity = async (cwd) => (await listAgentSessions({ cwd })).filter((s) => s.agent === "antigravity");
+
+test("antigravity lists only conversations whose workspace is the cwd", async () => {
+  writeAntigravityIndex(Object.fromEntries([
+    agEntry("ag_here", CWD, "Fix the parser", "2026-05-01T10:00:00Z"),
+    agEntry("ag_other", OTHER, "Unrelated work", "2026-05-02T10:00:00Z"),
+    agEntry("ag_none", null, "One-off in /tmp", "2026-05-03T10:00:00Z")
+  ]));
+  clearHistoryCache();
+
+  const rows = await listAntigravity(CWD);
+  assert.deepEqual(rows.map((s) => s.sessionId), ["ag_here"]);
+  // Title is empty in the real index — the preview line is the only label there is.
+  assert.equal(rows[0].title, "Fix the parser");
+  // The catalog's resume form is what the row hands the terminal.
+  assert.equal(rows[0].resume, "agy --conversation ag_here");
+});
+
+test("antigravity ignores a missing or corrupt index instead of throwing", async () => {
+  writeFileSync(join(home, ".gemini/antigravity-cli/cache/conversation_metadata.json"), "{ not json");
+  clearHistoryCache();
+  assert.deepEqual(await listAntigravity(CWD), []);
+});
+
+test("deleteAgentSession drops the antigravity entry from the index", async () => {
+  writeAntigravityIndex(Object.fromEntries([
+    agEntry("ag_keep", CWD, "Keep me", "2026-05-01T10:00:00Z"),
+    agEntry("ag_drop", CWD, "Drop me", "2026-05-02T10:00:00Z")
+  ]));
+  clearHistoryCache();
+  assert.deepEqual((await listAntigravity(CWD)).map((s) => s.sessionId), ["ag_drop", "ag_keep"]);
+
+  const deleted = await deleteAgentSession({ agent: "antigravity", sessionId: "ag_drop", cwd: CWD });
+  assert.equal(deleted, true);
+  clearHistoryCache();
+  assert.deepEqual((await listAntigravity(CWD)).map((s) => s.sessionId), ["ag_keep"]);
+});

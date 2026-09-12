@@ -12,6 +12,7 @@ import os from "os";
 import crypto from "crypto";
 import { HISTORY } from "./constants.js";
 import { createRequire } from "module";
+import { writeJsonAtomic } from "../../lib/atomicFile.js";
 import { agentById } from "./agentCatalog.js";
 import { getConversationMode, engineFromAgent } from "./conversationModes.js";
 
@@ -230,6 +231,58 @@ function parseGrok(filePath) {
   return { sessionId, title: cleanTitle(data.session_summary), cwd: data.info.cwd || null };
 }
 
+// Antigravity keeps one index of every conversation it has ever had, and a SQLite
+// file per conversation beside it. Only the index is read: it already carries the
+// workspace, the preview line and the clock, and stepping into 100+ SQLite files
+// per scan would cost far more than the title is worth.
+function antigravityIndexPath() {
+  return path.join(home(), ".gemini", "antigravity-cli", "cache", "conversation_metadata.json");
+}
+
+function antigravityEntryCwd(summary) {
+  const uri = summary?.WorkspaceURIs?.[0];
+  if (typeof uri !== "string") return null;
+  // file:///Users/x → /Users/x. A conversation with no workspace belongs to no cwd.
+  try { return decodeURIComponent(uri.replace(/^file:\/\//, "")); } catch { return null; }
+}
+
+function antigravityRows(cwd) {
+  const index = parseWholeJson(antigravityIndexPath());
+  const rows = [];
+  for (const [id, entry] of Object.entries(index?.conversations || {})) {
+    const summary = entry?.summary;
+    if (!summary?.ID && !id) continue;
+    if (antigravityEntryCwd(summary) !== cwd) continue;
+    rows.push({
+      sessionId: summary.ID || id,
+      // `Title` is empty for nearly every conversation; `Preview` is what the CLI
+      // itself shows in its own list, so it is the only usable label there is.
+      title: cleanTitle(summary.Title || summary.Preview),
+      cwd,
+      // Both stamps are ISO; `|| 0` matches mtimeMs, so an entry with no usable
+      // date sorts as oldest instead of landing at the epoch by way of a NaN.
+      updatedAt: Date.parse(summary.UpdatedAt) || Date.parse(entry.last_modified_time) || 0
+    });
+  }
+  return rows;
+}
+
+// A conversation deleted from the index is gone; the per-conversation .db beside it
+// is left in place so a bad index entry can never destroy a transcript outright.
+// Written atomically: `agy` reads this same file while it runs.
+function antigravityDelete(sessionId) {
+  const indexPath = antigravityIndexPath();
+  const index = parseWholeJson(indexPath);
+  if (!index?.conversations?.[sessionId]) return false;
+  delete index.conversations[sessionId];
+  try {
+    writeJsonAtomic(indexPath, index);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Shared by the CLIs that fork Gemini CLI's store layout (qwen).
 function parseCwdChats(filePath) {
   const data = parseWholeJson(filePath);
@@ -253,10 +306,12 @@ const HISTORY_SOURCES = [
   { id: "qwen-code", layout: "cwdDir", root: () => path.join(home(), ".qwen", "tmp"), encode: sha256, sub: "chats", ext: ".json", parse: parseCwdChats },
   { id: "cursor", layout: "cwdDir", root: () => path.join(home(), ".cursor", "projects"), encode: dashEncode, sub: "agent-transcripts", depth: 1, ext: ".jsonl", parse: parseCursor },
   { id: "droid", layout: "cwdDir", root: () => path.join(home(), ".factory", "sessions"), encode: dashEncode, ext: ".jsonl", parse: parseDroid },
-  { id: "grok", layout: "cwdDir", root: () => path.join(home(), ".grok", "sessions"), encode: encodeURIComponent, depth: 1, ext: ".json", file: "summary.json", parse: parseGrok }
+  { id: "grok", layout: "cwdDir", root: () => path.join(home(), ".grok", "sessions"), encode: encodeURIComponent, depth: 1, ext: ".json", file: "summary.json", parse: parseGrok },
+  // No `parse`/`encode`: the whole store is one index file, read by the collector.
+  { id: "antigravity", layout: "antigravity", root: () => path.join(home(), ".gemini", "antigravity-cli") }
 ];
 
-const COLLECTORS = { cwdDir: collectCwdDir, scan: collectScan, opencode: collectOpencode };
+const COLLECTORS = { cwdDir: collectCwdDir, scan: collectScan, opencode: collectOpencode, antigravity: collectAntigravity };
 
 const SOURCE_BY_ID = new Map(HISTORY_SOURCES.map((s) => [s.id, s]));
 // Rank ties by the order the sources are declared — claude, codex, opencode first.
@@ -406,6 +461,12 @@ function collectOpencode(source, cwd, limit) {
   return byNewest(rows, source, cwd).slice(0, limit);
 }
 
+// Antigravity's store is a single index, so "collect" is a filter, not a walk.
+function collectAntigravity(source, cwd, limit) {
+  const rows = antigravityRows(cwd);
+  return byNewest(rows, source, cwd).slice(0, limit);
+}
+
 function collectScan(source, cwd, limit) {
   const files = filesUnder(source.root(), HISTORY.SCAN_DEPTH, source.ext, source.file)
     .map((filePath) => ({ filePath, mtime: mtimeMs(filePath) }))
@@ -489,7 +550,7 @@ export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
 
   let deleted = false;
 
-  // 1. Remove from SQLite store if agent is opencode
+  // 1. Remove from the store an agent keeps outside its transcript files
   if (agent === "opencode") {
     const sqlite = loadSqlite();
     if (sqlite) {
@@ -506,6 +567,7 @@ export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
       }
     }
   }
+  if (agent === "antigravity" && antigravityDelete(sessionId)) deleted = true;
 
   // 2. Resolve transcript file path
   const cached = cwd ? cache.get(cwd) : null;
