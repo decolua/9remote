@@ -4,7 +4,6 @@ import { agentIconUrl } from "./agentCli";
 export const AGENT_LABELS = {
   claude: "Claude",
   codex: "Codex",
-  gemini: "Gemini",
   opencode: "OpenCode",
   grok: "Grok",
   cursor: "Cursor",

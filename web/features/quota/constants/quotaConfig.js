@@ -5,7 +5,6 @@ export const QUOTA_POLL_MS = 60000; // matches agent-side QUOTA_TTL_MS
 export const PROVIDER_LABELS = {
   claude: "Claude",
   codex: "Codex",
-  gemini: "Gemini",
   kimi: "Kimi",
   grok: "Grok"
 };

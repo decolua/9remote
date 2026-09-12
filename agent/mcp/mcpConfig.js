@@ -148,12 +148,8 @@ const CLIENTS = {
     ],
   }),
   // ── JSON MCP registries ──────────────────────────────────────────────────────
-  // Gemini/Qwen fork the same schema: settings.json, httpUrl + headers, trust
+  // Qwen forks Gemini CLI's schema: settings.json, httpUrl + headers, trust
   // skips the per-call tool confirmation.
-  gemini: jsonClient({
-    file: () => homeSub(".gemini", "settings.json"),
-    entry: () => ({ httpUrl: URL, headers: { Authorization: AUTH() }, trust: true }),
-  }),
   "qwen-code": jsonClient({
     file: () => homeSub(".qwen", "settings.json"),
     entry: () => ({ httpUrl: URL, headers: { Authorization: AUTH() }, trust: true }),

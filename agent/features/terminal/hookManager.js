@@ -27,7 +27,6 @@ const PATHS = {
   claude: () => homeSub(".claude", "settings.json"),
   codex: () => homeSub(".codex", "config.toml"),
   codexScript: () => homeSub(".codex", "9remote-notify.sh"),
-  gemini: () => homeSub(".gemini", "settings.json"),
   opencode: () => homeSub(".config", "opencode", "plugin", `${OPENCODE_PLUGIN_MARK}.js`),
   grok: () => path.join(envDir("GROK_HOME", ".grok"), "hooks", "9remote.json"),
   cursor: () => homeSub(".cursor", "hooks.json"),
@@ -45,7 +44,7 @@ const PATHS = {
 
 // Binary name on PATH used to detect whether a tool is installed
 const BINARIES = {
-  claude: "claude", codex: "codex", gemini: "gemini", opencode: "opencode",
+  claude: "claude", codex: "codex", opencode: "opencode",
   grok: "grok", cursor: "cursor-agent", antigravity: "agy", kiro: "kiro-cli",
   copilot: "copilot", codebuddy: "codebuddy", factory: "droid", qoder: "qodercli",
   rovodev: "acli", hermes: "hermes", amp: "amp", pi: "pi",
@@ -65,7 +64,6 @@ const buildCurlCmd = (type, tool, { sessionId = false } = {}) => {
 const TOOL_DIRS = {
   claude: () => homeSub(".claude"),
   codex: () => homeSub(".codex"),
-  gemini: () => homeSub(".gemini"),
   opencode: () => [homeSub(".config", "opencode"), homeSub(".opencode")],
 };
 
@@ -433,9 +431,6 @@ const TOOL_REGISTRY = {
     (ms) => ms,
     { matchers: { Notification: "permission_prompt" }, extra: applyClaudeEnv, sessionId: true }),
   codex: codexHook,
-  gemini: makeNestedJsonHook("gemini",
-    { BeforeAgent: "working", PreToolUse: "working", PostToolUse: "working", AfterAgent: "done", Notification: "blocked" },
-    (ms) => ms),
   opencode: opencodeHook,
   grok: makeNestedJsonHook("grok",
     { UserPromptSubmit: "working", PreToolUse: "working", PostToolUse: "working", Stop: "done", Notification: "blocked" },

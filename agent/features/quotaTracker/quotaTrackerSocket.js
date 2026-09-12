@@ -4,14 +4,12 @@
 import { QUOTA_TTL_MS } from "./constants.js";
 import { fetchClaudeQuota } from "./fetchers/claudeFetcher.js";
 import { fetchCodexQuota } from "./fetchers/codexFetcher.js";
-import { fetchGeminiQuota } from "./fetchers/geminiFetcher.js";
 import { fetchKimiQuota } from "./fetchers/kimiFetcher.js";
 import { fetchGrokQuota } from "./fetchers/grokFetcher.js";
 
 const FETCHERS = {
   claude: fetchClaudeQuota,
   codex: fetchCodexQuota,
-  gemini: fetchGeminiQuota,
   kimi: fetchKimiQuota,
   grok: fetchGrokQuota
 };

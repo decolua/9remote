@@ -197,7 +197,6 @@ test("a typed resume line names its agent and conversation id", () => {
   assert.deepEqual(parseResumeLine("claude --resume abc"), { agent: "claude", id: "abc" });
   assert.deepEqual(parseResumeLine("codex resume abc"), { agent: "codex", id: "abc" });
   assert.deepEqual(parseResumeLine("opencode --session ses_1"), { agent: "opencode", id: "ses_1" });
-  assert.deepEqual(parseResumeLine("gemini --resume abc"), { agent: "gemini", id: "abc" });
   assert.deepEqual(parseResumeLine("agy --conversation conv-1"), { agent: "antigravity", id: "conv-1" });
   assert.deepEqual(parseResumeLine("kimi --session abc"), { agent: "kimi", id: "abc" });
   assert.deepEqual(parseResumeLine("copilot --resume=abc"), { agent: "copilot", id: "abc" });

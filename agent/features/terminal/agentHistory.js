@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { HISTORY } from "./constants.js";
 import { createRequire } from "module";
 import { agentById } from "./agentCatalog.js";
+import { getConversationMode, engineFromAgent } from "./conversationModes.js";
 
 const require = createRequire(import.meta.url);
 
@@ -229,7 +230,8 @@ function parseGrok(filePath) {
   return { sessionId, title: cleanTitle(data.session_summary), cwd: data.info.cwd || null };
 }
 
-function parseGemini(filePath) {
+// Shared by the CLIs that fork Gemini CLI's store layout (qwen).
+function parseCwdChats(filePath) {
   const data = parseWholeJson(filePath);
   if (!data?.sessionId) return null;
   const firstUser = (data.messages || []).find((m) => m.type === "user");
@@ -240,13 +242,15 @@ function parseGemini(filePath) {
 // cwdDir sources resolve one directory from the cwd; scan sources walk their
 // newest files and keep the ones whose parsed cwd matches. `depth` is how many
 // directory levels below the cwd directory the transcripts sit.
+// `id` must match the agentCatalog id, not the binary name: the row's resume line
+// and its stored agent are both built from it, and a mismatch (qwen vs qwen-code)
+// silently yields no resume command.
 
 const HISTORY_SOURCES = [
   { id: "claude", layout: "cwdDir", root: () => path.join(home(), ".claude", "projects"), encode: dashEncode, ext: ".jsonl", parse: parseClaude },
   { id: "codex", layout: "scan", root: () => path.join(process.env.CODEX_HOME?.trim() || path.join(home(), ".codex"), "sessions"), ext: ".jsonl", parse: parseCodex },
   { id: "opencode", layout: "opencode", root: () => path.join(home(), ".local", "share", "opencode", "storage", "session"), ext: ".json", parse: parseOpencode },
-  { id: "gemini", layout: "cwdDir", root: () => path.join(home(), ".gemini", "tmp"), encode: sha256, sub: "chats", ext: ".json", parse: parseGemini },
-  { id: "qwen", layout: "cwdDir", root: () => path.join(home(), ".qwen", "tmp"), encode: sha256, sub: "chats", ext: ".json", parse: parseGemini },
+  { id: "qwen-code", layout: "cwdDir", root: () => path.join(home(), ".qwen", "tmp"), encode: sha256, sub: "chats", ext: ".json", parse: parseCwdChats },
   { id: "cursor", layout: "cwdDir", root: () => path.join(home(), ".cursor", "projects"), encode: dashEncode, sub: "agent-transcripts", depth: 1, ext: ".jsonl", parse: parseCursor },
   { id: "droid", layout: "cwdDir", root: () => path.join(home(), ".factory", "sessions"), encode: dashEncode, ext: ".jsonl", parse: parseDroid },
   { id: "grok", layout: "cwdDir", root: () => path.join(home(), ".grok", "sessions"), encode: encodeURIComponent, depth: 1, ext: ".json", file: "summary.json", parse: parseGrok }
@@ -316,13 +320,17 @@ export function matchLiveSessions(rows, liveTerminals = []) {
   const claimed = new Set();
   const byId = new Map();
   for (const live of liveTerminals) {
-    if (live?.conversationId) byId.set(`${live.agent}:${live.conversationId}`, live.sessionId);
+    if (live?.conversationId) byId.set(`${engineFromAgent(live.agent)}:${live.conversationId}`, live.sessionId);
   }
 
   const tagged = rows.map((row) => {
+    // A row names a CLI; a session running it in the chat UI carries the "-ui"
+    // marker, and both hold the same conversation — so the engine is what matches.
     const openSessionId = byId.get(`${row.agent}:${row.sessionId}`) || null;
     if (openSessionId) claimed.add(openSessionId);
-    return { ...row, openSessionId };
+    // How this conversation was last opened, so the UI reopens it the same way.
+    const mode = getConversationMode(row.agent, row.sessionId);
+    return { ...row, openSessionId, ...(mode ? { mode } : {}) };
   });
 
   for (const row of tagged) {
@@ -330,7 +338,7 @@ export function matchLiveSessions(rows, liveTerminals = []) {
     const rowText = normalizePrompt(row.title);
     if (!rowText) continue;
     const candidates = liveTerminals.filter(
-      (live) => live.agent === row.agent && !claimed.has(live.sessionId) &&
+      (live) => engineFromAgent(live.agent) === row.agent && !claimed.has(live.sessionId) &&
         promptsMatch(rowText, normalizePrompt(live.prompt))
     );
     if (candidates.length === 1) {
@@ -342,7 +350,7 @@ export function matchLiveSessions(rows, liveTerminals = []) {
   for (const row of tagged) {
     if (row.openSessionId || !row.cwd) continue;
     const candidates = liveTerminals.filter(
-      (live) => live.agent === row.agent && !claimed.has(live.sessionId) &&
+      (live) => engineFromAgent(live.agent) === row.agent && !claimed.has(live.sessionId) &&
         live.startedAt && live.cwd === row.cwd && row.updatedAt >= live.startedAt - LAUNCH_SKEW_MS
     );
     if (candidates.length === 1) {

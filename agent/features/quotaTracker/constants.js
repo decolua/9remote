@@ -20,11 +20,6 @@ export const CODEX_RPC_TIMEOUT_MS = 10_000;
 // Tolerate the one-minute drift older Codex builds report for bucket lengths.
 export const CODEX_WINDOW_TOLERANCE_MINUTES = 1;
 
-// Gemini CLI (Google OAuth)
-export const GEMINI_QUOTA_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota";
-export const GEMINI_LOAD_PROJECT_URL = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
-export const GEMINI_TOKEN_URL = "https://oauth2.googleapis.com/token";
-
 // Kimi Code
 export const KIMI_BASE_URL = process.env.KIMI_CODE_BASE_URL ?? "https://api.kimi.com/coding/v1";
 
@@ -35,23 +30,3 @@ export const GROK_CLI_PROXY_BASE =
 export const GROK_BILLING_CREDITS_URL = `${GROK_CLI_PROXY_BASE}/billing?format=credits`;
 export const GROK_BILLING_DEFAULT_URL = `${GROK_CLI_PROXY_BASE}/billing`;
 export const GROK_AUTH_HEADER = "xai-grok-cli";
-
-// Compact display name per Gemini modelId.
-export const GEMINI_MODEL_NAMES = {
-  "gemini-3.1-pro": "3.1 Pro",
-  "gemini-3.1-flash": "3.1 Flash",
-  "gemini-3.1-flash-lite": "3.1 Flash Lite",
-  "gemini-3.0-pro": "3.0 Pro",
-  "gemini-3.0-flash": "3.0 Flash",
-  "gemini-3.0-flash-lite": "3.0 Flash Lite",
-  "gemini-2.5-pro": "Pro",
-  "gemini-2.5-flash": "Flash",
-  "gemini-2.5-flash-lite": "Flash Lite",
-  "gemini-2.0-pro": "2.0 Pro",
-  "gemini-2.0-flash": "2.0 Flash",
-  "gemini-2.0-flash-lite": "2.0 Flash Lite",
-  "gemini-1.5-pro": "1.5 Pro",
-  "gemini-1.5-flash": "1.5 Flash",
-  "gemini-exp": "Exp",
-  "gemini-experimental": "Exp"
-};
