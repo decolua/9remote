@@ -41,3 +41,16 @@ export function derivePaneLayout({
 // Panes already alive (revisit) join with no delay — their PTY is already running.
 export const mountDelayFor = (sessionId, isFocused, workspaceIndex) =>
   !isFocused && workspaceIndex.has(sessionId) ? workspaceIndex.get(sessionId) * STAGGER_MS : 0;
+
+// Width an auto-fit pane takes this render. Auto-fit is narrowing-only: a side panel
+// opening narrows the panes so nothing is clipped, but a panel closing leaves the freed
+// space empty until the user asks for it. Widening re-fits the PTY and cols is one-way —
+// it would re-wrap scrollback nobody asked to re-wrap. A deliberate action (double-click,
+// sidebar drag, pane add/remove, viewport resize) clears `applied` and full-fits; there is
+// no other way back up, so a row clamped at the floor stays clamped until one of those.
+export function autoFitPaneWidth({ rowWidth, paneCount, sidebarWidth, sidePx, gapPx, paddingPx, minWidth, applied }) {
+  if (!(rowWidth > 0) || paneCount <= 0) return null;
+  const base = rowWidth - sidebarWidth - paddingPx - sidePx;
+  const full = Math.max(minWidth, Math.floor((base - (paneCount - 1) * gapPx) / paneCount));
+  return applied == null ? full : Math.min(applied, full);
+}

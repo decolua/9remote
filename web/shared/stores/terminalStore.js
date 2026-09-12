@@ -58,6 +58,8 @@ export const useTerminalStore = create(
         sidebarCollapsed: state.sidebarCollapsed,
         sidebarWidth: state.sidebarWidth,
         paneWidths: state.paneWidths,
+        // autoPaneWidths is deliberately absent: it is per-layout-session memory of the
+        // last narrowing, and a stale one would hold panes narrow on the next visit.
         rightPanelOpen: state.rightPanelOpen,
         rightPanelTabs: state.rightPanelTabs,
         rightPanelWidth: state.rightPanelWidth,

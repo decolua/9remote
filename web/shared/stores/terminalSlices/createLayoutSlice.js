@@ -29,6 +29,14 @@ export const createLayoutSlice = (set, get) => ({
     paneWidths: { ...state.paneWidths, [workspaceId]: w == null ? null : clampWidth(w, PANE_WIDTH) }
   })),
 
+  // Width the panes last auto-fitted to, per workspace. Kept outside the component so
+  // React's StrictMode double render cannot see it as "already applied" and skip the fit.
+  // Auto-fit only narrows; null re-arms a full fit (double-click, resize, pane added).
+  autoPaneWidths: {},
+  setAutoPaneWidth: (workspaceId, w) => set((state) => ({
+    autoPaneWidths: { ...state.autoPaneWidths, [workspaceId]: w == null ? null : Math.round(w) }
+  })),
+
   // Right panel (file tree / git / worktrees). Open by default on desktop only
   rightPanelOpen: typeof window !== "undefined" && window.innerWidth >= DESKTOP_BREAKPOINT,
   rightPanelTabs: {},

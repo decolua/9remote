@@ -6,7 +6,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
-import { derivePaneLayout, mountDelayFor, sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
+import { derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth } from "@/features/terminal/lib/paneLayout";
 import { startWidthDrag } from "@/shared/utils/dragResize";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
@@ -23,6 +23,7 @@ import TerminalEditorPanel from "@/features/terminal/components/TerminalEditorPa
 import OverflowTip from "@/shared/components/ui/OverflowTip";
 import TerminalEmptyState from "@/features/terminal/components/TerminalEmptyState";
 import AiPaneView from "@/features/ai/components/AiPaneView";
+import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import ErrorBoundary from "@/shared/components/ui/ErrorBoundary";
 
 // Per-pane wrapper positioning terminal directly above the bottom input bar
@@ -144,6 +145,13 @@ function TerminalWorkspace({
     [sessions, activeWorkspaceId]
   );
 
+  // Background pool position follows the header tab order, not openedSessions —
+  // those are open order, which drifts from what the user sees in the strip.
+  const tabIndexBySession = useMemo(
+    () => new Map(workspaceSessions.map((s, i) => [s.id, i])),
+    [workspaceSessions]
+  );
+
   // Root the side panels track: the active workspace's own path, else the fixed
   // workspacePath of the focused terminal (a workspace migrated from a group has no path).
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
@@ -227,10 +235,10 @@ function TerminalWorkspace({
 
   // Auto pane width: split the row evenly down to min. Measured so width is always an
   // explicit px value — that keeps add/remove/double-click animatable via transition.
-  // Measured on the OUTER row (sidebar + panes + panels) with the sidebar's full width always
-  // deducted, open or collapsed: toggling any panel leaves pane width untouched — the row
-  // scrolls instead of re-fitting the PTY (cols is one-way; a toggle must not re-wrap
-  // scrollback). Dragging the sidebar splitter is deliberate, so that one does re-fit.
+  // Measured on the OUTER row (sidebar + panes + panels), with every open side panel and
+  // the sidebar's full width deducted, so the panes fit what is actually left of the row.
+  // The row width itself never changes when a panel toggles (flex takes it out of the
+  // panes' flex-1 column, not out of the row), so the panel widths are read here instead.
   const [rowWidth, setRowWidth] = useState(0);
   const [isPaneResizing, setIsPaneResizing] = useState(false);
   const rowRef = useRef(null);
@@ -267,16 +275,42 @@ function TerminalWorkspace({
   }, [isConnected, activeBus]);
 
   const paneCount = workspaceOpenedSessions.length;
-  const autoBase = rowWidth - sidebarWidth - PANE_ROW_PADDING_PX;
-  const autoWidth = rowWidth > 0 && paneCount > 0
-    ? Math.max(PANE_WIDTH.min, Math.floor((autoBase - (paneCount - 1) * PANE_GAP_PX) / paneCount))
-    : null;
+  const appliedWidth = useTerminalStore((s) => s.autoPaneWidths[activeWorkspaceId] ?? null);
+  const setAutoPaneWidth = useTerminalStore((s) => s.setAutoPaneWidth);
+  // The side panels' own widths, not the row's: the row spans sidebar + panes + panels and
+  // does not change when one toggles, so the deduction has to come from here.
+  const sideWidth = (rightPanel?.open && expanded ? rightPanel.width : 0)
+    + (editorOpen && editorExpanded ? editorPanel.width : 0)
+    + (mobilePanel?.open && mobilePanel.mode === "pin" ? mobilePanel.width : 0);
+  const autoWidth = autoFitPaneWidth({
+    rowWidth, paneCount, sidebarWidth, sidePx: sideWidth,
+    gapPx: PANE_GAP_PX, paddingPx: PANE_ROW_PADDING_PX, minWidth: PANE_WIDTH.min,
+    applied: appliedWidth
+  });
+
+  useEffect(() => {
+    if (autoWidth != null) setAutoPaneWidth(activeWorkspaceId, autoWidth);
+  }, [autoWidth, activeWorkspaceId, setAutoPaneWidth]);
+
+  // Only a deliberate action widens the row back out: a viewport resize, a double-click,
+  // adding or removing a pane, dragging the sidebar. A side panel toggling only narrows —
+  // widening re-fits the PTY, and cols is one-way, so it would re-wrap scrollback nobody
+  // asked to re-wrap. `autoPaneWidths` is the memory this compares against.
+  const deliberateRef = useRef({ paneWidth, paneCount, sidebarWidth, rowWidth });
+  useEffect(() => {
+    const prev = deliberateRef.current;
+    deliberateRef.current = { paneWidth, paneCount, sidebarWidth, rowWidth };
+    if (prev.paneWidth === paneWidth && prev.paneCount === paneCount
+      && prev.sidebarWidth === sidebarWidth && prev.rowWidth === rowWidth) return;
+    setAutoPaneWidth(activeWorkspaceId, null);
+  }, [paneWidth, paneCount, sidebarWidth, rowWidth, activeWorkspaceId, setAutoPaneWidth]);
+
   const effectivePaneWidth = paneWidth ?? autoWidth;
 
-  // Opening/closing a side panel narrows the row while panes keep their width — the row's
-  // scrollLeft doesn't follow, so the focused pane can slide out of sight. Re-center it
-  // after the panel's 200ms width transition settles. (Session switches are centered by
-  // the registry's own effect; this one only tracks layout-affecting panel changes.)
+  // A side panel narrows the panes to fit, but a pinned (non-auto) row keeps its width and
+  // scrolls instead — its scrollLeft doesn't follow, so the focused pane can slide out of
+  // sight. Re-center it after the panel's 200ms width transition settles. (Session switches
+  // are centered by the registry's own effect; this one only tracks panel changes.)
   const prevPanelStateRef = useRef({ editorFile: editorPanel?.filePath, rightOpen: rightPanel?.open });
   useEffect(() => {
     if (!isDesktop || !activeSessionId) return;
@@ -303,9 +337,13 @@ function TerminalWorkspace({
     });
   };
 
-  // Double-click or shortcut: hand the row back to auto mode (null), so panes keep
-  // dividing whatever space is left as panels open and close.
-  const fitPaneWidth = useCallback(() => setPaneWidth?.(null), [setPaneWidth]);
+  // Double-click or shortcut: an explicit fit, so it re-fits both ways — including when the
+  // row is already in auto mode but a side panel had narrowed it, which `paneWidth` alone
+  // cannot signal (it is null in both cases).
+  const fitPaneWidth = useCallback(() => {
+    setAutoPaneWidth(activeWorkspaceId, null);
+    setPaneWidth?.(null);
+  }, [activeWorkspaceId, setAutoPaneWidth, setPaneWidth]);
 
   useEffect(() => {
     const onFit = () => fitPaneWidth();
@@ -316,19 +354,21 @@ function TerminalWorkspace({
   const renderPane = (sessionId, isVisible, isFocused, bgIndex = 0) => {
     const session = sessions.find((s) => s.id === sessionId);
     const sessionAgent = agentBySession[sessionId];
-    const isAiUi = sessionAgent === "claude-ui" || sessionAgent === "codex-ui" || sessionAgent === "opencode-ui";
-    if (isAiUi) {
-      const engine = sessionAgent === "codex-ui" ? "codex" : sessionAgent === "opencode-ui" ? "opencode" : "claude";
+    // Resolved from the engine registry, not a hardcoded id list: adding an engine
+    // must not need a second edit here (antigravity-ui rendered as a terminal).
+    const aiUi = AI_UI_OPTIONS.find((u) => u.id === sessionAgent);
+    if (aiUi) {
       return (
         <ErrorBoundary key={sessionId} title="AI Chat Pane">
           <AiPaneView
             sessionId={sessionId}
-            engine={engine}
+            engine={aiUi.aiEngine}
             workspacePath={session?.workspacePath || activeWorkspace?.path}
             sessionName={session?.name}
             bus={activeBus}
             fileBus={activeFileBus}
             isFocused={isFocused}
+            bgIndex={bgIndex}
             onActivate={() => nav.handleSelectSession(sessionId)}
           />
         </ErrorBoundary>
@@ -500,8 +540,8 @@ function TerminalWorkspace({
               const inActiveWorkspace = workspaceSessionIds.has(sessionId);
               const isFocused = sessionId === activeSessionId;
               const isVisible = inActiveWorkspace && (isDesktop || isFocused);
-              // Background pool position — panes round-robin by display order
-              const bgIndex = workspaceIndex.get(sessionId) ?? 0;
+              // Background pool position — matches the header tab order
+              const bgIndex = tabIndexBySession.get(sessionId) ?? 0;
               // Panes outside the active workspace stay mounted (LRU) but fully hidden
               return (
                 <div

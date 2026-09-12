@@ -108,6 +108,9 @@ export default function AgentHistoryPanel({
         {(asList || !collapsed) && (
           <div className={`overflow-y-auto modal-scrollable min-h-0 ${asList ? "flex-1 px-1.5 pb-2" : ""}`}>
             {shown.map((row) => {
+              // The host tags the terminal already running this conversation — a chat
+              // UI session included, since the host records its conversation too — so
+              // an open row focuses that terminal instead of resuming a second copy.
               const openId = row.openSessionId && liveSessionIds?.has(row.openSessionId)
                 ? row.openSessionId
                 : null;

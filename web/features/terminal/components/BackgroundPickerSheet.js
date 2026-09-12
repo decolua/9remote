@@ -6,7 +6,7 @@ import { X, ImageOff, Loader2, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { TERMINAL_BACKGROUNDS, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, TERMINAL_BG_VEIL_RGB, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_BACKGROUNDS, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, TERMINAL_BG_VEIL_RGB, resolvableBackgroundKeys, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { fileToScaledDataUrl } from "@/features/terminal/lib/backgroundImage";
 
 // Old agents have no bg:save handler — the ack never fires, so time the request out.
@@ -25,7 +25,16 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef }) {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // Desktop gets the centered dialog; the drawer sheet stays for phones. Seeded
+  // from the window so the first open doesn't flash a full-width sheet.
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== "undefined" && window.innerWidth >= DESKTOP_BREAKPOINT);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    const check = () => setIsDesktop(window.innerWidth >= DESKTOP_BREAKPOINT);
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -163,16 +172,20 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef }) {
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex flex-col justify-end">
+    <div className={isDesktop ? "fixed inset-0 z-[60] flex items-center justify-center p-4" : "fixed inset-0 z-[60] flex flex-col justify-end"}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] animate-in fade-in duration-200" onClick={handleClose} />
 
-      <div className="relative rounded-t-3xl border-t border-border bg-surface/95 backdrop-blur-xl shadow-2xl max-h-[88dvh] flex flex-col animate-in slide-in-from-bottom duration-300 ease-out">
+      <div className={isDesktop
+        ? "relative w-full max-w-lg max-h-[80vh] rounded-brand-lg border border-border-subtle bg-surface shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        : "relative rounded-t-3xl border-t border-border bg-surface/95 backdrop-blur-xl shadow-2xl max-h-[88dvh] flex flex-col animate-in slide-in-from-bottom duration-300 ease-out"}>
         {/* Drag handle */}
-        <div className="pt-3 pb-1 flex justify-center flex-shrink-0">
-          <div className="w-10 h-1 rounded-full bg-border" />
-        </div>
+        {!isDesktop && (
+          <div className="pt-3 pb-1 flex justify-center flex-shrink-0">
+            <div className="w-10 h-1 rounded-full bg-border" />
+          </div>
+        )}
 
-        <div className="px-6 pb-3 flex items-center justify-between flex-shrink-0">
+        <div className={`px-6 pb-3 flex items-center justify-between flex-shrink-0 ${isDesktop ? "pt-4" : ""}`}>
           <h3 className="text-lg font-semibold text-text">{t("menu.terminalBackground")}</h3>
           <button
             onClick={handleClose}
@@ -184,7 +197,7 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef }) {
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable px-5 pb-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className={isDesktop ? "grid grid-cols-3 gap-3" : "grid grid-cols-2 gap-3"}>
             {Object.entries(TERMINAL_BACKGROUNDS).map(([key, preset]) => (
               <div key={key}>
                 {renderTile(key, preset.label, preset.src)}
