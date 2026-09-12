@@ -6,6 +6,7 @@ import { initSignalingGlobal, setOfferFallback, sendSignaling, dropPending, pend
 import { AgentBus } from "./AgentBus.js";
 import { PATHS, LOCAL_UI_ORIGINS, LOCAL_UI_DEVICE_ID } from "../lib/constants.js";
 import { verifyLocalToken } from "../lib/localToken.js";
+import { isSitesHost } from "../lib/sitesHost.js";
 import { ProtocolManager } from "./ProtocolManager.js";
 import { SIGNALING_ERRORS } from "../lib/transportConstants.js";
 import { registerProtocol, unregisterProtocol, activeProtocols, disableAllRtc, notifyRtcEnabled, setRtcSessionKiller, disposeProtocol } from "./broadcast.js";
@@ -868,6 +869,11 @@ export async function startTransportServer(server) {
       credentials: true,
       allowedHeaders: ["*"]
     },
+    // The sites host reaches this server on the same port, so the transport is
+    // one request away from a page running a dev server the user did not write.
+    // Refusing it at the engine.io handshake covers both carriers — a socket.io
+    // middleware would still leave the polling handshake open.
+    allowRequest: (req, callback) => callback(null, !isSitesHost(req.headers.host)),
     transports: ["websocket", "polling"],
     allowEIO3: true,
     allowUpgrades: true,

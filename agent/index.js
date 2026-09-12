@@ -6,10 +6,11 @@ import { createServer, request as httpRequest } from "http";
 import { execFile, execSync, spawn } from "child_process";
 import { readFileSync, existsSync, statSync } from "fs";
 import { join, extname, sep } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, parse } from "url";
 import chalk from "chalk";
 
 import { createRouter, jsonOk, jsonErr } from "./lib/router.js";
+import { isSitesHost, routeSitesLocalRequest } from "./lib/sitesHost.js";
 import { STEP, browserFetch, PERMISSION_POLL_MS, NPM_REGISTRY_URL, hideDockIcon, MCP } from "./lib/constants.js";
 import { initLogger, createLogger } from "./lib/logger.js";
 
@@ -95,13 +96,30 @@ function proxyToVite(req, res, fallbackFn) {
   req.pipe(proxy);
 }
 
-function serveStatic(res, filePath) {
+// The sites host serves the proxy shell, the worker and the browse scope from
+// the embedded web build, and nothing else. Unknown paths are refused before
+// the router, so none of the local API is reachable from here even by accident.
+// The embedded build answers a bare GET, so the file's own Content-Type is what
+// the shell and the worker need — except that the router's blanket
+// X-Frame-Options would refuse to let the app frame the shell.
+function serveSitesHost(req, res) {
+  let parsed;
+  try { parsed = parse(req.url).pathname; }
+  catch { jsonErr(res, 400, "Bad request"); return; }
+  const route = routeSitesLocalRequest(parsed, req.headers.host);
+  if (!route) { jsonErr(res, 404, "Not found"); return; }
+  for (const [key, value] of Object.entries(route.headers)) res.setHeader(key, value);
+  if (serveStatic(res, join(WEB_DIST, route.path), { frameable: true })) return;
+  jsonErr(res, 404, "Not found");
+}
+
+function serveStatic(res, filePath, { frameable = false } = {}) {
   if (!existsSync(filePath)) return false;
   try {
     const stat = statSync(filePath);
     if (stat.isDirectory()) {
       const indexFile = join(filePath, "index.html");
-      if (existsSync(indexFile)) return serveStatic(res, indexFile);
+      if (existsSync(indexFile)) return serveStatic(res, indexFile, { frameable });
       return false;
     }
     const ext = extname(filePath);
@@ -109,11 +127,16 @@ function serveStatic(res, filePath) {
     res.setHeader("Content-Type", mime);
     // The agent-served pages auto-log-in and can drive a shell — they must
     // never be framable by another origin (clickjacking + keystroke injection).
-    if (ext === ".html") res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    // The sites host is the exception: its shell is framed by the app on
+    // purpose, and it holds no credential of its own to be framed for.
+    if (ext === ".html" && !frameable) res.setHeader("X-Frame-Options", "SAMEORIGIN");
     // Hashed build assets are immutable; everything else (HTML, RSC .txt) must
     // revalidate or a stale bundle keeps running after an agent update.
     const immutable = filePath.includes(`${sep}_next${sep}static${sep}`);
-    res.setHeader("Cache-Control", immutable ? "public, max-age=31536000, immutable" : "no-cache");
+    // A caller that already decided this file's caching (the sites host) keeps it.
+    if (!res.hasHeader("Cache-Control")) {
+      res.setHeader("Cache-Control", immutable ? "public, max-age=31536000, immutable" : "no-cache");
+    }
     res.writeHead(200);
     res.end(readFileSync(filePath));
     return true;
@@ -465,6 +488,11 @@ export async function startServer() {
   // CORS is decided inside the router, where the route's public flag is known —
   // a private route must not grant a cross-origin page the right to read it.
   const server = createServer(async (req, res) => {
+    // The sites host answers before the router: the API's origin/host guards
+    // exist to keep other origins out of the API, and this origin is one of
+    // them — it is served statically and reaches nothing else. Anything outside
+    // the site surface is refused here rather than falling through.
+    if (isSitesHost(req.headers.host)) { serveSitesHost(req, res); return; }
     await router(req, res);
   });
 

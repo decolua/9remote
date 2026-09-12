@@ -23,7 +23,7 @@ const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
 const SITE_CSP = [
   "connect-src 'self'",
   "form-action 'self'",
-  `frame-ancestors 'self' ${appOriginFor(self.location.hostname)}`.trim(),
+  `frame-ancestors 'self' ${appOriginFor(self.location.hostname, self.location.port)}`.trim(),
   "base-uri 'self'"
 ].join("; ");
 

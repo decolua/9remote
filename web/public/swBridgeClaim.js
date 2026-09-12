@@ -30,14 +30,23 @@ function canBeBridge(clientUrl, expectedOrigin) {
 // The one app origin that may sit above a browsed site. frame-ancestors is
 // checked against EVERY ancestor, not just the parent, so a site framed by the
 // shell is also framed by the app — naming only the shell blocks the load.
-const APP_ORIGIN_BY_SITES_HOST = {
+//
+// The loopback entry is the agent's own deploy: there the app and the sites host
+// are two names on one server, so the app's origin is the sibling name at the
+// same port rather than a fixed subdomain.
+const APP_HOST_BY_SITES_HOST = {
   "sites.9remote.cc": "https://9remote.cc",
   "sites-dev.9remote.cc": "https://dev.9remote.cc",
-  "sites.localhost": "http://localhost:3000"
+  "sites.localhost": "http://localhost",
+  "sites.127.0.0.1": "http://127.0.0.1"
 };
 
 // "" for an unknown host: the policy then names the shell alone, which is the
 // safe direction — a load fails rather than an unknown origin being allowed.
-function appOriginFor(hostname) {
-  return APP_ORIGIN_BY_SITES_HOST[String(hostname || "").toLowerCase()] || "";
+// `port` is the sites origin's own port, and the app answers on the same one.
+function appOriginFor(hostname, port) {
+  const host = String(hostname || "").toLowerCase();
+  if (!(host in APP_HOST_BY_SITES_HOST)) return "";
+  const base = APP_HOST_BY_SITES_HOST[host];
+  return port ? `${base}:${port}` : base;
 }
