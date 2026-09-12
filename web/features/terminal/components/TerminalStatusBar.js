@@ -5,7 +5,7 @@ import { Folder, GitBranch, Terminal } from "@/shared/components/ui/Icon";
 import { useQuota } from "@/features/quota/hooks/useQuota";
 import QuotaSegments from "@/features/quota/components/QuotaSegments";
 import { quotaBarColor } from "@/features/quota/constants/quotaConfig";
-import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import {
@@ -118,7 +118,7 @@ export const MobileStatusStrip = memo(function MobileStatusStrip({ sessionId, fi
       node: (
         // Tapping parks the slot on the path page for one rotation cycle
         <button type="button" onClick={() => setPaused(true)} className="flex items-center gap-1.5 flex-shrink-0">
-          <img src={agentIconUrl(quota.agentId)} alt="" width={11} height={11} className="w-[11px] h-[11px] object-contain" />
+          <img src={agentIconUrl(quota.agentId)} alt="" width={11} height={11} className={`w-[11px] h-[11px] object-contain ${AGENT_ICON_CLS}`} />
           <span className="w-8 h-[4px] rounded-full bg-text-muted/20 overflow-hidden">
             <span
               className={`block h-full rounded-full transition-all duration-300 ${quotaBarColor(quota.usedPct)}`}
@@ -185,8 +185,7 @@ function TerminalStatusBar({
   const agentId = useTerminalStore((s) => (s.agentBySession || {})[sessionId]) || "";
   const aiFirstMsg = useAiStore((s) => s.bySession[sessionId]?.messages?.find((m) => m.role === "user")?.content);
   const displayTitle = (aiFirstMsg ? aiFirstMsg.slice(0, 28) : null) || sessionName || "—";
-  const agentKey = agentId ? agentId.replace("-ui", "") : null;
-  const agentIcon = agentKey ? agentIconUrl(agentKey) : null;
+  const agentIcon = agentId ? agentIconUrl(agentId) : null;
 
   // Branch + changed come from the shared ref-counted poll — one round-trip per unique
   // path, shared with the mobile strip, instead of two parallel pollers here.
@@ -210,7 +209,7 @@ function TerminalStatusBar({
       left={<>
       <span className="flex items-center gap-1.5 flex-shrink-0 max-w-[200px]">
         {agentIcon ? (
-          <img src={agentIcon} alt="" className="w-3.5 h-3.5 object-contain flex-shrink-0" />
+          <img src={agentIcon} alt="" className={`w-3.5 h-3.5 object-contain flex-shrink-0 ${AGENT_ICON_CLS}`} />
         ) : (
           <Terminal size={12} className="opacity-60 flex-shrink-0" />
         )}

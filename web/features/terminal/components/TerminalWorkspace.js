@@ -21,6 +21,7 @@ import MobileDock from "@/features/mobile/components/MobileDock";
 import TerminalRightPanel from "@/features/terminal/components/TerminalRightPanel";
 import TerminalEditorPanel from "@/features/terminal/components/TerminalEditorPanel";
 import OverflowTip from "@/shared/components/ui/OverflowTip";
+import TerminalBeam from "@/shared/components/ui/TerminalBeam";
 import TerminalEmptyState from "@/features/terminal/components/TerminalEmptyState";
 import AiPaneView from "@/features/ai/components/AiPaneView";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
@@ -39,44 +40,13 @@ const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
 const PaneStatusBar = memo(function PaneStatusBar({ sessionId }) {
   const sessionStatus = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId] : null);
   const state = sessionStatus?.state || "idle";
-  const ref = useRef(null);
-  const [paneWidth, setPaneWidth] = useState(0);
-
-  useEffect(() => {
-    if (state !== "working" || !ref.current) return;
-    const el = ref.current;
-    const ro = new ResizeObserver(([entry]) => {
-      const w = entry?.contentRect?.width || el.offsetWidth;
-      if (w > 0) setPaneWidth(Math.round(w));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [state]);
 
   if (state === "idle") return null;
 
-  const speed = 250;
-  const beamWidth = 140;
-  const w = paneWidth || 600;
-  const duration = Math.max(1.8, (w + beamWidth) / speed);
-  const delay = duration / 2;
-
   return (
-    <div
-      ref={ref}
-      className="absolute inset-x-0 bottom-0 z-20 h-[1px] overflow-hidden pointer-events-none hidden sm:block"
-      style={{
-        "--pane-w": `${w}px`,
-        "--beam-w": `${beamWidth}px`,
-        "--beam-dur": `${duration.toFixed(2)}s`,
-        "--beam-delay": `${delay.toFixed(2)}s`,
-      }}
-    >
+    <div className="absolute inset-x-0 bottom-0 z-20 h-[1px] pointer-events-none hidden sm:block">
       {state === "working" ? (
-        <div className="relative w-full h-full bg-blue-500/10">
-          <div className="pane-light-beam" />
-          <div className="pane-light-beam pane-light-beam-2" />
-        </div>
+        <TerminalBeam />
       ) : state === "done" ? (
         <div
           className="w-full h-full bg-[#f59e0b]"

@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { X, History, Trash2, Search, Play } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -170,7 +170,7 @@ export default function AgentHistoryModal({
                       : "bg-surface-2 text-text-muted hover:text-text"
                   }`}
                 >
-                  <img src={agentIconUrl(ag)} alt="" className="w-3.5 h-3.5 rounded-[2px]" />
+                  <img src={agentIconUrl(ag)} alt="" className={`w-3.5 h-3.5 ${AGENT_ICON_CLS}`} />
                   <span>{ag}</span>
                 </button>
               ))}
@@ -203,7 +203,7 @@ export default function AgentHistoryModal({
                   <img
                     src={agentIconUrl(row.agent)}
                     alt={row.agent}
-                    className="w-5 h-5 rounded-[3px] flex-shrink-0 object-contain"
+                    className={`w-5 h-5 flex-shrink-0 object-contain ${AGENT_ICON_CLS}`}
                   />
                   <div
                     onClick={() => handleResume(row, openId)}
