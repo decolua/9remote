@@ -120,7 +120,7 @@ async function sendExpoPush(sub, toolName, notification) {
     to: sub.token,
     sound: "default",
     title: notification.type === "stop" ? `${toolName} ✅` : `${toolName} 🔔`,
-    body: notification.type === "stop" ? `${toolName} completed the task` : `${toolName} needs your input`,
+    body: notification.type === "stop" ? `${toolName} finished its turn — your turn` : `${toolName} needs your input`,
     data: { url: `/workspace?t=${notification.sessionId}`, sessionId: notification.sessionId, type: notification.type }
   };
   const res = await fetch("https://exp.host/--/api/v2/push/send", {
@@ -150,7 +150,7 @@ export async function sendPushNotification(notification) {
       } else {
         const payload = JSON.stringify({
           title: notification.type === "stop" ? `${toolName} ✅` : `${toolName} 🔔`,
-          body: notification.type === "stop" ? `${toolName} completed the task` : `${toolName} needs your input`,
+          body: notification.type === "stop" ? `${toolName} finished its turn — your turn` : `${toolName} needs your input`,
           data: { url: `/workspace?t=${notification.sessionId}`, sessionId: notification.sessionId, type: notification.type }
         });
         await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload);

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useMemo, useRef } from "react";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { attentionSummary } from "@/features/terminal/lib/sessionStatusSummary";
 
 /**
  * Hook to manage push notifications and chat notification events
@@ -158,8 +159,8 @@ export function useNotification(busRef, connected) {
       if (payload && (payload.state === "done" || payload.state === "blocked")) {
         const isDone = payload.state === "done";
         const label = payload.tool ? payload.tool.charAt(0).toUpperCase() + payload.tool.slice(1) : "Terminal";
-        const title = isDone ? `${label} Finished` : `${label} Needs Approval`;
-        const body = isDone ? "Task completed" : "Action required to proceed";
+        const title = isDone ? `${label} · your turn` : `${label} needs input`;
+        const body = isDone ? "The agent finished its turn and is waiting for you" : "Action required to proceed";
         if (typeof window !== "undefined" && window.__9R_DESKTOP__?.showNotification) {
           window.__9R_DESKTOP__.showNotification(title, body);
         }
@@ -201,9 +202,12 @@ export function useNotification(busRef, connected) {
     };
   }, [busRef, connected]);
 
-  // Sync in-app notification count → PWA icon badge + desktop Dock badge
+  // Sync in-app attention count → PWA icon badge + desktop Dock badge.
+  // Counted off sessionStatus (the same reading the bell and the mobile badge use) rather
+  // than the notifications map, so every surface shows one number.
+  const sessionStatus = useNotificationStore((s) => s.sessionStatus);
+  const count = useMemo(() => attentionSummary(sessionStatus).total, [sessionStatus]);
   useEffect(() => {
-    const count = Object.keys(notifications).length;
     if (typeof window !== "undefined" && window.__9R_DESKTOP__?.setBadge) {
       window.__9R_DESKTOP__.setBadge(count);
     }
@@ -213,7 +217,7 @@ export function useNotification(busRef, connected) {
     } else {
       navigator.clearAppBadge().catch(() => {});
     }
-  }, [notifications]);
+  }, [count]);
 
   const unsubscribeFromPush = useCallback(async () => {
     if (typeof window !== "undefined") localStorage.setItem(USER_DISABLED_KEY, "1");

@@ -3,7 +3,7 @@ export default {
     statusIdle: "Idle",
     statusWorking: "Working",
     statusBlocked: "Needs input",
-    statusDone: "Done",
+    statusDone: "Your turn",
     loading: "Đang tải...",
     cancel: "Hủy",
     confirm: "Xác nhận",
@@ -534,7 +534,7 @@ export default {
     title: "Thông báo",
     empty: "Không có thông báo",
     needsInput: "cần nhập liệu",
-    badgeTitle: "{blocked} waiting for input, {done} finished",
+    badgeTitle: "{blocked} needs input, {done} your turn",
     replied: "đã trả lời",
     agent: "Agent"
   },

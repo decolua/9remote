@@ -138,15 +138,9 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
                     <span className="truncate" title={grp.name}>{grp.name}</span>
                   </div>
                   {grp.items.map((it) => {
-                    const v = statusVisual(it.state);
                     const isIdle = it.state === "idle";
-                    const stateLabel = it.state === "working"
-                      ? t("common.statusWorking")
-                      : it.state === "blocked"
-                        ? t("notifications.needsInput")
-                        : isIdle
-                          ? t("common.statusIdle")
-                          : t("notifications.replied");
+                    const v = statusVisual(it.state);
+                    const stateLabel = t(v.label);
                     return (
                       <button
                         key={it.id}
