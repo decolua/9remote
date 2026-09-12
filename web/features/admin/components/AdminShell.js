@@ -7,14 +7,15 @@ import Spinner from "@/shared/components/ui/Spinner";
 import Container from "@/shared/components/ui/Container";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
-import { LayoutDashboard, Users, Shield, LogOut, Menu, X, Package, Terminal } from "@/shared/components/ui/Icon";
+import { LayoutDashboard, Users, Shield, LogOut, Menu, X, Package, Terminal, KeyRound } from "@/shared/components/ui/Icon";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/admin/modes", label: "Modes", icon: Shield },
   { href: "/admin/admins", label: "Admins", icon: Users },
-  { href: "/admin/ota", label: "OTA Updates", icon: Package }
+  { href: "/admin/ota", label: "OTA Updates", icon: Package },
+  { href: "/admin/turn", label: "TURN Keys", icon: KeyRound }
 ];
 
 export default function AdminShell({ children }) {

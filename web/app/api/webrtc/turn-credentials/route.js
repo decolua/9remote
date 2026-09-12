@@ -2,10 +2,8 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { verifyApiKeyCrc, normalizeApiKey } from "@/shared/utils/apiKey";
 import { withD1Retry } from "@/shared/utils/db";
 import { jsonOk, jsonError, optionsResponse } from "@/shared/utils/apiResponse";
+import { pickTurnKey, generateIceServers, scopeForOrigin } from "@/features/admin/lib/turnKeys";
 
-
-const TURN_API = "https://rtc.live.cloudflare.com/v1/turn/keys";
-const TTL = 86400;
 
 export function OPTIONS() { return optionsResponse(); }
 
@@ -19,15 +17,15 @@ export async function GET(request) {
     const session = await withD1Retry(() => env.DB.prepare("SELECT 1 FROM sessions WHERE apiKey = ?").bind(normalizeApiKey(apiKey)).first());
     if (!session) return jsonError("Unauthorized", 401);
 
-    const resp = await fetch(`${TURN_API}/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${env.TURN_KEY_SECRET}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ ttl: TTL })
-    });
+    const scope = scopeForOrigin(request.headers.get("Origin"));
+    const key = await pickTurnKey(env.DB, scope, env);
+    if (!key) return jsonOk({ iceServers: [] });
 
-    if (!resp.ok) return jsonError("Failed to generate TURN credentials", 502);
+    // A failing key is not an error the caller can act on — STUN-only connects
+    // still work, so hand back an empty list and keep the 502 out of the logs.
+    const { iceServers, error } = await generateIceServers(key);
+    if (error) console.warn(`[turn-credentials] key ${key.keyId.slice(0, 8)} failed: ${error}`);
 
-    const { iceServers } = await resp.json();
     return jsonOk({ iceServers });
   } catch (e) {
     return jsonError(e?.message || String(e), 500);
