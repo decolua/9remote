@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
 import SitesList from "./SitesList";
@@ -304,6 +304,9 @@ function TerminalHeader({
             const v = statusVisual(st);
             const aiPrompt = aiSessions?.[session.id]?.messages?.find((m) => m.role === "user")?.content;
             const tabName = (agentBySession[session.id]?.endsWith("-ui") && aiPrompt ? aiPrompt.slice(0, 22) : null) || session.name || t("terminal.defaultName");
+            // The agent's own icon, or — for a chat UI, whose id carries a "-ui" suffix no
+            // icon file has — the engine's CLI icon.
+            const tabIcon = agentIconUrl(agentBySession[session.id]) || agentIconUrl(agentBySession[session.id]?.replace(/-ui$/, ""));
             return (
               <div
                 key={session.id}
@@ -341,21 +344,14 @@ function TerminalHeader({
                 } ${dragId === session.id ? "z-20 opacity-90 shadow-lg" : "transition"}`}
               >
                 <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
-                  {agentBySession[session.id]?.endsWith("-ui") ? (
-                    // Busy AI tab trades its engine icon for the state dot, same as a terminal tab
-                    st !== "idle" ? (
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
-                        style={{ background: v.dot }}
-                        title={t(v.label)}
-                      />
-                    ) : (
-                      <img
-                        src={agentIconUrl(agentBySession[session.id])}
-                        alt=""
-                        className={`w-3.5 h-3.5 object-contain ${AGENT_ICON_CLS} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
-                      />
-                    )
+                  {/* A quiet tab shows WHO lives here; the state dot only takes the slot when
+                      there is a state worth reporting (working/blocked/done) or no icon to show. */}
+                  {st === "idle" && tabIcon ? (
+                    <img
+                      src={tabIcon}
+                      alt=""
+                      className={`w-3.5 h-3.5 object-contain ${AGENT_ICON_CLS} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
+                    />
                   ) : (
                     <span
                       className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
@@ -511,6 +507,20 @@ function TerminalHeader({
           >
             <Pencil size={13} /> {t("sessions.editName")}
           </button>
+          {/* Only a yellow terminal has something to mark read; typing/giving it a prompt
+              does the same thing, this is the explicit door. */}
+          {sessionStatus[tabMenu.sessionId]?.state === "done" && (
+            <button
+              onClick={() => {
+                vibrate();
+                useNotificationStore.getState().clearNotification(tabMenu.sessionId);
+                setTabMenu({ sessionId: null, x: 0, y: 0 });
+              }}
+              className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
+            >
+              <Check size={13} /> {t("sessions.markRead")}
+            </button>
+          )}
           {sessionStatus[tabMenu.sessionId]?.conversationId && (
             <button
               onClick={() => {

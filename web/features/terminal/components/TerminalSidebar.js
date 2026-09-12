@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap } from "@/shared/components/ui/Icon";
+import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap, Check } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
@@ -423,7 +423,7 @@ function TerminalSidebar({
                       </span>
                       {/* Unread output on a terminal the user isn't looking at */}
                       {hasNotif && !isActive && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" title={t("notifications.replied")} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" title={t("common.statusDone")} />
                       )}
                     </div>
                   );
@@ -546,6 +546,20 @@ function TerminalSidebar({
           >
             <Pencil size={13} /> {t("sessions.editName")}
           </button>
+          {/* Only a yellow terminal has something to mark read; typing/giving it a prompt
+              does the same thing, this is the explicit door. */}
+          {sessionStatus[ctxMenu.sessionId]?.state === "done" && (
+            <button
+              onClick={() => {
+                vibrate();
+                useNotificationStore.getState().clearNotification(ctxMenu.sessionId);
+                setCtxMenu(null);
+              }}
+              className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
+            >
+              <Check size={13} /> {t("sessions.markRead")}
+            </button>
+          )}
           {sessionStatus[ctxMenu.sessionId]?.conversationId && (
             <button
               onClick={() => {
