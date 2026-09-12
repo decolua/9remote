@@ -118,6 +118,18 @@ export class SignalingDO extends DurableObject {
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ role, peerId });
+
+    // One agent per room. An agent that restarted without its socket closing
+    // cleanly leaves a corpse that find() would keep picking — every offer then
+    // goes to a dead socket and RTC never answers.
+    if (role === "agent") {
+      for (const peer of this.ctx.getWebSockets()) {
+        if (peer === server) continue;
+        if (peer.deserializeAttachment()?.role !== "agent") continue;
+        try { peer.close(1000, "superseded by new agent"); } catch {}
+      }
+    }
+
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -133,7 +145,9 @@ export class SignalingDO extends DurableObject {
       const att = peer.deserializeAttachment();
       return to === "agent" ? att?.role === "agent" : att?.peerId === to;
     });
-    if (target) target.send(JSON.stringify({ type, payload, from }));
+    if (!target) return;
+    // A dead target must not take the DO down with it.
+    try { target.send(JSON.stringify({ type, payload, from })); } catch {}
   }
 
   async webSocketClose() {}
