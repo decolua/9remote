@@ -62,6 +62,15 @@ const PaneStatusBar = memo(function PaneStatusBar({ sessionId }) {
   );
 });
 
+// Unfocused pane's ghost row: shows the draft typed in that pane's input (collapsed
+// to one line) so a half-written command stays visible after switching panes.
+const InputDraftGhost = memo(function InputDraftGhost({ sessionId, placeholder }) {
+  const draft = useTerminalStore((s) => s.drafts[sessionId] ?? "");
+  const text = draft.replace(/\s+/g, " ").trim();
+  if (!text) return <>{placeholder}</>;
+  return <span className="text-text">{text}</span>;
+});
+
 // Terminal view shell: sidebar + header + multi-pane row + editor/tree panels + status bar.
 function TerminalWorkspace({
   bus, busRef, connected, carrier, platform, agentVersion,
@@ -564,8 +573,8 @@ function TerminalWorkspace({
                             className="group block w-full text-left"
                             aria-label="Focus this terminal input"
                           >
-                            <span className="block w-full pl-9 pr-16 py-2 text-sm text-text-muted/60 group-hover:bg-surface-2/70 group-hover:text-text-muted transition-colors">
-                              {t("mobileKeyboard.typeCommand")}
+                            <span className="block w-full pl-9 pr-16 py-2 text-sm text-text-muted/60 group-hover:bg-surface-2/70 group-hover:text-text-muted transition-colors truncate">
+                              <InputDraftGhost sessionId={sessionId} placeholder={t("mobileKeyboard.typeCommand")} />
                             </span>
                           </button>
                         )}
