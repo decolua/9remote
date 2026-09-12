@@ -12,7 +12,6 @@ import os from "os";
 export const AGENT_CLIS = [
   { id: "claude", label: "Claude Code", short: "Claude", cmd: "claude", yolo: "--dangerously-skip-permissions", sessionIdKeys: ["session_id"], resume: (id) => `claude --resume ${id}` },
   { id: "codex", label: "Codex", cmd: "codex", yolo: "--dangerously-bypass-approvals-and-sandbox", sessionIdKeys: ["session_id"], resume: (id) => `codex resume ${id}` },
-  { id: "gemini", label: "Gemini", cmd: "gemini", yolo: "--yolo", sessionIdKeys: ["session_id"], resume: (id) => `gemini --resume ${id}` },
   { id: "copilot", label: "GitHub Copilot", short: "Copilot", cmd: "copilot", yolo: "--yolo", resume: (id) => `copilot --resume=${id}` },
   { id: "cursor", label: "Cursor", cmd: "cursor-agent", yolo: "--yolo", resume: (id) => `cursor-agent --resume ${id}` },
   { id: "opencode", label: "OpenCode", cmd: "opencode", yolo: "--dangerously-skip-permissions", sessionIdKeys: ["sessionID"], resume: (id) => `opencode --session ${id}` },
