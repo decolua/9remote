@@ -8,7 +8,7 @@ import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { AGENT_ICONS } from "../constants/agentLabels";
-import { agentIconUrl } from "../constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS } from "../constants/agentCli";
 import { vibrate } from "@/shared/utils/vibration";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -399,12 +399,12 @@ function TerminalSidebar({
                         <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
                           {agentBySession[s.id]?.endsWith("-ui") ? (
                             <img
-                              src={agentIconUrl(agentBySession[s.id].replace("-ui", ""))}
+                              src={agentIconUrl(agentBySession[s.id])}
                               alt=""
-                              className="w-3.5 h-3.5 flex-shrink-0 object-contain"
+                              className={`w-3.5 h-3.5 flex-shrink-0 object-contain ${AGENT_ICON_CLS}`}
                             />
                           ) : AGENT_ICONS[tool] ? (
-                            <img src={AGENT_ICONS[tool]} alt={tool} className="w-3 h-3 flex-shrink-0 object-contain" />
+                            <img src={AGENT_ICONS[tool]} alt={tool} className={`w-3 h-3 flex-shrink-0 object-contain ${AGENT_ICON_CLS}`} />
                           ) : (
                             <Terminal size={12} className="flex-shrink-0" />
                           )}

@@ -5,6 +5,11 @@ import { vibrate } from "@/shared/utils/vibration";
 // transform only while dragging — the order is committed once on release, so no re-render
 // (and no round-trip) fires per pointermove. Sizes are measured at drag start, so tabs of
 // unequal width reorder as correctly as fixed-height rows.
+//
+// Deliberately NO setPointerCapture: WebKit (Tauri's WKWebView) drops the pointerdown AND
+// the click of the press that follows any captured one (WebKit bug 202287), which cost the
+// user a second click on every tab after a drag. The pointermove/pointerup listeners live
+// on `window`, so they already see moves and releases outside the dragged element.
 const AXIS = {
   y: { pos: "clientY", start: "top", size: "height" },
   x: { pos: "clientX", start: "left", size: "width" }
@@ -15,7 +20,6 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
   const elsRef = useRef(new Map()); // item id -> element
   const movedRef = useRef(false);
   const clearMovedRef = useRef(null);
-  const captureRef = useRef(null); // { el, pointerId } held for the current drag
   const finishRef = useRef(null); // teardown of the current drag, null when idle
 
   const registerEl = useCallback((id) => (el) => {
@@ -59,8 +63,6 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
 
     const self = boxes[fromIdx];
     const startPos = e[a.pos];
-    const captureTarget = e.currentTarget;
-    const pointerId = e.pointerId;
     let toIdx = fromIdx;
     let frame = null;
 
@@ -91,11 +93,6 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
         movedRef.current = true;
         vibrate();
         setDragId(id);
-        // Captured only once the drag is real: WebKit drops the pointerdown that
-        // follows ANY captured press, so a plain click must never capture — it would
-        // cost the user the next click. A genuine drag already eats its own release.
-        try { captureTarget.setPointerCapture?.(pointerId); } catch {}
-        captureRef.current = { el: captureTarget, pointerId };
       }
       // Slot the dragged item's centre now sits over — the last box it has reached
       const centre = self.start + self.size / 2 + delta;
@@ -114,9 +111,6 @@ export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
       window.removeEventListener("pointercancel", onUp);
       window.removeEventListener("blur", onUp);
       finishRef.current = null;
-      const capture = captureRef.current;
-      captureRef.current = null;
-      try { capture?.el.releasePointerCapture?.(capture.pointerId); } catch {}
       if (frame) { cancelAnimationFrame(frame); frame = null; }
       for (const el of elsRef.current.values()) if (el) el.style.transform = "";
       setDragId(null);

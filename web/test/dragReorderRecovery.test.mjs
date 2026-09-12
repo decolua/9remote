@@ -86,7 +86,6 @@ test("drag whose release is lost does not swallow the next tab click", () => {
   // Next press on another tab: the stale drag must not eat that tab's click.
   hook.startDrag(down("b", 150), "b", IDS);
   assert.equal(hook.consumeClick(), false, "stale drag swallowed the next tab click");
-  assert.equal(els.get("a").released, true, "capture of the abandoned drag was not released");
 
   // …and the new drag still reorders normally.
   fire("pointermove", move(20));
@@ -109,21 +108,16 @@ test("a click with no drags at all is never eaten", () => {
   assert.equal(hook.consumeClick(), false, "a plain click after an ended drag was swallowed");
 });
 
-// The capture is what triggers WebKit bug 202287, so it must be taken on movement only:
-// capturing on pointerdown costs the user the NEXT click, even when they never dragged.
-test("a press that never moves takes no pointer capture", () => {
+// WebKit bug 202287: any setPointerCapture in this interaction costs the user the NEXT
+// click (the pointerdown AND click of the following press are dropped), so the hook must
+// never capture — the window-level pointermove/pointerup listeners already see everything.
+test("no drag ever takes pointer capture", () => {
   const hook = newHook(() => {});
   hook.startDrag(down("a", 10), "a", IDS);
+  fire("pointermove", move(120)); // a live drag
+  assert.equal(els.get("a").captured, false, "a live drag captured the pointer — the next tab click will be eaten");
   fire("pointerup", {});
-  assert.equal(els.get("a").captured, false, "a plain click captured the pointer and will eat the next one");
-});
-
-test("a moved drag takes pointer capture", () => {
-  const hook = newHook(() => {});
-  hook.startDrag(down("a", 10), "a", IDS);
-  fire("pointermove", move(120));
-  assert.equal(els.get("a").captured, true, "a live drag did not capture — pointerup outside the element would be lost");
-  fire("pointerup", {});
+  assert.equal(els.get("a").released, false, "capture was released, so it must have been taken");
 });
 
 test("a plain click is never eaten", () => {
