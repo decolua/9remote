@@ -6,10 +6,12 @@ import { spawn } from "node:child_process";
 import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";
+import { readThreadGoal } from "./goal.js";
 import { ClaudeAdapter } from "./adapters/claudeAdapter.js";
 import { CodexAdapter } from "./adapters/codexAdapter.js";
 import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
 import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
+import { attachmentMeta } from "../terminal/aiAttachment.js";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\[[0-9;]*m/g;
@@ -89,6 +91,10 @@ function loadSessionSnapshot(sessionId, engine) {
 // the happy path, or a client hydrating after a crash shows a spinner forever.
 const TURN_END_EVENTS = new Set(["turn_complete", "stopped", "error", "exit"]);
 
+// A sub-agent's tool events, renamed on the wire so the client nests rather than
+// appends them. Only these two carry a parentToolUseId today.
+const CHILD_EVENTS = { tool_start: "tool_child", tool_result: "tool_result_child" };
+
 // A conversation id a client may resume. Thread/session ids are UUID-like; the first
 // character may not be "-" (argv would read it as a flag) and no path or whitespace is
 // allowed. Anything else is rejected before it can reach the CLI.
@@ -124,6 +130,10 @@ export class AiSession {
     this.isTurnRunning = false;
     this.lastPrompt = "";
     this.adapter = null;
+    // Codex goal tracking: the read in flight (so concurrent inits share it) and the
+    // last emitted goal (so a reconnect does not re-append an unchanged one).
+    this.goalReading = null;
+    this.goalKey = null;
 
     const snap = ownsSnapshot(engine) ? loadSessionSnapshot(id, engine) : null;
     this.history = snap ? compactEvents(snap.events) : [];
@@ -131,8 +141,9 @@ export class AiSession {
     this.cliSessionId = snap?.cliSessionId || options.sessionId || null;
     this.model = snap?.model || options.model || "";
     // Restored so a reload keeps the mode the user picked (codex/opencode run a fresh
-    // CLI per turn, so the mode has to be re-sent with every prompt).
-    this.permissionMode = snap?.permissionMode || options.mode || null;
+    // CLI per turn, so the mode has to be re-sent with every prompt). A session the
+    // host has never seen starts at the engine's own default mode, sent by the client.
+    this.permissionMode = snap?.permissionMode || options.mode || options.defaultMode || null;
     // Discovered at connect time by aiSocket; kept so a cleared log can be re-seeded
     this.skills = [];
     this.idleTimer = null;
@@ -161,8 +172,10 @@ export class AiSession {
         // and calling start() afterwards would spawn a second process.
         if (this.options.effort) mine.effort = this.options.effort;
         // The in-agent path (used when the PTY daemon is not connected) must also
-        // honour a resumed conversation id, or /resume silently starts a new one.
-        mine.start(this.options.mode || "default", this.cliSessionId);
+        // honour a resumed conversation id, or /resume silently starts a new one —
+        // and the session's own permission mode, or a new session falls back to the
+        // CLI's default instead of the one the client asked for.
+        mine.start(this.permissionMode || this.options.mode || "default", this.cliSessionId);
         break;
       case AI_ENGINES.CODEX:
         mine = new CodexAdapter({
@@ -216,14 +229,26 @@ export class AiSession {
       // their metadata.model to a human label when nothing is configured; sending that
       // as a model id 404s the provider. Configured models always come from setOptions.
       if (data?.model && !MODEL_LABELS.has(data.model)) this.model = data.model;
+      // The thread id is what codex's goal RPC keys on, so it is only worth looking a
+      // goal up once it is known — and it changes with a resume, so re-read on each init.
+      if (this.engine === AI_ENGINES.CODEX && data?.threadId) this.refreshGoal(data.threadId);
     }
+    // A sub-agent's tool calls are nested under the Agent/Task card that spawned them,
+    // so the live path would have to nest them on arrival anyway. Record and broadcast
+    // them as their own `tool_child` event instead: the replay rebuilds the nesting
+    // from the log (the parent's own events carry no `subagent` flag), and an old log
+    // whose child events still say tool_start simply drops them rather than floating
+    // a sub-agent's internals loose on the timeline.
+    const childEvent = CHILD_EVENTS[event];
+    const wire = data?.parentToolUseId && childEvent ? { event: childEvent, data } : { event, data };
+
     // record=false pushes the event to clients without appending to the replay log —
     // used for per-connect metadata that would otherwise accumulate on every F5
     if (record) {
-      this.history.push({ event, data, timestamp: Date.now() });
+      this.history.push({ event: wire.event, data, timestamp: Date.now() });
       if (this.history.length > 5000) this.history.shift();
     }
-    this.onEvent?.(this.id, event, data);
+    this.onEvent?.(this.id, wire.event, data);
     if (this.isTurnRunning) this.armIdleWatchdog();
 
     // Any terminal event releases the turn. Missing `error`/`exit` here left the flag
@@ -240,6 +265,39 @@ export class AiSession {
   // True when this session already has an init in its replay log
   hasRecordedInit() {
     return this.history.some((e) => e.event === "init");
+  }
+
+  // Codex's own persistent goal (the TUI's `/goal`). It lives in codex's state DB and
+  // only surfaces over its app-server, so it is read asynchronously and emitted as its
+  // own event rather than folded into `init`.
+  async refreshGoal(threadId) {
+    if (this.engine !== AI_ENGINES.CODEX || this.goalReading === threadId) return;
+    this.goalReading = threadId;
+    const goal = await readThreadGoal(threadId, this.cwd).catch(() => null);
+    this.goalReading = null;
+    // A stale read (the thread moved on, or the session ended) must not stamp its
+    // goal over the current one.
+    if (this.threadId !== threadId) return;
+    const key = goal ? `${goal.objective}|${goal.status}` : "";
+    // Compare against the log, not just an in-memory field: init fires on every connect
+    // (F5, extra tab) and again after an agent restart that restored the snapshot, and
+    // each of those would otherwise append a duplicate of a goal that never changed.
+    if (key === this.goalKey || key === this.lastRecordedGoalKey()) return;
+    this.goalKey = key;
+    // Always record a clearing: a client joining later must see there is no goal, and
+    // the key being empty is exactly what tells it so.
+    this.emitNormalized("goal", { goal });
+  }
+
+  // The goal key of the newest `goal` event in the replay log ("" when none, or when
+  // the last one recorded was a clearing).
+  lastRecordedGoalKey() {
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      if (this.history[i].event !== "goal") continue;
+      const g = this.history[i].data?.goal;
+      return g ? `${g.objective}|${g.status}` : "";
+    }
+    return null;
   }
 
   // Re-armed on every event of a running turn: silence past the window means the CLI is
@@ -315,7 +373,9 @@ export class AiSession {
 
     this.lastPrompt = prompt;
     this.isTurnRunning = true;
-    this.emitNormalized("user_message", { text: prompt });
+    // The echoed message carries the attachment names so every client can render them
+    // under the bubble — the base64 never rides the replay log.
+    this.emitNormalized("user_message", { text: prompt, attachments: attachmentMeta(attachments) });
     if (this.options.mock) {
       this.emitNormalized("delta", { text: `[Mock reply to: ${prompt}]` });
       this.emitNormalized("turn_complete", { stats: {} });

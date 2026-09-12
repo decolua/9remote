@@ -14,6 +14,8 @@ export const AiToolCard = memo(function AiToolCard({
   output = "",
   error = "",
   status = "done",
+  children = [],
+  engine = "claude",
   workspacePath = ""
 }) {
   const isRunning = status === "running";
@@ -149,6 +151,15 @@ export const AiToolCard = memo(function AiToolCard({
           ) : !error ? (
             <div className="text-text-muted italic">Running or no output returned...</div>
           ) : null}
+        </div>
+      )}
+
+      {/* Tools this one spawned, indented like the output above */}
+      {expanded && children.length > 0 && (
+        <div className="ml-3.5 pl-3 border-l-2 border-border-subtle/80">
+          {children.map((c) => (
+            <AiToolCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} />
+          ))}
         </div>
       )}
     </div>

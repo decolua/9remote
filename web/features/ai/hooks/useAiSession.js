@@ -3,7 +3,8 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
-import { parseEngineTaskEvent, parseEngineTaskResult } from "../registry";
+import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
+import { updateToolTree, settleRunningTools } from "../lib/toolTree";
 
 const DEFAULT_STATS = { inputTokens: 0, outputTokens: 0, totalTurns: 0 };
 const DEFAULT_METADATA = { model: "" };
@@ -33,6 +34,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
   let activePermission = null;
   let activeBlocked = null;
   let permissionMode = null;
+  let turnEnded = false;
   let msgSeq = idBase;
 
   for (const item of events) {
@@ -45,7 +47,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         isTurnRunning = true;
         // A new turn supersedes the previous refusal — same as the live path.
         activeBlocked = null;
-        messages.push({ id: `u-${++msgSeq}`, role: "user", content: data?.text || "" });
+        messages.push({ id: `u-${++msgSeq}`, role: "user", content: data?.text || "", attachments: data?.attachments || [] });
         messages.push({
           id: `a-${++msgSeq}`,
           role: "assistant",
@@ -65,6 +67,9 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         metadata = { ...metadata, ...(data || {}), skills };
         break;
       }
+      case "goal":
+        metadata = { ...metadata, goal: data?.goal || null };
+        break;
       case "delta": {
         let last = messages[messages.length - 1];
         if (!last || last.role !== "assistant") {
@@ -94,6 +99,43 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         const idx = diffs.findIndex((d) => d.file === data.file);
         if (idx !== -1) diffs[idx] = data;
         else diffs.push(data);
+        break;
+      }
+      // A sub-agent's tool call: nested under the Agent/Task card that spawned it,
+      // never a row of its own. Dropped when the parent is not in the log.
+      case "tool_child": {
+        if (!data) break;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const tools = updateToolTree(messages[i]?.tools, (t) => t.id === data.parentToolUseId, (parent) => {
+            const children = [...(parent.children || [])];
+            const idx = children.findIndex((c) => c.id === data.id);
+            if (idx !== -1) children[idx] = { ...children[idx], ...data };
+            else children.push({ ...data, status: data.status || "running" });
+            return { ...parent, children };
+          });
+          if (!tools) continue;
+          messages[i].tools = tools;
+          break;
+        }
+        break;
+      }
+      case "tool_result_child": {
+        if (!data?.id) break;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const tools = updateToolTree(
+            messages[i]?.tools,
+            (t) => (t.children || []).some((c) => c.id === data.id),
+            (parent) => ({
+              ...parent,
+              children: parent.children.map((c) =>
+                c.id === data.id ? { ...c, ...data, status: data.status || "done" } : c
+              )
+            })
+          );
+          if (!tools) continue;
+          messages[i].tools = tools;
+          break;
+        }
         break;
       }
       case "tool_start": {
@@ -180,6 +222,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         if (data?.model) metadata.model = data.model;
         break;
       case "turn_complete":
+        turnEnded = true;
         isTurnRunning = false;
         activePermission = null;
         if (data?.stats) stats = { ...stats, ...data.stats };
@@ -189,14 +232,17 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         if (data?.stats) stats = { ...stats, ...data.stats };
         break;
       case "stopped":
+        turnEnded = true;
         isTurnRunning = false;
         break;
       case "exit":
+        turnEnded = true;
         // The CLI process went away. Turn ends either way — without this the pane
         // kept spinning on a process that was already gone (only claudeAdapter emits it).
         isTurnRunning = false;
         break;
       case "error":
+        turnEnded = true;
         // An error can land mid-turn (opencode reports a blocked action this way), so the
         // segment still streaming must be closed — otherwise its bubble keeps a live
         // spinner even though the turn is over.
@@ -223,6 +269,14 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
     }
   }
 
+  // Nothing is still running once the turn is over. Settled here rather than in each of
+  // the ending events so every one of them is covered. Keyed on having SEEN the end,
+  // not on isTurnRunning: a page of older events is reduced on its own and carries no
+  // end event, and its tools must stay as they are.
+  if (turnEnded) {
+    for (const m of messages) if (m.tools) m.tools = settleRunningTools(m.tools);
+  }
+
   return { messages, tasks, metadata, stats, isTurnRunning, activePermission, activeBlocked, permissionMode };
 }
 
@@ -244,6 +298,8 @@ export function useAiSession({
   const appendDiff = useAiStore((s) => s.appendDiff);
   const appendTool = useAiStore((s) => s.appendTool);
   const updateToolResult = useAiStore((s) => s.updateToolResult);
+  const nestTool = useAiStore((s) => s.nestTool);
+  const nestToolResult = useAiStore((s) => s.nestToolResult);
   const upsertTask = useAiStore((s) => s.upsertTask);
   const setPermission = useAiStore((s) => s.setPermission);
   const clearPermission = useAiStore((s) => s.clearPermission);
@@ -271,7 +327,7 @@ export function useAiSession({
   const applyEvent = useCallback((sid, event, data) => {
     switch (event) {
       case "user_message":
-        addUserMessage(sid, data.text);
+        addUserMessage(sid, data.text, data.attachments || null);
         break;
       case "init": {
         // The agent-side scan (with descriptions) and the CLI's init both land here.
@@ -290,6 +346,11 @@ export function useAiSession({
         setMetadata(sid, { ...data, skills });
         break;
       }
+      case "goal":
+        // Codex's own persistent goal, read from its state DB by the host. A null goal
+        // means "none set" and must clear the one already shown.
+        setMetadata(sid, { goal: data?.goal || null });
+        break;
       case "delta":
         appendDelta(sid, data.text);
         break;
@@ -298,6 +359,12 @@ export function useAiSession({
         break;
       case "diff":
         appendDiff(sid, data);
+        break;
+      case "tool_child":
+        nestTool(sid, data);
+        break;
+      case "tool_result_child":
+        nestToolResult(sid, data);
         break;
       case "tool_start":
         appendTool(sid, data);
@@ -355,7 +422,7 @@ export function useAiSession({
       default:
         break;
     }
-  }, [engine, addUserMessage, setMetadata, appendDelta, appendThinking, appendDiff, appendTool, updateToolResult, upsertTask, setPermission, clearPermission, finishTurn, setTurnRunning]);
+  }, [engine, addUserMessage, setMetadata, appendDelta, appendThinking, appendDiff, appendTool, updateToolResult, nestTool, nestToolResult, upsertTask, setPermission, clearPermission, finishTurn, setTurnRunning]);
 
   // applyEvent changes identity whenever its store actions do; the hydrate effect
   // below must NOT re-run for that — re-emitting ai:create would truncate and
@@ -418,7 +485,14 @@ export function useAiSession({
       if (gen !== hydrateSeqRef.current || !hydratingRef.current) return;
       releaseHeld();
     }, HYDRATE_TIMEOUT_MS);
-    bus.emit("ai:create", { sessionId, engine, cwd: workspacePath }, (res) => {
+    // A brand-new session starts fully permitted; the host ignores this once it has
+    // a snapshot, so reopening an old chat keeps the mode that chat ran with.
+    bus.emit("ai:create", {
+      sessionId,
+      engine,
+      cwd: workspacePath,
+      options: { defaultMode: getEngineConfig(engine).defaultMode }
+    }, (res) => {
       // A newer hydrate (StrictMode remount) owns the gate now — stand down.
       if (gen !== hydrateSeqRef.current) return;
       const events = res?.session?.events;

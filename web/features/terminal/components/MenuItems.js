@@ -24,7 +24,7 @@ import { verifyServerConnection } from "@/shared/hooks/useAuth";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
 import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
-import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 
@@ -331,7 +331,7 @@ export default function MenuItems({
                 <div className="flex flex-wrap gap-1">
                   {mcpClients.map((id) => (
                     <span key={id} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-brand bg-surface-2 text-[11px] text-text">
-                      <img src={agentIconUrl(id)} alt="" className="w-3 h-3 rounded-[2px]" />
+                      <img src={agentIconUrl(id)} alt="" className={`w-3 h-3 ${AGENT_ICON_CLS}`} />
                       {AGENT_LABELS[id] || id}
                     </span>
                   ))}

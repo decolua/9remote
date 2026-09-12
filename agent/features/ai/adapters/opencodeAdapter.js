@@ -2,10 +2,16 @@
 import { getExtendedEnv } from "./env.js";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { stageAttachment } from "../../terminal/aiAttachment.js";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\[[0-9;]*m/g;
 const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
+
+// `opencode run` rejects an empty message outright ("You must provide a message or a
+// command"), and an attachment-only prompt has none — the files ride as --file flags.
+// The composer allows a picture with no caption, so the turn needs something to send.
+const ATTACHMENT_ONLY_PROMPT = "See the attached file.";
 
 export class OpenCodeAdapter {
   constructor({ cwd, onEvent, sessionId = null, model = "" } = {}) {
@@ -48,12 +54,16 @@ export class OpenCodeAdapter {
       this.activeSessionId = resume;
       this.metadata.sessionId = resume;
     }
-    // Config-modal flags: map the boolean toggles to real argv tokens.
+    // Config-modal flags: map the boolean toggles to real argv tokens. The booleans
+    // are also kept on metadata, because that is what the modal reads back when it is
+    // reopened — without them it would show defaults and revert a previous choice.
     if (flags && typeof flags === "object") {
       const next = [];
       if (flags.pure) next.push("--pure");
       if (flags.printLogs) next.push("--print-logs");
       this.flags = next;
+      this.metadata.pure = Boolean(flags.pure);
+      this.metadata.printLogs = Boolean(flags.printLogs);
     }
     this.onEvent?.("init", { ...this.metadata });
   }
@@ -63,11 +73,21 @@ export class OpenCodeAdapter {
     return { command: "opencode", args: ["debug", "info"] };
   }
 
-  sendPrompt(prompt) {
+  sendPrompt(prompt, attachments = null) {
     if (this.isTurnRunning) {
       throw new Error("OpenCode turn is already running.");
     }
 
+    const staged = attachments?.length ? attachments.map(stageAttachment) : null;
+    // Every attachment rides as `--file=`: opencode reads it straight into the model's
+    // context, where a path in the text only makes it reach for Read — and that call is
+    // auto-rejected for the upload dir, since it sits outside the workspace (verified;
+    // an image handed over as a bare path failed the same way). The files are therefore
+    // kept out of the text, which carries the caption alone.
+    // The flag must come AFTER the positional message and carry its `=`: verified
+    // against the CLI, where it before the prompt is parsed as a second message and the
+    // space-separated form (`--file <path>`) hangs the run.
+    const files = (staged || []).filter((a) => a.path).map((a) => a.path);
     this.isTurnRunning = true;
     const args = ["run", "--format", "json", "--thinking"];
 
@@ -87,7 +107,8 @@ export class OpenCodeAdapter {
       args.push("--auto");
     }
     args.push(...this.flags);
-    args.push(prompt);
+    args.push(prompt || (files.length ? ATTACHMENT_ONLY_PROMPT : ""));
+    for (const file of files) args.push(`--file=${file}`);
 
     const child = spawn("opencode", args, {
       cwd: this.cwd,
@@ -163,6 +184,9 @@ export class OpenCodeAdapter {
       // The CLI reports a tool only once it has finished, so announce it first — the
       // client drops a tool_result whose id it has never seen.
       this.onEvent?.("tool_start", { id, name, input });
+      // A `task` call runs its sub-agent in a separate session (state.metadata.sessionId):
+      // those tool calls stream under that id and never reach this one, so the card shows
+      // the brief instead of a child count that could only ever read zero.
       if (state.status === "completed" || state.status === "error") {
         const output = state.output ?? data.output ?? data.result ?? "";
         // A failing shell command still reports status "completed" — the exit code is

@@ -6,7 +6,7 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
-import { listModelOptions } from "./models.js";
+import { listModelOptions, listCodexModelOptions } from "./models.js";
 import { runEngineDoctor } from "./aiSession.js";
 import { renameSessionTitle, broadcastAiStatus } from "../terminal/terminalSocket.js";
 import { getConversation, getSessionAgent, setConversationId } from "../terminal/statusManager.js";
@@ -29,6 +29,14 @@ function mirrorAiStatus(sessionId, event, engine) {
   if (event === "permission_request") broadcastAiStatus?.(sessionId, "blocked", engine);
   else if (event === "turn_complete") broadcastAiStatus?.(sessionId, "done", engine);
   else if (event === "user_message") broadcastAiStatus?.(sessionId, "working", engine);
+}
+
+// Model ids the host's own CLI offers, per engine. Null means the engine's registry
+// list is authoritative (opencode/antigravity ship their own catalogs).
+function listModelOptionsFor(engine) {
+  if (engine === "claude") return listModelOptions();
+  if (engine === "codex") return listCodexModelOptions();
+  return null;
 }
 
 // A chat UI session runs its CLI without the PTY's session env, so no hook ever
@@ -105,8 +113,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         // them into the state the client hydrates so the modals aren't empty.
         const skills = listSkills(engine, cwd);
         const mcpServers = listMcpServers(engine);
-        // Host-specific model ids — only Claude's come from the machine's own CLI config.
-        const modelOptions = engine === "claude" ? listModelOptions() : null;
+        // Host-specific model ids — each CLI is asked for its own catalog, since the
+        // ids only exist on the machine whose config points at a gateway.
+        const modelOptions = listModelOptionsFor(engine);
         broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event: "init", data: { skills, mcpServers, modelOptions } });
         // Full state back so any client (web/agent UI/mobile) hydrates the same history
         cb?.({ ok: true, sessionId, engine, cwd, session: res.session });
@@ -115,12 +124,13 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       const session = manager.createSession(sessionId, engine, cwd, { ...spawnOptions, mock });
       const skills = listSkills(engine, cwd);
       const mcpServers = listMcpServers(engine);
+      const modelOptions = listModelOptionsFor(engine);
       // Kept on the session so a Clear can re-seed the log with the same metadata
       session.skills = skills;
       // Already-hydrated sessions skip the append: this runs on every connect (F5,
       // extra tab), and a log that grew an `init` per connect would never stop growing.
       // The event is still broadcast so the joining client sees the current metadata.
-      session.emitNormalized("init", { skills, mcpServers }, !session.hasRecordedInit());
+      session.emitNormalized("init", { skills, mcpServers, modelOptions }, !session.hasRecordedInit());
       cb?.({
         ok: true,
         sessionId: session.id,
@@ -131,7 +141,13 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         session: {
           events: session.history,
           isTurnRunning: session.isTurnRunning,
-          seq: session.history.length
+          seq: session.history.length,
+          // The mode the adapter was built with. A new session has an empty log, so
+          // the replay carries nothing to derive it from — without this the client
+          // shows the picker's first entry while the CLI runs something else.
+          permissionMode: session.permissionMode,
+          model: session.model,
+          effort: session.options?.effort || ""
         }
       });
     } catch (err) {

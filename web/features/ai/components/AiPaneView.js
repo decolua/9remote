@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { memo, useState, useCallback, useMemo } from "react";
 import { useAiSession } from "../hooks/useAiSession";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -13,6 +13,7 @@ import { McpModal } from "./modals/McpModal";
 import { ModelModal } from "./modals/ModelModal";
 import { SessionsModal } from "./modals/SessionsModal";
 import { ConfigModal } from "./modals/ConfigModal";
+import { ModeModal } from "./modals/ModeModal";
 import { DoctorModal } from "./modals/DoctorModal";
 import { TasksModal } from "./modals/TasksModal";
 import { AiPermissionCard } from "./cards/AiPermissionCard";
@@ -20,7 +21,7 @@ import { AiBlockedCard } from "./cards/AiBlockedCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { AiTaskCard } from "./cards/AiTaskCard";
 import { getEngineConfig } from "../registry";
-import { AI_FONT_SIZE_BOOST, AI_DOT_GRID, AI_TURN_VERBS, AI_TURN_VERB_INTERVAL_MS } from "../constants";
+import { AI_FONT_SIZE_BOOST, AI_DOT_GRID } from "../constants";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { vibrate } from "@/shared/utils/vibration";
 import {
@@ -37,120 +38,6 @@ import { resolveTerminalTheme } from "@/shared/theme/themeConfig";
 
 const DEFAULT_METADATA = { model: "", skills: [], mcpServers: [] };
 const EMPTY_TASKS = [];
-
-const pad2 = (n) => String(n).padStart(2, "0");
-
-// "1m 12s" while it runs, "1m 12s" once done — both are the same wall-clock span.
-function formatDuration(ms) {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (h > 0) return `${h}h ${m}m ${pad2(s)}s`;
-  if (m > 0) return `${m}m ${pad2(s)}s`;
-  return `${s}s`;
-}
-
-// Token counts follow the CLI's shorthand: 1234 → 1.2k, 1234567 → 1.2M
-function formatTokens(n) {
-  const v = Number(n) || 0;
-  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}k`;
-  return String(v);
-}
-
-// One line at the foot of the pane: live progress while the agent works, then the
-// finished summary (span + local completion time + tokens, as the CLI prints it).
-const AiTurnStatus = memo(function AiTurnStatus({ sessionId }) {
-  const isTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
-  const turnStartedAt = useAiStore((s) => s.bySession[sessionId]?.turnStartedAt);
-  const stats = useAiStore((s) => s.bySession[sessionId]?.stats);
-  const hasMessages = useAiStore((s) => (s.bySession[sessionId]?.messages?.length || 0) > 0);
-  const lastMsg = useAiStore((s) => {
-    const list = s.bySession[sessionId]?.messages;
-    return list && list.length > 0 ? list[list.length - 1] : null;
-  });
-
-  const [now, setNow] = useState(Date.now());
-  const [verbIdx, setVerbIdx] = useState(0);
-
-  useEffect(() => {
-    if (!isTurnRunning) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    const verbTimer = setInterval(
-      () => setVerbIdx((i) => (i + 1) % AI_TURN_VERBS.length),
-      AI_TURN_VERB_INTERVAL_MS
-    );
-    return () => { clearInterval(timer); clearInterval(verbTimer); };
-  }, [isTurnRunning]);
-
-  // Freeze the summary against the same clock the live line used.
-  const [finished, setFinished] = useState(null);
-  const prevRunningRef = useRef(isTurnRunning);
-  useEffect(() => {
-    if (prevRunningRef.current && !isTurnRunning && turnStartedAt) {
-      const end = Date.now();
-      setFinished({
-        ms: end - turnStartedAt,
-        doneAt: new Date(end),
-        outputTokens: stats?.outputTokens || 0
-      });
-    }
-    if (isTurnRunning) setFinished(null);
-    prevRunningRef.current = isTurnRunning;
-  }, [isTurnRunning, turnStartedAt, stats?.outputTokens]);
-
-  // Nothing to show in a session that has not run a turn yet.
-  if (!isTurnRunning && !finished) return null;
-  if (!isTurnRunning && !hasMessages) return null;
-
-  if (!isTurnRunning) {
-    return (
-      <div className="px-3 py-1 flex items-center gap-2 text-xs text-text-muted bg-surface-2/30 border-t border-border-subtle/50 select-none">
-        <span className="truncate font-mono text-[11px]">
-          Worked for <span className="text-text">{formatDuration(finished.ms)}</span>
-          <span className="text-text-muted/60"> · </span>
-          done {pad2(finished.doneAt.getHours())}:{pad2(finished.doneAt.getMinutes())}
-          {finished.outputTokens > 0 && (
-            <>
-              <span className="text-text-muted/60"> · </span>
-              ↓ {formatTokens(finished.outputTokens)}
-            </>
-          )}
-        </span>
-      </div>
-    );
-  }
-
-  const activeTool = lastMsg?.tools?.find((t) => t.status === "running");
-  const outputTokens = stats?.outputTokens || 0;
-
-  return (
-    <div className="px-3 py-1 flex items-center gap-2 text-xs text-text-muted bg-surface-2/30 border-t border-border-subtle/50 select-none">
-      <span className="text-brand-500 shrink-0 animate-cli-glyph">✻</span>
-      <span className="truncate font-mono text-[11px] ai-sheen-text">
-        {activeTool ? (
-          <>
-            Running <span className="text-text font-semibold">{activeTool.name}</span>: {activeTool.command || activeTool.path || ""}
-          </>
-        ) : (
-          <>
-            <span className="text-text">{AI_TURN_VERBS[verbIdx]}</span>…
-          </>
-        )}
-        <span className="text-text-muted/60"> · </span>
-        {formatDuration(now - (turnStartedAt || now))}
-        {outputTokens > 0 && (
-          <>
-            <span className="text-text-muted/60"> · </span>
-            ↓ {formatTokens(outputTokens)}
-          </>
-        )}
-      </span>
-    </div>
-  );
-});
 
 export const AiPaneView = memo(function AiPaneView({
   sessionId,
@@ -254,6 +141,9 @@ export const AiPaneView = memo(function AiPaneView({
 
   const engineConfig = getEngineConfig(engine);
 
+  // Switching mode — from the status-bar menu, Shift+Tab, the `/plan` command or the
+  // permissions modal. The store is updated first so the status bar reflects the pick
+  // without waiting for the host round-trip.
   const handleModeChange = useCallback((mode) => {
     setPermissionMode(sessionId, mode);
     emitOptions({ mode });
@@ -261,6 +151,7 @@ export const AiPaneView = memo(function AiPaneView({
 
   // Container-level fallback for Shift+Tab when focused outside composer
   const handleKeyDown = useCallback((e) => {
+    if (activeModal) return;
     if (e.shiftKey && e.key === "Tab") {
       e.preventDefault();
       vibrate();
@@ -271,7 +162,7 @@ export const AiPaneView = memo(function AiPaneView({
       const nextMode = modes[nextIdx]?.id;
       if (nextMode) handleModeChange(nextMode);
     }
-  }, [sessionId, engineConfig.permissionModes, handleModeChange]);
+  }, [sessionId, engineConfig.permissionModes, handleModeChange, activeModal]);
 
   return (
     <div
@@ -333,9 +224,6 @@ export const AiPaneView = memo(function AiPaneView({
         </div>
       )}
 
-      {/* Turn status: live progress, then the finished summary */}
-      <AiTurnStatus sessionId={sessionId} />
-
       {/* Composer Input Box with integrated Model and Mode pickers */}
       <Composer
         sessionId={sessionId}
@@ -351,6 +239,7 @@ export const AiPaneView = memo(function AiPaneView({
         isFocused={isFocused}
         fileBus={fileBus}
         workspacePath={workspacePath}
+        modalOpen={activeModal !== null}
       />
 
       {/* Status Bar with Session Name, Skills, MCP & Actions */}
@@ -383,9 +272,11 @@ export const AiPaneView = memo(function AiPaneView({
       {activeModal === "model" && (
         <ModelModal
           currentModel={metadata.model}
+          currentEffort={metadata.effort || ""}
           models={metadata.modelOptions?.length ? metadata.modelOptions : engineConfig.models}
           onClose={() => setActiveModal(null)}
           onSelectModel={handleSelectModel}
+          onSelectEffort={(effort) => emitOptions({ effort })}
         />
       )}
 
@@ -401,8 +292,18 @@ export const AiPaneView = memo(function AiPaneView({
       {activeModal === "config" && (
         <ConfigModal
           engine={engine}
+          options={useAiStore.getState().bySession[sessionId]?.metadata}
           onClose={() => setActiveModal(null)}
-          onApply={(flags) => emitOptions({ flags })}
+          onApply={(options) => emitOptions(options)}
+        />
+      )}
+
+      {activeModal === "mode" && (
+        <ModeModal
+          modes={engineConfig.permissionModes || []}
+          currentMode={useAiStore.getState().bySession[sessionId]?.permissionMode || ""}
+          onClose={() => setActiveModal(null)}
+          onSelectMode={handleModeChange}
         />
       )}
 

@@ -1,10 +1,19 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Zap, Package, Trash2, Shield, Sparkles, ChevronUp, Check } from "@/shared/components/ui/Icon";
+import Icon, { Zap, Package, Target, Trash2, ChevronUp, Check } from "@/shared/components/ui/Icon";
 import { getEngineConfig } from "../registry";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { vibrate } from "@/shared/utils/vibration";
+import TerminalBeam from "@/shared/components/ui/TerminalBeam";
+
+// Colour by the shared mode icon, so a mode reads the same on every engine.
+const MODE_ICON_COLOR = {
+  Shield: "text-text-muted",
+  Pencil: "text-accent",
+  Eye: "text-accent",
+  Sparkles: "text-warning",
+};
 
 export const AiStatusBar = memo(function AiStatusBar({
   sessionId = "",
@@ -18,6 +27,7 @@ export const AiStatusBar = memo(function AiStatusBar({
 }) {
   const storeTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const metadata = useAiStore((s) => s.bySession[sessionId]?.metadata);
+  const goal = metadata?.goal;
   const permissionMode = useAiStore((s) => s.bySession[sessionId]?.permissionMode || "default");
 
   const isTurnRunning = storeTurnRunning !== undefined ? storeTurnRunning : propTurnRunning;
@@ -39,19 +49,12 @@ export const AiStatusBar = memo(function AiStatusBar({
   const activeMode = modes.find((m) => m.id === permissionMode) || modes[0];
 
   return (
-    <div className="relative h-6 px-3 bg-surface/50 border-t border-border-subtle/50 flex items-center justify-end text-[11px] font-mono text-text-muted select-none flex-shrink-0 z-20 gap-3">
-      {/* Left: Live State indicator only */}
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        {isTurnRunning && (
-          <div className="flex items-center gap-1 text-brand-500 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />
-            <span className="hidden sm:inline">Active</span>
-          </div>
-        )}
-      </div>
+    <div className="relative h-6 px-3 bg-surface/50 border-t border-border-subtle/50 flex items-center text-[11px] font-mono text-text-muted select-none flex-shrink-0 z-20 gap-3">
+      {/* Same sweep the terminal pane runs, on the Skills/MCP row */}
+      {isTurnRunning && <TerminalBeam className="hidden sm:block" />}
 
-      {/* Right: Permission mode, Skills, MCP, Clear & Cost */}
-      <div className="flex items-center gap-2.5 shrink-0">
+      {/* Left: permission mode leads the row */}
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
         {activeMode && modes.length > 0 && (
           <div ref={modeMenuRef} className="relative">
             <button
@@ -60,18 +63,12 @@ export const AiStatusBar = memo(function AiStatusBar({
               className="hover:text-text flex items-center gap-1 transition-colors"
               title="Change permission mode (Shift+Tab)"
             >
-              {permissionMode === "bypassPermissions" || permissionMode === "auto" ? (
-                <Sparkles size={11} className="text-warning shrink-0" />
-              ) : permissionMode === "plan" ? (
-                <Zap size={11} className="text-accent shrink-0" />
-              ) : (
-                <Shield size={11} className="text-text-muted shrink-0" />
-              )}
+              <Icon name={activeMode.icon || "Shield"} size={11} className={`${MODE_ICON_COLOR[activeMode.icon] || "text-text-muted"} shrink-0`} />
               <span>{activeMode.label}</span>
               <ChevronUp size={11} className={`text-text-muted transition-transform ${modeMenuOpen ? "" : "rotate-180"}`} />
             </button>
             {modeMenuOpen && (
-              <div className="absolute right-0 bottom-[calc(100%+6px)] min-w-[220px] max-h-56 bg-surface border border-border-subtle rounded-brand shadow-xl overflow-y-auto z-50 p-1 custom-scrollbar">
+              <div className="absolute left-0 bottom-[calc(100%+6px)] min-w-[220px] max-h-56 bg-surface border border-border-subtle rounded-brand shadow-xl overflow-y-auto z-50 p-1 custom-scrollbar">
                 <div className="px-2 py-0.5 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1">
                   Permission Mode
                 </div>
@@ -91,7 +88,10 @@ export const AiStatusBar = memo(function AiStatusBar({
                     }`}
                   >
                     <div className="flex items-center justify-between w-full">
-                      <span>{cm.label}</span>
+                      <span className="flex items-center gap-1.5">
+                        <Icon name={cm.icon || "Shield"} size={12} className={`${MODE_ICON_COLOR[cm.icon] || "text-text-muted"} shrink-0`} />
+                        <span>{cm.label}</span>
+                      </span>
                       {permissionMode === cm.id && <Check size={12} className="text-brand-400 shrink-0" />}
                     </div>
                     <span className="text-[10px] text-text-muted/70 font-normal font-sans leading-tight">
@@ -104,6 +104,24 @@ export const AiStatusBar = memo(function AiStatusBar({
           </div>
         )}
 
+        {/* Codex's persistent goal (`/goal` in the TUI), read from the CLI's own state
+            DB. Read-only here: the status dot and the objective are all the pane needs. */}
+        {goal?.objective && (
+          <div
+            className="flex items-center gap-1 min-w-0"
+            title={`Goal (${goal.status}): ${goal.objective}`}
+          >
+            <Target
+              size={11}
+              className={`shrink-0 ${goal.status === "active" ? "text-danger" : "text-text-muted"}`}
+            />
+            <span className="truncate max-w-[22ch]">{goal.objective}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Right: Skills, MCP, Clear */}
+      <div className="flex items-center gap-2.5 shrink-0">
         <button
           type="button"
           onClick={() => { vibrate(); onOpenSkills?.(); }}

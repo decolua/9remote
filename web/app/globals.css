@@ -777,9 +777,9 @@ html.light .term-tab-active,
 }
 .animate-cli-glyph { display: inline-block; animation: cliGlyphPulse 1.4s ease-in-out infinite; }
 
-/* Mirror sheen across the live status text: a band of full-strength text colour
-   travels over a dimmed copy. Both stops come from the pane's own text tokens, so
-   it reads correctly on light, dark, and any terminal palette. */
+/* Live turn text: brand-coloured, with a white band sweeping across it so the glyphs
+   read as lit from behind. Stops come from the brand token, so the sweep keeps its
+   contrast on every theme. */
 @keyframes aiSheenSweep {
   0% { background-position: 200% center; }
   100% { background-position: -200% center; }
@@ -787,9 +787,9 @@ html.light .term-tab-active,
 .ai-sheen-text {
   background-image: linear-gradient(
     100deg,
-    var(--color-text-muted) 38%,
-    var(--color-text) 50%,
-    var(--color-text-muted) 62%
+    var(--color-brand-500) 40%,
+    color-mix(in srgb, var(--color-brand-500) 45%, #fff) 50%,
+    var(--color-brand-500) 60%
   );
   background-size: 200% 100%;
   -webkit-background-clip: text;
@@ -801,7 +801,7 @@ html.light .term-tab-active,
   .pane-light-beam { animation: none; transform: none; width: 100%; opacity: 0.8; }
   .pane-light-beam-2 { display: none; }
   .animate-cli-glyph { animation: none; }
-  .ai-sheen-text { animation: none; -webkit-text-fill-color: var(--color-text-muted); }
+  .ai-sheen-text { animation: none; -webkit-text-fill-color: var(--color-brand-500); }
 }
 
 /* Terminal workspace panels & header background — surface-3 ground with subtle dot pattern */

@@ -3,10 +3,10 @@
 import { memo, useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { MessageBubble } from "./MessageBubble";
-import { ENGINE_INFO } from "../constants";
-import { ArrowDown, Pencil } from "@/shared/components/ui/Icon";
+import { ENGINE_INFO, AI_TURN_VERBS, AI_TURN_VERB_INTERVAL_MS } from "../constants";
+import { ArrowDown, Check, Loader2, Pencil } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
-import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 
 const EMPTY_MESSAGES = [];
 // Dynamic byte budget per slice: adapts flexibly to message sizes. Long turns (diffs/code)
@@ -41,6 +41,134 @@ function countMessagesByBudget(messages, budgetBytes, minCount = 2) {
   }
   return count;
 }
+
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// "1m 12s" while it runs, "1m 12s" once done — both are the same wall-clock span.
+function formatDuration(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m ${pad2(s)}s`;
+  if (m > 0) return `${m}m ${pad2(s)}s`;
+  return `${s}s`;
+}
+
+// Token counts follow the CLI's shorthand: 1234 → 1.2k, 1234567 → 1.2M
+function formatTokens(n) {
+  const v = Number(n) || 0;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}k`;
+  return String(v);
+}
+
+// Hosts report usage only at the end of a turn, so the live count would sit still and
+// then jump. Estimate the running text instead (~4 chars/token) and let the real number
+// replace it — the same trick the CLIs use to make the counter tick while streaming.
+const ESTIMATED_CHARS_PER_TOKEN = 4;
+
+function estimateTokens(text) {
+  return Math.round((text?.length || 0) / ESTIMATED_CHARS_PER_TOKEN);
+}
+
+// The turn's own token count. Hidden until there is something to report.
+function tokenReadout(outputTokens) {
+  if (!outputTokens) return null;
+  return (
+    <>
+      <span className="text-text-muted/60"> · </span>
+      {formatTokens(outputTokens)} token
+    </>
+  );
+}
+
+// The turn's own line, at the tail of the history like the user's message: the running
+// spinner and the finished summary are states of one row, so nothing jumps when it ends.
+const AiTurnStatus = memo(function AiTurnStatus({ sessionId }) {
+  const isTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
+  const turnStartedAt = useAiStore((s) => s.bySession[sessionId]?.turnStartedAt);
+  const stats = useAiStore((s) => s.bySession[sessionId]?.stats);
+  const turnBaseline = useAiStore((s) => s.bySession[sessionId]?.turnBaseline);
+  const lastMsg = useAiStore((s) => {
+    const list = s.bySession[sessionId]?.messages;
+    return list && list.length > 0 ? list[list.length - 1] : null;
+  });
+
+  // The host reports a session-running total; the line shows only this turn's share.
+  const turnOutput = Math.max(0, (stats?.outputTokens || 0) - (turnBaseline?.outputTokens || 0));
+
+  const [now, setNow] = useState(Date.now());
+  const [verbIdx, setVerbIdx] = useState(0);
+
+  useEffect(() => {
+    if (!isTurnRunning) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    const verbTimer = setInterval(
+      () => setVerbIdx((i) => (i + 1) % AI_TURN_VERBS.length),
+      AI_TURN_VERB_INTERVAL_MS
+    );
+    return () => { clearInterval(timer); clearInterval(verbTimer); };
+  }, [isTurnRunning]);
+
+  // Freeze the summary against the same clock the live line used. Tokens and span are
+  // both session-running totals, so they only ever climb — a resumed or rebuilt pane
+  // keeps counting from where the host says the conversation already is.
+  const [finished, setFinished] = useState(null);
+  const prevRunningRef = useRef(isTurnRunning);
+  useEffect(() => {
+    if (prevRunningRef.current && !isTurnRunning && turnStartedAt) {
+      const end = Date.now();
+      setFinished({
+        ms: end - turnStartedAt,
+        doneAt: new Date(end),
+        outputTokens: turnOutput
+      });
+    }
+    if (isTurnRunning) setFinished(null);
+    prevRunningRef.current = isTurnRunning;
+  }, [isTurnRunning, turnStartedAt, turnOutput]);
+
+  if (!isTurnRunning && !finished) return null;
+
+  if (!isTurnRunning) {
+    return (
+      <div className="flex items-center gap-2 py-1 select-none text-xs text-text-muted">
+        <Check size={14} className="text-emerald-400 shrink-0" />
+        <span className="truncate font-mono text-[11px]">
+          Worked for <span className="text-text">{formatDuration(finished.ms)}</span>
+          <span className="text-text-muted/60"> · </span>
+          done {pad2(finished.doneAt.getHours())}:{pad2(finished.doneAt.getMinutes())}
+          {tokenReadout(finished.outputTokens)}
+        </span>
+      </div>
+    );
+  }
+
+  const activeTool = lastMsg?.tools?.find((t) => t.status === "running");
+  // The host's number lags the stream, so the live count is the last reported total plus
+  // an estimate of what has arrived since. turn_complete replaces it with the real one.
+  const liveOutput = turnOutput + estimateTokens(lastMsg?.content);
+
+  return (
+    <div className="flex items-center gap-2 py-1 select-none text-xs text-text-muted">
+      <Loader2 size={13} className="animate-spin text-brand-500 shrink-0" />
+      <span className="truncate font-mono text-[11px] ai-sheen-text">
+        {activeTool ? (
+          <>
+            Running {activeTool.name}: {activeTool.command || activeTool.path || ""}
+          </>
+        ) : (
+          <>{AI_TURN_VERBS[verbIdx]}…</>
+        )}
+        <span className="text-text-muted/60"> · </span>
+        {formatDuration(now - (turnStartedAt || now))}
+        {tokenReadout(liveOutput)}
+      </span>
+    </div>
+  );
+});
 
 export const AiMessagesList = memo(function AiMessagesList({
   sessionId,
@@ -164,9 +292,9 @@ export const AiMessagesList = memo(function AiMessagesList({
               style={{ backgroundColor: `${engineMeta.color}15` }}
             >
               <img
-                src={agentIconUrl(engine)}
+                src={agentIconUrl(`${engine}-ui`)}
                 alt={engineMeta.label}
-                className="w-7 h-7 object-contain"
+                className={`w-7 h-7 object-contain ${AGENT_ICON_CLS}`}
               />
             </div>
             <h3 className="text-base font-semibold text-text mb-1">
@@ -220,6 +348,7 @@ export const AiMessagesList = memo(function AiMessagesList({
                 onRewind={onRewind}
               />
             ))}
+            <AiTurnStatus sessionId={sessionId} />
           </>
         )}
       </div>

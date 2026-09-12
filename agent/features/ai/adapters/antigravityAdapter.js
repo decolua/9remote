@@ -2,6 +2,7 @@
 import { getExtendedEnv } from "./env.js";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { stageAttachment, buildAttachedPrompt } from "../../terminal/aiAttachment.js";
 
 // `agy` has no `--permission-mode` flag: the gate is either on or bypassed. Plan mode
 // is the CLI's own read-only mode (`--mode plan`), so that is what it maps to.
@@ -18,6 +19,29 @@ const MODE_LABELS = { plan: "Plan", "accept-edits": "Accept Edits" };
 
 // `agy` reports a denied tool as a plain error string inside tool_info.error.
 const DENIED_RE = /(?:user denied permission|permission check failed|auto-denied)/i;
+
+// `agy` names each tool's parameters itself, in PascalCase — CommandLine for
+// run_command, AbsolutePath for view_file, TargetFile for write_to_file,
+// DirectoryPath/SearchPath for the directory tools (all verified against 1.2.1).
+// The cards read one lowercase shape, so unmapped these rows carried no command and
+// no path: a Bash row rendered as its bare tool name with nothing to copy.
+const PARAM_ALIASES = {
+  CommandLine: "command",
+  AbsolutePath: "file_path",
+  TargetFile: "file_path",
+  DirectoryPath: "path",
+  SearchDirectory: "path",
+  SearchPath: "path",
+  Query: "query",
+};
+
+function normalizeParameters(parameters) {
+  const out = {};
+  for (const [key, value] of Object.entries(parameters || {})) {
+    out[PARAM_ALIASES[key] || key] = value;
+  }
+  return out;
+}
 
 export class AntigravityAdapter {
   constructor({ cwd, onEvent, conversationId = null, model = "" } = {}) {
@@ -86,13 +110,18 @@ export class AntigravityAdapter {
     return args;
   }
 
-  sendPrompt(prompt) {
+  sendPrompt(prompt, attachments = null) {
     if (this.isTurnRunning) {
       throw new Error("Antigravity turn is already running.");
     }
 
+    // `agy`'s stream-json input takes text blocks only — an image content block is
+    // rejected with 'content block type "image" is not supported'. So every attachment,
+    // image included, is handed over as a path in the prompt: verified against the CLI,
+    // which reads the file itself and answers about its contents.
+    const staged = attachments?.length ? attachments.map(stageAttachment) : null;
     this.isTurnRunning = true;
-    const child = spawn("agy", this.buildArgs(prompt), {
+    const child = spawn("agy", this.buildArgs(buildAttachedPrompt(prompt, staged, true)), {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: getExtendedEnv()
@@ -167,12 +196,51 @@ export class AntigravityAdapter {
     }
 
     if (step.step_type === "tool") return this.handleToolStep(step);
+    // An `invoke_subagent` step. Its own steps never reach this stream — the child
+    // runs its own conversation, and the log_uri it hands back points at a transcript
+    // this adapter does not read — so the card shows the sub-agent and its brief and
+    // leaves the count at zero rather than inventing children.
+    if (step.step_type === "subagent") return this.handleSubagentStep(step);
+  }
+
+  handleSubagentStep(step) {
+    if (step.state === "ACTIVE") {
+      const [sub] = step.subagent_info?.subagents || [];
+      this.onEvent?.("tool_start", {
+        id: `${step.tool_name}-${step.step_index}`,
+        name: step.tool_name || "invoke_subagent",
+        input: { subagent_type: sub?.role || sub?.type_name, prompt: sub?.initial_prompt },
+        status: "running",
+      });
+      return;
+    }
+    if (step.state === "ERROR") {
+      // Not observed: every recorded agy run that spawned a sub-agent reported DONE,
+      // even one told to fail, and a permission denial aborts the run before any step
+      // is emitted. Kept because `tool` steps do carry ERROR, and without it a failed
+      // sub-agent would be settled as "done" — a success claim this cannot make.
+      this.onEvent?.("tool_result", {
+        id: `${step.tool_name}-${step.step_index}`,
+        name: step.tool_name || "invoke_subagent",
+        error: step.subagent_info?.error?.message || "Sub-agent failed.",
+        status: "error",
+      });
+      return;
+    }
+    if (step.state === "DONE") {
+      this.onEvent?.("tool_result", {
+        id: `${step.tool_name}-${step.step_index}`,
+        name: step.tool_name || "invoke_subagent",
+        output: "",
+        status: "done",
+      });
+    }
   }
 
   handleToolStep(step) {
     const info = step.tool_info || {};
     const name = step.tool_name || info.name || "tool";
-    const input = info.parameters || {};
+    const input = normalizeParameters(info.parameters);
     // step_index identifies the tool step: `tool_info` carries no id of its own, and
     // the result must attach to the same id the start announced.
     const id = `${name}-${step.step_index}`;

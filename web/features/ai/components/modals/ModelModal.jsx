@@ -1,15 +1,21 @@
 "use client";
 
-import { memo, useMemo } from "react";
-import { Bot, Check, X } from "@/shared/components/ui/Icon";
+import { memo, useMemo, useState } from "react";
+import { Bot, Check } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { ModalShell } from "./ModalShell";
 
 export const ModelModal = memo(function ModelModal({
   currentModel = "",
+  currentEffort = "",
   models = [],
   onClose,
-  onSelectModel
+  onSelectModel,
+  onSelectEffort
 }) {
+  // The model whose tiers the effort row lists. Defaults to the running model, but a
+  // pick moves it — the tiers belong to whatever model is about to run.
+  const [pendingModel, setPendingModel] = useState(currentModel);
   const modelList = useMemo(() => {
     const list = [...(models || [])];
     // The running model may not be in the host's list — set from another surface, or
@@ -20,66 +26,94 @@ export const ModelModal = memo(function ModelModal({
     return list;
   }, [models, currentModel]);
 
+  // Tiers come from the host catalog; an engine with none offers no effort row.
+  const active = modelList.find((m) => m.id === pendingModel);
+  const efforts = active?.efforts || [];
+
   const handlePick = (modelId) => {
     vibrate();
     onSelectModel?.(modelId);
-    onClose?.();
+    setPendingModel(modelId);
+    // Validate against the tiers of the model being picked, not the one on screen —
+    // the tiers differ per model, and a level the new model rejects (luna's `max` on
+    // 5.5) would otherwise stay selected and fail the next turn.
+    const next = modelList.find((m) => m.id === modelId);
+    const nextEfforts = next?.efforts || [];
+    if (nextEfforts.length > 0 && !nextEfforts.includes(currentEffort)) {
+      const fallback = next?.defaultEffort || nextEfforts[0];
+      if (fallback) onSelectEffort?.(fallback);
+    }
+  };
+
+  const handlePickEffort = (effort) => {
+    vibrate();
+    onSelectEffort?.(effort);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 select-none">
-      <div className="bg-surface border border-border-subtle rounded-brand-lg w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-border-subtle flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-brand-500/15 text-brand-500 flex items-center justify-center">
-              <Bot size={14} />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-text">Switch AI Model</h2>
-              <p className="text-[11px] text-text-muted">Select an active model for this session</p>
-            </div>
+    <ModalShell
+      icon={<Bot size={14} />}
+      title="Switch AI Model"
+      subtitle="Select an active model for this session"
+      maxWidth="max-w-md"
+      onClose={onClose}
+    >
+      {/* Reasoning tiers for the selected model. Picking one applies immediately, the
+          way the CLI's own /model does — the list stays open so a model can follow. */}
+      {efforts.length > 0 && (
+        <div className="px-3 pt-3 shrink-0">
+          <div className="text-[10px] font-mono uppercase tracking-wider text-text-muted mb-1.5">
+            Reasoning effort
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-brand text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* List */}
-        <div className="p-3 flex-1 overflow-y-auto space-y-1.5 custom-scrollbar">
-          {modelList.map((m) => {
-            const isSelected = currentModel === m.id;
-            return (
-              <div
-                key={m.id}
-                onClick={() => handlePick(m.id)}
-                className={`p-3 rounded-brand border flex items-center justify-between cursor-pointer transition-colors ${
-                  isSelected
-                    ? "border-brand-500 bg-brand-500/10 text-text"
-                    : "border-border-subtle bg-surface-2/30 hover:bg-surface-2 text-text-muted hover:text-text"
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {efforts.map((effort) => (
+              <button
+                key={effort}
+                type="button"
+                onClick={() => handlePickEffort(effort)}
+                className={`px-2.5 py-1 rounded-brand text-[11px] font-mono border transition-colors ${
+                  currentEffort === effort
+                    ? "border-brand-500 bg-brand-500/10 text-brand-400"
+                    : "border-border-subtle bg-surface-2/30 text-text-muted hover:text-text hover:bg-surface-2"
                 }`}
               >
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-text flex items-center gap-1.5">
-                    <span className="truncate">{m.label}</span>
-                  </div>
-                  <div className="text-[10px] font-mono text-text-muted truncate mt-0.5">
-                    {m.desc || m.id}
-                  </div>
-                </div>
-
-                {isSelected && (
-                  <Check size={14} className="text-brand-500 shrink-0 ml-2" />
-                )}
-              </div>
-            );
-          })}
+                {effort}
+              </button>
+            ))}
+          </div>
         </div>
+      )}
+
+      {/* List */}
+      <div className="p-3 flex-1 overflow-y-auto space-y-1.5 custom-scrollbar">
+        {modelList.map((m) => {
+          const isSelected = pendingModel === m.id;
+          return (
+            <div
+              key={m.id}
+              onClick={() => handlePick(m.id)}
+              className={`p-3 rounded-brand border flex items-center justify-between cursor-pointer transition-colors ${
+                isSelected
+                  ? "border-brand-500 bg-brand-500/10 text-text"
+                  : "border-border-subtle bg-surface-2/30 hover:bg-surface-2 text-text-muted hover:text-text"
+              }`}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-text flex items-center gap-1.5">
+                  <span className="truncate">{m.label}</span>
+                </div>
+                <div className="text-[10px] font-mono text-text-muted truncate mt-0.5">
+                  {m.desc || m.id}
+                </div>
+              </div>
+
+              {isSelected && (
+                <Check size={14} className="text-brand-500 shrink-0 ml-2" />
+              )}
+            </div>
+          );
+        })}
       </div>
-    </div>
+    </ModalShell>
   );
 });

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bell, Bot, Terminal, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
+import { AGENT_ICON_CLS } from "../constants/agentCli";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { statusItems, attentionSummary } from "../lib/sessionStatusSummary";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
@@ -159,7 +160,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
                           <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
                         )}
                         {AGENT_ICONS[it.tool] && !isIdle ? (
-                          <img src={AGENT_ICONS[it.tool]} alt={it.tool} className="w-5 h-5 flex-shrink-0" />
+                          <img src={AGENT_ICONS[it.tool]} alt={it.tool} className={`w-5 h-5 flex-shrink-0 ${AGENT_ICON_CLS}`} />
                         ) : (
                           <Terminal size={18} className="text-text-muted flex-shrink-0" />
                         )}

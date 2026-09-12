@@ -5,7 +5,7 @@ import { X, Terminal, Bot, Sparkles, Zap, Check, History, CornerDownLeft } from 
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
-import { agentIconUrl, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
 import { SHORTCUTS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import LocationPicker from "@/features/terminal/components/LocationPicker";
 import AgentHistoryPanel from "@/features/terminal/components/AgentHistoryPanel";
@@ -28,16 +28,15 @@ const TAB_DEFS = [
 function AgentAvatar({ agent }) {
   const [broken, setBroken] = useState(false);
   if (!agent) return <Terminal size={16} className="text-text-muted" />;
-  const agentKey = agent.isAiUi ? agent.aiEngine : agent.id;
   if (broken) return <Bot size={16} className="text-text-muted" />;
   return (
     <img
-      src={agentIconUrl(agentKey)}
+      src={agentIconUrl(agent.id)}
       alt=""
       width={16}
       height={16}
       onError={() => setBroken(true)}
-      className="w-4 h-4 object-contain"
+      className={`w-4 h-4 object-contain ${AGENT_ICON_CLS}`}
     />
   );
 }

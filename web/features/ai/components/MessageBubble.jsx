@@ -2,13 +2,14 @@
 
 import { memo, useState, useRef } from "react";
 import MarkdownBody from "@/shared/components/ui/MarkdownBody";
-import { Copy, Check, ExternalLink, Pencil, Loader2 } from "@/shared/components/ui/Icon";
+import { Copy, Check, ExternalLink, Pencil, Paperclip, Image as ImageIcon } from "@/shared/components/ui/Icon";
 import { AiDiffCard } from "./cards/AiDiffCard";
 import { AiToolCard } from "./cards/AiToolCard";
 import { AiBashCard } from "./cards/AiBashCard";
 import { AiPermissionCard } from "./cards/AiPermissionCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { AiPlanModeCard } from "./cards/AiPlanModeCard";
+import { AiAgentCard } from "./cards/AiAgentCard";
 import { AiThinkingBlock } from "./cards/AiThinkingBlock";
 import { getToolCategory } from "../registry";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -62,11 +63,7 @@ export const MessageBubble = memo(function MessageBubble({
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
-  const { id, role, content, thinking, diffs = [], tools = [], permission = null, isLive = false } = message;
-  // Same blank-run test AiThinkingBlock uses — a whitespace-only streak renders nothing,
-  // so it must not count as content when deciding whether the live spinner shows either.
-  const hasThinking = Boolean(thinking?.trim());
-
+  const { id, role, content, thinking, diffs = [], tools = [], permission = null, isLive = false, attachments = [] } = message;
   const handleCopyAll = () => {
     vibrate();
     if (!content) return;
@@ -107,8 +104,31 @@ export const MessageBubble = memo(function MessageBubble({
     }
     return (
       <div className="group/msg flex justify-end my-3">
-        <div className="max-w-[85%] sm:max-w-[75%] px-4 py-2.5 rounded-brand-lg bg-surface-2/70 text-text text-sm whitespace-pre-wrap break-words">
-          {content}
+        <div className="max-w-[85%] sm:max-w-[75%] flex flex-col items-end gap-1.5">
+          {/* Files the prompt carried — names only: the bytes stay on the host. The
+              icon is what says an image was sent, since there is no thumbnail. */}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {attachments.map((att, i) => (
+                <span
+                  key={`${att.filename}-${i}`}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                    att.isImage
+                      ? "border-brand-500/40 bg-brand-500/10 text-brand-500"
+                      : "border-border-subtle bg-surface-2 text-text-muted"
+                  }`}
+                >
+                  {att.isImage ? <ImageIcon size={10} /> : <Paperclip size={10} />}
+                  <span className="max-w-[160px] truncate">{att.filename}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {content && (
+            <div className="px-4 py-2.5 rounded-brand-lg bg-surface-2/70 text-text text-sm whitespace-pre-wrap break-words">
+              {content}
+            </div>
+          )}
         </div>
         <button
           type="button"
@@ -142,6 +162,9 @@ export const MessageBubble = memo(function MessageBubble({
         return <AiPlanModeCard key={t.id || idx} toolName={t.name} input={t.input} />;
       case "bash":
         return <AiBashCard key={t.id || idx} {...t} />;
+      // A sub-agent owns the tool calls it made — they render nested inside it.
+      case "agent":
+        return <AiAgentCard key={t.id || idx} {...t} engine={engine} workspacePath={workspacePath} />;
       // Answered question — the host's tool output is the only record of the choice.
       // While still running the pinned card above the composer owns the interaction.
       case "question":
@@ -240,12 +263,6 @@ export const MessageBubble = memo(function MessageBubble({
               </div>
             )}
           </div>
-        ) : isLive && !hasThinking && tools.length === 0 ? (
-          <div className="flex items-center gap-2 py-2 select-none">
-            <div className="w-7 h-7 rounded-full flex items-center justify-center bg-surface-2/70 border border-border-subtle/60 shadow-sm backdrop-blur-sm">
-              <Loader2 size={14} className="animate-spin text-brand-500" />
-            </div>
-          </div>
         ) : null}
 
         {/* Inline Permission or AskUserQuestion Card */}
@@ -277,8 +294,10 @@ export const MessageBubble = memo(function MessageBubble({
       prev.message.content === next.message.content &&
       prev.message.thinking === next.message.thinking &&
       prev.message.permission === next.message.permission &&
-      prev.message.tools?.length === next.message.tools?.length &&
-      prev.message.diffs?.length === next.message.diffs?.length &&
+      // Identity, not length: a tool result (or a sub-agent's nested calls) updates
+      // rows in place, and a length-only check left those updates unrendered.
+      prev.message.tools === next.message.tools &&
+      prev.message.diffs === next.message.diffs &&
       prev.onResolvePermission === next.onResolvePermission
     );
   }

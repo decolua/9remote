@@ -40,11 +40,20 @@ const DEFAULT_TOOL_MAP = Object.freeze({
   Glob: "search",
 });
 
+// Shared permission-mode icons, picked by strictness so every engine's mode list
+// reads the same: ask → edit freely → read-only → no gate. Names come from Icon.js.
+const PERMISSION_ICONS = Object.freeze({
+  ask: "Shield",
+  edit: "Pencil",
+  readonly: "Eye",
+  bypass: "Sparkles",
+});
+
 const DEFAULT_PERMISSION_MODES = Object.freeze([
-  { id: "default", label: "Default", desc: "Ask before executing commands & editing files" },
-  { id: "acceptEdits", label: "Accept Edits", desc: "Automatically approve file changes" },
-  { id: "plan", label: "Plan Mode", desc: "Explore and plan without modifying code" },
-  { id: "bypassPermissions", label: "Bypass (YOLO)", desc: "Bypass all confirmation prompts" },
+  { id: "default", label: "Default", desc: "Ask before executing commands & editing files", icon: PERMISSION_ICONS.ask },
+  { id: "acceptEdits", label: "Accept Edits", desc: "Automatically approve file changes", icon: PERMISSION_ICONS.edit },
+  { id: "plan", label: "Plan Mode", desc: "Explore and plan without modifying code", icon: PERMISSION_ICONS.readonly },
+  { id: "bypassPermissions", label: "Bypass (YOLO)", desc: "Bypass all confirmation prompts", icon: PERMISSION_ICONS.bypass },
 ]);
 
 const DEFAULT_MODELS = Object.freeze([
@@ -72,6 +81,16 @@ const EFFORT_OPTIONS = Object.freeze([
   { value: "medium", label: "medium", desc: "Balanced default" },
   { value: "high", label: "high", desc: "Deeper reasoning for hard tasks" },
 ]);
+
+// Codex's communication style (`-c personality=`). "none" leaves the model's own
+// instructions untouched; the other two are codex's built-in personas.
+export const PERSONALITY_OPTIONS = Object.freeze([
+  { value: "pragmatic", label: "Pragmatic", desc: "Concise, task-focused, and direct" },
+  { value: "friendly", label: "Friendly", desc: "Warm, collaborative, and helpful" },
+  { value: "none", label: "None", desc: "No personality instructions" },
+]);
+
+// Codex's persistent goal (its state DB, read back over the app-server).
 
 // Claude's --effort accepts two extra levels beyond the shared three.
 const CLAUDE_EFFORT_OPTIONS = Object.freeze([
@@ -118,6 +137,9 @@ export const DEFAULT_CONFIG = Object.freeze({
   tools: DEFAULT_TOOL_MAP,
   models: DEFAULT_MODELS,
   permissionModes: DEFAULT_PERMISSION_MODES,
+  // Permission mode a brand-new session starts in. The host applies it only when it
+  // has no snapshot for that session — reopening an old chat keeps the mode it ran with.
+  defaultMode: "bypassPermissions",
   features: DEFAULT_FEATURES,
   slashCommands: DEFAULT_SLASH_COMMANDS,
 });
@@ -128,13 +150,6 @@ const VARIANT_OPTIONS = Object.freeze([
   { value: "medium", label: "medium", desc: "Balanced default" },
   { value: "high", label: "high", desc: "Deeper reasoning" },
   { value: "max", label: "max", desc: "Maximum reasoning" },
-]);
-
-// Mirrors the codex adapter's mode → sandbox mapping.
-const SANDBOX_OPTIONS = Object.freeze([
-  { value: "read-only", label: "read-only", desc: "Never write anything" },
-  { value: "workspace-write", label: "workspace-write", desc: "Write inside the workspace only" },
-  { value: "danger-full-access", label: "danger-full-access", desc: "Write anywhere (unrestricted)" },
 ]);
 
 // ── Base class ──
@@ -175,6 +190,7 @@ export class AiEngine {
       tools: { ...DEFAULT_CONFIG.tools, ...(o.tools || {}) },
       models: o.models || DEFAULT_CONFIG.models,
       permissionModes: o.permissionModes || DEFAULT_CONFIG.permissionModes,
+      defaultMode: o.defaultMode || DEFAULT_CONFIG.defaultMode,
       features: { ...DEFAULT_CONFIG.features, ...(o.features || {}) },
       slashCommands: o.slashCommands || DEFAULT_CONFIG.slashCommands,
     });
@@ -297,31 +313,50 @@ export class CodexEngine extends AiEngine {
           read_file: "file",
           todo_list: "task",
           web_search: "search",
+          // Codex's sub-agents (collab_tool_call). `wait` is antigravity's own tool name
+          // too, so it is scoped here rather than in the shared defaults.
+          spawn_agent: "agent",
+          wait: "agent",
+          resume_agent: "agent",
+          send_input: "agent",
+          close_agent: "agent",
         },
+        // Model ids and their supported reasoning tiers come from the host's own codex
+        // catalog (`modelOptions` in the init event); these are only the fallback for a
+        // host whose catalog could not be read.
         models: [
-          { id: "o3", label: "o3", short: "o3" },
-          { id: "o4-mini", label: "o4-mini", short: "o4-mini" },
-          { id: "gpt-4.1", label: "GPT-4.1", short: "GPT-4.1" },
+          { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", short: "5.6 Luna" },
+          { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", short: "5.6 Sol" },
+          { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", short: "5.6 Terra" },
+          { id: "gpt-5.5", label: "GPT-5.5", short: "5.5" },
+          { id: "gpt-5.2", label: "GPT-5.2", short: "5.2" },
         ],
+        // Codex's own permission presets (the TUI's Read Only / Default / Full Access),
+        // plus Plan — a separate axis in the CLI (collaboration_mode) that proposes
+        // instead of executing. Its sandbox and approval policy are the adapter's.
         permissionModes: [
-          { id: "suggest", label: "Suggest", desc: "Suggest changes without applying" },
-          { id: "autoEdit", label: "Auto Edit", desc: "Automatically apply file edits" },
-          { id: "fullAuto", label: "Full Auto", desc: "Execute all actions without confirmation" },
+          { id: "plan", label: "Plan", desc: "Explore and propose without changing anything", icon: PERMISSION_ICONS.readonly },
+          { id: "readOnly", label: "Read Only", desc: "Read the workspace; ask before editing", icon: PERMISSION_ICONS.ask },
+          { id: "default", label: "Default", desc: "Read and write the workspace", icon: PERMISSION_ICONS.edit },
+          { id: "fullAccess", label: "Full Access", desc: "Edit anywhere and reach the network, no prompts", icon: PERMISSION_ICONS.bypass },
         ],
-        features: { thinking: false, planMode: false, tasks: false, skills: false, mcp: false, rewind: true },
+        defaultMode: "default",
+        features: { thinking: true, planMode: true, tasks: true, skills: true, mcp: true, rewind: true },
         slashCommands: [
-          { name: "/model", description: "Choose the Codex model", action: "modal:model" },
-          { name: "/effort", description: "Reasoning effort (model_reasoning_effort)", action: "submenu", optionKey: "effort", subOptions: EFFORT_OPTIONS },
-          { name: "/sandbox", description: "Sandbox policy for command execution", action: "submenu", optionKey: "sandbox", subOptions: SANDBOX_OPTIONS },
-          { name: "/skills", description: "Browse installed Codex skills", action: "modal:skills" },
-          { name: "/mcp", description: "View and manage Codex MCP servers", action: "modal:mcp" },
-          { name: "/config", description: "Configure Codex execution flags", action: "modal:config" },
-          // Verified: `codex exec "/review"` really runs a review of the repo.
-          { name: "/review", description: "Run a code review on this repository", action: "send" },
-          { name: "/resume", description: "Resume a previous Codex session", action: "modal:sessions" },
+          { name: "/model", description: "Choose the Codex model and reasoning effort", action: "modal:model" },
+          { name: "/plan", description: "Switch the session into plan mode", action: "setMode", mode: "plan" },
+          { name: "/permissions", description: "Set what Codex may do without asking", action: "modal:mode" },
+          { name: "/personality", description: "Assistant communication style", action: "submenu", optionKey: "personality", subOptions: PERSONALITY_OPTIONS },
+          { name: "/diff", description: "Show the working tree diff", action: "send" },
+          { name: "/review", description: "Review the working tree for bugs and missing tests", action: "send" },
+          { name: "/status", description: "Show workspace status and configuration", action: "send" },
           { name: "/clear", description: "Start a fresh Codex session", action: "clear" },
+          { name: "/mcp", description: "View and manage Codex MCP servers", action: "modal:mcp" },
+          { name: "/skills", description: "Browse installed Codex skills", action: "modal:skills" },
+          { name: "/config", description: "Configure Codex execution flags", action: "modal:config" },
           { name: "/doctor", description: "Diagnose the Codex installation", action: "modal:doctor" },
           { name: "/tasks", description: "View the task checklist", action: "modal:tasks" },
+          { name: "/resume", description: "Resume a previous Codex session", action: "modal:sessions" },
         ],
       },
     });
@@ -345,7 +380,6 @@ export class OpenCodeEngine extends AiEngine {
         icon: "Zap",
         color: "#8b5cf6",
       },
-      ui: { id: "opencode-ui", label: "OpenCode UI", short: "OpenCode UI" },
       overrides: {
         tools: {
           bash: "bash",
@@ -366,9 +400,10 @@ export class OpenCodeEngine extends AiEngine {
           { id: "gpt-4o", label: "GPT-4o", short: "GPT-4o" },
         ],
         permissionModes: [
-          { id: "default", label: "Default", desc: "Ask before executing" },
-          { id: "auto", label: "Auto", desc: "Auto-approve all actions" },
+          { id: "default", label: "Default", desc: "Ask before executing", icon: PERMISSION_ICONS.ask },
+          { id: "auto", label: "Auto", desc: "Auto-approve all actions", icon: PERMISSION_ICONS.bypass },
         ],
+        defaultMode: "auto",
         features: { thinking: true, planMode: false, tasks: false, skills: false, mcp: false, rewind: true },
         slashCommands: [
           { name: "/model", description: "Choose the OpenCode model", action: "modal:model" },
@@ -403,7 +438,6 @@ export class AntigravityEngine extends AiEngine {
         icon: "Globe",
         color: "#4285f4",
       },
-      ui: { id: "antigravity-ui", label: "Antigravity UI", short: "Antigravity UI" },
       overrides: {
         // `agy` tool names, as reported in step_update.tool_name.
         tools: {
@@ -486,9 +520,10 @@ export class AntigravityEngine extends AiEngine {
         // Headless mode cannot raise a permission prompt, so only the two extremes
         // exist: the CLI's own read-only plan mode, or bypassing the gate entirely.
         permissionModes: [
-          { id: "plan", label: "Plan", desc: "Explore and plan without modifying code" },
-          { id: "accept-edits", label: "Accept Edits", desc: "Auto-approve every tool the agent calls" },
+          { id: "plan", label: "Plan", desc: "Explore and plan without modifying code", icon: PERMISSION_ICONS.readonly },
+          { id: "accept-edits", label: "Accept Edits", desc: "Auto-approve every tool the agent calls", icon: PERMISSION_ICONS.edit },
         ],
+        defaultMode: "accept-edits",
         features: { thinking: true, planMode: true, tasks: false, skills: false, mcp: false, rewind: false },
         slashCommands: [
           { name: "/model", description: "Choose the Antigravity model", action: "modal:model" },
@@ -549,9 +584,10 @@ export function listEngines() {
   return listEngineInstances().map((e) => e.meta);
 }
 
-/** "New tab" entries for the AI UIs, derived from the engine descriptors. */
+/** "New tab" entries for the AI UIs, derived from the engine descriptors.
+ *  Engines with no `ui` block expose no chat-UI tab (temporarily hidden). */
 export function listAiUiOptions() {
-  return listEngineInstances().map((e) => ({ ...e.ui, isAiUi: true, aiEngine: e.id }));
+  return listEngineInstances().filter((e) => e.ui).map((e) => ({ ...e.ui, isAiUi: true, aiEngine: e.id }));
 }
 
 /** UI category for a tool name. */

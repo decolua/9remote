@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ChevronRight, History, ExternalLink, Trash2 } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
-import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useAgentSessions } from "../hooks/useAgentSessions";
 import { AGENT_HISTORY_MAX_HEIGHT } from "../constants/terminalConfig";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -133,9 +133,9 @@ export default function AgentHistoryPanel({
                     title={`${title} · ${row.agent}${openId ? ` · ${t("agentHistory.openNow")}` : ""}`}
                   >
                     <img
-                      src={agentIconUrl(row.agent)}
+                      src={agentIconUrl(row.mode === "ui" ? `${row.agent}-ui` : row.agent)}
                       alt={row.agent}
-                      className={`rounded-[2px] flex-shrink-0 ${asList ? "w-4 h-4" : "w-2.5 h-2.5"} ${openId ? "" : "opacity-70"}`}
+                      className={`flex-shrink-0 ${AGENT_ICON_CLS} ${asList ? "w-4 h-4" : "w-2.5 h-2.5"} ${openId ? "" : "opacity-70"}`}
                     />
                     <span className={`truncate flex-1 min-w-0 ${asList ? "text-sm" : "text-[11px]"}`} data-tip={title}>
                       {title}

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { PROVIDER_LABELS, quotaBarColor } from "../constants/quotaConfig";
-import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 
 // One segment per provider that has quota data. Click opens a popover with the
 // windows' reset times (and per-model buckets for Gemini) or the fetch error.
@@ -44,7 +44,7 @@ function ProviderLogo({ provider }) {
       width={14}
       height={14}
       onError={() => setBroken(true)}
-      className="w-3.5 h-3.5 object-contain"
+      className={`w-3.5 h-3.5 object-contain ${AGENT_ICON_CLS}`}
     />
   );
 }

@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { updateToolTree, settleRunningTools } from "@/features/ai/lib/toolTree";
 
 const INITIAL_SESSION_STATE = {
   messages: [],
@@ -15,6 +16,9 @@ const INITIAL_SESSION_STATE = {
   activeBlocked: null,
   permissionMode: "default",
   stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 },
+  // `stats` is the host's session-running total; this is what it read when the current
+  // turn started. The turn's own usage is the difference between the two.
+  turnBaseline: { inputTokens: 0, outputTokens: 0 },
   metadata: { model: "", skills: [], mcpServers: [] },
   tasks: [], // TaskCreate/TaskUpdate checklist
 };
@@ -82,10 +86,10 @@ export const useAiStore = create(
         });
       },
 
-      addUserMessage: (sessionId, text) => {
+      addUserMessage: (sessionId, text, attachments = null) => {
         set((state) => {
           const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
-          const userMsg = { id: `u-${Date.now()}`, role: "user", content: text };
+          const userMsg = { id: `u-${Date.now()}`, role: "user", content: text, attachments: attachments || [] };
           const assistantPlaceholder = {
             id: `a-${Date.now()}`,
             role: "assistant",
@@ -102,6 +106,12 @@ export const useAiStore = create(
                 ...curr,
                 isTurnRunning: true,
                 turnStartedAt: Date.now(),
+                // The counter on screen is this turn's own usage, so it starts at zero
+                // every prompt: remember where the session total stood.
+                turnBaseline: {
+                  inputTokens: curr.stats.inputTokens || 0,
+                  outputTokens: curr.stats.outputTokens || 0
+                },
                 activeBlocked: null,
                 messages: [...curr.messages, userMsg, assistantPlaceholder]
               }
@@ -250,6 +260,54 @@ export const useAiStore = create(
         });
       },
 
+      // A sub-agent's tool call: it belongs to the Agent/Task card named by
+      // parentToolUseId, not to a row of its own — the card counts them and lists
+      // them nested. Dropped when the parent is unknown (a reload that lost it).
+      nestTool: (sessionId, toolData) => {
+        set((state) => {
+          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const list = [...curr.messages];
+          for (let i = list.length - 1; i >= 0; i--) {
+            const msg = list[i];
+            const tools = updateToolTree(msg?.tools, (t) => t.id === toolData.parentToolUseId, (parent) => {
+              const children = [...(parent.children || [])];
+              const idx = children.findIndex((c) => c.id === toolData.id);
+              if (idx !== -1) children[idx] = { ...children[idx], ...toolData };
+              else children.push({ ...toolData, status: toolData.status || "running" });
+              return { ...parent, children };
+            });
+            if (!tools) continue;
+            list[i] = { ...msg, tools };
+            break;
+          }
+          return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages: list } } };
+        });
+      },
+
+      nestToolResult: (sessionId, resultData) => {
+        set((state) => {
+          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const list = [...curr.messages];
+          for (let i = list.length - 1; i >= 0; i--) {
+            const msg = list[i];
+            const tools = updateToolTree(
+              msg?.tools,
+              (t) => (t.children || []).some((c) => c.id === resultData.id),
+              (parent) => ({
+                ...parent,
+                children: parent.children.map((c) =>
+                  c.id === resultData.id ? { ...c, ...resultData, status: resultData.status || "done" } : c
+                )
+              })
+            );
+            if (!tools) continue;
+            list[i] = { ...msg, tools };
+            break;
+          }
+          return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages: list } } };
+        });
+      },
+
       setPermission: (sessionId, permission) => {
         set((state) => {
           const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
@@ -302,7 +360,15 @@ export const useAiStore = create(
       finishTurn: (sessionId, stats) => {
         set((state) => {
           const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
-          const messages = curr.messages.map((m, idx) => (idx === curr.messages.length - 1 ? { ...m, isLive: false } : m));
+          // Nothing is still running once the turn is over, whatever the log says —
+          // a tool whose result never arrived would otherwise spin on forever. Every
+          // message is swept, not just the last: a tool row stays in the segment it was
+          // announced in, and later text opens a new one.
+          const messages = curr.messages.map((m, idx) => ({
+            ...m,
+            ...(idx === curr.messages.length - 1 ? { isLive: false } : null),
+            ...(m.tools ? { tools: settleRunningTools(m.tools) } : null),
+          }));
           return {
             bySession: {
               ...state.bySession,
@@ -337,7 +403,8 @@ export const useAiStore = create(
                 turnStartedAt: 0,
                 activePermission: null,
                 activeBlocked: null,
-                stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 }
+                stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 },
+                turnBaseline: { inputTokens: 0, outputTokens: 0 }
               }
             }
           };
@@ -417,6 +484,11 @@ export const useAiStore = create(
                 isTurnRunning,
                 // Replay has no start time — a turn rejoined mid-flight counts from now.
                 turnStartedAt: isTurnRunning ? Date.now() : 0,
+                // No baseline from the replay either: a mid-turn rejoin shows the session
+                // total rather than pretending to know where this turn began.
+                turnBaseline: isTurnRunning
+                  ? { inputTokens: 0, outputTokens: 0 }
+                  : { inputTokens: stats?.inputTokens || 0, outputTokens: stats?.outputTokens || 0 },
                 metadata: { ...curr.metadata, ...metadata },
                 stats: stats ? { ...curr.stats, ...stats } : curr.stats,
                 // Authoritative from the replay: a blocked card with no matching event

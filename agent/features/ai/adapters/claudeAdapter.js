@@ -134,6 +134,11 @@ export class ClaudeAdapter {
   }
 
   handleMessage(data) {
+    // A sub-agent's events carry the id of the Agent/Task call that spawned them.
+    // Pass it through so the UI nests them under that card instead of showing one
+    // flat timeline with no way to tell whose tool call is whose.
+    const parentToolUseId = data.parent_tool_use_id || "";
+
     if (data.type === "system" && data.subtype === "init") {
       this.metadata = {
         sessionId: data.session_id || "",
@@ -178,6 +183,18 @@ export class ClaudeAdapter {
       if (data.total_cost_usd) {
         this.stats.totalCost += Number(data.total_cost_usd) || 0;
       }
+      // modelUsage carries the running session totals, already summed by the CLI over
+      // every model it used — assign, never add, or each turn re-counts the ones before it.
+      if (data.modelUsage) {
+        let inputTokens = 0;
+        let outputTokens = 0;
+        for (const usage of Object.values(data.modelUsage)) {
+          inputTokens += usage?.inputTokens || 0;
+          outputTokens += usage?.outputTokens || 0;
+        }
+        this.stats.inputTokens = inputTokens;
+        this.stats.outputTokens = outputTokens;
+      }
       if (data.stats) {
         this.stats = { ...this.stats, ...data.stats };
       }
@@ -192,21 +209,18 @@ export class ClaudeAdapter {
       return;
     }
 
-    // Assistant message: Tool calls, text fallback, and usage
+    // Assistant message: Tool calls and text fallback. Its `usage` is zeroed in
+    // stream-json output — the real counts only arrive on `result` (see modelUsage above).
     if (data.type === "assistant" && data.message) {
       const msg = data.message;
-      if (msg.usage) {
-        this.stats.inputTokens += msg.usage.input_tokens || 0;
-        this.stats.outputTokens += msg.usage.output_tokens || 0;
-      }
-
       const contents = msg.content || [];
       for (const item of contents) {
         if (item.type === "tool_use") {
           this.onEvent?.("tool_start", {
             id: item.id,
             name: item.name,
-            input: item.input
+            input: item.input,
+            parentToolUseId
           });
         } else if (item.type === "text" && item.text) {
           // Fallback only if text was not streamed already
@@ -234,7 +248,8 @@ export class ClaudeAdapter {
             id: item.tool_use_id,
             error: isError ? output : "",
             output: !isError ? output : "",
-            status: isError ? "error" : "done"
+            status: isError ? "error" : "done",
+            parentToolUseId
           });
         }
       }

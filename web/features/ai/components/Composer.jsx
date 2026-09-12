@@ -7,7 +7,7 @@ import { getEngineConfig } from "../registry";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
-import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import { useI18n } from "@/shared/i18n";
@@ -30,7 +30,8 @@ export const Composer = memo(function Composer({
   onActivate,
   fileBus = null,
   workspacePath = "",
-  model: propModel = ""
+  model: propModel = "",
+  modalOpen = false
 }) {
   const { t, locale } = useI18n();
   const engineConfig = getEngineConfig(engine);
@@ -105,12 +106,13 @@ export const Composer = memo(function Composer({
   const justSentRef = useRef(0);
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
 
-  // Auto-focus only when this specific pane is active/focused and not busy running
+  // Auto-focus only when this specific pane is active/focused and not busy running.
+  // Never while a modal is open — it would drag focus back out of the modal panel.
   useEffect(() => {
-    if (isFocused && !isTurnRunning) {
+    if (isFocused && !isTurnRunning && !modalOpen) {
       textareaRef.current?.focus();
     }
-  }, [isFocused, isTurnRunning]);
+  }, [isFocused, isTurnRunning, modalOpen]);
 
   // Auto-close the model popover on outside click
   useEffect(() => {
@@ -322,6 +324,13 @@ export const Composer = memo(function Composer({
       setText("");
       return;
     }
+    if (kind === "setMode") {
+      // A command that switches the session's mode (codex `/plan`); the mode lives in
+      // the engine's permission list, so this never needs an engine-specific branch.
+      onModeChange?.(item.mode);
+      setText("");
+      return;
+    }
     if (kind === "send" || action === "send") {
       // CLI-owned command (e.g. /compact, /review). Mid-turn it would be dropped by
       // the running guard, so queue it the same way a normal prompt is queued.
@@ -336,7 +345,7 @@ export const Composer = memo(function Composer({
     }
     // Unknown/local action → leave the token in the box for the user to complete.
     textareaRef.current?.focus();
-  }, [onOpenModal, onSend, isTurnRunning]);
+  }, [onOpenModal, onSend, isTurnRunning, onModeChange]);
 
   const selectMenuItem = useCallback((item) => {
     vibrate();
@@ -345,8 +354,14 @@ export const Composer = memo(function Composer({
 
     const token = lastWordMatch[1];
     const prefix = text.slice(0, text.length - token.length);
+    // A modal command is an action, not text: writing the token into the box first
+    // would flash it and leave it behind when the modal closes.
+    const opensModal = menuType === "/" && item.action?.startsWith("modal:");
     const replacement = menuType === "@" ? `@${item.name} ` : `${item.name} `;
-    setText(`${prefix}${replacement}`);
+    // A submenu keeps its token in the box: the effect above holds the submenu open
+    // only while the text still ends in that command, so clearing it would close the
+    // list the user just opened. The text is cleared when an option is picked.
+    setText(opensModal ? "" : `${prefix}${replacement}`);
     setMenuOpen(false);
 
     if (menuType !== "/") {
@@ -372,12 +387,20 @@ export const Composer = memo(function Composer({
     setSubmenuCmd(null);
     setMenuOpen(false);
     setText("");
+    textareaRef.current?.focus();
   }, [submenuCmd, onOptionChange]);
 
   const handleKeyDown = (e) => {
+    // A modal above owns the keyboard: the composer keeps focus underneath, so an
+    // unguarded Escape would stop the turn and Enter would send a prompt.
+    if (modalOpen) return;
+
     // Shift+Tab: cycle permission modes (matching Claude Code CLI)
     if (e.shiftKey && e.key === "Tab") {
       e.preventDefault();
+      // The pane's container handler is a fallback for focus outside the composer;
+      // without this the event bubbles and the mode advances twice per press.
+      e.stopPropagation();
       vibrate();
       const modes = CLAUDE_MODES || [];
       if (modes.length > 0) {
@@ -691,7 +714,7 @@ export const Composer = memo(function Composer({
                 className="px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
                 title="Select model (/model)"
               >
-                <img src={agentIconUrl(engine)} alt="" className="w-3.5 h-3.5 object-contain shrink-0" />
+                <img src={agentIconUrl(`${engine}-ui`)} alt="" className={`w-3.5 h-3.5 object-contain shrink-0 ${AGENT_ICON_CLS}`} />
                 <span className="truncate max-w-[170px] sm:max-w-[240px]">{displayModel}</span>
                 <ChevronUp size={11} className={`text-text-muted transition-transform ${modelMenuOpen ? "" : "rotate-180"}`} />
               </button>

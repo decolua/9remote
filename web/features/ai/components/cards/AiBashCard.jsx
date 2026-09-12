@@ -3,6 +3,7 @@
 import { memo, useState, useEffect } from "react";
 import { Terminal, ChevronDown, ChevronRight, Copy, Check, AlertCircle, Loader2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { shellIdFromResult } from "../../lib/shellId";
 
 export const AiBashCard = memo(function AiBashCard({
   id = "",
@@ -26,7 +27,17 @@ export const AiBashCard = memo(function AiBashCard({
   const description = input?.description || "";
   const rawContent = error || output || "";
   const content = typeof rawContent === "string" ? rawContent : rawContent ? JSON.stringify(rawContent, null, 2) : "";
-  const lines = content ? content.split("\n") : [];
+
+  // A background shell's tool_result arrives the moment the shell is spawned —
+  // "Command running in background with ID: b367hw0hy" — so the row would read ✓
+  // while the command is still going. Either half of the evidence can be missing:
+  // the flag on a row that just started, the id on a row whose result already merged
+  // in and overwrote the input.
+  const shellId = shellIdFromResult(output);
+  const isBackground = Boolean(input?.run_in_background || shellId);
+  // It stays live on the strength of that report alone — the host never learns the
+  // shell's own exit code, and a ✓ here would claim it did.
+  const showRunning = isRunning || isBackground;
 
   const handleCopyCmd = (e) => {
     e.stopPropagation();
@@ -54,7 +65,7 @@ export const AiBashCard = memo(function AiBashCard({
         className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group/tool"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          {isRunning ? (
+          {showRunning ? (
             <Loader2 size={13} className="animate-spin text-accent shrink-0" />
           ) : isError ? (
             <AlertCircle size={13} className="text-danger shrink-0" />
@@ -65,6 +76,14 @@ export const AiBashCard = memo(function AiBashCard({
           <span className="font-mono text-[11px] text-text truncate min-w-0" title={command}>
             {command || name}
           </span>
+          {isBackground && (
+            <span
+              className="font-mono text-[10px] font-semibold text-warning shrink-0 px-1 py-0.5 rounded bg-warning/10"
+              title={shellId ? `Background shell ${shellId}` : "Running in the background"}
+            >
+              BG{shellId ? ` ${shellId}` : ""}
+            </span>
+          )}
           {content && (
             <span className="text-text-muted/50 shrink-0">
               {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}

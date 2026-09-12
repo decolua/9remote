@@ -18,7 +18,7 @@ import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
 import LanguageModal from "@/shared/components/ui/LanguageModal";
 import { SETTINGS_CATEGORIES } from "@/features/terminal/constants/settingsCategories";
 import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
-import { agentIconUrl } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
@@ -320,7 +320,7 @@ export default function SettingsDialog({
                     <div className="flex flex-wrap gap-1.5">
                       {mcpClients.map((id) => (
                         <span key={id} className="flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-brand bg-surface-2 text-[12px] text-text">
-                          <img src={agentIconUrl(id)} alt="" className="w-3.5 h-3.5 rounded-[2px]" />
+                          <img src={agentIconUrl(id)} alt="" className={`w-3.5 h-3.5 ${AGENT_ICON_CLS}`} />
                           {AGENT_LABELS[id] || id}
                         </span>
                       ))}
