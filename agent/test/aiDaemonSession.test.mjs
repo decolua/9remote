@@ -246,7 +246,7 @@ test("codex and opencode resume rebuild their history from the CLI store", () =>
 
 test("codex resume does not pass -s, which `codex exec resume` rejects", () => {
   const CODEX = fs.readFileSync(path.join(root, "agent/features/ai/adapters/codexAdapter.js"), "utf8");
-  const resumeBranch = CODEX.slice(CODEX.indexOf('args.push("resume", "--json")'), CODEX.indexOf("} else {"));
+  const resumeBranch = CODEX.slice(CODEX.indexOf('args.push("resume", "--json")'), CODEX.indexOf("args.push(this.activeThreadId, prompt)"));
   assert.doesNotMatch(resumeBranch, /args\.push\("-s"/);
   // The sandbox policy goes through a config override on the resume path instead
   assert.match(resumeBranch, /-c", `sandbox_mode=/);
@@ -307,7 +307,7 @@ test("a staged attachment reaches the CLI as a content block, not a bare path", 
   assert.match(ATTACH, /type: "image", source: \{ type: "base64", media_type: a\.mediaType, data: a\.data \}/);
   // Anything else is written to disk and named in the text.
   assert.match(ATTACH, /return \{ kind: "file", path: filePath \}/);
-  assert.match(ATTACH, /const body = \[paths, text\]\.filter\(Boolean\)\.join\(" "\);/);
+  assert.match(ATTACH, /return \{ type: "user", message: \{ role: "user", content \} \};/);
   // A client-supplied filename never steers the write path.
   assert.match(ATTACH, /replace\(\/\[\^a-zA-Z0-9\._-\]\/g, "_"\)/);
   // The daemon must have the module in its runtime copy, or the daemon dies at import.

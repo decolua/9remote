@@ -12,7 +12,7 @@ const test = (name, fn) => {
   catch (err) { fail++; console.error(`  ✗ ${name}\n    ${err.message}`); }
 };
 
-const { stageAttachment, buildAttachedMessage } = await import("../features/terminal/aiAttachment.js");
+const { stageAttachment, buildAttachedMessage, buildAttachedPrompt, attachmentMeta } = await import("../features/terminal/aiAttachment.js");
 const { UPLOAD_DIR } = await import("../features/terminal/ptyHelper.js");
 
 console.log("Running AI attachment tests...");
@@ -71,6 +71,37 @@ test("an image with no caption still produces a message", () => {
 test("no staged files yields null so the caller keeps the plain text shape", () => {
   assert.equal(buildAttachedMessage("hello", null), null);
   assert.equal(buildAttachedMessage("hello", []), null);
+});
+
+test("a staged image carries its path for engines that take images as files", () => {
+  const img = stageAttachment({ filename: "shot.png", type: "image/png", content: PNG_B64 });
+  assert.ok(fs.existsSync(img.path), "codex -i / opencode --file need a real file on disk");
+  fs.rmSync(img.path, { force: true });
+});
+
+test("the plain-text prompt appends file paths and leaves images out", () => {
+  const img = stageAttachment({ filename: "a.png", type: "image/png", content: PNG_B64 });
+  const doc = stageAttachment({ filename: "b.txt", type: "text/plain", content: "" });
+  const text = buildAttachedPrompt("look", [doc, img]);
+
+  assert.ok(text.includes(doc.path));
+  assert.ok(!text.includes(img.path), "an engine that can block-send an image does not need its path");
+  assert.equal(buildAttachedPrompt("look", [img]), "look");
+  assert.equal(buildAttachedPrompt("", [doc]), doc.path);
+  assert.equal(buildAttachedPrompt("just text", null), "just text");
+  // An engine with no image channel at all (agy) reads the picture from its path —
+  // without this an image-only prompt reached it as an empty prompt.
+  assert.equal(buildAttachedPrompt("", [img], true), img.path);
+  assert.ok(buildAttachedPrompt("look", [doc, img], true).includes(img.path));
+  fs.rmSync(doc.path, { force: true });
+  fs.rmSync(img.path, { force: true });
+});
+
+test("the echoed metadata never carries the base64 payload", () => {
+  const meta = attachmentMeta([{ filename: "a.png", type: "image/png", content: PNG_B64 }]);
+  assert.deepEqual(meta, [{ filename: "a.png", isImage: true }]);
+  assert.equal(attachmentMeta([]), null);
+  assert.equal(attachmentMeta(null), null);
 });
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);

@@ -5,7 +5,7 @@
 // Run: node --test agent/test/sitesHostLocal.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isSitesHost, routeSitesLocalRequest, appOriginFor, SITES_ALLOWED_PATHS } from "../lib/sitesHost.js";
+import { isSitesHost, routeSitesLocalRequest, appOriginsFor, SITES_ALLOWED_PATHS } from "../lib/sitesHost.js";
 
 const served = (pathname, hostname = "sites.localhost:2208") =>
   routeSitesLocalRequest(pathname, hostname)?.kind || null;
@@ -71,22 +71,25 @@ test("every site response asks for its own agent cluster", () => {
   }
 });
 
-test("a site is framable by the app above it, and by no wildcard", () => {
+test("a site is framable by every loopback name of the app, and by no wildcard", () => {
   for (const p of ["/", "/proxy.html", "/browse/3000/"]) {
     const csp = routeSitesLocalRequest(p, "sites.localhost:2208").headers["Content-Security-Policy"];
-    assert.equal(csp, "frame-ancestors 'self' http://localhost:2208", `wrong on ${p}`);
+    // The app may have been opened on either loopback name; both must be named
+    // or one of them renders an empty frame.
+    assert.equal(csp, "frame-ancestors 'self' http://localhost:2208 http://127.0.0.1:2208", `wrong on ${p}`);
     assert.ok(!csp.includes("*"), `wildcard on ${p}`);
   }
 });
 
-test("the app origin keeps the port it was asked on", () => {
-  // The agent may be reached on a port of its own choosing; naming the default
-  // 2208 would leave a shell on any other port framed by nobody.
-  assert.equal(appOriginFor("sites.localhost:3000"), "http://localhost:3000");
-  assert.equal(appOriginFor("sites.localhost"), "http://localhost:2208");
-  assert.equal(appOriginFor("sites.127.0.0.1:2208"), "http://127.0.0.1:2208");
+test("the app origins keep the port the shell was asked on", () => {
+  // The agent may be reached on any port; naming the default 2208 would leave
+  // a shell on another port framed by nobody.
+  assert.deepEqual(appOriginsFor("sites.localhost:3000"), ["http://localhost:3000", "http://127.0.0.1:3000"]);
+  assert.deepEqual(appOriginsFor("sites.localhost"), ["http://localhost:2208", "http://127.0.0.1:2208"]);
+  // A host with only one spelling names only that one.
+  assert.deepEqual(appOriginsFor("sites.127.0.0.1:2208"), ["http://127.0.0.1:2208"]);
   // Unknown host: no app origin, so nothing but the shell itself may frame it.
-  assert.equal(appOriginFor("sites.evil.tld"), "");
+  assert.deepEqual(appOriginsFor("sites.evil.tld"), []);
 });
 
 test("a malformed host header is not the sites host", () => {

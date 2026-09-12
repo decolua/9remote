@@ -16,7 +16,7 @@ import { resolveShell, buildShellArgs, DAEMON_VERSION } from "./constants.js";
 import { takeBufferTail, takeBufferRange, bufferTotal } from "./bufferSlice.js";
 import { aiTailStart, aiHistoryChunk } from "./aiEventSlice.js";
 import { recoverFromClaudeTranscript, CLAUDE_SESSION_ID_RE } from "./claudeTranscript.js";
-import { stageAttachment, buildAttachedMessage } from "./aiAttachment.js";
+import { stageAttachment, buildAttachedMessage, attachmentMeta } from "./aiAttachment.js";
 
 // Socket path
 const SOCKET_DIR = path.join(os.homedir(), ".9remote");
@@ -389,7 +389,9 @@ function createAiSession(sessionId, { engine, cwd, options = {} }) {
     // Continues past the loaded log so replayed seqs stay unique per session
     nextSeq: (snap?.events?.reduce((max, e) => Math.max(max, e.seq || 0), 0) || 0) + 1,
     isTurnRunning: false,
-    permissionMode: options.mode || snap?.permissionMode || "default",
+    // A restored snapshot keeps the mode that chat ran with; only a session the daemon
+    // has never seen takes the client's default (a new AI UI tab starts fully permitted).
+    permissionMode: snap?.permissionMode || options.mode || options.defaultMode || "default",
     model: options.model || snap?.model || "",
     // Reasoning effort (--effort); empty means the CLI default.
     effort: options.effort || snap?.effort || "",
@@ -558,6 +560,18 @@ function handleClaudeLine(s, data) {
   if (data.type === "result") {
     s.isTurnRunning = false;
     if (data.total_cost_usd) s.stats.totalCost += Number(data.total_cost_usd) || 0;
+    // modelUsage carries the running session totals, already summed by the CLI over
+    // every model it used — assign, never add, or each turn re-counts the ones before it.
+    if (data.modelUsage) {
+      let inputTokens = 0;
+      let outputTokens = 0;
+      for (const usage of Object.values(data.modelUsage)) {
+        inputTokens += usage?.inputTokens || 0;
+        outputTokens += usage?.outputTokens || 0;
+      }
+      s.stats.inputTokens = inputTokens;
+      s.stats.outputTokens = outputTokens;
+    }
     // Slash-command answers (/cost, /compact...) arrive only here — emit as text
     if (!s.turnStreamedText && typeof data.result === "string" && data.result.trim()) {
       aiEmit(s, "delta", { text: data.result });
@@ -574,12 +588,10 @@ function handleClaudeLine(s, data) {
     return;
   }
 
+  // The assistant message's own `usage` is zeroed in stream-json output — the real
+  // counts only arrive on `result` (see modelUsage above).
   if (data.type === "assistant" && data.message) {
     const msg = data.message;
-    if (msg.usage) {
-      s.stats.inputTokens += msg.usage.input_tokens || 0;
-      s.stats.outputTokens += msg.usage.output_tokens || 0;
-    }
     for (const item of msg.content || []) {
       if (item.type === "tool_use") {
         aiEmit(s, "tool_start", { id: item.id, name: item.name, input: item.input });
@@ -679,7 +691,7 @@ function aiPrompt(sessionId, message, cwd = null, attachments = null) {
   s.isTurnRunning = true;
   s.turnStreamedText = "";
   // The daemon echoes the user message to every client (single source of truth)
-  aiEmit(s, "user_message", { text: message });
+  aiEmit(s, "user_message", { text: message, attachments: attachmentMeta(attachments) });
   try {
     // An attached message carries image blocks and/or file paths; plain text falls
     // back to the ordinary shape.
