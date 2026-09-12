@@ -30,9 +30,16 @@ export const TYPE_TO_STATE = Object.freeze({
   idle: STATES.IDLE,
 });
 
+// How recent a PTY output burst counts as "this terminal is still producing". Read by
+// the AI turn watchdog: a chat CLI that has gone quiet while the terminal it shares a
+// session with is still streaming is working (a long build), not stalled.
+export const OUTPUT_LIVE_WINDOW_MS = 15_000;
+
 // sessionStatus: Map<sessionId, { state, tool, since, message? }>
 const sessionStatus = new Map();
 const clearCallbacks = new Set();
+// sessionId -> timestamp of the last live (non-replay) PTY output.
+const lastOutputAt = new Map();
 
 // The agent conversation each 9Remote terminal is running: sessionId ->
 // { agent, id, source }. Kept apart from the state map so the reaper can't clear
@@ -275,6 +282,17 @@ export function forgetSession(sessionId) {
   if (!sessionId) return;
   clearSessionAgent(sessionId);
   sessionStatus.delete(sessionId);
+  lastOutputAt.delete(sessionId);
+}
+
+/** Live PTY output arrived — stamp it so the AI watchdog can tell streaming from stalled. */
+export function touchOutput(sessionId) {
+  if (sessionId) lastOutputAt.set(sessionId, Date.now());
+}
+
+/** When this terminal last produced output (0 = never / unknown). */
+export function getLastOutputAt(sessionId) {
+  return lastOutputAt.get(sessionId) || 0;
 }
 
 // The last line the user typed into a running TUI agent — the closest thing to

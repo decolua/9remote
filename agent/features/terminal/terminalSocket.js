@@ -18,7 +18,7 @@ import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { isMcpEnabled, syncMcpConfig, MCP_CLIENTS } from "../../mcp/mcpConfig.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
-import { touchWorking, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, confirmShellClear, isPendingShellClear, applyEvent } from "./statusManager.js";
+import { touchWorking, touchOutput, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, confirmShellClear, isPendingShellClear, applyEvent } from "./statusManager.js";
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
@@ -287,8 +287,9 @@ export function setupTerminalSocket(io, apiKey) {
   // Forward daemon events to all socket clients
   if (PERSISTENCE_MODE === "daemon") {
     daemonClient.on("output", ({ sessionId, enc, data, replay }) => {
-      // Live (non-replay) output = agent still producing → keep working status alive.
-      if (replay !== true) touchWorking(sessionId);
+      // Live (non-replay) output = agent still producing → keep working status alive,
+      // and stamp it for the AI watchdog (a chat turn riding on a busy terminal).
+      if (replay !== true) { touchWorking(sessionId); touchOutput(sessionId); }
       // Decoded once at ingest — from here to the wire the canonical form is a
       // Buffer. Peers that never announced caps.binOut are downgraded to b64 at
       // the send door (PM), not here: emit-time does not know who is listening.
