@@ -44,7 +44,9 @@ export const Composer = memo(function Composer({
   const hostModels = useAiStore((s) => s.bySession[sessionId]?.metadata?.modelOptions);
   const MODELS = hostModels?.length ? hostModels : engineConfig.models;
   const storeSkills = useAiStore((s) => s.bySession[sessionId]?.metadata?.skills) || EMPTY_ARRAY;
-  const permissionMode = useAiStore((s) => s.bySession[sessionId]?.permissionMode || "default");
+  const storeMode = useAiStore((s) => s.bySession[sessionId]?.permissionMode);
+  // Before the host answers, the engine's own defaultMode is the truth.
+  const permissionMode = storeMode || engineConfig.defaultMode;
 
   const isTurnRunning = storeTurnRunning !== undefined ? storeTurnRunning : propTurnRunning;
   const rawModel = storeModel !== undefined ? storeModel : propModel;

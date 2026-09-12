@@ -28,7 +28,11 @@ export const AiStatusBar = memo(function AiStatusBar({
   const storeTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const metadata = useAiStore((s) => s.bySession[sessionId]?.metadata);
   const goal = metadata?.goal;
-  const permissionMode = useAiStore((s) => s.bySession[sessionId]?.permissionMode || "default");
+  const modes = getEngineConfig(engine).permissionModes || [];
+  // Before the host answers, the engine's own default is the truth — not "default",
+  // which is a real mode id on only some engines.
+  const storedMode = useAiStore((s) => s.bySession[sessionId]?.permissionMode);
+  const permissionMode = storedMode || getEngineConfig(engine).defaultMode;
 
   const isTurnRunning = storeTurnRunning !== undefined ? storeTurnRunning : propTurnRunning;
   const skillsCount = metadata?.skills?.length || 0;
@@ -45,7 +49,6 @@ export const AiStatusBar = memo(function AiStatusBar({
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  const modes = getEngineConfig(engine).permissionModes || [];
   const activeMode = modes.find((m) => m.id === permissionMode) || modes[0];
 
   return (

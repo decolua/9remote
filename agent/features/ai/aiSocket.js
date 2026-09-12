@@ -6,7 +6,7 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
-import { listModelOptions, listCodexModelOptions } from "./models.js";
+import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, resolveDefaultModel } from "./models.js";
 import { runEngineDoctor } from "./aiSession.js";
 import { renameSessionTitle, broadcastAiStatus } from "../terminal/terminalSocket.js";
 import { getConversation, getSessionAgent, setConversationId } from "../terminal/statusManager.js";
@@ -32,11 +32,19 @@ function mirrorAiStatus(sessionId, event, engine) {
 }
 
 // Model ids the host's own CLI offers, per engine. Null means the engine's registry
-// list is authoritative (opencode/antigravity ship their own catalogs).
+// list is authoritative (antigravity ships its own catalog).
 function listModelOptionsFor(engine) {
   if (engine === "claude") return listModelOptions();
   if (engine === "codex") return listCodexModelOptions();
+  if (engine === "opencode") return listOpencodeModelOptions();
   return null;
+}
+
+// The model a fresh chat runs with, so the picker shows the CLI's own default before
+// the first turn rather than an empty "Model". The engine's fallback is only a last
+// resort: a host-specific id must never be replaced by a canned one.
+function defaultModelFor(engine) {
+  return resolveDefaultModel(engine) || "";
 }
 
 // A chat UI session runs its CLI without the PTY's session env, so no hook ever
@@ -116,7 +124,10 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         // Host-specific model ids — each CLI is asked for its own catalog, since the
         // ids only exist on the machine whose config points at a gateway.
         const modelOptions = listModelOptionsFor(engine);
-        broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event: "init", data: { skills, mcpServers, modelOptions } });
+        // The session's own model, not the host default: this init also fires for a
+        // chat that is merely being reopened, and a picked model must survive that.
+        const model = res.session?.model || defaultModelFor(engine);
+        broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event: "init", data: { skills, mcpServers, modelOptions, model } });
         // Full state back so any client (web/agent UI/mobile) hydrates the same history
         cb?.({ ok: true, sessionId, engine, cwd, session: res.session });
         return;
@@ -130,7 +141,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       // Already-hydrated sessions skip the append: this runs on every connect (F5,
       // extra tab), and a log that grew an `init` per connect would never stop growing.
       // The event is still broadcast so the joining client sees the current metadata.
-      session.emitNormalized("init", { skills, mcpServers, modelOptions }, !session.hasRecordedInit());
+      session.emitNormalized("init", { skills, mcpServers, modelOptions, model: session.model || defaultModelFor(engine) }, !session.hasRecordedInit());
       cb?.({
         ok: true,
         sessionId: session.id,

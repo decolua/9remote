@@ -14,7 +14,10 @@ const INITIAL_SESSION_STATE = {
   // A blocked action (sandbox/permission refusal) the CLI reported. Unlike
   // activePermission this has nothing to resolve — it offers a mode escalation.
   activeBlocked: null,
-  permissionMode: "default",
+  // null = the host has not told us yet. The engine's own defaultMode is the fallback
+  // at render time; a hardcoded "default" here would show the wrong mode on every
+  // engine whose default is not "default" (codex, opencode).
+  permissionMode: null,
   stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 },
   // `stats` is the host's session-running total; this is what it read when the current
   // turn started. The turn's own usage is the difference between the two.
@@ -534,7 +537,9 @@ export const useAiStore = create(
           Object.entries(state?.bySession || {}).map(([sid, sess]) => [
             sid,
             {
-              permissionMode: sess?.permissionMode || "default",
+              // null is "not chosen yet" — persisting a concrete "default" here would
+              // outlive the reload and pin every engine to the wrong mode.
+              permissionMode: sess?.permissionMode ?? null,
               metadata: { model: sess?.metadata?.model || "" }
             }
           ])

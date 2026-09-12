@@ -325,9 +325,10 @@ export class CodexEngine extends AiEngine {
         // catalog (`modelOptions` in the init event); these are only the fallback for a
         // host whose catalog could not be read.
         models: [
-          { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", short: "5.6 Luna" },
+          { id: "gpt-6-astra", label: "GPT-6-Astra", short: "6 Astra" },
           { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", short: "5.6 Sol" },
           { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", short: "5.6 Terra" },
+          { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", short: "5.6 Luna" },
           { id: "gpt-5.5", label: "GPT-5.5", short: "5.5" },
           { id: "gpt-5.2", label: "GPT-5.2", short: "5.2" },
         ],
@@ -340,7 +341,7 @@ export class CodexEngine extends AiEngine {
           { id: "default", label: "Default", desc: "Read and write the workspace", icon: PERMISSION_ICONS.edit },
           { id: "fullAccess", label: "Full Access", desc: "Edit anywhere and reach the network, no prompts", icon: PERMISSION_ICONS.bypass },
         ],
-        defaultMode: "default",
+        defaultMode: "fullAccess",
         features: { thinking: true, planMode: true, tasks: true, skills: true, mcp: true, rewind: true },
         slashCommands: [
           { name: "/model", description: "Choose the Codex model and reasoning effort", action: "modal:model" },
@@ -395,10 +396,10 @@ export class OpenCodeEngine extends AiEngine {
           list: "search",
           view: "file",
         },
-        models: [
-          { id: "claude-3-7-sonnet-latest", label: "Sonnet 3.7", short: "Sonnet 3.7" },
-          { id: "gpt-4o", label: "GPT-4o", short: "GPT-4o" },
-        ],
+        features: { thinking: true, planMode: false, tasks: false, skills: false, mcp: false, rewind: true },
+        // Model ids come from the host's own `opencode models` catalog (`modelOptions`
+        // in the init event); opencode ships no fixed list to fall back on.
+        models: [],
         permissionModes: [
           { id: "default", label: "Default", desc: "Ask before executing", icon: PERMISSION_ICONS.ask },
           { id: "auto", label: "Auto", desc: "Auto-approve all actions", icon: PERMISSION_ICONS.bypass },

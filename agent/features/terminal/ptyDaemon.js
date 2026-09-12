@@ -17,6 +17,7 @@ import { takeBufferTail, takeBufferRange, bufferTotal } from "./bufferSlice.js";
 import { aiTailStart, aiHistoryChunk } from "./aiEventSlice.js";
 import { recoverFromClaudeTranscript, CLAUDE_SESSION_ID_RE } from "./claudeTranscript.js";
 import { stageAttachment, buildAttachedMessage, attachmentMeta } from "./aiAttachment.js";
+import { resolveDefaultModel } from "../ai/models.js";
 
 // Socket path
 const SOCKET_DIR = path.join(os.homedir(), ".9remote");
@@ -392,7 +393,7 @@ function createAiSession(sessionId, { engine, cwd, options = {} }) {
     // A restored snapshot keeps the mode that chat ran with; only a session the daemon
     // has never seen takes the client's default (a new AI UI tab starts fully permitted).
     permissionMode: snap?.permissionMode || options.mode || options.defaultMode || "default",
-    model: options.model || snap?.model || "",
+    model: options.model || snap?.model || resolveDefaultModel("claude"),
     // Reasoning effort (--effort); empty means the CLI default.
     effort: options.effort || snap?.effort || "",
     cliSessionId,

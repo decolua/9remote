@@ -30,7 +30,7 @@
 //      fetched on scroll-up via aiHistory.
 // v63: the echoed user_message carries its attachment names, so every client can show
 //      what a prompt was sent with.
-export const DAEMON_VERSION = "64";
+export const DAEMON_VERSION = "65";
 
 // Where pasted/attached files are staged before being handed to a CLI. Lives here,
 // not in ptyHelper, because the daemon needs it too — ptyHelper pulls in agent-side

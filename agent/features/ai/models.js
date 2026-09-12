@@ -26,16 +26,21 @@ const FALLBACK = [
 // Codex renders its own model catalog (display names, reasoning tiers) as JSON. The
 // command is local and returns in ~20ms — no auth or network needed.
 const CODEX_CATALOG_TIMEOUT_MS = 5000;
+// `opencode models` lists the host's providers; a few seconds on a cold start.
+const OPENCODE_CATALOG_TIMEOUT_MS = 10000;
 
-export function listModelOptions() {
-  let env = {};
+function readClaudeSettings() {
   try {
     const file = path.join(os.homedir(), ".claude", "settings.json");
-    env = JSON.parse(fs.readFileSync(file, "utf8")).env || {};
+    return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
-    // No settings file, or invalid JSON — the aliases are still valid choices.
+    // No settings file, or invalid JSON — callers fall back to the CLI's own default.
+    return {};
   }
+}
 
+export function listModelOptions() {
+  const env = readClaudeSettings().env || {};
   const options = [];
   const seen = new Set();
   for (const [key, label] of SLOTS) {
@@ -85,4 +90,65 @@ export function listCodexModelOptions() {
       defaultEffort: m.default_reasoning_level || "",
       efforts: (m.supported_reasoning_levels || []).map((r) => r.effort)
     }));
+}
+
+/** `opencode models` prints one `provider/model` id per line. */
+export function listOpencodeModelOptions() {
+  let ids = [];
+  try {
+    const res = spawnSync("opencode", ["models"], { encoding: "utf8", timeout: OPENCODE_CATALOG_TIMEOUT_MS });
+    if (!res.error && res.status === 0) {
+      ids = (res.stdout || "").split("\n").map((l) => l.trim()).filter(Boolean);
+    }
+  } catch {
+    return [];
+  }
+  return ids.map((id) => ({ id, label: id, short: id }));
+}
+
+/**
+ * The model a brand-new chat starts with, read from each CLI's own config — the id
+ * lives only on the host (gateway aliases, per-machine picks) so nothing may be baked
+ * in. Empty string means "let the CLI decide".
+ */
+export function resolveDefaultModel(engine) {
+  if (engine === "claude") {
+    // Claude resolves `sonnet`-style aliases through the same env slots the picker lists.
+    const settings = readClaudeSettings();
+    const alias = typeof settings.model === "string" ? settings.model : "";
+    if (!alias) return "";
+    const slot = SLOTS.find(([key, label]) => label.toLowerCase() === alias.toLowerCase());
+    return (slot && settings.env?.[slot[0]]) || alias;
+  }
+
+  if (engine === "codex") {
+    // config.toml is small and hand-edited; only the top-level `model` key matters.
+    try {
+      const file = path.join(os.homedir(), ".codex", "config.toml");
+      const text = fs.readFileSync(file, "utf8");
+      const top = text.split(/^\s*\[/m)[0] || "";
+      return /^\s*model\s*=\s*"([^"]+)"/m.exec(top)?.[1] || "";
+    } catch {
+      return "";
+    }
+  }
+
+  if (engine === "opencode") {
+    // opencode keeps the last model used in its own state file — that is the one a
+    // fresh `run` picks up when no `-m` is passed.
+    try {
+      const file = path.join(os.homedir(), ".local", "state", "opencode", "model.json");
+      const recent = JSON.parse(fs.readFileSync(file, "utf8")).recent || [];
+      const { providerID, modelID } = recent[0] || {};
+      if (!providerID || !modelID) return "";
+      const id = `${providerID}/${modelID}`;
+      // A stale pick (provider dropped since) would 404 — the catalog has the last word.
+      const catalog = listOpencodeModelOptions();
+      return catalog.length === 0 || catalog.some((m) => m.id === id) ? id : "";
+    } catch {
+      return "";
+    }
+  }
+
+  return "";
 }

@@ -156,13 +156,13 @@ export const AiPaneView = memo(function AiPaneView({
       e.preventDefault();
       vibrate();
       const modes = engineConfig.permissionModes || [];
-      const currentMode = useAiStore.getState().bySession[sessionId]?.permissionMode || "default";
+      const currentMode = useAiStore.getState().bySession[sessionId]?.permissionMode || engineConfig.defaultMode;
       const currentIdx = modes.findIndex((m) => m.id === currentMode);
       const nextIdx = currentIdx === -1 ? 0 : (currentIdx + 1) % modes.length;
       const nextMode = modes[nextIdx]?.id;
       if (nextMode) handleModeChange(nextMode);
     }
-  }, [sessionId, engineConfig.permissionModes, handleModeChange, activeModal]);
+  }, [sessionId, engineConfig, handleModeChange, activeModal]);
 
   return (
     <div
@@ -301,7 +301,7 @@ export const AiPaneView = memo(function AiPaneView({
       {activeModal === "mode" && (
         <ModeModal
           modes={engineConfig.permissionModes || []}
-          currentMode={useAiStore.getState().bySession[sessionId]?.permissionMode || ""}
+          currentMode={useAiStore.getState().bySession[sessionId]?.permissionMode || engineConfig.defaultMode}
           onClose={() => setActiveModal(null)}
           onSelectMode={handleModeChange}
         />
