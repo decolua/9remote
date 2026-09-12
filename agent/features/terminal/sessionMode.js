@@ -2,6 +2,7 @@
 // The host owns the switch: it knows the conversation and can move the daemon's AI
 // session, neither of which a client may decide on its own.
 import * as daemonClient from "./ptyDaemonClient.js";
+import { globalAiManager } from "../ai/aiManager.js";
 import { resumeCommand } from "./agentHistory.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
@@ -18,28 +19,25 @@ const RESUME_EXIT_MS = 2000; // wait for the CLI to exit before relaunching the 
 // codex is listed for the surface bookkeeping (setSessionMode on an already-UI
 // session, re-recording a lost mode); the daemon-driven branch itself is claude-only.
 const UI_ENGINES = new Set(["claude", "codex"]);
-const DAEMON_ENGINE = "claude";
+// Whose id a session carries when status has not recorded the surface yet: only the
+// chat engines resolve here, and claude is the one every host has.
+const FALLBACK_ENGINE = "claude";
 
-// The conversation this terminal holds, or the one the daemon is actually running
-// when status has not caught up yet. A terminal switched into the UI records its
-// conversation a beat after the click, so status is not the only place to look.
-// Only claude reaches the daemon branch below — createAiSession refuses every other
-// engine — so that fallback names claude rather than reading a field that is a
-// constant there, and the caller still gates on the surface before using it.
-async function resolveConversation(sessionId) {
+// The conversation this terminal holds, or the one its live chat session is actually
+// running when status has not caught up yet. A terminal switched into the UI records
+// its conversation a beat after the click, so status is not the only place to look.
+function resolveConversation(sessionId) {
   const conv = getConversation(sessionId);
   if (conv?.id) return conv;
-  if (!daemonClient.isConnected()) return null;
-  const joined = await daemonClient.joinAiSession(sessionId).catch(() => null);
-  const id = joined?.session?.cliSessionId;
-  return id ? { agent: engineFromAgent(getSessionAgent(sessionId)) || DAEMON_ENGINE, id } : null;
+  const id = globalAiManager.getSession(sessionId)?.cliSessionId;
+  return id ? { agent: engineFromAgent(getSessionAgent(sessionId)) || FALLBACK_ENGINE, id } : null;
 }
 
 export async function setSessionMode(sessionId, mode, { sessions, io } = {}) {
   const session = sessions?.get(sessionId);
   if (!session) return { success: false, error: "Session not found" };
   if (mode !== MODE.UI && mode !== MODE.TERMINAL) return { success: false, error: "Invalid mode" };
-  const conv = await resolveConversation(sessionId);
+  const conv = resolveConversation(sessionId);
   if (!conv) return { success: false, error: "No conversation in this terminal" };
 
   const current = engineFromAgent(getSessionAgent(sessionId) || conv.agent);
@@ -71,8 +69,9 @@ export async function setSessionMode(sessionId, mode, { sessions, io } = {}) {
 
 function leaveUi(sessionId, session, conv) {
   // Leaving the UI would strand a CLI process on the host holding this conversation
-  // while a second one resumes it.
-  if (daemonClient.isConnected()) daemonClient.destroyAiSession(sessionId).catch(() => {});
+  // while a second one resumes it. Destroying the chat session stops that CLI (the
+  // daemon kills it on procStop) and drops its snapshot with it.
+  globalAiManager.destroySession(sessionId);
   // Same exit-and-resume a layout change already does: the TUI hard-wraps at launch
   // width, so the only true re-render is the CLI's own resume line. This is a
   // keystroke into a live shell, so whether the terminal is up is asked of the host,

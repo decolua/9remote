@@ -1,22 +1,33 @@
 // Represents a single active AI session (Claude, Codex, or OpenCode)
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { spawn } from "node:child_process";
-import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS } from "./constants.js";
+import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";
 import { readThreadGoal } from "./goal.js";
 import { ClaudeAdapter } from "./adapters/claudeAdapter.js";
+import { DaemonProc, decodeLine } from "./proc/daemonProc.js";
+import { aiTailStart } from "./aiEventSlice.js";
+import { AI_REPLAY_BYTES } from "./constants.js";
+import * as daemonClient from "../terminal/ptyDaemonClient.js";
 import { CodexAdapter } from "./adapters/codexAdapter.js";
 import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
 import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
-import { attachmentMeta } from "../terminal/aiAttachment.js";
+import { attachmentMeta } from "./aiAttachment.js";
 import { getLastOutputAt, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
+import { PATHS } from "../../lib/constants.js";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\[[0-9;]*m/g;
 const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
+
+// Engines whose CLI is driven as a managed child process rather than by an adapter of
+// its own: the process outlives the agent (the daemon holds it) while the parsing and
+// the conversation log stay here. Moving another engine onto this path is one entry
+// here plus its adapter accepting a `proc` — nothing in the daemon, and no
+// daemon-version bump.
+const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE]);
 
 // Engine → the CLI's own health command. Read from each adapter's static spec so
 // the command name lives next to the adapter that owns it, and asking for it
@@ -64,14 +75,16 @@ export async function runEngineDoctor(engine, cwd, mock = false) {
   });
 }
 
-const AI_SESSIONS_DIR = path.join(os.homedir(), ".9remote", "ai-sessions");
+// Follows the agent's own root (see lib/constants) — never a hardcoded ~/.9remote,
+// so a relocated or test instance keeps its conversations to itself.
+const AI_SESSIONS_DIR = PATHS.AI_SESSIONS;
 try { if (!fs.existsSync(AI_SESSIONS_DIR)) fs.mkdirSync(AI_SESSIONS_DIR, { recursive: true }); } catch {}
 
-// Claude's persistence is owned by the PTY daemon, which writes `<sessionId>.json` in
-// this same directory. The in-agent engines get an engine-prefixed filename so the two
-// can never write over each other.
-const ownsSnapshot = (engine) => engine !== AI_ENGINES.CLAUDE;
-
+// Every engine owns its snapshot here now, daemon-driven or not: the daemon holds
+// only the CLI process, so the conversation log is the agent's to write.
+// ponytail: snapshots written by the old daemon under `<sessionId>.json` are left
+// behind — a chat whose id moved to `<engine>-<id>.json` re-reads its transcript
+// instead. Delete the legacy files in a later cleanup, not here.
 function aiSnapshotFile(sessionId, engine) {
   const safe = String(sessionId).replace(/[^a-zA-Z0-9_-]/g, "_");
   return path.join(AI_SESSIONS_DIR, `${engine}-${safe}.json`);
@@ -105,6 +118,16 @@ const RESUME_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 // but must never be remembered as a model id (see emitNormalized).
 const MODEL_LABELS = new Set(["codex default", "opencode default"]);
 
+// Cap what a tool result contributes to the log: it is replayed in full to every
+// joining client and re-serialized into the snapshot on every debounce tick.
+function capToolOutput(data) {
+  if (!data) return data;
+  const cut = (v) => (typeof v === "string" && v.length > AI_MAX_TOOL_OUTPUT
+    ? `${v.slice(0, AI_MAX_TOOL_OUTPUT)}\n… [truncated]`
+    : v);
+  return { ...data, output: cut(data.output), error: cut(data.error) };
+}
+
 function compactEvents(events) {
   if (!Array.isArray(events) || events.length <= 1) return events;
   const compacted = [];
@@ -136,10 +159,50 @@ export class AiSession {
     this.goalReading = null;
     this.goalKey = null;
 
-    const snap = ownsSnapshot(engine) ? loadSessionSnapshot(id, engine) : null;
+    const snap = loadSessionSnapshot(id, engine);
+    // The CLI process for a daemon-backed engine is not born here: `start()` (called
+    // by aiSocket right after) decides between starting one and adopting the one the
+    // daemon is already running. This only carries the id across that gap.
+    this.proc = MANAGED_ENGINES.has(engine) ? new DaemonProc({ procId: id }) : null;
+    // Lines already parsed into this session's log, so a re-attach fetches only the
+    // rest. The daemon numbers lines itself and the CLI restarts on a new process, so
+    // this watermark belongs to the process the snapshot was written against.
+    this.consumedLines = snap?.consumedLines || 0;
+    this.ready = null;
+    // The conversation the client is opening, under the name the host sends it by.
+    // Codex calls it a thread, the rest a session id; whichever arrives, the adapter
+    // must be born bound to it, or the pane's first turn starts a new conversation.
+    // `cliSessionId` is client-supplied and becomes CLI argv, so it is validated the
+    // same way `setOptions({ resume })` validates it — an id starting with "-" would
+    // otherwise be read as a flag (e.g. bypassing the sandbox).
+    const requestedId = typeof options.cliSessionId === "string" && RESUME_ID_RE.test(options.cliSessionId)
+      ? options.cliSessionId
+      : null;
+    const bindId = snap?.threadId || snap?.cliSessionId || requestedId || options.threadId || options.sessionId || null;
+    this.threadId = engine === AI_ENGINES.CODEX ? bindId : null;
+    this.cliSessionId = engine === AI_ENGINES.CODEX ? null : bindId;
+    // No snapshot of its own yet (a chat opened from the history list, or an agent
+    // restarted): replay the conversation from the CLI's own store, so the pane shows
+    // it instead of an empty log. A snapshot wins — it is this session's own state.
     this.history = snap ? compactEvents(snap.events) : [];
-    this.threadId = snap?.threadId || options.threadId || null;
-    this.cliSessionId = snap?.cliSessionId || options.sessionId || null;
+    // A snapshot can be thin — a legacy file, or one written just before a crash. The
+    // CLI's own transcript is the fuller store, so when it knows more turns than the
+    // snapshot does, it wins. Only ever upward: a good snapshot is never replaced.
+    if (bindId && this.history.filter((e) => e.event === "user_message").length <= 1) {
+      const recovered = recoverFromTranscript(engine, this.cwd, bindId);
+      const snapTurns = this.history.filter((e) => e.event === "user_message").length;
+      const recoveredTurns = (recovered || []).filter((e) => e.event === "user_message").length;
+      if (recovered && recoveredTurns > snapTurns) {
+        this.history = recovered.map((ev, i) => ({
+          seq: i + 1, event: ev.event, data: ev.data, timestamp: Date.now()
+        }));
+      }
+    }
+    // Snapshot write in flight / coalesced, so a streaming turn does not re-serialize
+    // the whole log on every delta.
+    this.persisting = false;
+    this.persistAgain = false;
+    this.persistTimer = null;
     this.model = snap?.model || options.model || "";
     // Restored so a reload keeps the mode the user picked (codex/opencode run a fresh
     // CLI per turn, so the mode has to be re-sent with every prompt). A session the
@@ -150,7 +213,7 @@ export class AiSession {
     this.idleTimer = null;
 
     if (!options.mock) {
-      this.initAdapter();
+      this.ready = this.initAdapter();
     }
   }
 
@@ -167,17 +230,14 @@ export class AiSession {
 
     switch (this.engine) {
       case AI_ENGINES.CLAUDE:
-        mine = new ClaudeAdapter({ cwd: this.cwd, onEvent });
+        mine = new ClaudeAdapter({ cwd: this.cwd, onEvent, proc: this.managed ? this.proc : null });
         this.adapter = mine;
         // Set spawn-time options BEFORE start(): setOptions would restart the CLI,
-        // and calling start() afterwards would spawn a second process.
+        // and calling start() afterwards would spawn a second process. Both paths
+        // honour the resumed conversation id (or /resume silently starts a new one)
+        // and the session's own permission mode (or it falls back to the CLI default).
         if (this.options.effort) mine.effort = this.options.effort;
-        // The in-agent path (used when the PTY daemon is not connected) must also
-        // honour a resumed conversation id, or /resume silently starts a new one —
-        // and the session's own permission mode, or a new session falls back to the
-        // CLI's default instead of the one the client asked for.
-        mine.start(this.permissionMode || this.options.mode || "default", this.cliSessionId);
-        break;
+        return this._startManaged(mine);
       case AI_ENGINES.CODEX:
         mine = new CodexAdapter({
           cwd: this.cwd,
@@ -219,6 +279,95 @@ export class AiSession {
       default:
         throw new Error(`Unsupported engine: ${this.engine}`);
     }
+    return null;
+  }
+
+  // A managed chat outlives an agent restart: the daemon holds the CLI and the agent
+  // re-attaches to it, so a turn running during an update keeps running and only the
+  // lines produced while nobody was watching have to be fetched.
+  get managed() {
+    return MANAGED_ENGINES.has(this.engine) && daemonClient.isConnected();
+  }
+
+  async _startManaged(adapter) {
+    const mode = this.permissionMode || this.options.mode || "default";
+    // A process already running under this id IS this chat's turn — the agent just
+    // restarted. Adopting it is the whole point: spawning a second CLI would resume
+    // the same conversation as a second writer and lose the turn in flight.
+    if (this.managed) {
+      const attached = await adapter.adopt(this.consumedLines);
+      if (attached.alive) {
+        this.adopted = true;
+        this._replay(attached);
+        return attached;
+      }
+    }
+    // Nothing to adopt (no daemon, or the process ended while we were away): this is a
+    // new process, so its line numbering starts over and so does the watermark.
+    this.adopted = false;
+    this.consumedLines = 0;
+    const fetch = await adapter.start(mode, this.cliSessionId);
+    this._replay(fetch);
+    return fetch;
+  }
+
+  // Feed fetched lines to the adapter in order, then let the live ones through. The
+  // watermark advances only past what was parsed, so a crash mid-replay re-fetches.
+  _replay(fetch) {
+    if (!fetch) return;
+    // The daemon's ring can have dropped lines this reader never saw — the process kept
+    // talking while no agent was attached, and its buffer is finite. Those lines are
+    // gone from the wire, so the conversation would come back with a silent hole in it.
+    // Kept for diagnostics: how much the daemon's ring had already dropped when this
+    // reader came back.
+    this.lastMissed = fetch.missed || 0;
+    if (fetch.missed > 0) this._fillGap(fetch.missed);
+    for (const line of fetch.lines) this.adapter.feed(decodeLine(line));
+    fetch.release();
+    // The daemon's own line number is the watermark a restart resumes from, and it is
+    // only honest once release() has fed through the lines that arrived mid-replay.
+    this.consumedLines = this.proc?.lastLine || 0;
+  }
+
+  /**
+   * Adopt a rebuilt log, exactly the way a hydrate delivers one: reset the client's
+   * view, then ship only the tail and say where that window begins. Shipping a whole
+   * conversation down the live bus is what made `/resume` slow — the rest belongs to
+   * the scroll-up fetch, which needs `fromSeq` to know what it is missing.
+   */
+  _adoptLog(events) {
+    const log = (events || []).map((ev, i) => ({
+      seq: i + 1, event: ev.event, data: ev.data, timestamp: Date.now()
+    }));
+    this.history = log;
+    const from = aiTailStart(log, AI_REPLAY_BYTES);
+    this.onEvent?.(this.id, "conversation_reset", {
+      hasMore: from > 0,
+      fromSeq: log[from]?.seq ?? 0
+    });
+    for (const ev of log.slice(from)) this.onEvent?.(this.id, ev.event, ev.data, ev.seq);
+    this.flushSaveSnapshot();
+    return log;
+  }
+
+  // A gap is recoverable: the CLI writes its own transcript, and that store is not
+  // bounded by the daemon's buffer. Rebuilding from it gives back the whole
+  // conversation; only when there is no transcript does the hole have to be shown.
+  _fillGap(missed) {
+    const recovered = this.cliSessionId
+      ? recoverFromTranscript(this.engine, this.cwd, this.cliSessionId)
+      : null;
+    const turns = (recovered || []).filter((e) => e.event === "user_message").length;
+    const known = this.history.filter((e) => e.event === "user_message").length;
+    if (recovered && turns > known) {
+      this._adoptLog(recovered);
+      return;
+    }
+    // Nothing to rebuild from. Say so in the log: a visible gap beats a conversation
+    // that quietly skips a step.
+    this.emitNormalized("ansi", {
+      chunk: `\r\n[9remote] ${missed} dòng output đã mất trong lúc agent khởi động lại.\r\n`
+    });
   }
 
   emitNormalized(event, data, record = true) {
@@ -240,16 +389,22 @@ export class AiSession {
     // from the log (the parent's own events carry no `subagent` flag), and an old log
     // whose child events still say tool_start simply drops them rather than floating
     // a sub-agent's internals loose on the timeline.
+    if (event === "tool_result") data = capToolOutput(data);
     const childEvent = CHILD_EVENTS[event];
     const wire = data?.parentToolUseId && childEvent ? { event: childEvent, data } : { event, data };
 
+    // A seq on every event is what lets a hydrating client drop the live events it
+    // already replayed, and what marks where its scroll-up window ends. The log is
+    // this session's own, so its length IS the watermark.
+    const seq = this.history.length + 1;
     // record=false pushes the event to clients without appending to the replay log —
     // used for per-connect metadata that would otherwise accumulate on every F5
     if (record) {
-      this.history.push({ event: wire.event, data, timestamp: Date.now() });
-      if (this.history.length > 5000) this.history.shift();
+      this.history.push({ seq, event: wire.event, data, timestamp: Date.now() });
+      if (this.history.length > AI_MAX_EVENTS) this.history.shift();
     }
-    this.onEvent?.(this.id, wire.event, data);
+    this.onEvent?.(this.id, wire.event, data, seq);
+    if (record) this.scheduleSaveSnapshot();
     if (this.isTurnRunning) this.armIdleWatchdog();
 
     // Any terminal event releases the turn. Missing `error`/`exit` here left the flag
@@ -259,7 +414,8 @@ export class AiSession {
       this.isTurnRunning = false;
       this.clearIdleWatchdog();
       this.history = compactEvents(this.history);
-      this.saveSnapshot(true);
+      this.flushSaveSnapshot();
+      this.applyPendingOptions();
     }
   }
 
@@ -309,7 +465,6 @@ export class AiSession {
   // the clock runs from there instead of the turn being killed under it.
   armIdleWatchdog(ms = AI_TURN_IDLE_TIMEOUT_MS) {
     this.clearIdleWatchdog();
-    if (!ownsSnapshot(this.engine)) return;
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
       if (!this.isTurnRunning) return;
@@ -331,9 +486,46 @@ export class AiSession {
     this.idleTimer = null;
   }
 
+  /**
+   * Coalesce writes while a turn streams. A sync write per event would stall the
+   * agent's socket flush, but leaving it to the turn boundary loses everything a
+   * hard kill interrupts — so it is the middle ground, on a short debounce.
+   */
+  scheduleSaveSnapshot() {
+    if (this.destroyed || this.persistTimer) return;
+    // While a turn streams, most events are delta slices that only ever grow one
+    // message — so the write is compacted (see saveSnapshot) and the window is the
+    // long one. A turn boundary still flushes synchronously, which is what an unclean
+    // death is actually measured against.
+    const delay = this.isTurnRunning ? AI_PERSIST_STREAM_MS : AI_PERSIST_DEBOUNCE_MS;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      this.saveSnapshot();
+    }, delay);
+    this.persistTimer.unref?.();
+  }
+
+  // Turn boundaries (and a shutdown) pay a synchronous write: a crash right after one
+  // leaves a whole exchange intact, not a half-stream.
+  flushSaveSnapshot() {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    this.saveSnapshot(true);
+  }
+
   saveSnapshot(sync = false) {
-    if (!ownsSnapshot(this.engine)) return;
+    // A write already in flight: fold this one into it rather than interleaving two
+    // writes of a log that is still growing, which can land them out of order.
+    if (this.persisting) { this.persistAgain = true; return; }
+    this.persisting = true;
     try {
+      // A turn in flight is mostly delta slices — hundreds of them per turn, each a
+      // few bytes. Compacting on the way out keeps the file (and the bytes written
+      // every debounce tick) proportional to the conversation, not to its chunkiness.
+      // The in-memory log stays whole: clients replay slices, the snapshot need not.
+      const events = this.isTurnRunning ? compactEvents(this.history) : this.history;
       const payload = JSON.stringify({
         engine: this.engine,
         cwd: this.cwd,
@@ -342,14 +534,25 @@ export class AiSession {
         model: this.model,
         permissionMode: this.permissionMode,
         createdAt: this.createdAt,
-        events: this.history
+        // Where in the CLI's own output stream this log ends. A restarted agent
+        // re-attaches and asks for everything after it, which is what makes a turn
+        // that kept running while it was down arrive whole and exactly once.
+        consumedLines: this.consumedLines,
+        events
       });
       if (sync) {
         fs.writeFileSync(aiSnapshotFile(this.id, this.engine), payload);
-      } else {
-        fs.writeFile(aiSnapshotFile(this.id, this.engine), payload, () => {});
+        this.persisting = false;
+        if (this.persistAgain) { this.persistAgain = false; this.saveSnapshot(true); }
+        return;
       }
-    } catch {}
+      fs.writeFile(aiSnapshotFile(this.id, this.engine), payload, () => {
+        this.persisting = false;
+        if (this.persistAgain) { this.persistAgain = false; this.saveSnapshot(); }
+      });
+    } catch {
+      this.persisting = false;
+    }
   }
 
   sendPrompt(prompt, attachments = null) {
@@ -357,6 +560,12 @@ export class AiSession {
     // Clear and came back on the next F5 — and the literal "/clear" was recorded as a
     // prompt on top of it.
     if (String(prompt).trim() === "/clear") {
+      // Refused mid-turn: rebuilding the adapter kills the CLI process, which would
+      // discard the turn the user is watching. Stop first, then clear.
+      if (this.isTurnRunning) {
+        this.emitNormalized("error", { message: "Turn is still running — stop it before /clear." });
+        return;
+      }
       // Drop the CLI conversation too, or the "cleared" chat resumes on the next
       // restart: the adapter holds a live thread/session id and this session's copy of
       // it is written straight into the snapshot. Rebuilding the adapter is what
@@ -364,20 +573,23 @@ export class AiSession {
       this.threadId = null;
       this.cliSessionId = null;
       this.history = [];
+      // A fresh process numbers its lines from scratch; the old watermark would make
+      // the next agent skip the new conversation's first lines as "already consumed".
+      this.consumedLines = 0;
       this.isTurnRunning = false;
       this.clearIdleWatchdog();
-      this.saveSnapshot(true);
+      this.flushSaveSnapshot();
       if (!this.options.mock) {
         // Kill before rebuilding — initAdapter replaces the reference, and an adapter
         // dropped without stop() leaves its CLI process running with nothing reading it.
         try { this.adapter?.stop(); } catch {}
-        this.initAdapter();
+        this.ready = this.initAdapter();
       }
       const init = this.metadata();
-      this.history.push({ event: "init", data: init, timestamp: Date.now() });
-      this.onEvent?.(this.id, "conversation_reset", {});
+      this.history.push({ seq: this.history.length + 1, event: "init", data: init, timestamp: Date.now() });
+      this.onEvent?.(this.id, "conversation_reset", { hasMore: false, fromSeq: 0 });
       this.onEvent?.(this.id, "init", init);
-      this.saveSnapshot(true);
+      this.flushSaveSnapshot();
       return;
     }
 
@@ -402,10 +614,14 @@ export class AiSession {
 
   resolvePermission(requestId, behavior, message) {
     this.adapter?.resolvePermission?.(requestId, behavior, message);
+    // Every other client watching this session must drop its permission card too —
+    // otherwise a second surface keeps showing a gate nobody is waiting on.
+    this.emitNormalized("permission_resolved", { requestId, behavior });
   }
 
   resolveQuestion(requestId, answers) {
     this.adapter?.resolveQuestion?.(requestId, answers);
+    this.emitNormalized("permission_resolved", { requestId, behavior: "allow" });
   }
 
   setOptions(opts) {
@@ -433,18 +649,37 @@ export class AiSession {
       // Replace the replay log with the resumed conversation's tail, or the pane would
       // show one conversation while the CLI continues another. The readers pull from
       // each CLI's own store (codex rollouts, opencode db).
-      const recovered = recoverFromTranscript(this.engine, this.cwd, resume);
-      this.history = recovered || [];
-      this.onEvent?.(this.id, "conversation_reset", {});
-      if (recovered) {
-        // Replayed as ordinary events: clients rebuild the same way they do on a join.
-        for (const ev of recovered) this.onEvent?.(this.id, ev.event, ev.data);
-      }
+      // Same delivery as opening this conversation from the history list: reset + tail,
+      // with the rest left to the scroll-up fetch.
+      this._adoptLog(recoverFromTranscript(this.engine, this.cwd, resume) || []);
+    }
+    // mode/model/effort/resume are all spawn-time flags, so applying one restarts the
+    // CLI — which kills a turn in flight. Mid-turn the change is remembered instead and
+    // applied when the turn ends: a switch the user just made must not silently no-op,
+    // and must not throw away the answer they are watching.
+    if (this.isTurnRunning) {
+      this.restartPending = true;
+      if (rest?.mode || rest?.effort || resume) this.flushSaveSnapshot();
+      return;
     }
     // Forward only the validated id; the adapter must never see an unvalidated value.
-    this.adapter?.setOptions?.({ ...opts, resume });
+    // The restart returns the lines its new process already produced — parsed in order,
+    // exactly like a fresh start.
+    // A restart returns its new process's lines and holds the live ones until they are
+    // released. Replaying only on `resume` left a mode/model change holding every line
+    // forever — the chat went silent with no error.
+    const fetch = this.adapter?.setOptions?.({ ...opts, resume });
+    if (fetch?.then) fetch.then((f) => this._replay(f));
     // effort/mode are snapshot state: a reload or /clear rebuild must restore them.
-    if (rest?.mode || rest?.effort || resume) this.saveSnapshot(true);
+    if (rest?.mode || rest?.effort || resume) this.flushSaveSnapshot();
+  }
+
+  // A change deferred while a turn was running, applied the moment it ends.
+  applyPendingOptions() {
+    if (!this.restartPending) return;
+    this.restartPending = false;
+    const fetch = this.adapter?.setOptions?.({ mode: this.permissionMode, model: this.model, effort: this.options?.effort });
+    if (fetch?.then) fetch.then((f) => this._replay(f));
   }
 
   // Run the engine CLI's own health command (claude doctor / codex doctor /
@@ -455,14 +690,22 @@ export class AiSession {
   }
 
   stop() {
-    this.adapter?.stop();
+    // The turn is what the user is stopping, and a control request keeps the CLI (and
+    // its conversation) alive. A signal is only the fallback when it cannot be written.
+    const sent = this.adapter?.interrupt?.();
+    if (!sent) this.adapter?.signal?.("SIGINT");
     this.emitNormalized("stopped", {});
   }
 
   destroy() {
     this.clearIdleWatchdog();
-    this.stop();
-    if (!ownsSnapshot(this.engine)) return;
+    if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
+    if (!this.options.mock) this.adapter?.stop();
+    // The exit event is emitted BEFORE the file goes, and persistence is off from here:
+    // emitting after the unlink would schedule a write that puts the snapshot straight
+    // back, and the next boot would resurrect a chat with no terminal behind it.
+    this.destroyed = true;
+    this.emitNormalized("stopped", {});
     try { fs.unlinkSync(aiSnapshotFile(this.id, this.engine)); } catch {}
   }
 }

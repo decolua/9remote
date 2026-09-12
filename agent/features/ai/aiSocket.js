@@ -12,18 +12,11 @@ import { renameSessionTitle, broadcastAiStatus } from "../terminal/terminalSocke
 import { getConversation, getSessionAgent, setConversationId } from "../terminal/statusManager.js";
 import { engineFromAgent } from "../terminal/conversationModes.js";
 import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
-import * as daemonClient from "../terminal/ptyDaemonClient.js";
+import { aiTailStart } from "./aiEventSlice.js";
+import { AI_REPLAY_BYTES } from "./constants.js";
 
 const logger = createLogger("ai");
 let broadcastAttached = false;
-let daemonAiAttached = false;
-
-// Claude sessions live in the PTY daemon (survive agent restarts, shared by
-// every client). ponytail: codex/opencode stay on the in-agent manager until
-// their stream protocols move into the daemon too.
-function aiUsesDaemon(engine, mock = false) {
-  return engine === "claude" && !mock && daemonClient.isConnected();
-}
 
 function mirrorAiStatus(sessionId, event, engine) {
   if (event === "permission_request") broadcastAiStatus?.(sessionId, "blocked", engine);
@@ -33,6 +26,25 @@ function mirrorAiStatus(sessionId, event, engine) {
 
 // Model ids the host's own CLI offers, per engine. Null means the engine's registry
 // list is authoritative (antigravity ships its own catalog).
+// What a hydrating client gets: the tail of the log, not the whole thing. A real chat
+// measured 6.9 MB of events, and shipping that on every mount is what stalls a phone.
+// `hasMore` is what arms the client's scroll-up fetch, so it must travel with the tail.
+function publicSession(session, extra = {}) {
+  const from = aiTailStart(session.history, AI_REPLAY_BYTES);
+  return {
+    events: from > 0 ? session.history.slice(from) : session.history,
+    hasMore: from > 0,
+    isTurnRunning: session.isTurnRunning,
+    // The newest seq, NOT the array length: past AI_MAX_EVENTS the log sheds its head,
+    // so length stops equalling the highest seq and the client would swallow an event.
+    seq: session.history.at(-1)?.seq ?? 0,
+    permissionMode: session.permissionMode,
+    model: session.model,
+    effort: session.options?.effort || "",
+    ...extra
+  };
+}
+
 function listModelOptionsFor(engine) {
   if (engine === "claude") return listModelOptions();
   if (engine === "codex") return listCodexModelOptions();
@@ -72,18 +84,6 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     });
   }
 
-  // 1b. Forward daemon-owned AI events to clients exactly ONCE
-  if (io && !daemonAiAttached) {
-    daemonAiAttached = true;
-    daemonClient.on("aiEvent", ({ sessionId, event, data, seq } = {}) => {
-      if (!sessionId || !event) return;
-      // seq rides along so a hydrating client can drop events it already replayed
-      broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq });
-      mirrorAiStatus(sessionId, event, "claude");
-      mirrorAiConversation(sessionId, event, data, "claude");
-    });
-  }
-
   // Fallback for tests or direct socket mocking
   if (!io || typeof io.emit !== "function") {
     const unsubscribe = manager.onEvent((sessionId, event, data) => {
@@ -100,39 +100,33 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   socket.on(AI_SOCKET_EVENTS.CREATE, async ({ sessionId, engine, cwd, options = {}, mock = false }, cb) => {
     try {
       if (!sessionId || !engine) throw new Error("Missing sessionId or engine");
+      // A create repeats on every mount (F5, second tab). The live session is already
+      // this chat, so re-creating it would kill its CLI and lose the turn in flight.
+      if (manager.getSession(sessionId)) {
+        const existing = manager.getSession(sessionId);
+        return cb?.({
+          ok: true,
+          sessionId,
+          engine,
+          cwd: existing.cwd,
+          skills: existing.skills,
+          session: publicSession(existing)
+        });
+      }
       logger.info(`[ai] create session: ${sessionId} engine: ${engine} cwd: ${cwd}`);
       // A terminal holding a CLI conversation that is now opening as a chat: bind the
       // chat to that conversation, so the pane shows it rather than an empty one. The
       // client is not asked to know this — the host records which chat each terminal runs.
       const conv = getConversation(sessionId);
       const resumeId = options.cliSessionId || (engineFromAgent(conv?.agent) === engine ? conv.id : null);
-      const spawnOptions = resumeId ? { ...options, cliSessionId: resumeId } : options;
-      if (aiUsesDaemon(engine, mock)) {
-        const res = await daemonClient.createAiSession(sessionId, engine, cwd, spawnOptions);
-        if (!res.success) throw new Error(res.error || "Daemon AI create failed");
-        // A daemon session can already exist with no conversation bound to it (the pane
-        // mounts before the switch lands). createAiSession reuses it as-is, so the id has
-        // to be bound here — aiOptions rebinds the CLI, restarts it against the resumed
-        // transcript and replays that log to the client.
-        if (resumeId && !res.session?.cliSessionId) {
-          await daemonClient.aiOptions(sessionId, { resume: resumeId });
-        }
-        // Skills/MCP are discovered agent-side (filesystem), not by the CLI — merge
-        // them into the state the client hydrates so the modals aren't empty.
-        const skills = listSkills(engine, cwd);
-        const mcpServers = listMcpServers(engine);
-        // Host-specific model ids — each CLI is asked for its own catalog, since the
-        // ids only exist on the machine whose config points at a gateway.
-        const modelOptions = listModelOptionsFor(engine);
-        // The session's own model, not the host default: this init also fires for a
-        // chat that is merely being reopened, and a picked model must survive that.
-        const model = res.session?.model || defaultModelFor(engine);
-        broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event: "init", data: { skills, mcpServers, modelOptions, model } });
-        // Full state back so any client (web/agent UI/mobile) hydrates the same history
-        cb?.({ ok: true, sessionId, engine, cwd, session: res.session });
-        return;
-      }
+      // The model default is resolved here, by the host — an engine adapter must never
+      // read the machine's config on its own path.
+      const spawnOptions = {
+        ...(resumeId ? { ...options, cliSessionId: resumeId } : options),
+        defaultModel: defaultModelFor(engine)
+      };
       const session = manager.createSession(sessionId, engine, cwd, { ...spawnOptions, mock });
+      await session.ready;
       const skills = listSkills(engine, cwd);
       const mcpServers = listMcpServers(engine);
       const modelOptions = listModelOptionsFor(engine);
@@ -149,17 +143,10 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         cwd: session.cwd,
         skills,
         mcpServers,
-        session: {
-          events: session.history,
-          isTurnRunning: session.isTurnRunning,
-          seq: session.history.length,
-          // The mode the adapter was built with. A new session has an empty log, so
-          // the replay carries nothing to derive it from — without this the client
-          // shows the picker's first entry while the CLI runs something else.
-          permissionMode: session.permissionMode,
-          model: session.model,
-          effort: session.options?.effort || ""
-        }
+        // The mode travels too: a new session has an empty log, so the replay carries
+        // nothing to derive it from — without it the client shows the picker's first
+        // entry while the CLI runs something else.
+        session: publicSession(session)
       });
     } catch (err) {
       logger.error(`[ai] create failed: ${err.message}`);
@@ -169,17 +156,12 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   socket.on(AI_SOCKET_EVENTS.PROMPT, async ({ sessionId, message, cwd, attachments }, cb) => {
     try {
-      if (aiUsesDaemon("claude") && !manager.getSession(sessionId)) {
-        const res = await daemonClient.aiPrompt(sessionId, message, cwd || null, attachments);
-        if (!res.success) throw new Error(res.error || "Daemon AI prompt failed");
-        renameSessionTitle?.(sessionId, message);
-        cb?.({ ok: true });
-        return;
-      }
       let session = manager.getSession(sessionId);
       if (!session) {
         logger.warn(`[ai] session ${sessionId} not found on prompt, auto-creating with claude`);
-        session = manager.createSession(sessionId, "claude", process.cwd());
+        // cwd rides along so the raced session lands in the right directory, not $HOME
+        session = manager.createSession(sessionId, "claude", cwd || process.cwd(), { defaultModel: defaultModelFor("claude") });
+        await session.ready;
       }
       logger.info(`[ai] prompt: ${sessionId} (engine: ${session.engine}): ${message?.slice(0, 60)}`);
       // User message is emitted via session.sendPrompt -> emitNormalized -> broadcast
@@ -195,12 +177,6 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   socket.on(AI_SOCKET_EVENTS.PERMISSION, async ({ sessionId, requestId, behavior, message }, cb) => {
     try {
-      if (aiUsesDaemon("claude") && !manager.getSession(sessionId)) {
-        const res = await daemonClient.aiPermission(sessionId, requestId, behavior, message);
-        if (!res.success) throw new Error(res.error || "Daemon AI permission failed");
-        cb?.({ ok: true });
-        return;
-      }
       const session = manager.getSession(sessionId);
       if (!session) throw new Error(`AI session not found: ${sessionId}`);
       session.resolvePermission(requestId, behavior, message);
@@ -213,12 +189,6 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   socket.on(AI_SOCKET_EVENTS.QUESTION, async ({ sessionId, requestId, answers }, cb) => {
     try {
-      if (aiUsesDaemon("claude") && !manager.getSession(sessionId)) {
-        const res = await daemonClient.aiQuestion(sessionId, requestId, answers);
-        if (!res.success) throw new Error(res.error || "Daemon AI question failed");
-        cb?.({ ok: true });
-        return;
-      }
       const session = manager.getSession(sessionId);
       if (!session) throw new Error(`AI session not found: ${sessionId}`);
       session.resolveQuestion(requestId, answers);
@@ -231,12 +201,6 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   socket.on(AI_SOCKET_EVENTS.STOP, async ({ sessionId }, cb) => {
     try {
-      if (aiUsesDaemon("claude") && !manager.getSession(sessionId)) {
-        await daemonClient.aiStop(sessionId);
-        broadcastAiStatus?.(sessionId, "idle", "claude");
-        cb?.({ ok: true });
-        return;
-      }
       const session = manager.getSession(sessionId);
       if (session) {
         session.stop();
@@ -250,11 +214,6 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   socket.on(AI_SOCKET_EVENTS.OPTIONS, async ({ sessionId, options }, cb) => {
     try {
-      if (aiUsesDaemon("claude") && !manager.getSession(sessionId)) {
-        await daemonClient.aiOptions(sessionId, options);
-        cb?.({ ok: true });
-        return;
-      }
       const session = manager.getSession(sessionId);
       if (session) session.setOptions(options);
       cb?.({ ok: true });
@@ -287,9 +246,6 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   socket.on(AI_SOCKET_EVENTS.DESTROY, async ({ sessionId }, cb) => {
     try {
-      if (aiUsesDaemon("claude") && !manager.getSession(sessionId)) {
-        await daemonClient.destroyAiSession(sessionId);
-      }
       manager.destroySession(sessionId);
       cb?.({ ok: true });
     } catch (err) {

@@ -22,7 +22,7 @@ fs.writeFileSync(path.join(dir, `${ID}.jsonl`), [
   JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } })
 ].join("\n"));
 
-const { recoverFromClaudeTranscript: recover } = await import("../features/terminal/claudeTranscript.js");
+const { recoverFromClaudeTranscript: recover } = await import("../features/ai/claudeTranscript.js");
 
 const found = recover(elsewhere, ID);
 assert.ok(found, "transcript must be found even when cwd has moved on");

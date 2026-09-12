@@ -30,7 +30,13 @@
 //      fetched on scroll-up via aiHistory.
 // v63: the echoed user_message carries its attachment names, so every client can show
 //      what a prompt was sent with.
-export const DAEMON_VERSION = "65";
+// v66: aiOptions carries `defaultModel` from the agent; the daemon no longer imports
+//      agent-side modules, which its runtime copy does not have.
+// v67: the daemon stopped knowing what an "AI session" is. It now runs a managed child
+//      process and relays its numbered lines; the agent parses them, owns the chat log
+//      and the snapshot, and re-attaches after a restart. Changing an engine's protocol
+//      no longer touches this file at all.
+export const DAEMON_VERSION = "67";
 
 // Where pasted/attached files are staged before being handed to a CLI. Lives here,
 // not in ptyHelper, because the daemon needs it too — ptyHelper pulls in agent-side

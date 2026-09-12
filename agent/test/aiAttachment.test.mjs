@@ -12,7 +12,7 @@ const test = (name, fn) => {
   catch (err) { fail++; console.error(`  ✗ ${name}\n    ${err.message}`); }
 };
 
-const { stageAttachment, buildAttachedMessage, buildAttachedPrompt, attachmentMeta } = await import("../features/terminal/aiAttachment.js");
+const { stageAttachment, buildAttachedMessage, buildAttachedPrompt, attachmentMeta } = await import("../features/ai/aiAttachment.js");
 const { UPLOAD_DIR } = await import("../features/terminal/ptyHelper.js");
 
 console.log("Running AI attachment tests...");

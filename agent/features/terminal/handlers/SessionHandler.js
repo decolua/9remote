@@ -14,6 +14,8 @@ import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
 import { currentSeq, getGap, clearSession } from "../seqStore.js";
 import { globalAiManager } from "../../ai/aiManager.js";
+import { aiHistoryChunk } from "../../ai/aiEventSlice.js";
+import { AI_REPLAY_BYTES } from "../../ai/constants.js";
 import fs from "fs";
 import path from "path";
 
@@ -261,12 +263,10 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
         globalAiManager.destroySession(sid);
         if (session) {
           if (session.daemon && daemonClient.isConnected()) {
-            try { await daemonClient.destroyAiSession(sid); } catch {}
             try { await daemonClient.deleteSession(sid); } catch {}
           } else if (session.pty) {
             session.pty.kill();
             deleteSessionBuffer(sid);
-            if (daemonClient.isConnected()) { try { await daemonClient.destroyAiSession(sid); } catch {} }
           }
           sessions.delete(sid);
           clearSession(sid); // drop seq counter + gap ring
@@ -582,16 +582,14 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
 
   // Scroll-up history fetch for the chat pane: the events older than the oldest seq
   // the client holds. Same one-socket-only contract as requestHistory above.
-  socket.on("aiHistory", async ({ sessionId, before } = {}, callback) => {
-    if (!daemonClient.isConnected()) return callback?.({ success: false, error: "History unavailable" });
+  socket.on("aiHistory", ({ sessionId, before } = {}, callback) => {
     try {
-      const result = await daemonClient.aiHistory(sessionId, before || 0);
-      callback?.({
-        success: result.success,
-        error: result.error,
-        events: result.events || [],
-        hasMore: Boolean(result.hasMore)
-      });
+      // The agent owns the chat log (the daemon only holds the CLI process), so the
+      // older window is a slice of it — same one-socket-only contract as above.
+      const session = globalAiManager.getSession(sessionId);
+      if (!session) return callback?.({ success: false, error: "Session not found" });
+      const { events, hasMore } = aiHistoryChunk(session.history, before || 0, AI_REPLAY_BYTES);
+      callback?.({ success: true, events, hasMore });
     } catch (e) {
       callback?.({ success: false, error: e.message });
     }
@@ -629,8 +627,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
 
     if (session.daemon && daemonClient.isConnected()) {
       try {
-        // Daemon-owned AI process + its snapshot go with the terminal
-        await daemonClient.destroyAiSession(sessionId).catch(() => {});
+        // destroySession above already stopped the chat CLI and dropped its snapshot.
         await daemonClient.deleteSession(sessionId);
         sessions.delete(sessionId);
         clearSession(sessionId); // drop seq counter + gap ring

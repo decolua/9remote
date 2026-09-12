@@ -1,7 +1,7 @@
-// Tests for the AI chat log windowing (agent/features/terminal/aiEventSlice.js).
+// Tests for the AI chat log windowing (agent/features/ai/aiEventSlice.js).
 // Run: node agent/test/aiEventSlice.test.mjs
 import assert from "node:assert/strict";
-import { aiTailStart, aiHistoryChunk } from "../features/terminal/aiEventSlice.js";
+import { aiTailStart, aiHistoryChunk } from "../features/ai/aiEventSlice.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {

@@ -10,12 +10,12 @@ import os from "os";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { DAEMON_VERSION } from "./constants.js";
-import { NODE_BIN, nodeSpawnEnv } from "../../lib/constants.js";
+import { NODE_BIN, nodeSpawnEnv, PATHS } from "../../lib/constants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Socket path (same as daemon)
-const SOCKET_DIR = path.join(os.homedir(), ".9remote");
+const SOCKET_DIR = PATHS.ROOT;
 const SOCKET_PATH = process.platform === "win32"
   ? "\\\\.\\pipe\\9remote-pty"
   : path.join(SOCKET_DIR, "pty-daemon.sock");
@@ -29,7 +29,7 @@ const DAEMON_SCRIPT_DIST = path.join(__dirname, "ptyDaemon.cjs");
 // Local modules the daemon imports by relative path. The dev-mode runtime copy has
 // to carry every one of them: a missing file is not a degraded daemon, it is one
 // that dies at import — and the AI chat silently falls back to a separate session.
-const DAEMON_LOCAL_MODULES = ["constants.js", "bufferSlice.js", "aiEventSlice.js", "claudeTranscript.js", "aiAttachment.js"];
+const DAEMON_LOCAL_MODULES = ["constants.js", "bufferSlice.js", "daemonRouter.js", "daemonRoutes.js"];
 
 // Runtime copy location — daemon runs from here so it never locks files
 // inside node_modules/9remote. That lock is what makes `npm i -g 9remote@latest`
@@ -308,8 +308,26 @@ function handleMessage(message) {
       });
       break;
 
-    case "aiEvent":
-      emit("aiEvent", { sessionId: data.sessionId, event: data.event, data: data.data, seq: data.seq });
+    case "procLine":
+      // Raw output of a managed CLI. The agent parses it — the daemon only counts
+      // and relays lines, so it stays out of every engine's protocol.
+      emit("procLine", {
+        procId: data.procId,
+        epoch: data.epoch,
+        n: data.n,
+        data: Buffer.from(data.data, "base64").toString("utf8")
+      });
+      break;
+
+    case "procExit":
+      emit("procExit", { procId: data.procId, epoch: data.epoch, code: data.code, signal: data.signal, error: data.error });
+      break;
+
+    case "error":
+      // A route answered with a failure it has no reply type for (a fire-and-forget
+      // route, e.g. terminal.input). Surfaced, not swallowed: silent input loss is
+      // the hardest kind of bug to see.
+      console.error("[DaemonClient] ❌", data.error || "Daemon error");
       break;
 
     case "pong":
@@ -612,7 +630,7 @@ export function isConnected() {
  * List sessions from daemon
  */
 export async function listSessions() {
-  const result = await request({ type: "listSessions" });
+  const result = await call("terminal.listSessions");
   return result.sessions || [];
 }
 
@@ -620,15 +638,7 @@ export async function listSessions() {
  * Create new session
  */
 export async function createSession(name, cols = 80, rows = 24, shellId = null, sessionId = `session-${Date.now()}`, cwd = null) {
-  const result = await request({
-    type: "createSession",
-    sessionId,
-    name,
-    cols,
-    rows,
-    shellId,
-    cwd
-  });
+  const result = await call("terminal.createSession", { sessionId, name, cols, rows, shellId, cwd });
   return result;
 }
 
@@ -637,7 +647,7 @@ export async function createSession(name, cols = 80, rows = 24, shellId = null, 
  */
 export async function getSessionCwd(sessionId) {
   try {
-    const result = await request({ type: "getCwd", sessionId });
+    const result = await call("terminal.getCwd", { sessionId });
     return result.cwd || null;
   } catch {
     return null;
@@ -648,74 +658,74 @@ export async function getSessionCwd(sessionId) {
  * Join session (get buffered output)
  */
 export async function joinSession(sessionId) {
-  const result = await request({ type: "joinSession", sessionId });
+  const result = await call("terminal.joinSession", { sessionId });
   return result;
 }
 
 // Fetch older-than-tail prefix when web scrolls to top. have = bytes web already holds.
 export async function requestHistory(sessionId, have) {
-  const result = await request({ type: "requestHistory", sessionId, have });
+  const result = await call("terminal.requestHistory", { sessionId, have });
   return result;
 }
 
 /**
  * Send input to session
  */
+// ── Requests ──
+// One call per route, named exactly as the daemon's table names it (daemonRoutes.js).
+// A route added there needs one line here; nothing else in the client changes.
+export function call(type, args = {}, timeout) {
+  return request({ type, ...args }, timeout);
+}
+
+/** Fire-and-forget: no ack is coming (the route table declares no reply). */
+function post(type, args = {}) {
+  return send({ type, ...args });
+}
+
 export function sendInput(sessionId, data) {
-  return send({ type: "input", sessionId, data });
+  return post("terminal.input", { sessionId, data });
 }
 
-/**
- * Resize session
- */
 export function resizeSession(sessionId, cols, rows) {
-  return send({ type: "resize", sessionId, cols, rows });
+  return post("terminal.resize", { sessionId, cols, rows });
 }
 
 /**
- * Delete session
+ * Managed child processes — the long-lived CLIs the agent drives (chat engines).
+ * The daemon owns the process so a running turn survives an agent restart; the
+ * agent owns everything the process says, which is why only raw lines cross here.
  */
+export function procStart(procId, { bin, args, cwd, env } = {}) {
+  return call("proc.start", { procId, bin, args, cwd, env });
+}
+
+export function procAttach(procId, from = 0) {
+  return call("proc.attach", { procId, from });
+}
+
+export function procLines(procId, from = 0) {
+  return call("proc.lines", { procId, from });
+}
+
+export function procWrite(procId, data, enc = "b64") {
+  return call("proc.write", { procId, data, enc });
+}
+
+export function procSignal(procId, signal = "SIGINT") {
+  return call("proc.signal", { procId, signal });
+}
+
+export function procStop(procId) {
+  return call("proc.stop", { procId });
+}
+
+export async function procList() {
+  const result = await call("proc.list");
+  return result.procs || [];
+}
+
 export async function deleteSession(sessionId) {
-  const result = await request({ type: "deleteSession", sessionId });
+  const result = await call("terminal.deleteSession", { sessionId });
   return result;
-}
-
-// ── AI sessions (daemon-owned, agent proxies) ──
-
-export async function createAiSession(sessionId, engine, cwd, options = {}) {
-  return request({ type: "createAiSession", sessionId, engine, cwd, options });
-}
-
-export async function joinAiSession(sessionId) {
-  return request({ type: "joinAiSession", sessionId });
-}
-
-export async function aiPrompt(sessionId, message, cwd = null, attachments = null) {
-  return request({ type: "aiPrompt", sessionId, message, cwd, attachments });
-}
-
-// requestId is reserved by request() for IPC correlation — Claude's control-request
-// id rides as `controlRequestId` so the two never collide.
-export async function aiPermission(sessionId, requestId, behavior, message) {
-  return request({ type: "aiPermission", sessionId, controlRequestId: requestId, behavior, message });
-}
-
-export async function aiQuestion(sessionId, requestId, answers) {
-  return request({ type: "aiQuestion", sessionId, controlRequestId: requestId, answers });
-}
-
-export async function aiStop(sessionId) {
-  return request({ type: "aiStop", sessionId });
-}
-
-export async function aiOptions(sessionId, options) {
-  return request({ type: "aiOptions", sessionId, options });
-}
-
-export async function aiHistory(sessionId, before) {
-  return request({ type: "aiHistory", sessionId, before });
-}
-
-export async function destroyAiSession(sessionId) {
-  return request({ type: "aiDestroy", sessionId });
 }

@@ -2,7 +2,7 @@
 import { getExtendedEnv } from "./env.js";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
-import { stageAttachment } from "../../terminal/aiAttachment.js";
+import { stageAttachment } from "../aiAttachment.js";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\[[0-9;]*m/g;

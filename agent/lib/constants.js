@@ -10,7 +10,9 @@ export const PACKAGE_NAME = (typeof __PKG_NAME__ !== "undefined" && __PKG_NAME__
 export const NPM_REGISTRY_URL = process.env.NREMOTE_REGISTRY || `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 export const NPM_INSTALL_SPEC = `${PACKAGE_NAME}@latest`;
 
-const ROOT = path.join(os.homedir(), ".9remote");
+// NREMOTE_HOME relocates the whole root (socket, daemon copy, snapshots) so a test
+// or a second instance can run without fighting the live agent for the socket.
+const ROOT = process.env.NREMOTE_HOME || path.join(os.homedir(), ".9remote");
 export const PATHS = {
   ROOT,
   LOGS:    path.join(ROOT, "logs"),
@@ -20,6 +22,7 @@ export const PATHS = {
   PIDS:    path.join(ROOT, "pids"),
   BUFFERS: path.join(ROOT, "buffers"),
   DAEMON:  path.join(ROOT, "daemon"),
+  AI_SESSIONS: path.join(ROOT, "ai-sessions"),
   BACKGROUNDS: path.join(ROOT, "backgrounds"),
 };
 

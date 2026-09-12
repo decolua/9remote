@@ -24,8 +24,12 @@ const home = () => os.homedir();
 const WRAPPER_PATTERNS = [
   /<environment_context>[\s\S]*?<\/environment_context>/g,
   /<timestamp>[\s\S]*?<\/timestamp>/g,
-  /<system-reminder>[\s\S]*?<\/system-reminder>/g
+  /<system-reminder>[\s\S]*?<\/system-reminder>/g,
+  // Antigravity wraps the prompt it stores with its own context blocks.
+  /<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g
 ];
+// Antigravity marks the user's own words inside its wrapper; the tag itself is not text.
+const USER_REQUEST_RE = /<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/;
 const USER_QUERY_RE = /<user_query>([\s\S]*?)<\/user_query>/;
 // Turns the harness writes into the transcript as if the user had typed them:
 // slash commands and their output (Claude), and the project doc Codex injects
@@ -48,7 +52,7 @@ export function cleanTitle(text) {
 // so a message body (a code block, a long answer) survives a replay intact.
 export function stripHarnessWrapping(text) {
   if (typeof text !== "string") return "";
-  const query = text.match(USER_QUERY_RE);
+  const query = text.match(USER_QUERY_RE) || text.match(USER_REQUEST_RE);
   let out = query ? query[1] : text;
   for (const re of WRAPPER_PATTERNS) out = out.replace(re, "");
   return out.trim();

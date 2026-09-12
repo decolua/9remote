@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { stripHarnessWrapping } from "../terminal/agentHistory.js";
-import { recoverFromClaudeTranscript } from "../terminal/claudeTranscript.js";
+import { recoverFromClaudeTranscript, CLAUDE_SESSION_ID_RE } from "./claudeTranscript.js";
 
 const require = createRequire(import.meta.url);
 
@@ -125,6 +125,100 @@ export function recoverFromCodexTranscript(cwd, sessionId) {
   return tailFromLastUser(events);
 }
 
+// Antigravity's live stream names each tool's parameters PascalCase (CommandLine for
+// run_command, AbsolutePath for view_file…). The transcript keeps that spelling, while
+// the chat cards read one lowercase shape — the same mapping its adapter applies live.
+const ANTIGRAVITY_PARAM_ALIASES = {
+  CommandLine: "command",
+  AbsolutePath: "file_path",
+  TargetFile: "file_path",
+  DirectoryPath: "path",
+  SearchDirectory: "path",
+  SearchPath: "path",
+  Query: "query"
+};
+
+function normalizeAntigravityArgs(args) {
+  const out = {};
+  for (const [key, value] of Object.entries(args || {})) {
+    // The compact transcript JSON-quotes every value, so a path arrives as `"/tmp/x"`.
+    const clean = typeof value === "string" && value.startsWith('"')
+      ? value.replace(/^"|"$/g, "")
+      : value;
+    out[ANTIGRAVITY_PARAM_ALIASES[key] || key] = clean;
+  }
+  return out;
+}
+
+// ── Antigravity: ~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl ──
+//
+// The CLI's own compact transcript of one conversation. Its per-conversation SQLite
+// file holds the same turns, but as an undocumented binary encoding of the internal
+// wire format — this JSONL is the readable one, and the CLI points its own agent at it.
+export function recoverFromAntigravityTranscript(cwd, sessionId) {
+  // The conversation id reaches the filesystem as a path segment (a resume choice comes
+  // from a client), so it is validated like every other one. `cwd` is deliberately
+  // ignored: the store is keyed by conversation id alone, and the only cwd it records
+  // lives inside the harness's own prose preamble — a gate that could only ever refuse
+  // a conversation the user just picked off the history list for this directory.
+  if (!sessionId || !CLAUDE_SESSION_ID_RE.test(sessionId)) return null;
+  const root = process.env.ANTIGRAVITY_HOME?.trim() || path.join(os.homedir(), ".gemini", "antigravity-cli");
+  const logsDir = path.join(root, "brain", sessionId, ".system_generated", "logs");
+  // The compact file quotes every argument value; the full one does not, and it exists
+  // beside it for every conversation. Prefer the clean copy, fall back to the compact.
+  const file = ["transcript_full.jsonl", "transcript.jsonl"]
+    .map((name) => path.join(logsDir, name))
+    .find((p) => fs.existsSync(p));
+  if (!file) return null;
+
+  let lines;
+  try {
+    lines = fs.readFileSync(file, "utf8").trim().split("\n");
+  } catch {
+    return null;
+  }
+
+  const events = [];
+  const pending = []; // tool calls announced, waiting for the step that carries their result
+  let seq = 1;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+
+    if (rec.type === "USER_INPUT") {
+      // The prompt is wrapped with the harness's own context blocks; only the request
+      // inside <USER_REQUEST> is the user's own words.
+      const text = stripHarnessWrapping(rec.content || "");
+      if (text) events.push({ seq: seq++, event: "user_message", data: { text } });
+      continue;
+    }
+    if (rec.type !== "PLANNER_RESPONSE" && rec.type !== "GENERIC") continue;
+
+    if (rec.thinking?.trim()) events.push({ seq: seq++, event: "thinking", data: { text: rec.thinking } });
+
+    const calls = rec.tool_calls || [];
+    for (const call of calls) {
+      const id = `${call.name}-${rec.step_index}`;
+      pending.push(id);
+      events.push({ seq: seq++, event: "tool_start", data: { id, name: call.name, input: normalizeAntigravityArgs(call.args) } });
+    }
+    // A GENERIC step is the harness reporting what the preceding call returned, in the
+    // order the calls were made — that pairing is the only id the transcript offers.
+    if (rec.type === "GENERIC" && pending.length) {
+      events.push({ seq: seq++, event: "tool_result", data: { id: pending.shift(), output: rec.content || "" } });
+      continue;
+    }
+    if (rec.content?.trim()) {
+      events.push({ seq: seq++, event: "delta", data: { text: rec.content } });
+      events.push({ seq: seq++, event: "turn_complete", data: { stats: {} } });
+    }
+  }
+
+  if (events.length === 0) return null;
+  return tailFromLastUser(events);
+}
+
 // ── OpenCode: ~/.local/share/opencode/opencode.db (message + part tables) ──
 
 export function recoverFromOpencodeTranscript(cwd, sessionId) {
@@ -196,5 +290,6 @@ export function recoverFromTranscript(engine, cwd, sessionId) {
   if (engine === "claude") return recoverFromClaudeTranscript(cwd, sessionId);
   if (engine === "codex") return recoverFromCodexTranscript(cwd, sessionId);
   if (engine === "opencode") return recoverFromOpencodeTranscript(cwd, sessionId);
+  if (engine === "antigravity") return recoverFromAntigravityTranscript(cwd, sessionId);
   return null;
 }

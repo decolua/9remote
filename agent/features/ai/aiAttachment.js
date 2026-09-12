@@ -5,10 +5,9 @@
 // to disk and handed over as its path, which the CLI reads like any other file.
 import fs from "node:fs";
 import path from "node:path";
-import { UPLOAD_DIR } from "./constants.js";
+import { UPLOAD_DIR } from "../terminal/constants.js";
 
-// The directory must exist before the first write; the daemon's copy of this module
-// is what runs for a chat session, and nothing else creates it on that path.
+// The directory must exist before the first write — nothing else creates it.
 try { if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch {}
 
 // Mirrors InputHandler's guard — a client-supplied name is written to disk, so it

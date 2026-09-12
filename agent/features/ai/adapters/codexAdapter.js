@@ -2,7 +2,7 @@
 import { getExtendedEnv } from "./env.js";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
-import { stageAttachment, buildAttachedPrompt } from "../../terminal/aiAttachment.js";
+import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 
 // Codex reports a refusal as plain assistant text ("I can't create X because this
 // workspace is read-only"), not a structured event. Matching that text is the only

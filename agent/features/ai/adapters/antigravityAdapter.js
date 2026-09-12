@@ -2,7 +2,7 @@
 import { getExtendedEnv } from "./env.js";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
-import { stageAttachment, buildAttachedPrompt } from "../../terminal/aiAttachment.js";
+import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 
 // `agy` has no `--permission-mode` flag: the gate is either on or bypassed. Plan mode
 // is the CLI's own read-only mode (`--mode plan`), so that is what it maps to.
