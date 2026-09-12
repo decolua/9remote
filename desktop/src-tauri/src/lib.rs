@@ -1,6 +1,7 @@
 use tauri::{
     AppHandle, Emitter, Manager,
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    image::Image,
+    menu::{IconMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
@@ -1272,14 +1273,16 @@ pub fn run() {
             let version = env!("CARGO_PKG_VERSION");
             let header = MenuItem::with_id(app, "header", format!("● 9Remote v{version}"), false, None::<&str>)?;
             let sep1 = PredefinedMenuItem::separator(app)?;
-            let pair = MenuItem::with_id(app, "pair_device", "📱 Pair Device (QR Code)", true, None::<&str>)?;
-            let local_ws = MenuItem::with_id(app, "local_workspace", "💻 Local Workspace", true, None::<&str>)?;
-            let remote_ws = MenuItem::with_id(app, "remote_workspace", "🌐 Remote Workspace", true, None::<&str>)?;
+            // Menu icons are brand-colored PNGs (scripts/genMenuIcons.mjs), not emoji
+            let icon = |bytes: &'static [u8]| Image::from_bytes(bytes);
+            let pair = IconMenuItem::with_id(app, "pair_device", "Pair Device (QR Code)", true, Some(icon(include_bytes!("../icons/menu/pair.png"))?), None::<&str>)?;
+            let local_ws = IconMenuItem::with_id(app, "local_workspace", "Local Workspace", true, Some(icon(include_bytes!("../icons/menu/local.png"))?), None::<&str>)?;
+            let remote_ws = IconMenuItem::with_id(app, "remote_workspace", "Remote Workspace", true, Some(icon(include_bytes!("../icons/menu/remote.png"))?), None::<&str>)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
-            let restart = MenuItem::with_id(app, "restart_agent", "🔄 Restart Agent", true, None::<&str>)?;
-            let check_update = MenuItem::with_id(app, "check_update", "Check for Updates", true, None::<&str>)?;
+            let restart = IconMenuItem::with_id(app, "restart_agent", "Restart Agent", true, Some(icon(include_bytes!("../icons/menu/restart.png"))?), None::<&str>)?;
+            let check_update = IconMenuItem::with_id(app, "check_update", "Check for Updates", true, Some(icon(include_bytes!("../icons/menu/update.png"))?), None::<&str>)?;
             let sep3 = PredefinedMenuItem::separator(app)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit 9Remote", true, Some("CmdOrCtrl+Q"))?;
+            let quit = IconMenuItem::with_id(app, "quit", "Quit 9Remote", true, Some(icon(include_bytes!("../icons/menu/quit.png"))?), Some("CmdOrCtrl+Q"))?;
             let menu = Menu::with_items(
                 app,
                 &[
@@ -1297,7 +1300,7 @@ pub fn run() {
             )?;
 
             // Embedded agent tray PNG (terminal glyph) — same icon as CLI tray
-            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/trayIcon.png"))?;
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/trayIcon.png"))?;
             TrayIconBuilder::new()
                 .icon(tray_icon)
                 .icon_as_template(false)
