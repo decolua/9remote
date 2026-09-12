@@ -514,7 +514,8 @@ export const Composer = memo(function Composer({
     [rawModel, MODELS]
   );
 
-  const displayModel = matchedModel?.label || rawModel || "Model";
+  // `short` is the real id for host slot models; the alias label is the no-custom fallback.
+  const displayModel = matchedModel?.short || matchedModel?.label || rawModel || "Model";
 
   // The running model may not be in the host's list (set from another surface, or a
   // settings change since) — show it anyway rather than pretending another is active.
