@@ -5,8 +5,14 @@
 // Run: node --import ./test/loader-alias.mjs test/paneLayout.test.mjs
 import assert from "node:assert/strict";
 import {
-  derivePaneLayout, mountDelayFor, sessionWorkspaceId, STAGGER_MS, UNGROUPED_KEY
+  derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth, STAGGER_MS, UNGROUPED_KEY
 } from "../features/terminal/lib/paneLayout.js";
+
+// Defaults matching terminalConfig: PANE_WIDTH.min 400, PANE_GAP_PX 2, no row padding.
+const fit = (over = {}) => autoFitPaneWidth({
+  rowWidth: 1600, paneCount: 1, sidebarWidth: 190, sidePx: 0,
+  gapPx: 2, paddingPx: 0, minWidth: 400, applied: null, ...over
+});
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -147,6 +153,57 @@ test("join order staggers non-focused panes, focus joins immediately", () => {
   assert.equal(mountDelayFor("b", false, r.workspaceIndex), STAGGER_MS);
   assert.equal(mountDelayFor("c", false, r.workspaceIndex), 2 * STAGGER_MS);
   assert.equal(mountDelayFor("zz", false, r.workspaceIndex), 0, "unknown pane joins now");
+});
+
+// --- autoFitPaneWidth: side panels narrow the panes, never widen them ---
+
+test("no measurement yet returns null (falls back to flex)", () => {
+  assert.equal(fit({ rowWidth: 0 }), null);
+  assert.equal(fit({ paneCount: 0 }), null);
+});
+
+test("panes split the row minus the sidebar and every open side panel", () => {
+  assert.equal(fit({ paneCount: 2, sidePx: 0 }), Math.floor((1600 - 190 - 2) / 2));
+  assert.equal(fit({ paneCount: 2, sidePx: 420 }), Math.floor((1600 - 190 - 420 - 2) / 2));
+});
+
+test("opening a side panel narrows an auto row", () => {
+  const wide = fit({ paneCount: 1, sidePx: 0 });
+  const narrow = fit({ paneCount: 1, sidePx: 420, applied: wide });
+  assert.equal(narrow, wide - 420);
+});
+
+test("closing it back does NOT widen — the panes hold and the row takes up the slack", () => {
+  const narrow = fit({ paneCount: 1, sidePx: 420 });
+  assert.equal(fit({ paneCount: 1, sidePx: 0, applied: narrow }), narrow);
+});
+
+test("a deliberate fit (applied null) re-widens after the panel closes", () => {
+  assert.equal(fit({ paneCount: 1, sidePx: 0, applied: null }), 1600 - 190);
+});
+
+test("narrowing keeps tracking while the panel is dragged open", () => {
+  let w = fit({ paneCount: 1 });
+  w = fit({ paneCount: 1, sidePx: 200, applied: w });
+  w = fit({ paneCount: 1, sidePx: 260, applied: w });
+  assert.equal(w, 1600 - 190 - 260);
+});
+
+test("sub-pixel noise from layout rounding is not a narrowing", () => {
+  const w = fit({ paneCount: 3 });
+  assert.equal(fit({ paneCount: 3, sidePx: 0.4, applied: w }), w);
+});
+
+test("a row clamped at the floor stays clamped when the panel closes", () => {
+  const clamped = fit({ rowWidth: 900, paneCount: 1, sidePx: 600 }); // base < min → 400
+  assert.equal(clamped, 400);
+  assert.equal(fit({ rowWidth: 900, paneCount: 1, sidePx: 0, applied: clamped }), 400,
+    "widening it back is the double-click's job, not the close");
+  assert.equal(fit({ rowWidth: 900, paneCount: 1, sidePx: 0, applied: null }), 710);
+});
+
+test("panes at min hold the floor, the row scrolls instead", () => {
+  assert.equal(fit({ rowWidth: 800, paneCount: 3 }), 400);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

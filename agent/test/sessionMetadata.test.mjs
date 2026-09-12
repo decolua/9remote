@@ -14,7 +14,9 @@ test("serializes core fields (name/createdAt/shellId/cwd)", () => {
   const m = buildSessionMetadata({ name: "Term 1", createdAt: 123, shellId: "zsh", cwd: "/home" });
   assert.deepEqual(m, {
     name: "Term 1", autoNamed: true, createdAt: 123, shellId: "zsh", cwd: "/home",
-    workspacePath: null, cols: null, rows: null
+    workspacePath: null, cols: null, rows: null,
+    // Which CLI runs in the terminal, null when none does (or none was detected).
+    agent: null
   });
 });
 

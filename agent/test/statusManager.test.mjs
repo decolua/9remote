@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   STATES, TYPE_TO_STATE, applyEvent, getStatus, getStatuses,
   clearStatus, setStatus, onClearStatus, getNotifications,
-  onProcessChange, getSessionAgent,
+  onProcessChange, confirmShellClear, getSessionAgent,
 } from "../features/terminal/statusManager.js";
 
 let pass = 0, fail = 0;
@@ -119,9 +119,9 @@ await test("getStatuses returns a snapshot of all sessions", () => {
 
 await test("tool is retained across state transitions if omitted", () => {
   reset();
-  applyEvent({ type: "working", sessionId: "s1", tool: "gemini" });
+  applyEvent({ type: "working", sessionId: "s1", tool: "opencode" });
   applyEvent({ type: "done", sessionId: "s1" });
-  assert.equal(getStatus("s1").tool, "gemini");
+  assert.equal(getStatus("s1").tool, "opencode");
 });
 
 await test("getNotifications (legacy shim) exposes done/blocked only", () => {
@@ -181,7 +181,9 @@ await test("onProcessChange preserves BLOCKED state when returning to shell", ()
 await test("onProcessChange resets WORKING to idle when interrupted/exited to shell", () => {
   reset();
   applyEvent({ type: "working", sessionId: "s1", tool: "claude" });
-  const res = onProcessChange("s1", "zsh");
+  // The reading is held; a still-shell re-read is what settles it as an exit.
+  assert.equal(onProcessChange("s1", "zsh")?.state, "pendingShell");
+  const res = confirmShellClear("s1", "zsh");
   assert.deepEqual(res, { state: STATES.IDLE, tool: null, conversationId: null });
   assert.equal(getStatus("s1"), null, "status cleared");
 });
@@ -195,3 +197,55 @@ await test("onProcessChange sets agent when process is an agent binary", () => {
 
 console.log(`\n${fail ? `❌ ${fail} failed` : "✅ all passed"}, ${pass} passed`);
 if (fail) process.exit(1);
+
+// The foreground reading is the PROCESS GROUP LEADER, and a coding agent's own Bash
+// tool gives it to a shell whenever it runs anything piped (`cmd | tail`, verified
+// against pty.process on macOS). Both the agent icon and the conversation hang off
+// this one call, so a reading must be confirmed before it clears anything.
+await test("a single shell reading does not clear a running agent's conversation", () => {
+  reset();
+  applyEvent({ type: "working", sessionId: "s1", tool: "claude" });
+  onProcessChange("s1", "claude");
+  assert.equal(getSessionAgent("s1"), "claude");
+
+  const res = onProcessChange("s1", "zsh");
+  assert.equal(res?.state, "pendingShell", "held for confirmation, not acted on");
+  assert.equal(getSessionAgent("s1"), "claude", "claude survives (icon stays in statusState)");
+  assert.equal(getStatus("s1")?.state, STATES.WORKING, "still working");
+
+  // The tool ends and the agent is back in front — the held reading is discarded.
+  assert.equal(confirmShellClear("s1", "claude"), null, "confirmed as not-exited");
+  assert.equal(getSessionAgent("s1"), "claude");
+  assert.equal(getStatus("s1")?.state, STATES.WORKING);
+});
+
+await test("a confirmed shell reading clears the conversation and state", () => {
+  reset();
+  applyEvent({ type: "working", sessionId: "s2", tool: "claude" });
+  onProcessChange("s2", "claude");
+  onProcessChange("s2", "zsh");
+  const res = confirmShellClear("s2", "zsh");
+  assert.deepEqual(res, { state: STATES.IDLE, tool: null, conversationId: null });
+  assert.equal(getStatus("s2"), null, "state cleared");
+  assert.equal(getSessionAgent("s2"), null, "agent cleared — nothing runs this chat any more");
+  // A later shell reading must not re-arm the hold now the entry is gone.
+  assert.equal(onProcessChange("s2", "zsh"), null, "no churn at a bare prompt");
+});
+
+await test("confirmShellClear ignores a session with nothing pending", () => {
+  reset();
+  applyEvent({ type: "working", sessionId: "s3", tool: "claude" });
+  assert.equal(confirmShellClear("s3", "zsh"), null);
+  assert.equal(getStatus("s3")?.state, STATES.WORKING, "untouched");
+});
+
+await test("a piped tool call does not cost the agent icon or the conversation", () => {
+  reset();
+  applyEvent({ type: "working", sessionId: "pipe", tool: "claude" });
+  onProcessChange("pipe", "claude");
+  // `ls -la 2>&1 | tail -n 200` — measured: pty.process reads "zsh" for this.
+  onProcessChange("pipe", "zsh");
+  confirmShellClear("pipe", "claude");
+  assert.equal(getSessionAgent("pipe"), "claude");
+  assert.equal(getStatus("pipe")?.state, STATES.WORKING);
+});

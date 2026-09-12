@@ -30,9 +30,9 @@ const test = (name, fn) => Promise.resolve().then(fn)
   .then(() => { pass++; console.log(`  ✓ ${name}`); })
   .catch((e) => { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); });
 
-// All 16 tools are registered
-await test("SUPPORTED_TOOLS has 16 tools", () => {
-  assert.equal(m.SUPPORTED_TOOLS.length, 16);
+// All 15 tools are registered
+await test("SUPPORTED_TOOLS has 15 tools", () => {
+  assert.equal(m.SUPPORTED_TOOLS.length, 15);
 });
 
 // Helper: extract the curl command from a nested-json hook entry {hooks:[{command}], matcher?}
@@ -66,18 +66,6 @@ await test("claude enable is idempotent (no duplicate hooks)", () => {
   const settings = JSON.parse(fs.readFileSync(path.join(TMP, ".claude", "settings.json"), "utf8"));
   const own = settings.hooks.UserPromptSubmit.filter((g) => cmd(g).includes("&tool=claude"));
   assert.equal(own.length, 1, "only one 9remote hook per event");
-});
-
-// Gemini: same nested-json shape, multiple working events
-await test("gemini writes BeforeAgent/PreToolUse/PostToolUse as working", () => {
-  m.enableToolHook("gemini");
-  const settings = JSON.parse(fs.readFileSync(path.join(TMP, ".gemini", "settings.json"), "utf8"));
-  assert.ok(cmd(settings.hooks.BeforeAgent[0]).includes("?type=working"));
-  assert.ok(cmd(settings.hooks.PreToolUse[0]).includes("?type=working"));
-  assert.ok(cmd(settings.hooks.AfterAgent[0]).includes("?type=done"));
-  m.disableToolHook("gemini");
-  const after = JSON.parse(fs.readFileSync(path.join(TMP, ".gemini", "settings.json"), "utf8"));
-  assert.equal(after.hooks, undefined);
 });
 
 // Cursor: flat-json kind — each entry is {command} directly, no timeout field
@@ -174,7 +162,7 @@ await test("curl command targets localhost notify endpoint", () => {
 // getHookStatus reports installed=false when binary missing (temp HOME has no PATH binaries)
 await test("getHookStatus reports every tool", () => {
   const status = m.getHookStatus();
-  assert.equal(Object.keys(status).length, 16);
+  assert.equal(Object.keys(status).length, 15);
   for (const t of m.SUPPORTED_TOOLS) assert.ok(status[t].installed === false || status[t].installed === true);
 });
 

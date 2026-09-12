@@ -73,10 +73,9 @@ test("grok percent-encodes the cwd", () => {
   assert.equal(encodeCwdForAgent("grok", CWD), "%2FUsers%2FWorking%2F9remote");
 });
 
-test("gemini and qwen hash the cwd with sha256", () => {
+test("qwen hashes the cwd with sha256", () => {
   const digest = crypto.createHash("sha256").update(CWD).digest("hex");
-  assert.equal(encodeCwdForAgent("gemini", CWD), digest);
-  assert.equal(encodeCwdForAgent("qwen", CWD), digest);
+  assert.equal(encodeCwdForAgent("qwen-code", CWD), digest);
 });
 
 test("an agent with no directory encoding returns null", () => {
@@ -92,7 +91,6 @@ test("resumeCommand builds each CLI's own resume invocation", () => {
   assert.equal(resumeCommand("cursor", "abc"), "cursor-agent --resume abc");
   assert.equal(resumeCommand("droid", "abc"), "droid --resume abc");
   assert.equal(resumeCommand("grok", "abc"), "grok --resume abc");
-  assert.equal(resumeCommand("gemini", "abc"), "gemini --resume abc");
 });
 
 test("resumeCommand quotes an id containing shell metacharacters", () => {
@@ -230,17 +228,17 @@ test("grok sessions come from the percent-encoded cwd directory", async () => {
   assert.equal(rows[0].title, "chào");
 });
 
-test("gemini sessions come from the sha256 cwd directory", async () => {
+test("qwen sessions come from the sha256 cwd directory", async () => {
   const digest = crypto.createHash("sha256").update(CWD).digest("hex");
-  write(`.gemini/tmp/${digest}/chats/session-2026-01-01T10-18-abcd.json`, JSON.stringify({
-    sessionId: "gem-1",
+  write(`.qwen/tmp/${digest}/chats/session-2026-01-01T10-18-abcd.json`, JSON.stringify({
+    sessionId: "qwen-1",
     lastUpdated: "2026-01-01T10:18:13.382Z",
     messages: [{ type: "user", content: "hello there", timestamp: "2026-01-01T10:02:11Z" }]
   }), 1100);
   clearHistoryCache();
 
-  const rows = (await listAgentSessions({ cwd: CWD })).filter((s) => s.agent === "gemini");
-  assert.deepEqual(rows.map((s) => s.sessionId), ["gem-1"]);
+  const rows = (await listAgentSessions({ cwd: CWD })).filter((s) => s.agent === "qwen-code");
+  assert.deepEqual(rows.map((s) => s.sessionId), ["qwen-1"]);
   assert.equal(rows[0].title, "hello there");
 });
 

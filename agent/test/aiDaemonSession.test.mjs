@@ -22,6 +22,9 @@ const test = (name, fn) => {
 
 const root = path.resolve(import.meta.dirname, "..", "..");
 const DAEMON = fs.readFileSync(path.join(root, "agent/features/terminal/ptyDaemon.js"), "utf8");
+// The transcript lookup lives in its own module now — the daemon imports it, and
+// these two invariants are asserted against where the code actually is.
+const TRANSCRIPT = fs.readFileSync(path.join(root, "agent/features/terminal/claudeTranscript.js"), "utf8");
 const CLIENT = fs.readFileSync(path.join(root, "agent/features/terminal/ptyDaemonClient.js"), "utf8");
 const HOOK = fs.readFileSync(path.join(root, "web/features/ai/hooks/useAiSession.js"), "utf8");
 const SOCKET = fs.readFileSync(path.join(root, "agent/features/ai/aiSocket.js"), "utf8");
@@ -191,7 +194,30 @@ test("a resume rebinds the daemon session and replays the new transcript", () =>
   assert.match(DAEMON, /CLAUDE_SESSION_ID_RE\.test\(resume\)/);
   assert.match(DAEMON, /optSession\.cliSessionId = resume;/);
   assert.match(DAEMON, /recoverFromClaudeTranscript\(optSession\.cwd, resume\)/);
-  assert.match(DAEMON, /broadcastAiEvent\(sessionId, "conversation_reset", \{\}\);/);
+  // Only the tail replays, so the reset has to state where the window begins and
+  // whether anything precedes it — otherwise the client's scroll-up has no way to
+  // know the fresh log continues further back.
+  assert.match(DAEMON, /broadcastAiEvent\(sessionId, "conversation_reset", \{\s*hasMore:/);
+  assert.match(DAEMON, /fromSeq: recovered\[keepFrom\]\?\.seq \?\? 0/);
+});
+
+test("a join ships only the tail of a long log, and says so", () => {
+  // A real chat was 6.9 MB of events; shipping it whole is what stalls a phone on F5.
+  assert.match(DAEMON, /events: from > 0 \? s\.events\.slice\(from\) : s\.events,/);
+  assert.match(DAEMON, /hasMore: from > 0,/);
+  // The scroll-up door exists on the daemon, the agent proxy, and the client hook.
+  assert.match(DAEMON, /case "aiHistory":/);
+  assert.match(CLIENT, /export async function aiHistory\(sessionId, before\)/);
+  const HANDLER = fs.readFileSync(path.join(root, "agent/features/terminal/handlers/SessionHandler.js"), "utf8");
+  assert.match(HANDLER, /socket\.on\("aiHistory"/);
+  assert.match(HOOK, /b\.emit\("aiHistory", \{ sessionId, before: logSeq \}, done\)/);
+  // A carrier that dies mid-flight never calls back. Without a budget the in-flight flag
+  // stays set and scroll-up history is dead for the rest of the page's life — the exact
+  // failure the terminal guards against in lib/reconnectState.js.
+  assert.match(HOOK, /const timer = setTimeout\(\(\) => done\(null\), HISTORY_TIMEOUT_MS\)/);
+  // And the log can be replaced under the fetch (/resume): a chunk for the old log must
+  // not be prepended onto the new one.
+  assert.match(HOOK, /if \(olderSeqRef\.current !== logSeq\) return false;/);
 });
 
 // codex/opencode run on the in-agent path, so their resume has to rebuild the log
@@ -235,13 +261,14 @@ test("a client-supplied resume id cannot escape the projects dir or argv", () =>
     assert.equal(ID_RE.test(ok), true, `must accept ${ok}`);
   }
   // Both the daemon and the in-agent path validate before using the id
-  assert.match(DAEMON, /const CLAUDE_SESSION_ID_RE = \/\^\[A-Za-z0-9_\]/);
+  assert.match(TRANSCRIPT, /export const CLAUDE_SESSION_ID_RE = \/\^\[A-Za-z0-9_\]/);
+  assert.match(DAEMON, /import \{ recoverFromClaudeTranscript, CLAUDE_SESSION_ID_RE \}/);
   assert.match(fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8"), /const RESUME_ID_RE = \/\^\[A-Za-z0-9_\]/);
 });
 
 test("the transcript read is confined to the projects directory", () => {
-  assert.match(DAEMON, /const resolved = path\.resolve\(p\);/);
-  assert.match(DAEMON, /if \(!resolved\.startsWith\(path\.resolve\(projectsDir\) \+ path\.sep\)\) return null;/);
+  assert.match(TRANSCRIPT, /const resolved = path\.resolve\(p\);/);
+  assert.match(TRANSCRIPT, /if \(!resolved\.startsWith\(path\.resolve\(projectsDir\) \+ path\.sep\)\) return null;/);
 });
 
 test("a lost ack cannot leave the hydrate gate shut forever", () => {
@@ -268,10 +295,56 @@ test("mock (test) sessions stay on the in-agent path, never the daemon", () => {
 });
 
 test("prompt auto-create carries the cwd end to end", () => {
-  assert.match(HOOK, /b\?\.emit\("ai:prompt", \{ sessionId, message: text, cwd: workspacePath \}\)/);
-  assert.match(SOCKET, /daemonClient\.aiPrompt\(sessionId, message, cwd \|\| null\)/);
-  assert.match(DAEMON, /function aiPrompt\(sessionId, message, cwd = null\)/);
+  assert.match(HOOK, /b\?\.emit\("ai:prompt", \{\s*sessionId,\s*message: text,\s*cwd: workspacePath,/);
+  assert.match(SOCKET, /daemonClient\.aiPrompt\(sessionId, message, cwd \|\| null, attachments\)/);
+  assert.match(DAEMON, /function aiPrompt\(sessionId, message, cwd = null, attachments = null\)/);
   assert.match(DAEMON, /createAiSession\(sessionId, \{ engine: "claude", cwd, options: \{\} \}\)/);
+});
+
+test("a staged attachment reaches the CLI as a content block, not a bare path", () => {
+  const ATTACH = fs.readFileSync(path.join(root, "agent/features/terminal/aiAttachment.js"), "utf8");
+  // Images become base64 blocks — the CLI sends them to the model as an image.
+  assert.match(ATTACH, /type: "image", source: \{ type: "base64", media_type: a\.mediaType, data: a\.data \}/);
+  // Anything else is written to disk and named in the text.
+  assert.match(ATTACH, /return \{ kind: "file", path: filePath \}/);
+  assert.match(ATTACH, /const body = \[paths, text\]\.filter\(Boolean\)\.join\(" "\);/);
+  // A client-supplied filename never steers the write path.
+  assert.match(ATTACH, /replace\(\/\[\^a-zA-Z0-9\._-\]\/g, "_"\)/);
+  // The daemon must have the module in its runtime copy, or the daemon dies at import.
+  assert.match(CLIENT, /DAEMON_LOCAL_MODULES = \[[^\]]*"aiAttachment\.js"/);
+  // A prompt carrying only an image is valid — no caption needed.
+  assert.match(DAEMON, /if \(!message\.trim\(\) && !staged\) return \{ success: false, error: "Missing message" \};/);
+});
+
+// ── Daemon boot ──
+
+test("every local module the daemon imports is copied into its runtime folder", () => {
+  // The dev-mode runtime copy is an allowlist. A module the daemon imports but the
+  // copy forgets makes the daemon die at import — terminals still work (the agent
+  // serves those), but the AI chat silently loses its host session, so a switch
+  // between terminal and chat UI shows two unrelated conversations.
+  const DAEMON_CLIENT = fs.readFileSync(path.join(root, "agent/features/terminal/ptyDaemonClient.js"), "utf8");
+  const listed = /const DAEMON_LOCAL_MODULES = \[([^\]]+)\]/.exec(DAEMON_CLIENT);
+  assert.ok(listed, "DAEMON_LOCAL_MODULES must exist");
+  const copied = new Set([...listed[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+
+  // Sibling modules resolved as ./x.js — anything deeper is copied by the lib step.
+  // Transitively: a copied module that imports another sibling pulls it in too, and
+  // the daemon dies on the second hop just as dead as on the first.
+  const siblingsOf = (file) =>
+    [...file.matchAll(/from "\.\/([^"]+)"/g)].map((m) => m[1]);
+  const queue = siblingsOf(DAEMON);
+  const walk = new Set();
+  while (queue.length) {
+    const name = queue.shift();
+    if (walk.has(name)) continue;
+    walk.add(name);
+    const full = path.join(root, "agent/features/terminal", name);
+    if (!fs.existsSync(full)) continue;
+    queue.push(...siblingsOf(fs.readFileSync(full, "utf8")));
+  }
+  const missing = [...walk].filter((f) => !copied.has(f));
+  assert.deepEqual(missing, [], `not copied into the daemon runtime folder: ${missing.join(", ")}`);
 });
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
