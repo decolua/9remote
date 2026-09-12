@@ -13,7 +13,7 @@ export function useSessionNavigation({
   sessions, currentView, viewStack, setViewStack, pushView, storePopView,
   activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
   addOpenedSession, removeOpenedSession, touchLivePane,
-  createSession, deleteSession, renameSession, clearNotification, busRef,
+  createSession, deleteSession, renameSession, busRef,
   isDesktop = false, requestFocus = null
 }) {
   const { t } = useI18n();
@@ -36,7 +36,8 @@ export function useSessionNavigation({
     [t]
   );
 
-  // Entering terminal view: open sessions of the selected session's workspace, set it active
+  // Entering terminal view: open sessions of the selected session's workspace, set it active.
+  // Selecting a pane does NOT mark its done badge read — only typing/sending into it does.
   const handleSelectSession = useCallback((sessionId) => {
     const selected = sessions.find(s => s.id === sessionId);
     // A caller can hold an id that has since closed (a history row, a stale
@@ -49,13 +50,12 @@ export function useSessionNavigation({
     ids.forEach(id => addOpenedSession(id));
     addOpenedSession(sessionId);
     touchLivePane([...ids, sessionId]); // keep this workspace's panes alive (LRU)
-    clearNotification?.(sessionId);
 
     if (currentView.type === "terminal") replaceTopWithSession(sessionId);
     else pushView({ type: "terminal", sessionId });
   }, [
     sessions, workspaceSessionIds, addOpenedSession, touchLivePane, setActiveWorkspaceId,
-    currentView, pushView, clearNotification, replaceTopWithSession
+    currentView, pushView, replaceTopWithSession
   ]);
 
   // Deep-link from a push notification tap (SW postMessage) or OS Dock icon click

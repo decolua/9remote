@@ -79,6 +79,26 @@ await test("clearNotification clears badge, resets state to idle (preserving too
   assert.equal(emits.length, 2, "must not double emit");
 });
 
+await test("clearNotification leaves a blocked session alone (a pending approval is still pending)", () => {
+  const emits = [];
+  const fakeBus = { emit: (event, arg) => emits.push({ event, arg }) };
+  useConnectionStore.getState().setConnection({ bus: fakeBus, busRef: { current: fakeBus }, connected: true });
+
+  useNotificationStore.getState().reset();
+  useNotificationStore.getState().handleStatusChange({
+    sessionId: "s1",
+    state: "blocked",
+    tool: "claude",
+    since: 1000
+  });
+
+  useNotificationStore.getState().clearNotification("s1");
+  const { notifications, sessionStatus } = useNotificationStore.getState();
+  assert.equal(notifications.s1?.type, "blocked", "badge must survive");
+  assert.equal(sessionStatus.s1?.state, "blocked", "status must survive");
+  assert.equal(emits.length, 0, "must not tell the host to clear what it will refuse");
+});
+
 await test("handleStatusChange with tool: null clears the tool", () => {
   useNotificationStore.getState().reset();
   useNotificationStore.getState().handleStatusChange({

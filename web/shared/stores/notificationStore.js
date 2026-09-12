@@ -67,23 +67,20 @@ export const useNotificationStore = create((set, get) => ({
   clearNotification: (sessionId) => {
     if (!sessionId) return;
     const { notifications, sessionStatus } = get();
-    const hasBadge = !!notifications[sessionId];
-    const hasDone = sessionStatus[sessionId]?.state === "done";
-    if (!hasBadge && !hasDone) return;
+    const state = sessionStatus[sessionId]?.state;
+    // A blocked session is still waiting on the user: the agent refuses to clear it, so
+    // neither do we — badge, status and wire all stay put rather than half-clearing.
+    if (state === "blocked") return;
+    if (!notifications[sessionId] && state !== "done") return;
 
     set((prev) => {
-      let nextNotifs = prev.notifications;
-      if (sessionId in prev.notifications) {
-        nextNotifs = omit(prev.notifications, sessionId);
-      }
-      let nextStatus = prev.sessionStatus;
       const existing = prev.sessionStatus[sessionId];
-      if (existing && existing.state === "done") {
-        nextStatus = {
-          ...prev.sessionStatus,
-          [sessionId]: { state: "idle", tool: existing.tool, since: existing.since }
-        };
-      }
+      const nextNotifs = sessionId in prev.notifications
+        ? omit(prev.notifications, sessionId)
+        : prev.notifications;
+      const nextStatus = existing?.state === "done"
+        ? { ...prev.sessionStatus, [sessionId]: { state: "idle", tool: existing.tool, since: existing.since } }
+        : prev.sessionStatus;
       return { notifications: nextNotifs, sessionStatus: nextStatus };
     });
 

@@ -67,7 +67,7 @@ function TerminalWorkspace({
   bus, busRef, connected, carrier, platform, agentVersion,
   sessions, workspaces, activeSessionId, activeSession, activeWorkspaceId,
   openedSessions, livePanes, mountedWorkspaces, cwdBySession,
-  sessionStatus, notifications, clearNotification,
+  sessionStatus, notifications,
   isDesktop, isTerminalView, slideClass, shells,
   sidebarCollapsed, sidebarWidth, setSidebarWidth, toggleSidebar,
   paneWidth = null, setPaneWidth,
@@ -90,7 +90,6 @@ function TerminalWorkspace({
   const isConnected = connected ?? storeConnected;
   const activeCarrier = carrier || storeCarrier;
   const activeFileBus = fileBus || useFileBusStore.getState();
-  const handleClearNotification = clearNotification || useNotificationStore.getState().clearNotification;
 
   const {
     panesContainerRef, registerPaneApi, registerPaneElement, registerKeyboardTextApi,
@@ -359,7 +358,6 @@ function TerminalWorkspace({
       onRegisterApi={registerPaneApi}
       onPasteFallback={handlePasteFallback}
       showFocusBorder={false}
-      clearNotification={handleClearNotification}
       mountDelay={mountDelayFor(sessionId, isFocused, workspaceIndex)}
       bgIndex={bgIndex}
       onOpenArtifact={onOpenArtifact}
@@ -378,7 +376,9 @@ function TerminalWorkspace({
       onRegisterTextApi={registerKeyboardTextApi}
       onInputFocusChange={handleInputFocusChange}
       platform={platform}
-      onInput={handleClearNotification}
+      // Typing is what marks a finished session read. Passed as the store's own method (a
+      // stable reference — MobileKeyboard is memoized) and called with its own sessionId.
+      onInput={useNotificationStore.getState().clearNotification}
       onSwitchSession={nav.switchSession}
       onSwitchToIndex={nav.switchToIndex}
       isDesktop={isDesktop}

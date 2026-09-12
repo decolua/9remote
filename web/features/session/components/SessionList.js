@@ -40,7 +40,7 @@ export default function SessionList({
   tunnelUrl, apiKey, connectionMode = "tunnel", codespaceInfo, codespaceDisconnected,
   onStopCodespace, isActive = true, busRef: propBusRef, subscribeToPush, unsubscribeFromPush,
   onResumeAgentSession = null,
-  notifications: propNotifications, sessionStatus: propStatus, clearNotification: propClearNotification, agentVersion,
+  notifications: propNotifications, sessionStatus: propStatus, agentVersion,
   updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, carrier: propCarrier,
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
   fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession
@@ -56,7 +56,6 @@ export default function SessionList({
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
   const sessionStatus = propStatus || storeSessionStatus;
-  const clearNotification = propClearNotification || useNotificationStore.getState().clearNotification;
   // Actions only — same reason as TerminalHeader: this writes context/callbacks.
   const openMenu = useSlideMenuStore((s) => s.open);
   const setContext = useSlideMenuStore((s) => s.setContext);
@@ -103,7 +102,6 @@ export default function SessionList({
       subscribeToPush,
       unsubscribeFromPush,
       notifications,
-      clearNotification,
       agentVersion,
       carrier
     });
@@ -122,8 +120,7 @@ export default function SessionList({
   }, [
     isActive, connected, onOpenRemote, codespaceInfo, onLogout, onStopCodespace, onUpdate,
     onRestart, setContext, setCallbacks, busRef, connectionMode, subscribeToPush,
-    unsubscribeFromPush, agentVersion, carrier, tunnelUrl, apiKey, notifications,
-    clearNotification
+    unsubscribeFromPush, agentVersion, carrier, tunnelUrl, apiKey, notifications
   ]);
 
   const sections = [

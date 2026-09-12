@@ -254,7 +254,7 @@ export default function WorkspaceLayout({ children }) {
   // mirror panel closed.
   useMobileDeviceWatch({ busRef: busRef, connected, enabled: mobileAvailable });
   useClipboardBus(busRef, connected);
-  const { subscribeToPush, unsubscribeFromPush, notifications, clearNotification } = useNotification(busRef, connected);
+  const { subscribeToPush, unsubscribeFromPush, notifications } = useNotification(busRef, connected);
 
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen);
 
@@ -294,7 +294,7 @@ export default function WorkspaceLayout({ children }) {
     sessions, currentView, viewStack, setViewStack, pushView, storePopView,
     activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
     addOpenedSession, removeOpenedSession, touchLivePane,
-    createSession, deleteSession, renameSession, clearNotification, busRef,
+    createSession, deleteSession, renameSession, busRef,
     requestFocus: paneRegistry.requestFocus
   });
 

@@ -42,7 +42,6 @@ function TerminalPane({
   onRegisterApi,
   onPasteFallback,
   showFocusBorder = false,
-  clearNotification,
   fileBus,
   bgIndex = 0,
   onOpenArtifact,
@@ -92,9 +91,8 @@ function TerminalPane({
   const [noteAppend, setNoteAppend] = useState(null);
 
   const handleClear = useCallback(() => {
-    if (clearNotification) clearNotification(sessionId);
-    else useNotificationStore.getState().clearNotification(sessionId);
-  }, [clearNotification, sessionId]);
+    useNotificationStore.getState().clearNotification(sessionId);
+  }, [sessionId]);
 
   // Background image on the pane (empty pool falls back to theme background). The
   // key is published to useXTerm only when the image actually renders — otherwise
