@@ -12,6 +12,7 @@ import { CodexAdapter } from "./adapters/codexAdapter.js";
 import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
 import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
 import { attachmentMeta } from "../terminal/aiAttachment.js";
+import { getLastOutputAt, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\[[0-9;]*m/g;
@@ -302,17 +303,26 @@ export class AiSession {
 
   // Re-armed on every event of a running turn: silence past the window means the CLI is
   // wedged, which would otherwise leave the chat spinning with no reply and no error.
-  armIdleWatchdog() {
+  //
+  // "Silence" counts every sign of life, not just chat events: a terminal sharing this
+  // session that is still streaming output is a turn making progress (a long build), so
+  // the clock runs from there instead of the turn being killed under it.
+  armIdleWatchdog(ms = AI_TURN_IDLE_TIMEOUT_MS) {
     this.clearIdleWatchdog();
     if (!ownsSnapshot(this.engine)) return;
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
       if (!this.isTurnRunning) return;
+      const quietFor = Date.now() - getLastOutputAt(this.id);
+      // Still printing — give the turn a fresh window rather than killing it mid-build.
+      if (quietFor < OUTPUT_LIVE_WINDOW_MS) return this.armIdleWatchdog();
+      // Otherwise the clock runs from that last output: wait out whichever is longer.
+      if (quietFor < AI_TURN_IDLE_TIMEOUT_MS) return this.armIdleWatchdog(AI_TURN_IDLE_TIMEOUT_MS - quietFor);
       try { this.adapter?.stop(); } catch {}
       this.emitNormalized("error", {
         message: `No response from the ${this.engine} CLI for ${Math.round(AI_TURN_IDLE_TIMEOUT_MS / 1000)}s — the turn was stopped. This usually means the CLI stalled on startup; try again.`
       });
-    }, AI_TURN_IDLE_TIMEOUT_MS);
+    }, ms);
   }
 
   clearIdleWatchdog() {
