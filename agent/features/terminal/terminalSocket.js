@@ -18,7 +18,7 @@ import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
 import { isMcpEnabled, syncMcpConfig, MCP_CLIENTS } from "../../mcp/mcpConfig.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
-import { touchWorking, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, applyEvent } from "./statusManager.js";
+import { touchWorking, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, confirmShellClear, isPendingShellClear, applyEvent } from "./statusManager.js";
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
@@ -38,7 +38,23 @@ const PKG_VERSION = typeof __CLI_VERSION__ !== "undefined"
 // title before any hook fires. Tail buffer joins sequences split across chunks.
 const OSC_TITLE_RE = /\x1b\](?:0|2);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
 const TITLE_TAIL_MAX = 256;
+// How long after a shell reading to look again before believing the TUI exited.
+// Long enough that a tool call has handed control back, short enough to be unseen.
+const SHELL_CONFIRM_MS = 1500;
 const titleTails = new Map(); // sessionId -> unterminated OSC fragment
+
+// Re-read the foreground process and settle a reading onProcessChange held back.
+// The read is asynchronous, so a second reading that arrives meanwhile (a tool call
+// ending) is left to decide on its own — this only settles what is still pending.
+async function settleShellReading(io, sessionId) {
+  if (!isPendingShellClear(sessionId)) return;
+  const live = await daemonClient.listSessions().catch(() => null);
+  const entry = live?.find((s) => s.id === sessionId);
+  const result = confirmShellClear(sessionId, entry?.foregroundProcess);
+  if (result?.state !== "idle") return;
+  broadcast(io, "statusChange", { sessionId, state: "idle", tool: null, conversationId: null });
+  broadcast(io, "statusState", getStatuses());
+}
 
 function scanTitleForAgent(sessionId, text) {
   const buf = (titleTails.get(sessionId) || "") + text;
@@ -220,7 +236,7 @@ export async function initializeTerminal() {
 
   // Backfill scrollback env for users who enabled Claude hook before the fix
   try { reconcileClaudeEnv(); } catch {}
-  // Auto-enable notify hooks for every installed AI tool (claude/codex/gemini/opencode)
+  // Auto-enable notify hooks for every installed AI tool (claude/codex/opencode)
   try { autoEnableInstalledHooks(); } catch {}
   // The CLI configs mirror the artifact setting — reconcile them, since a token
   // change or a fresh install leaves them stale (or missing) after a hook run.
@@ -312,6 +328,14 @@ export function setupTerminalSocket(io, apiKey) {
     });
     daemonClient.on("processChange", ({ sessionId, process: procName }) => {
       const result = onProcessChange(sessionId, procName);
+      if (result?.state === "pendingShell") {
+        // Readings come from terminal output, and a terminal that just went quiet
+        // sends no more of them — so the confirmation is a one-shot re-read rather
+        // than the next event. A real exit is still a shell a moment later; a tool
+        // call has the agent back in front well before that.
+        setTimeout(() => settleShellReading(io, sessionId), SHELL_CONFIRM_MS);
+        return;
+      }
       if (result?.state === "idle") {
         broadcast(io, "statusChange", { sessionId, state: "idle", tool: null, conversationId: null });
         broadcast(io, "statusState", getStatuses());

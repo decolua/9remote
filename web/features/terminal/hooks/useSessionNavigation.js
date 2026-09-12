@@ -155,21 +155,25 @@ export function useSessionNavigation({
   // directory that conversation ran in, with the CLI's own resume line queued.
   const handleResumeAgentSession = useCallback((row) => {
     if (!row?.resume) return;
+    // A conversation the host remembers as a chat takes the chat's own resume —
+    // the id it was rebindable to on the host, not a CLI flag typed into a shell.
+    const asUi = row.mode === "ui";
     // Resuming keeps the CLI's skip-permission mode: dropping back to per-action
     // approval is not where the conversation left off.
     const agent = useTerminalStore.getState().agentClis?.find((a) => a.id === row.agent) || null;
-    const resumeLine = applySkipPermissions(agent, row.resume);
+    const resumeLine = asUi ? null : applySkipPermissions(agent, row.resume);
     // Created unnamed on purpose: the agent names an auto-named terminal after
     // the conversation it runs, so the tab keeps following that chat's title.
     createSession(null, null, activeWorkspaceId, row.cwd || null, (result) => {
       if (!result?.success) return alertCreateFailed(result?.error);
       if (!result.sessionId) return;
-      useTerminalStore.getState().queueStartup(result.sessionId, resumeLine);
-      if (row.agent) useTerminalStore.getState().setSessionAgent(result.sessionId, row.agent);
+      if (resumeLine) useTerminalStore.getState().queueStartup(result.sessionId, resumeLine);
+      const agentId = asUi ? `${row.agent}-ui` : row.agent;
+      if (agentId) useTerminalStore.getState().setSessionAgent(result.sessionId, agentId);
       // Tell the agent which conversation this terminal is resuming, so the
       // history row points at it before the CLI reports anything of its own.
       busRef?.current?.emit("claimAgentSession", {
-        sessionId: result.sessionId, agent: row.agent, conversationId: row.sessionId
+        sessionId: result.sessionId, agent: agentId, conversationId: row.sessionId
       }, () => useTerminalStore.getState().invalidateAgentHistory());
       addOpenedSession(result.sessionId);
       touchLivePane(result.sessionId);

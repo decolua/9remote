@@ -27,6 +27,12 @@ import { agentIconUrl } from "@/features/terminal/constants/agentCli";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 
+// Engines a terminal can be swapped into the chat UI. Only Claude: the host moves the
+// conversation between surfaces through its daemon, which speaks Claude's stream
+// protocol alone. ponytail: add codex/opencode here once their streams move there too.
+const UI_SWITCHABLE_ENGINES = new Set(["claude"]);
+const isChatEngine = (agentId) => !!agentId && UI_SWITCHABLE_ENGINES.has(agentId.endsWith("-ui") ? agentId.slice(0, -3) : agentId);
+
 function TerminalHeader({
   sessions = [],
   allSessions = [],
@@ -521,6 +527,30 @@ function TerminalHeader({
               className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
             >
               <RotateCw size={13} /> {t("sessions.resumeSession")}
+            </button>
+          )}
+          {/* Swap this terminal between the chat UI and the agent CLI in it. The
+              host owns the switch — it holds the conversation and the resume line
+              — and only offers it where a chat exists for the CLI running here. */}
+          {tabMenu.sessionId && (agentBySession[tabMenu.sessionId]?.endsWith("-ui")
+            || isChatEngine(agentBySession[tabMenu.sessionId])) && (
+            <button
+              onClick={() => {
+                vibrate();
+                const asUi = !agentBySession[tabMenu.sessionId]?.endsWith("-ui");
+                busRef?.current?.emit(
+                  "setSessionMode",
+                  { sessionId: tabMenu.sessionId, mode: asUi ? "ui" : "terminal" },
+                  (res) => { if (!res?.success) alert(res?.error || t("sessions.modeSwitchFailed")); }
+                );
+                setTabMenu({ sessionId: null, x: 0, y: 0 });
+              }}
+              className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
+            >
+              <Sparkles size={13} />
+              {agentBySession[tabMenu.sessionId]?.endsWith("-ui")
+                ? t("sessions.openAsTerminal")
+                : t("sessions.openAsUi")}
             </button>
           )}
           <button

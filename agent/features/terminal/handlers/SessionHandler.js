@@ -8,6 +8,7 @@ const capsLogger = createLogger("terminal");
 import { detectAgentClis } from "../agentCatalog.js";
 import { listAgentSessions, matchLiveSessions, conversationTitle, deleteAgentSession } from "../agentHistory.js";
 import { getLiveConversations, forgetSession, claimResumedConversation, getConversation, getSessionAgent, setSessionAgent } from "../statusManager.js";
+import { setSessionMode } from "../sessionMode.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
@@ -368,6 +369,19 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     callback?.({ success: true });
   });
 
+  // Move a terminal between the agent CLI in it and the chat UI, on the exact
+  // conversation it is already running.
+  socket.on("setSessionMode", async ({ sessionId, mode } = {}, callback) => {
+    try {
+      const res = await setSessionMode(sessionId, mode, { sessions, io });
+      if (res.success) saveSessionMetadata(sessions);
+      callback?.(res);
+    } catch (err) {
+      capsLogger.error(`setSessionMode failed: ${err.message}`);
+      callback?.({ success: false, error: err.message });
+    }
+  });
+
   socket.on("deleteAgentSession", async ({ agent, sessionId, cwd } = {}, callback) => {
     try {
       const ok = await deleteAgentSession({ agent, sessionId, cwd });
@@ -561,6 +575,23 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
         }
       }
       callback?.({ success: true, prefixLen: result.prefixLen || 0, total: result.total || 0, remaining: result.remaining || 0 });
+    } catch (e) {
+      callback?.({ success: false, error: e.message });
+    }
+  });
+
+  // Scroll-up history fetch for the chat pane: the events older than the oldest seq
+  // the client holds. Same one-socket-only contract as requestHistory above.
+  socket.on("aiHistory", async ({ sessionId, before } = {}, callback) => {
+    if (!daemonClient.isConnected()) return callback?.({ success: false, error: "History unavailable" });
+    try {
+      const result = await daemonClient.aiHistory(sessionId, before || 0);
+      callback?.({
+        success: result.success,
+        error: result.error,
+        events: result.events || [],
+        hasMore: Boolean(result.hasMore)
+      });
     } catch (e) {
       callback?.({ success: false, error: e.message });
     }

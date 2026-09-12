@@ -6,6 +6,7 @@
 // alongside the session metadata and replayed on boot.
 
 import { SESSION_ID_RE, isShellProcess, agentIdFromProcess } from "./agentCatalog.js";
+import { setConversationMode, modeFromAgent } from "./conversationModes.js";
 
 export const STATES = Object.freeze({
   IDLE: "idle",
@@ -76,6 +77,11 @@ export function setConversationId(sessionId, agent, id, source = "hook") {
   // disk as confirmed, or the restart replays it as proof it never was.
   if (prev && prev.agent === agent && prev.id === id && prev.source === source) return;
   conversations.set(sessionId, { agent, id, source });
+  // How this conversation was last opened, for the history list to reopen the same
+  // way. Read live rather than off `agent` — the surface is the session's, not the
+  // recorder's, and it may have changed since.
+  const surface = getSessionAgent(sessionId) || agent;
+  setConversationMode(surface, id, modeFromAgent(surface));
   persistConversation(sessionId);
 }
 
@@ -107,6 +113,9 @@ export function getLiveConversations() {
 const sessionAgents = new Map();
 const agentChangeCallbacks = new Set();
 
+// Set while a shell reading is being confirmed — see onProcessChange.
+const pendingShellClear = new Set();
+
 export function setSessionAgent(sessionId, agentId) {
   if (!sessionId || !agentId || sessionAgents.get(sessionId) === agentId) return;
   sessionAgents.set(sessionId, agentId);
@@ -132,6 +141,7 @@ export function clearSessionAgent(sessionId) {
   conversations.delete(sessionId);
   lastPrompts.delete(sessionId);
   sessionStatus.delete(sessionId);
+  pendingShellClear.delete(sessionId);
 }
 
 /**
@@ -148,13 +158,17 @@ export function onProcessChange(sessionId, procName) {
       return null;
     }
     const current = getSessionAgent(sessionId) || status?.tool || getConversation(sessionId)?.agent;
-    if (current || (status && status.state === STATES.WORKING)) {
-      clearSessionAgent(sessionId);
-      clearStatus(sessionId);
-      return { state: STATES.IDLE, tool: null, conversationId: null };
-    }
-    return null;
+    if (!current && !(status && status.state === STATES.WORKING)) return null;
+    // A shell in the foreground does NOT mean the TUI exited: the reading is the
+    // foreground PROCESS GROUP, and a coding agent's own Bash tool gives it to a
+    // shell whenever it runs anything piped (`cmd | tail`, `cmd | grep` — verified
+    // against pty.process). Both the agent icon and the conversation hang off this
+    // one call, so an unconfirmed reading must not clear anything.
+    if (pendingShellClear.has(sessionId)) return null;
+    pendingShellClear.add(sessionId);
+    return { state: "pendingShell", tool: null, conversationId: null };
   }
+  pendingShellClear.delete(sessionId);
   const agentId = agentIdFromProcess(procName);
   if (agentId) {
     setSessionAgent(sessionId, agentId);
@@ -162,6 +176,25 @@ export function onProcessChange(sessionId, procName) {
   }
   return null;
 }
+
+/**
+ * Settle a reading onProcessChange held back. Called with the process seen a moment
+ * later: if it is still a shell the TUI really did exit (a tool call hands control
+ * back long before that), and the terminal drops to its bare shell.
+ *
+ * The whole entry goes, agent included: at a real prompt nothing is running the
+ * conversation, and keeping the agent would re-arm this hold on every later reading.
+ * The protection against a mid-tool reading is the confirmation itself.
+ */
+export function confirmShellClear(sessionId, procName) {
+  if (!sessionId || !pendingShellClear.has(sessionId)) return null;
+  if (!procName || !isShellProcess(procName)) { pendingShellClear.delete(sessionId); return null; }
+  clearSessionAgent(sessionId);
+  return { state: STATES.IDLE, tool: null, conversationId: null };
+}
+
+/** Is this session awaiting a confirmation reading? (the sweep in terminalSocket) */
+export const isPendingShellClear = (sessionId) => pendingShellClear.has(sessionId);
 
 /**
  * Attach a conversation to a terminal we are resuming it into. The id came from

@@ -303,6 +303,15 @@ export function useAgentBus() {
       setSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, name } : s)));
     });
 
+    // The host switched a terminal between its CLI and the chat UI, so the pane
+    // this client renders for it is no longer the right one. The history rows
+    // carry that surface too, so they are re-read rather than waiting out the poll.
+    bus.on("sessionAgentChanged", ({ sessionId, agent } = {}) => {
+      if (!sessionId || !agent) return;
+      useTerminalStore.getState().setSessionAgent(sessionId, agent);
+      useTerminalStore.getState().invalidateAgentHistory();
+    });
+
     // Workspaces changed elsewhere — refresh both lists
     bus.on("workspacesChanged", () => fetchLists(bus));
 
