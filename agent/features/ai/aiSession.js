@@ -103,7 +103,7 @@ function loadSessionSnapshot(sessionId, engine) {
 
 // Events that end a turn — the session's own flag must clear on all of them, not just
 // the happy path, or a client hydrating after a crash shows a spinner forever.
-export const TURN_END_EVENTS = new Set(["turn_complete", "stopped", "error", "exit"]);
+export const TURN_END_EVENTS = new Set(["turn_complete", "stopped", "stall", "error", "exit"]);
 
 // A sub-agent's tool events, renamed on the wire so the client nests rather than
 // appends them. Only these two carry a parentToolUseId today.
@@ -168,6 +168,10 @@ export class AiSession {
     // rest. The daemon numbers lines itself and the CLI restarts on a new process, so
     // this watermark belongs to the process the snapshot was written against.
     this.consumedLines = snap?.consumedLines || 0;
+    // Line numbers belong to a process, so the watermark is only meaningful against the
+    // one it was taken from. `null` (a legacy snapshot) means "not known", which is
+    // what makes the first adopt replay the turn whole rather than skip its head.
+    this.consumedEpoch = snap?.consumedEpoch ?? null;
     this.ready = null;
     // The conversation the client is opening, under the name the host sends it by.
     // Codex calls it a thread, the rest a session id; whichever arrives, the adapter
@@ -227,6 +231,9 @@ export class AiSession {
       if (this.adapter !== mine) return;
       this.emitNormalized(event, data);
     };
+    // Only claude's CLI is spawned with a mode; the rest carry it through setOptions,
+    // which each engine maps to its own flags.
+    const mode = this.permissionMode || this.options.mode || "default";
 
     switch (this.engine) {
       case AI_ENGINES.CLAUDE:
@@ -237,11 +244,12 @@ export class AiSession {
         // honour the resumed conversation id (or /resume silently starts a new one)
         // and the session's own permission mode (or it falls back to the CLI default).
         if (this.options.effort) mine.effort = this.options.effort;
-        return this._startManaged(mine);
+        return this._startManaged(mine, mode);
       case AI_ENGINES.CODEX:
         mine = new CodexAdapter({
           cwd: this.cwd,
           onEvent,
+          proc: this.managed ? this.proc : null,
           threadId: this.threadId,
           model: this.model || this.options.model,
           hostSessionId: this.id
@@ -252,11 +260,12 @@ export class AiSession {
         if (this.permissionMode || this.options.model || this.options.effort || this.options.sandbox || this.options.flags) {
           mine.setOptions({ ...this.options, mode: this.permissionMode || this.options.mode });
         }
-        break;
+        return this._startManaged(mine, mode);
       case AI_ENGINES.OPENCODE:
         mine = new OpenCodeAdapter({
           cwd: this.cwd,
           onEvent,
+          proc: this.managed ? this.proc : null,
           sessionId: this.cliSessionId,
           model: this.model || this.options.model,
           hostSessionId: this.id
@@ -265,11 +274,12 @@ export class AiSession {
         if (this.permissionMode || this.options.model || this.options.variant || this.options.flags) {
           mine.setOptions({ ...this.options, mode: this.permissionMode || this.options.mode });
         }
-        break;
+        return this._startManaged(mine, mode);
       case AI_ENGINES.ANTIGRAVITY:
         mine = new AntigravityAdapter({
           cwd: this.cwd,
           onEvent,
+          proc: this.managed ? this.proc : null,
           conversationId: this.cliSessionId,
           model: this.model || this.options.model,
           hostSessionId: this.id
@@ -278,11 +288,10 @@ export class AiSession {
         if (this.permissionMode || this.options.model || this.options.flags) {
           mine.setOptions({ ...this.options, mode: this.permissionMode || this.options.mode });
         }
-        break;
+        return this._startManaged(mine, mode);
       default:
         throw new Error(`Unsupported engine: ${this.engine}`);
     }
-    return null;
   }
 
   // A managed chat outlives an agent restart: the daemon holds the CLI and the agent
@@ -292,14 +301,13 @@ export class AiSession {
     return MANAGED_ENGINES.has(this.engine) && daemonClient.isConnected();
   }
 
-  async _startManaged(adapter) {
-    const mode = this.permissionMode || this.options.mode || "default";
+  async _startManaged(adapter, mode) {
     // A process already running under this id IS this chat's turn — the agent just
     // restarted. Adopting it is the whole point: spawning a second CLI would resume
     // the same conversation as a second writer and lose the turn in flight.
     if (this.managed) {
-      const attached = await adapter.adopt(this.consumedLines);
-      if (attached.alive) {
+      const attached = await adapter.adopt(this.consumedLines, this.consumedEpoch);
+      if (attached.alive || attached.lines?.length) {
         this.adopted = true;
         this._replay(attached);
         return attached;
@@ -309,6 +317,10 @@ export class AiSession {
     // new process, so its line numbering starts over and so does the watermark.
     this.adopted = false;
     this.consumedLines = 0;
+    this.consumedEpoch = null;
+    // A turn-per-CLI engine has nothing to start until the user asks for a turn; only
+    // claude holds one process for the whole conversation.
+    if (this.engine !== AI_ENGINES.CLAUDE) return null;
     const fetch = await adapter.start(mode, this.cliSessionId);
     this._replay(fetch);
     return fetch;
@@ -406,6 +418,7 @@ export class AiSession {
     // whose child events still say tool_start simply drops them rather than floating
     // a sub-agent's internals loose on the timeline.
     if (event === "tool_result") data = capToolOutput(data);
+    if (event === "diff") data = capDiff(data);
     const childEvent = CHILD_EVENTS[event];
     const wire = data?.parentToolUseId && childEvent ? { event: childEvent, data } : { event, data };
 
@@ -550,10 +563,12 @@ export class AiSession {
         model: this.model,
         permissionMode: this.permissionMode,
         createdAt: this.createdAt,
-        // Where in the CLI's own output stream this log ends. A restarted agent
-        // re-attaches and asks for everything after it, which is what makes a turn
-        // that kept running while it was down arrive whole and exactly once.
+        // Where in the CLI's own output stream this log ends, and which process that
+        // stream belonged to. A restarted agent re-attaches and asks for everything
+        // after it, which is what makes a turn that kept running while it was down
+        // arrive whole and exactly once.
         consumedLines: this.consumedLines,
+        consumedEpoch: this.consumedEpoch,
         events
       });
       if (sync) {
@@ -592,12 +607,15 @@ export class AiSession {
       // A fresh process numbers its lines from scratch; the old watermark would make
       // the next agent skip the new conversation's first lines as "already consumed".
       this.consumedLines = 0;
+      this.consumedEpoch = null;
       this.isTurnRunning = false;
       this.clearIdleWatchdog();
       this.flushSaveSnapshot();
-      if (!this.options.mock) {
+      if (!this.options.mock && !this.managed) {
         // Kill before rebuilding — initAdapter replaces the reference, and an adapter
         // dropped without stop() leaves its CLI process running with nothing reading it.
+        // Under the daemon there is nothing to rebuild: a turn-per-CLI engine has no
+        // process between turns, and claude's carries on with the cleared conversation.
         try { this.adapter?.stop(); } catch {}
         this.ready = this.initAdapter();
       }

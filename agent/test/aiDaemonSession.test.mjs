@@ -59,7 +59,7 @@ test("a proc is adopted, never restarted, when an agent re-attaches", () => {
   // a reader that asked from too far back learns how much it can no longer fetch.
   assert.match(DAEMON, /alive: !proc\.exited,\s*epoch: proc\.epoch,\s*lines: procLinesSince\(proc, from\),\s*total: proc\.lineCount,\s*oldest: proc\.lines\[0\]\?\.n/);
   const PROC = fs.readFileSync(path.join(root, "agent/features/ai/proc/daemonProc.js"), "utf8");
-  assert.match(PROC, /async attach\(from = 0\) \{/);
+  assert.match(PROC, /async attach\(from = 0, epoch = null\) \{/);
   assert.match(PROC, /this\.client\.procAttach\(this\.procId, from\)/);
 });
 

@@ -4,10 +4,9 @@
 // surface — spawn it directly, or ask the daemon to (so the turn outlives an agent
 // restart) — and everything below them (the stream-json parser, control requests,
 // stats) is one copy, because a second copy is how the two paths drift apart.
-import { spawn } from "node:child_process";
 import { getExtendedEnv } from "./env.js";
 import { stageAttachment } from "../aiAttachment.js";
-import { toLines } from "../proc/daemonProc.js";
+import { LocalProc } from "../proc/localProc.js";
 import { claudeBin } from "../constants.js";
 
 // Images ride as content blocks; other files are staged to disk and named in the
@@ -25,58 +24,49 @@ function buildContent(prompt, attachments) {
   ];
 }
 
-/**
- * Runs the CLI as a direct child of this process. Used when no daemon is available —
- * a chat then behaves like any other in-agent engine: it lives only as long as the
- * agent does.
- */
-export class LocalProc {
-  constructor() {
-    this.child = null;
-    this.onLine = null;
-    this.onExit = null;
-    this.tail = "";
-  }
+// Tools whose whole point is a file change. Their input carries the edit as old/new
+// strings rather than a patch, so the diff event is built from them here. Shared with the
+// client's row builder, which hides the matching tool row — the two must agree or a file
+// shows twice.
+export const DIFF_TOOL_NAMES = Object.freeze(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+const DIFF_TOOLS = new Set(DIFF_TOOL_NAMES);
 
-  async start({ bin, args = [], cwd, env = {} }) {
-    const child = spawn(bin, args, { cwd, stdio: ["pipe", "pipe", "pipe"], env });
-    this.child = child;
-    // The spawn is asynchronous: a missing binary reports through "error", which
-    // without a listener would surface as an unhandled event and take the agent down.
-    child.on("error", (err) => this.onExit?.({ code: null, signal: null, error: err.message }));
-    this._pump(child.stdout);
-    this._pump(child.stderr);
-    child.on("close", (code, signal) => {
-      if (this.tail) { this.onLine?.(this.tail); this.tail = ""; }
-      this.onExit?.({ code, signal: signal || null });
-    });
-    // Same fetch shape DaemonProc returns: a direct child has no backlog to replay,
-    // and nothing can be held because the handlers are already live.
-    return { lines: [], after: [], release: () => {} };
-  }
+/** The file an edit tool targets; each tool names it differently. */
+const editFilePath = (input = {}) =>
+  input.file_path || input.notebook_path || input.path || "";
 
-  // Nothing to adopt: this process dies with the agent, so there is never a live
-  // one to re-attach to.
-  async attach() {
-    return { alive: false, lines: [], after: [], release: () => {} };
+// Turn an edit tool's input into the `+`/`-` line form the diff card colours and counts.
+// Codex already sends a real patch through the same event, so building one keeps the card
+// engine-neutral instead of teaching it each CLI's shape. Write returns "" — a whole-file
+// add has no old lines, and the card renders `content` as additions on its own.
+// Exported for the test that pins the line shape the diff card parses.
+export function buildEditPatch(name, input = {}) {
+  if (name === "Write") return "";
+  const edits = name === "MultiEdit" ? input.edits || [] : [input];
+  const lines = [];
+  for (const edit of edits) {
+    if (!edit) continue;
+    // A trailing newline would add an empty `-`/`+` line that reads as a real change.
+    const add = (text, sign) => {
+      const body = String(text).replace(/\n$/, "");
+      if (body) lines.push(...body.split("\n").map((l) => `${sign}${l}`));
+    };
+    add(edit.old_string ?? "", "-");
+    add(edit.new_string ?? "", "+");
   }
+  return lines.join("\n");
+}
 
-  async lines() {
-    return { lines: [], after: [], release: () => {} };
-  }
-
-  _pump(stream) {
-    if (!stream) return;
-    stream.on("data", (chunk) => {
-      const { lines, rest } = toLines(this.tail + chunk.toString());
-      this.tail = rest;
-      for (const line of lines) this.onLine?.(line);
-    });
-  }
-
-  write(text) { this.child?.stdin?.write(String(text)); }
-  signal(sig = "SIGINT") { try { this.child?.kill(sig); } catch {} }
-  async stop() { try { this.child?.kill("SIGINT"); } catch {} }
+// What an edit contributes to the diff card, or null when there is nothing to show.
+export function buildEditDiff(name, input = {}) {
+  const file = editFilePath(input);
+  if (!file) return null;
+  return {
+    file,
+    name,
+    patch: buildEditPatch(name, input),
+    content: name === "Write" ? String(input.content || "") : ""
+  };
 }
 
 export class ClaudeAdapter {
@@ -90,8 +80,10 @@ export class ClaudeAdapter {
     // Reasoning effort (--effort); empty means the CLI default.
     this.effort = "";
     this.pendingRequests = new Map();
+    // Tool calls awaiting their result, by tool_use id — see handleMessage.
+    this.toolCalls = new Map();
     this.turnStreamedText = "";
-    this.stats = { totalCost: 0, inputTokens: 0, outputTokens: 0 };
+    this.stats = { totalCost: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
     this.metadata = { model: "", sessionId: "", tools: [], skills: [], slashCommands: [] };
     // Set when the resume id was refused, so the caller can drop it from its snapshot
     // instead of retrying a conversation the CLI does not have.
@@ -112,15 +104,16 @@ export class ClaudeAdapter {
    * Re-attach to the process the daemon is already running, asking only for the lines
    * this agent has not parsed. `alive: false` means there is nothing to adopt.
    */
-  async adopt(from = 0) {
+  async adopt(from = 0, epoch = null) {
     this._reset(this.currentMode);
-    return await this.proc.attach(from);
+    return await this.proc.attach(from, epoch);
   }
 
   _reset(mode) {
     this.currentMode = mode;
     this.isTurnRunning = false;
     this.pendingRequests.clear();
+    this.toolCalls.clear();
     this.turnStreamedText = "";
     this.resumeRejected = false;
     this._initializedThisSpawn = false;
@@ -256,14 +249,23 @@ export class ClaudeAdapter {
       // modelUsage carries the running session totals, already summed by the CLI over
       // every model it used — assign, never add, or each turn re-counts the ones before it.
       if (data.modelUsage) {
+        // modelUsage carries this turn's own usage, not a session-running total —
+        // verified across a resume: the second turn reported cacheRead 20288 + input
+        // 5708, the first 25989 alone. Assign, never add.
         let inputTokens = 0;
         let outputTokens = 0;
+        let cacheReadInputTokens = 0;
+        let cacheCreationInputTokens = 0;
         for (const usage of Object.values(data.modelUsage)) {
           inputTokens += usage?.inputTokens || 0;
           outputTokens += usage?.outputTokens || 0;
+          cacheReadInputTokens += usage?.cacheReadInputTokens || 0;
+          cacheCreationInputTokens += usage?.cacheCreationInputTokens || 0;
         }
         this.stats.inputTokens = inputTokens;
         this.stats.outputTokens = outputTokens;
+        this.stats.cacheReadInputTokens = cacheReadInputTokens;
+        this.stats.cacheCreationInputTokens = cacheCreationInputTokens;
       }
 
       // If no delta text was streamed yet, use data.result as output (e.g. from /cost, /compact)

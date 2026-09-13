@@ -137,7 +137,7 @@ export class DaemonProc {
    * Re-attach to a process that is already running (the agent restarted mid-turn).
    * `alive: false` means the turn ended while no agent was watching.
    */
-  async attach(from = 0) {
+  async attach(from = 0, epoch = null) {
     // The reader's watermark is the baseline the gap is measured against, so it has to
     // be set before the answer is interpreted — the same rule `start` follows.
     this._lastLine = from;
@@ -170,6 +170,12 @@ export class DaemonProc {
 
   write(text) {
     return this.client.procWrite(this.procId, Buffer.from(String(text)).toString("base64"));
+  }
+
+  /** An engine whose CLI reads no stdin still gets it closed: a piped stdin that never
+   *  ends is how `codex exec` blocks instead of running the turn. */
+  closeStdin() {
+    return this.client.procEndInput(this.procId);
   }
 
   /** SIGINT — an engine's chance to interrupt its own turn and flush state. */

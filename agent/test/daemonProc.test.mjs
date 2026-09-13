@@ -87,7 +87,7 @@ await test("a fetched line is handed over once, in order", async () => {
   client.pushLine("b");
 
   assert.deepEqual(seen, ["a", "b"]);
-  assert.equal(proc.lastLine, 2);
+  assert.equal(proc.lineNo, 2);
 });
 
 await test("a line arriving during the fetch is not delivered twice", async () => {
@@ -109,7 +109,7 @@ await test("a line arriving during the fetch is not delivered twice", async () =
   fetch.release();
 
   assert.deepEqual(seen, ["only-once"]);
-  assert.equal(proc.lastLine, 1);
+  assert.equal(proc.lineNo, 1);
 });
 
 await test("a restart under the same proc id resumes numbering from 1", async () => {
@@ -123,7 +123,7 @@ await test("a restart under the same proc id resumes numbering from 1", async ()
   await start(proc);
 
   for (let i = 0; i < 5; i++) client.pushLine(`old${i}`);
-  assert.equal(proc.lastLine, 5);
+  assert.equal(proc.lineNo, 5);
   seen.length = 0;
 
   await start(proc);

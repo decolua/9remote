@@ -1,8 +1,8 @@
 // Adapter for OpenAI Codex CLI using exec --json
 import { getExtendedEnv } from "./env.js";
-import { spawn } from "node:child_process";
-import readline from "node:readline";
 import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
+import { AgentProc } from "../proc/agentProc.js";
+import { decodeLine } from "../proc/daemonProc.js";
 
 // Codex reports a refusal as plain assistant text ("I can't create X because this
 // workspace is read-only"), not a structured event. Matching that text is the only
@@ -50,11 +50,13 @@ function nextModeUp(current) {
 }
 
 export class CodexAdapter {
-  constructor({ cwd, onEvent, threadId = null, model = "", hostSessionId = null } = {}) {
+  constructor({ cwd, onEvent, proc = null, threadId = null, model = "", hostSessionId = null } = {}) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
     this.hostSessionId = hostSessionId;
-    this.activeChild = null;
+    // Turn-per-CLI: a process is born per turn. Under the daemon it outlives an agent
+    // restart, and adopt() picks that turn back up.
+    this.proc = proc || new AgentProc({ procId: "" });
     this.activeThreadId = threadId || null;
     this.isTurnRunning = false;
     this.currentModel = model || "";
@@ -166,6 +168,44 @@ export class CodexAdapter {
     return { command: "codex", args: ["doctor"] };
   }
 
+  /**
+   * Re-attach to the turn the daemon is still running after an agent restart. A turn
+   * that ended while nobody was watching is replayed too — every line it printed is
+   * in the daemon's buffer, so the chat shows the answer instead of a blank pane.
+   */
+  async adopt({ from = 0, epoch = null } = {}) {
+    const fetch = await this.proc.attach({ from, epoch });
+    if (!fetch.lines?.length && !fetch.alive) return fetch;
+    this._bind();
+    // The turn's process is the turn: while it lives, the chat is still working.
+    this.isTurnRunning = fetch.alive;
+    // The gap is healed by the session (it owns the conversation id and the log), so
+    // the lines are handed over before the held ones are released.
+    this.fetched = fetch;
+    return fetch;
+  }
+
+  // Handlers bind to the process that owns them, and the same process can carry a
+  // second turn later — so this is idempotent, not a one-shot wiring.
+  _bind() {
+    this.proc.onLine = (line) => this.feed(line);
+    this.proc.onExit = ({ code, error }) => {
+      this.isTurnRunning = false;
+      if (error) this.onEvent?.("error", { message: error });
+      else this.onEvent?.("turn_complete", { stats: this.stats, exitCode: code });
+    };
+  }
+
+  /** Parse one raw line from the CLI. */
+  feed(line) {
+    if (!String(line).trim()) return;
+    try {
+      this.handleEvent(JSON.parse(line));
+    } catch {
+      this.onEvent?.("ansi", { chunk: line + "\r\n" });
+    }
+  }
+
   // Options that mean the same argv token on a fresh exec and on a resumed one.
   pushSharedArgs(args, images = []) {
     // `--image=` is a flag, so it rides before the positional prompt in both branches.
@@ -228,43 +268,24 @@ export class CodexAdapter {
     // PROMPT is accepted).
     const images = (staged || []).filter((a) => a.kind === "image").map((a) => a.path);
     this.isTurnRunning = true;
+    this._bind();
     const args = this.buildArgs(buildAttachedPrompt(prompt, staged), images);
 
-    const child = spawn("codex", args, {
+    this.proc.start({
+      bin: "codex",
+      args,
       cwd: this.cwd,
-      stdio: ["pipe", "pipe", "pipe"],
       env: getExtendedEnv({ hostSessionId: this.hostSessionId })
-    });
-    this.activeChild = child;
-    // Close stdin immediately: codex exec blocks waiting for stdin EOF if piped
-    try { child.stdin?.end(); } catch {}
-
-    const rl = readline.createInterface({ input: child.stdout });
-
-    rl.on("line", (line) => {
-      if (!line.trim()) return;
-      try {
-        const event = JSON.parse(line);
-        this.handleEvent(event);
-      } catch (err) {
-        this.onEvent?.("ansi", { chunk: line + "\r\n" });
+    }).then(
+      // The turn is non-interactive: codex exec blocks on a piped stdin that never
+      // closes, so it has to be closed before the CLI will run.
+      () => this.proc.closeStdin?.(),
+      // A missing binary or a daemon that refused the start reports here.
+      (err) => {
+        this.isTurnRunning = false;
+        this.onEvent?.("error", { message: err.message });
       }
-    });
-
-    child.stderr?.on("data", (chunk) => {
-      this.onEvent?.("ansi", { chunk: chunk.toString() });
-    });
-
-    child.on("error", (err) => {
-      this.isTurnRunning = false;
-      this.onEvent?.("error", { message: err.message });
-    });
-
-    child.on("close", (code) => {
-      this.isTurnRunning = false;
-      this.activeChild = null;
-      this.onEvent?.("turn_complete", { stats: this.stats });
-    });
+    );
   }
 
   handleEvent(event) {
@@ -399,9 +420,8 @@ export class CodexAdapter {
 
   stop() {
     this.isTurnRunning = false;
-    if (this.activeChild) {
-      try { this.activeChild.kill("SIGINT"); } catch {}
-      this.activeChild = null;
-    }
+    // The daemon asks the CLI first and only kills it if it will not go, so a turn
+    // that can flush its transcript still gets to.
+    return this.proc.stop();
   }
 }

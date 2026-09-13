@@ -1,7 +1,7 @@
 // Adapter for OpenCode CLI using run --format json --thinking
 import { getExtendedEnv } from "./env.js";
-import { spawn } from "node:child_process";
-import readline from "node:readline";
+import { AgentProc } from "../proc/agentProc.js";
+import { decodeLine } from "../proc/daemonProc.js";
 import { stageAttachment } from "../aiAttachment.js";
 
 // eslint-disable-next-line no-control-regex
@@ -14,11 +14,13 @@ const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
 const ATTACHMENT_ONLY_PROMPT = "See the attached file.";
 
 export class OpenCodeAdapter {
-  constructor({ cwd, onEvent, sessionId = null, model = "", hostSessionId = null } = {}) {
+  constructor({ cwd, onEvent, proc = null, sessionId = null, model = "", hostSessionId = null } = {}) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
     this.hostSessionId = hostSessionId;
-    this.activeChild = null;
+    // Turn-per-CLI: a process is born per turn. Under the daemon it outlives an agent
+    // restart, and adopt() picks that turn back up.
+    this.proc = proc || new AgentProc({ procId: "" });
     this.activeSessionId = sessionId || null;
     this.isTurnRunning = false;
     this.currentModel = model || "";
@@ -74,6 +76,63 @@ export class OpenCodeAdapter {
     return { command: "opencode", args: ["debug", "info"] };
   }
 
+  /**
+   * Re-attach to the turn the daemon is still running after an agent restart. A turn
+   * that ended while nobody was watching is replayed too — every line it printed is
+   * in the daemon's buffer, so the chat shows the answer instead of a blank pane.
+   */
+  async adopt({ from = 0, epoch = null } = {}) {
+    const fetch = await this.proc.attach({ from, epoch });
+    if (!fetch.lines?.length && !fetch.alive) return fetch;
+    this._bind();
+    // The turn's process is the turn: while it lives, the chat is still working.
+    this.isTurnRunning = fetch.alive;
+    // The gap is healed by the session (it owns the conversation id and the log), so
+    // the lines are handed over before the held ones are released.
+    this.fetched = fetch;
+    return fetch;
+  }
+
+  // Handlers bind to the process that owns them, and the same process can carry a
+  // second turn later — so this is idempotent, not a one-shot wiring.
+  _bind() {
+    this.proc.onLine = (line) => this.feed(line);
+    this.proc.onExit = ({ code, error }) => {
+      this.isTurnRunning = false;
+      if (error) this.onEvent?.("error", { message: error });
+      else this.onEvent?.("turn_complete", { stats: this.stats, exitCode: code });
+    };
+  }
+
+  /** Parse one raw line from the CLI. stderr rides the same stream — the daemon
+   *  relays both — so a permission refusal is recognized here, not by which pipe it
+   *  came from. */
+  feed(line) {
+    if (!String(line).trim()) return;
+    let data;
+    try {
+      data = JSON.parse(line);
+    } catch {
+      // Non-interactive `run` cannot prompt, so a permission refusal arrives as plain
+      // stderr text. Forwarded as `ansi` it was invisible (the chat has no handler for
+      // that event), which is why a blocked write looked like nothing happened at all.
+      if (/permission requested|auto-rejecting/i.test(line)) {
+        // Strip the CLI ANSI colour codes — this text is rendered as markdown, not a terminal
+        const clean = stripAnsi(line).trim();
+        // A structured `blocked` event drives a card with a mode-escalation button.
+        this.onEvent?.("blocked", {
+          engine: "opencode",
+          message: `OpenCode blocked this action — it needs permission outside the workspace:\n\n${clean}`,
+          escalate: { mode: "auto", label: "Auto" }
+        });
+        return;
+      }
+      this.onEvent?.("ansi", { chunk: line + "\r\n" });
+      return;
+    }
+    this.handleEvent(data);
+  }
+
   sendPrompt(prompt, attachments = null) {
     if (this.isTurnRunning) {
       throw new Error("OpenCode turn is already running.");
@@ -111,55 +170,19 @@ export class OpenCodeAdapter {
     args.push(prompt || (files.length ? ATTACHMENT_ONLY_PROMPT : ""));
     for (const file of files) args.push(`--file=${file}`);
 
-    const child = spawn("opencode", args, {
+    this._bind();
+    this.proc.start({
+      bin: "opencode",
+      args,
       cwd: this.cwd,
-      stdio: ["pipe", "pipe", "pipe"],
       env: getExtendedEnv({ hostSessionId: this.hostSessionId })
-    });
-    this.activeChild = child;
-    try { child.stdin?.end(); } catch {}
-
-    const rl = readline.createInterface({ input: child.stdout });
-
-    rl.on("line", (line) => {
-      if (!line.trim()) return;
-      try {
-        const data = JSON.parse(line);
-        this.handleEvent(data);
-      } catch (err) {
-        this.onEvent?.("ansi", { chunk: line + "\r\n" });
+    }).then(
+      () => this.proc.closeStdin?.(),
+      (err) => {
+        this.isTurnRunning = false;
+        this.onEvent?.("error", { message: err.message });
       }
-    });
-
-    child.stderr?.on("data", (chunk) => {
-      const text = chunk.toString();
-      // Non-interactive `run` cannot prompt, so a permission refusal arrives only here.
-      // Forwarded as `ansi` it was invisible (the chat has no handler for that event),
-      // which is why a blocked write looked like nothing happened at all.
-      if (/permission requested|auto-rejecting/i.test(text)) {
-        // Strip the CLI ANSI colour codes — this text is rendered as markdown, not a terminal
-        const clean = stripAnsi(text).trim();
-        // A structured `blocked` event drives a card with a mode-escalation button.
-        this.onEvent?.("blocked", {
-          engine: "opencode",
-          message: `OpenCode blocked this action — it needs permission outside the workspace:\n\n${clean}`,
-          escalate: { mode: "auto", label: "Auto" }
-        });
-        return;
-      }
-      this.onEvent?.("ansi", { chunk: text });
-    });
-
-    child.on("error", (err) => {
-      this.isTurnRunning = false;
-      this.onEvent?.("error", { message: err.message });
-    });
-
-    child.on("close", (code) => {
-      this.isTurnRunning = false;
-      this.activeChild = null;
-      this.onEvent?.("turn_complete", { stats: this.stats });
-    });
+    );
   }
 
   handleEvent(data) {
@@ -224,9 +247,8 @@ export class OpenCodeAdapter {
 
   stop() {
     this.isTurnRunning = false;
-    if (this.activeChild) {
-      try { this.activeChild.kill("SIGINT"); } catch {}
-      this.activeChild = null;
-    }
+    // The daemon asks the CLI first and only kills it if it will not go, so a turn
+    // that can flush its transcript still gets to.
+    return this.proc.stop();
   }
 }
