@@ -326,6 +326,15 @@ function writeProc(procId, data, enc = "b64") {
   return { success: true };
 }
 
+// A turn-per-CLI engine (codex, opencode, agy) is not interactive: an open stdin only
+// risks the CLI waiting on a pipe nobody will write to.
+function endInputProc(procId) {
+  const proc = procs.get(procId);
+  if (!proc?.child?.stdin?.writable) return { success: false, error: "Process not writable" };
+  try { proc.child.stdin.end(); } catch (e) { return { success: false, error: e.message }; }
+  return { success: true };
+}
+
 function signalProc(procId, signal = "SIGINT") {
   const proc = procs.get(procId);
   if (!proc?.child) return { success: false, error: "Process not running" };
@@ -643,6 +652,7 @@ const procRoutes = {
   },
 
   write: (m) => writeProc(m.procId, m.data, m.enc),
+  endInput: (m) => endInputProc(m.procId),
   signal: (m) => signalProc(m.procId, m.signal),
   stop: (m) => stopProc(m.procId),
 

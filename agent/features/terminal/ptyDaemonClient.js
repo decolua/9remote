@@ -712,6 +712,10 @@ export function procWrite(procId, data, enc = "b64") {
   return call("proc.write", { procId, data, enc });
 }
 
+export function procEndInput(procId) {
+  return call("proc.endInput", { procId });
+}
+
 export function procSignal(procId, signal = "SIGINT") {
   return call("proc.signal", { procId, signal });
 }

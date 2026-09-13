@@ -27,6 +27,7 @@ export const ROUTES = {
   "proc.attach": { reply: "procAttachResult", coalesce: null },
   "proc.lines": { reply: "procLinesResult", coalesce: null },
   "proc.write": { reply: "procWriteResult", coalesce: null },
+  "proc.endInput": { reply: "procEndInputResult", coalesce: null },
   "proc.signal": { reply: "procSignalResult", coalesce: null },
   "proc.stop": { reply: "procStopResult", coalesce: null },
   "proc.list": { reply: "procListResult", coalesce: null },
