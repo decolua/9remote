@@ -80,9 +80,10 @@ export class LocalProc {
 }
 
 export class ClaudeAdapter {
-  constructor({ cwd, onEvent, proc = null }) {
+  constructor({ cwd, onEvent, proc = null, hostSessionId = null }) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
+    this.hostSessionId = hostSessionId;
     this.proc = proc || new LocalProc();
     this.isTurnRunning = false;
     this.currentMode = "default";
@@ -104,7 +105,7 @@ export class ClaudeAdapter {
    */
   async start(mode = "default", resumeSessionId = null) {
     this._reset(mode);
-    return await this.proc.start({ bin: claudeBin(), args: this._args(mode, resumeSessionId), cwd: this.cwd, env: getExtendedEnv() });
+    return await this.proc.start({ bin: claudeBin(), args: this._args(mode, resumeSessionId), cwd: this.cwd, env: getExtendedEnv({ hostSessionId: this.hostSessionId }) });
   }
 
   /**

@@ -44,9 +44,10 @@ function normalizeParameters(parameters) {
 }
 
 export class AntigravityAdapter {
-  constructor({ cwd, onEvent, conversationId = null, model = "" } = {}) {
+  constructor({ cwd, onEvent, conversationId = null, model = "", hostSessionId = null } = {}) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
+    this.hostSessionId = hostSessionId;
     this.activeChild = null;
     this.activeConversationId = conversationId || null;
     this.isTurnRunning = false;
@@ -124,7 +125,7 @@ export class AntigravityAdapter {
     const child = spawn("agy", this.buildArgs(buildAttachedPrompt(prompt, staged, true)), {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: getExtendedEnv()
+      env: getExtendedEnv({ hostSessionId: this.hostSessionId })
     });
     this.activeChild = child;
     // The turn is non-interactive: an open stdin only risks the CLI waiting on it.

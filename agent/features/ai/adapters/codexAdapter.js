@@ -50,9 +50,10 @@ function nextModeUp(current) {
 }
 
 export class CodexAdapter {
-  constructor({ cwd, onEvent, threadId = null, model = "" } = {}) {
+  constructor({ cwd, onEvent, threadId = null, model = "", hostSessionId = null } = {}) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
+    this.hostSessionId = hostSessionId;
     this.activeChild = null;
     this.activeThreadId = threadId || null;
     this.isTurnRunning = false;
@@ -232,7 +233,7 @@ export class CodexAdapter {
     const child = spawn("codex", args, {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: getExtendedEnv()
+      env: getExtendedEnv({ hostSessionId: this.hostSessionId })
     });
     this.activeChild = child;
     // Close stdin immediately: codex exec blocks waiting for stdin EOF if piped

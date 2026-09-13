@@ -5,7 +5,12 @@
 import os from "node:os";
 import path from "node:path";
 
-export function getExtendedEnv() {
+// The PTY's session id, which every notify hook reads to say which terminal it came
+// from. A chat UI process gets it too, or the CLI's own hooks fire with no session to
+// report and the chat stays invisible to status, naming and push.
+export const SESSION_ID_ENV = "NINE_REMOTE_SESSION_ID";
+
+export function getExtendedEnv({ hostSessionId } = {}) {
   const home = os.homedir();
   const extraPaths = process.platform === "win32" ? [
     path.join(home, "AppData", "Roaming", "npm"),
@@ -25,5 +30,13 @@ export function getExtendedEnv() {
   ];
   const envPath = (process.env.PATH || "").split(path.delimiter);
   const combinedPath = Array.from(new Set([...extraPaths, ...envPath])).join(path.delimiter);
-  return { ...process.env, PATH: combinedPath, FORCE_COLOR: "1" };
+  return {
+    ...process.env,
+    PATH: combinedPath,
+    FORCE_COLOR: "1",
+    // Always set, never inherited: an agent started from one of our own terminals has
+    // that terminal's id in its own env, and a chat spawning from here would report its
+    // hooks under a session it is not. Empty is the "no session" every hook reads.
+    [SESSION_ID_ENV]: hostSessionId || ""
+  };
 }

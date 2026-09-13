@@ -14,9 +14,10 @@ const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
 const ATTACHMENT_ONLY_PROMPT = "See the attached file.";
 
 export class OpenCodeAdapter {
-  constructor({ cwd, onEvent, sessionId = null, model = "" } = {}) {
+  constructor({ cwd, onEvent, sessionId = null, model = "", hostSessionId = null } = {}) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
+    this.hostSessionId = hostSessionId;
     this.activeChild = null;
     this.activeSessionId = sessionId || null;
     this.isTurnRunning = false;
@@ -113,7 +114,7 @@ export class OpenCodeAdapter {
     const child = spawn("opencode", args, {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: getExtendedEnv()
+      env: getExtendedEnv({ hostSessionId: this.hostSessionId })
     });
     this.activeChild = child;
     try { child.stdin?.end(); } catch {}
